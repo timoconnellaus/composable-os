@@ -385,6 +385,15 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
         message: `A runtime extension cannot declare ${name} a shift staff work. ${why}`,
       });
     }
+    // Who ticks what is a staff record, read by the person and rosterers only (ADR 0650).
+    if (object.checklists) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.checklists`,
+        message: `A runtime extension cannot give ${name} a checklist staff tick off. ${why}`,
+      });
+    }
   }
   return issues;
 }

@@ -19405,6 +19405,327 @@
       "invalidates": []
     },
     {
+      "name": "checklist.due",
+      "description": "Platform use only (the minute cron, as the host), in two steps, each its own call: `close` keeps open runs with their shift's person and times and closes those past their close and grace (missed, and the rosterers are told; or cancelled); `make` makes checklist runs for shifts opening within a day. Returns what it did.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "step": {
+            "type": "string",
+            "enum": [
+              "close",
+              "make"
+            ]
+          }
+        },
+        "required": [
+          "step"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "made": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "missed": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "cancelled": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "moved": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "made",
+          "missed",
+          "cancelled",
+          "moved"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "checklist.get",
+        "checklist.list"
+      ]
+    },
+    {
+      "name": "checklist.get",
+      "description": "One checklist with its steps in order: each step's text, whether it is required and whether it asks for a note. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string"
+                },
+                "required": {
+                  "type": "boolean"
+                },
+                "note": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "text",
+                "required",
+                "note"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "updatedBy": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "purpose",
+          "active",
+          "version",
+          "steps",
+          "updatedAt",
+          "updatedBy"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "checklist.list",
+      "description": "The business's checklists (templates of steps staff tick off on a duty: a close-down clean, opening up), each with its purpose, whether it is in use (`active`: only an active one can be picked), its version and how many steps it has. Not how any shift's checklist went. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "description": "Only active ones (true) or inactive ones (false)",
+            "type": "boolean"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "purpose": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "active": {
+                  "type": "boolean"
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "steps": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "updatedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "purpose",
+                "active",
+                "version",
+                "steps",
+                "updatedAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "checklist.save",
+      "description": "Write a checklist: a new one (no `id`), or a change to one (its name, purpose, whether it is in use, and its steps, given whole and in order; at most 50). Shifts already given a run of it keep the steps as they were; later runs copy the new ones. Needs checklists:write. An assistant's or MCP client's write always waits for a person who holds it too, so staff are only ever asked to follow a checklist a person approved.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "The checklist to change; empty: a new one",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "purpose": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "active": {
+            "default": true,
+            "type": "boolean"
+          },
+          "steps": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 300,
+                  "description": "What to do, in a line"
+                },
+                "required": {
+                  "default": true,
+                  "description": "Must be ticked (done or not done with why)",
+                  "type": "boolean"
+                },
+                "note": {
+                  "default": false,
+                  "description": "Asks for a note: ticking it done needs one",
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "text"
+              ]
+            }
+          }
+        },
+        "required": [
+          "name",
+          "steps"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "changed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "changed"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "checklist.get",
+        "checklist.list"
+      ]
+    },
+    {
       "name": "code.run",
       "description": "Run a short JavaScript/TypeScript ES module against the CRM, for work that takes many calls or some logic: looping over search results, joining data, computing a report, preparing one bulk change. It runs in a sandbox with no network, for at most 30 seconds and 100 operation calls, as you (same permissions, approval policy and audit as the other tools: a change that needs approval is queued, not applied, and your later reads in the script see it as pending).\n\nImport { crm } from \"codemode:ops\" and call operations by name: await ops.call(\"person.list\", { filter: …, limit: 50 }). Names and inputs are the ones describe_operations lists (person.get, person.list, person.updateMany, organisation.list, activity.log, record.list, query.sql, search.global, …). A failed call throws an Error with .code and .details; a call queued for approval returns { status: \"pending_approval\", actionId, … } instead of its result. Export default an async function (or a value); its return value (JSON) comes back as \"value\", with console.log/info/warn/error output as \"logs\".\n\nTo change many records, prefer ONE *Many call (e.g. person.updateMany with up to 100 ids) over a loop of single updates: it is atomic and becomes one reviewable change. Pass the input \"reason\" to say why; it is stored on anything queued.\n\nExample, tagging every person at an organisation:\n\nimport { ops } from \"codemode:ops\";\nexport default async function () {\n  const page = await ops.call(\"person.list\", {\n    filter: { field: \"organisationId\", op: \"eq\", value: \"org_01J…\" },\n    fields: [\"id\", \"displayName\"],\n    limit: 100,\n  });\n  const ids = page.items.map((p) => p.id);\n  console.log(\"tagging\", ids.length, \"people\");\n  const result = await ops.call(\"person.updateMany\", { ids, addTags: [\"offsite-2026\"] });\n  return { tagged: ids.length, result };\n}",
       "risk": "write",
@@ -77455,6 +77776,8 @@
         "x.rostering.awayList",
         "x.rostering.candidates",
         "x.rostering.check",
+        "x.rostering.checklist",
+        "x.rostering.checklistRuns",
         "x.rostering.export",
         "x.rostering.feed",
         "x.rostering.me",
@@ -77614,6 +77937,8 @@
         "x.rostering.awayList",
         "x.rostering.candidates",
         "x.rostering.check",
+        "x.rostering.checklist",
+        "x.rostering.checklistRuns",
         "x.rostering.export",
         "x.rostering.feed",
         "x.rostering.me",
@@ -77779,6 +78104,8 @@
         "x.rostering.awayList",
         "x.rostering.candidates",
         "x.rostering.check",
+        "x.rostering.checklist",
+        "x.rostering.checklistRuns",
         "x.rostering.export",
         "x.rostering.feed",
         "x.rostering.me",
@@ -77966,6 +78293,8 @@
         "x.rostering.awayList",
         "x.rostering.candidates",
         "x.rostering.check",
+        "x.rostering.checklist",
+        "x.rostering.checklistRuns",
         "x.rostering.export",
         "x.rostering.feed",
         "x.rostering.me",
@@ -78318,6 +78647,794 @@
       "pack": "rostering"
     },
     {
+      "name": "x.rostering.checklist",
+      "description": "A shift's checklist and how it is going: each step, its tick (who ticked it, and for whom), what was missed, and corrections; before it opens, its steps. Its person and whoever rosters only; `canTick` says whether you may tick it now. A person's own read. (Extension tool from Rostering 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 81
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "object",
+          "id"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "template": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "run": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "object": {
+                    "type": "string"
+                  },
+                  "record": {
+                    "type": "string"
+                  },
+                  "template": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name",
+                      "version"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "open",
+                      "done",
+                      "missed",
+                      "cancelled"
+                    ]
+                  },
+                  "account": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "opens": {
+                    "type": "string"
+                  },
+                  "closes": {
+                    "type": "string"
+                  },
+                  "tickUntil": {
+                    "type": "string"
+                  },
+                  "madeAt": {
+                    "type": "string"
+                  },
+                  "closedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "closedBy": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "closedByName": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "closedWhy": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "steps": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "position": {
+                          "type": "number"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "required": {
+                          "type": "boolean"
+                        },
+                        "asksNote": {
+                          "type": "boolean"
+                        },
+                        "tick": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string"
+                                },
+                                "state": {
+                                  "type": "string",
+                                  "enum": [
+                                    "done",
+                                    "not_done",
+                                    "cleared"
+                                  ]
+                                },
+                                "done": {
+                                  "type": "boolean"
+                                },
+                                "why": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "note": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "onBehalfWhy": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "withheld": {
+                                  "type": "boolean",
+                                  "description": "Has words only its author and whoever rosters read"
+                                },
+                                "by": {
+                                  "type": "string"
+                                },
+                                "byName": {
+                                  "type": "string"
+                                },
+                                "for": {
+                                  "type": "string"
+                                },
+                                "forName": {
+                                  "type": "string"
+                                },
+                                "onBehalf": {
+                                  "type": "boolean"
+                                },
+                                "at": {
+                                  "type": "string"
+                                },
+                                "label": {
+                                  "type": "string",
+                                  "description": "\"Ticked by X\", or \"Ticked by X for Y\""
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "state",
+                                "done",
+                                "why",
+                                "note",
+                                "onBehalfWhy",
+                                "withheld",
+                                "by",
+                                "byName",
+                                "for",
+                                "forName",
+                                "onBehalf",
+                                "at",
+                                "label"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "The latest tick"
+                        },
+                        "history": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "state": {
+                                "type": "string",
+                                "enum": [
+                                  "done",
+                                  "not_done",
+                                  "cleared"
+                                ]
+                              },
+                              "done": {
+                                "type": "boolean"
+                              },
+                              "why": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "note": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "onBehalfWhy": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "withheld": {
+                                "type": "boolean",
+                                "description": "Has words only its author and whoever rosters read"
+                              },
+                              "by": {
+                                "type": "string"
+                              },
+                              "byName": {
+                                "type": "string"
+                              },
+                              "for": {
+                                "type": "string"
+                              },
+                              "forName": {
+                                "type": "string"
+                              },
+                              "onBehalf": {
+                                "type": "boolean"
+                              },
+                              "at": {
+                                "type": "string"
+                              },
+                              "label": {
+                                "type": "string",
+                                "description": "\"Ticked by X\", or \"Ticked by X for Y\""
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "state",
+                              "done",
+                              "why",
+                              "note",
+                              "onBehalfWhy",
+                              "withheld",
+                              "by",
+                              "byName",
+                              "for",
+                              "forName",
+                              "onBehalf",
+                              "at",
+                              "label"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "description": "Earlier ticks, the latest 20: all for whoever rosters, your own otherwise"
+                        },
+                        "historyTruncated": {
+                          "type": "boolean"
+                        },
+                        "missed": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "position",
+                        "text",
+                        "required",
+                        "asksNote",
+                        "tick",
+                        "history",
+                        "historyTruncated",
+                        "missed"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "corrections": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "by": {
+                          "type": "string"
+                        },
+                        "byName": {
+                          "type": "string"
+                        },
+                        "at": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "text",
+                        "by",
+                        "byName",
+                        "at"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "id",
+                  "object",
+                  "record",
+                  "template",
+                  "state",
+                  "account",
+                  "name",
+                  "opens",
+                  "closes",
+                  "tickUntil",
+                  "madeAt",
+                  "closedAt",
+                  "closedBy",
+                  "closedByName",
+                  "closedWhy",
+                  "steps",
+                  "corrections"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "preview": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "text": {
+                      "type": "string"
+                    },
+                    "required": {
+                      "type": "boolean"
+                    },
+                    "asksNote": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "text",
+                    "required",
+                    "asksNote"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "opens": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "closes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tickUntil": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "canTick": {
+            "type": "boolean"
+          },
+          "onBehalf": {
+            "type": "boolean"
+          },
+          "forName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "you": {
+            "type": "string"
+          },
+          "youRoster": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "template",
+          "run",
+          "preview",
+          "opens",
+          "closes",
+          "tickUntil",
+          "canTick",
+          "onBehalf",
+          "forName",
+          "you",
+          "youRoster"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.checklistCorrect",
+      "description": "Add a correction beside a closed checklist (done, missed or cancelled): a note kept with it, never a change to its ticks. Whoever rosters, a person only. (Extension tool from Rostering 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "run": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "run",
+          "text"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "run": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "run"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.rostering.awayList",
+        "x.rostering.candidates",
+        "x.rostering.check",
+        "x.rostering.checklist",
+        "x.rostering.checklistRuns",
+        "x.rostering.export",
+        "x.rostering.feed",
+        "x.rostering.me",
+        "x.rostering.mine",
+        "x.rostering.myAway",
+        "x.rostering.offers",
+        "x.rostering.patterns",
+        "x.rostering.payBases",
+        "x.rostering.people",
+        "x.rostering.periodTotals",
+        "x.rostering.periods",
+        "x.rostering.planCheck",
+        "x.rostering.qualifications",
+        "x.rostering.uncovered",
+        "x.rostering.week"
+      ],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.checklistDone",
+      "description": "Mark your shift's checklist done, once every required step is ticked. Done is final: it never changes again. Whoever rosters may mark someone's done for them, saying why. A person's own act. (Extension tool from Rostering 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 81
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "forWhy": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "object",
+          "id"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "run": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "const": "done"
+          }
+        },
+        "required": [
+          "run",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.rostering.awayList",
+        "x.rostering.candidates",
+        "x.rostering.check",
+        "x.rostering.checklist",
+        "x.rostering.checklistRuns",
+        "x.rostering.export",
+        "x.rostering.feed",
+        "x.rostering.me",
+        "x.rostering.mine",
+        "x.rostering.myAway",
+        "x.rostering.offers",
+        "x.rostering.patterns",
+        "x.rostering.payBases",
+        "x.rostering.people",
+        "x.rostering.periodTotals",
+        "x.rostering.periods",
+        "x.rostering.planCheck",
+        "x.rostering.qualifications",
+        "x.rostering.uncovered",
+        "x.rostering.week"
+      ],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.checklistRuns",
+      "description": "How checklists went, by checklist and date: every run from `from` to `to` (local dates, at most 62 days), with its shift, its person, whether it is open, done, missed or cancelled, the steps ticked, those missed, and ticks made for the person by someone else. Whoever rosters, a person only. (Extension tool from Rostering 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "template": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string"
+          },
+          "runs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "record": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "template": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ],
+                  "additionalProperties": false
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "open",
+                    "done",
+                    "missed",
+                    "cancelled"
+                  ]
+                },
+                "account": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "opens": {
+                  "type": "string"
+                },
+                "closes": {
+                  "type": "string"
+                },
+                "steps": {
+                  "type": "number"
+                },
+                "ticked": {
+                  "type": "number"
+                },
+                "onBehalf": {
+                  "type": "number"
+                },
+                "missed": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "corrections": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "object",
+                "record",
+                "title",
+                "template",
+                "state",
+                "account",
+                "name",
+                "opens",
+                "closes",
+                "steps",
+                "ticked",
+                "onBehalf",
+                "missed",
+                "corrections"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "zone",
+          "runs",
+          "truncated"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "rostering"
+    },
+    {
       "name": "x.rostering.export",
       "description": "A pay period as a CSV file for payroll: a summary row per person and kind of work (shifts, hours as a decimal and in minutes), then a row per shift. From its locked version, or a preview of an open period, marked as such. No rates and no money. Whoever handles pay, a person only. (Extension tool from Rostering 0.1.0.)",
       "risk": "read",
@@ -78454,6 +79571,8 @@
         "x.rostering.awayList",
         "x.rostering.candidates",
         "x.rostering.check",
+        "x.rostering.checklist",
+        "x.rostering.checklistRuns",
         "x.rostering.export",
         "x.rostering.feed",
         "x.rostering.me",
@@ -78506,6 +79625,8 @@
         "x.rostering.awayList",
         "x.rostering.candidates",
         "x.rostering.check",
+        "x.rostering.checklist",
+        "x.rostering.checklistRuns",
         "x.rostering.export",
         "x.rostering.feed",
         "x.rostering.me",
@@ -78612,6 +79733,8 @@
         "x.rostering.awayList",
         "x.rostering.candidates",
         "x.rostering.check",
+        "x.rostering.checklist",
+        "x.rostering.checklistRuns",
         "x.rostering.export",
         "x.rostering.feed",
         "x.rostering.me",
@@ -78679,6 +79802,8 @@
         "x.rostering.awayList",
         "x.rostering.candidates",
         "x.rostering.check",
+        "x.rostering.checklist",
+        "x.rostering.checklistRuns",
         "x.rostering.export",
         "x.rostering.feed",
         "x.rostering.me",
@@ -78762,6 +79887,8 @@
         "x.rostering.awayList",
         "x.rostering.candidates",
         "x.rostering.check",
+        "x.rostering.checklist",
+        "x.rostering.checklistRuns",
         "x.rostering.export",
         "x.rostering.feed",
         "x.rostering.me",
@@ -79029,6 +80156,45 @@
                     }
                   ],
                   "description": "For someone who rosters only"
+                },
+                "checklist": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "state": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "not_started",
+                                "in_progress",
+                                "done",
+                                "missed",
+                                "cancelled"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "For its person and whoever rosters only"
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "state"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Its checklist, if it has one"
                 }
               },
               "required": [
@@ -79046,7 +80212,8 @@
                 "name",
                 "mine",
                 "offer",
-                "warnings"
+                "warnings",
+                "checklist"
               ],
               "additionalProperties": false
             }
@@ -79374,6 +80541,8 @@
         "x.rostering.awayList",
         "x.rostering.candidates",
         "x.rostering.check",
+        "x.rostering.checklist",
+        "x.rostering.checklistRuns",
         "x.rostering.export",
         "x.rostering.feed",
         "x.rostering.me",
@@ -79941,6 +81110,8 @@
         "x.rostering.awayList",
         "x.rostering.candidates",
         "x.rostering.check",
+        "x.rostering.checklist",
+        "x.rostering.checklistRuns",
         "x.rostering.export",
         "x.rostering.feed",
         "x.rostering.me",
@@ -80974,6 +82145,8 @@
         "x.rostering.awayList",
         "x.rostering.candidates",
         "x.rostering.check",
+        "x.rostering.checklist",
+        "x.rostering.checklistRuns",
         "x.rostering.export",
         "x.rostering.feed",
         "x.rostering.me",
@@ -81043,6 +82216,8 @@
         "x.rostering.awayList",
         "x.rostering.candidates",
         "x.rostering.check",
+        "x.rostering.checklist",
+        "x.rostering.checklistRuns",
         "x.rostering.export",
         "x.rostering.feed",
         "x.rostering.me",
@@ -81138,6 +82313,8 @@
         "x.rostering.awayList",
         "x.rostering.candidates",
         "x.rostering.check",
+        "x.rostering.checklist",
+        "x.rostering.checklistRuns",
         "x.rostering.export",
         "x.rostering.feed",
         "x.rostering.me",
@@ -81272,6 +82449,120 @@
         "x.rostering.awayList",
         "x.rostering.candidates",
         "x.rostering.check",
+        "x.rostering.checklist",
+        "x.rostering.checklistRuns",
+        "x.rostering.export",
+        "x.rostering.feed",
+        "x.rostering.me",
+        "x.rostering.mine",
+        "x.rostering.myAway",
+        "x.rostering.offers",
+        "x.rostering.patterns",
+        "x.rostering.payBases",
+        "x.rostering.people",
+        "x.rostering.periodTotals",
+        "x.rostering.periods",
+        "x.rostering.planCheck",
+        "x.rostering.qualifications",
+        "x.rostering.uncovered",
+        "x.rostering.week"
+      ],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.tick",
+      "description": "Tick one step of your shift's checklist: done (with a note where the step asks for one), not done (with why), or clear your tick. Every tick is kept; the latest counts, and only whoever rosters changes a tick someone else made. From when the shift starts until 2 hours after it ends. Whoever rosters may tick someone's for them, saying why (forWhy): it is kept as ticked by them for that person. A person's own act. (Extension tool from Rostering 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 81
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "step": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 49
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "done",
+              "not_done",
+              "clear"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "why": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "forWhy": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "step",
+          "state"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "run": {
+            "type": "string"
+          },
+          "step": {
+            "type": "number"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "done",
+              "not_done",
+              "clear"
+            ]
+          },
+          "ticked": {
+            "type": "number"
+          },
+          "of": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "run",
+          "step",
+          "state",
+          "ticked",
+          "of"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.rostering.awayList",
+        "x.rostering.candidates",
+        "x.rostering.check",
+        "x.rostering.checklist",
+        "x.rostering.checklistRuns",
         "x.rostering.export",
         "x.rostering.feed",
         "x.rostering.me",
@@ -81555,6 +82846,45 @@
                     }
                   ],
                   "description": "For someone who rosters only"
+                },
+                "checklist": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "state": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "not_started",
+                                "in_progress",
+                                "done",
+                                "missed",
+                                "cancelled"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "For its person and whoever rosters only"
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "state"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Its checklist, if it has one"
                 }
               },
               "required": [
@@ -81572,7 +82902,8 @@
                 "name",
                 "mine",
                 "offer",
-                "warnings"
+                "warnings",
+                "checklist"
               ],
               "additionalProperties": false
             }
@@ -81755,6 +83086,8 @@
         "x.rostering.awayList",
         "x.rostering.candidates",
         "x.rostering.check",
+        "x.rostering.checklist",
+        "x.rostering.checklistRuns",
         "x.rostering.export",
         "x.rostering.feed",
         "x.rostering.me",

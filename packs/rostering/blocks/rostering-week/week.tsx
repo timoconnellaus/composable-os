@@ -8,9 +8,11 @@
 // Times are the host's: each shift's start and end are shown in the business's zone (the roster's
 // `zone`), never the device's, and each day's length comes from the host's `days` (a clock-change
 // day says so). Nothing here works out who may be on a shift: the assign panel shows the host's
-// answer. Room is left for the checklist on a duty shift (step 4b) in `shiftExtra`.
+// answer. A duty shift with a checklist (step 4b) shows its name, and how it is going when the host
+// says the reader may see it; `shiftExtra` takes the checklist itself (rostering-checklist).
 import {
   addDays,
+  checklistStateLabel,
   clockChange,
   dayLabel,
   personOn,
@@ -57,7 +59,7 @@ export function RosterWeek({
   /** The Monday (or any date) to open on; the week of today in the business's zone by default. */
   from?: string;
   locale?: string;
-  /** Something to show under a shift (the checklist of a duty shift, once step 4b is built). */
+  /** Something to show under a shift (a duty shift's checklist: rostering-checklist's ShiftChecklist). */
   shiftExtra?: (shift: RosterShift) => ReactNode;
 }) {
   const me = rostering.useMe();
@@ -206,6 +208,17 @@ function ShiftCard({
       </span>
       {shift.offer ? (
         <span className="mt-1 inline-block rounded border px-1 text-xs">Offered</span>
+      ) : null}
+      {shift.checklist ? (
+        // Everyone sees that it has a checklist; how it is going only when the host gives it
+        // (its person and whoever rosters).
+        <span
+          className="mt-1 mr-1 inline-block rounded border px-1 text-xs"
+          data-checklist={shift.checklist.state ?? "hidden"}
+        >
+          {shift.checklist.name}
+          {shift.checklist.state ? `: ${checklistStateLabel(shift.checklist.state)}` : ""}
+        </span>
       ) : null}
       {(shift.warnings ?? []).map((w) => (
         <span

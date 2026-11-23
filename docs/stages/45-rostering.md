@@ -39,7 +39,11 @@ built ([ADR 0628](../adr/0628-the-staff-calendar-feed-and-the-shared-calendar-wr
 amended, migration 0814; see "Built in step 5" below). Build step 7, the screens as blocks (web and
 native), role clients with grants and `cos rostering import`, is built ([ADR
 0629](../adr/0629-the-rosters-screens-role-clients-with-grants-and-the-roster-import.md), no
-migration; see "Built in step 7" below). Builds on stage
+migration; see "Built in step 7" below). Build step 4b, checklists (templates, runs and ticks, the
+`checklists` declaration and the `checklist` field type, a done run kept unchanged by the database,
+the read rule, Settings → Checklists, the duty's checklist and ticking on "my shifts"), is built
+([ADR 0650](../adr/0650-checklists-templates-runs-ticks-and-a-done-run-kept-unchanged.md),
+migration 0815; see "Built in step 4b" below). Builds on stage
 31a (built) and ADR 0600 (merged). Replaces the roadmap's placeholder stage 40 (Rosters), which was
 never specced. Where this spec guesses, it says **(guess)**.
 
@@ -781,7 +785,7 @@ trigger keeping a completed run unchanged). No `x_*` table is touched by a migra
 | 2 | **`staffed` and the time claim** (**built**: ADRs 0621 and 0622, migration 0811): the declaration, `core_staff_time` and its trigger, warnings in the write's answer, `staffing.check`; Bookings' class declares it, `bookings.coach.user` unique | `packages/sdk` (the declaration, contract), `packages/core/src/staffing/` (new), `records/` writes (the claim in the batch), a migration, `packs/bookings/index.ts` | **Yes, now**, but **not beside 31b** (same piece: one session builds it) and agree with stage 44 step 2 on the order of `core_write_guard` migrations |
 | 3 | **Qualifications, unavailability, offers and takes, uncovered**, the host's notices, `user.deactivate`'s answer | `staffing/`, `operations/user.ts` (deactivate), notifications, a migration | After step 2. Beside 43 and 44, which do not touch these files |
 | 4 | **Permissions**: restricted pack permissions; the `rostering.team` role; the Rostering pack's spine (duties, duty series, duty shifts with a time and a person, tools, settings); `personApproves` on Bookings' coach fields | `pack-roles.ts`, `extensions/tools.ts`, `packages/sdk/src/manifest.ts`, `packs/rostering` (new), `packs/bookings/index.ts` | ADR 0600 has merged, so after steps 2 and 3. Not beside other pack-role work |
-| 4b | **Checklists**: the templates, steps, runs and ticks, the `checklists` declaration and the `checklist` field type, the immutability trigger, the read rule (the person and rosterers only), Settings → Checklists, the duty's `checklist`, ticking on "my shifts" | `packages/core/src/checklists/` (new), `packages/sdk` (the declaration, the field type), a migration, `packs/rostering` | After step 4, beside 5 to 7: the roster does not wait for it (decision 15) |
+| 4b | **Checklists** (**built**: ADR 0650, migration 0815): the templates, steps, runs and ticks, the `checklists` declaration and the `checklist` field type, the immutability trigger, the read rule (the person and rosterers only), Settings → Checklists, the duty's `checklist`, ticking on "my shifts" | `packages/core/src/checklists/` (new), `packages/sdk` (the declaration, the field type), a migration, `packs/rostering` | After step 4, beside 5 to 7: the roster does not wait for it (decision 15) |
 | 5 | **The feed** and the shared calendar writer | `apps/app/src/server/http/` (a route), `access-layout.ts`, `packages/gatekeeper-email-send/src/calendar.ts` (moved), a migration | Beside anything but stage 43 step 3 (sign-in routes) and stage 44 step 4 (the same gatekeeper files): agree the order |
 | 6 | **Pay**: the basis, periods, totals with evidence, lock, export | `staffing/pay.ts` (new), `packs/rostering` tools, a migration | Yes, after step 3 |
 | 7 | **Blocks and hooks**: the week grid, assign, patterns, qualifications, pay (web); my shifts, offers, availability, calendar, the roster (web and native); role clients with grants; `cos rostering import`; the checklist blocks once 4b is merged | `packs/rostering/blocks`, `client/`, `packages/client` codegen (`mobile.roles`), `packages/create-composable-os` | Yes, once steps 3 and 4 are merged |
@@ -1097,10 +1101,89 @@ triggers). No `core_write_guard` remake (0852 stays free). All new operations ar
   admin's staff client, and an admin shell a pack-role account (a cleaner, a coach) can use. That is
   a platform piece of its own (an ADR, the admin's build and navigation, e2e through it), not built
   here.
-- **Not in this step**: the checklist blocks (4b, not built), Settings → Rostering and Users (the
+- **Not in this step**: the checklist blocks (4b, not built then; built in step 4b), Settings → Rostering and Users (the
   host admin's existing screens serve), a native rosterer's screen (rostering is on the web), and a
   device test: the app's screens are typed and linted against the role clients but not yet tried on
   a phone, and the feed is not yet tried in phone calendars.
+
+### Built in step 4b (2026-11-24)
+[ADR 0650](../adr/0650-checklists-templates-runs-ticks-and-a-done-run-kept-unchanged.md) (amends
+ADR 0449: a new grantable core permission), migration 0815 (`core_checklist`,
+`core_checklist_step`, `core_checklist_run`, `core_checklist_tick`, `core_checklist_note` and their
+triggers). No `core_write_guard` remake (0852 stays free).
+- **Templates** are core: `checklist.list` and `checklist.get` for every staff account,
+  `checklist.save` with `checklists:write` (admins; grantable one by one). An assistant's or MCP
+  client's save always waits for a person who holds `checklists:write` (decision 25). **Settings →
+  Checklists** is the core admin screen (name, purpose, in use, steps in order: required, asks for
+  a note; at most 50), open to every staff account; the host refuses a save without the permission.
+- **The `checklist` field type** names a template; only an active one is written. Rostering's
+  `duty.checklist` is one (`personApproves`). **The `checklists` declaration** as this spec says
+  (`template` may be `relation.field`); Rostering's shift declares `{ template: "duty.checklist",
+  who: "staff", opens: "startsAt", closes: "endsAt", live: ["scheduled"] }`. A runtime extension
+  is refused it.
+- **Runs** copy the template's name and steps when made (copied, not versioned rows; the run keeps
+  the template's version number), by the minute cron a day before the shift opens (`checklist.due`,
+  as the host) or by the first tick if sooner. One run per shift, ever.
+- **Ticks**: done (with a note where the step asks), not done with why, or cleared, from the shift's
+  start until 2 hours after its end, as the shift is now. The shift's person ticks their own;
+  someone who rosters ticks for them with why, kept as "ticked by X for Y". Marked done once every
+  required step is ticked (refused by the database otherwise). A run not done by its close and grace
+  is closed by the host as missed (the steps nobody ticked kept), and the rosterers are told in one
+  person-only notice a minute; a run whose shift is cancelled, in the Trash or gone is closed as
+  cancelled.
+- **A closed run never changes**: triggers refuse every change of it, its ticks and its corrections,
+  for every statement shape (INSERT OR REPLACE, upserts, UPDATE OR REPLACE, deletes). A correction
+  is a note beside it (`checklistCorrect`, someone who rosters).
+- **Who reads**: the run's person (now, at its close, or anyone who ticked it) and people who roster;
+  anyone else is answered "not found"; never an AI (every checklist tool `humanOnly`, and the host
+  checks the caller is a person). The roster read (`staffing.week`) gives everyone a shift's
+  checklist name and its state only to its person and people who roster, at the screen.
+- **Tools**: the team's `checklist`, `tick`, `checklistDone`; the rosterers' `checklistRuns` (how
+  checklists went, by checklist and date) and `checklistCorrect`. Notes, reasons and corrections are
+  redacted from the audit log and never answered by a write, in a notice or an error.
+- **Blocks**: `rostering-checklist` (web: the checklist under each of my shifts, through
+  `my-shifts`' `shiftExtra` slot), `rostering-native-checklist` (the app), the week grid's checklist
+  badge, and `rostering-checklists` (the rosterers' view). Notes kept on screen only (`gcTime: 0`,
+  `forgetAfter`, cleared on leaving the page and on the app going to the background).
+- **Decided here** (conservative choices, for the coordinator): a fifth table for corrections (the
+  spec names four); a run's person follows its shift while open (reassigned mid-run, the new person
+  continues; ticks keep who made them and the first person still reads what they did), fixed at
+  close; a shift moved moves its window; an open run nobody has ticked whose duty now names another
+  checklist is remade; a cancelled run is not remade if its shift is restored after its close; an
+  inactive template gives no new runs; the run's person deactivated mid-run keeps a shift under
+  way (step 3), and someone who rosters may tick and finish it for them; a locked pay period does
+  not touch runs (the checklist writes no shift). No host step can fail for ever on the
+  checklist's triggers (inserts only where no run is, removal only of untouched open runs, closes
+  guarded and retried next minute; no foreign key to the shift, so a Trash purge is never refused).
+- **Decided in review of PR #298** (coordinator's decisions, the owner may override; ADR 0650):
+  which checklist a duty carries is a rosterer's by every write path, and an AI's change of it is
+  approved only by a rosterer; cancelling or binning a shift that has started is a rosterer's
+  (never an AI's), marked on its run with who; once a run's window has opened it keeps its
+  checklist; a run whose shift ended after it opened by someone who does not roster is missed, and
+  the rosterers are told of every miss; a closed run is read by the person it closed for, never by
+  whoever is on the shift later; reassigned mid-run, the new person sees what is done and by whom
+  but not the earlier person's notes, and only a rosterer changes someone else's tick; every tick
+  is kept (insert-only, the latest counts, a clear is a recorded tick); a tick's words are its
+  author's and the rosterers'; the checklist operations' and `humanOnly` tools' audit rows are
+  never listed to an AI; a duty naming an inactive checklist, or in the Trash, gives no run and no
+  work; missed steps are the required ones; new runs are bound in chunks of at most 256 KiB and
+  closing never waits on making.
+- **Decided in the second review of PR #298**: moving a shift to another duty or off one, when
+  either carries a checklist, is a rosterer's (a shift's `duty` is `personApproves`); putting a duty
+  carrying a checklist in the Trash, or restoring it, is a rosterer's and never an AI's unasked; a
+  cleared step is anyone's who may tick the run; at most 50 ticks a step, the latest 20 earlier ones
+  shown; corrections for the run's own person and rosterers; an extension tool's audit rows hidden
+  from an AI once its pack no longer has it. Recorded for the owner: a holder of `checklists:write`
+  who does not roster may edit or deactivate a template (future runs only); `withheld` says a note
+  exists without its words; a person cannot change a tick a rosterer made for them.
+- **Cost**: set-based reads; the cron's writes a few JSON-batched statements per object. D1
+  statements per call at the largest input (ceiling 250): the cron making 200 runs 10, closing 200
+  16, `week` over 62 days with 400 checklisted shifts 30, `checklist` of 50 steps 19,
+  `checklistRuns` 17.
+- **Not in this step**: the spec's follow-ons (photos, a missed step raising a task, checklists on
+  class types, events or a member's first week, a second sign-off, conditional steps, scores,
+  offline ticking, a checklist with no shift), an export of runs, and the product's admin showing
+  Rostering's web screens to staff (step 7's open item: the blocks mount on `/blocks` only).
 
 **The spine is steps 2 to 4**: without the claim, the rules and the permissions, nothing can be
 rostered safely. Step 1 is built; step 2 can start now and is the riskiest (every write that covers

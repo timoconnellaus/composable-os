@@ -78,7 +78,12 @@ const TEAM = [
   "rostering/offers",
   "rostering/roster",
 ];
-const ROSTERERS = ["rostering/patterns", "rostering/qualifications", "rostering/timeOff"];
+const ROSTERERS = [
+  "rostering/checklists",
+  "rostering/patterns",
+  "rostering/qualifications",
+  "rostering/timeOff",
+];
 const MEMBER_ELSE = [
   "courses/builder",
   "memberships/holdings",

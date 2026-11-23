@@ -84,12 +84,14 @@ member; a viewer cannot tick), a tab on the class and in the navigation. Members
 memberships and passes (`holdings`, `givePass`, `voidPass`: any member; not a viewer), a tab on
 Person. Rostering: Roster (`me`, `week`), My shifts, Offers, My time off, My calendar (the team's
 tools: `rostering.team`, `rostering:roster` granted to another role, and any member, who holds the
-team's tools as any unrestricted tool); Patterns, Who may do what, Time off (the restricted
+team's tools as any unrestricted tool); Patterns, Who may do what, Time off, Checklists (the restricted
 `rostering:manage`: admins and those granted it); Pay (the restricted `rostering:pay`: admins and
 those granted it, a person only). Programs: Exercise bank and Program builder (a staff write:
 Programs' tools declare no permission, so any member), a client's programs as a tab on Person.
 Courses: the course builder, a tab on the course (it builds one course). Checklists (stage 45 step
-4b) adds its screen when it merges.
+4b): My shifts is the variant with each duty's checklist (`MyShiftsWithChecklist`, gated by the
+team's `checklist`, `tick` and `checklistDone` too), and the rosterers' Checklists screen
+(`ChecklistRuns`: `me`, `checklistRuns`, `checklistCorrect`, the restricted `rostering:manage`).
 
 ## Consequences
 - A member holds the team's Rostering tools (ADR 0625 restricts only rostering others and pay), so

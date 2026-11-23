@@ -63,6 +63,7 @@ describe("the screens registry (ADR 0660)", () => {
       "programs/bank",
       "programs/builder",
       "programs/client",
+      "rostering/checklists",
       "rostering/myCalendar",
       "rostering/myShifts",
       "rostering/myTimeOff",

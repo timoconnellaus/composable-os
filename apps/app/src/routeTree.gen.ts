@@ -50,6 +50,7 @@ import { Route as AppSettingsAssistantMemoryRouteImport } from './routes/_app/se
 import { Route as AppSettingsAssistantRoutinesRouteImport } from './routes/_app/settings/assistant-routines'
 import { Route as AppSettingsAuditRouteImport } from './routes/_app/settings/audit'
 import { Route as AppSettingsAutomationsRouteImport } from './routes/_app/settings/automations'
+import { Route as AppSettingsChecklistsRouteImport } from './routes/_app/settings/checklists'
 import { Route as AppSettingsConnectedAppsRouteImport } from './routes/_app/settings/connected-apps'
 import { Route as AppSettingsDuplicatesRouteImport } from './routes/_app/settings/duplicates'
 import { Route as AppSettingsExtensionsRouteImport } from './routes/_app/settings/extensions'
@@ -290,6 +291,11 @@ const AppSettingsAutomationsRoute = AppSettingsAutomationsRouteImport.update({
   path: '/settings/automations',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsChecklistsRoute = AppSettingsChecklistsRouteImport.update({
+  id: '/settings/checklists',
+  path: '/settings/checklists',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsConnectedAppsRoute =
   AppSettingsConnectedAppsRouteImport.update({
     id: '/settings/connected-apps',
@@ -491,6 +497,7 @@ export interface FileRoutesByFullPath {
   '/settings/assistant-routines': typeof AppSettingsAssistantRoutinesRoute
   '/settings/audit': typeof AppSettingsAuditRoute
   '/settings/automations': typeof AppSettingsAutomationsRoute
+  '/settings/checklists': typeof AppSettingsChecklistsRoute
   '/settings/connected-apps': typeof AppSettingsConnectedAppsRoute
   '/settings/duplicates': typeof AppSettingsDuplicatesRoute
   '/settings/extensions': typeof AppSettingsExtensionsRoute
@@ -564,6 +571,7 @@ export interface FileRoutesByTo {
   '/settings/assistant-routines': typeof AppSettingsAssistantRoutinesRoute
   '/settings/audit': typeof AppSettingsAuditRoute
   '/settings/automations': typeof AppSettingsAutomationsRoute
+  '/settings/checklists': typeof AppSettingsChecklistsRoute
   '/settings/connected-apps': typeof AppSettingsConnectedAppsRoute
   '/settings/duplicates': typeof AppSettingsDuplicatesRoute
   '/settings/extensions': typeof AppSettingsExtensionsRoute
@@ -639,6 +647,7 @@ export interface FileRoutesById {
   '/_app/settings/assistant-routines': typeof AppSettingsAssistantRoutinesRoute
   '/_app/settings/audit': typeof AppSettingsAuditRoute
   '/_app/settings/automations': typeof AppSettingsAutomationsRoute
+  '/_app/settings/checklists': typeof AppSettingsChecklistsRoute
   '/_app/settings/connected-apps': typeof AppSettingsConnectedAppsRoute
   '/_app/settings/duplicates': typeof AppSettingsDuplicatesRoute
   '/_app/settings/extensions': typeof AppSettingsExtensionsRoute
@@ -714,6 +723,7 @@ export interface FileRouteTypes {
     | '/settings/assistant-routines'
     | '/settings/audit'
     | '/settings/automations'
+    | '/settings/checklists'
     | '/settings/connected-apps'
     | '/settings/duplicates'
     | '/settings/extensions'
@@ -787,6 +797,7 @@ export interface FileRouteTypes {
     | '/settings/assistant-routines'
     | '/settings/audit'
     | '/settings/automations'
+    | '/settings/checklists'
     | '/settings/connected-apps'
     | '/settings/duplicates'
     | '/settings/extensions'
@@ -861,6 +872,7 @@ export interface FileRouteTypes {
     | '/_app/settings/assistant-routines'
     | '/_app/settings/audit'
     | '/_app/settings/automations'
+    | '/_app/settings/checklists'
     | '/_app/settings/connected-apps'
     | '/_app/settings/duplicates'
     | '/_app/settings/extensions'
@@ -1203,6 +1215,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsAutomationsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings/checklists': {
+      id: '/_app/settings/checklists'
+      path: '/settings/checklists'
+      fullPath: '/settings/checklists'
+      preLoaderRoute: typeof AppSettingsChecklistsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings/connected-apps': {
       id: '/_app/settings/connected-apps'
       path: '/settings/connected-apps'
@@ -1451,6 +1470,7 @@ interface AppRouteChildren {
   AppSettingsAssistantRoutinesRoute: typeof AppSettingsAssistantRoutinesRoute
   AppSettingsAuditRoute: typeof AppSettingsAuditRoute
   AppSettingsAutomationsRoute: typeof AppSettingsAutomationsRoute
+  AppSettingsChecklistsRoute: typeof AppSettingsChecklistsRoute
   AppSettingsConnectedAppsRoute: typeof AppSettingsConnectedAppsRoute
   AppSettingsDuplicatesRoute: typeof AppSettingsDuplicatesRoute
   AppSettingsExtensionsRoute: typeof AppSettingsExtensionsRoute
@@ -1513,6 +1533,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSettingsAssistantRoutinesRoute: AppSettingsAssistantRoutinesRoute,
   AppSettingsAuditRoute: AppSettingsAuditRoute,
   AppSettingsAutomationsRoute: AppSettingsAutomationsRoute,
+  AppSettingsChecklistsRoute: AppSettingsChecklistsRoute,
   AppSettingsConnectedAppsRoute: AppSettingsConnectedAppsRoute,
   AppSettingsDuplicatesRoute: AppSettingsDuplicatesRoute,
   AppSettingsExtensionsRoute: AppSettingsExtensionsRoute,

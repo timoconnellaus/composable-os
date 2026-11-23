@@ -39,7 +39,7 @@ export function MyShifts({
   locale?: string;
   /** My calendar's address and its buttons (the calendar feed block, once step 5 is built). */
   calendar?: ReactNode;
-  /** Something to show under a shift (its checklist, once step 4b is built). */
+  /** Something to show under a shift (its checklist: rostering-checklist's ShiftChecklist). */
   shiftExtra?: (shift: RosterShift) => ReactNode;
 }) {
   const me = rostering.useMe();

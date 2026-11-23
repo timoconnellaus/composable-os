@@ -23,6 +23,8 @@
     "rostering-my-shifts/*.tsx",
     "rostering-offers/*.tsx",
     "rostering-my-availability/*.tsx",
-    "rostering-my-calendar/*.tsx"
+    "rostering-my-calendar/*.tsx",
+    "rostering-checklist/*.tsx",
+    "rostering-checklists/*.tsx"
   ]
 }

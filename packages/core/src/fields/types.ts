@@ -148,6 +148,8 @@ export interface ObjectDefinition {
   recurring?: RecurringDefinition;
   /** Extension objects: a shift, who works it, when and on what (stage 45, ADR 0621). */
   staffed?: StaffedDefinition;
+  /** A checklist its person ticks off (stage 45 step 4b, ADR 0650), with registry names. */
+  checklists?: ChecklistsDefinition;
   /**
    * The user field that holds the record's owner (ADR 0246): `ownerId` on people and
    * organisations, the declared `owner` of an extension object. Assignment rules set it.
@@ -560,6 +562,18 @@ export interface StaffedDefinition {
   payAfter?: { field: string } | undefined;
   /** What shows a shift was worked (ADR 0627): `object` is the evidence object's registry name. */
   evidence?: { object: string; link: string; by: string } | undefined;
+}
+
+/**
+ * The SDK's ChecklistsSpec (ADR 0650): `template` is the checklist field, on this object or (with
+ * `via`, a relation field of this object) on `viaObject`, the registry name of what it names.
+ */
+export interface ChecklistsDefinition {
+  template: { field: string; via?: string | undefined; viaObject?: string | undefined };
+  who: string;
+  opens: string;
+  closes: string;
+  live: readonly string[];
 }
 
 /** The SDK's RecurringScheduleSpec with the objects' registry names (ADR 0500). */

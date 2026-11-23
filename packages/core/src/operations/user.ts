@@ -389,6 +389,7 @@ export async function grantable(
     "agreements:manage": "Write agreement documents, and publish, attach and retire them",
     "agreements:paper": "Record that someone signed an agreement on paper",
     "agreements:health": "Read members' health form answers (every read is logged)",
+    "checklists:write": "Write the checklists staff tick off (their steps, and which are in use)",
   };
   return [
     ...GRANTABLE_PERMISSIONS.map((permission) => ({
