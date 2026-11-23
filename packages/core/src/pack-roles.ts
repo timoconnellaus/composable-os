@@ -13,6 +13,12 @@
 // manifest), rather than trusting what an adapter put in `ActingUser`: an account built from a
 // `core_user` row anywhere (MCP, the assistant, run-as, approvals) is held to it all the same.
 // An unknown role, or one whose pack is not installed, active and shipped, holds nothing.
+//
+// Roles and grants add up (ADR 0600): an account holding a pack role may also be granted pack
+// permissions a pack declares grantable (Bookings' `bookings:desk`), never a core permission.
+// Each call is allowed by one authority, decided here (`staffAuthority`): a grant that opens the
+// tool, else the pack role. The role's limits (today's records only, ADR 0553) bind what the role
+// gives and nothing else, and the pipeline carries them only on a call the role allowed.
 import type { CoreDatabase, CrmDb } from "@composable-os/db";
 import type { ExtensionManifest, RoleManifest } from "@composable-os/sdk";
 import { type Kysely, sql } from "kysely";
@@ -144,17 +150,83 @@ export async function availablePackRoles(
  * learns nothing about any other operation, not even whether its input was valid.
  */
 export function packRoleReaches(role: HeldPackRole, op: AnyOperation): boolean {
-  if (op.packPermission !== undefined) return role.permissions.includes(op.packPermission);
+  if (op.packPermissions !== undefined) {
+    return op.packPermissions.some((p) => role.permissions.includes(p));
+  }
   return role.read.length > 0 && PACK_ROLE_READS.includes(op.name);
 }
 
 /**
- * Whether a staff account may call `op` (with this parsed input), by what it holds: a pack role
- * replaces everything (ADR 0436); otherwise its role, or a permission granted to it that is
- * still grantable (ADR 0449): a core one by `op.permission`, a pack's by the tool's own
- * permission when its pack declares it grantable. The pipeline asks this on every staff call.
- * Actors, MCP scopes and the gate are judged beside it, so a grant never lets an AI actor make a
- * call that is for a person.
+ * Whether a permission granted to the account opens the pack tool `op`: one of the tool's
+ * permissions its installed pack still declares grantable (ADR 0449). Never a core operation, so
+ * for an account holding a pack role a grant opens exactly the tools naming the granted
+ * permission, and no record read, list, search or setting (ADR 0600).
+ */
+export function grantOpens(grants: readonly string[], op: AnyOperation): boolean {
+  return (op.packGrantable ?? []).some((p) => grants.includes(p));
+}
+
+/**
+ * Whether what the account holds could allow `op` for some input (its pack role, or a grant of
+ * one of the tool's grantable permissions). Checked before the input is parsed, as for the role.
+ */
+export function staffRightsReach(rights: StaffRights, op: AnyOperation): boolean {
+  if (!rights.packRole) return true;
+  return grantOpens(rights.grants, op) || packRoleReaches(rights.packRole, op);
+}
+
+/**
+ * What allows a staff call (ADR 0600): `grant`, a permission granted one by one (judged first, so a
+ * role's limit never blocks what a grant allows); `packRole`, the pack role the account holds (and
+ * only then are its limits carried); `role`, the account's own role or a core grant (an account
+ * without a pack role); null, nothing (refused).
+ */
+export type StaffAuthority = "grant" | "packRole" | "role";
+
+/**
+ * Which authority allows a staff account to call `op` with this parsed input, or null. The one
+ * decision the pipeline makes for a staff call (`staffMayCall`), and the one that says whether
+ * the pack role's limits travel with it (`roleLimitsFor`).
+ *   - With a pack role: a grant of one of the tool's grantable pack permissions (never a core
+ *     permission: those count for nothing beside a pack role), else the pack role itself.
+ *   - Without one: the account's role, or a core permission granted to it (`role`), else a
+ *     grant of the tool's grantable pack permission (`grant`).
+ */
+export function staffAuthority(
+  user: { role: Role },
+  rights: StaffRights,
+  op: AnyOperation,
+  input: unknown,
+): StaffAuthority | null {
+  if (rights.packRole) {
+    if (grantOpens(rights.grants, op)) return "grant";
+    return packRoleAllows(rights.packRole, op, input) ? "packRole" : null;
+  }
+  if (holdsPermission(user, rights.grants, op.permission)) return "role";
+  return grantOpens(rights.grants, op) ? "grant" : null;
+}
+
+/**
+ * The pack role's limit to today a call of `op` holds (ADR 0553): the role's, unless a grant
+ * opens the operation, in which case the grant, not the role, allows it and the role's limit
+ * does not apply (ADR 0600). Input-independent (a grant opens a tool whatever its input), so the
+ * pipeline decides it before the input is parsed.
+ */
+export function roleLimitsFor(
+  rights: StaffRights,
+  op: AnyOperation,
+): import("./pack-role-today.ts").TodayLimits | undefined {
+  if (!rights.packRole?.today) return undefined;
+  return grantOpens(rights.grants, op) ? undefined : rights.packRole.today;
+}
+
+/**
+ * Whether a staff account may call `op` (with this parsed input), by what it holds
+ * (`staffAuthority`): a pack role and the pack permissions granted to it (ADRs 0436, 0600); or
+ * its role, or a permission granted to it that is still grantable (ADR 0449): a core one by
+ * `op.permission`, a pack's by the tool's own permission when its pack declares it grantable.
+ * The pipeline asks this on every staff call. Actors, MCP scopes and the gate are judged beside
+ * it, so a grant never lets an AI actor make a call that is for a person.
  */
 export function staffMayCall(
   user: { role: Role },
@@ -162,17 +234,13 @@ export function staffMayCall(
   op: AnyOperation,
   input: unknown,
 ): boolean {
-  if (rights.packRole) return packRoleAllows(rights.packRole, op, input);
-  if (holdsPermission(user, rights.grants, op.permission)) return true;
-  return Boolean(
-    op.packPermissionGrantable && op.packPermission && rights.grants.includes(op.packPermission),
-  );
+  return staffAuthority(user, rights, op, input) !== null;
 }
 
 /** Whether the role allows `op` with this (parsed) input. */
 export function packRoleAllows(role: HeldPackRole, op: AnyOperation, input: unknown): boolean {
   if (!packRoleReaches(role, op)) return false;
-  if (op.packPermission !== undefined) return true;
+  if (op.packPermissions !== undefined) return true;
   // record.get and record.list name their object in the input.
   const object = (input as { object?: unknown } | null)?.object;
   return typeof object === "string" && role.read.includes(object);

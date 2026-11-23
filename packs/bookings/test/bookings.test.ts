@@ -848,7 +848,7 @@ describe("bookings pack (test host)", () => {
     expect(host().manifest.tools.returnUse).toMatchObject({
       risk: "destructive",
       humanOnly: true,
-      permission: "bookings:returns",
+      permission: "bookings:desk",
     });
     // The move it makes is open to that tool alone (ADR 0513), and the in-time cancel's window
     // binds staff too, so no other write returns a use late.
@@ -928,13 +928,20 @@ describe("bookings pack (test host)", () => {
       permissions: ["bookings:coach"],
       read: ["bookings.class"],
     });
-    for (const tool of ["day", "roster", "markAttended", "undoAttended", "markNoShow", "markAll"]) {
+    for (const tool of ["roster", "markAttended", "undoAttended", "markNoShow", "markAll"]) {
       expect(m.tools[tool]?.permission).toBe("bookings:coach");
     }
-    // Not the coach's: the desk's list (holders, desk payments), booking, cancelling, moving.
+    // The day view is the coach's (today) and the desk's (any day, ADR 0600).
+    expect(m.tools.day?.permission).toEqual(["bookings:coach", "bookings:desk"]);
+    // Not the coach's: the desk's (ADR 0600): its list (holders, desk payments), booking,
+    // cancelling, moving, finding people, giving a use back. Grantable, so a coach can be given it.
     for (const tool of ["classList", "bookFor", "cancelFor", "move", "findPeople", "returnUse"]) {
-      expect(m.tools[tool]?.permission).not.toBe("bookings:coach");
+      expect(m.tools[tool]?.permission).toBe("bookings:desk");
     }
+    expect(m.grantable).toEqual(["bookings:desk"]);
+    expect(m.grantableLabels?.["bookings:desk"]).toContain("Front desk");
+    // Cancelling a class keeps its own permission, and stays a person's.
+    expect(m.tools.cancelClass?.permission).toBe("bookings:cancelClasses");
     const booking = m.objects.booking?.states;
     const moves = booking?.moves ?? [];
     expect(moves.find((x) => x.from === "booked" && x.to === "attended")).toMatchObject({

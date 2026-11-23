@@ -964,6 +964,8 @@ export const findPeople = defineTool({
     ),
   }),
   risk: "read",
+  // The front desk (ADR 0600): any staff member holds it as any tool; a coach is granted it.
+  permission: "bookings:desk",
   async handler(input, ctx) {
     const found = new Map<string, { id: string; name: string | null; email: string | null }>();
     for (const filter of [
@@ -1023,6 +1025,8 @@ export const bookFor = defineTool({
     refused,
   ]),
   risk: "write",
+  // The front desk (ADR 0600): any staff member holds it as any tool; a coach is granted it.
+  permission: "bookings:desk",
   async handler(input, ctx) {
     if (!input.personId && !input.newPerson) {
       throw new OpsCallError("invalid_input", "Give personId, or newPerson for a walk-in");
@@ -1121,6 +1125,8 @@ export const cancelFor = defineTool({
   }),
   output: z.union([cancelled, refused]),
   risk: "write",
+  // The front desk (ADR 0600): any staff member holds it as any tool; a coach is granted it.
+  permission: "bookings:desk",
   async handler(input, ctx) {
     try {
       // `cancel` is resolved by the host: this tool's calls are never a person's (ADR 0507).
@@ -1158,9 +1164,9 @@ export const returnUse = defineTool({
   ]),
   risk: "destructive",
   // Only a person calls it, with the pack's permission (ADR 0513); the move it makes is open to
-  // no other staff write.
+  // no other staff write. The desk's (ADR 0600; it was `bookings:returns`, which nothing held).
   humanOnly: true,
-  permission: "bookings:returns",
+  permission: "bookings:desk",
   async handler(input, ctx) {
     try {
       await ctx.ops.call("record.update", {
@@ -1289,8 +1295,11 @@ export const day = defineTool({
   }),
   output: z.object({ date: z.string(), classes: z.array(staffClass) }),
   risk: "read",
-  // The coach role holds it (ADR 0436); staff hold it as any read tool.
-  permission: "bookings:coach",
+  // The coach role holds it (ADR 0436), today's only; the desk any day, so a coach granted the
+  // desk reaches it through the grant (ADR 0600); staff hold it as any read tool.
+  permission: ["bookings:coach", "bookings:desk"],
+  // On purpose: a coach granted the desk sees any day's classes here (ADR 0600).
+  grantLiftsRoleLimits: true,
   async handler(input, ctx) {
     const from = localMidnight(input.date, input.timeZone);
     const next = new Date(Date.parse(`${input.date}T00:00:00Z`) + DAY).toISOString().slice(0, 10);
@@ -1337,6 +1346,8 @@ export const classList = defineTool({
     ),
   }),
   risk: "read",
+  // The front desk (ADR 0600): any staff member holds it as any tool; a coach is granted it.
+  permission: "bookings:desk",
   async handler(input, ctx) {
     const { klass, bookings, names } = await listOf(ctx, input.classId);
     return {
@@ -1683,6 +1694,8 @@ export const move = defineTool({
     refused.extend({ reason: moveRefusal }),
   ]),
   risk: "write",
+  // The front desk (ADR 0600): any staff member holds it as any tool; a coach is granted it.
+  permission: "bookings:desk",
   async handler(input, ctx) {
     const no = (reason: z.infer<typeof moveRefusal>, message: string) => ({
       result: "refused" as const,

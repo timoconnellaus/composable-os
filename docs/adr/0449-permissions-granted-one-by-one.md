@@ -79,3 +79,11 @@ same one statement, through the same `staffMayCall`.
 Grants are on screen in Settings > Users (the permissions dialog that came with staff invites,
 ADR 0455). `user.me` gives a signed-in staff account its own role, grants and permissions, so a screen
 offers an action only to an account that holds it. The host still decides every call.
+
+## Amendment, 2026-11-23 (issue #258, ADR 0600)
+A pack role no longer empties grants: an account holding one may be granted pack permissions a
+pack declares grantable, and they add up with the role (a coach given `bookings:desk`). Core
+permissions still count for nothing beside a pack role, and are now refused for such an account
+(`user.setPermissions`, invites), as a pack role is refused to an account holding one. A permission
+a pack's role holds cannot be declared grantable. `user.grantablePermissions` says which a fixed
+role's account may hold (`forFixedRole`). See [ADR 0600](0600-a-pack-role-and-its-grants-add-up.md).

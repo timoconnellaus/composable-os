@@ -1,5 +1,7 @@
 // user.* operations: the deployment's users and their roles. Changing a role is admin-only and
 // human-only (identity is not AI-configurable), and the last admin cannot be demoted.
+
+import { toolPermissions } from "@composable-os/sdk";
 import { sql } from "kysely";
 import { z } from "zod";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
@@ -242,17 +244,28 @@ export async function checkPackRole(
   }
 }
 
-/** Refuses permissions that cannot be granted (ADR 0449); returns the list sorted, once each. */
+/**
+ * Refuses permissions that cannot be granted (ADR 0449); returns the list sorted, once each. An
+ * account holding a pack role (`packRole`) may be granted pack permissions only, never a core one
+ * (ADR 0600): a core permission opens a core operation over every record, which is not what a
+ * fixed role's account is for, and it would count for nothing beside the role.
+ */
 export async function checkGrants(
   ctx: Pick<Parameters<typeof userPackRoles.handler>[1], "db">,
   permissions: readonly string[],
   field: string,
+  packRole: string | null = null,
 ): Promise<string[]> {
-  const available = new Set((await grantable(ctx)).map((g) => g.permission));
+  const choices = await grantable(ctx);
+  const available = new Set(
+    choices.filter((g) => packRole === null || g.from !== "core").map((g) => g.permission),
+  );
   const unknown = permissions.filter((p) => !available.has(p));
   if (unknown.length) {
     throw new ValidationError(
-      `${unknown.join(", ")} cannot be granted. user.grantablePermissions lists what can.`,
+      packRole === null
+        ? `${unknown.join(", ")} cannot be granted. user.grantablePermissions lists what can.`
+        : `${unknown.join(", ")} cannot be granted to an account with the fixed role ${packRole}: it may be granted a pack's permissions only (user.grantablePermissions, forFixedRole).`,
       { field, unknown, available: [...available] },
     );
   }
@@ -263,9 +276,11 @@ export const userSetPackRole = defineOperation({
   name: "user.setPackRole",
   description:
     "Give a staff account one fixed role a pack declares (user.packRoles lists them), or take it " +
-    "away with role null. While an account holds one, it may do exactly what the role lists and " +
-    "nothing else, whatever its own role, and its role is set to viewer. An admin cannot be given " +
-    "one (change their role first). Admins only, and only a human can call it. Returns the user.",
+    "away with role null. While an account holds one, it may do exactly what the role lists, " +
+    "and what the pack permissions granted to it open (user.setPermissions), and nothing else, " +
+    "whatever its own role; its role is set to viewer. An admin cannot be given one (change their " +
+    "role first), nor an account granted a core permission (take it away first). Admins only, " +
+    "and only a human can call it. Returns the user.",
   input: z.object({
     id: z.string().min(1).max(64).describe("User id (usr_…)"),
     role: z
@@ -286,7 +301,20 @@ export const userSetPackRole = defineOperation({
       .where("id", "=", input.id)
       .executeTakeFirst();
     if (!before) throw new NotFoundError("user", input.id);
-    if (input.role !== null) await checkPackRole(ctx, input.role, before.role, "role");
+    if (input.role !== null) {
+      await checkPackRole(ctx, input.role, before.role, "role");
+      // Its grants must be ones a fixed role's account may hold (ADR 0600): a core grant would
+      // count for nothing beside the role, so it is taken away by a person first, not silently.
+      const core = parseGrants(before.granted_permissions).filter((p) =>
+        (GRANTABLE_PERMISSIONS as readonly string[]).includes(p),
+      );
+      if (core.length) {
+        throw new ConflictError(
+          `Take away ${core.join(", ")} first: an account with a fixed role may be granted a pack's permissions only.`,
+          { field: "role", permissions: core },
+        );
+      }
+    }
     const role = input.role === null ? before.role : "viewer";
     let update = ctx.db
       .updateTable("core_user")
@@ -312,7 +340,7 @@ export const userSetPackRole = defineOperation({
 /** What an admin may grant now: the core list and the grantable permissions of installed packs. */
 export async function grantable(
   ctx: Pick<Parameters<typeof userPackRoles.handler>[1], "db">,
-): Promise<{ permission: string; label: string; from: string }[]> {
+): Promise<{ permission: string; label: string; from: string; forFixedRole: boolean }[]> {
   const rows = await ctx.db
     .selectFrom("core_extensions")
     .select(["id", "manifest"])
@@ -324,16 +352,20 @@ export async function grantable(
     const manifest = JSON.parse(row.manifest ?? "{}") as {
       label?: string;
       grantable?: string[];
-      tools?: Record<string, { permission?: string; description?: string }>;
+      grantableLabels?: Record<string, string>;
+      tools?: Record<string, { permission?: string | string[]; description?: string }>;
     };
     return (manifest.grantable ?? []).map((permission) => {
       const tools = Object.entries(manifest.tools ?? {})
-        .filter(([, tool]) => tool.permission === permission)
+        .filter(([, tool]) => toolPermissions(tool).includes(permission))
         .map(([name]) => name);
+      const words = manifest.grantableLabels?.[permission];
       return {
         permission,
-        label: `${manifest.label ?? row.id}: ${tools.join(", ") || permission}`,
+        label: `${manifest.label ?? row.id}: ${words ?? (tools.join(", ") || permission)}`,
         from: row.id,
+        // A pack permission opens that pack's named tools only (ADR 0600).
+        forFixedRole: true,
       };
     });
   });
@@ -348,6 +380,7 @@ export async function grantable(
       permission,
       label: labels[permission],
       from: "core",
+      forFixedRole: false,
     })),
     ...packs,
   ];
@@ -358,10 +391,20 @@ export const userGrantablePermissions = defineOperation({
   description:
     "List the permissions an admin can grant a staff account one by one, on top of its role: " +
     "publishing versions of programs and other publishable records, refunding orders, and the " +
-    "tool permissions installed packs declare grantable. Read-only.",
+    "tool permissions installed packs declare grantable. An account with a pack's fixed role may " +
+    "be granted the packs' permissions only (forFixedRole). Read-only.",
   input: z.object({}),
   output: z.object({
-    items: z.array(z.object({ permission: z.string(), label: z.string(), from: z.string() })),
+    items: z.array(
+      z.object({
+        permission: z.string(),
+        label: z.string(),
+        from: z.string(),
+        forFixedRole: z
+          .boolean()
+          .describe("Whether an account with a pack's fixed role may be granted it (ADR 0600)"),
+      }),
+    ),
   }),
   permission: "users:manage",
   risk: "read",
@@ -377,8 +420,9 @@ export const userSetPermissions = defineOperation({
     "Set the permissions a staff account is granted one by one, on top of its role " +
     "(user.grantablePermissions lists them; an empty list takes them all away). A member granted " +
     "records:publish publishes programs; one granted orders:refund approves refunds. A grant never " +
-    "lets an AI assistant or MCP client do what only a person may, and an account with a pack " +
-    "role holds only that role. Admins only, and only a human can call it. Returns the user.",
+    "lets an AI assistant or MCP client do what only a person may. An account with a pack's " +
+    "fixed role may be granted the packs' permissions only (a coach given the Bookings desk), " +
+    "which add up with the role. Admins only, and only a human can call it. Returns the user.",
   input: z.object({
     id: z.string().min(1).max(64).describe("User id (usr_…)"),
     permissions: z.array(z.string().min(1).max(80)).max(20),
@@ -395,7 +439,7 @@ export const userSetPermissions = defineOperation({
       .where("id", "=", input.id)
       .executeTakeFirst();
     if (!before) throw new NotFoundError("user", input.id);
-    const permissions = await checkGrants(ctx, input.permissions, "permissions");
+    const permissions = await checkGrants(ctx, input.permissions, "permissions", before.pack_role);
     const previous = parseGrants(before.granted_permissions);
     ctx.write(
       ctx.db
