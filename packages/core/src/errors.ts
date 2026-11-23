@@ -332,6 +332,41 @@ export function toOperationError(error: unknown): OperationError {
       rule: "offer_fixed",
     });
   }
+  // A checklist run closed (done, missed or cancelled) never changes (migration 0815, ADR 0650),
+  // for any writer: its ticks, its steps and its state stay as they were. The answer names no note.
+  if (message.includes("core_checklist_closed")) {
+    return new ConflictError(
+      "This checklist is closed (done, missed or cancelled), so nothing of it was changed.",
+      { rule: "checklist_closed" },
+    );
+  }
+  if (message.includes("core_checklist_incomplete")) {
+    return new ValidationError(
+      "Not every required step of this checklist is ticked, so it was not marked done.",
+      { rule: "checklist_incomplete" },
+    );
+  }
+  if (message.includes("core_checklist_note_needed")) {
+    return new ValidationError(
+      "This step asks for a note, so it was not ticked done without one.",
+      {
+        rule: "checklist_note_needed",
+      },
+    );
+  }
+  if (message.includes("core_checklist_too_many_ticks")) {
+    return new ConflictError("This step has been ticked 50 times, the most one step takes.", {
+      rule: "checklist_too_many_ticks",
+    });
+  }
+  if (message.includes("core_checklist_fixed")) {
+    return new ConflictError(
+      "A checklist run's steps and record never change, so nothing was changed.",
+      {
+        rule: "checklist_fixed",
+      },
+    );
+  }
   // A locked pay period never changes (migration 0813, ADR 0627): a shift inside one keeps its
   // person, times, kind and whether it is live; its not-worked marks and who was counted stay.
   // The answer names no period's totals.

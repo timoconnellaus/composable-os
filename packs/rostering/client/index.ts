@@ -16,6 +16,8 @@
 // the viewer may not see. What someone writes about their time off, why a period was reopened,
 // why a shift was not worked, and pay figures are kept in the app's cache no longer than they are
 // on screen (`gcTime: 0`), and what was sent is forgotten once the call is over (`forgetAfter`).
+// A checklist (step 4b, ADR 0650) is the same: what someone wrote on a step, why it was not done
+// and why it was ticked for them are on screen only, and never sent in a query's key.
 import { type ClientHolding, forgetAfter, type PackClient, packHooks } from "@composable-os/client";
 import type { z } from "@composable-os/sdk";
 import type {
@@ -26,6 +28,10 @@ import type {
   back,
   candidates,
   check,
+  checklist,
+  checklistCorrect,
+  checklistDone,
+  checklistRuns,
   exportPeriod,
   feed,
   feedRevoke,
@@ -50,6 +56,7 @@ import type {
   reopen,
   setPattern,
   take,
+  tick,
   uncovered,
   week,
   withdraw,
@@ -98,6 +105,11 @@ export type RosteringOperations = {
   "x.rostering.feed": { kind: "query" } & Io<typeof feed>;
   "x.rostering.feedRotate": { kind: "mutation" } & Io<typeof feedRotate>;
   "x.rostering.feedRevoke": { kind: "mutation" } & Io<typeof feedRevoke>;
+  "x.rostering.checklist": { kind: "query" } & Io<typeof checklist>;
+  "x.rostering.tick": { kind: "mutation" } & Io<typeof tick>;
+  "x.rostering.checklistDone": { kind: "mutation" } & Io<typeof checklistDone>;
+  "x.rostering.checklistRuns": { kind: "query" } & Io<typeof checklistRuns>;
+  "x.rostering.checklistCorrect": { kind: "mutation" } & Io<typeof checklistCorrect>;
 };
 
 type Name = keyof RosteringOperations & string;
@@ -129,6 +141,14 @@ export type PeriodTotals = Out<"x.rostering.periodTotals">;
 export type PayExport = Out<"x.rostering.export">;
 export type PlanCheck = Out<"x.rostering.planCheck">;
 export type FeedState = Out<"x.rostering.feed">;
+export type ShiftChecklist = Out<"x.rostering.checklist">;
+export type ChecklistRun = NonNullable<ShiftChecklist["run"]>;
+export type ChecklistStep = ChecklistRun["steps"][number];
+export type ChecklistTick = NonNullable<ChecklistStep["tick"]>;
+export type ChecklistTickInput = In<"x.rostering.tick">;
+export type ChecklistRuns = Out<"x.rostering.checklistRuns">;
+export type ChecklistRunSummary = ChecklistRuns["runs"][number];
+export type ChecklistState = NonNullable<NonNullable<RosterShift["checklist"]>["state"]>;
 
 /** The client of every operation this entry calls (ADR 0453). */
 export type RosteringClient = PackClient<RosteringOperations>;
@@ -305,6 +325,29 @@ export function feedAddresses(hostUrl: string, path: string): { https: string; w
   return { https, webcal: https.replace(/^https:/, "webcal:") };
 }
 
+/** How a shift's checklist is going, as a person reads it. */
+export function checklistStateLabel(state: ChecklistState | ChecklistRun["state"]): string {
+  switch (state) {
+    case "not_started":
+      return "Not started";
+    case "in_progress":
+    case "open":
+      return "In progress";
+    case "done":
+      return "Done";
+    case "missed":
+      return "Missed";
+    default:
+      return "Cancelled";
+  }
+}
+
+/** A step's tick as every screen shows it: what was ticked, by whom and for whom. */
+export function tickLabel(tick: ChecklistTick): string {
+  if (tick.state === "cleared") return tick.label;
+  return `${tick.done ? "Done" : "Not done"}: ${tick.label}`;
+}
+
 /** A pay basis as a person reads it. */
 export function basisLabel(basis: string): string {
   if (basis === "by_time") return "By time (hours)";
@@ -349,6 +392,20 @@ export type RosterRefusalKind =
   | "recurring_past"
   | "deactivate_confirm"
   | "address_lost"
+  | "checklist_window"
+  | "checklist_closed"
+  | "checklist_not_live"
+  | "checklist_nobody"
+  | "checklist_not_yours"
+  | "checklist_not_your_tick"
+  | "checklist_nothing_to_clear"
+  | "checklist_too_many_ticks"
+  | "checklist_for_why"
+  | "checklist_note_needed"
+  | "checklist_why"
+  | "checklist_incomplete"
+  | "checklist_open"
+  | "human_only"
   | "not_found"
   | "invalid"
   | "network"
@@ -407,6 +464,20 @@ const KNOWN_RULES: ReadonlySet<string> = new Set<RosterRefusalKind>([
   "recurring_moved",
   "recurring_past",
   "deactivate_confirm",
+  "checklist_window",
+  "checklist_closed",
+  "checklist_not_live",
+  "checklist_nobody",
+  "checklist_not_yours",
+  "checklist_not_your_tick",
+  "checklist_nothing_to_clear",
+  "checklist_too_many_ticks",
+  "checklist_for_why",
+  "checklist_note_needed",
+  "checklist_why",
+  "checklist_incomplete",
+  "checklist_open",
+  "human_only",
 ]);
 
 /** The words for a refusal the host gave without its own (it always gives some). */
@@ -493,6 +564,16 @@ export function refusalNext(kind: RosterRefusalKind, rosters: boolean): string |
     case "rostering":
     case "forbidden":
       return "The screen has been refreshed to what you may do.";
+    case "checklist_closed":
+    case "checklist_not_yours":
+    case "checklist_not_live":
+      return "The checklist has been refreshed.";
+    case "checklist_not_your_tick":
+      return "Someone else ticked this step: whoever rosters can change it.";
+    case "checklist_nothing_to_clear":
+      return "That step is not ticked, so there is nothing to clear.";
+    case "checklist_window":
+      return "A checklist can be ticked from when the shift starts until 2 hours after it ends.";
     default:
       return null;
   }
@@ -562,6 +643,11 @@ export const ROSTERING_HOOKS_CALL = {
   useFeed: ["x.rostering.feed"],
   useFeedRotate: ["x.rostering.feedRotate"],
   useFeedRevoke: ["x.rostering.feedRevoke"],
+  useChecklist: ["x.rostering.checklist"],
+  useTick: ["x.rostering.tick"],
+  useChecklistDone: ["x.rostering.checklistDone"],
+  useChecklistRuns: ["x.rostering.checklistRuns"],
+  useChecklistCorrect: ["x.rostering.checklistCorrect"],
 } as const;
 
 /**
@@ -757,6 +843,40 @@ function allRosteringHooks(
     /** Turn my calendar feed off. */
     useFeedRevoke() {
       return useMutation(api.mutation("x.rostering.feedRevoke"));
+    },
+    /**
+     * A shift's checklist, its ticks and notes: its person's and whoever rosters' only, kept no
+     * longer than it is on screen.
+     */
+    useChecklist(input: In<"x.rostering.checklist"> | null) {
+      return useQuery({
+        ...api.query("x.rostering.checklist", input ?? { object: "", id: "" }),
+        enabled: input !== null,
+        gcTime: 0,
+      });
+    },
+    /**
+     * Tick a step (a person's own act). What is written on it is forgotten once the call is over:
+     * call it through `forgetAfter`.
+     */
+    useTick() {
+      return useMutation({ ...api.mutation("x.rostering.tick"), gcTime: 0 });
+    },
+    /** Mark a checklist done: final. Why, for someone else's, is forgotten once the call is over. */
+    useChecklistDone() {
+      return useMutation({ ...api.mutation("x.rostering.checklistDone"), gcTime: 0 });
+    },
+    /** A rosterer: how checklists went, by checklist and date (on screen only). */
+    useChecklistRuns(input: In<"x.rostering.checklistRuns"> | null) {
+      return useQuery({
+        ...api.query("x.rostering.checklistRuns", input ?? { from: "", to: "" }),
+        enabled: input !== null,
+        gcTime: 0,
+      });
+    },
+    /** A rosterer: a correction beside a closed checklist (forgotten once the call is over). */
+    useChecklistCorrect() {
+      return useMutation({ ...api.mutation("x.rostering.checklistCorrect"), gcTime: 0 });
     },
   };
 }

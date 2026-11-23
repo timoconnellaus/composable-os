@@ -1,0 +1,12 @@
+{
+  "name": "rostering-native-checklist",
+  "pack": "rostering",
+  "skin": "native",
+  "operations": ["x.rostering.checklist", "x.rostering.tick", "x.rostering.checklistDone"],
+  "files": ["checklist-screen.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/pack-rostering": "*"
+  },
+  "noPurchase": true
+}

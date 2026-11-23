@@ -1,0 +1,20 @@
+{
+  "name": "rostering-checklist",
+  "pack": "rostering",
+  "skin": "web",
+  "operations": [
+    "x.rostering.checklist",
+    "x.rostering.tick",
+    "x.rostering.checklistDone",
+    "x.rostering.me",
+    "x.rostering.mine",
+    "x.rostering.offers",
+    "x.rostering.offer",
+    "x.rostering.withdraw"
+  ],
+  "files": ["checklist.tsx", "my-shifts-with-checklist.tsx", "LICENSE"],
+  "dependsOn": ["rostering-my-shifts", "ui-button"],
+  "packages": {
+    "@composable-os/pack-rostering": "*"
+  }
+}

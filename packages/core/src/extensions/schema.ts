@@ -5,6 +5,7 @@ import {
   type AgreementsManifest,
   type AllowanceManifest,
   type CapacityManifest,
+  type ChecklistsManifest,
   type ClaimsManifest,
   type DocumentSchema,
   documentJsonPath,
@@ -84,6 +85,8 @@ export interface ObjectDefinitionJson {
   recurring?: RecurringScheduleManifest;
   /** A shift (stage 45, ADR 0621), as declared. */
   staffed?: StaffedManifest;
+  /** A checklist its person ticks off (stage 45 step 4b, ADR 0650), as declared. */
+  checklists?: ChecklistsManifest;
   owner?: string;
   /** The object's customer (ADR 0402), as declared. */
   customer?: {
@@ -833,6 +836,27 @@ function staffedDefinition(
   };
 }
 
+/** The checklists declaration (ADR 0650), with the template's holder's registry name. */
+function checklistsDefinition(
+  object: ObjectState,
+  own: readonly FieldState[],
+): Pick<ObjectDefinition, "checklists"> {
+  const declared = object.definition.checklists;
+  if (!declared) return {};
+  const [first, second] = declared.template.split(".") as [string, string | undefined];
+  const viaObject =
+    second !== undefined ? own.find((f) => f.localName === first)?.definition.to : undefined;
+  return {
+    checklists: {
+      template: second !== undefined ? { field: second, via: first, viaObject } : { field: first },
+      who: declared.who,
+      opens: declared.opens,
+      closes: declared.closes,
+      live: [...declared.live],
+    },
+  };
+}
+
 function recurringDefinition(object: ObjectState): Pick<ObjectDefinition, "recurring"> {
   const declared = object.definition.recurring;
   if (!declared) return {};
@@ -1152,6 +1176,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...(object.definition.unique?.length ? { unique: object.definition.unique } : {}),
       ...recurringDefinition(object),
       ...staffedDefinition(object, own),
+      ...checklistsDefinition(object, own),
       ...(object.definition.owner ? { ownerField: object.definition.owner } : {}),
       ...(object.definition.customer ? { customer: object.definition.customer } : {}),
       ...(object.definition.public ? { public: object.definition.public } : {}),

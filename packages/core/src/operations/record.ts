@@ -29,6 +29,11 @@ import { assignOwner, recordAssignment } from "../assignment/index.ts";
 import { assertNoLiveClaim } from "../capacity/claimants.ts";
 import { assertNoConfirmedClaims, counterWrite } from "../capacity/records.ts";
 import { WAITLIST_FOR } from "../capacity/waitlist.ts";
+import {
+  assertChecklistHolderMove,
+  checklistRecordRestored,
+  checklistRecordWritten,
+} from "../checklists/writes.ts";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import {
   ALLOWANCE_FIELDS,
@@ -496,6 +501,21 @@ async function assertReferences(ctx: HandlerContext, prepared: PreparedValue[]) 
         .execute();
       if (found.length !== new Set(ids).size) {
         throw new ValidationError(`${p.field.name}: no such user`, { field: p.field.name });
+      }
+      continue;
+    }
+    // A checklist field (ADR 0650) picks an active template.
+    if (p.field.fieldType === "checklist") {
+      const found = await ctx.db
+        .selectFrom("core_checklist")
+        .select("id")
+        .where("id", "in", jsonList(ids))
+        .where("active", "=", 1)
+        .execute();
+      if (found.length !== new Set(ids).size) {
+        throw new ValidationError(`${p.field.name}: no such checklist in use`, {
+          field: p.field.name,
+        });
       }
       continue;
     }
@@ -1138,6 +1158,16 @@ export async function updateRecord(
     { ...before.values, ...valuesOf(prepared) },
     { by },
   );
+  // A shift that has started is cancelled by someone who rosters, and its checklist run marked
+  // with who (ADR 0650, the review of PR #298).
+  await checklistRecordWritten(
+    ctx,
+    object,
+    id,
+    before.values,
+    { ...before.values, ...valuesOf(prepared) },
+    by,
+  );
   await holderWritten(ctx, object, id, before.values, { ...before.values, ...valuesOf(prepared) });
   const own = prepared.filter((p) => p.own);
   if (own.length || !isCoreObject(object.name)) {
@@ -1355,6 +1385,7 @@ async function trashRecordAsHost(ctx: HandlerContext, object: ObjectDefinition, 
   if (object.claims) ctx.write(guardStatement("claimant", object.name, id, 0));
   // A shift in the Trash claims nobody's time (its trigger drops the claim, ADR 0621).
   await staffedReleased(ctx, object, id);
+  await checklistRecordWritten(ctx, object, id, before.values, null, "host");
   const table = objectTableOf(object.name) as string;
   ctx.write(
     CompiledQuery.raw(`UPDATE ${table} SET deleted_at = ?, deleted_by = ? WHERE id = ?`, [
@@ -1518,6 +1549,8 @@ export const recordDelete = defineOperation({
     // A shift in the Trash claims nobody's time (its trigger drops the claim, ADR 0621); a coach
     // profile on shifts not yet ended is not trashed while it still names their person.
     await staffedReleased(ctx, object, input.id);
+    await checklistRecordWritten(ctx, object, input.id, before.values, null, undefined);
+    await assertChecklistHolderMove(ctx, object, input.id, "put in the Trash", undefined);
     await assertHolderTrashable(ctx, object, input.id);
     const table = objectTableOf(object.name) as string;
     ctx.write(
@@ -1567,6 +1600,10 @@ export const recordRestore = defineOperation({
     await assertRosterRestore(ctx, object, input.id);
     // A shift's time may have been given to its person meanwhile (ADR 0621): refused naming it.
     await staffedRestored(ctx, object, input.id);
+    // Back from the Trash: its checklist run is no longer ended (ADR 0650); a duty carrying a
+    // checklist comes back by someone who rosters.
+    checklistRecordRestored(ctx, object, input.id);
+    await assertChecklistHolderMove(ctx, object, input.id, "restore", undefined);
     // A granted holder comes back only in a final state (ADR 0513).
     const stateColumn = object.states
       ? fieldStorage(object.name, object.states.field)?.column

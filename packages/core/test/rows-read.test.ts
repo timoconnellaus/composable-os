@@ -63,9 +63,10 @@ describe("rows read on hot paths", () => {
     // from about 985 to about 1,030; stage 45's offers (migration 0812) to about 1,054; stage 44
     // step 4's copies (migration 0854, a table, an index and its triggers) to about 1,065; stage
     // 45's pay periods (migration 0813: four tables, five indexes, twelve triggers) to about 1,087;
+    // stage 45's checklists (migration 0815: five tables, seven indexes, ten triggers) to about 1,124;
     // stage 44 step 7's cooling off (migration 0856: a column, a table, four indexes and its key's
-    // autoindex, five triggers) to about 1,108.
-    expect(await read("person.list", { limit: 50 })).toBeLessThan(1_115);
+    // autoindex, five triggers) to about 1,134.
+    expect(await read("person.list", { limit: 50 })).toBeLessThan(1_155);
     expect(await read("organisation.list", { limit: 50 })).toBeLessThan(1_050);
     expect(await read("activity.list", { limit: 50 })).toBeLessThan(1_500);
     expect(await read("task.list", { limit: 50 })).toBeLessThan(1_050);

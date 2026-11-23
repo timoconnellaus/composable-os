@@ -7,6 +7,7 @@
 //   declares who rosters.
 import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
+import { checklistTemplateFields } from "../checklists/index.ts";
 import { ForbiddenError } from "../errors.ts";
 import { resolveExtensionOperation } from "../extensions/tools.ts";
 import { getObject } from "../fields/index.ts";
@@ -39,6 +40,10 @@ export function touchesRoster(operation: string, input: unknown): boolean {
         ),
       );
     }
+    // A holder of a checklist (a duty) put in the Trash or back (ADR 0650, the review of PR #298).
+    case "record.delete":
+    case "record.restore":
+      return checklistTemplateFields(object).length > 0;
     case "recurring.follow": {
       const who = object.staffed?.who.field;
       if (!who) return false;

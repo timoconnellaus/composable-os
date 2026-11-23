@@ -1187,6 +1187,16 @@ const rosterShiftSchema = z.object({
     .array(staffWarningSchema)
     .nullable()
     .describe("Someone who rosters only (null otherwise): unavailable, not_qualified, uncovered"),
+  checklist: z
+    .object({
+      name: z.string(),
+      state: z
+        .enum(["not_started", "in_progress", "done", "missed", "cancelled"])
+        .nullable()
+        .describe("Its person and those who roster only, at the screen (null otherwise)"),
+    })
+    .nullable()
+    .describe("Its checklist, if it has one"),
 });
 
 export const staffingWeek = defineOperation({
@@ -1245,7 +1255,14 @@ export const staffingWeek = defineOperation({
       ctx,
       { from: start, to: end, account: input.mine ? actingAccount(ctx) : input.account },
       actingAccount(ctx),
-      { warnings: rosterer, uncoveredDays: (await rosterNumbers(ctx.db)).uncoveredDays },
+      {
+        warnings: rosterer,
+        uncoveredDays: (await rosterNumbers(ctx.db)).uncoveredDays,
+        // How a checklist is going is a person's to read at the screen (ADR 0650): a rosterer's
+        // every shift's, anyone else their own; never an AI's.
+        checklists:
+          ctx.extension?.tool?.calledBy?.actor !== "human" ? "none" : rosterer ? "all" : "own",
+      },
     );
     // Each day's length in the zone, from the host's clock: a screen never works it out from the
     // device's own zone (a clock change makes a 23- or 25-hour day).

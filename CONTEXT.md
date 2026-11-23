@@ -1457,6 +1457,18 @@ why); locking again makes a new version. It is exported as CSV for payroll. No r
 Read only with `rostering:pay` (admins and by grant), by a person, never an assistant.
 _Avoid_: timesheet, payroll, wages
 
+**Checklist** (stage 45, built in step 4b: ADR 0650)
+A list of steps a business writes once (a close-down clean, opening up): a **template**, in
+Settings → Checklists, each step required or not and maybe asking for a note. A duty picks one
+(`checklist`). Each shift of it gets a **run**: the template's steps as they were when the run was
+made, ticked off by the shift's person from its start until 2 hours after its end. A **tick** is
+done (with a note where asked) or not done (with why). Someone who rosters may tick **on someone's
+behalf**, with why: shown as "ticked by X for Y", never as the person's own. Marked **done**, a run
+never changes; one not done by then is **missed**, and the rosterers are told. A **correction** is a
+note someone who rosters adds beside a closed run. Read only by the run's person and people who
+roster, never by other staff or an AI; templates are read by everyone.
+_Avoid_: task list, to-do (a task is something else), inspection
+
 **Follows** (a state cascade)
 An object whose records move when the record a relation points to moves (`states.follows`): a
 class cancelled moves its bookings to `cancelled_by_us`, as the host, in the same batch (ADR 0507).
