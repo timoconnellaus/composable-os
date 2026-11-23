@@ -28,7 +28,7 @@
   },
   "channel": "stable",
   "commit": "0123456789abcdef0123456789abcdef01234567",
-  "coreSchemaVersion": 850,
+  "coreSchemaVersion": 851,
   "extensionContract": {
     "supported": [
       1
@@ -566,6 +566,10 @@
     {
       "name": "0850_agreements.sql",
       "sha256": "ac44a255fe73e8195da0f8ef6fed7572e561918517d138581094d9f46e2789e5"
+    },
+    {
+      "name": "0851_agreement_acceptances.sql",
+      "sha256": "e0687df10a73db07d0efa79c7a9e3a138dbba007c12a3be3f3fddbfc237d07d4"
     }
   ],
   "product": "crm",
