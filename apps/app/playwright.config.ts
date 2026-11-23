@@ -19,7 +19,11 @@ export default defineConfig({
   workers: 1,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
-  reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
+  // dev-server-reporter.ts names a failure that happened while the dev server crashed (not the
+  // product's); dev-server.mjs, the web server, records the crashes.
+  reporter: process.env.CI
+    ? [["list"], ["html", { open: "never" }], ["./e2e/dev-server-reporter.ts"]]
+    : [["list"], ["./e2e/dev-server-reporter.ts"]],
   globalSetup: "./e2e/global-setup.ts",
   // The first page load on a cold `vite dev` can take a while (dependency optimisation).
   expect: { timeout: 15_000 },
@@ -46,10 +50,13 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "pnpm exec vite dev",
+    command: "node e2e/dev-server.mjs",
     env: { PORT: String(PORT) },
     url: `${baseURL}/api/health`,
-    reuseExistingServer: !process.env.CI,
+    // A server already on the port is reused only when asked (E2E_REUSE_SERVER=1, for your own
+    // `pnpm dev`): otherwise the run refuses to start, rather than write into another checkout's
+    // database when several sessions run e2e on one machine. Pick a free port with E2E_PORT.
+    reuseExistingServer: !process.env.CI && process.env.E2E_REUSE_SERVER === "1",
     timeout: 120_000,
   },
 });
