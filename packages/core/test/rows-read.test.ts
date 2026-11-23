@@ -62,8 +62,9 @@ describe("rows read on hot paths", () => {
     // and marks (migration 0750) and stage 44's acceptances (migration 0851) took person.list
     // from about 985 to about 1,030; stage 45's offers (migration 0812) to about 1,054; stage 44
     // step 4's copies (migration 0854, a table, an index and its triggers) to about 1,065; stage
-    // 45's pay periods (migration 0813: four tables, five indexes, twelve triggers) to about 1,087.
-    expect(await read("person.list", { limit: 50 })).toBeLessThan(1_100);
+    // 45's pay periods (migration 0813: four tables, five indexes, twelve triggers) to about 1,087;
+    // a child's paper copy to the guardian (migration 0857: an index, four triggers) to about 1,103.
+    expect(await read("person.list", { limit: 50 })).toBeLessThan(1_115);
     expect(await read("organisation.list", { limit: 50 })).toBeLessThan(1_050);
     expect(await read("activity.list", { limit: 50 })).toBeLessThan(1_500);
     expect(await read("task.list", { limit: 50 })).toBeLessThan(1_050);
