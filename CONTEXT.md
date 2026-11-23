@@ -803,6 +803,14 @@ _Avoid_: build, artifact (for the bundle as a whole), package
 Which releases a deployment is offered: **stable** (`X.Y.Z` only) or **beta** (also `X.Y.Z-beta.N`).
 Set in Settings → Updates. See ADR 0161.
 
+**Location hint**
+Where a new install asks Cloudflare to create its D1 database and R2 buckets (`oc` is Oceania),
+chosen at the first install (`--location`, or `location` in a client's `product.ts`) and kept in
+the deployment state. A preference Cloudflare follows best effort, sent only on create: never a
+guarantee of where data is kept, and an existing install is never moved. Not a **jurisdiction**
+(Cloudflare's hard limit, `eu`, `us` or `fedramp`), which is not offered. See ADR 0580.
+_Avoid_: region, data residency (for the hint)
+
 **Preflight**
 The check before an update, computed from the installed and target manifests and the database: runtime
 extensions against the new extension contract, pending core migrations, gatekeeper changes and new

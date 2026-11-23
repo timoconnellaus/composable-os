@@ -119,6 +119,49 @@ describe("create-composable-os install", () => {
     expect(world.cf.liveBinding("demo-app", "AI_GATEWAY_ID")?.text).toBe("demo-gw");
   });
 
+  it("--location oc creates the database and bucket with the hint; none is sent by default (ADR 0580)", async () => {
+    await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
+    const refused = await cli("install", "--yes", "--location", "au");
+    expect(refused.code).toBe(1);
+    expect(refused.output).toContain("--location is none or a location hint");
+    expect(world.cf.creates).toEqual([]);
+
+    const first = await cli("install", "--yes", "--location", "oc");
+    expect(first.code, first.output).toBe(0);
+    expect(first.output).toContain("Location hint: oc (Oceania)");
+    expect(first.output).toContain("not a guarantee");
+    expect(first.output).toContain("D1 demo: created (location hint oc)");
+    expect(world.cf.creates).toEqual([
+      { type: "d1", name: "demo", locationHint: "oc" },
+      { type: "r2", name: "demo-blobs", locationHint: "oc" },
+    ]);
+    const state = JSON.parse(String((await sql("SELECT value FROM core_install"))[0]?.value));
+    expect(state.locationHint).toBe("oc");
+    expect((await cli("status")).output).toContain("location hint at install: oc (Oceania)");
+
+    // An install that exists is never moved: a different choice is answered plainly, and nothing
+    // is created or sent.
+    const again = await cli("install", "--yes", "--location", "none");
+    expect(again.code, again.output).toBe(0);
+    expect(again.output).toContain("a setting cannot move them");
+    expect(world.cf.creates).toHaveLength(2);
+    const kept = JSON.parse(String((await sql("SELECT value FROM core_install"))[0]?.value));
+    expect(kept.locationHint).toBe("oc");
+  });
+
+  it("an install with no --location sends no hint, and an upgrade with one says it moves nothing", async () => {
+    await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
+    expect((await cli("install", "--yes")).code).toBe(0);
+    expect(world.cf.creates.map((c) => c.locationHint)).toEqual([undefined, undefined]);
+    const state = JSON.parse(String((await sql("SELECT value FROM core_install"))[0]?.value));
+    expect(state.locationHint).toBeUndefined();
+    await world.github.publish(await buildFixtureRelease({ version: "1.1.0" }));
+    const up = await cli("upgrade", "--yes", "--location", "oc");
+    expect(up.code, up.output).toBe(0);
+    expect(up.output).toContain("an upgrade never changes where data is stored");
+    expect(world.cf.creates).toHaveLength(2);
+  });
+
   it("is idempotent: a re-run creates nothing new and keeps secrets", async () => {
     await world.github.publish(await buildFixtureRelease({ version: "1.0.0" }));
     expect((await cli("install", "--yes")).code).toBe(0);

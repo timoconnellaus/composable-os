@@ -40,6 +40,28 @@ export interface ProductDefinition {
 const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const PREFIX = /^[a-z0-9]+(-[a-z0-9]+)*-$/;
 
+/**
+ * The location hints both D1 (`primary_location_hint`) and R2 (`locationHint`) accept when a
+ * database or a bucket is created, as Cloudflare's API reference listed them on 2026-11-23 (ADR
+ * 0580). A hint is a preference Cloudflare follows best effort, only at creation: never a
+ * guarantee of where data is kept. A jurisdiction (eu, us, fedramp) is a different setting and is
+ * not offered.
+ */
+export const LOCATION_HINTS = {
+  wnam: "Western North America",
+  enam: "Eastern North America",
+  weur: "Western Europe",
+  eeur: "Eastern Europe",
+  apac: "Asia-Pacific",
+  oc: "Oceania",
+} as const;
+
+export type LocationHint = keyof typeof LOCATION_HINTS;
+
+export function isLocationHint(value: unknown): value is LocationHint {
+  return typeof value === "string" && Object.hasOwn(LOCATION_HINTS, value);
+}
+
 /** Checks a definition and returns it. Throws on the first name a Cloudflare account would refuse. */
 export function defineProduct(definition: ProductDefinition): ProductDefinition {
   const fail = (what: string): never => {
@@ -139,6 +161,13 @@ export interface ClientProductDefinition {
   environments?: Record<string, ClientEnvironment>;
   /** Gatekeepers every environment installs, and their settings (ADR 0452). */
   gatekeepers?: GatekeeperSettings;
+  /**
+   * A location hint for the host's D1 database and R2 buckets (ADR 0580), e.g. `oc` (Oceania):
+   * `cos deploy` sends it when the host is first installed and they are created. A preference
+   * Cloudflare follows where it can, not a guarantee; KV, queues and Vectorize take none. A host
+   * that exists is never moved by changing it. Absent: no hint.
+   */
+  location?: LocationHint;
 }
 
 /**
@@ -168,6 +197,18 @@ export interface ClientEnvironment {
   mobile?: { scheme?: string };
   /** The host's names here, when they are not the derived ones. */
   names?: Partial<ProductDefinition["names"]>;
+  /** The location hint here, over the product's (ADR 0580); `"none"` for no hint. */
+  location?: LocationHint | "none";
+}
+
+/** The location hint a first install of an environment (or the product) is created with. */
+export function clientLocation(
+  product: ClientProductDefinition,
+  environment?: string,
+): LocationHint | undefined {
+  const own = environment ? product.environments?.[environment]?.location : undefined;
+  if (own === "none") return undefined;
+  return own ?? product.location;
 }
 
 /**
@@ -365,6 +406,19 @@ export function defineClientProduct(definition: ClientProductDefinition): Client
   if (names.app === names.runner) fail("names.app and names.runner are the same");
   if (definition.web && [names.app, names.runner].includes(definition.web.worker)) {
     fail("web.worker is one of the host's Workers");
+  }
+  const hints = Object.keys(LOCATION_HINTS).join(", ");
+  if (definition.location !== undefined && !isLocationHint(definition.location)) {
+    fail(`location is a location hint (${hints})`);
+  }
+  for (const [env, settings] of Object.entries(definition.environments ?? {})) {
+    if (
+      settings.location !== undefined &&
+      settings.location !== "none" &&
+      !isLocationHint(settings.location)
+    ) {
+      fail(`environments.${env}.location is none or a location hint (${hints})`);
+    }
   }
   if (definition.environments?.[LIVE_ENVIRONMENT]?.live === false) {
     fail("the live environment cannot be marked live: false");

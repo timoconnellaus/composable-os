@@ -292,6 +292,11 @@ makes `shop-app`, `shop-runner`, `shop-gatekeeper-…`, the `shop` database and 
 and every screen says the product's `label`. A host deployed before client names keeps the
 release's (`crm-app`); nothing deployed is ever renamed (ADR 0193).
 
+**Where its data is stored**: `product.ts`'s `location` (for example `"oc"`, Oceania) is a
+location hint sent when the first install creates the host's database and buckets; absent, none
+is sent. It is a preference, not a guarantee, and a host that exists is never moved (see
+[Where data is stored](#where-data-is-stored)).
+
 ### Packs
 A release carries every pack in the platform repository (`packs/*`; ADR 0420 as amended), and its
 client kit lists them in `packs.json`. `product.ts`'s `packs` chooses which the host installs
@@ -585,6 +590,10 @@ npx @composable-os/cli install --yes --token "$CF_TOKEN" --account "$CF_ACCOUNT_
 Gatekeepers (integrations, ADR 0169) are optional: add them with `--gatekeepers` (now or on a later
 re-run) and enable them in Settings → Integrations.
 
+`--location oc` asks Cloudflare to create the database and bucket in Oceania where it can: a
+preference, not a guarantee, set at the first install only. See
+[Where data is stored](#where-data-is-stored).
+
 In-app AI is on by default: both Workers get the Workers AI and Vectorize bindings, as with
 `pnpm run deploy` (see [In-app AI](#in-app-ai)). `--ai off` (or `COS_AI=off`) installs without
 them; upgrades keep the choice, and re-running the install with `--ai on` turns it on (the index is
@@ -658,6 +667,66 @@ To undo a restore, use `wrangler d1 time-travel restore crm --bookmark <previous
 There is no telemetry (ADR 0166). The CLI talks only to the Cloudflare API (with your token) and
 GitHub Releases; a deployment only reads public GitHub Releases, when an admin opens Settings →
 Updates (cached for an hour).
+
+## Where data is stored
+
+**By default the installer sends no location hint**, and Cloudflare decides where each store
+lives (for D1, its API says: as close as possible to whoever creates it, here the machine running
+the installer). A new install can ask for a region instead
+([ADR 0580](adr/0580-a-location-hint-on-new-installs.md)):
+
+```sh
+npx @composable-os/cli install --location oc      # oc is Oceania
+```
+
+or, for a client repo, in `product.ts` (`cos deploy` passes it; an environment may set its own,
+or `"none"`):
+
+```ts
+export const product = defineClientProduct({ id: "gym", /* … */ location: "oc" });
+```
+
+Run interactively, a first install asks (default: none). The values are the ones both D1 and R2
+take: `wnam`, `enam`, `weur`, `eeur`, `apac`, `oc`. The choice is kept in the deployment state and
+shown by `cos status`.
+
+**What it is.** A **location hint**: a preference that Cloudflare follows where it can. It is
+**not a guarantee** of where data is kept, and it is **not a promise that data stays in
+Australia** (or in any one country). Cloudflare's documentation says so for each store, as read
+on 2026-11-23.
+
+**What it covers.**
+- **The D1 database**: created with `primary_location_hint` (where the primary database runs).
+- **The R2 buckets** (files, attachments, media, the org's extensions): created with
+  `locationHint`.
+- Only when they are **created**. Cloudflare honours a hint only at creation, so the installer
+  sends it then and never to a database or bucket that exists. A release that adds a bucket
+  later creates it, on upgrade, with the hint the install was made with.
+
+**What it does not cover.**
+- **KV, queues and Vectorize**: Cloudflare's API offers no location hint for them (KV and queues
+  offer only a jurisdiction, below), so none is sent.
+- **Durable Objects** (the assistant's threads, the runner's workspace, integrations): Cloudflare
+  places each one near the first request that reaches it, and a hint is given in code, object by
+  object. The host passes none; a business whose staff and customers are in Australia will
+  mostly create them from there, but nothing promises it.
+- **Logs, analytics, AI Gateway logs, Time Travel and backups, D1 read replicas** and anything
+  Cloudflare keeps about the account: not verified to follow the hint. Cloudflare's D1 page says a
+  read replica is made in every available region when replication is on (it is not turned on by
+  the host).
+- **Model providers** the business chooses for AI: wherever that provider runs.
+- **Jurisdictions** (`eu`, `us`, `fedramp`), Cloudflare's hard limits, are a different setting
+  and are not offered. There is no Australian jurisdiction.
+
+**An existing install is never moved.** `cos install`, `cos deploy` and `cos upgrade` do nothing
+to where data already is: a database or a bucket cannot be moved by a setting. Given a different
+`--location` (or a `product.ts` location added later), they say so and carry on. Moving a host's
+data is an export into a new install, which no command does.
+
+**From a checkout** (`pnpm run deploy`, wrangler creates the database and bucket): no hint is
+sent. To have one, create them first with wrangler's own flag, then deploy:
+`wrangler d1 create crm --location oc` and `wrangler r2 bucket create crm-blobs --location oc`
+(the CRM's names; another product's are in its `product.ts`).
 
 ## In-app AI
 

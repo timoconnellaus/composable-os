@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   type ClientProductDefinition,
+  clientLocation,
   clientNames,
   clientWeb,
   defineClientProduct,
@@ -9,6 +10,7 @@ import {
   deployedNameList,
   environmentNames,
   LOCAL_PREFIX,
+  LOCATION_HINTS,
   type ProductDefinition,
 } from "../src/index.ts";
 import { loadProduct, productAlias, productFile } from "../src/node.ts";
@@ -160,5 +162,29 @@ describe("a client product's environments (ADR 0450)", () => {
     expect(() => defineClientProduct({ ...gym, environments: { Staging: {} } })).toThrow(
       /environment Staging/,
     );
+  });
+
+  it("takes a location hint for a first install, per environment or none (ADR 0580)", () => {
+    expect(clientLocation(gym, "live")).toBeUndefined();
+    const oc = defineClientProduct({
+      ...gym,
+      location: "oc",
+      environments: { staging: { location: "none" }, live: {} },
+    });
+    expect(clientLocation(oc, "live")).toBe("oc");
+    expect(clientLocation(oc, "staging")).toBeUndefined();
+    expect(clientLocation({ ...oc, environments: undefined })).toBe("oc");
+    expect(Object.keys(LOCATION_HINTS)).toEqual(["wnam", "enam", "weur", "eeur", "apac", "oc"]);
+    expect(() =>
+      // @ts-expect-error: not a hint Cloudflare takes; a jurisdiction is not offered either
+      defineClientProduct({ ...gym, location: "eu" }),
+    ).toThrow(/location is a location hint/);
+    expect(() =>
+      defineClientProduct({
+        ...gym,
+        // @ts-expect-error: as above, in an environment
+        environments: { staging: { location: "au" }, live: {} },
+      }),
+    ).toThrow(/environments\.staging\.location/);
   });
 });
