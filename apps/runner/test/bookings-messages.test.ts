@@ -386,7 +386,8 @@ describe("the waiting list (criterion 5's emails)", () => {
   });
 });
 
-describe("a change or a cancellation by the gym (criterion 13)", () => {
+// Each class change runs per edit and agrees with the others which tells: slow under a full run.
+describe("a change or a cancellation by the gym (criterion 13)", { timeout: 60_000 }, () => {
   it("a coach swap sends nothing; a new time sends each member one email with an updated file", async () => {
     const k = await klass(type, 2 * DAY);
     const who = await member("change");

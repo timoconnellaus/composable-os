@@ -159,14 +159,6 @@ async function rowsFor(recordId: string, count = 1): Promise<Row[]> {
   return rows;
 }
 
-async function _pendingOf(actionId: string) {
-  return env.DB.prepare(
-    "SELECT operation, action_kind, status, input FROM core_pending_action WHERE id = ?",
-  )
-    .bind(actionId)
-    .first<{ operation: string; action_kind: string; status: string; input: string }>();
-}
-
 async function member(
   label: string,
   name?: string,
