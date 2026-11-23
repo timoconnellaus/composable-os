@@ -13,7 +13,8 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const CRASH_LOG = join(here, ".dev-server", "crashes.jsonl");
-const CRASH = /The Workers runtime crashed unexpectedly|\[vite\] Internal server error: fetch failed/;
+const CRASH =
+  /The Workers runtime crashed unexpectedly|\[vite\] Internal server error: fetch failed/;
 
 /** What the machine says about memory just after a crash (Linux only; never fails the server). */
 function evidence() {
