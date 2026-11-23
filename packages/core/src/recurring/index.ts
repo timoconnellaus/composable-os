@@ -727,7 +727,16 @@ export async function followSeries(
   const changed = def.into.changed;
   if (reattached && changed && record[changed] === true) values[changed] = null;
   if (Object.keys(values).length) {
-    await records().update(ctx, object, id, values, { by: "host" });
+    // The series' values, so their marks are the series' (ADR 0590); places raised to what is
+    // claimed are the host's own.
+    const sources = occurrenceSources(
+      def,
+      seriesObject.name,
+      occurrence.series_id,
+      series,
+      Object.keys(values).filter((f) => same(values[f], wanted[f] ?? null)),
+    );
+    await records().update(ctx, object, id, values, { by: "host", copied: sources });
   }
   return { followed: named, kept, reattached };
 }

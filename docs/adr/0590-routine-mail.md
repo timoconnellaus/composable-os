@@ -273,7 +273,10 @@ prepared, an older or purged row). Replaced, as the coordinator decided:
   change), a title taken from a related record (`titleDefault`, the class type's name), a moved
   booking (`movedFrom`: every value the old booking had), a granted record (a ticket's copied fields
   from its item, its name from the item's title; its code is the host's own `default`), a person
-  merge (both People's names and addresses). A host write never makes a value a person's.
+  merge (both People's names and addresses), a class following its series again (`recurring.follow`,
+  ADR 0620; places raised to what is claimed are the host's). A source changed in the same batch
+  (a series' new time and the classes it moves) counts with the mark that batch writes for it. A
+  host write never makes a value a person's.
 - **What approval clears.** Approving a held email (a human account's `approval.approve`; never the
   adjudicator) marks exactly the values and the address it showed, as they were when it was
   prepared (the row keeps their hashes, `sources`): `person` for those hashes only. A value written

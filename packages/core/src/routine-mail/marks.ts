@@ -92,8 +92,17 @@ type Db = Kysely<CoreDatabase>;
 /** Bytes of JSON per marks statement (D1 caps one bound value at 2 MB). */
 const MARKS_CHUNK_BYTES = 500_000;
 
-/** A source's standing: its mark, when the mark is for the value it had; else the host's. */
-async function sourceStanding(db: Db, source: MarkSource): Promise<Standing> {
+type Pending = Map<string, { h: string; s: Standing }>;
+const keyOf = (o: string, r: string, f: string) => `${o}\u0000${r}\u0000${f}`;
+
+/**
+ * A source's standing: its mark, when the mark is for the value it had; else the host's. A mark
+ * this same batch writes (a series changed with the classes it moves) is the one that counts.
+ */
+async function sourceStanding(db: Db, source: MarkSource, pending: Pending): Promise<Standing> {
+  const hash = await valueHash(source.value);
+  const queued = pending.get(keyOf(source.object, source.id, source.field));
+  if (queued) return queued.h === hash ? queued.s : "host";
   const mark = await db
     .selectFrom("core_value_mark")
     .select(["standing", "value_hash"])
@@ -101,7 +110,7 @@ async function sourceStanding(db: Db, source: MarkSource): Promise<Standing> {
     .where("record_id", "=", source.id)
     .where("field", "=", source.field)
     .executeTakeFirst();
-  if (!mark || mark.value_hash !== (await valueHash(source.value))) return "host";
+  if (!mark || mark.value_hash !== hash) return "host";
   return mark.standing;
 }
 
@@ -128,7 +137,11 @@ export async function markStatements(
   now: string,
 ): Promise<Compilable[]> {
   const out: Compilable[] = [];
-  const all: { o: string; r: string; f: string; h: string; s: Standing }[] = [];
+  type Row = { o: string; r: string; f: string; h: string; s: Standing };
+  const all: Row[] = [];
+  const pending: Pending = new Map();
+  const copies: { row: Row; sources: MarkSource[] }[] = [];
+  // Own values first, then copies: a copy may name a value this batch writes, in any order.
   for (const change of changes) {
     if (change.action === "erase") {
       out.push(
@@ -146,16 +159,21 @@ export async function markStatements(
     for (const [field, value] of fields) {
       const copied = change.marks?.copied?.[field];
       let s: Standing = standing;
-      if (copied?.length) {
-        const of = await Promise.all(copied.map((c) => sourceStanding(db, c)));
-        s = weakest([...of, ...(standing === "ai" ? (["ai"] as const) : [])]);
-      } else if (defaulted.has(field)) {
+      if (defaulted.has(field) && !copied?.length) {
         s = weakest(["default", standing === "ai" ? "ai" : "default"]);
-      } else if (host.has(field)) {
+      } else if (host.has(field) && !copied?.length) {
         s = weakest(["host", standing]);
       }
-      all.push({ o: change.object, r: change.id, f: field, h: await valueHash(value), s });
+      const row: Row = { o: change.object, r: change.id, f: field, h: await valueHash(value), s };
+      all.push(row);
+      if (copied?.length) copies.push({ row, sources: copied });
+      else pending.set(keyOf(row.o, row.r, row.f), { h: row.h, s: row.s });
     }
+  }
+  for (const { row, sources } of copies) {
+    const of = await Promise.all(sources.map((c) => sourceStanding(db, c, pending)));
+    row.s = weakest([...of, ...(standing === "ai" ? (["ai"] as const) : [])]);
+    pending.set(keyOf(row.o, row.r, row.f), { h: row.h, s: row.s });
   }
   // One statement for the batch's marks (chunked by bytes, as the audit's changes are written:
   // D1 caps one bound value at 2 MB), so a bulk write adds one statement, not one per record.

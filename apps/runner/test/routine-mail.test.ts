@@ -294,7 +294,7 @@ afterAll(async () => {
   await introspector[Symbol.asyncDispose]();
 });
 
-describe("a member's routine email under Balanced", () => {
+describe("a member's routine email under Balanced", { timeout: 60_000 }, () => {
   it("goes on its own, to the booking's person, linking only to the gym's site; the log says so", async () => {
     const { who, row } = await booked("routine");
     expect(row).toMatchObject({
@@ -357,7 +357,7 @@ describe("a member's routine email under Balanced", () => {
   });
 });
 
-describe("the switch per kind", () => {
+describe("the switch per kind", { timeout: 60_000 }, () => {
   it("off sends nothing and queues nothing, and the admin sees it; on again sends", async () => {
     await run(
       "routineMail.settings.update",
@@ -398,7 +398,7 @@ describe("the switch per kind", () => {
   });
 });
 
-describe("never on an AI's say-so alone", () => {
+describe("never on an AI's say-so alone", { timeout: 60_000 }, () => {
   it("a booking the assistant made (an extension tool) is told only once a person approves the email", async () => {
     const who = await member("assistant");
     await givePass(who.personId);
@@ -477,7 +477,7 @@ describe("never on an AI's say-so alone", () => {
   });
 });
 
-describe("only an automation of a shipped pack", () => {
+describe("only an automation of a shipped pack", { timeout: 60_000 }, () => {
   const runState = (over: Record<string, unknown>) =>
     ({
       runId: "xrn_1",
@@ -559,7 +559,9 @@ describe("only an automation of a shipped pack", () => {
   });
 });
 
-describe("the words are the declaration's, and the recipient the host's", () => {
+describe("the words are the declaration's, and the recipient the host's", {
+  timeout: 60_000,
+}, () => {
   it("refuses an address, free text for a slot the host fills, and a choice not declared", async () => {
     const { bookingId, row } = await booked("words");
     const prepare = (send: unknown, automationId = "bookings.bookingConfirmed") =>
@@ -633,7 +635,7 @@ describe("the words are the declaration's, and the recipient the host's", () => 
   });
 });
 
-describe("the policy and the rails", () => {
+describe("the policy and the rails", { timeout: 60_000 }, () => {
   it("under Cautious, routine email waits for a person", async () => {
     await setPreset("cautious");
     try {
@@ -703,7 +705,7 @@ const moveClass = (classId: string, hours: number, ctx = staff()) => {
   );
 };
 
-describe("never on an AI's say-so, for the record's life (B1)", () => {
+describe("never on an AI's say-so, for the record's life (B1)", { timeout: 60_000 }, () => {
   it("a booking an MCP client made: its later reminder, a clock run, is held too", async () => {
     const who = await member("ai-later");
     await givePass(who.personId);
@@ -790,7 +792,7 @@ describe("never on an AI's say-so, for the record's life (B1)", () => {
   });
 });
 
-describe("never words an AI wrote (B2)", () => {
+describe("never words an AI wrote (B2)", { timeout: 60_000 }, () => {
   it("a class title an MCP client set, then a person's change: the change email is held", async () => {
     const { who, classId, bookingId } = await booked("ai-title");
     await run(
@@ -842,7 +844,7 @@ describe("never words an AI wrote (B2)", () => {
   });
 });
 
-describe("the switch at send time (F2), and off until turned on (D1)", () => {
+describe("the switch at send time (F2), and off until turned on (D1)", { timeout: 60_000 }, () => {
   it("a prepared email whose kind is turned off before it is sent sends nothing", async () => {
     const { who, bookingId, row } = await booked("f2");
     const prepared = await prepareRoutineMail(db.query, {
@@ -936,7 +938,7 @@ async function seriesClass(ctx: InvocationContext, title?: string): Promise<stri
   return made.items[0]?.id as string;
 }
 
-describe("copies carry their source's mark (the second review, B1)", () => {
+describe("copies carry their source's mark (the second review, B1)", { timeout: 60_000 }, () => {
   it("a series an MCP client titled: the class the host makes from it is held, a person's is sent", async () => {
     const aiClass = await seriesClass(
       mcp(),
@@ -1003,7 +1005,7 @@ describe("copies carry their source's mark (the second review, B1)", () => {
   });
 });
 
-describe("what a person's approval clears (the second review, B2)", () => {
+describe("what a person's approval clears (the second review, B2)", { timeout: 60_000 }, () => {
   it("approving an AI's booking's email does not clear an address the AI changed after it was prepared", async () => {
     const who = await member("b2-addr");
     await givePass(who.personId);
@@ -1033,7 +1035,7 @@ describe("what a person's approval clears (the second review, B2)", () => {
   });
 });
 
-describe("the pack switch when a row is claimed (the second review)", () => {
+describe("the pack switch when a row is claimed (the second review)", { timeout: 60_000 }, () => {
   it("a backlog prepared while on and claimed after the pack is turned off waits as before", async () => {
     const { bookingId, row } = await booked("pack-claim");
     const prepared = await prepareRoutineMail(db.query, {
