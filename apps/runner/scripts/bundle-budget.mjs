@@ -34,8 +34,10 @@ import { fileURLToPath } from "node:url";
 // 7,169 KiB: the host's decision (core routine-mail, 26 KiB), the declaration's schema, checks and
 // templates in the SDK (18 KiB), its operations (11 KiB) and the runner's module and send. Its
 // manifest types were written out by hand to keep the SDK's declarations small; no React or
-// compiler came with it.
-const MAIN_BUDGET_KIB = 7_232;
+// compiler came with it. Raised to 7,296 KiB (2026-11-23, one step of 64): with stage 44's agreements
+// (main 7,151 KiB before routine mail) and routine mail after its security review, main measured
+// 7,233 KiB; nothing duplicated or dead was found to trim.
+const MAIN_BUDGET_KIB = 7_296;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
