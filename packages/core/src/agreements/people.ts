@@ -28,7 +28,6 @@
 // earlier in its batch); the minor mark is kept if either Person had it. Nothing in an
 // acceptance changes; a buyer's acceptances not yet settled are nobody's and are not touched.
 import { sql } from "kysely";
-import { OperationError } from "../errors.ts";
 import type { HandlerContext } from "../operation.ts";
 import { ERASED } from "../records/erase-subject.ts";
 import { keptUntil, loadKeepYears } from "./retention.ts";
@@ -36,8 +35,8 @@ import { keptUntil, loadKeepYears } from "./retention.ts";
 const list = (values: readonly string[]) =>
   sql`(SELECT value FROM json_each(${JSON.stringify(values.length ? values : [""])}))`;
 
-/** At most this many distinct addresses of a Person's own acceptances; more is refused. */
-export const MAX_AGREEMENT_ADDRESSES = 50;
+/** Addresses read per batch: every one is read, however many (never cut, never refused). */
+const ADDRESS_BATCH = 50;
 
 /**
  * The addresses that are the erased Person's own and that their acceptances hold: the sign-in
@@ -48,8 +47,8 @@ export const MAX_AGREEMENT_ADDRESSES = 50;
  * paper form's copy): that address is the other person's, and erasing the child must not touch
  * them (the review of PR #288). A buyer's acceptance settled to them is left out too: its address
  * is theirs only if it is already one of their addresses, which erase has from their record.
- * Copies go to the acceptance's own address, so they add nothing. More distinct addresses than
- * `MAX_AGREEMENT_ADDRESSES` is refused, never cut.
+ * Copies go to the acceptance's own address, so they add nothing. Read in bounded batches until
+ * none is left (the second review of PR #288: nobody is un-erasable).
  */
 export async function agreementAddresses(
   ctx: HandlerContext,
@@ -57,26 +56,121 @@ export async function agreementAddresses(
 ): Promise<string[]> {
   if (!personIds.length) return [];
   const people = list(personIds);
-  const { rows } = await sql<{ address: string }>`
-    SELECT DISTINCT lower(trim(a.email)) AS address FROM core_agreement_acceptance a
-    WHERE a.email IS NOT NULL AND (
-      (a.by = 'self' AND a.person_id IN ${people})
-      OR (a.by = 'guardian' AND a.agent_person_id IN ${people}))
-    LIMIT ${MAX_AGREEMENT_ADDRESSES + 1}`.execute(ctx.db);
-  if (rows.length > MAX_AGREEMENT_ADDRESSES) {
-    throw new OperationError(
-      "conflict",
-      `This person's agreements hold more than ${MAX_AGREEMENT_ADDRESSES} addresses of theirs; ` +
-        "erase cannot be sure to reach them all. Ask for help before erasing.",
-      { rule: "agreement_addresses_too_many" },
-    );
+  const out: string[] = [];
+  for (let after = ""; ; ) {
+    const { rows } = await sql<{ address: string }>`
+      SELECT DISTINCT lower(trim(a.email)) AS address FROM core_agreement_acceptance a
+      WHERE a.email IS NOT NULL AND (
+        (a.by = 'self' AND a.person_id IN ${people})
+        OR (a.by = 'guardian' AND a.agent_person_id IN ${people}))
+        AND lower(trim(a.email)) > ${after}
+      ORDER BY address
+      LIMIT ${ADDRESS_BATCH}`.execute(ctx.db);
+    out.push(...rows.map((r) => r.address).filter(Boolean));
+    if (rows.length < ADDRESS_BATCH) return out;
+    after = rows[rows.length - 1]?.address ?? "";
   }
-  return rows.map((r) => r.address).filter(Boolean);
+}
+
+/** How an erased Person may be named in free text: whole names, and given with family names. */
+interface NameForms {
+  /** Whole names: the display name, given and family together, and each name they typed. */
+  whole: string[];
+  /** Given and family name pairs: both must appear (a family name alone is a sibling's too). */
+  pairs: [string, string][];
+}
+
+/** The erased People's names, read before their rows go. */
+async function nameForms(ctx: HandlerContext, personIds: readonly string[]): Promise<NameForms> {
+  const people = list(personIds);
+  const { rows } = await sql<{
+    display: string | null;
+    given: string | null;
+    family: string | null;
+  }>`
+    SELECT display_name AS display, given_name AS given, family_name AS family
+    FROM core_person WHERE id IN ${people}`.execute(ctx.db);
+  const typed = await sql<{ name: string | null }>`
+    SELECT DISTINCT typed_name AS name FROM core_agreement_acceptance
+    WHERE typed_name IS NOT NULL AND ((by = 'self' AND person_id IN ${people})
+      OR (by = 'guardian' AND agent_person_id IN ${people}))`.execute(ctx.db);
+  const clean = (s: string | null) => (s ?? "").trim().toLowerCase();
+  const whole = new Set<string>();
+  const pairs: [string, string][] = [];
+  for (const r of rows) {
+    for (const n of [r.display, [r.given, r.family].filter(Boolean).join(" ")]) {
+      if (clean(n).length >= 2) whole.add(clean(n));
+    }
+    if (clean(r.given).length >= 2 && clean(r.family).length >= 2) {
+      pairs.push([clean(r.given), clean(r.family)]);
+    }
+  }
+  for (const t of typed.rows) if (clean(t.name).length >= 2) whole.add(clean(t.name));
+  return { whole: [...whole], pairs };
+}
+
+/**
+ * Whether `text` names them: case-insensitively, a whole name of theirs as whole words (`Ann
+ * Lee` in "mother, Ann Lee", not in "Joanne Leeds"), or their given and family names both as
+ * whole words anywhere ("Lee, Ann"). A nickname or a family name alone is not matched: that
+ * residual is accepted, since only staff with agreements:manage read this text (ADR 0646).
+ */
+export function namesThem(text: string, names: NameForms): boolean {
+  const lower = text.toLowerCase();
+  const word = (w: string) =>
+    new RegExp(
+      `(^|[^\\p{L}\\p{N}])${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}($|[^\\p{L}\\p{N}])`,
+      "u",
+    ).test(lower);
+  return names.whole.some(word) || names.pairs.some(([g, f]) => word(g) && word(f));
 }
 
 /** A buyer's acceptances read per batch. */
 const GUEST_BATCH = 200;
 
+/**
+ * A buyer's acceptances nobody settled, on a purchase that is theirs as erase decides it
+ * (`records/erase-stores.ts`): their Person on it, or nobody's and one of their own addresses;
+ * never another identified Person's. `unpaid`: an unpaid order or an unconfirmed checkout (erase
+ * deletes them); `paidUnsettled`: a paid order nobody settled (erase keeps them detached). Read in
+ * bounded batches until none is left (never cut short).
+ */
+export async function buyerAcceptances(
+  ctx: HandlerContext,
+  personIds: readonly string[],
+  addresses: readonly string[],
+): Promise<{ id: string; unpaid: number; paidUnsettled: number }[]> {
+  const people = list(personIds);
+  const addrs = list(addresses.map((a) => a.trim().toLowerCase()));
+  const guests: { id: string; unpaid: number; paidUnsettled: number }[] = [];
+  for (let after = ""; ; ) {
+    const page = await sql<{ id: string; unpaid: number; paidUnsettled: number }>`
+      SELECT a.id,
+        (o.id IS NOT NULL AND o.paid = 0) OR (c.id IS NOT NULL AND c.subscription_ref IS NULL)
+          AS unpaid,
+        (o.id IS NOT NULL AND o.paid > 0 AND o.person_id IS NULL AND lower(o.email) IN ${addrs})
+          AS paidUnsettled
+      FROM core_agreement_acceptance a
+      LEFT JOIN core_order o ON o.id = a.order_id
+      LEFT JOIN core_subscription_checkout c ON c.id = a.subscription_checkout
+      WHERE a.by = 'guest' AND a.person_id IS NULL AND a.erased_at IS NULL
+        -- Only a purchase that is theirs, as erase-stores.ts decides it: their Person on it, or
+        -- nobody's and one of their own addresses (never another identified Person's).
+        AND (o.person_id IN ${people} OR (o.person_id IS NULL AND lower(o.email) IN ${addrs})
+          OR ((c.payer_person_id IN ${people} OR c.holder_person_id IN ${people})
+            AND (c.payer_person_id IS NULL OR c.payer_person_id IN ${people})
+            AND (c.holder_person_id IS NULL OR c.holder_person_id IN ${people}))
+          OR (c.id IS NOT NULL AND c.payer_person_id IS NULL AND c.holder_person_id IS NULL
+            AND lower(c.email) IN ${addrs}))
+        AND a.id > ${after}
+      ORDER BY a.id
+      LIMIT ${GUEST_BATCH}`.execute(ctx.db);
+    guests.push(...page.rows);
+    if (page.rows.length < GUEST_BATCH) break;
+    after = page.rows[page.rows.length - 1]?.id ?? "";
+  }
+  return guests;
+}
 /** What erase did to the Person's agreements: what is kept, until when, and what went. */
 export interface AgreementsErased {
   /** Acceptances kept, detached, as the business's evidence. */
@@ -102,7 +196,6 @@ export async function queueEraseAgreements(
   const none: AgreementsErased = { kept: 0, keptUntil: null, deleted: 0, approvalsTurnedDown: 0 };
   if (!personIds.length) return none;
   const people = list(personIds);
-  const addrs = list(addresses.map((a) => a.trim().toLowerCase()));
 
   const [own, approvals] = await Promise.all([
     sql<{ n: number }>`SELECT count(*) AS n FROM core_agreement_acceptance
@@ -116,30 +209,7 @@ export async function queueEraseAgreements(
       WHERE (a.person_id IN ${people} OR a.agent_person_id IN ${people})
         AND c.pending_action_id IS NOT NULL`.execute(ctx.db),
   ]);
-  // A buyer's acceptances nobody settled, with their address or their Person on the purchase,
-  // read in bounded batches until none is left (never cut short).
-  const guests: { id: string; unpaid: number; paidUnsettled: number }[] = [];
-  for (let after = ""; ; ) {
-    const page = await sql<{ id: string; unpaid: number; paidUnsettled: number }>`
-      SELECT a.id,
-        (o.id IS NOT NULL AND o.paid = 0) OR (c.id IS NOT NULL AND c.subscription_ref IS NULL)
-          AS unpaid,
-        (o.id IS NOT NULL AND o.paid > 0 AND o.person_id IS NULL AND o.email IN ${addrs})
-          AS paidUnsettled
-      FROM core_agreement_acceptance a
-      LEFT JOIN core_order o ON o.id = a.order_id
-      LEFT JOIN core_subscription_checkout c ON c.id = a.subscription_checkout
-      WHERE a.by = 'guest' AND a.person_id IS NULL AND a.erased_at IS NULL
-        AND (lower(a.email) IN ${addrs} OR o.email IN ${addrs} OR o.person_id IN ${people}
-          OR c.email IN ${addrs} OR c.payer_person_id IN ${people}
-          OR c.holder_person_id IN ${people})
-        AND a.id > ${after}
-      ORDER BY a.id
-      LIMIT ${GUEST_BATCH}`.execute(ctx.db);
-    guests.push(...page.rows);
-    if (page.rows.length < GUEST_BATCH) break;
-    after = page.rows[page.rows.length - 1]?.id ?? "";
-  }
+  const guests = await buyerAcceptances(ctx, personIds, addresses);
   // Their dependants (any family link of theirs, live or ended; read before erase deletes the
   // links): a paper form for one of them may name them in who signed it or in staff's note.
   const dependants = (
@@ -147,13 +217,25 @@ export async function queueEraseAgreements(
       WHERE guardian_id IN ${people} AND kind = 'guardian'`.execute(ctx.db)
   ).rows.map((r) => r.id);
   if (dependants.length) {
-    // Coordinator decision of 2026-11-23 (owner to confirm): the form, its version, its date and
-    // who recorded it stay; who signed it and the note go (migration 0855 allows only clearing).
-    ctx.write(
-      sql`UPDATE core_agreement_acceptance SET signed_by = NULL, note = NULL
-        WHERE by = 'paper' AND person_id IN ${list(dependants)}
-          AND (signed_by IS NOT NULL OR note IS NOT NULL)`.compile(ctx.db),
-    );
+    // Coordinator decision of 2026-11-23 (owner to confirm), as narrowed after the second review
+    // of PR #288: only a paper form whose free text names them (`namesThem`) loses who signed it
+    // and the note; the form, its version, its date and who recorded it stay. Another guardian's
+    // form, and the child's own, are untouched. A paper form records no agent, so there is no
+    // "recorded as the agent" case. Migration 0855 allows only clearing.
+    const names = await nameForms(ctx, personIds);
+    const forms = await sql<{ id: string; signed_by: string | null; note: string | null }>`
+      SELECT id, signed_by, note FROM core_agreement_acceptance
+      WHERE by = 'paper' AND person_id IN ${list(dependants)}
+        AND (signed_by IS NOT NULL OR note IS NOT NULL)`.execute(ctx.db);
+    const naming = forms.rows
+      .filter((f) => namesThem(`${f.signed_by ?? ""}\n${f.note ?? ""}`, names))
+      .map((f) => f.id);
+    if (naming.length) {
+      ctx.write(
+        sql`UPDATE core_agreement_acceptance SET signed_by = NULL, note = NULL
+          WHERE by = 'paper' AND id IN ${list(naming)}`.compile(ctx.db),
+      );
+    }
   }
   const unpaid = guests.filter((g) => g.unpaid).map((g) => g.id);
   const unsettled = guests.filter((g) => !g.unpaid && g.paidUnsettled).map((g) => g.id);

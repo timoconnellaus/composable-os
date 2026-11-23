@@ -64,9 +64,10 @@ export function purgeCutoff(now: string, years: number | null): string | null {
 export const PURGE_KEPT_MAX = 100;
 
 /**
- * A scrub owed this long no longer holds a kept acceptance past its retention period: the purge
- * goes ahead, and audits that the email gatekeeper may still hold the copy (the review of PR
- * #288). Migration 0855's copy trigger uses the same 30 days.
+ * A scrub whose every gatekeeper left has been gone this long no longer holds a kept acceptance
+ * past its retention period: the purge goes ahead, and its audit names the gatekeepers left. One
+ * that exists but needs re-authorising never starts the clock (the second review of PR #288).
+ * Migration 0855's copy trigger uses the same 30 days.
  */
 export const SCRUB_GIVE_UP_DAYS = 30;
 
@@ -75,22 +76,33 @@ export async function purgeableKept(
   db: Kysely<CoreDatabase>,
   now: string,
   limit: number,
-): Promise<{ id: string; unscrubbed: boolean }[]> {
+): Promise<{ id: string; unscrubbed: string[] | null }[]> {
   const cutoff = purgeCutoff(now, await loadKeepYears(db));
   if (!cutoff) return [];
   const giveUp = new Date(Date.parse(now) - SCRUB_GIVE_UP_DAYS * 86_400_000).toISOString();
-  const { rows } = await sql<{ id: string; unscrubbed: number }>`
-    SELECT a.id, EXISTS (SELECT 1 FROM core_agreement_copy c
-        WHERE c.acceptance_id = a.id AND c.scrub_due_at IS NOT NULL) AS unscrubbed
+  const { rows } = await sql<{ id: string; via: string | null; done: string | null; owed: number }>`
+    SELECT a.id, c.via, c.scrub_done AS done, (c.scrub_due_at IS NOT NULL) AS owed
     FROM core_agreement_acceptance a
+    LEFT JOIN core_agreement_copy c ON c.acceptance_id = a.id
     WHERE a.erased_at IS NOT NULL AND a.erased_at < ${cutoff}
       AND NOT EXISTS (SELECT 1 FROM core_agreement_hold h WHERE h.acceptance_id = a.id)
       AND NOT EXISTS (SELECT 1 FROM core_agreement_copy c
         WHERE c.acceptance_id = a.id AND c.scrub_due_at IS NOT NULL
-          AND (c.scrub_owed_since IS NULL OR c.scrub_owed_since >= ${giveUp}))
+          AND NOT (c.scrub_error IS 'unreachable' AND c.scrub_gone_since < ${giveUp}))
     ORDER BY a.erased_at
     LIMIT ${limit}`.execute(db);
-  return rows.map((r) => ({ id: r.id, unscrubbed: Boolean(r.unscrubbed) }));
+  const list = (text: string | null): string[] => {
+    try {
+      return text ? (JSON.parse(text) as string[]) : [];
+    } catch {
+      return [];
+    }
+  };
+  return rows.map((r) => ({
+    id: r.id,
+    // The gatekeepers (connection and sender) never scrubbed: the purge's audit names them.
+    unscrubbed: r.owed ? list(r.via).filter((v) => !list(r.done).includes(v)) : null,
+  }));
 }
 
 /** How many kept acceptances would be past a period of `years` now (not on hold). */

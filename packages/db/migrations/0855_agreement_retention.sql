@@ -179,16 +179,23 @@ END;
 -- the scrub goes to the gatekeeper that holds it, not whichever channel is current. A copy that
 -- reached one owes a scrub (`scrub_due_at`, owed since `scrub_owed_since`): the host asks each
 -- gatekeeper, as its own agreements mail, to drop the copy's sends and wipe their recipients and
--- subject from its history, and records `scrubbed_at`. One it cannot reach (its connection gone)
--- is recorded (`scrub_error`) and asked again; after 30 days owed, the purge may delete the row at
--- the end of the retention period anyway (and audits that it did). A sender whose send was in
+-- subject from its history; every gatekeeper is asked each time, whatever another answered, and
+-- those done are recorded (`scrub_done`). The row is scrubbed (`scrubbed_at`) only when all are.
+-- What is left is recorded (`scrub_error`): `unreachable` when every gatekeeper left is gone (its
+-- connection removed, or its sender no longer bound), `inactive` when one still exists but cannot
+-- be used now (it needs re-authorising), `failed` otherwise; each is asked again. Only once every
+-- gatekeeper left has been gone for 30 days (`scrub_gone_since`) may the purge delete the row at
+-- the end of the retention period anyway (and its audit names the gatekeepers left). A sender whose send was in
 -- flight during the erase marks it owed again once its call returns, so a scrub follows the last
 -- send.
 ALTER TABLE core_agreement_copy ADD COLUMN via TEXT CHECK (via IS NULL OR json_valid(via));
 ALTER TABLE core_agreement_copy ADD COLUMN scrub_due_at TEXT;
 ALTER TABLE core_agreement_copy ADD COLUMN scrub_owed_since TEXT;
 ALTER TABLE core_agreement_copy ADD COLUMN scrub_error TEXT
-  CHECK (scrub_error IS NULL OR scrub_error IN ('unreachable', 'failed'));
+  CHECK (scrub_error IS NULL OR scrub_error IN ('unreachable', 'inactive', 'failed'));
+ALTER TABLE core_agreement_copy ADD COLUMN scrub_done TEXT
+  CHECK (scrub_done IS NULL OR json_valid(scrub_done));
+ALTER TABLE core_agreement_copy ADD COLUMN scrub_gone_since TEXT;
 ALTER TABLE core_agreement_copy ADD COLUMN scrubbed_at TEXT;
 CREATE INDEX core_agreement_copy_scrub_idx
   ON core_agreement_copy (scrub_due_at) WHERE scrub_due_at IS NOT NULL;
@@ -242,12 +249,13 @@ BEGIN
 END;
 
 -- A copy row is deleted only by the purge, with its acceptance, and never while a scrub is owed,
--- unless it has been owed for 30 days (a gatekeeper that cannot be reached must not keep a record
--- past its retention period; the purge audits it).
+-- unless every gatekeeper left has been gone for 30 days (a gatekeeper that no longer exists must
+-- not keep a record past its retention period; the purge audits it). One that exists but needs
+-- re-authorising never starts that clock.
 CREATE TRIGGER core_agreement_copy_no_delete
 BEFORE DELETE ON core_agreement_copy
-WHEN (OLD.scrub_due_at IS NOT NULL AND NOT coalesce(
-    OLD.scrub_owed_since < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-30 days'), 0))
+WHEN (OLD.scrub_due_at IS NOT NULL AND NOT (OLD.scrub_error IS 'unreachable' AND coalesce(
+    OLD.scrub_gone_since < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-30 days'), 0)))
   OR NOT EXISTS (
   SELECT 1 FROM core_agreement_acceptance a WHERE a.id = OLD.acceptance_id
     AND a.erased_at IS NOT NULL

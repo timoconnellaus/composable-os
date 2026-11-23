@@ -1183,8 +1183,15 @@ export interface CoreAgreementCopyTable {
   scrub_due_at: Defaulted<string | null>;
   /** When a scrub was first owed (never changes): after 30 days the purge may go ahead. */
   scrub_owed_since: Defaulted<string | null>;
-  /** Why the last scrub was not done: its gatekeeper could not be reached, or it failed. */
-  scrub_error: Defaulted<"unreachable" | "failed" | null>;
+  /**
+   * Why the last scrub was not done: every gatekeeper left is gone (`unreachable`), one exists
+   * but needs re-authorising (`inactive`), or one failed.
+   */
+  scrub_error: Defaulted<"unreachable" | "inactive" | "failed" | null>;
+  /** The gatekeepers (as `via` names them) the last scrub finished on, as a JSON list. */
+  scrub_done: Defaulted<string | null>;
+  /** Since when every gatekeeper left has been gone: the purge's 30 days count from here. */
+  scrub_gone_since: Defaulted<string | null>;
   /** When the gatekeeper confirmed the scrub. */
   scrubbed_at: Defaulted<string | null>;
   /** The gatekeepers a send reached, as a JSON list of `<connection id> <resource key>`. */

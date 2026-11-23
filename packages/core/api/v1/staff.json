@@ -7215,7 +7215,7 @@
     },
     {
       "name": "agreement.erasePreview",
-      "description": "What erasing a Person would do to their agreements, for the screen that confirms an erase: how many acceptances (their own, and those they made as a guardian) are kept, no longer theirs, and until when; how many health forms' answers are deleted at once. Counts only. Read-only.",
+      "description": "What erasing a Person would do to their agreements, for the screen that confirms an erase: how many acceptances (their own, and those they made as a guardian) are kept, no longer theirs, and until when; how many health forms' answers are deleted at once. Counts only, over them and anyone merged into them, a Person in the Trash included, and a buyer's acceptances on purchases that are theirs. A person only. Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -7251,12 +7251,17 @@
           "healthAnswers": {
             "type": "number",
             "description": "Health forms whose answers are deleted at once"
+          },
+          "buyerDeleted": {
+            "type": "number",
+            "description": "A buyer's acceptances on an unpaid order or unconfirmed checkout: deleted"
           }
         },
         "required": [
           "kept",
           "until",
-          "healthAnswers"
+          "healthAnswers",
+          "buyerDeleted"
         ],
         "additionalProperties": false
       },
@@ -9250,9 +9255,26 @@
           "unscrubbed": {
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "object",
+              "properties": {
+                "acceptanceId": {
+                  "type": "string"
+                },
+                "gatekeepers": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Each `<connection id> <sender key>` gone 30 days that was never scrubbed"
+                }
+              },
+              "required": [
+                "acceptanceId",
+                "gatekeepers"
+              ],
+              "additionalProperties": false
             },
-            "description": "Purged although the email gatekeeper could not be reached to scrub their copy"
+            "description": "Purged although an email gatekeeper that is gone never scrubbed their copy"
           }
         },
         "required": [

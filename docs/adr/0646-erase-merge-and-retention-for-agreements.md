@@ -152,3 +152,49 @@ of a copy that was waiting for a person.
   with an approval card); the Erase requests list in Settings → Storage now says, per request,
   how many agreements are kept and until when, and how many health forms' answers go
   (`agreement.erasePreview`, admins).
+
+## Amended 2026-11-24: after the second privacy review of PR #288
+- **Every gatekeeper is asked, each time.** The scrub no longer stops at the first gatekeeper it
+  cannot reach or that fails: each one the copy reached is asked, those that finish are recorded
+  (`scrub_done`), and the row is scrubbed only when all have. What is left decides the record:
+  `unreachable` when every gatekeeper left is gone (its connection removed or disconnected, or its
+  sender no longer bound), `inactive` when one still exists but cannot be used now (it needs
+  re-authorising), `failed` otherwise. Admins are told once per connection in question, naming
+  nobody. **The purge's 30 days count only while every gatekeeper left is gone**
+  (`scrub_gone_since`); one that needs re-authorising or fails never starts the clock. The purge's
+  audit names, per acceptance, exactly the gatekeepers (`<connection> <sender>`) never scrubbed.
+- **Whose purchase it is (narrowing ADR 0320).** Erase touches an order only if it is the erased
+  Person's, or nobody's and carries one of their own addresses; a subscription or checkout only if
+  every Person on it (payer, holder) is among the erased, or it has none and carries one of their
+  addresses. A purchase belonging to another identified Person is left entirely alone: not
+  cancelled or closed, its buyer's acceptances kept, and (narrowing ADR 0320's address match) its
+  address not cleared, its value mark and its plan changes' reasons kept. The first build matched
+  any order with one of the erased Person's addresses, so erasing a child whose record holds the
+  family address cancelled the guardian's own order. An address shared with another identified
+  Person is that Person's data too; the erased Person's own purchases are found by their id.
+- **Paper forms that name the erased guardian, and only those.** Erasing a guardian clears who
+  signed and the note only on their dependants' paper forms whose text names them: matched
+  case-insensitively as whole words, either a whole name of theirs (their display name, their given
+  and family names together, or a name they typed on an acceptance), or their given name and their
+  family name both appearing anywhere in the text. A family name alone, a given name alone or a
+  nickname is not matched (a sibling or the other parent shares a family name); that residual is
+  accepted, since this text is shown only to staff with `agreements:manage`. Another guardian's
+  form and the child's own are untouched. A paper form records no agent, so there is no other case.
+  **The trigger cannot tell an erase from another writer here:** the family links that tie the
+  form's Person to the guardian are deleted in the same batch, and the guardian appears only in
+  free text, so no SQL condition proves the clearing is an erase's. It keeps the narrower rule:
+  only to nothing, both fields together, only on a paper form; that direction loses only free
+  text, never what was agreed, when or by whom it was recorded.
+- **A late payment on an order an erase detached is refunded, never honoured.** An unpaid order is
+  cancelled; a part-paid one is left part-paid but has no Person and no address. Either way a later
+  payment (a part-paid one's balance included) is recorded `late` and never moves the order: a
+  drop-in's is owed back automatically for a person with `orders:refund` to approve
+  (`oweLateRefund`, ADR 0429); for another order admins are told "the person it was for was erased,
+  so it cannot be honoured: refund it" (a cancelled or part-paid order cannot be honoured:
+  `order.honourLate` refuses it). A subscription checkout confirmed after the erase: no automatic
+  path exists, and staff are told to cancel and refund it with the provider.
+- **`agreement.erasePreview`** is a person's only, reads a Person in the Trash and everyone merged
+  into them, and counts a buyer's acceptances on purchases that are theirs.
+- **No cap makes anyone un-erasable.** The addresses an erased Person's agreements hold are read in
+  bounded batches, however many; the erased-address list is written 20 rows a statement (D1 binds
+  at most 100 values), which a person with more than 25 addresses used to exceed.

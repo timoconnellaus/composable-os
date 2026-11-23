@@ -725,8 +725,18 @@ export interface ScrubRun {
   scrubbed: number;
   /** Of those, every gatekeeper said it held nothing for the copy's key. */
   nothingHeld: number;
-  /** Still owed: a gatekeeper could not be reached, or failed. */
+  /** Still owed: a gatekeeper is gone, needs re-authorising, or failed. */
   owed: number;
+}
+
+/** One gatekeeper a copy reached, and whether the host can ask it now. */
+interface ScrubTarget {
+  /** As `via` names it: `<connection id> <resource key>`. */
+  via: string;
+  /** `ready`: ask it; `gone`: its connection or sender is no longer there; `inactive`: it is
+   * there but cannot be used now (it needs re-authorising). */
+  state: "ready" | "gone" | "inactive";
+  target: { connectionId: string; resource: string } | null;
 }
 
 /**
@@ -735,11 +745,15 @@ export interface ScrubRun {
  * send under the copy's key is refused, and its recipients and subject leave the sent history.
  * Only the host's own agreements mail can ask it (`callAsHost`, purpose `agreements`, method
  * `scrubAgreementCopy`), by the copy's key alone; the gatekeeper answers whether it held anything,
- * never what. The scrub goes where the copy went, not to whichever channel is current (the review
- * of PR #288). A gatekeeper whose connection is gone is recorded `unreachable` (admins are told
- * once, naming nobody) and asked again; after 30 days owed the retention purge may still delete
- * the record (`retention.ts`). A copy row from before `via` was kept is asked on the current
- * channel.
+ * never what. The scrub goes where the copy went, not to whichever channel is current.
+ *
+ * Every gatekeeper is asked each time, whatever another answered (the second review of PR #288);
+ * those that finished are recorded (`scrub_done`), and the row is scrubbed only when all have.
+ * What is left is recorded: `unreachable` when every gatekeeper left is gone, `inactive` when one
+ * still exists but needs re-authorising, `failed` otherwise; admins are told once per connection
+ * in question, naming nobody. Only a gatekeeper gone for 30 days lets the retention purge delete
+ * the record anyway (`scrub_gone_since`, `retention.ts`). A copy row from before `via` was kept
+ * is asked on the current channel.
  */
 export async function scrubErasedCopies(
   deps: CopyDeps,
@@ -754,7 +768,7 @@ export async function scrubErasedCopies(
   if (options.acceptanceIds && !options.acceptanceIds.length) return run;
   let query = db
     .selectFrom("core_agreement_copy")
-    .select(["acceptance_id", "via"])
+    .select(["acceptance_id", "via", "scrub_gone_since"])
     .where("scrub_due_at", "is not", null)
     .where("scrub_due_at", "<=", at)
     .orderBy("scrub_due_at")
@@ -764,94 +778,134 @@ export async function scrubErasedCopies(
   }
   const owed = await query.execute();
   if (!owed.length) return run;
-  let unreachable = false;
-  for (const { acceptance_id: id, via } of owed) {
+  const notices = new Map<string, "gone" | "inactive">();
+  for (const { acceptance_id: id, via, scrub_gone_since: goneSince } of owed) {
     const targets = await scrubTargets(db, via);
-    let outcome: "done" | "nothing" | "unreachable" | "failed" = "nothing";
-    for (const target of targets) {
-      if (!target) {
-        outcome = "unreachable";
-        break;
+    const done: string[] = [];
+    let found = false;
+    let failed = false;
+    for (const t of targets) {
+      if (t.state !== "ready" || !t.target) {
+        notices.set(t.via.split(" ")[0] ?? "", t.state === "inactive" ? "inactive" : "gone");
+        continue;
       }
       try {
         const result = await call({
-          connectionId: target.connectionId,
-          resource: target.resource,
+          connectionId: t.target.connectionId,
+          resource: t.target.resource,
           method: "scrubAgreementCopy",
           args: [{ key: copyKey(id) }],
           purpose: "agreements",
         });
         const value = result.value as { done?: unknown; found?: unknown } | null;
-        if (value?.done !== true) {
-          outcome = "failed";
-          break;
+        if (value?.done === true) {
+          done.push(t.via);
+          if (value.found !== false) found = true;
+        } else {
+          failed = true;
         }
-        if (value.found !== false) outcome = "done";
       } catch (error) {
         // The error's kind only: nothing of the copy.
         console.error("agreement copy scrub not done; asked again later", errorKind(error));
-        outcome = "failed";
-        break;
+        failed = true;
       }
     }
-    if (outcome === "done" || outcome === "nothing") {
+    const left = targets.filter((t) => !done.includes(t.via));
+    if (!left.length) {
       await db
         .updateTable("core_agreement_copy")
-        .set({ scrub_due_at: null, scrubbed_at: at, scrub_error: null })
+        .set({
+          scrub_due_at: null,
+          scrubbed_at: at,
+          scrub_error: null,
+          scrub_done: JSON.stringify(done),
+          scrub_gone_since: null,
+        })
         .where("acceptance_id", "=", id)
         .execute();
       run.scrubbed += 1;
-      if (outcome === "nothing") run.nothingHeld += 1;
-    } else {
-      if (outcome === "unreachable") unreachable = true;
-      await db
-        .updateTable("core_agreement_copy")
-        .set({ scrub_due_at: later(now, SCRUB_RETRY_MS), scrub_error: outcome })
-        .where("acceptance_id", "=", id)
-        .where("scrub_due_at", "is not", null)
-        .execute();
-      run.owed += 1;
+      if (!found) run.nothingHeld += 1;
+      continue;
     }
+    // Every gatekeeper left is gone: the purge's 30 days count from the first time it was so.
+    const allGone = !failed && left.every((t) => t.state === "gone");
+    const error = allGone
+      ? ("unreachable" as const)
+      : left.some((t) => t.state === "inactive")
+        ? ("inactive" as const)
+        : ("failed" as const);
+    await db
+      .updateTable("core_agreement_copy")
+      .set({
+        scrub_due_at: later(now, SCRUB_RETRY_MS),
+        scrub_error: error,
+        scrub_done: JSON.stringify(done),
+        scrub_gone_since: allGone ? (goneSince ?? at) : null,
+      })
+      .where("acceptance_id", "=", id)
+      .where("scrub_due_at", "is not", null)
+      .execute();
+    run.owed += 1;
   }
-  if (unreachable) {
+  for (const [connection, why] of notices) {
     await adminNotice(db, at, {
-      title: "Erased people's agreement copies could not be scrubbed",
+      title:
+        why === "gone"
+          ? "Erased people's agreement copies could not be scrubbed: a connection is gone"
+          : "Erased people's agreement copies wait for an email connection to be reconnected",
       body:
-        "An email connection that sent copies of signed agreements is gone, so what it holds of " +
-        "copies sent to people since erased cannot be scrubbed. Reconnect it, or remove its " +
-        "storage by disconnecting it for good. The retention purge deletes the records after 30 " +
-        "days either way.",
-      dedupeKey: "agreement-copy:scrub-unreachable",
+        why === "gone"
+          ? `The email connection ${connection} that sent copies of signed agreements is gone, so ` +
+            "what it held of copies sent to people since erased cannot be scrubbed. After 30 days " +
+            "the retention purge deletes the records anyway, and its audit names the connection."
+          : `The email connection ${connection} that sent copies of signed agreements needs to be ` +
+            "reconnected before what it holds of copies sent to people since erased can be " +
+            "scrubbed. Until then the records are kept, and the scrub is asked again.",
+      dedupeKey: `agreement-copy:scrub-${why}:${connection}`,
     });
   }
   return run;
 }
 
 /**
- * The gatekeepers to scrub: those the copy's sends reached, each null when its connection is gone
- * or no longer has that sender bound. A row from before `via` was kept: the current channel.
+ * The gatekeepers to scrub: each `via` names, with whether it can be asked now. A connection that
+ * no longer exists, or no longer has that sender bound, is gone; one that exists but is not
+ * active (it needs re-authorising) is inactive, never gone. A row from before `via` was kept: the
+ * current channel.
  */
-async function scrubTargets(
-  db: Db,
-  via: string | null,
-): Promise<({ connectionId: string; resource: string } | null)[]> {
+async function scrubTargets(db: Db, via: string | null): Promise<ScrubTarget[]> {
   let listed: string[] = [];
   try {
     listed = via ? (JSON.parse(via) as string[]) : [];
   } catch {}
   if (!listed.length) {
     const settings = await loadDeliverySettings(db);
-    if (!settings.email) return [null];
-    const resolved = await resolveChannelTarget(db, "email", settings.email);
-    return ["problem" in resolved ? null : resolved.target];
+    if (!settings.email) return [{ via: "current channel", state: "gone", target: null }];
+    listed = [`${settings.email} `];
   }
-  const out: ({ connectionId: string; resource: string } | null)[] = [];
+  const out: ScrubTarget[] = [];
   for (const entry of listed) {
     const [connectionId = "", resource = ""] = String(entry).split(" ");
     const resolved = await resolveChannelTarget(db, "email", connectionId);
-    out.push(
-      "problem" in resolved || resolved.target.resource !== resource ? null : resolved.target,
-    );
+    if (!("problem" in resolved)) {
+      const same = !resource || resolved.target.resource === resource;
+      out.push(
+        same
+          ? { via: entry, state: "ready", target: resolved.target }
+          : { via: entry, state: "gone", target: null },
+      );
+      continue;
+    }
+    const row = await db
+      .selectFrom("core_integration_connection")
+      .select(["status"])
+      .where("id", "=", connectionId)
+      .executeTakeFirst();
+    out.push({
+      via: entry,
+      state: row && row.status !== "disconnected" ? "inactive" : "gone",
+      target: null,
+    });
   }
   return out;
 }

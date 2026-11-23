@@ -12,7 +12,11 @@
 // opened with agreement.acceptance.pdf (agreements:manage, audited). No AI reads a kept one.
 import { sql } from "kysely";
 import { z } from "zod";
-import { mergeAgreementCounts } from "../agreements/people.ts";
+import {
+  agreementAddresses,
+  buyerAcceptances,
+  mergeAgreementCounts,
+} from "../agreements/people.ts";
 import {
   DEFAULT_KEEP_YEARS,
   KEEP_SETTING,
@@ -27,6 +31,9 @@ import {
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
 import { defineOperation } from "../operation.ts";
 import { holdsPermission } from "../principals.ts";
+import { withMergedRecords } from "../records/erase.ts";
+import { customerAddresses } from "../records/erase-stores.ts";
+import { personSubject } from "../records/erase-subject.ts";
 
 const id = (what: string) => z.string().min(1).max(64).describe(what);
 
@@ -268,8 +275,15 @@ export const agreementPurgeKept = defineOperation({
     purged: z.number(),
     more: z.boolean(),
     unscrubbed: z
-      .array(z.string())
-      .describe("Purged although the email gatekeeper could not be reached to scrub their copy"),
+      .array(
+        z.object({
+          acceptanceId: z.string(),
+          gatekeepers: z
+            .array(z.string())
+            .describe("Each `<connection id> <sender key>` gone 30 days that was never scrubbed"),
+        }),
+      )
+      .describe("Purged although an email gatekeeper that is gone never scrubbed their copy"),
   }),
   permission: "records:erase",
   risk: "write",
@@ -297,7 +311,9 @@ export const agreementPurgeKept = defineOperation({
     const due = await purgeableKept(ctx.db, ctx.now, PURGE_KEPT_MAX + 1);
     const taken = due.slice(0, PURGE_KEPT_MAX);
     const ids = taken.map((d) => d.id);
-    const unscrubbed = taken.filter((d) => d.unscrubbed).map((d) => d.id);
+    const unscrubbed = taken.flatMap((d) =>
+      d.unscrubbed ? [{ acceptanceId: d.id, gatekeepers: d.unscrubbed }] : [],
+    );
     if (ids.length) {
       const list = sql`(SELECT value FROM json_each(${JSON.stringify(ids)}))`;
       // What sits beside each one first: the acceptance's own trigger refuses while any is left.
@@ -356,33 +372,51 @@ export const agreementErasePreview = defineOperation({
   description:
     "What erasing a Person would do to their agreements, for the screen that confirms an erase: " +
     "how many acceptances (their own, and those they made as a guardian) are kept, no longer " +
-    "theirs, and until when; how many health forms' answers are deleted at once. Counts only. " +
-    "Read-only.",
+    "theirs, and until when; how many health forms' answers are deleted at once. Counts only, " +
+    "over them and anyone merged into them, a Person in the Trash included, and a buyer's " +
+    "acceptances on purchases that are theirs. A person only. Read-only.",
   input: z.object({ personId: id("The Person to erase (per_…)") }),
   output: z.object({
     kept: z.number(),
     until: z.string().nullable().describe("When the purge deletes them; null: nothing is purged"),
     healthAnswers: z.number().describe("Health forms whose answers are deleted at once"),
+    buyerDeleted: z
+      .number()
+      .describe("A buyer's acceptances on an unpaid order or unconfirmed checkout: deleted"),
   }),
-  // Admins, who erase (the read permission erasure.addressStatus uses).
+  // Admins, who erase (the read permission erasure.addressStatus uses), and a person: the counts
+  // are about someone about to be erased.
   permission: "audit:read",
   risk: "read",
-  mcp: { idempotent: true },
+  actors: ["human"],
+  mcp: { expose: false },
   async handler(input, ctx) {
-    // Through the visibility seam, as any read of a Person.
-    await ctx.records.get("person", input.personId);
+    if (ctx.actor !== "human") throw new ForbiddenError("Only a person reads an erase preview");
+    // As person.erase takes them: a Person in the Trash too, and everyone merged into them.
+    const exists = await sql<{ id: string }>`SELECT id FROM core_person
+      WHERE id = ${input.personId}`.execute(ctx.db);
+    if (!exists.rows.length) throw new NotFoundError("person", input.personId);
+    const ids = await withMergedRecords(ctx, "person", input.personId);
+    const subject = await personSubject(ctx.db, ids);
+    const addresses = [
+      ...subject.addresses,
+      ...(await customerAddresses(ctx, ids)),
+      ...(await agreementAddresses(ctx, ids)),
+    ];
+    const people = sql`(SELECT value FROM json_each(${JSON.stringify(ids)}))`;
     const { rows } = await sql<{ kept: number; answers: number }>`SELECT
         (SELECT count(*) FROM core_agreement_acceptance WHERE erased_at IS NULL
-          AND (person_id = ${input.personId} OR agent_person_id = ${input.personId})) AS kept,
+          AND (person_id IN ${people} OR agent_person_id IN ${people})) AS kept,
         (SELECT count(*) FROM core_agreement_answer n JOIN core_agreement_acceptance a
-          ON a.id = n.acceptance_id WHERE a.person_id = ${input.personId}) AS answers`.execute(
-      ctx.db,
-    );
-    const kept = Number(rows[0]?.kept ?? 0);
+          ON a.id = n.acceptance_id WHERE a.person_id IN ${people}) AS answers`.execute(ctx.db);
+    const buyers = await buyerAcceptances(ctx, ids, addresses);
+    const kept =
+      Number(rows[0]?.kept ?? 0) + buyers.filter((b) => !b.unpaid && b.paidUnsettled).length;
     return {
       kept,
       until: kept ? keptUntil(ctx.now, await loadKeepYears(ctx.db)) : null,
       healthAnswers: Number(rows[0]?.answers ?? 0),
+      buyerDeleted: buyers.filter((b) => b.unpaid).length,
     };
   },
 });

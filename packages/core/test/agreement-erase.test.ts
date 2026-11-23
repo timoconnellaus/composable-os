@@ -85,6 +85,8 @@ function mailDouble(payments: IntegrationRuntime, connection: () => string) {
           throw new Error("Refused: only the host's own agreements mail scrubs a copy.");
         }
         const key = (input.args[0] as { key: string }).key;
+        // A gatekeeper whose scrub fails (a test names its connection).
+        if (failing.has(input.connectionId)) throw new Error("The integration host stopped");
         scrubCalls.push({
           purpose: input.purpose,
           key,
@@ -170,6 +172,8 @@ function mailDouble(payments: IntegrationRuntime, connection: () => string) {
 let events: ReturnType<typeof memoryEventSink>;
 const payments = paymentsDouble(() => events);
 let connectionId = "";
+/** Connections whose gatekeeper fails every scrub. */
+const failing = new Set<string>();
 const mail = mailDouble(payments.runtime, () => connectionId);
 let admin: ActingUser;
 let member: ActingUser;
@@ -927,6 +931,12 @@ describe("retention and the purge (criterion 14)", () => {
       { id: stale.buyer.principal.personId },
       context(admin, { events, clock: longAgo }),
     );
+    // Its only gatekeeper has been gone for 40 days (as the scrub records it).
+    await env.DB.prepare(
+      "UPDATE core_agreement_copy SET scrub_error = 'unreachable', scrub_gone_since = ?, scrub_done = '[]' WHERE acceptance_id IN (?, ?)",
+    )
+      .bind(new Date(Date.now() - 40 * DAY).toISOString(), stale.signed, stale.answered)
+      .run();
     const owedBuyer = await createBuyer(admin, "purgeowed");
     const owedRow = await run<{ id: string }>(
       "me.agreements.accept",
@@ -1169,7 +1179,7 @@ describe("erasing a child never reaches the guardian (review of PR #288, finding
     });
   });
 
-  it("more distinct addresses of their own than erase can be sure of is refused, never cut", async () => {
+  it("any number of addresses of their own is read in batches: nobody is un-erasable, none is cut", async () => {
     const buyer = await createBuyer(admin, "manyaddr");
     const done = await accept(buyer.principal, drawn);
     // As years of changed sign-in addresses would leave them: raw rows of their own.
@@ -1183,9 +1193,17 @@ describe("erasing a child never reaches the guardian (review of PR #288, finding
         .bind(`aga_many${tag}${i}`, `old${i}-${buyer.email}`, done.id)
         .run();
     }
-    const refused = await refusal(erase(buyer.principal.personId));
-    expect(refused.details.rule).toBe("agreement_addresses_too_many");
-    expect(await row("core_person", "id", buyer.principal.personId)).not.toBeNull();
+    const all = await agreementAddresses({ db: db.query } as never, [buyer.principal.personId]);
+    expect(all).toHaveLength(52);
+    await erase(buyer.principal.personId);
+    expect(await row("core_person", "id", buyer.principal.personId)).toBeNull();
+    // Every one of them, the last in address order included, is on the erased-address list.
+    for (const address of all) {
+      expect(
+        await row("core_erased_address", "hash", await erasedAddressHash(address)),
+        address,
+      ).not.toBeNull();
+    }
   });
 });
 
@@ -1249,9 +1267,9 @@ describe("the scrub goes where the copy went (finding 2)", () => {
         });
         expect(mail.scrubCalls.filter((c) => c.key === `agreement-copy:${b.id}`)).toEqual([]);
         const notices = await env.DB.prepare(
-          "SELECT title, body FROM core_notifications WHERE user_id = ? AND dedupe_key = 'agreement-copy:scrub-unreachable'",
+          "SELECT title, body FROM core_notifications WHERE user_id = ? AND dedupe_key = ?",
         )
-          .bind(admin.id)
+          .bind(admin.id, `agreement-copy:scrub-gone:${connectionId}`)
           .all<{ title: string; body: string }>();
         expect(notices.results).toHaveLength(1);
         expect(JSON.stringify(notices.results)).not.toContain(second.email);
@@ -1281,6 +1299,9 @@ describe("a paper form's free text (finding 3)", () => {
   it("who signed it and the note are the manager's only, and go when the guardian they may name is erased", async () => {
     const { parent, child } = await family("paper");
     const childId = child.principal.personId;
+    const parentName = (await row("core_person", "id", parent.principal.personId))
+      ?.display_name as string;
+    const named = `mother, ${parentName}`;
     const paper = await run<{ id: string }>(
       "agreement.recordPaper",
       {
@@ -1288,7 +1309,7 @@ describe("a paper form's free text (finding 3)", () => {
         versionId: guardianDoc.versionId,
         signedOn: new Date().toISOString().slice(0, 10),
         typedName: "Fixture Paper Name",
-        signedBy: "Fixture Parent Named",
+        signedBy: named,
         note: "Fixture note naming the parent",
       },
       staff(),
@@ -1305,11 +1326,11 @@ describe("a paper form's free text (finding 3)", () => {
       { acceptanceId: paper.id },
       staff(member),
     );
-    expect(JSON.stringify(pdf)).not.toContain("Fixture Parent Named");
+    expect(JSON.stringify(pdf)).not.toContain(parentName);
     expect(JSON.stringify(pdf)).not.toContain("Fixture note naming");
     expect(JSON.stringify(pdf)).toContain("Recorded from paper");
     expect(await run("agreement.acceptance.get", { id: paper.id }, staff())).toMatchObject({
-      signedBy: "Fixture Parent Named",
+      signedBy: named,
       note: "Fixture note naming the parent",
     });
     // A raw writer can only ever clear them, both together.
@@ -1481,5 +1502,407 @@ describe("the erase confirmation says what is kept (finding 7b)", () => {
         )
       ).code,
     ).toBe("forbidden");
+  });
+});
+
+// --- After the second privacy review of PR #288 --------------------------------------------------
+
+/** A live email-send connection of its own, with one sender bound as `key`. */
+async function liveConnection(key: string): Promise<string> {
+  const id = newId("connection");
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    "INSERT INTO core_integration_connection (id, vendor, scope, owner_user_id, title, status, resources, created_at, updated_at) VALUES (?, 'email-send', 'org', ?, 'Mail', 'active', ?, ?, ?)",
+  )
+    .bind(
+      id,
+      admin.id,
+      JSON.stringify([
+        {
+          key,
+          url: `email-send://sender/${key}%40example.com`,
+          pattern: "email-send://sender/:address",
+          title: "Mail",
+          tsType: "X",
+          bindingName: "X",
+        },
+      ]),
+      now,
+      now,
+    )
+    .run();
+  return id;
+}
+
+describe("a shared address never reaches another identified Person's purchases (round 2, finding 2)", () => {
+  it("erasing a child whose record holds the family address leaves the guardian's order, checkout and acceptances alone; a purchase that is nobody's with it goes", async () => {
+    const guardian = await createBuyer(admin, "hhg");
+    const family = `${unique("fam")}@family.example`.toLowerCase();
+    const child = await run<{ id: string }>(
+      "person.create",
+      { givenName: "Kid", familyName: `Hh${tag}`, emails: [{ email: family }] },
+      staff(),
+    );
+    await run(
+      "person.link.add",
+      { guardianId: guardian.principal.personId, dependantId: child.id },
+      staff(),
+    );
+    // The guardian's own purchases, made with the family address and given to the guardian.
+    const theirs = await run<{ id: string }>(
+      "order.start",
+      {
+        lines: [{ object: PASS, id: pass, quantity: 1 }],
+        email: family,
+        agreements: guestAgrees(),
+      },
+      as(PUBLIC),
+    );
+    await env.DB.prepare("UPDATE core_order SET person_id = ? WHERE id = ?")
+      .bind(guardian.principal.personId, theirs.id)
+      .run();
+    const checkout = await run<{ subscriptionId: string }>(
+      "subscription.start",
+      {
+        plan: { object: PLAN, id: plan },
+        returnUrl: RETURN,
+        email: family,
+        agreements: guestAgrees(),
+      },
+      as(PUBLIC),
+    );
+    await env.DB.prepare(
+      "UPDATE core_subscription_checkout SET payer_person_id = ?, holder_person_id = ? WHERE id = ?",
+    )
+      .bind(guardian.principal.personId, guardian.principal.personId, checkout.subscriptionId)
+      .run();
+    // And a purchase with the family address that is nobody's yet.
+    const nobodys = await run<{ id: string }>(
+      "order.start",
+      {
+        lines: [{ object: PASS, id: pass, quantity: 1 }],
+        email: family,
+        agreements: guestAgrees(),
+      },
+      as(PUBLIC),
+    );
+    const orderBefore = await row("core_order", "id", theirs.id);
+    const checkoutBefore = await row("core_subscription_checkout", "id", checkout.subscriptionId);
+    const acceptancesBefore = await rows("core_agreement_acceptance", "order_id", theirs.id);
+    const checkoutAcceptances = await rows(
+      "core_agreement_acceptance",
+      "subscription_checkout",
+      checkout.subscriptionId,
+    );
+    expect(acceptancesBefore).toHaveLength(2);
+
+    await erase(child.id);
+
+    expect(await row("core_order", "id", theirs.id)).toEqual(orderBefore);
+    expect(await row("core_subscription_checkout", "id", checkout.subscriptionId)).toEqual(
+      checkoutBefore,
+    );
+    expect(await rows("core_agreement_acceptance", "order_id", theirs.id)).toEqual(
+      acceptancesBefore,
+    );
+    expect(
+      await rows("core_agreement_acceptance", "subscription_checkout", checkout.subscriptionId),
+    ).toEqual(checkoutAcceptances);
+    expect(await row("core_customer", "person_id", guardian.principal.personId)).not.toBeNull();
+    // The purchase nobody had yet, made with the child's own address, is the child's to close.
+    expect(await row("core_order", "id", nobodys.id)).toMatchObject({
+      state: "cancelled",
+      email: null,
+    });
+    expect(await rows("core_agreement_acceptance", "order_id", nobodys.id)).toEqual([]);
+  });
+});
+
+describe("the scrub asks every gatekeeper the copy reached (round 2, finding 1)", () => {
+  /** An erased acceptance whose copy reached `via` (connection and sender), in that order. */
+  async function erasedWith(label: string, via: (live: string) => string[]) {
+    const buyer = await createBuyer(admin, label);
+    const done = await accept(buyer.principal, drawn);
+    const list = via(`${connectionId} k1`);
+    await env.DB.prepare("UPDATE core_agreement_copy SET via = ? WHERE acceptance_id = ?")
+      .bind(JSON.stringify(list), done.id)
+      .run();
+    // Erased with no integration host to reach: the sweep below asks.
+    await run("person.erase", { id: buyer.principal.personId }, context(admin, { events }));
+    await sendAgreementCopies({ db: db.query, integrations: mail.runtime });
+    const asked = mail.scrubCalls
+      .filter((c) => c.key === `agreement-copy:${done.id}`)
+      .map((c) => `${c.connectionId} ${c.resource}`);
+    return { id: done.id, asked, copy: await row("core_agreement_copy", "acceptance_id", done.id) };
+  }
+  const GONE = "con_gone k9";
+
+  it("a gone gatekeeper, before or after a live one, never stops the live one being asked", async () => {
+    const second = await liveConnection("k2");
+    for (const [label, order] of [
+      ["gonefirst", (live: string) => [GONE, live]],
+      ["golast", (live: string) => [live, GONE]],
+      ["three1", (live: string) => [GONE, live, `${second} k2`]],
+      ["three2", (live: string) => [live, `${second} k2`, GONE]],
+      ["three3", (live: string) => [`${second} k2`, GONE, live]],
+    ] as const) {
+      const { asked, copy } = await erasedWith(label, order);
+      const live = order(`${connectionId} k1`).filter((v) => v !== GONE);
+      expect([...asked].sort(), label).toEqual([...live].sort());
+      expect(copy, label).toMatchObject({
+        scrub_due_at: expect.any(String),
+        scrubbed_at: null,
+        scrub_error: "unreachable",
+        scrub_gone_since: expect.any(String),
+      });
+      expect(JSON.parse(copy?.scrub_done as string).sort(), label).toEqual([...live].sort());
+    }
+  });
+
+  it("a failing gatekeeper never stops the others, and keeps the purge's clock from starting", async () => {
+    const flaky = await liveConnection("k3");
+    failing.add(flaky);
+    try {
+      for (const [label, order] of [
+        ["failfirst", (live: string) => [`${flaky} k3`, live]],
+        ["faillast", (live: string) => [live, GONE, `${flaky} k3`]],
+      ] as const) {
+        const { asked, copy } = await erasedWith(label, order);
+        expect(asked, label).toContain(`${connectionId} k1`);
+        expect(copy, label).toMatchObject({ scrub_error: "failed", scrub_gone_since: null });
+        expect(JSON.parse(copy?.scrub_done as string), label).toEqual([`${connectionId} k1`]);
+      }
+    } finally {
+      failing.delete(flaky);
+    }
+  });
+
+  it("all of them done: scrubbed; the purge after 30 days gone names exactly the gatekeepers left", async () => {
+    const second = await liveConnection("k4");
+    const all = await erasedWith("alldone", (live) => [live, `${second} k4`]);
+    expect(all.copy).toMatchObject({ scrub_due_at: null, scrubbed_at: expect.any(String) });
+    // Erased long ago, with one gatekeeper gone for 40 days and one live that scrubbed.
+    const buyer = await createBuyer(admin, "purgenames");
+    const done = await accept(buyer.principal, drawn);
+    await env.DB.prepare("UPDATE core_agreement_copy SET via = ? WHERE acceptance_id = ?")
+      .bind(JSON.stringify([GONE, `${connectionId} k1`]), done.id)
+      .run();
+    await run(
+      "person.erase",
+      { id: buyer.principal.personId },
+      context(admin, { events, clock: () => new Date(Date.now() - 8 * 365 * DAY) }),
+    );
+    await sendAgreementCopies({ db: db.query, integrations: mail.runtime });
+    // Before the 30 days: kept.
+    await runAgreementRetention(db);
+    expect(await row("core_agreement_acceptance", "id", done.id)).not.toBeNull();
+    await env.DB.prepare(
+      "UPDATE core_agreement_copy SET scrub_gone_since = ? WHERE acceptance_id = ?",
+    )
+      .bind(new Date(Date.now() - 40 * DAY).toISOString(), done.id)
+      .run();
+    await runAgreementRetention(db);
+    expect(await row("core_agreement_acceptance", "id", done.id)).toBeNull();
+    const audit = await env.DB.prepare(
+      "SELECT result FROM core_audit WHERE operation = 'agreement.purgeKept' ORDER BY rowid DESC LIMIT 1",
+    ).first<{ result: string }>();
+    const named = (
+      JSON.parse(audit?.result ?? "{}").unscrubbed as {
+        acceptanceId: string;
+        gatekeepers: string[];
+      }[]
+    ).find((u) => u.acceptanceId === done.id);
+    expect(named?.gatekeepers).toEqual([GONE]);
+  });
+
+  it("a connection that needs re-authorising is not gone: owed, its own notice, and no purge clock", async () => {
+    const paused = await liveConnection("k5");
+    await env.DB.prepare("UPDATE core_integration_connection SET status = 'expired' WHERE id = ?")
+      .bind(paused)
+      .run();
+    const gone = "con_alsogone k8";
+    const { asked, copy } = await erasedWith("inactive", (live) => [`${paused} k5`, gone, live]);
+    expect(asked).toEqual([`${connectionId} k1`]);
+    expect(copy).toMatchObject({ scrub_error: "inactive", scrub_gone_since: null });
+    // One notice per connection in question, each naming nobody.
+    for (const key of [
+      `agreement-copy:scrub-inactive:${paused}`,
+      "agreement-copy:scrub-gone:con_alsogone",
+    ]) {
+      const notices = await env.DB.prepare(
+        "SELECT body FROM core_notifications WHERE user_id = ? AND dedupe_key = ?",
+      )
+        .bind(admin.id, key)
+        .all<{ body: string }>();
+      expect(notices.results, key).toHaveLength(1);
+    }
+  });
+
+  it("where a send went is only ever added to, by any writer", async () => {
+    const buyer = await createBuyer(admin, "viaraw");
+    const done = await accept(buyer.principal, drawn);
+    for (const value of ["'[]'", "NULL", "json_array('x y')"]) {
+      await expect(
+        env.DB.prepare(`UPDATE core_agreement_copy SET via = ${value} WHERE acceptance_id = ?`)
+          .bind(done.id)
+          .run(),
+        value,
+      ).rejects.toThrow(/core_agreement_copy_fixed/);
+    }
+    await env.DB.prepare(
+      "UPDATE core_agreement_copy SET via = json_insert(via, '$[#]', 'x y') WHERE acceptance_id = ?",
+    )
+      .bind(done.id)
+      .run();
+    expect(
+      JSON.parse((await row("core_agreement_copy", "acceptance_id", done.id))?.via as string),
+    ).toEqual([`${connectionId} k1`, "x y"]);
+  });
+});
+
+describe("paper forms that name the erased guardian, and only those (round 2, finding 3)", () => {
+  it("erasing guardian A clears the forms that name A; guardian B's and the child's own stay", async () => {
+    const family = `Rowe${tag}`;
+    const a = await run<{ id: string }>(
+      "person.create",
+      { givenName: "Annabel", familyName: family },
+      staff(),
+    );
+    const b = await createBuyer(admin, "papb");
+    const kid = await createBuyer(admin, "papk");
+    for (const g of [a.id, b.principal.personId]) {
+      await run("person.link.add", { guardianId: g, dependantId: kid.principal.personId }, staff());
+    }
+    const paper = (signedBy: string, note: string) =>
+      run<{ id: string }>(
+        "agreement.recordPaper",
+        {
+          personId: kid.principal.personId,
+          versionId: guardianDoc.versionId,
+          signedOn: new Date().toISOString().slice(0, 10),
+          typedName: "Fixture Paper",
+          signedBy,
+          note,
+        },
+        staff(),
+      );
+    const byA = await paper(`mother, Annabel ${family}`, "Fixture note");
+    const pairA = await paper(
+      "Fixture parent",
+      `Signed by ${family.toUpperCase()}, annabel, at the desk`,
+    );
+    const byB = await paper("Fixture Guardian B", "Fixture B note");
+    const byKid = await paper("Fixture Kid Self", "Fixture seen ID");
+    // A surname alone is a sibling's or the other parent's too: not matched.
+    const surnameOnly = await paper(`father, ${family}`, "Fixture note");
+    await erase(a.id);
+    for (const id of [byA.id, pairA.id]) {
+      expect(await row("core_agreement_acceptance", "id", id), id).toMatchObject({
+        signed_by: null,
+        note: null,
+        typed_name: "Fixture Paper",
+      });
+    }
+    expect(await row("core_agreement_acceptance", "id", byB.id)).toMatchObject({
+      signed_by: "Fixture Guardian B",
+      note: "Fixture B note",
+    });
+    expect(await row("core_agreement_acceptance", "id", byKid.id)).toMatchObject({
+      signed_by: "Fixture Kid Self",
+      note: "Fixture seen ID",
+    });
+    expect(await row("core_agreement_acceptance", "id", surnameOnly.id)).toMatchObject({
+      signed_by: `father, ${family}`,
+    });
+  });
+});
+
+describe("a part-paid order of an erased Person (round 2, finding 4a)", () => {
+  it("a balance paid after the erase is never honoured: recorded late, admins told to refund it", async () => {
+    const buyer = await createBuyer(admin, "partpaid");
+    const order = await run<{ id: string; total: number }>(
+      "order.start",
+      {
+        lines: [{ object: PASS, id: pass, quantity: 1 }],
+        email: buyer.email,
+        agreements: guestAgrees(),
+      },
+      as(PUBLIC),
+    );
+    await env.DB.prepare(
+      "UPDATE core_order SET state = 'part_paid', paid = 1000, person_id = ?, version = version + 1 WHERE id = ?",
+    )
+      .bind(buyer.principal.personId, order.id)
+      .run();
+    await erase(buyer.principal.personId);
+    expect(await row("core_order", "id", order.id)).toMatchObject({
+      state: "part_paid",
+      person_id: null,
+      email: null,
+    });
+    const paid = await run<{ outcome: string }>(
+      "fixture.verifiedPayment",
+      {
+        eventId: unique("evt"),
+        orderId: order.id,
+        amount: order.total - 1000,
+        paymentRef: unique("pi"),
+      },
+      staff(),
+    );
+    expect(paid.outcome).toBe("late");
+    expect(await row("core_order", "id", order.id)).toMatchObject({
+      state: "part_paid",
+      paid: 1000,
+    });
+    const notices = await env.DB.prepare(
+      "SELECT body FROM core_notifications WHERE user_id = ? AND body LIKE ?",
+    )
+      .bind(admin.id, `%${order.id}%`)
+      .all<{ body: string }>();
+    expect(JSON.stringify(notices.results)).toContain("cannot be honoured: refund it");
+    expect(JSON.stringify(notices.results)).not.toContain("Honour it or refund it");
+    expect((await refusal(run("order.honourLate", { orderId: order.id }, staff()))).code).not.toBe(
+      "ok",
+    );
+  });
+});
+
+describe("the erase preview (round 2, finding 4d)", () => {
+  it("is a person's only, reads a Person in the Trash, and counts a buyer's purchases that are theirs", async () => {
+    const { buyer } = await agreedBuyer("preview2");
+    await run(
+      "order.start",
+      {
+        lines: [{ object: PASS, id: pass, quantity: 1 }],
+        email: buyer.email,
+        agreements: guestAgrees(),
+      },
+      as(PUBLIC),
+    );
+    await run("person.delete", { id: buyer.principal.personId }, staff());
+    const preview = await run<{ kept: number; healthAnswers: number; buyerDeleted: number }>(
+      "agreement.erasePreview",
+      { personId: buyer.principal.personId },
+      staff(),
+    );
+    expect(preview).toMatchObject({ kept: 2, healthAnswers: 1, buyerDeleted: 2 });
+    for (const ai of AI_ACTORS) {
+      expect(
+        (
+          await refusal(
+            run(
+              "agreement.erasePreview",
+              { personId: buyer.principal.personId },
+              staff(admin, {
+                ...ai,
+                ...(ai.actor === "mcp" ? { grantedPermissions: ["audit:read"] } : {}),
+              }),
+            ),
+          )
+        ).code,
+        ai.actor,
+      ).not.toBe("ok");
+    }
   });
 });

@@ -1633,7 +1633,7 @@ Deviations and decisions, and why:
 - **The open desk session** (decision 22) has no table yet: step 6 must end a Person's open session
   on erase and keep a closed one detached with the acceptances it made.
 
-cos-runner's main module is 5,619 KiB as shipped after merging `main` at 42fe315b (budget 7,168).
+cos-runner's main module is 5,624 KiB as shipped after the second review's fixes, on `main` at 42fe315b (budget 7,168).
 
 A Person purged from the Trash owes the same scrub of their copies (the same trigger). Not built
 here: a download link on the kept page (no screen downloads a PDF yet, as
@@ -1665,3 +1665,15 @@ Fixed in the same PR (ADR 0646 amended; migration 0855 edited in place, as it wa
    erase (find, open, hold, release); `agreement.erasePreview` on the Erase requests list (the app
    has no erase button of its own); a typed confirmation of how many records a shorter period makes
    due; no silent caps in erase's reads.
+
+### Step 8: after the second privacy review of PR #288 (2026-11-24)
+
+Fixed in the same PR (ADR 0646 amended; migration 0855 edited in place): the scrub asks every
+gatekeeper each time and records which finished (`scrub_done`); the purge's 30 days count only
+while every gatekeeper left is gone (`scrub_gone_since`), and its audit names them; a connection
+that needs re-authorising is `inactive`, never gone, with its own notice per connection; erase
+touches only purchases that are the erased Person's or nobody's with their own address (narrowing
+ADR 0320); a guardian's erase clears only paper forms whose text names them; a late payment on an
+order an erase detached (cancelled, or part-paid) is refunded, never honoured; `erasePreview` is a
+person's, reads the Trash and merged records, and counts buyers' acceptances; addresses are read in
+batches and the erased-address list written 20 rows a statement, so nobody is un-erasable.
