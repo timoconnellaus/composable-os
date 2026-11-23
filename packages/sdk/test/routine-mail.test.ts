@@ -197,6 +197,14 @@ describe("what a value may hold", () => {
       "Ring work 2",
       "St John's Hall, Studio 3",
       "Data and text in 10 minutes",
+      // The second review: ordinary names with a dot are not links.
+      "St. John's Hall",
+      "Mr. Smith",
+      "Dr. Who",
+      "Box.Fit",
+      "U.S. Open prep",
+      "Studio 2.West",
+      "Hall St.Kilda",
     ]) {
       expect(unroutineText(value, 120), value).toBeNull();
     }
@@ -239,6 +247,23 @@ describe("what a value may hold", () => {
       "Sam\u3164",
       "Sam\u202aX",
       "Sam\u2066X",
+      // The second review: what the first filter missed.
+      "call zero four zero zero one two three",
+      "WhatsApp gymhelp",
+      "Signal me: gymhelp",
+      "Telegram @gymhelp",
+      "Visit gymhelp dot xyz",
+      "gymhelp,com",
+      "gymhelp com",
+      "bit ly slash refund",
+      "https colon slash slash gymhelp",
+      "gymhelp.c0m",
+      "gymhelp\u0589com",
+      "gymhelp\u06d4com",
+      "gymhelp\ua4f8com",
+      "gymhelp\u2e33com",
+      "gymhelp\u2022com",
+      "gymhelp\u2e31com",
     ]) {
       expect(unroutineText(value, 120), value).not.toBeNull();
     }

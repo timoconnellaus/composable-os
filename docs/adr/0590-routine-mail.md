@@ -239,3 +239,73 @@ the admins told; plus-tagged addresses against the cap), `packages/core/test/rou
 (concurrent claims racing the cap, the organisation's limit, the switch at claim, an order's
 address, the adjudicator's approval, retention, erase), `packages/sdk/test/routine-mail.test.ts`
 (the stronger value checks).
+
+## Amended 2026-11-23, after the second security review: default deny, marks the host keeps
+The first amendment derived the hold by searching the audit log for an AI's writes; anything the
+search did not see counted as clean (a value the host copied, a change after the approved email was
+prepared, an older or purged row). Replaced, as the coordinator decided:
+
+- **A mark per value, written at write time.** `core_value_mark` (migration 0750): one row per
+  record field (and `$created` for a record's creation) with a SHA-256 of the value written and who
+  stands behind it, written by the pipeline in the batch of every write it records
+  (`markStatements`, `packages/core/src/routine-mail/marks.ts`). The standing is: `person` (a human
+  staff account's own write, an AI's or a tool's write a human approved, a tool a person called);
+  `customer` (the customer's own write, through the seam); `public` (an unauthenticated buyer);
+  `default` (a declared default, a code the host generates); `host` (anything the host filled with
+  no source named: an automation, the system, a behaviour); `ai` (the assistant's, an MCP client's,
+  a tool an AI called, or anything only the adjudicator approved). A tool's writes stand as its
+  verified caller (`markStanding`, set by the runner); a customer's tool run is the customer's.
+- **Routine mail reads marks only.** Every value an email shows (each slot field, through every
+  relation: `class.room.name` checks the room's name; each line of an `each`; the calendar's title,
+  place and times) needs a `person` or `default` mark for the value it has now; the record's
+  existence, its link to its Person and its state need any mark but `ai` (or `public` for the link);
+  each address needs a `person`/`default` mark on the Person's address list, or is the Person's own
+  verified sign-in address; a paid order's address needs the order not made by an AI; a guardian's
+  email shows the member's name, which may also be the member's own (`customer`). No mark, a mark for
+  another value (the hash differs), the host's or an AI's, or any failure to read a mark: held,
+  prepared and waiting, never lost. There is no audit-log search. The run's cause (an AI's
+  unapproved change starting the run) is still checked from its root audit row.
+- **Copies carry their sources' marks.** The host names what it copied and the copy's mark is the
+  weakest of the sources' (each checked against the source's value): a series' class (copied fields
+  from the series, its times and zone from the series' rule fields, on generation and on a series
+  change), a title taken from a related record (`titleDefault`, the class type's name), a moved
+  booking (`movedFrom`: every value the old booking had), a granted record (a ticket's copied fields
+  from its item, its name from the item's title; its code is the host's own `default`), a person
+  merge (both People's names and addresses). A host write never makes a value a person's.
+- **What approval clears.** Approving a held email (a human account's `approval.approve`; never the
+  adjudicator) marks exactly the values and the address it showed, as they were when it was
+  prepared (the row keeps their hashes, `sources`): `person` for those hashes only. A value written
+  after it was prepared has another hash and keeps its own mark. The approval card says so: approving
+  sends the email and means you stand behind the values it shows, so later routine email about the
+  record goes out on its own while they stay as they are. A person rewriting a value marks it too.
+- **The text filter is the second line.** It now also holds numbers in words, messaging apps' names
+  (WhatsApp, Signal, Telegram), spelt-out, comma-separated, spaced and look-alike-letter domains
+  (`dot xyz`, `gymhelp,com`, `gymhelp com`, `c0m`, `bit ly`, `https colon slash slash`) and more
+  look-alike dots (U+0589, U+06D4, U+A4F8, U+2E33, U+2022, U+2E31); a dot followed by a space, or by
+  anything that is not a domain, no longer holds ("St. John's Hall", "Box.Fit", "Hall St.Kilda").
+  In plain words: the filter cannot stop a scam with no link and no number; the marks are what stop
+  an AI's words.
+- **A kind turned off is not sent at all**, whether or not the pack's routine email is on (it is not
+  sent for approval either); the settings card says so before the admin clicks.
+
+**Not made default-deny, and why.**
+- Family links are not marked: `person.link.add` and `.end` are a human's only (`actors: ["human"]`,
+  ADR 0540), so a live link is a person's by construction.
+- A record's state and its link to its Person may be the host's (a waiter moved in, a paid hold
+  booked, a ticket's holder from its paid order): these are the host's own rules acting on records
+  people made, not words; an AI's write of them is `ai` and holds.
+- Values written before migration 0750 carry no mark, so their emails are held until a person
+  rewrites the value or approves one email that shows it. This fails closed; it is the cost of an
+  upgrade, and routine email is off until an admin turns it on anyway.
+- A write made outside the pipeline (raw SQL by host code) writes no mark: it reads as unmarked and
+  holds.
+
+Proof, added: `apps/runner/test/routine-mail.test.ts`: a series an MCP client titled (the class the
+host makes from it is held; a person's series is sent); a class type an MCP client named, taken as a
+class's title; a room an MCP client renamed, two relations away; approving an AI's booking's email
+does not clear an address the AI changed afterwards (the reminder to it is held); a backlog prepared
+while on and claimed after the pack is turned off is an ordinary send.
+`packages/core/test/routine-mail-review.test.ts`: the marks a person's, an AI's, a human-approved and
+an adjudicator-approved write leave. `packages/sdk/test/routine-mail.test.ts`: the filter's new holds
+and the ordinary names it lets through. The 500-pending flood is `apps/runner/test/bookings-held.test.ts`
+(routine cancellations wait behind a full queue and are each sent once there is room).

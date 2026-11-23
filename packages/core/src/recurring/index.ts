@@ -20,6 +20,7 @@
 //   `ended` states) does the same for every future record, edited or not.
 // - **Closures** (records of the declared closure object): nothing is made on their dates, and
 //   the future records already made in them are cancelled (a host move into `cancel`).
+
 import { WEEKDAYS } from "@composable-os/sdk";
 import { addDaysToDate } from "../automations/cron.ts";
 import { ConflictError, ValidationError } from "../errors.ts";
@@ -28,6 +29,7 @@ import type { ObjectDefinition, RecurringDefinition } from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
 import { followersOn } from "../records/follows.ts";
 import type { Mover } from "../records/transitions.ts";
+import type { MarkSource } from "../routine-mail/marks.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import {
   isoWeekday,
@@ -71,14 +73,14 @@ export interface RecurringWriter {
     ctx: HandlerContext,
     object: ObjectDefinition,
     values: Record<string, unknown>,
-    options: { by: Mover },
+    options: { by: Mover; copied?: Record<string, MarkSource[]> },
   ): Promise<string>;
   update(
     ctx: HandlerContext,
     object: ObjectDefinition,
     id: string,
     values: Record<string, unknown>,
-    options: { by: Mover },
+    options: { by: Mover; copied?: Record<string, MarkSource[]> },
   ): Promise<boolean>;
   remove(ctx: HandlerContext, object: ObjectDefinition, id: string): Promise<void>;
 }
@@ -224,6 +226,39 @@ function occurrenceValues(
   return values;
 }
 
+/**
+ * Where a generated record's values come from (ADR 0590): each copied field from its series field,
+ * and its times and zone from the series' rule fields, so their marks are the series' own (an AI's
+ * series title is an AI's in every class made from it).
+ */
+function occurrenceSources(
+  def: RecurringDefinition,
+  seriesObject: string,
+  seriesId: string,
+  series: Record<string, unknown>,
+  fields: Iterable<string>,
+): Record<string, MarkSource[]> {
+  const ruleFields = Object.values(def.rule).filter((f): f is string => typeof f === "string");
+  const fromRule = ruleFields.map((field) => ({
+    object: seriesObject,
+    id: seriesId,
+    field,
+    value: series[field] ?? null,
+  }));
+  const out: Record<string, MarkSource[]> = {};
+  for (const field of fields) {
+    const source = def.copy[field];
+    if (source) {
+      out[field] = [
+        { object: seriesObject, id: seriesId, field: source, value: series[source] ?? null },
+      ];
+    } else if (field === def.into.starts || field === def.into.ends || field === def.into.zone) {
+      out[field] = fromRule;
+    }
+  }
+  return out;
+}
+
 // --- Generation ------------------------------------------------------------------------------------
 
 function generatedOf(def: RecurringDefinition): ObjectDefinition {
@@ -336,7 +371,10 @@ export async function generateSeries(
       ...occurrenceValues(def, rule, occurrence, series),
       [def.link]: id,
     };
-    const record = await records().create(ctx, generated, values, { by: "host" });
+    const record = await records().create(ctx, generated, values, {
+      by: "host",
+      copied: occurrenceSources(def, object.name, id, series, Object.keys(values)),
+    });
     ctx.write(
       occurrenceStatement({
         seriesObject: object.name,
@@ -605,7 +643,10 @@ export async function seriesChanged(
       ctx.write(guardStatement("claimed", generated.name, plan.id, plan.claimed));
     }
     if (plan.action === "update") {
-      await records().update(ctx, generated, plan.id, plan.values, { by: "host" });
+      await records().update(ctx, generated, plan.id, plan.values, {
+        by: "host",
+        copied: occurrenceSources(def, object.name, id, after, Object.keys(plan.values)),
+      });
     } else if (plan.action === "cancel" && stateField) {
       await records().update(ctx, generated, plan.id, { [stateField]: def.cancel }, { by: "host" });
     } else {

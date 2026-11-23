@@ -17,6 +17,7 @@
 // - held for a person: a value not routine, a slot left empty, the daily cap per recipient, a run
 //   started by hand or replayed, a change an AI made that no person approved;
 // - the switch per kind: here (`off` rows send nothing and queue nothing).
+
 import type { CoreDatabase } from "@composable-os/db";
 import {
   calendarsOf,
@@ -46,6 +47,7 @@ import { staffPrincipal } from "../principals.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { extensionSettingValues } from "../records/windows.ts";
 import { visibleSource } from "../visibility/index.ts";
+import { CREATED, type Standing, valueHash } from "./marks.ts";
 
 type Db = Kysely<CoreDatabase>;
 type Values = Record<string, unknown>;
@@ -546,98 +548,23 @@ export async function routineOrderRecipient(
 const PERSON_DECIDED = (decidedBy: string | null, kind: string | null) =>
   decidedBy !== null && decidedBy !== ADJUDICATOR_PRINCIPAL && kind === "human";
 
-/**
- * What an AI (the assistant, an MCP client) wrote about a record that no person approved and no
- * person has since overwritten or cleared (B1, B2), from the audit trail: its creation, and the
- * latest write of each field in `fields` (`all`: any write at all). Writes at or before `since`
- * (a person's approval of an email about the record) are cleared.
- */
-export async function aiWritten(
-  db: Db,
-  object: string,
-  id: string,
-  fields: ReadonlySet<string> | "all",
-  since: string | null,
-): Promise<string[]> {
-  const rows = await db
-    .selectFrom("core_audit_changes as c")
-    .innerJoin("core_audit as a", "a.id", "c.audit_id")
-    .leftJoin("core_pending_action as p", "p.id", "a.pending_action_id")
-    .leftJoin("core_user as u", "u.id", "p.decided_by")
-    .select([
-      "c.at",
-      "c.action",
-      "c.diff",
-      "a.id as auditId",
-      "a.actor",
-      "a.origin",
-      "p.decided_by",
-      "u.kind",
-    ])
-    .where("c.object_type", "=", object)
-    .where("c.record_id", "=", id)
-    .orderBy("c.id", "desc")
-    .limit(200)
-    .execute();
-  const roots = new Map<string, Promise<boolean>>();
-  /** A write is an AI's when an AI made it, or made the call its cascade began with (a tool). */
-  const byAi = async (r: (typeof rows)[number]): Promise<boolean> => {
-    if (since && r.at <= since) return false;
-    if (AI_ACTORS.has(r.actor)) return !PERSON_DECIDED(r.decided_by, r.kind ?? null);
-    let root: string | undefined;
-    try {
-      root = (JSON.parse(r.origin) as { rootEventId?: string }).rootEventId;
-    } catch {}
-    if (!root || root === r.auditId) return false;
-    let known = roots.get(root);
-    if (!known) {
-      known = startedBy(db, root).then((b) => Boolean(b && AI_ACTORS.has(b.actor) && !b.approved));
-      roots.set(root, known);
-    }
-    return known;
-  };
-  const out: string[] = [];
-  const created = rows.find((r) => r.action === "create");
-  if (created && (await byAi(created))) out.push(`${object} ${id} was made by an AI`);
-  if (fields === "all") {
-    for (const r of rows) {
-      if (r.action !== "create" && (await byAi(r))) {
-        out.push(`${object} ${id} was changed by an AI`);
-        break;
-      }
-    }
-    return out;
-  }
-  for (const field of fields) {
-    const latest = rows.find((r) => {
-      if (r.action !== "update") return true;
-      try {
-        return Object.hasOwn(JSON.parse(r.diff) as object, field);
-      } catch {
-        return false;
-      }
-    });
-    if (latest && latest.action === "update" && (await byAi(latest))) {
-      out.push(`${object} ${id}'s ${field} was last written by an AI`);
-    }
-  }
-  return out;
+/** A value an email showed: object, record, field and the value's hash. */
+interface Shown {
+  o: string;
+  r: string;
+  f: string;
+  h: string;
 }
 
-/** When a person last approved a held routine email about the record: what it clears. */
-async function personClearedAt(db: Db, object: string, id: string): Promise<string | null> {
+/** Whether `address` is the Person's own verified customer sign-in address (their own). */
+async function verifiedAddress(db: Db, personId: string, address: string): Promise<boolean> {
   const row = await db
-    .selectFrom("core_routine_mail as r")
-    .innerJoin("core_pending_action as p", "p.id", "r.pending_action_id")
-    .innerJoin("core_user as u", "u.id", "p.decided_by")
-    .select((eb) => eb.fn.max("p.decided_at").as("at"))
-    .where("r.record_object", "=", object)
-    .where("r.record_id", "=", id)
-    .where("p.status", "=", "applied")
-    .where("u.kind", "=", "human")
-    .where("p.decided_by", "!=", ADJUDICATOR_PRINCIPAL)
+    .selectFrom("core_customer")
+    .select("email")
+    .where("person_id", "=", personId)
+    .where("email_verified", "=", 1)
     .executeTakeFirst();
-  return (row?.at as string | null | undefined) ?? null;
+  return Boolean(row?.email && row.email.trim().toLowerCase() === address.trim().toLowerCase());
 }
 
 /** A person not in the Trash and not merged away: their primary address and name. */
@@ -898,22 +825,138 @@ export async function prepareRoutineMail(
 
   const calendar = await calendarFor(records, object, record, message, selfValues, fill);
 
-  // B1 and B2: nothing about the email an AI wrote that no person approved, for the record's life:
-  // the record itself (any write), the Persons it goes to (any write: their address, their name),
-  // and each field that fed a slot (its latest write). A person approving one held email about the
-  // record clears what was written before that approval.
-  const since = await personClearedAt(db, object, send.record);
-  const written: string[] = [];
-  written.push(...(await aiWritten(db, object, send.record, "all", since)));
-  for (const person of new Set([aboutPersonId, ...recipients.map((r) => r.personId)])) {
-    if (person) written.push(...(await aiWritten(db, "person", person, "all", since)));
+  // Default deny (ADR 0590, the second review): every value the email shows and every address it
+  // goes to needs a host-kept mark that a person stands behind it, for the value it has now. No
+  // mark, a mark for another value, the host's or an AI's, or any failure to read: held.
+  const shown: Shown[] = [];
+  const unmarked: string[] = [];
+  try {
+    const check = async (
+      o: string,
+      r: string,
+      f: string,
+      value: unknown,
+      allowed: readonly Standing[],
+      label: string,
+    ) => {
+      const h = await valueHash(value);
+      shown.push({ o, r, f, h });
+      const mark = await db
+        .selectFrom("core_value_mark")
+        .select(["value_hash", "standing"])
+        .where("object_type", "=", o)
+        .where("record_id", "=", r)
+        .where("field", "=", f)
+        .executeTakeFirst();
+      if (!mark || mark.value_hash !== h || !allowed.includes(mark.standing)) {
+        unmarked.push(
+          `${label} (${mark ? (mark.value_hash === h ? mark.standing : "changed since") : "no one"})`,
+        );
+      }
+    };
+    const definition = object === ROUTINE_ABOUT_ORDER ? undefined : getObject(object);
+    // The record exists by a person's, the customer's or the host's own rule, never an AI's.
+    await check(
+      object,
+      send.record,
+      CREATED,
+      "",
+      ["person", "customer", "public", "default", "host"],
+      `the ${spec.about} itself`,
+    );
+    // Its link to its Person, and its state, the same.
+    const personField = definition?.customer?.field;
+    if (personField) {
+      await check(
+        object,
+        send.record,
+        personField,
+        record[personField],
+        ["person", "customer", "default", "host"],
+        `whose ${spec.about} it is`,
+      );
+    }
+    const stateField = definition?.states?.field;
+    if (stateField) {
+      await check(
+        object,
+        send.record,
+        stateField,
+        record[stateField],
+        ["person", "customer", "default", "host"],
+        `the ${spec.about}'s state`,
+      );
+    }
+    // Every field that fed a slot or the calendar: a person's own write, or a default.
+    for (const source of records.sources.values()) {
+      const row = await records.get(source.object, source.id);
+      for (const field of source.fields) {
+        if (source.object === object && source.id === send.record && field === personField)
+          continue;
+        await check(
+          source.object,
+          source.id,
+          field,
+          row?.[field],
+          ["person", "default"],
+          `${source.object} ${source.id}'s ${field}`,
+        );
+      }
+    }
+    // Each address it goes to.
+    for (const recipient of recipients) {
+      if (recipient.rule === "order") {
+        // A paid order's own address (the one that paid), or a customer's verified address.
+        const orderId =
+          object === ROUTINE_ABOUT_ORDER
+            ? send.record
+            : text(record[definition?.sellable?.moves?.order ?? ""]);
+        const order = orderId ? await records.get(ROUTINE_ABOUT_ORDER, orderId) : null;
+        if (!order) unmarked.push("the order");
+        if (order)
+          await check(
+            "order",
+            String(order.id),
+            CREATED,
+            "",
+            ["person", "customer", "public", "host"],
+            "the order",
+          );
+        continue;
+      }
+      if (!recipient.personId) continue;
+      if (await verifiedAddress(db, recipient.personId, recipient.address)) continue;
+      const emails = await db
+        .selectFrom("core_person_emails")
+        .select("email")
+        .where("person_id", "=", recipient.personId)
+        .execute();
+      await check(
+        "person",
+        recipient.personId,
+        "emails",
+        emails.map((e) => e.email),
+        ["person", "default"],
+        `${recipient.address}`,
+      );
+    }
+    // The member's name, in a guardian's email: a person's write, or the member's own.
+    if (aboutPersonId && memberName !== null) {
+      await check(
+        "person",
+        aboutPersonId,
+        "displayName",
+        memberName,
+        ["person", "customer", "default"],
+        "the member's name",
+      );
+    }
+  } catch (error) {
+    unmarked.push(
+      `who stands behind it could not be read (${error instanceof Error ? error.message : String(error)})`,
+    );
   }
-  for (const source of records.sources.values()) {
-    if (source.object === object && source.id === send.record) continue;
-    written.push(...(await aiWritten(db, source.object, source.id, source.fields, since)));
-  }
-  if (written.length)
-    held.push(`written by an AI with no person's approval: ${written.join(", ")}`);
+  if (unmarked.length) held.push(`no person stands behind ${unmarked.join(", ")}`);
 
   const rows: Insertable<CoreDatabase["core_routine_mail"]>[] = [];
   const keys: string[] = [];
@@ -969,6 +1012,7 @@ export async function prepareRoutineMail(
       body: on ? body : null,
       calendar: on && calendar.length ? JSON.stringify(calendar) : null,
       related: JSON.stringify([...records.read].slice(0, 20)),
+      sources: JSON.stringify(shown),
       pending_action_id: null,
       error: null,
       created_at: now,

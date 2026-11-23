@@ -720,7 +720,7 @@ describe("never on an AI's say-so, for the record's life (B1)", () => {
     const rows = await rowsFor(out.bookingId as string, 2);
     const reminder = rows.find((r) => r.kind === "bookings.reminder");
     expect(reminder).toMatchObject({ status: "waiting", routine: 0 });
-    expect(reminder?.held_reason).toMatch(/written by an AI with no person's approval/);
+    expect(reminder?.held_reason).toMatch(/no person stands behind the booking itself \(ai\)/);
     expect(await mailTo(who.email)).toEqual([]);
   });
 
@@ -739,7 +739,7 @@ describe("never on an AI's say-so, for the record's life (B1)", () => {
     );
     const [row] = await rowsFor(out.bookingId as string);
     expect(row).toMatchObject({ status: "waiting", routine: 0 });
-    expect(row?.held_reason).toMatch(/person .* was made by an AI/);
+    expect(row?.held_reason).toMatch(/no person stands behind .*@members\.test \(ai\)/);
     expect(await mailTo(email)).toEqual([]);
   });
 
@@ -755,7 +755,7 @@ describe("never on an AI's say-so, for the record's life (B1)", () => {
     );
     const [row] = await rowsFor(out.bookingId as string);
     expect(row).toMatchObject({ recipient: moved, status: "waiting", routine: 0 });
-    expect(row?.held_reason).toMatch(/person .* was changed by an AI/);
+    expect(row?.held_reason).toMatch(/no person stands behind .*@elsewhere\.test \(ai\)/);
     expect(await mailTo(moved)).toEqual([]);
   });
 
@@ -806,7 +806,7 @@ describe("never words an AI wrote (B2)", () => {
     const rows = await rowsFor(bookingId, 2);
     const change = rows.find((r) => r.kind === "bookings.change");
     expect(change).toMatchObject({ status: "waiting", routine: 0 });
-    expect(change?.held_reason).toMatch(/title was last written by an AI/);
+    expect(change?.held_reason).toMatch(/'s title \(ai\)/);
     expect(change?.held_reason).toMatch(/a phone number/);
     expect((await mailTo(who.email)).map((m) => m.subject)).toEqual([
       expect.stringMatching(/^Booked: /),
@@ -822,9 +822,7 @@ describe("never words an AI wrote (B2)", () => {
     );
     await moveClass(classId, 5);
     const rows = await rowsFor(bookingId, 2);
-    expect(rows.find((r) => r.kind === "bookings.change")?.held_reason).toMatch(
-      /title was last written by an AI/,
-    );
+    expect(rows.find((r) => r.kind === "bookings.change")?.held_reason).toMatch(/'s title \(ai\)/);
     await run(
       "record.update",
       { object: CLASS, id: classId, values: { title: "Strength Plus" } },
@@ -895,6 +893,174 @@ describe("the switch at send time (F2), and off until turned on (D1)", () => {
       expect(row).toMatchObject({ status: "waiting", routine: 0 });
       expect((await pendingOf(row?.pending_action_id as string))?.action_kind).toBe("email.send");
       expect(await mailTo(who.email)).toEqual([]);
+    } finally {
+      await run("routineMail.settings.update", { packs: { bookings: true } }, staff());
+    }
+  });
+});
+
+// --- The second review of PR #267: default deny, marks the host keeps ---------------------------
+
+/** A class a series made, as the minute cron makes it (the host). */
+async function seriesClass(ctx: InvocationContext, title?: string): Promise<string> {
+  const firstDate = new Date(Date.now() + 2 * DAY).toISOString().slice(0, 10);
+  const series = await run<{ id: string }>(
+    "record.create",
+    {
+      object: "bookings.series",
+      values: {
+        classType: type,
+        ...(title ? { title } : {}),
+        weekdays: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        time: "06:00",
+        length: 60,
+        places: 10,
+        firstDate,
+        lastDate: firstDate,
+        timezone: "Australia/Sydney",
+      },
+    },
+    ctx,
+  );
+  await run(
+    "recurring.generate",
+    { object: "bookings.series", id: series.id },
+    staff({ actor: "automation", origin: { surface: "automation" } }),
+  );
+  const made = await run<{ items: { id: string }[] }>(
+    "record.list",
+    { object: CLASS, filter: { field: "series", op: "eq", value: series.id }, limit: 5 },
+    staff(),
+  );
+  expect(made.items.length).toBeGreaterThan(0);
+  return made.items[0]?.id as string;
+}
+
+describe("copies carry their source's mark (the second review, B1)", () => {
+  it("a series an MCP client titled: the class the host makes from it is held, a person's is sent", async () => {
+    const aiClass = await seriesClass(
+      mcp(),
+      "Strength: your membership is suspended, bring your card details to reception",
+    );
+    const who = await member("series-ai");
+    await givePass(who.personId);
+    const out = await book(who, aiClass);
+    expect(out.result).toBe("booked");
+    const [row] = await rowsFor(out.bookingId as string);
+    expect(row).toMatchObject({ status: "waiting", routine: 0 });
+    expect(row?.held_reason).toMatch(/'s title \(ai\)/);
+    expect(await mailTo(who.email)).toEqual([]);
+
+    const personClass = await seriesClass(staff(), "Strength by a person");
+    const { row: sent } = await booked("series-person", personClass);
+    expect(sent).toMatchObject({ status: "sent", routine: 1 });
+  });
+
+  it("a class type an MCP client named, taken as a class's title by the host: held", async () => {
+    const aiType = await run<{ id: string }>(
+      "record.create",
+      {
+        object: "programs.classtype",
+        values: { name: "Free class: reply with your card details" },
+      },
+      mcp(),
+    );
+    const startsAt = new Date(Date.now() + 2 * DAY).toISOString();
+    const k = await create(CLASS, {
+      classType: aiType.id,
+      startsAt,
+      endsAt: new Date(Date.parse(startsAt) + HOUR).toISOString(),
+      timezone: "Australia/Sydney",
+      places: 10,
+    });
+    expect((await get(CLASS, k)).title).toBe("Free class: reply with your card details");
+    const who = await member("type-ai");
+    await givePass(who.personId);
+    const out = await book(who, k);
+    const [row] = await rowsFor(out.bookingId as string);
+    expect(row).toMatchObject({ status: "waiting", routine: 0 });
+    expect(row?.held_reason).toMatch(/'s title \(ai\)/);
+  });
+
+  it("a room an MCP client named, two relations away (class.room.name): held", async () => {
+    const room = await run<{ id: string }>(
+      "record.create",
+      { object: "bookings.room", values: { name: "Studio A" } },
+      staff(),
+    );
+    await run(
+      "record.update",
+      { object: "bookings.room", id: room.id, values: { name: "Studio B" } },
+      mcp(),
+    );
+    const k = await klass({ room: room.id });
+    const who = await member("room-ai");
+    await givePass(who.personId);
+    const out = await book(who, k);
+    const [row] = await rowsFor(out.bookingId as string);
+    expect(row).toMatchObject({ status: "waiting", routine: 0 });
+    expect(row?.held_reason).toMatch(/bookings\.room .*'s name \(ai\)/);
+  });
+});
+
+describe("what a person's approval clears (the second review, B2)", () => {
+  it("approving an AI's booking's email does not clear an address the AI changed after it was prepared", async () => {
+    const who = await member("b2-addr");
+    await givePass(who.personId);
+    const k = await klass();
+    const out = await run<Out>(
+      "x.bookings.bookFor",
+      { classId: k, personId: who.personId, paidAtDesk: true },
+      mcp(),
+    );
+    const [held] = await rowsFor(out.bookingId as string);
+    expect(held).toMatchObject({ recipient: who.email, status: "waiting" });
+    const attacker = `${unique("attacker").toLowerCase()}@evil.test`;
+    await run("person.update", { id: who.personId, emails: [{ email: attacker }] }, mcp());
+    const before = await env.DB.prepare(
+      "SELECT id FROM core_pending_action WHERE status = 'pending' AND operation = 'integration.outbound' AND id <= ? ORDER BY id",
+    )
+      .bind(held?.pending_action_id)
+      .all<{ id: string }>();
+    await run("approval.approve", { actionIds: before.results.map((r) => r.id) }, staff());
+    // The reminder, a clock run: to the address the AI put there, so held.
+    const startsAt = Date.parse(String((await get(CLASS, k)).startsAt));
+    await runMomentDateRelative(env, new Date(startsAt - 180 * 60_000));
+    const rows = await rowsFor(out.bookingId as string, 2);
+    const reminder = rows.find((r) => r.kind === "bookings.reminder");
+    expect(reminder).toMatchObject({ recipient: attacker, status: "waiting", routine: 0 });
+    expect(await mailTo(attacker)).toEqual([]);
+  });
+});
+
+describe("the pack switch when a row is claimed (the second review)", () => {
+  it("a backlog prepared while on and claimed after the pack is turned off waits as before", async () => {
+    const { bookingId, row } = await booked("pack-claim");
+    const prepared = await prepareRoutineMail(db.query, {
+      extensionId: "bookings",
+      automationId: "bookings.bookingConfirmed",
+      runId: row.run_id,
+      connectionId: mailConnection,
+      send: { kind: "confirmation", record: bookingId, message: "paid" },
+    });
+    expect(prepared.toSend).toEqual([{ id: expect.any(String), routine: true }]);
+    await run("routineMail.settings.update", { packs: { bookings: false } }, staff());
+    try {
+      const connection = await routineMailConnection(env, "bookings.bookingConfirmed");
+      const outcome = await hostFor(env, connection.connectionId).sendRoutineMail({
+        id: prepared.toSend[0]?.id as string,
+        resource: connection.resource,
+      });
+      expect(outcome.status).toBe("waiting");
+      const stored = await env.DB.prepare(
+        "SELECT routine, ordinary, pending_action_id FROM core_routine_mail WHERE id = ?",
+      )
+        .bind(prepared.toSend[0]?.id)
+        .first<{ routine: number; ordinary: number; pending_action_id: string }>();
+      expect(stored).toMatchObject({ routine: 0, ordinary: 1 });
+      expect((await pendingOf(stored?.pending_action_id as string))?.action_kind).toBe(
+        "email.send",
+      );
     } finally {
       await run("routineMail.settings.update", { packs: { bookings: true } }, staff());
     }

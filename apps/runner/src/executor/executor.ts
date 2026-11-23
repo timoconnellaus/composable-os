@@ -361,6 +361,18 @@ export class Executor {
               ? { startedBy: input.caller.approvedBy }
               : {}),
       },
+      // Who stands behind what the tool writes (ADR 0590), from the pipeline's verified caller: a
+      // person who called it or approved an AI's call of it (never the adjudicator), an AI, the
+      // host (an automation's or another extension's call). A customer's call is theirs anyway.
+      standing: input.caller.principal
+        ? "host"
+        : input.caller.actor === "human"
+          ? "person"
+          : input.caller.approvedBy && input.caller.approvedBy !== "adjudicator"
+            ? "person"
+            : input.caller.actor === "assistant" || input.caller.actor === "mcp"
+              ? "ai"
+              : "host",
       ...(input.cascade ? { cascade: input.cascade } : {}),
       ...(input.readOnly || input.dryRun
         ? { readOnly: { dryRun: Boolean(input.dryRun), tool: input.tool } }

@@ -146,6 +146,8 @@ export interface RunState {
   };
   /** The automation cascade the tool was called in, carried on by its calls (ADR 0478). */
   cascade?: ToolCascade;
+  /** Who stands behind what a tool run writes (ADR 0590), from its verified caller. */
+  standing?: "person" | "ai" | "host";
   /**
    * The calling staff account's pack role limit to today (ADR 0553): the run's record reads and
    * writes of these objects reach today's records only, whatever the extension may read.
@@ -348,6 +350,8 @@ export class RunHost extends RpcTarget {
             // The caller's pack role limit to today holds on every call of this run, and on the
             // runs of tools it calls (ADR 0553): the pipeline holds it before each operation.
             ...(run.roleToday ? { roleToday: run.roleToday } : {}),
+            // Who stands behind what the tool writes (ADR 0590): its caller, not the extension.
+            markStanding: run.standing ?? "host",
             ...(run.simulate ? { simulate: run.simulate } : this.#events()),
             ...(await this.#tools(operation)),
           });

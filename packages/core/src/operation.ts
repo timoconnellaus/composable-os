@@ -40,6 +40,11 @@ import type { RecordAccess } from "./visibility/records.ts";
 
 /** One record touched by an operation, recorded as field diffs in core_audit_changes. */
 export interface RecordChange {
+  /**
+   * What the host filled itself or copied from other records (ADR 0590): their marks are the
+   * host's, or their sources'.
+   */
+  marks?: import("./routine-mail/marks.ts").ChangeMarks | undefined;
   /** Registry object name: `person`, `organisation`, `task`, ... */
   object: string;
   id: string;

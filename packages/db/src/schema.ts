@@ -1150,10 +1150,22 @@ export interface CoreRoutineMailTable {
   body: Defaulted<string | null>;
   calendar: Defaulted<string | null>;
   related: Defaulted<string | null>;
+  sources: Defaulted<string | null>;
   pending_action_id: Defaulted<string | null>;
   error: Defaulted<string | null>;
   created_at: string;
   updated_at: string;
+}
+
+/** Migration 0750 (ADR 0590): who stands behind a record field's current value. */
+export interface CoreValueMarkTable {
+  object_type: string;
+  record_id: string;
+  field: string;
+  value_hash: string;
+  standing: "person" | "customer" | "public" | "default" | "host" | "ai";
+  by_id: string | null;
+  at: string;
 }
 
 /** Migration 0650: a guardian's write's guard; its trigger stores nothing. */
@@ -2593,6 +2605,7 @@ export interface CoreDatabase {
   core_person_link_guard: CorePersonLinkGuardTable;
   core_sellable_refund_due: CoreSellableRefundDueTable;
   core_routine_mail: CoreRoutineMailTable;
+  core_value_mark: CoreValueMarkTable;
   core_recurrence_series: CoreRecurrenceSeriesTable;
   core_recurrence_occurrence: CoreRecurrenceOccurrenceTable;
   core_write_guard: CoreWriteGuardTable;

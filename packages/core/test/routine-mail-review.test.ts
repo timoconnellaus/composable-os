@@ -6,7 +6,6 @@ import { env } from "cloudflare:workers";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   type ActingUser,
-  aiWritten,
   claimRoutineMail,
   invokeByName,
   newId,
@@ -181,38 +180,48 @@ describe("an order's address (D2)", () => {
   });
 });
 
-describe("a person's approval is a human's, never the adjudicator's (F1)", () => {
-  it("an MCP change a person approved is cleared; the same approved by the adjudicator is not", async () => {
+describe("who stands behind a write (the marks), and the adjudicator is not a person (F1)", () => {
+  const markOf = async (id: string, field: string) =>
+    env.DB.prepare(
+      "SELECT standing FROM core_value_mark WHERE object_type = 'person' AND record_id = ? AND field = ?",
+    )
+      .bind(id, field)
+      .first<{ standing: string }>();
+
+  it("a person's write is a person's; an AI's is an AI's; one a human approved is a person's; one the adjudicator approved is not", async () => {
     const person = (await invokeByName(
       "person.create",
-      { givenName: unique("Approved") },
+      { givenName: unique("Marked") },
       context(admin),
     )) as { id: string };
-    const asked = await invokeByName(
-      "person.delete",
-      { id: person.id },
-      context(admin, { actor: "mcp", origin: { surface: "mcp", sessionId: unique("cap") } }),
-    ).catch((e: { details?: { actionId?: string } }) => e);
-    const actionId = (asked as { details?: { actionId?: string } }).details?.actionId as string;
-    expect(actionId).toBeTruthy();
-    const approve = (confirm?: string) =>
-      invokeByName(
-        "approval.approve",
-        { actionIds: [actionId], ...(confirm ? { confirm } : {}) },
-        context(admin),
-      );
-    await approve().catch(async (error: { details?: { confirmLabel?: string } }) => {
-      const label = error.details?.confirmLabel;
-      if (!label) throw error;
-      return approve(label);
-    });
-    expect(await aiWritten(db.query, "person", person.id, "all", null)).toEqual([]);
-    await env.DB.prepare("UPDATE core_pending_action SET decided_by = 'adjudicator' WHERE id = ?")
-      .bind(actionId)
-      .run();
-    expect(await aiWritten(db.query, "person", person.id, "all", null)).toEqual([
-      expect.stringMatching(/was changed by an AI/),
-    ]);
+    expect(await markOf(person.id, "$created")).toEqual({ standing: "person" });
+    const mcp = {
+      actor: "mcp" as const,
+      origin: { surface: "mcp" as const, sessionId: unique("cap") },
+    };
+    await invokeByName(
+      "person.update",
+      { id: person.id, description: "By an AI" },
+      context(admin, mcp),
+    );
+    expect(await markOf(person.id, "description")).toEqual({ standing: "ai" });
+    const applying = (approvedBy: string) =>
+      context(admin, {
+        ...mcp,
+        approval: { actionId: `pac_${unique("x")}`, approvedBy, provisional: [], preview: [] },
+      });
+    await invokeByName(
+      "person.update",
+      { id: person.id, description: "Approved" },
+      applying(admin.id),
+    );
+    expect(await markOf(person.id, "description")).toEqual({ standing: "person" });
+    await invokeByName(
+      "person.update",
+      { id: person.id, description: "Adjudicated" },
+      applying("adjudicator"),
+    );
+    expect(await markOf(person.id, "description")).toEqual({ standing: "ai" });
   });
 });
 

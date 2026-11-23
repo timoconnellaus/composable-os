@@ -231,7 +231,11 @@ export class HostQueue extends RpcTarget {
               },
               reason: routine.routine
                 ? `Routine email ${routine.kind} (${routine.id})`
-                : `Routine email ${routine.kind}, held for a person: ${routine.heldReason ?? "not routine"}`,
+                : routine.ordinary
+                  ? `Routine email ${routine.kind}: routine email is not turned on, so it waits as before`
+                  : `Routine email ${routine.kind}, held for a person: ${routine.heldReason ?? "not routine"}. ` +
+                    "Approving it sends this email, and means you stand behind the values it shows: " +
+                    "later routine email about this record goes out on its own while they stay as they are.",
             }
           : {
               actor: "automation" as const,

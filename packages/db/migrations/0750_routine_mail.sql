@@ -56,6 +56,9 @@ CREATE TABLE core_routine_mail (
   body TEXT,
   calendar TEXT,
   related TEXT,
+  -- The values the email showed and who stood behind each (JSON `[{o, r, f, h}]`): approving a
+  -- held email marks exactly these, as they were when it was prepared.
+  sources TEXT,
   pending_action_id TEXT,
   error TEXT,
   created_at TEXT NOT NULL,
@@ -73,3 +76,23 @@ CREATE INDEX core_routine_mail_kind_idx ON core_routine_mail (kind, created_at);
 CREATE INDEX core_routine_mail_created_idx ON core_routine_mail (created_at);
 CREATE INDEX core_routine_mail_person_idx ON core_routine_mail (recipient_person_id)
   WHERE recipient_person_id IS NOT NULL;
+
+-- Who stands behind each value (ADR 0590, the review's default deny): one row per record field,
+-- written by the host in the batch of every write it records (the pipeline), with a SHA-256 of the
+-- value written, so a mark never applies to a different value. `standing`: `person` (a human staff
+-- account's own write, or a write a human approved), `customer` (the customer's own write),
+-- `public` (an unauthenticated buyer), `default` (a declared default), `host` (the host's own
+-- write with no source a person stands behind), `ai` (an AI's write, or one only the adjudicator
+-- approved). A copy (a series' class, a title taken from a class type, a moved booking) carries
+-- the weakest mark of its sources. `$created` is the record's creation.
+CREATE TABLE core_value_mark (
+  object_type TEXT NOT NULL,
+  record_id TEXT NOT NULL,
+  field TEXT NOT NULL,
+  value_hash TEXT NOT NULL,
+  standing TEXT NOT NULL
+    CHECK (standing IN ('person', 'customer', 'public', 'default', 'host', 'ai')),
+  by_id TEXT,
+  at TEXT NOT NULL,
+  PRIMARY KEY (object_type, record_id, field)
+) WITHOUT ROWID;

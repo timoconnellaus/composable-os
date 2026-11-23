@@ -91,10 +91,12 @@ function KindsCard() {
         <CardTitle>What is sent on its own</CardTitle>
         <CardDescription>
           Each email's words are fixed by its pack, and it goes only to the person the record is
-          about (and their parents or guardians), never to an address anyone types. One with
-          anything unusual in it (a link in a name, more than 20 to one person in a day, a change an
-          AI wrote that nobody approved, more than the organisation's daily limit) waits in
-          Approvals instead.
+          about (and their parents or guardians), or to the address an order was paid from. It is
+          sent on its own only when a person stands behind everything it shows: what an AI wrote or
+          changed is held. Turning a kind off means it is not sent at all, not even for approval.
+          One with anything unusual in it (a link in a name, more than 20 to one person in a day, a
+          change an AI wrote that nobody approved, more than the organisation's daily limit) waits
+          in Approvals instead.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4">

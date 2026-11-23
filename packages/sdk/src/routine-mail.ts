@@ -402,9 +402,16 @@ const HIDDEN =
   // biome-ignore lint/suspicious/noMisleadingCharacterClass: single code points, on purpose.
   /[\u0000-\u001f\u007f-\u009f\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\u3164\ufe00-\ufe0f\ufeff\uffa0\ufff9-\ufffb]/u;
 /** Dots, and the characters that look like one. */
-const DOT = "[.\\u2024\\u2027\\u00b7\\u2219\\u22c5\\u0701\\u3002\\uff0e\\uff61]";
-// A link, an address, markup, or something a mail program (or a reader) turns into a link:
-// `example.com`, `example . com`, `example(dot)com`, `hxxp`, an IP address, a scheme.
+const DOT =
+  "[.\\u2024\\u2027\\u00b7\\u2219\\u22c5\\u0701\\u3002\\uff0e\\uff61\\u0589\\u06d4\\ua4f8\\u2e33\\u2022\\u2e31]";
+/** Top-level domains a reader would take for one (a dot before one makes `example.com`). */
+const TLD =
+  "(?:com|net|org|io|co|au|uk|nz|info|biz|xyz|app|dev|me|ly|gg|tv|online|site|shop|club|top|link|click|to|us|ca|de|fr|in|ru|cn|ai|be|fm|gl|cc|ws|vip|live|pro|store|tk|ml|ga|cf)";
+/** A domain's letters, and the letters a reader takes for them (`c0m`). */
+const TLD_LOOSE = `(?:${TLD}|c[o0]m|n[e3]t|[o0]rg)`;
+// A link, an address, markup, or something a mail program (or a reader) turns into one:
+// `example.com`, `example . com`, `gymhelp,com`, `gymhelp com`, `example(dot)com`, `dot xyz`,
+// `bit ly slash`, `https colon slash slash`, `hxxp`, an IP address, a scheme.
 const LINKISH = new RegExp(
   [
     ":\\/\\/",
@@ -412,18 +419,30 @@ const LINKISH = new RegExp(
     "@",
     "[<>[\\]{}\\\\]",
     "xn--",
-    `[\\p{L}\\p{N}-]\\s*${DOT}\\s*\\p{L}{2,}`,
+    `[\\p{L}\\p{N}-]${DOT}${TLD_LOOSE}\\b`,
+    `[\\p{L}\\p{N}]\\s*(?:${DOT}|,)\\s*${TLD_LOOSE}\\b`,
+    `\\b[\\p{L}\\p{N}-]{3,}\\s+(?:com|net|org|xyz|c0m)\\b`,
     "[([]\\s*(?:dot|\\.)\\s*[)\\]]",
-    "\\bdot\\s+(?:com|net|org|io|co|au|uk|nz|info|biz)\\b",
+    `\\bdot\\s*${TLD_LOOSE}\\b`,
+    "\\bbit\\s*ly\\b",
+    "\\b(?:colon\\s*slash|slash\\s*slash)\\b",
     "\\bhxxps?\\b",
     "\\b\\d{1,3}(?:\\s*\\.\\s*\\d{1,3}){3}\\b",
     "\\b(?:mailto|tel|sms|javascript|data|file|ftp|https?)\\s*:",
   ].join("|"),
   "iu",
 );
-// A phone number (eight or more digits, spaced or not), or an instruction to call or text one.
-const PHONE =
-  /(?:\+|\b)\d(?:[\s().-]*\d){7,}|\b(?:call|ring|text|sms|phone|whatsapp|tel)\b\D{0,20}\d[\d\s().-]{2,}\d/iu;
+// A phone number (eight or more digits, spaced or not), or an instruction to call or text one;
+// five or more numbers in words; a messaging app's name (a handle follows it).
+const PHONE = new RegExp(
+  [
+    "(?:\\+|\\b)\\d(?:[\\s().-]*\\d){7,}",
+    "\\b(?:call|ring|text|sms|phone|whatsapp|tel)\\b\\D{0,20}\\d[\\d\\s().-]{2,}\\d",
+    "\\b(?:(?:zero|oh|one|two|three|four|five|six|seven|eight|nine|double|triple)\\b[\\s,.-]*){5,}",
+    "\\b(?:whats\\s*app|signal|telegram|wechat|viber|snapchat|kik|line\\s+id)\\b",
+  ].join("|"),
+  "iu",
+);
 
 /**
  * Why `value` cannot go into a routine email, or null when it can: one line of at most `max`
@@ -437,7 +456,7 @@ export function unroutineText(value: string, max: number): string | null {
   if (value.length > max) return `longer than ${max} characters`;
   if (HIDDEN.test(value)) return "a line break or hidden character";
   if (LINKISH.test(value)) return "a link, an address or markup";
-  if (PHONE.test(value)) return "a phone number";
+  if (PHONE.test(value)) return "a phone number or a messaging handle";
   return null;
 }
 
