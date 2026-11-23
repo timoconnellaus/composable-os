@@ -8,6 +8,12 @@
 //   node scripts/ci-unit-shards.mjs --check            every package's tests run exactly once
 //   node scripts/ci-unit-shards.mjs --matrix           the matrix for .github/workflows/ci.yml
 //
+// A shard marked `critical` runs on CI's fast runner (the Namespace profile, ADR 0630); the others
+// run on GitHub's runners. The profile runs only a few jobs at once, so only the shards that would
+// otherwise finish after the e2e shards go there. On Namespace's 8 vCPU (Nov 2026) core 2/3 took
+// 168 s and the runner 199 s, against 233-388 s and 292-384 s on GitHub's 4; every other shard
+// finishes on GitHub (at most ~290 s) before the e2e shards do on Namespace (~300-320 s).
+//
 // Each shard is `turbo run test` over some packages, so a test still gets its `^typecheck` first
 // and nothing is cached between runs (CI keeps no turbo cache). A package's own suite is split
 // with vitest's `--shard=i/n` (it shards by test file, so one long file stays in one shard).
@@ -23,7 +29,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 /**
- * The shards. `filter` is turbo's `--filter` list; `args` go to the package's test script (a
+ * The shards. `critical` sends a shard to the fast runner (above). `filter` is turbo's `--filter` list; `args` go to the package's test script (a
  * sharded package's script must pass them to every vitest run, as apps/app/scripts/test.mjs does);
  * `group` names a package split across several shards; `after` runs once the tests pass.
  * `concurrency` caps how many packages run at once (as `pnpm test --concurrency=2` did).
@@ -34,8 +40,10 @@ const NAMED = [
     group: "core",
     filter: ["@composable-os/core"],
     args: [`--shard=${i}/3`],
+    // Core's second third holds its slowest file (http-isolation).
+    critical: i === 2,
   })),
-  { name: "runner", filter: ["@composable-os/runner"] },
+  { name: "runner", filter: ["@composable-os/runner"], critical: true },
   ...[1, 2].map((i) => ({
     name: `app ${i}/2`,
     group: "app",
@@ -60,6 +68,11 @@ export function restShard(named) {
 }
 
 export const SHARDS = [...NAMED, restShard(NAMED)];
+
+/** CI's matrix: each shard by name, and whether it runs on the fast runner. */
+export function matrix(shards = SHARDS) {
+  return { include: shards.map((s) => ({ shard: s.name, critical: Boolean(s.critical) })) };
+}
 
 /** `pnpm` arguments that run `shard`'s tests. */
 export function turboArgs(shard, { dry = false } = {}) {
@@ -141,7 +154,7 @@ function pnpm(args) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [command, name] = process.argv.slice(2);
   if (command === "--matrix") {
-    process.stdout.write(`${JSON.stringify({ shard: SHARDS.map((s) => s.name) })}\n`);
+    process.stdout.write(`${JSON.stringify(matrix())}\n`);
   } else if (command === "--list") {
     for (const shard of SHARDS) console.log(shard.name);
   } else if (command === "--run") {

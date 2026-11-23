@@ -11,6 +11,10 @@
 #
 # Everything a deployment downloads comes from the published release, and is verified against
 # SHA256SUMS and the attestation made here (create-composable-os and Settings → Updates refuse anything else).
+#
+# Every job here stays on GitHub's own runners, unlike ci.yml (ADR 0630): npm trusted publishing
+# and provenance need a cloud-hosted runner, and the attestation and the smoke install's test
+# account are kept on the same footing.
 name: Release
 
 on:
