@@ -605,9 +605,9 @@ export const agreementGuestVersions = defineOperation({
   description:
     "The words a visitor buying without an account is asked to agree to: each version named " +
     "(by the versionId of an agreements_due refusal from a buying call), as it will be " +
-    "recorded: its title, body, tick label, health questions and how it is agreed to. Only a " +
-    "version in effect, or scheduled, of a live document attached somewhere and asked of " +
-    "everyone; any other id is left out. The business's text, never anyone's personal data. " +
+    "recorded: its title, body, tick label, health questions and how it is agreed to. Only the " +
+    "version in effect of a live document attached somewhere and asked of everyone; any other " +
+    "id (an older version, one scheduled for later) is left out. The business's text, never anyone's personal data. " +
     "Read-only.",
   input: z
     .object({
@@ -624,13 +624,11 @@ export const agreementGuestVersions = defineOperation({
   hostInternal: true,
   mcp: { expose: false },
   async handler(input, ctx) {
-    // What a guest may be asked (`guestDue`): a live document attached somewhere, for everyone,
-    // its version in effect or the one scheduled next. Nothing here reads a Person.
+    // What a guest is asked (`guestDue`): a live document attached somewhere, for everyone, its
+    // version in effect. Nothing here reads a Person.
     const askable = new Set<string>();
     for (const doc of await attachedDocuments(ctx.db, null)) {
-      if (doc.forWhom !== "everyone") continue;
-      askable.add(doc.current.id);
-      if (doc.scheduled) askable.add(doc.scheduled.id);
+      if (doc.forWhom === "everyone") askable.add(doc.current.id);
     }
     const wanted = [...new Set(input.versionIds)].filter((v) => askable.has(v));
     const found = await versionsById(ctx, wanted);

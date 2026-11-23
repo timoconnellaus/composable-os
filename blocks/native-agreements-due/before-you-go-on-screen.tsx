@@ -2,7 +2,13 @@
 // something is due (me.agreements.due), each due document in turn, the member's own first, then
 // each child's; "Not now" goes on to the app. A convenience only: the host refuses a booking while
 // anything it needs is due, whatever this screen did.
-import { type AgreementsHooks, copyWords, dueReasonWords, dueSteps } from "@composable-os/client";
+import {
+  type AgreementsHooks,
+  copyWords,
+  dueReasonWords,
+  dueSteps,
+  forgetAfter,
+} from "@composable-os/client";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Agree } from "../native-agree/agree-screen.tsx";
@@ -78,7 +84,7 @@ export function BeforeYouGoOnScreen({
             secondary={{ label: "Not now", onPress: onDone }}
             onDrawing={setDrawing}
             onAgree={async (input) => {
-              const accepted = await accept.mutateAsync({
+              const accepted = await forgetAfter(accept, {
                 ...input,
                 ...(person.self ? {} : { forPersonId: person.personId }),
               });

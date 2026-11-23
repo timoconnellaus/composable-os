@@ -168,9 +168,9 @@ and the cron promoting a waiter, and the waiter's next booking asked.
   (`withAgreements` in `@composable-os/client`); a visitor whose agreements are for an older version
   (`agreement_not_asked`) is asked again with none and shown what is due now.
 - **A visitor reads the words through `agreement.guestVersions`** (customer and public,
-  `hostInternal`, read): the versions a refusal named, as recorded. Only a version in effect, or
-  scheduled, of a live document attached somewhere and asked of everyone (what `guestDue` can ask);
-  anything else is left out. It reads no Person, and the text is the business's. Opening it to the
+  `hostInternal`, read): the versions a refusal named, as recorded. Only the version in effect of a
+  live document attached somewhere and asked of everyone (what `guestDue` asks); anything else, a
+  version scheduled for later included, is left out. It reads no Person, and the text is the business's. Opening it to the
   public is the reviewed change ADR 0402 asks for.
 - **Bookings' tools pass the host's agreements refusal through** as it is (`agreements_due`, and
   `agreements_changed`, which before this was told as "it changed while you were booking"), so the

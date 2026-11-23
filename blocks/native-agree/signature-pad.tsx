@@ -2,13 +2,19 @@
 // own touch responder (PanResponder), no new native module. It records strokes in the host's
 // format (`StrokeRecorder`: integer points in a 1000 by 400 box, within the host's limits) and
 // draws them with plain Views, as thin rotated lines. Nothing is kept as an image.
+//
+// Drawing stays light: the screen is drawn again at most once a frame, a stroke's lines are drawn
+// in runs of a few dozen that are not drawn again once full (memo), so a move redraws only the
+// run being drawn, and one finger draws (a second finger on the pad adds nothing).
 import { boxPoint, type StrokeRecorder } from "@composable-os/client";
-import { useMemo, useRef, useState } from "react";
+import { memo, useMemo, useRef, useState } from "react";
 import { type GestureResponderEvent, PanResponder, StyleSheet, Text, View } from "react-native";
 import { Button } from "../native-base/button.tsx";
 import { theme } from "../native-base/theme.ts";
 
 const INK = 3;
+/** Lines per run: a full run is never drawn again. */
+const RUN = 32;
 
 export function SignaturePad({
   recorder,
@@ -29,6 +35,8 @@ export function SignaturePad({
   const redraw = () => setDrawn((n) => n + 1);
   const callbacks = useRef({ onChange, onDrawing });
   callbacks.current = { onChange, onDrawing };
+  // At most one redraw a frame, however often the finger moves.
+  const frame = useRef<number | null>(null);
 
   const responder = useMemo(() => {
     const at = (event: GestureResponderEvent) =>
@@ -38,6 +46,13 @@ export function SignaturePad({
         size.current.width,
         size.current.height,
       );
+    const soon = () => {
+      if (frame.current !== null) return;
+      frame.current = requestAnimationFrame(() => {
+        frame.current = null;
+        setDrawn((n) => n + 1);
+      });
+    };
     const lift = () => {
       recorder.end();
       setDrawn((n) => n + 1);
@@ -54,8 +69,10 @@ export function SignaturePad({
         recorder.begin(at(event));
         setDrawn((n) => n + 1);
       },
-      onPanResponderMove: (event) => {
-        if (recorder.extend(at(event))) setDrawn((n) => n + 1);
+      onPanResponderMove: (event, gesture) => {
+        // A second finger on the pad (a pinch, a palm) never draws a line to the first.
+        if (gesture.numberActiveTouches > 1) return;
+        if (recorder.extend(at(event))) soon();
       },
       onPanResponderRelease: lift,
       onPanResponderTerminate: lift,
@@ -89,6 +106,7 @@ export function SignaturePad({
             // biome-ignore lint/suspicious/noArrayIndexKey: strokes are positional and only grow.
             key={i}
             stroke={stroke}
+            count={stroke.length}
             width={layout.width}
             height={layout.height}
           />
@@ -122,58 +140,95 @@ export function SignaturePad({
   );
 }
 
-/** One stroke as thin lines between its points, scaled from the box to the pad on screen. */
+/**
+ * One stroke, scaled from the box to the pad on screen, in runs of lines. `count` is how many
+ * points it has now: the recorder's arrays grow in place, so it is what tells a run it changed.
+ */
 function Stroke({
   stroke,
+  count,
   width,
   height,
 }: {
   stroke: readonly (readonly [number, number])[];
+  count: number;
+  width: number;
+  height: number;
+}) {
+  const first = stroke[0];
+  if (!first) return null;
+  if (count === 1) {
+    return (
+      <View
+        pointerEvents="none"
+        style={[
+          styles.dot,
+          { left: (first[0] * width) / 1000 - INK / 2, top: (first[1] * height) / 400 - INK / 2 },
+        ]}
+      />
+    );
+  }
+  const runs: number[] = [];
+  for (let from = 0; from < count - 1; from += RUN) runs.push(from);
+  return (
+    <>
+      {runs.map((from) => (
+        <Run
+          key={from}
+          stroke={stroke}
+          from={from}
+          to={Math.min(from + RUN, count - 1)}
+          width={width}
+          height={height}
+        />
+      ))}
+    </>
+  );
+}
+
+/** The lines from point `from` to point `to`: drawn again only when `to` or the size changes. */
+const Run = memo(function Run({
+  stroke,
+  from,
+  to,
+  width,
+  height,
+}: {
+  stroke: readonly (readonly [number, number])[];
+  from: number;
+  to: number;
   width: number;
   height: number;
 }) {
   const sx = width / 1000;
   const sy = height / 400;
-  const first = stroke[0];
-  if (!first) return null;
-  if (stroke.length === 1) {
-    return (
+  const lines = [];
+  for (let i = from; i < to; i++) {
+    const a = stroke[i] as readonly [number, number];
+    const b = stroke[i + 1] as readonly [number, number];
+    const x0 = a[0] * sx;
+    const y0 = a[1] * sy;
+    const x1 = b[0] * sx;
+    const y1 = b[1] * sy;
+    const length = Math.hypot(x1 - x0, y1 - y0);
+    lines.push(
       <View
+        key={i}
         pointerEvents="none"
-        style={[styles.dot, { left: first[0] * sx - INK / 2, top: first[1] * sy - INK / 2 }]}
-      />
+        style={[
+          styles.segment,
+          {
+            width: length + INK,
+            left: (x0 + x1) / 2 - (length + INK) / 2,
+            top: (y0 + y1) / 2 - INK / 2,
+            transform: [{ rotate: `${Math.atan2(y1 - y0, x1 - x0)}rad` }],
+          },
+        ]}
+      />,
     );
   }
-  return (
-    <>
-      {stroke.slice(1).map((point, i) => {
-        const from = stroke[i] as readonly [number, number];
-        const x0 = from[0] * sx;
-        const y0 = from[1] * sy;
-        const x1 = point[0] * sx;
-        const y1 = point[1] * sy;
-        const length = Math.hypot(x1 - x0, y1 - y0);
-        const angle = Math.atan2(y1 - y0, x1 - x0);
-        return (
-          <View
-            // biome-ignore lint/suspicious/noArrayIndexKey: segments are positional.
-            key={i}
-            pointerEvents="none"
-            style={[
-              styles.segment,
-              {
-                width: length + INK,
-                left: (x0 + x1) / 2 - (length + INK) / 2,
-                top: (y0 + y1) / 2 - INK / 2,
-                transform: [{ rotate: `${angle}rad` }],
-              },
-            ]}
-          />
-        );
-      })}
-    </>
-  );
-}
+  return <>{lines}</>;
+});
 
 const styles = StyleSheet.create({
   wrap: { gap: theme.space.xs },

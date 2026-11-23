@@ -11,6 +11,8 @@
 import {
   type AgreementsHooks,
   type AgreementsOutcome,
+  forgetAfter,
+  purchaseErrorWords,
   type RefusedDocument,
   withAgreements,
 } from "@composable-os/client";
@@ -166,35 +168,43 @@ function ClassRow({
     return false;
   }
 
-  async function bookIt() {
+  /** Books; `said` is what agreeing just now told them (where the copy went), said first. */
+  async function bookIt(said: string | null = null) {
+    const first = said ? `${said} ` : "";
     let outcome: AgreementsOutcome<BookResult>;
     try {
       outcome = await withAgreements(() => book.mutateAsync({ classId: klass.id, ...forWhom }));
-    } catch {
-      onDone("We could not book that just now. Try again soon.");
+    } catch (error) {
+      onDone(
+        `${first}${purchaseErrorWords(error) ?? "We could not book that just now. Try again soon."}`,
+      );
       return;
     }
     if (agreementsRefused(outcome, "book") || outcome.kind !== "done") return;
     const done = outcome.value;
     setCanPay(done.result === "refused" && done.reason === "no_use");
     onDone(
-      done.result === "booked"
-        ? `Booked${forPerson ? ` for ${forPerson.name}` : ""}: ${name}, ${classTime(klass)}.`
-        : done.result === "waiting"
-          ? `${name}: ${done.message}`
-          : refusalMessage(done, klass.timeZone),
+      first +
+        (done.result === "booked"
+          ? `Booked${forPerson ? ` for ${forPerson.name}` : ""}: ${name}, ${classTime(klass)}.`
+          : done.result === "waiting"
+            ? `${name}: ${done.message}`
+            : refusalMessage(done, klass.timeZone)),
     );
   }
 
-  async function pay() {
+  async function pay(said: string | null = null) {
     if (!payReturnUrl) return;
+    const first = said ? `${said} ` : "";
     let outcome: AgreementsOutcome<BuyResult>;
     try {
       outcome = await withAgreements(() =>
-        buy.start.mutateAsync({ classId: klass.id, ...forWhom }),
+        forgetAfter(buy.start, { classId: klass.id, ...forWhom }),
       );
-    } catch {
-      onDone("We could not start the payment. Try again soon.");
+    } catch (error) {
+      onDone(
+        `${first}${purchaseErrorWords(error) ?? "We could not start the payment. Try again soon."}`,
+      );
       return;
     }
     if (agreementsRefused(outcome, "pay") || outcome.kind !== "done") return;
@@ -274,10 +284,10 @@ function ClassRow({
             documents={due.documents}
             continueLabel={due.then === "pay" ? "Agree and pay" : "Agree and book"}
             onCancel={() => setDue(null)}
-            onAgreed={() => {
+            onAgreed={(said) => {
               const then = due.then;
               setDue(null);
-              void (then === "pay" ? pay() : bookIt());
+              void (then === "pay" ? pay(said) : bookIt(said));
             }}
           />
         </div>

@@ -10,6 +10,7 @@
 import {
   type AgreementsHooks,
   type AgreementsOutcome,
+  purchaseErrorWords,
   type RefusedDocument,
   withAgreements,
 } from "@composable-os/client";
@@ -26,7 +27,7 @@ import {
 } from "@composable-os/pack-bookings/client";
 import { useState } from "react";
 import { Text, View } from "react-native";
-import { MemberAgreementStep } from "../native-agree/agreement-step.tsx";
+import { AgreementStepModal } from "../native-agree/agreement-step.tsx";
 import { Button } from "../native-base/button.tsx";
 import { List } from "../native-base/list.tsx";
 import { Row } from "../native-base/row.tsx";
@@ -130,7 +131,9 @@ function ClassItem({
   const [due, setDue] = useState<RefusedDocument[] | null>(null);
   const name = klass.title ?? "Class";
 
-  async function bookIt() {
+  /** Books; `said` is what agreeing just now told them (where the copy went), said first. */
+  async function bookIt(said: string | null = null) {
+    const first = said ? `${said} ` : "";
     let outcome: AgreementsOutcome<BookResult>;
     try {
       outcome = await withAgreements(() =>
@@ -139,8 +142,10 @@ function ClassItem({
           ...(forPerson ? { forPersonId: forPerson.id } : {}),
         }),
       );
-    } catch {
-      onDone("We could not book that just now. Try again soon.");
+    } catch (error) {
+      onDone(
+        `${first}${purchaseErrorWords(error) ?? "We could not book that just now. Try again soon."}`,
+      );
       return;
     }
     if (outcome.kind === "due") {
@@ -158,30 +163,30 @@ function ClassItem({
     }
     const result = outcome.value;
     onDone(
-      result.result === "booked"
-        ? `Booked${forPerson ? ` for ${forPerson.name}` : ""}: ${name}, ${classTime(klass)}.`
-        : result.result === "waiting"
-          ? `${name}: ${result.message}`
-          : refusalMessage(result, klass.timeZone),
+      first +
+        (result.result === "booked"
+          ? `Booked${forPerson ? ` for ${forPerson.name}` : ""}: ${name}, ${classTime(klass)}.`
+          : result.result === "waiting"
+            ? `${name}: ${result.message}`
+            : refusalMessage(result, klass.timeZone)),
     );
   }
 
-  if (due && agreements) {
-    return (
-      <MemberAgreementStep
-        agreements={agreements}
-        documents={due}
-        continueLabel="Agree and book"
-        onCancel={() => setDue(null)}
-        onAgreed={() => {
-          setDue(null);
-          void bookIt();
-        }}
-      />
-    );
-  }
   return (
     <View>
+      {due && agreements ? (
+        // On a screen of its own, over the list: a signature is never drawn inside a scroll.
+        <AgreementStepModal
+          agreements={agreements}
+          documents={due}
+          continueLabel="Agree and book"
+          onCancel={() => setDue(null)}
+          onAgreed={(said) => {
+            setDue(null);
+            void bookIt(said);
+          }}
+        />
+      ) : null}
       <Row
         title={name}
         detail={[classTime(klass), klass.coach?.name, placesLabel(klass.places)]

@@ -25,6 +25,10 @@ export const AGREEMENT_POINT_RE = /^[a-z][a-z0-9_]{1,39}$/;
  * - `enter` and `person`: for a record a caller makes (a booking), the states whose entry is checked
  *   and the relation to the Person it is for. Left out, the point is checked where the object is
  *   bought (a `sellable` object).
+ * - `inlineStep`: the pack's own screens (its blocks that buy or book this object) show what is
+ *   due and let a person agree on the way (stage 44 step 5). Left out, nothing on the pack's
+ *   screens can agree, so a document attached there refuses every purchase or booking until the
+ *   person agrees elsewhere (My agreements, the desk, paper): the admin is warned when attaching.
  *
  * In stage 44 step 1 the declaration is inert: it is checked and listed, and documents can be
  * attached to it; the host asks it from step 3.
@@ -35,6 +39,7 @@ export interface AgreementsSpec {
   suggests?: readonly AgreementKind[];
   enter?: readonly string[];
   person?: string;
+  inlineStep?: boolean;
 }
 
 export const agreementsManifestSchema = z.object({
@@ -43,6 +48,7 @@ export const agreementsManifestSchema = z.object({
   suggests: z.array(z.enum(AGREEMENT_KINDS)).max(AGREEMENT_KINDS.length).optional(),
   enter: z.array(z.string().max(40)).min(1).max(20).optional(),
   person: z.string().max(40).optional(),
+  inlineStep: z.boolean().optional(),
 });
 export type AgreementsManifest = z.infer<typeof agreementsManifestSchema>;
 

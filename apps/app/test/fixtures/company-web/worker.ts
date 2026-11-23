@@ -30,7 +30,7 @@ export default {
     const picture = await mediaRoute(request, env);
     if (picture) return picture;
     const pdf = await agreementPdfRoute(request, env);
-    if (pdf) return pdf;
+    if (pdf) return withSessionKept(request, env, pdf);
     const { pathname } = new URL(request.url);
     if (pathname === "/account") {
       const me = await signedInCustomer(env, request);

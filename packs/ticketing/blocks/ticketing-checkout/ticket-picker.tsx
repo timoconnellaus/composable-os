@@ -2,6 +2,8 @@
 // by deposit when every chosen type offers one, then the payment provider's page. And paying what
 // is still owed on a part-paid order. The host prices the order, holds the places, refuses what
 // cannot be bought and decides what may be charged; this asks and shows what it answers.
+
+import { agreementBlockedWords } from "@composable-os/client";
 import type {
   EventOnSale,
   StartedOrder,
@@ -22,6 +24,9 @@ import { Label } from "../ui-label/label.tsx";
 /** What the host said when it refused, in the buyer's words. */
 function refusal(error: unknown): string | null {
   if (!error) return null;
+  // Something must be agreed to first (stage 44): this checkout has no agreement step yet.
+  const agreements = agreementBlockedWords(error);
+  if (agreements) return agreements;
   const rule = (error as { details?: { details?: { rule?: string }; rule?: string } }).details;
   switch (rule?.details?.rule ?? rule?.rule) {
     case "capacity":

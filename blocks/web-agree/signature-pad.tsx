@@ -33,11 +33,16 @@ export function SignaturePad({
 
   function down(event: PointerEvent<SVGSVGElement>) {
     if (event.button !== 0 && event.pointerType === "mouse") return;
+    // One finger or pen draws: a second finger (or a palm) never draws a line to the first.
+    if (!event.isPrimary) return;
     const point = pointOf(event);
     if (!point) return;
     event.preventDefault();
+    if (!recorder.begin(point, event.pointerId)) {
+      redraw();
+      return;
+    }
     event.currentTarget.setPointerCapture(event.pointerId);
-    recorder.begin(point);
     redraw();
   }
 
@@ -49,7 +54,7 @@ export function SignaturePad({
     let added = false;
     for (const e of events.length ? events : [native]) {
       const point = pointOf(e);
-      if (point && recorder.extend(point)) added = true;
+      if (point && recorder.extend(point, event.pointerId)) added = true;
     }
     if (added) redraw();
   }
@@ -58,7 +63,7 @@ export function SignaturePad({
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-    recorder.end();
+    recorder.end(event.pointerId);
     redraw();
     onChange();
   }
@@ -93,7 +98,7 @@ export function SignaturePad({
         onPointerMove={move}
         onPointerUp={up}
         onPointerCancel={up}
-        onLostPointerCapture={() => recorder.end()}
+        onLostPointerCapture={(event) => recorder.end(event.pointerId)}
       >
         <title>{drawn ? "Your signature, drawn" : "An empty box to draw your signature in"}</title>
         <line

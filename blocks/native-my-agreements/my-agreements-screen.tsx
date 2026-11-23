@@ -15,6 +15,7 @@ import {
   type DueDocument,
   type DuePerson,
   dueReasonWords,
+  forgetAfter,
 } from "@composable-os/client";
 import { type ReactElement, useState } from "react";
 import { ActivityIndicator, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -167,7 +168,7 @@ function DueItem({
           secondary={{ label: "Close", onPress: () => setOpen(false) }}
           onDrawing={onDrawing}
           onAgree={async (input) => {
-            const accepted = await accept.mutateAsync({
+            const accepted = await forgetAfter(accept, {
               ...input,
               ...(person.self ? {} : { forPersonId: person.personId }),
             });

@@ -1616,8 +1616,8 @@ Deviations and decisions, and why:
   question beside the one that holds; the refusal is made before any batch is planned, so nothing
   is held or charged by it, and it cannot disagree with the check.
 - **A public operation, `agreement.guestVersions`**, so a visitor can read the words before
-  agreeing: only what `guestDue` can ask (a live, attached document for everyone, its version in
-  effect or scheduled). A reviewed change (ADR 0402); it reads no Person.
+  agreeing: only what `guestDue` asks (a live, attached document for everyone, its version in
+  effect; never one scheduled for later). A reviewed change (ADR 0402); it reads no Person.
 - **Bookings' `book` and `buy` pass the host's agreements refusal through**, `agreements_changed`
   included (it was told as "it changed while you were booking").
 - **For a document agreed to by drawing there is no typed alternative in the block**: how is the

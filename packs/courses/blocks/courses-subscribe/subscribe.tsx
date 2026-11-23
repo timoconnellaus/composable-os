@@ -12,6 +12,7 @@
 // trial ("continue, free until <date>", `useMyOffers`); taking it is the host's too (`offerId`):
 // only its own person can (ADR 0491). A guest who confirms a code and turns out to have an offer
 // is shown the offer, never sent on to the trial.
+import { agreementBlockedWords } from "@composable-os/client";
 import type {
   ContinuationOffer,
   CoursesHooks,
@@ -119,7 +120,11 @@ export function Subscribe({
         setNoTrial({ planId, started: { ...started, noTrial: started.noTrial ?? "continuation" } });
       } else window.location.assign(started.url);
     } catch (e) {
-      setProblem(e instanceof Error ? e.message : "We could not start your subscription");
+      // Something must be agreed to first (stage 44): no agreement step here yet.
+      setProblem(
+        agreementBlockedWords(e) ??
+          (e instanceof Error ? e.message : "We could not start your subscription"),
+      );
     }
   }
 

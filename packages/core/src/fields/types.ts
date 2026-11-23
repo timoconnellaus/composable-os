@@ -129,6 +129,8 @@ export interface ObjectDefinition {
     suggests?: readonly string[];
     enter?: readonly string[];
     person?: string;
+    /** The pack's screens show what is due and let a person agree on the way (stage 44 step 5). */
+    inlineStep?: boolean;
   };
   /**
    * A fixed state machine (ADR 0425), with registry field names. An object has stages or states,

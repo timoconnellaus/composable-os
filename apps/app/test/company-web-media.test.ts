@@ -168,5 +168,17 @@ describe("a company's site forwards a signed agreement's PDF to the host", () =>
     expect((await browse(`${pdf}/not-an-id.pdf`)).status).toBe(404);
     expect((await browse(`${pdf}/aga_01X`)).status).toBe(404);
     expect((await browse(`${pdf}/..%2F..%2Fop%2Fme.get.pdf`)).status).toBe(404);
+    // A bad percent-encoding is the caller's mistake (400), never a failure of the site (500),
+    // on this route and on the operation route.
+    expect((await browse(`${pdf}/aga_%E0%A4%A.pdf`)).status).toBe(400);
+    expect(
+      (
+        await browse("/api/v1/op/me.get%E0%A4%A", {
+          method: "POST",
+          headers: { "content-type": "application/json", origin: WEB_ORIGIN },
+          body: "{}",
+        })
+      ).status,
+    ).toBe(400);
   });
 });

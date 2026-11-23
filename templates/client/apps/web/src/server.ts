@@ -39,7 +39,7 @@ export default {
     if (picture) return picture;
     // A customer's own signed agreement: /api/v1/agreements/acceptances/<id>.pdf.
     const pdf = await agreementPdfRoute(request, host);
-    if (pdf) return pdf;
+    if (pdf) return withSessionKept(request, host, pdf);
     return withSessionKept(request, host, await handler.fetch(request));
   },
 };

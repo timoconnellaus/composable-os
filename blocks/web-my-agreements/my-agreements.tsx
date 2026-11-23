@@ -16,6 +16,7 @@ import {
   type DueDocument,
   type DuePerson,
   dueReasonWords,
+  forgetAfter,
   strokePath,
 } from "@composable-os/client";
 import { useState } from "react";
@@ -154,7 +155,7 @@ function DueRow({
           reason={item.reason}
           secondary={{ label: "Close", onClick: () => setOpen(false) }}
           onAgree={async (input) => {
-            const accepted = await accept.mutateAsync({
+            const accepted = await forgetAfter(accept, {
               ...input,
               ...(person.self ? {} : { forPersonId: person.personId }),
             });
@@ -302,7 +303,7 @@ function AcceptanceDetail({
             submitLabel="Save my new answers"
             secondary={{ label: "Cancel", onClick: () => setUpdating(false) }}
             onAgree={async (input) => {
-              const accepted = await accept.mutateAsync({
+              const accepted = await forgetAfter(accept, {
                 ...input,
                 ...(personId === me ? {} : { forPersonId: personId }),
               });

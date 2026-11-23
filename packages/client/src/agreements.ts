@@ -222,6 +222,56 @@ export function agreementRefusal(error: unknown): AgreementRefusal | null {
   return { kind: "due", message: "Something must be agreed to first.", documents };
 }
 
+/** Said where a screen has no agreement step yet (Ticketing's and Courses' checkouts). */
+export const NO_AGREEMENT_STEP_WORDS =
+  "This needs an agreement that can't be given here yet. Ask the business how to agree to it first.";
+
+/**
+ * For a screen that buys but cannot show the agreement step: the words for the host's refusal of
+ * what must be agreed to first (or for a minor, a parent or guardian buys it), or null when the
+ * error is something else.
+ */
+export function agreementBlockedWords(error: unknown): string | null {
+  const refusal = agreementRefusal(error);
+  if (!refusal) return null;
+  if (refusal.kind === "minor_payer") return refusal.message;
+  if (refusal.kind === "due") return NO_AGREEMENT_STEP_WORDS;
+  return refusal.message;
+}
+
+/**
+ * Makes a mutation's call and then forgets it: the mutation's state (its variables: a name typed,
+ * a signature, health answers) is reset whether the call succeeded or failed, so the app's cache
+ * holds none of it once the call is over. What the person entered stays only in the screen's own
+ * state, for as long as the screen needs it.
+ */
+export async function forgetAfter<I, O>(
+  mutation: { mutateAsync(input: I): Promise<O>; reset?: () => void },
+  input: I,
+): Promise<O> {
+  try {
+    return await mutation.mutateAsync(input);
+  } finally {
+    mutation.reset?.();
+  }
+}
+
+/**
+ * What to tell a person whose purchase or booking did not go through, as far as agreements and the
+ * connection go: null for anything else (the screen says its own words).
+ */
+export function purchaseErrorWords(error: unknown): string | null {
+  const refusal = agreementRefusal(error);
+  if (refusal?.kind === "changed" || refusal?.kind === "read_again") {
+    return "What must be agreed to changed just now. Please start again and read it once more.";
+  }
+  if (refusal?.kind === "minor_payer") return refusal.message;
+  if (record(error)?.name === "NetworkError") {
+    return "We could not reach the business just now. Check your connection and try again: what you entered is still here.";
+  }
+  return null;
+}
+
 /** What a call made with what is due came to. */
 export type AgreementsOutcome<T> =
   | { kind: "done"; value: T }
@@ -549,11 +599,18 @@ export class StrokeRecorder {
   private points = 0;
   private bytes = BASE_BYTES;
   private drawing = false;
+  /** The pointer drawing the stroke now (a finger, a pen): others are ignored until it lifts. */
+  private active: number | null = null;
   /** Drawing went past a limit: nothing more is added until it is cleared. */
   full = false;
 
-  /** A new stroke at `point` (a pen, a finger or the mouse button down). False when full. */
-  begin(point: readonly [number, number]): boolean {
+  /**
+   * A new stroke at `point` (a pen, a finger or the mouse button down). `pointer` names the
+   * pointer: while one is drawing, another (a second finger, a palm) starts nothing. False when
+   * nothing was started.
+   */
+  begin(point: readonly [number, number], pointer?: number): boolean {
+    if (this.drawing && this.active !== null && pointer !== this.active) return false;
     if (this.full) return false;
     const cost = 2 + (this.lines.length ? 1 : 0) + pointBytes(point);
     if (
@@ -568,12 +625,14 @@ export class StrokeRecorder {
     this.points += 1;
     this.bytes += cost;
     this.drawing = true;
+    this.active = pointer ?? null;
     return true;
   }
 
-  /** The stroke goes on to `point`. False when nothing was added. */
-  extend(point: readonly [number, number]): boolean {
+  /** The stroke goes on to `point`. False when nothing was added (another pointer's move too). */
+  extend(point: readonly [number, number], pointer?: number): boolean {
     if (!this.drawing || this.full) return false;
+    if (this.active !== null && pointer !== this.active) return false;
     const stroke = this.lines[this.lines.length - 1];
     const last = stroke?.[stroke.length - 1];
     if (!stroke || !last) return false;
@@ -590,9 +649,11 @@ export class StrokeRecorder {
     return true;
   }
 
-  /** The pen, finger or button is lifted. */
-  end(): void {
+  /** The pen, finger or button is lifted (another pointer lifting ends nothing). */
+  end(pointer?: number): void {
+    if (this.active !== null && pointer !== undefined && pointer !== this.active) return;
     this.drawing = false;
+    this.active = null;
   }
 
   /** Starts again, with nothing drawn. */
@@ -601,6 +662,7 @@ export class StrokeRecorder {
     this.points = 0;
     this.bytes = BASE_BYTES;
     this.drawing = false;
+    this.active = null;
     this.full = false;
   }
 

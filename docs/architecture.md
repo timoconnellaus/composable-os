@@ -1742,7 +1742,7 @@ inline step), `web-agreements-due` and `native-agreements-due` ("Before you go o
 `web-my-agreements` and `native-my-agreements`. Bookings' drop-in and timetable blocks (web and
 native) and Memberships' passes and plans blocks show the step inline when the host refuses "Pay",
 "Book", "Buy" or "Join" with what is due; a visitor reads the words through
-`agreement.guestVersions` (open to the public: only versions a guest may be asked) and their
+`agreement.guestVersions` (open to the public: only the versions in effect a guest is asked) and their
 acceptances travel in the buying call. Signing at the desk, cooling off and retention are the later
 steps (`docs/stages/44-agreements.md`).
 

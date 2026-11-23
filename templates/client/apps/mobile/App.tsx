@@ -70,14 +70,24 @@ function Account({ session, onSignedOut }: { session: Session; onSignedOut: () =
     session.api.call("me.get", {}).then((me) => setName(me.displayName));
     session.api
       .call("me.agreements.due", {})
-      .then((answer) => setDue(answer.people.flatMap((p) => p.due.map((d) => d.title))))
+      .then((answer) =>
+        setDue(
+          answer.people
+            .filter((p) => p.due.length)
+            .map((p) =>
+              p.self
+                ? p.due.map((d) => d.title).join(", ")
+                : `for ${p.name.split(" ")[0]}: ${p.due.map((d) => d.title).join(", ")}`,
+            ),
+        ),
+      )
       .catch(() => setDue([]));
   }, [session]);
   return (
     <View>
       <Text style={styles.title}>{name ? `Signed in as ${name}` : "Loading"}</Text>
       {due.length ? (
-        <Text accessibilityRole="alert">{`Before you book, please read and agree to: ${due.join(", ")}.`}</Text>
+        <Text accessibilityRole="alert">{`Before you book, please read and agree to: ${due.join("; ")}.`}</Text>
       ) : null}
       <NativeButton title="Sign out" onPress={() => session.signOut().then(onSignedOut)} />
     </View>

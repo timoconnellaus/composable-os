@@ -14,11 +14,12 @@ import {
   copyWords,
   dueForRefusal,
   dueReasonWords,
+  forgetAfter,
   type RefusedDocument,
 } from "@composable-os/client";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../ui-button/button.tsx";
-import { Agree } from "./agree.tsx";
+import { Agree, useForgetOnLeave } from "./agree.tsx";
 
 export function MemberAgreementStep({
   agreements,
@@ -100,7 +101,7 @@ export function MemberAgreementStep({
           submitLabel={steps.length === 1 ? continueLabel : "Agree"}
           secondary={{ label: "Back", onClick: onCancel }}
           onAgree={async (input: AgreeInput) => {
-            const accepted = await accept.mutateAsync({
+            const accepted = await forgetAfter(accept, {
               ...input,
               ...(person.self ? {} : { forPersonId: person.personId }),
             });
@@ -145,6 +146,7 @@ export function GuestAgreementStep({
   const versions = agreements.useGuestVersions(ids);
   // What the visitor gave, by version: in memory only, handed back once, then dropped.
   const [agreed, setAgreed] = useState<AgreeInput[]>([]);
+  useForgetOnLeave(() => setAgreed([]));
   if (versions.isPending) return <p aria-busy="true">Loading what to agree to…</p>;
   const found = versions.data?.versions ?? [];
   if (versions.error || found.length !== new Set(ids).size) {
@@ -170,7 +172,8 @@ export function GuestAgreementStep({
       <p className="text-sm">
         {toGo === 1
           ? "One thing to agree to before you pay."
-          : `${toGo} things to agree to before you pay. This is the first.`}
+          : `${toGo} things to agree to before you pay. This is the first.`}{" "}
+        A copy of each is emailed to you once your payment goes through.
       </p>
       <Agree
         key={next.id}

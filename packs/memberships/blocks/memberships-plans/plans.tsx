@@ -17,6 +17,8 @@ import {
   type AgreeInput,
   type AgreementsHooks,
   agreementRefusal,
+  forgetAfter,
+  purchaseErrorWords,
   type RefusedDocument,
   withAgreements,
 } from "@composable-os/client";
@@ -31,6 +33,7 @@ import { Button } from "../ui-button/button.tsx";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui-card/card.tsx";
 import { Input } from "../ui-input/input.tsx";
 import { Label } from "../ui-label/label.tsx";
+import { useForgetOnLeave } from "../web-agree/agree.tsx";
 import { GuestAgreementStep, MemberAgreementStep } from "../web-agree/agreement-step.tsx";
 
 /** The agreements hooks the inline step uses: a member's (due, accept) and a visitor's (words). */
@@ -95,6 +98,12 @@ export function Plans({
     customer: boolean;
     documents: RefusedDocument[];
   } | null>(null);
+  // A visitor's agreements for one plan: this component's state only, kept if the membership does
+  // not start (nothing typed twice), forgotten once it starts and when they leave the page.
+  const [agreed, setAgreed] = useState<{ planId: string; given: AgreeInput[] } | null>(null);
+  // A member's "a copy is on its way".
+  const [said, setSaid] = useState<string | null>(null);
+  useForgetOnLeave(() => setAgreed(null));
   const asCustomer = signedIn || confirmed;
   if (isPending) return <p aria-busy="true">Loading the memberships…</p>;
   if (error || !data) return <p role="alert">We could not load the memberships.</p>;
@@ -104,19 +113,20 @@ export function Plans({
     planId: string,
     hasTrial: boolean,
     customer = asCustomer,
-    agreed?: AgreeInput[],
+    given: AgreeInput[] | null = agreed?.planId === planId ? agreed.given : null,
   ) {
     setProblem(null);
     setNoTrial(null);
     try {
       const outcome = await withAgreements((previous) =>
-        subscribe.mutateAsync({
+        forgetAfter(subscribe, {
           plan: { object: PLAN, id: planId },
           returnUrl,
           ...(customer ? {} : { email }),
-          ...(!customer && agreed && previous?.kind !== "read_again" ? { agreements: agreed } : {}),
+          ...(!customer && given && previous?.kind !== "read_again" ? { agreements: given } : {}),
         }),
       );
+      if (outcome.kind !== "done") setAgreed(null);
       if (outcome.kind === "due") {
         if (agreements) setDue({ planId, hasTrial, customer, documents: outcome.documents });
         else {
@@ -131,17 +141,21 @@ export function Plans({
         return;
       }
       const started = outcome.value;
+      // Recorded with the checkout: nothing of it is kept here any more.
+      setAgreed(null);
       // Never sent to a page that charges today without a word: the host's reason for no trial.
       if (hasTrial && started.noTrial) setNoTrial({ planId, started });
       else window.location.assign(started.url);
     } catch (e) {
       const refusal = agreementRefusal(e);
+      if (refusal) setAgreed(null);
       setProblem(
-        refusal
-          ? refusal.message
-          : e instanceof Error
-            ? e.message
-            : "We could not start your membership",
+        purchaseErrorWords(e) ??
+          (refusal
+            ? refusal.message
+            : e instanceof Error
+              ? e.message
+              : "We could not start your membership"),
       );
     }
   }
@@ -184,9 +198,10 @@ export function Plans({
         documents={due.documents}
         continueLabel="Agree and join"
         onCancel={back}
-        onAgreed={() => {
+        onAgreed={(copy) => {
           setDue(null);
-          void onSubscribe(planId, hasTrial, true);
+          setSaid(copy);
+          void onSubscribe(planId, hasTrial, true, null);
         }}
       />
     ) : (
@@ -195,9 +210,10 @@ export function Plans({
         documents={due.documents}
         continueLabel="Agree and join"
         onCancel={back}
-        onAgreed={(agreed) => {
+        onAgreed={(given) => {
           setDue(null);
-          void onSubscribe(planId, hasTrial, false, agreed);
+          setAgreed({ planId, given });
+          void onSubscribe(planId, hasTrial, false, given);
         }}
       />
     );
@@ -288,6 +304,12 @@ export function Plans({
           </Card>
         );
       })}
+      {said ? <p role="status">{said}</p> : null}
+      {agreed ? (
+        <p className="text-sm">
+          What you agreed to is kept for this membership: press Join to try again.
+        </p>
+      ) : null}
       {problem ? <p role="alert">{problem}</p> : null}
     </section>
   );

@@ -885,6 +885,34 @@ describe("what the agreement blocks read", () => {
       { documentId: id, draftHash: saved.hash, draftRev: saved.rev, number: 1, change: "small" },
       staff(),
     );
+    // A version scheduled for later is not what a guest is asked: left out.
+    const terms2 = await run<{ hash: string; rev: number }>(
+      "agreement.draft.save",
+      { id: terms.id, body: body(unique("Fixture text, later")) },
+      staff(),
+    );
+    const termsDoc = await run<{ versions: unknown[] }>("agreement.get", { id: terms.id }, staff());
+    const later = await run<{ version: { id: string } }>(
+      "agreement.publish",
+      {
+        documentId: terms.id,
+        draftHash: terms2.hash,
+        draftRev: terms2.rev,
+        number: termsDoc.versions.length + 1,
+        change: "small",
+        effectiveFrom: new Date(Date.now() + 30 * DAY).toISOString(),
+      },
+      staff(),
+    );
+    expect(
+      (
+        await run<{ versions: { id: string }[] }>(
+          "agreement.guestVersions",
+          { versionIds: [later.version.id, terms.versionId] },
+          as(PUBLIC),
+        )
+      ).versions.map((v) => v.id),
+    ).toEqual([terms.versionId]);
     // Not attached anywhere yet, then attached: a guest reads neither.
     expect(
       (

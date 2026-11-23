@@ -14,12 +14,13 @@
 import {
   type AgreeInput,
   type AgreementsHooks,
-  type AgreementsOutcome,
   agreementRefusal,
+  forgetAfter,
+  purchaseErrorWords,
   type RefusedDocument,
   withAgreements,
 } from "@composable-os/client";
-import type { BookingsHooks, BuyResult, TimetableClass } from "@composable-os/pack-bookings/client";
+import type { BookingsHooks, TimetableClass } from "@composable-os/pack-bookings/client";
 import {
   classTime,
   formatAmount,
@@ -30,6 +31,7 @@ import { type FormEvent, useState } from "react";
 import { Button } from "../ui-button/button.tsx";
 import { Input } from "../ui-input/input.tsx";
 import { Label } from "../ui-label/label.tsx";
+import { useForgetOnLeave } from "../web-agree/agree.tsx";
 import { GuestAgreementStep, MemberAgreementStep } from "../web-agree/agreement-step.tsx";
 
 /** The agreements hooks the inline step uses: a member's (due, accept) and a visitor's (words). */
@@ -135,54 +137,71 @@ function PayForm({
   const buy = bookings.useBuy();
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  // A member's "a copy is on its way", kept while the payment starts.
+  const [said, setSaid] = useState<string | null>(null);
   // What the host said must be agreed to first, and a minor's "a parent or guardian buys it".
   const [due, setDue] = useState<RefusedDocument[] | null>(null);
   const [minor, setMinor] = useState<string | null>(null);
+  // A visitor's agreements for this attempt: in this component's state only (never the app's
+  // cache), kept if the payment cannot start so nothing is typed twice, forgotten once it starts,
+  // when they go back, and when they leave the page.
+  const [agreed, setAgreed] = useState<AgreeInput[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  useForgetOnLeave(() => setAgreed(null));
   const name = klass.title ?? "Class";
-  const busy = buy.start.isPending || buy.checkout.isPending;
 
   /** Starts the order (with a visitor's agreements, once given) and opens the payment page. */
-  async function pay(agreed?: AgreeInput[]) {
+  async function pay(given: AgreeInput[] | null = agreed) {
     setMessage(null);
-    let outcome: AgreementsOutcome<BuyResult>;
+    setProblem(null);
+    setBusy(true);
     try {
-      outcome = await withAgreements((previous) =>
-        buy.start.mutateAsync({
+      const outcome = await withAgreements((previous) =>
+        forgetAfter(buy.start, {
           classId: klass.id,
           ...(signedIn ? {} : { email }),
           // A version replaced meanwhile: ask again with none, and the host names what is due now.
-          ...(!signedIn && agreed && previous?.kind !== "read_again" ? { agreements: agreed } : {}),
+          ...(!signedIn && given && previous?.kind !== "read_again" ? { agreements: given } : {}),
         }),
       );
-    } catch {
-      return; // The call's own error is shown under the form.
-    }
-    if (outcome.kind === "due") {
-      if (agreements) setDue(outcome.documents);
-      else {
-        setMessage(
-          `Something must be agreed to first: ${outcome.documents.map((d) => d.title).join(", ")}.`,
-        );
+      if (outcome.kind === "due") {
+        setAgreed(null);
+        if (agreements) setDue(outcome.documents);
+        else {
+          setProblem(
+            `Something must be agreed to first: ${outcome.documents.map((d) => d.title).join(", ")}.`,
+          );
+        }
+        return;
       }
-      return;
+      if (outcome.kind === "minor_payer") {
+        setAgreed(null);
+        setMinor(outcome.message);
+        return;
+      }
+      const held = outcome.value;
+      if (held.result === "refused") {
+        setMessage(refusalMessage(held, klass.timeZone));
+        return;
+      }
+      // Recorded with the order: nothing of it is kept here any more.
+      setAgreed(null);
+      onStarted?.({ orderId: held.orderId, bookingId: held.bookingId, token: held.token });
+      setMessage(`Your place is held. ${formatAmount(held.total, held.currency)} to pay.`);
+      const page = await forgetAfter(buy.checkout, {
+        id: held.orderId,
+        ...(held.token ? { token: held.token } : {}),
+        returnUrl,
+      });
+      window.location.assign(page.url);
+    } catch (error) {
+      const refusal = agreementRefusal(error);
+      if (refusal?.kind === "read_again" || refusal?.kind === "changed") setAgreed(null);
+      setProblem(purchaseErrorWords(error) ?? "We could not start the payment. Try again soon.");
+    } finally {
+      setBusy(false);
     }
-    if (outcome.kind === "minor_payer") {
-      setMinor(outcome.message);
-      return;
-    }
-    const held = outcome.value;
-    if (held.result === "refused") {
-      setMessage(refusalMessage(held, klass.timeZone));
-      return;
-    }
-    onStarted?.({ orderId: held.orderId, bookingId: held.bookingId, token: held.token });
-    setMessage(`Your place is held. ${formatAmount(held.total, held.currency)} to pay.`);
-    const page = await buy.checkout.mutateAsync({
-      id: held.orderId,
-      ...(held.token ? { token: held.token } : {}),
-      returnUrl,
-    });
-    window.location.assign(page.url);
   }
 
   async function submit(e: FormEvent) {
@@ -208,10 +227,10 @@ function PayForm({
         documents={due}
         continueLabel="Agree and pay"
         onCancel={back}
-        onAgreed={(said) => {
+        onAgreed={(copy) => {
           setDue(null);
-          setMessage(said);
-          void pay();
+          setSaid(copy);
+          void pay(null);
         }}
       />
     ) : (
@@ -219,9 +238,10 @@ function PayForm({
         agreements={agreements}
         documents={due}
         onCancel={back}
-        onAgreed={(agreed) => {
+        onAgreed={(given) => {
           setDue(null);
-          void pay(agreed);
+          setAgreed(given);
+          void pay(given);
         }}
       />
     );
@@ -246,15 +266,26 @@ function PayForm({
           />
         </div>
       )}
-      {message ? <p role="status">{message}</p> : null}
-      {(buy.start.error && !agreementRefusal(buy.start.error)) || buy.checkout.error ? (
-        <p role="alert">We could not start the payment. Try again soon.</p>
+      {said ? <p role="status">{said}</p> : null}
+      {agreed ? (
+        <p className="text-sm" data-agreed={agreed.length}>
+          What you agreed to is kept for this payment: press Pay to try again.
+        </p>
       ) : null}
+      {message ? <p role="status">{message}</p> : null}
+      {problem ? <p role="alert">{problem}</p> : null}
       <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={busy}>
           {busy ? "Opening the payment page…" : "Pay"}
         </Button>
-        <Button type="button" variant="outline" onClick={onBack}>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            setAgreed(null);
+            onBack();
+          }}
+        >
           Back
         </Button>
       </div>

@@ -192,6 +192,8 @@ export type UseMutation = <I, O>(options: {
   data: O | undefined;
   isPending: boolean;
   error: unknown;
+  /** Forgets the call: its variables and its answer (TanStack Query's `reset`). */
+  reset?: () => void;
 };
 
 /**

@@ -473,6 +473,12 @@ export const agreementPointsList = defineOperation({
         label: z.string(),
         suggests: z.array(z.string()),
         objects: z.array(z.string()),
+        inlineStep: z
+          .boolean()
+          .describe(
+            "Whether the pack's screens let a person agree on the way: false means a document " +
+              "attached here refuses purchases or bookings there until they agree elsewhere",
+          ),
       }),
     ),
   }),

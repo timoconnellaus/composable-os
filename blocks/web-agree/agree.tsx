@@ -26,7 +26,7 @@ import {
   StrokeRecorder,
   TYPED_NAME_MAX,
 } from "@composable-os/client";
-import { type FormEvent, type ReactNode, useId, useRef, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { Button } from "../ui-button/button.tsx";
 import { Input } from "../ui-input/input.tsx";
 import { Label } from "../ui-label/label.tsx";
@@ -51,6 +51,28 @@ export interface AgreeProps {
   secondary?: { label: string; onClick: () => void };
 }
 
+/**
+ * Forgets what a person entered when they leave the page, and when the browser brings the page
+ * back from its back-forward cache: a name typed, a signature or health answers are never shown
+ * again to whoever presses Back on the device.
+ */
+export function useForgetOnLeave(forget: () => void): void {
+  const latest = useRef(forget);
+  latest.current = forget;
+  useEffect(() => {
+    const hide = () => latest.current();
+    const show = (event: PageTransitionEvent) => {
+      if (event.persisted) latest.current();
+    };
+    window.addEventListener("pagehide", hide);
+    window.addEventListener("pageshow", show);
+    return () => {
+      window.removeEventListener("pagehide", hide);
+      window.removeEventListener("pageshow", show);
+    };
+  }, []);
+}
+
 export function Agree({
   version,
   forName,
@@ -66,6 +88,12 @@ export function Agree({
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useForgetOnLeave(() => {
+    setForm(emptyAgreeForm(version));
+    recorder.current.clear();
+    setTried(false);
+    setProblems([]);
+  });
   const fieldId = (field: string) => `${id}-${field.replace(/[^A-Za-z0-9_-]/g, "_")}`;
   const problemOf = (field: string) =>
     tried ? problems.find((p) => p.field === field) : undefined;

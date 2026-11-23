@@ -6,6 +6,11 @@
 // surface from the browser as a client app would. Documents attach to the real packs' points
 // (`booking`, `membership`) and are retired at the end of each test, so no other spec is asked
 // for them. All document text is fixture text, not wording anyone should use.
+//
+// It retires every live document and changes the customer and order settings, so it runs only
+// against the database its own dev server made: never a server it reuses (E2E_REUSE_SERVER=1)
+// unless E2E_AGREEMENTS_REUSED=1 says that database may be changed. The settings it changes are
+// put back as they were after each test.
 import {
   type APIRequestContext,
   type Browser,
@@ -44,6 +49,19 @@ const block = (name: string, component: string, props: Record<string, unknown> =
 
 const HOUR = 3_600_000;
 
+test.skip(
+  process.env.E2E_REUSE_SERVER === "1" && process.env.E2E_AGREEMENTS_REUSED !== "1",
+  "retires documents and changes settings: not run against a database it did not make " +
+    "(set E2E_AGREEMENTS_REUSED=1 to allow it)",
+);
+
+/** The settings a test changes, as they were before it, to put back. */
+interface Before {
+  customer: { signup: string; emailConnectionId: string | null };
+  order: { currency: string | null; returnOrigins: string[] };
+}
+let before: Before | null = null;
+
 /** What a member's pass is in the bookings spec: a fixture holder the dev Bookings spends. */
 const FIXTURE_PASS = `import { defineExtension } from "@composable-os/sdk";
 export default defineExtension({
@@ -76,6 +94,10 @@ export default defineExtension({
  * left attached would be asked too.
  */
 async function setUp(page: Page, baseURL: string) {
+  before = {
+    customer: await op(page.request, "customer.settings.get", {}),
+    order: await op(page.request, "order.settings.get", {}),
+  };
   for (const id of ["programs", "bookings", "memberships"]) {
     await op(page.request, "extension.install", { id, shipped: true }, false);
   }
@@ -261,8 +283,33 @@ async function signIn(page: Page, browser: Browser, baseURL: string, email: stri
 async function cleanUp(page: Page) {
   await retireAll(page);
   await op(page.request, "outbound.setAutoApprove", { tag: "fake.signin", enabled: false }, false);
-  await op(page.request, "customer.settings.update", { signup: "invite_only" }, false);
+  if (before) {
+    await op(
+      page.request,
+      "customer.settings.update",
+      {
+        signup: before.customer.signup,
+        ...(before.customer.emailConnectionId
+          ? { emailConnectionId: before.customer.emailConnectionId }
+          : {}),
+      },
+      false,
+    );
+    await op(
+      page.request,
+      "order.settings.update",
+      {
+        ...(before.order.currency ? { currency: before.order.currency } : {}),
+        returnOrigins: before.order.returnOrigins,
+      },
+      false,
+    );
+    before = null;
+  }
 }
+
+/** Whether this run is the phone project's: a finger draws there, not a mouse. */
+const onPhone = () => test.info().project.name === "phone";
 
 /** Ticks the box, types the name and (for a drawn document) draws on the pad, then agrees. */
 async function agree(form: Locator, name: string, button: string | RegExp = /^Agree/) {
@@ -272,16 +319,26 @@ async function agree(form: Locator, name: string, button: string | RegExp = /^Ag
   if (await pad.count()) {
     const box = await pad.boundingBox();
     if (!box) throw new Error("no signature pad");
-    const mouse = form.page().mouse;
-    await mouse.move(box.x + box.width * 0.1, box.y + box.height * 0.6);
-    await mouse.down();
-    for (let i = 1; i <= 12; i++) {
-      await mouse.move(
-        box.x + box.width * (0.1 + i * 0.06),
-        box.y + box.height * (i % 2 ? 0.3 : 0.7),
-      );
+    const at = (i: number) => ({
+      x: box.x + box.width * (0.1 + i * 0.06),
+      y: box.y + box.height * (i === 0 ? 0.6 : i % 2 ? 0.3 : 0.7),
+    });
+    if (onPhone()) {
+      // A finger: real touch events, which the browser turns into touch pointer events.
+      const cdp = await form.page().context().newCDPSession(form.page());
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [at(0)] });
+      for (let i = 1; i <= 12; i++) {
+        await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [at(i)] });
+      }
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await cdp.detach();
+    } else {
+      const mouse = form.page().mouse;
+      await mouse.move(at(0).x, at(0).y);
+      await mouse.down();
+      for (let i = 1; i <= 12; i++) await mouse.move(at(i).x, at(i).y);
+      await mouse.up();
     }
-    await mouse.up();
     await expect(form.getByText("Signature drawn.")).toBeVisible();
   }
   await form.getByRole("button", { name: button }).click();
@@ -356,6 +413,8 @@ test("a visitor pays for a class, agreeing to a drawn waiver and a health form o
       baseURL,
       storageState: { cookies: [], origins: [] },
       viewport: page.viewportSize() ?? undefined,
+      hasTouch: onPhone(),
+      isMobile: onPhone(),
     });
     const screen = await visitor.newPage();
     await screen.goto(
@@ -506,6 +565,8 @@ test("a new version to agree to again is asked inline at the member's next booki
     await expect(form).toContainText("This has changed since you agreed");
     await agree(form, "Fixture Member", "Agree and book");
     await expect(timetable.getByText(`Booked: ${next.name}`)).toBeVisible();
+    // Where the copy went is said with it.
+    await expect(timetable.getByText(`A copy is on its way to ${member.email}`)).toBeVisible();
     // The first booking stays booked: agree again is never retroactive.
     expect((await bookings(page, first.id)).items.map((b) => b.values.state)).toEqual(["booked"]);
     expect((await bookings(page, next.id)).items.map((b) => b.values.state)).toEqual(["booked"]);

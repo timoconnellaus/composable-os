@@ -8,6 +8,7 @@ import {
   type AgreementVersion,
   ApiError,
   agreeInput,
+  agreementBlockedWords,
   agreementRefusal,
   agreeProblems,
   boxPoint,
@@ -17,7 +18,10 @@ import {
   dueForRefusal,
   dueSteps,
   emptyAgreeForm,
+  forgetAfter,
   inkLength,
+  NetworkError,
+  purchaseErrorWords,
   SIGNATURE_LIMITS,
   StrokeRecorder,
   signatureEnough,
@@ -295,6 +299,73 @@ describe("a drawn signature", () => {
     ).toBe("M 1 2 L 3 4");
     expect(strokePath([[1, 2]])).toBe("M 1 2 l 0.5 0");
     expect(strokePath([])).toBe("");
+  });
+});
+
+describe("a drawn signature, more", () => {
+  it("reaches the point limit before the byte limit when the points are short", () => {
+    const pad = new StrokeRecorder();
+    pad.begin([0, 0]);
+    // Two-unit steps of one-digit points: each point costs few bytes, so the points run out first.
+    for (let i = 1; i < 6_000; i++) pad.extend([i % 2 ? 2 : 0, 0]);
+    const signature = pad.signature();
+    const points = (signature?.strokes ?? []).reduce((n, s) => n + s.length, 0);
+    expect(pad.full).toBe(true);
+    expect(points).toBe(SIGNATURE_LIMITS.points);
+    expect(JSON.stringify(signature).length).toBeLessThan(SIGNATURE_LIMITS.bytes - 1_000);
+  });
+
+  it("draws with one pointer: a second finger starts, moves and lifts nothing", () => {
+    const pad = new StrokeRecorder();
+    expect(pad.begin([100, 100], 1)).toBe(true);
+    expect(pad.begin([900, 300], 2)).toBe(false);
+    expect(pad.extend([900, 300], 2)).toBe(false);
+    expect(pad.extend([200, 100], 1)).toBe(true);
+    pad.end(2); // the second finger lifting ends nothing
+    expect(pad.extend([300, 100], 1)).toBe(true);
+    pad.end(1);
+    expect(pad.strokes).toEqual([
+      [
+        [100, 100],
+        [200, 100],
+        [300, 100],
+      ],
+    ]);
+    // Once lifted, another pointer may draw.
+    expect(pad.begin([500, 200], 2)).toBe(true);
+  });
+});
+
+describe("after a call", () => {
+  it("forgets the mutation whether it succeeded or failed", async () => {
+    let resets = 0;
+    const ok = { mutateAsync: async (n: number) => n + 1, reset: () => resets++ };
+    expect(await forgetAfter(ok, 1)).toBe(2);
+    const failed = {
+      mutateAsync: async () => {
+        throw new Error("no");
+      },
+      reset: () => resets++,
+    };
+    await expect(forgetAfter(failed, 1)).rejects.toThrow("no");
+    expect(resets).toBe(2);
+  });
+
+  it("says what went wrong for agreements and the connection, and nothing for the rest", () => {
+    expect(
+      purchaseErrorWords(new ApiError("conflict", "x", 409, { rule: "agreements_changed" })),
+    ).toMatch(/changed just now/);
+    expect(
+      purchaseErrorWords(
+        new ApiError("conflict", "x", 409, { rule: "agreement_version_replaced" }),
+      ),
+    ).toMatch(/changed just now/);
+    expect(purchaseErrorWords(new NetworkError("down"))).toMatch(/still here/);
+    expect(purchaseErrorWords(new ApiError("invalid_input", "x", 400, { rule: "x" }))).toBe(null);
+    expect(agreementBlockedWords(new ApiError("invalid_input", "x", 400, due))).toMatch(
+      /can't be given here yet/,
+    );
+    expect(agreementBlockedWords(new ApiError("invalid_input", "x", 400, {}))).toBe(null);
   });
 });
 

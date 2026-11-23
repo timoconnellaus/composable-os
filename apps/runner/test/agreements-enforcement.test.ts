@@ -320,16 +320,19 @@ beforeAll(async () => {
 
 describe("the points the packs declare", () => {
   it("memberships, passes, bookings, tickets and courses each mark theirs", async () => {
-    const { items } = await run<{ items: { point: string; objects: string[] }[] }>(
-      "agreement.points",
-      {},
-      staff(),
-    );
+    const { items } = await run<{
+      items: { point: string; objects: string[]; inlineStep: boolean }[];
+    }>("agreement.points", {}, staff());
     const at = (point: string) => [...(items.find((p) => p.point === point)?.objects ?? [])].sort();
     expect(at("membership")).toEqual(["memberships.pass", PASSTYPE, PLAN].sort());
     expect(at("booking")).toEqual([BOOKING]);
     expect(at("event")).toEqual(["ticketing.tickettype"]);
     expect(at("course")).toEqual(["courses.bundle", "courses.course", "courses.plan"]);
+    // Stage 44 step 5: Memberships' and Bookings' screens let a person agree on the way;
+    // Ticketing's and Courses' do not yet, so the admin is warned when attaching there.
+    const inline = (point: string) => items.find((p) => p.point === point)?.inlineStep;
+    expect([inline("membership"), inline("booking")]).toEqual([true, true]);
+    expect([inline("event"), inline("course")]).toEqual([false, false]);
   });
 });
 

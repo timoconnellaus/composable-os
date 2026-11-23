@@ -2,7 +2,13 @@
 // something is due (me.agreements.due). Each due document in turn, the member's own first, then
 // each child's linked to them; "Not now" goes on to their account. It is a convenience: the host
 // refuses a booking or a purchase while anything it needs is due, whatever this screen did.
-import { type AgreementsHooks, copyWords, dueReasonWords, dueSteps } from "@composable-os/client";
+import {
+  type AgreementsHooks,
+  copyWords,
+  dueReasonWords,
+  dueSteps,
+  forgetAfter,
+} from "@composable-os/client";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../ui-button/button.tsx";
 import { Agree } from "../web-agree/agree.tsx";
@@ -85,7 +91,7 @@ export function BeforeYouGoOn({
           reason={item.reason}
           secondary={{ label: "Not now", onClick: onDone }}
           onAgree={async (input) => {
-            const accepted = await accept.mutateAsync({
+            const accepted = await forgetAfter(accept, {
               ...input,
               ...(person.self ? {} : { forPersonId: person.personId }),
             });

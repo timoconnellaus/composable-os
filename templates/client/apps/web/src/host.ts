@@ -119,6 +119,17 @@ export interface OperationRouteOptions {
 const refuse = (status: number, code: string, message: string) =>
   Response.json({ error: { code, message } }, { status });
 
+/** A path's part decoded, or null when it is not valid percent-encoding (a bad `%`). */
+function decoded(part: string): string | null {
+  try {
+    return decodeURIComponent(part);
+  } catch {
+    return null;
+  }
+}
+
+const badPath = () => refuse(400, "invalid_input", "The address is not valid");
+
 /**
  * A same-origin route for calls from the browser (ADR 0451): a web block running in a page, an
  * Astro island, any client code that cannot reach HOST itself. `POST <path><operation>` with a
@@ -138,7 +149,8 @@ export async function operationRoute(
   const path = options.path ?? OPERATION_ROUTE;
   const url = new URL(request.url);
   if (!url.pathname.startsWith(path)) return null;
-  const name = decodeURIComponent(url.pathname.slice(path.length));
+  const name = decoded(url.pathname.slice(path.length));
+  if (name === null) return badPath();
   if (request.method !== "POST") return refuse(405, "invalid_input", "Use POST");
   const spec = (operations as Record<string, { kind: "query" | "mutation" } | undefined>)[name];
   if (!spec || !options.allow.includes(name as keyof typeof operations)) {
@@ -188,7 +200,8 @@ export async function agreementPdfRoute(request: Request, env: HostEnv): Promise
   const url = new URL(request.url);
   if (!url.pathname.startsWith(AGREEMENT_PDF_ROUTE)) return null;
   if (request.method !== "GET") return refuse(405, "invalid_input", "Use GET");
-  const file = decodeURIComponent(url.pathname.slice(AGREEMENT_PDF_ROUTE.length));
+  const file = decoded(url.pathname.slice(AGREEMENT_PDF_ROUTE.length));
+  if (file === null) return badPath();
   const id = file.endsWith(".pdf") ? file.slice(0, -4) : "";
   if (!ACCEPTANCE_ID.test(id)) return refuse(404, "not_found", "Not found");
   const answer = await env.HOST.fetch(`${BOUND}${AGREEMENT_PDF_ROUTE}${id}.pdf`, {
@@ -224,7 +237,8 @@ export async function mediaRoute(request: Request, env: HostEnv): Promise<Respon
   if (request.method !== "GET" && request.method !== "HEAD") {
     return refuse(405, "invalid_input", "Use GET");
   }
-  const id = decodeURIComponent(url.pathname.slice(MEDIA_ROUTE.length));
+  const id = decoded(url.pathname.slice(MEDIA_ROUTE.length));
+  if (id === null) return badPath();
   if (!MEDIA_ID.test(id)) return refuse(404, "not_found", "Not found");
   const width = url.searchParams.get("w");
   const query = width && /^[0-9]{1,5}$/.test(width) ? `?w=${width}` : "";

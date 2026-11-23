@@ -7,10 +7,19 @@ import {
   copyWords,
   dueForRefusal,
   dueReasonWords,
+  forgetAfter,
   type RefusedDocument,
 } from "@composable-os/client";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Modal,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { Button } from "../native-base/button.tsx";
 import { theme } from "../native-base/theme.ts";
 import { Agree } from "./agree-screen.tsx";
@@ -87,7 +96,7 @@ export function MemberAgreementStep({
           secondary={{ label: "Back", onPress: onCancel }}
           onDrawing={onDrawing}
           onAgree={async (input) => {
-            const accepted = await accept.mutateAsync({
+            const accepted = await forgetAfter(accept, {
               ...input,
               ...(person.self ? {} : { forPersonId: person.personId }),
             });
@@ -113,7 +122,37 @@ export function MemberAgreementStep({
   );
 }
 
+/**
+ * The step on a screen of its own (a modal over the list), never inside a scrolling list: the
+ * modal's own scroll holds still while a signature is drawn, so a stroke never becomes a scroll.
+ */
+export function AgreementStepModal(props: Parameters<typeof MemberAgreementStep>[0]) {
+  const [drawing, setDrawing] = useState(false);
+  return (
+    <Modal
+      visible
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={props.onCancel}
+    >
+      <SafeAreaView style={styles.safe}>
+        <ScrollView contentContainerStyle={styles.content} scrollEnabled={!drawing}>
+          <MemberAgreementStep
+            {...props}
+            onDrawing={(now) => {
+              setDrawing(now);
+              props.onDrawing?.(now);
+            }}
+          />
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
 const styles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: theme.color.background },
+  content: { padding: theme.space.md },
   wrap: { gap: theme.space.md },
   body: { fontSize: theme.font.body, color: theme.color.text },
   bold: { fontWeight: "600" },
