@@ -144,3 +144,9 @@ The deviation above ("the host keeps the release's names and strings") is closed
   `cos init` shows it under a matching environment of the site's config, or prints it with when to
   add it; `cos deploy` prints exactly what each environment needs.
 - The old "the host keeps the release's names" text of `docs/deploying.md` is corrected.
+
+## Amended 2026-11-23: where a client product is hosted
+[ADR 0610](0610-three-homes-for-a-client-hosted-by-default.md): a client product is hosted in our
+account by default. `product.ts` gains `hosting` (stage 46). For a hosted product the fleet, not
+`platform.version`, decides the host's platform version, and `cos deploy` deploys only what is the
+client's own. A product without `hosting` deploys as described above.
