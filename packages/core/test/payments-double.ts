@@ -41,6 +41,8 @@ export interface Gateway {
    * default), refused with nothing changed, an unknown outcome, or the call itself failing.
    */
   nextChange: "applied" | "refused" | "unknown" | "throw";
+  /** Stage 44 step 7: how the next cancelSubscription goes at the gatekeeper (as nextChange). */
+  nextCancel: "applied" | "refused" | "unknown" | "throw";
   /** Stage 32b second review: what the provider's subscription reads as (getSubscription). */
   providerReads: Map<string, Record<string, unknown>>;
   /** Run before the next plan change, pause or unpause answers (a verified read landing meanwhile). */
@@ -101,6 +103,7 @@ export function paymentsDouble(events: () => Events, crm: () => CrmDb = () => db
     statusAsks: [],
     nextExpiresAt: null,
     nextChange: "applied",
+    nextCancel: "applied",
     providerReads: new Map(),
     beforeAnswer: null,
     beforeSubscribe: null,
@@ -183,8 +186,10 @@ export function paymentsDouble(events: () => Events, crm: () => CrmDb = () => db
           input.method === "pauseSubscription" ||
           input.method === "unpauseSubscription" ||
           input.method === "voidPendingUpdate";
-        const how = changing ? gw.nextChange : "applied";
+        const cancelling = input.method === "cancelSubscription";
+        const how = changing ? gw.nextChange : cancelling ? gw.nextCancel : "applied";
         if (changing) gw.nextChange = "applied";
+        if (cancelling) gw.nextCancel = "applied";
         if (changing && gw.beforeAnswer) {
           const hook = gw.beforeAnswer;
           gw.beforeAnswer = null;
@@ -202,7 +207,7 @@ export function paymentsDouble(events: () => Events, crm: () => CrmDb = () => db
               ? { url: "https://billing.example/portal" }
               : { status: how === "applied" ? "sent" : "pending", id: gw.changes.length },
           pending: [],
-          applied: changing && how !== "applied" ? [] : [action],
+          applied: (changing || cancelling) && how !== "applied" ? [] : [action],
           ...(how === "refused"
             ? {
                 failed: [

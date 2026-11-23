@@ -355,6 +355,8 @@ export interface SellableDefinition {
         grants?: RecurringGrantDefinition | undefined;
         /** Staff may pause one, within these number fields' days (ADR 0531). */
         pause?: { minDays?: string | undefined; maxDays?: string | undefined } | undefined;
+        /** The extension's number setting holding the cooling-off days (ADR 0647). */
+        coolingOff?: { setting: string } | undefined;
       }
     | undefined;
   /** A boolean field: while true, a Person buys the record once across the object (ADR 0512). */

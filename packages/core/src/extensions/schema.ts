@@ -973,6 +973,9 @@ function sellableDefinition(object: ObjectState, own: FieldState[]): ObjectDefin
                   },
                 }
               : {}),
+            ...(declared.recurring.coolingOff
+              ? { coolingOff: { setting: declared.recurring.coolingOff.setting } }
+              : {}),
             ...(declared.recurring.grants
               ? {
                   grants: {

@@ -104,6 +104,10 @@ describe("default closed (criterion 1)", () => {
       "subscription.cancel",
       // Stage 32b (ADR 0530): a member changes their own plan, an upgrade applied once paid.
       "subscription.change",
+      // Stage 44 step 7 (ADR 0647): a payer ends their own in its cooling-off period, and asks
+      // whether they may.
+      "subscription.coolOff",
+      "subscription.coolingOff",
       "subscription.get",
       "subscription.list",
       // Stage 32a step 4 (ADR 0491): a customer's own continuation offers.
@@ -439,6 +443,10 @@ describe("the closed handler context (ADR 0413)", () => {
       "subscription.cancel",
       // Stage 32b (ADR 0530): a member changes their own plan, an upgrade applied once paid.
       "subscription.change",
+      // Stage 44 step 7 (ADR 0647): the host reads and writes the cooling off for the payer, and
+      // calls the payments gatekeeper to end it.
+      "subscription.coolingOff",
+      "subscription.coolOff",
       "subscription.offer.mine",
       "subscription.portal",
       "subscription.resume",

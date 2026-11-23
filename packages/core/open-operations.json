@@ -220,6 +220,18 @@
       "hostInternal": true
     },
     {
+      "name": "subscription.coolingOff",
+      "audiences": ["staff", "customer"],
+      "risk": "read",
+      "hostInternal": true
+    },
+    {
+      "name": "subscription.coolOff",
+      "audiences": ["staff", "customer"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
       "name": "subscription.get",
       "audiences": ["staff", "customer"],
       "risk": "read"

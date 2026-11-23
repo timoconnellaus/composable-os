@@ -11,6 +11,9 @@
 //                         (an upgrade now, prorated; a downgrade from the next period)
 //   subscription.pause    staff (subscriptions:manage): the provider's pause, for a set time
 //   subscription.unpause  staff (subscriptions:manage): end a pause now, or withdraw one asked
+//   subscription.coolingOff staff; a customer, their own: may it be cooled off, and how far one got
+//   subscription.coolOff  staff (subscriptions:manage); a customer, their own: end it now in its
+//                         cooling-off period, every paid period owed back (ADR 0647)
 //
 // No operation here takes a price, moves a subscription or makes a period paid: the provider's
 // verified events do that, through `order.applyPaymentEvent`. Cancel and resume ask the provider;
@@ -33,6 +36,7 @@ import {
   requestUnpause,
   withdrawPlanChange,
 } from "../subscriptions/changes.ts";
+import { coolingOffFor, coolOff, NOT_OFFERED } from "../subscriptions/cooling-off.ts";
 import {
   cancelAtPeriodEnd,
   cancelNow,
@@ -563,6 +567,123 @@ export const subscriptionChangeWithdraw = defineOperation({
   },
 });
 
+const coolOffSchema = z
+  .object({
+    state: z
+      .enum(["asked", "refused", "ended"])
+      .describe(
+        "asked: the payment provider was asked to end it now; refused: the provider refused " +
+          "(nothing ended, ask again); ended: it ended and its refunds are owed",
+      ),
+    asked: z
+      .enum(["sent", "pending", "unknown"])
+      .nullable()
+      .describe("What came of asking the provider: unknown means its next event decides"),
+    askedBy: z.enum(["payer", "staff"]),
+    askedAt: z.string(),
+    endedAt: when,
+    paid: z.number().describe("What was paid on the subscription, in minor units"),
+    refunded: z.number().describe("What has been refunded of it so far, in minor units"),
+    refunds: z
+      .enum(["waiting", "refunded", "held"])
+      .nullable()
+      .describe(
+        "Once ended: waiting (each refund waits for a person who may refund), refunded, or held " +
+          "(a refund was not approved or could not be asked: staff refund it from the order)",
+      ),
+  })
+  .nullable();
+
+const coolingOffStatusSchema = z.object({
+  subscriptionId: z.string(),
+  offered: z.boolean().describe("The payer may end it now for a full refund (cooling off)"),
+  why: z
+    .enum(NOT_OFFERED)
+    .nullable()
+    .describe(
+      "Why not: not_covered (the plan has no cooling off), off (the business set none), " +
+        "continuation (not started here as a new member), ended, window_passed, used (once per " +
+        "member), nothing_paid (a free trial: an ordinary cancel ends it at no charge)",
+    ),
+  days: z.number().describe("The cooling-off days that apply; 0 when none"),
+  until: z
+    .string()
+    .nullable()
+    .describe("The last day of the window (YYYY-MM-DD, the business's time zone)"),
+  endsAt: when.describe("The moment the window closes"),
+  refund: z.number().describe("Paid and not refunded, in minor units: the refund it would owe"),
+  currency: z.string(),
+  coolOff: coolOffSchema.describe("A cooling off asked for, and how far it has got"),
+});
+
+export const subscriptionCoolingOff = defineOperation({
+  name: "subscription.coolingOff",
+  description:
+    "Whether each subscription may be ended in its cooling-off period for a full refund: the " +
+    "business's setting (whole days, 0 off), counted from when the payment provider confirmed " +
+    "it to the end of the last day in the business's time zone, for a new member's membership " +
+    "only (not a pass, not one moved over with a continuation offer), once per member. Also " +
+    "says how far a cooling off asked for has got and where its refunds are. The host decides; " +
+    "an app shows the button only when `offered`. A signed-in customer asks about the " +
+    "subscriptions they pay for only; another's is not found. Read-only.",
+  input: z.object({
+    ids: z.array(subscriptionId).min(1).max(20).describe("Up to 20 subscriptions"),
+  }),
+  output: z.object({ items: z.array(coolingOffStatusSchema) }),
+  permission: "records:read",
+  risk: "read",
+  audiences: ["staff", "customer"],
+  hostInternal: true,
+  mcp: { idempotent: true },
+  async handler(input, ctx) {
+    return { items: await coolingOffFor(ctx, input.ids) };
+  },
+});
+
+export const subscriptionCoolOff = defineOperation({
+  name: "subscription.coolOff",
+  description:
+    "End a subscription in its cooling-off period, for a full refund of what was paid on it " +
+    "(subscription.coolingOff says whether it may be). Ended at the payment provider now: " +
+    "nothing more is charged, and what it gives stops once the provider confirms. Then a refund " +
+    "of every paid period is owed, in full, whatever was used; each waits for a person with " +
+    "orders:refund to approve it, as every refund does. Refused outside the window, for a plan " +
+    "with no cooling off, for a membership moved over with a continuation offer, when the " +
+    "member has cooled off before, and while nothing has been paid (a free trial: cancel " +
+    "instead). A signed-in customer ends their own (the one they pay for, a child's included); " +
+    "staff any, with subscriptions:manage. Asked again, it asks the provider again until it is " +
+    "taken; nothing is done twice. A person decides, never an AI assistant.",
+  input: z.object({ id: subscriptionId }),
+  output: z.object({
+    id: z.string(),
+    state: z.enum(["asked", "ended"]),
+    asked: z
+      .enum(["sent", "pending", "unknown"])
+      .nullable()
+      .describe(
+        "sent: the provider was asked to end it; unknown: it may or may not have reached it " +
+          "(its next event decides; staff are told)",
+      ),
+    refund: z.number().describe("Paid and not refunded so far, in minor units: owed back"),
+    currency: z.string(),
+  }),
+  permission: "subscriptions:manage",
+  risk: "write",
+  audiences: ["staff", "customer"],
+  actors: ["human"],
+  hostInternal: true,
+  mcp: { expose: false },
+  auditSummary: (output) => ({
+    subscriptionId: output.id,
+    state: output.state,
+    asked: output.asked,
+    refund: output.refund,
+  }),
+  async handler(input, ctx) {
+    return coolOff(ctx, input.id);
+  },
+});
+
 export const subscriptionOperations = [
   subscriptionStart,
   subscriptionGet,
@@ -574,4 +695,6 @@ export const subscriptionOperations = [
   subscriptionPause,
   subscriptionUnpause,
   subscriptionChangeWithdraw,
+  subscriptionCoolingOff,
+  subscriptionCoolOff,
 ] as const;

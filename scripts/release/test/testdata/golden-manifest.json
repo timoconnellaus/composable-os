@@ -28,7 +28,7 @@
   },
   "channel": "stable",
   "commit": "0123456789abcdef0123456789abcdef01234567",
-  "coreSchemaVersion": 855,
+  "coreSchemaVersion": 856,
   "extensionContract": {
     "supported": [
       1
@@ -606,6 +606,10 @@
     {
       "name": "0855_agreement_retention.sql",
       "sha256": "bec2ce5630e8ff538b1bc5cbc196dd12bee455cdc2a347ff434ac40f9f440f31"
+    },
+    {
+      "name": "0856_subscription_cooling_off.sql",
+      "sha256": "f20ae9a856fa7ef2663d38b842f55f81954eb6b170b03b86b07cb2ae016d1a4e"
     }
   ],
   "product": "crm",

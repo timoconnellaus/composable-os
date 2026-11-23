@@ -245,6 +245,22 @@ export type Operations = {
     output: { id: string; changeId: string; kind: ("upgrade") | ("downgrade"); effectiveAt: (string) | (null); amount: number; currency: string; asked: ("sent") | ("pending") | ("unknown") | ("not_needed"); requested: true };
   };
   /**
+   * End a subscription in its cooling-off period, for a full refund of what was paid on it (subscription.coolingOff says whether it may be). Ended at the payment provider now: nothing more is charged, and what it gives stops once the provider confirms. Then a refund of every paid period is owed, in full, whatever was used; each waits for a person with orders:refund to approve it, as every refund does. Refused outside the window, for a plan with no cooling off, for a membership moved over with a continuation offer, when the member has cooled off before, and while nothing has been paid (a free trial: cancel instead). A signed-in customer ends their own (the one they pay for, a child's included); staff any, with subscriptions:manage. Asked again, it asks the provider again until it is taken; nothing is done twice. A person decides, never an AI assistant.
+   */
+  "subscription.coolOff": {
+    kind: "mutation";
+    input: { id: string };
+    output: { id: string; state: ("asked") | ("ended"); asked: (("sent") | ("pending") | ("unknown")) | (null); refund: number; currency: string };
+  };
+  /**
+   * Whether each subscription may be ended in its cooling-off period for a full refund: the business's setting (whole days, 0 off), counted from when the payment provider confirmed it to the end of the last day in the business's time zone, for a new member's membership only (not a pass, not one moved over with a continuation offer), once per member. Also says how far a cooling off asked for has got and where its refunds are. The host decides; an app shows the button only when `offered`. A signed-in customer asks about the subscriptions they pay for only; another's is not found. Read-only.
+   */
+  "subscription.coolingOff": {
+    kind: "query";
+    input: { ids: string[] };
+    output: { items: ({ subscriptionId: string; offered: boolean; why: (("not_covered") | ("off") | ("continuation") | ("ended") | ("window_passed") | ("used") | ("nothing_paid")) | (null); days: number; until: (string) | (null); endsAt: (string) | (null); refund: number; currency: string; coolOff: ({ state: ("asked") | ("refused") | ("ended"); asked: (("sent") | ("pending") | ("unknown")) | (null); askedBy: ("payer") | ("staff"); askedAt: string; endedAt: (string) | (null); paid: number; refunded: number; refunds: (("waiting") | ("refunded") | ("held")) | (null) }) | (null) })[] };
+  };
+  /**
    * Get one subscription: its plan, price per period, state (trial, active, past due, ended…), the current period and whether it ends when that period does. A signed-in customer gets the subscriptions they pay for only; anyone else's is not found. Read-only.
    */
   "subscription.get": {
@@ -332,14 +348,16 @@ export const operations = {
   "order.get": { kind: "query", invalidates: [] },
   "order.start": { kind: "mutation", invalidates: ["order.get","order.view"] },
   "order.view": { kind: "query", invalidates: [] },
-  "subscription.cancel": { kind: "mutation", invalidates: ["subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
-  "subscription.change": { kind: "mutation", invalidates: ["subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
+  "subscription.cancel": { kind: "mutation", invalidates: ["subscription.coolingOff","subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
+  "subscription.change": { kind: "mutation", invalidates: ["subscription.coolingOff","subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
+  "subscription.coolOff": { kind: "mutation", invalidates: ["subscription.coolingOff","subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
+  "subscription.coolingOff": { kind: "query", invalidates: [] },
   "subscription.get": { kind: "query", invalidates: [] },
   "subscription.list": { kind: "query", invalidates: [] },
   "subscription.offer.mine": { kind: "query", invalidates: [] },
   "subscription.portal": { kind: "query", invalidates: [] },
-  "subscription.resume": { kind: "mutation", invalidates: ["subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
-  "subscription.start": { kind: "mutation", invalidates: ["subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
+  "subscription.resume": { kind: "mutation", invalidates: ["subscription.coolingOff","subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
+  "subscription.start": { kind: "mutation", invalidates: ["subscription.coolingOff","subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
   "waitlist.position": { kind: "query", invalidates: [] },
 } as const;
 

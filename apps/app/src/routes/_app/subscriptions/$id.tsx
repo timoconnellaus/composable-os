@@ -6,6 +6,9 @@
 // Stage 32b (ADRs 0530, 0531): staff move it to another plan (an upgrade now, prorated; a downgrade
 // from the next period: the host decides which), pause it for a set time within the plan's
 // bounds, or end a pause; each asks the provider, and shows once the provider confirms.
+// Stage 44 step 7 (ADR 0647): whether a new member may still cool off (the host says, with the
+// last day), and a cooling off asked for: staff end it for them (subscriptions:manage, a person),
+// and ask the provider again when its answer was lost or refused. Its refunds wait in Approvals.
 import type { CoreOutput } from "@composable-os/core";
 import { Button } from "@composable-os/ui/components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@composable-os/ui/components/card";
@@ -116,6 +119,7 @@ function SubscriptionPage() {
             </dl>
           </CardContent>
         </Card>
+        <CoolingOff subscription={s} />
         <PeriodOrders subscriptionId={s.id} />
       </div>
     </PageLayout>
@@ -234,6 +238,119 @@ function PeriodOrders({ subscriptionId }: { subscriptionId: string }) {
             </TableBody>
           </Table>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+const NOT_OFFERED_WORDS: Record<string, string> = {
+  off: "The business has no cooling-off period set.",
+  continuation: "Not a new member's: it was not started here as a new membership.",
+  ended: "It has ended.",
+  window_passed: "Its cooling-off period has passed.",
+  used: "This member has cooled off before: it is once per member.",
+  nothing_paid: "Nothing has been paid on it yet (a free trial): an ordinary cancel ends it.",
+};
+
+/** A day `YYYY-MM-DD` in the business's zone, as the host gave it, never shifted. */
+function localDay(date: string | null): string {
+  if (!date) return "";
+  const at = new Date(`${date}T00:00:00Z`);
+  return Number.isNaN(at.getTime())
+    ? date
+    : at.toLocaleDateString(undefined, {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        timeZone: "UTC",
+      });
+}
+
+function CoolingOff({ subscription: s }: { subscription: SubscriptionData }) {
+  const status = useOp("subscription.coolingOff", { ids: [s.id] });
+  const coolOff = useOpMutation("subscription.coolOff");
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const c = status.data?.items[0];
+  // A plan with no cooling off says nothing here.
+  if (!c || (c.why === "not_covered" && !c.coolOff)) return null;
+  async function onCoolOff() {
+    setError(null);
+    try {
+      const out = await coolOff.mutateAsync({ id: s.id });
+      setConfirming(false);
+      if (out.asked === "unknown") {
+        toast.warning(
+          "Asked the payment provider to end it; its answer was lost. Ask again if it does not end",
+        );
+      } else {
+        toast.success(
+          "Asked the payment provider to end it now; the refunds are owed once it ends",
+        );
+      }
+    } catch (err) {
+      setConfirming(false);
+      setError(errorMessage(err));
+    }
+  }
+  const own = c.coolOff;
+  const again =
+    own &&
+    (own.state === "refused" ||
+      (own.state === "asked" && (own.asked === "unknown" || own.asked === null)));
+  const words = own
+    ? own.state === "ended"
+      ? `Ended in its cooling-off period${own.endedAt ? ` on ${formatDateTime(own.endedAt)}` : ""}. ` +
+        (own.refunds === "refunded"
+          ? `Refunded ${formatMoney(own.refunded, c.currency)}.`
+          : own.refunds === "held"
+            ? `A refund of ${formatMoney(own.paid - own.refunded, c.currency)} is owed and was not approved or could not be asked: refund it from the orders below.`
+            : `A full refund of ${formatMoney(own.paid - own.refunded, c.currency)} is owed: each period's refund waits in Approvals.`)
+      : own.state === "refused"
+        ? "Asked to end in its cooling-off period, and the payment provider refused: nothing ended. Ask again."
+        : own.asked === "sent" || own.asked === "pending"
+          ? `Asked ${own.askedBy === "staff" ? "by staff" : "by the payer"} to end in its cooling-off period on ${formatDateTime(own.askedAt)}: waiting for the payment provider to confirm.`
+          : "Asked to end in its cooling-off period, and the payment provider's answer was lost: ask again."
+    : c.offered
+      ? `A new member's cooling-off period of ${c.days} days runs to the end of ${localDay(c.until)}. Ending it now owes a full refund of ${formatMoney(c.refund, c.currency)}, each period's refund approved in Approvals.`
+      : (NOT_OFFERED_WORDS[c.why ?? ""] ?? "Not in its cooling-off period.");
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Cooling off</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-3 text-sm">
+        <p data-testid="subscription-cooling-off">{words}</p>
+        {error && (
+          <p className="text-destructive" role="alert">
+            {error}
+          </p>
+        )}
+        {(c.offered || again) && (
+          <div>
+            <Button size="sm" variant="outline" onClick={() => setConfirming(true)}>
+              {again ? "Ask the payment provider again" : "End it with a full refund"}
+            </Button>
+          </div>
+        )}
+        <Dialog open={confirming} onOpenChange={(o) => !o && setConfirming(false)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>End it in its cooling-off period?</DialogTitle>
+              <DialogDescription>
+                {`The payment provider ends it now. Then a full refund of every paid period (${formatMoney(c.refund, c.currency)} so far) is owed, each waiting in Approvals for someone who may refund.`}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setConfirming(false)}>
+                Keep it
+              </Button>
+              <Button type="button" disabled={coolOff.isPending} onClick={() => void onCoolOff()}>
+                End it with a full refund
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>
   );
