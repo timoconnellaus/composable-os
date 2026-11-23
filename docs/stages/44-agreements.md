@@ -1657,7 +1657,9 @@ Fixed in the same PR (ADR 0646 amended; migration 0855 edited in place, as it wa
    it showed.
 5. **Open purchases close on erase**: unpaid orders cancelled by the host; unconfirmed
    subscription checkouts closed (`core_subscription_checkout.erased_at`, address cleared), so a
-   later confirmation makes nothing.
+   later confirmation makes nothing (staff are told to cancel and refund it with the provider). A
+   drop-in's late payment is owed back automatically (`oweLateRefund`); another order's is on the
+   paid-late list for staff.
 6. **The retention setting is read one way** in host and database.
 7. A runner test for the integration host's `scrubAgreementCopy`; an e2e journey for Kept after
    erase (find, open, hold, release); `agreement.erasePreview` on the Erase requests list (the app

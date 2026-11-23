@@ -135,9 +135,13 @@ of a copy that was waiting for a person.
 - **Every `agreement.acceptance.get` is audited** (`auditReads`) with the acceptance's id and
   whether it was kept, never what it says; `agreement.kept.find` records the ids it showed.
 - **Open purchases close on erase**: an order of theirs (or with their address) nothing was paid
-  on is cancelled by the host, so a payment after the erase is a late one, never honoured without
-  staff; an unconfirmed subscription checkout is closed (`erased_at`, its address cleared), so a
-  later confirmation makes no subscription and staff are told to cancel it with the provider.
+  on is cancelled by the host, so a payment after the erase is a late one and never makes it paid.
+  For a drop-in (a line that moves a record) the late payment is owed back automatically, asked
+  for by the host for a person with `orders:refund` to approve (`oweLateRefund`, ADR 0429), as
+  before the erase; for any other order no automatic refund path exists, and admins are told to
+  refund it (the paid-late list). An unconfirmed subscription checkout is closed (`erased_at`, its address cleared), so a
+  later confirmation makes no subscription and staff are told to cancel and refund it with the
+  provider: no automatic path exists for a provider subscription the host never made.
 - **The retention setting is read by SQLite's JSON functions** in the host as in the triggers:
   `{"years": 7.0}` is not a whole number to either, and purges nothing. A purge the database
   refuses is reported as such, not as "immutable".

@@ -986,6 +986,8 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
   // without staff (orders/late.ts); a subscription checkout the provider has not confirmed is
   // closed, so a later confirmation makes nothing (subscriptions/events.ts). Their guest
   // acceptances go with them (agreements/people.ts).
+  // A drop-in's (an order whose line moves a record, ADR 0560) late payment is owed back by the
+  // host automatically, for a person with orders:refund to approve (`oweLateRefund`, ADR 0429).
   for (const row of orders) {
     if (row.state === "pending" && row.paid === 0) {
       await changeOrder(ctx, row, "cancelled", { person_id: null }, "host");

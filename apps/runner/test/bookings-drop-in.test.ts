@@ -1173,15 +1173,27 @@ describe("round two (review)", () => {
         { timeout: 15_000 },
       );
       if (how === "erase") {
-        // Erase closed the unpaid order itself (stage 44 step 8, ADR 0646): a payment that comes
-        // after never makes it paid (a late one is staff's to refund), and its place went back.
+        // Erase closed the unpaid order itself (stage 44 step 8, ADR 0646): the payment that comes
+        // after never makes it paid, and it is owed back automatically, asked for by the host for
+        // a person with orders:refund to approve (ADR 0429), as any payment after a drop-in's
+        // place went back.
+        await vi.waitFor(
+          async () =>
+            expect((await paymentsOf(bought.orderId)).results.map((p) => p.outcome)).toEqual([
+              "late",
+            ]),
+          { timeout: 15_000 },
+        );
         expect((await order(bought.orderId))?.state).toBe("cancelled");
-        const payments = await env.DB.prepare(
-          "SELECT outcome FROM core_order_payment WHERE order_id = ?",
-        )
-          .bind(bought.orderId)
-          .all<{ outcome: string }>();
-        for (const p of payments.results) expect(p.outcome).toBe("late");
+        const owed = (await owedRows(bought.orderId)).results;
+        expect(owed).toEqual([
+          {
+            entered: "late",
+            amount: expect.any(Number),
+            ref: (await paymentsOf(bought.orderId)).results[0]?.ref,
+            state: "due",
+          },
+        ]);
       } else {
         expect((await order(bought.orderId))?.state).toBe("paid");
         expect((await owedRows(bought.orderId)).results).toEqual([
