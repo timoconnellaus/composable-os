@@ -146,8 +146,15 @@ export interface RunState {
   };
   /** The automation cascade the tool was called in, carried on by its calls (ADR 0478). */
   cascade?: ToolCascade;
-  /** Who stands behind what a tool run writes (ADR 0590), from its verified caller. */
-  standing?: "person" | "ai" | "host";
+  /**
+   * Who stands behind what the run writes (ADR 0590), from its verified caller: an AI's call, or
+   * an automation not shipped in a pack's own code, is an AI's; otherwise the host's.
+   */
+  standing?: "ai" | "host";
+  /** The values a person gave the tool (normal forms): what equals one of them is theirs. */
+  given?: ReadonlySet<string>;
+  /** Set once the run used a model (`codemode:ai`): what it writes from then on is an AI's. */
+  usedModel?: boolean;
   /**
    * The calling staff account's pack role limit to today (ADR 0553): the run's record reads and
    * writes of these objects reach today's records only, whatever the extension may read.
@@ -234,6 +241,8 @@ export class RunHost extends RpcTarget {
       case "routine-mail":
         return this.#routineMail(list);
       case "ai":
+        // A model's words may reach what the run writes from now on (ADR 0590).
+        run.usedModel = true;
         return json(
           await runModelRole(this.#env, method as "summarise" | "extract" | "classify", list),
         );
@@ -241,6 +250,13 @@ export class RunHost extends RpcTarget {
         if (isGatekeeperModule(module)) return this.#gatekeeper(module, method, list);
         throw new Error(`Unknown host module ${module}`);
     }
+  }
+
+  /** Who stands behind what this run writes (ADR 0590), for the pipeline's marks. */
+  #marks(): { markStanding: "ai" | "host"; markGiven?: ReadonlySet<string> } {
+    const run = this.#run;
+    if (run.usedModel || run.standing === "ai") return { markStanding: "ai" };
+    return { markStanding: "host", ...(run.given ? { markGiven: run.given } : {}) };
   }
 
   /** A read tool's sandbox (RunState.readOnly): refuses what is not a read, before it runs. */
@@ -351,7 +367,7 @@ export class RunHost extends RpcTarget {
             // runs of tools it calls (ADR 0553): the pipeline holds it before each operation.
             ...(run.roleToday ? { roleToday: run.roleToday } : {}),
             // Who stands behind what the tool writes (ADR 0590): its caller, not the extension.
-            markStanding: run.standing ?? "host",
+            ...this.#marks(),
             ...(run.simulate ? { simulate: run.simulate } : this.#events()),
             ...(await this.#tools(operation)),
           });
@@ -403,6 +419,7 @@ export class RunHost extends RpcTarget {
         floor: parseFloor(this.#env.APPROVAL_FLOOR),
         extension: { id: run.extensionId, permissions: run.permissions },
         reason: `Automation ${automation.automationId}`,
+        ...this.#marks(),
         ...(await this.#tools(operation)),
         ...(automation.events ? { events: automation.events } : {}),
         ...(automation.events && embedsFromEvents(this.#env) ? { embedViaEvents: true } : {}),

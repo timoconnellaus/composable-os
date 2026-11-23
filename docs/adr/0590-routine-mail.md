@@ -314,3 +314,57 @@ while on and claimed after the pack is turned off is an ordinary send.
 an adjudicator-approved write leave. `packages/sdk/test/routine-mail.test.ts`: the filter's new holds
 and the ordinary names it lets through. The 500-pending flood is `apps/runner/test/bookings-held.test.ts`
 (routine cancellations wait behind a full queue and are each sent once there is room).
+
+## Amended 2026-11-23, after the third security review: how the check reads the marks
+
+The marks stay as decided. The third review found three places where the mail check read them too
+loosely, and two writers whose standing was too generous. Each is now:
+
+- **An email rests only on what it shows.** The check notes, slot by slot, which fields each slot
+  read (and which the calendar file read). An email's row is checked for, and stores in `sources`,
+  only the record itself (its creation, its link to its Person, its state), the slots its own
+  subject and text name, the calendar file if it carries one, and its own recipient's address. So
+  approving a child's held email marks nothing about the guardian's address, and the guardian's
+  email is held for its own reasons only. A rejection writes no mark.
+- **An address is its own.** A Person's addresses are marked one by one (`emails:<address>`), as
+  is which of them is primary (`emails:$primary`). An address keeps the mark of whoever added it,
+  whoever rewrites the list later; a removed address loses its mark; erasure deletes them with the
+  Person. An address must always have its own mark for the email to be routine:
+  - a person's or a default's is routine;
+  - the customer's is routine only when it is the account's own verified sign-in address;
+  - the host's or the public's (a ticket holder made from the paid order) only when it is the
+    Person's verified sign-in address or paid one of their orders;
+  - an AI's never.
+
+  An address an AI put on a Person is never made good by someone later signing in with it, paying
+  with it, or an order or merge pointing at the Person. An AI's choice of which address is primary
+  holds too.
+- **Every relation on the way is shown.** For `class.room.name` the class's `room` is checked as
+  well as the room's name, and so for `movedFrom.class.*` and the calendar's paths. A relation may
+  be a person's, the customer's, a default or the host's (as the link to the Person), never an AI's.
+- **A tool a person runs writes as the host**, except a value equal to one the person gave the tool
+  in its input, which is theirs. The tool's code chooses what it writes; the person stands behind
+  what they typed. An AI's call of a tool writes as an AI. A run that called a model (`codemode:ai`)
+  writes as an AI from that call on. Bookings' `bookFor`, a staff member booking someone in: the
+  booking's creation and state are the host's (accepted), its Person the one the staff member
+  named (theirs), and the values shown come from the class, which people wrote.
+- **Only an automation shipped in an installed pack's own code acts as the host.** An automation of
+  a runtime extension (authored in the app, by an AI or a person) writes as an AI, so a booking it
+  makes or cancels on a schedule, and the mail that follows, is held for a person.
+- **A default from an extension setting** (`defaultSetting`) is the host's, unless the setting is one
+  a person approves (`personApproves`, ADR 0552): an AI may write the others.
+- **Erasure** also deletes the marks of the erased person's orders (an order's mark held an
+  unsalted hash of the address that paid).
+- **Cost.** A source's mark is read once per batch for each (record, field, value) a copy names,
+  so a series' classes read each series field once, not once per class. A class made from a series
+  has one mark per field and its creation.
+- A defaulted value's mark was written as `person` (both rank the same); it is now `default`.
+
+Proof: `apps/runner/test/routine-mail-reads.test.ts` holds the review's probes as regression tests:
+an AI's address held after someone signs in with it (A1) or pays from it (A2); an AI's choice of
+primary held (A3); an AI re-pointing a class at another room holds the reminder (B1); a series'
+classes marked once per field (C1); an AI's given name never reaches an email (D1); approving a
+child's email leaves the guardian's AI address held, and the next change is sent to the child on
+its own (E1); an erased person's orders keep no mark. `apps/runner/test/routine-mail-standing.test.ts`:
+a person's tool run, a run that used a model, an automation of a runtime extension, and setting
+defaults.

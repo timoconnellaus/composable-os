@@ -175,6 +175,11 @@ export interface InvocationContext {
    * the verified caller that started it (a person, a customer, an AI). Absent: the host.
    */
   markStanding?: Standing | undefined;
+  /**
+   * Set by platform code only (a tool a person ran, ADR 0590): the normal forms of the values the
+   * person gave it. What the run writes stands as the host's, except a value equal to one of these.
+   */
+  markGiven?: ReadonlySet<string> | undefined;
   /** Days before a pending action expires (env APPROVAL_EXPIRY_DAYS). Default 7. */
   approvalExpiryDays?: number | undefined;
   /** Set when this call applies an approved pending action. */
@@ -1255,7 +1260,14 @@ async function invokeOnce<O extends AnyOperation>(
   // Who stands behind each value written (ADR 0590), in this batch: what routine mail reads.
   if (op.risk !== "read" && marked.length && !ctx.simulate) {
     statements.push(
-      ...(await markStatements(ctx.db.query, marked, staffStanding(ctx), ctx.user.id, now)),
+      ...(await markStatements(
+        ctx.db.query,
+        marked,
+        staffStanding(ctx),
+        ctx.user.id,
+        now,
+        ctx.markGiven,
+      )),
     );
   }
   statements.push(...activities);
@@ -2323,11 +2335,13 @@ async function countOutsideRead(
 /** A recorded change as its marks need it: each field's value after it. */
 function markedChange(change: RecordChange, diff: FieldDiff): MarkedChange {
   const after = Object.fromEntries(Object.entries(diff).map(([k, v]) => [k, v.after]));
+  const before = Object.fromEntries(Object.entries(diff).map(([k, v]) => [k, v.before]));
   return {
     object: change.object,
     id: change.id,
     action: change.action,
     after,
+    before,
     marks: change.marks,
   };
 }
@@ -2335,13 +2349,16 @@ function markedChange(change: RecordChange, diff: FieldDiff): MarkedChange {
 /**
  * Who stands behind a staff call's writes (ADR 0590): a person's own call, or an AI's or a tool's
  * a human approved; never one only the adjudicator approved (ADR 0204's principal), an AI's own,
- * or the host's (an automation, the system). A tool's writes stand as its caller's (set by the
- * runner from the verified caller).
+ * or the host's (an automation, the system). A tool's and an automation's writes stand as the
+ * runner says (`markStanding`): an AI's for an AI's call, an automation authored in the app, or a
+ * run that used a model; otherwise the host's, with a person's own given values (`markGiven`).
  */
 function staffStanding(ctx: InvocationContext): Standing {
   if (ctx.approval) return ctx.approval.approvedBy === "adjudicator" ? "ai" : "person";
   if (ctx.actor === "human") return "person";
   if (ctx.actor === "assistant" || ctx.actor === "mcp") return "ai";
-  if (ctx.actor === "extension") return ctx.markStanding ?? "host";
+  // A tool's caller's (the runner says), and an automation's: the host's only for a shipped pack's
+  // own automation, an AI's for one authored in the app (ADR 0590, the third review).
+  if (ctx.actor === "extension" || ctx.actor === "automation") return ctx.markStanding ?? "host";
   return "host";
 }

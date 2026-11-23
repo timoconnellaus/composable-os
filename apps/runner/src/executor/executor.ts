@@ -15,6 +15,7 @@ import {
   createTestSimulation,
   type EvaluateResult,
   extensionPrincipalId,
+  givenValues,
   newId,
   type ProducerResult,
   type ProducerRun,
@@ -361,18 +362,22 @@ export class Executor {
               ? { startedBy: input.caller.approvedBy }
               : {}),
       },
-      // Who stands behind what the tool writes (ADR 0590), from the pipeline's verified caller: a
-      // person who called it or approved an AI's call of it (never the adjudicator), an AI, the
-      // host (an automation's or another extension's call). A customer's call is theirs anyway.
-      standing: input.caller.principal
-        ? "host"
-        : input.caller.actor === "human"
-          ? "person"
-          : input.caller.approvedBy && input.caller.approvedBy !== "adjudicator"
-            ? "person"
-            : input.caller.actor === "assistant" || input.caller.actor === "mcp"
-              ? "ai"
-              : "host",
+      // Who stands behind what the tool writes (ADR 0590, the third review), from the pipeline's
+      // verified caller. The tool's code chooses what it writes, so its writes are the host's,
+      // except a value equal to one the person who ran it (or approved an AI's call of it, never
+      // the adjudicator) gave it, which is theirs (`given`). An AI's call is an AI's; a model used
+      // in the run makes the rest of it an AI's (host.ts). A customer's call is theirs anyway.
+      standing:
+        !input.caller.principal &&
+        (input.caller.actor === "assistant" || input.caller.actor === "mcp") &&
+        !(input.caller.approvedBy && input.caller.approvedBy !== "adjudicator")
+          ? "ai"
+          : "host",
+      ...(!input.caller.principal &&
+      (input.caller.actor === "human" ||
+        (input.caller.approvedBy && input.caller.approvedBy !== "adjudicator"))
+        ? { given: givenValues(input.input) }
+        : {}),
       ...(input.cascade ? { cascade: input.cascade } : {}),
       ...(input.readOnly || input.dryRun
         ? { readOnly: { dryRun: Boolean(input.dryRun), tool: input.tool } }
@@ -501,6 +506,7 @@ export class Executor {
       ? {
           // The principal installExtension creates (it may not exist yet; nothing is written).
           status: "active" as const,
+          source: "runtime" as const,
           manifest: JSON.stringify(draft.manifest),
           failure_count: 0,
           user_id: extensionPrincipalId(input.extensionId),
@@ -512,6 +518,7 @@ export class Executor {
           .innerJoin("core_user as u", "u.id", "e.user_id")
           .select([
             "e.status",
+            "e.source",
             "e.manifest",
             "e.failure_count",
             "u.id as user_id",
@@ -558,6 +565,15 @@ export class Executor {
       runId: input.automation.runId,
       extensionId: input.extensionId,
       automation: input.automation,
+      // Who stands behind what an automation writes (ADR 0590, the third review): the host only
+      // for an automation shipped in an installed pack's own code; one authored in the app (by an
+      // AI, or in a runtime extension) writes as an AI, so mail it causes is held for a person.
+      standing:
+        !draft &&
+        row.source === "shipped" &&
+        Object.hasOwn(manifest.automations ?? {}, input.request.automation)
+          ? "host"
+          : "ai",
       modules: new Set(modules),
       user: { id: row.user_id, email: row.email, name: row.name, role: "member" },
       permissions: manifest.permissions,

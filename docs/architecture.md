@@ -345,8 +345,14 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   a row's own words through the automation's bound email-send connection, whose `email.routine`
   kind the gate applies without review under Balanced and Autonomous (Cautious and the deploy floor
   still hold it). Off for each pack until a human admin turns it on (until then its emails are
-  ordinary sends); anything about the email an AI wrote that no person approved (the record, its
-  Persons, the fields that fed its slots) holds it; the daily caps (20 per mailbox, 2,000 for the
+  ordinary sends). Default deny: every write the pipeline records also writes, in its batch, a
+  mark per field (`core_value_mark`: who stands behind that value, with its hash; a Person's
+  addresses one by one, and which is primary), a copy carrying its sources' marks; an email is
+  routine only when every value its own words and calendar file show, every relation followed to
+  them, the record, and its own address have a person's (or a default's) mark for the value they
+  have now, and approving a held email marks exactly what that email showed. A tool a person runs
+  writes as the host except the values they gave it, a run that used a model and an automation
+  authored in the app write as an AI. The daily caps (20 per mailbox, 2,000 for the
   organisation) are counted where a row is claimed. Each kind has a human admin's switch (Settings →
   Routine email), with the log, kept 12 months by default.
 - **Gatekeepers we wrote**: `gatekeeper-email-send`, `gatekeeper-slack-post`, `gatekeeper-webhook`.

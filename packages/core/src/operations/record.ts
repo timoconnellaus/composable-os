@@ -770,15 +770,55 @@ async function createMarks(
     }
     copied[CREATED] = [{ object: object.name, id: oldId, field: CREATED, value: "" }];
   }
+  // A default taken from an extension setting is the setting's writer's: a default only when the
+  // setting is one a person approves (ADR 0552), else the host's (an AI may write settings).
+  const fromSetting = new Set(await settingDefaults(ctx, object, given, withDefaults));
   const defaulted = Object.keys(after).filter(
     (f) =>
       generated.includes(f) ||
-      (!filled(given[f]) && filled(withDefaults[f]) && !copied[f] && by !== "host"),
+      (!filled(given[f]) &&
+        filled(withDefaults[f]) &&
+        !copied[f] &&
+        !fromSetting.has(f) &&
+        by !== "host"),
   );
   const hostFilled = Object.keys(after).filter(
     (f) => (by === "host" || !Object.hasOwn(given, f)) && !copied[f] && !defaulted.includes(f),
   );
   return { copied, hostFilled, defaulted };
+}
+
+/**
+ * The fields of a new record filled from an extension setting (`defaultSetting`) that is not one a
+ * person approves: who stands behind them is whoever last wrote the setting (ADR 0590).
+ */
+async function settingDefaults(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  given: Record<string, unknown>,
+  withDefaults: Record<string, unknown>,
+): Promise<string[]> {
+  const fields = object.fields.filter(
+    (f) =>
+      f.options?.defaultSetting &&
+      (given[f.name] === undefined || given[f.name] === null || given[f.name] === "") &&
+      withDefaults[f.name] !== undefined &&
+      withDefaults[f.name] !== null &&
+      JSON.stringify(withDefaults[f.name]) !== JSON.stringify(f.options?.default ?? null),
+  );
+  if (!fields.length || !object.extension) return [];
+  const row = await ctx.db
+    .selectFrom("core_extensions")
+    .select("manifest")
+    .where("id", "=", object.extension)
+    .executeTakeFirst();
+  let settings: Record<string, { personApproves?: boolean }> = {};
+  try {
+    settings = (JSON.parse(row?.manifest ?? "{}") as { settings?: typeof settings }).settings ?? {};
+  } catch {}
+  return fields
+    .filter((f) => settings[f.options?.defaultSetting ?? ""]?.personApproves !== true)
+    .map((f) => f.name);
 }
 
 /**

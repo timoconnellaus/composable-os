@@ -1083,6 +1083,12 @@ person approved included. Off for each pack until a human admin turns it on (unt
 waits for approval as before); each kind an admin can turn off (ADR 0590). Not a newsletter.
 _Avoid_: transactional email, notification, automated email
 
+**Value mark**
+Who stands behind one value of a record (`core_value_mark`: a person, a customer, the public, a
+default, the host or an AI), with a hash of the value, written by the host in the batch that writes
+it; a copy carries its source's mark. Routine mail reads marks only (ADR 0590).
+_Avoid_: provenance, taint
+
 **Routine mail kind**
 One declared email of a pack (`bookings.reminder`), with its messages: what an admin turns on or
 off in Settings → Routine email.

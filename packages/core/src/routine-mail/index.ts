@@ -47,7 +47,10 @@ import { staffPrincipal } from "../principals.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { extensionSettingValues } from "../records/windows.ts";
 import { visibleSource } from "../visibility/index.ts";
-import { CREATED, type Standing, valueHash } from "./marks.ts";
+import { addressField, CREATED, PRIMARY_ADDRESS, type Standing, valueHash } from "./marks.ts";
+
+/** What the calendar file read, among the slots: checked for an email that carries one. */
+const CALENDAR = "$calendar";
 
 type Db = Kysely<CoreDatabase>;
 type Values = Record<string, unknown>;
@@ -263,14 +266,27 @@ class Records {
   readonly #cache = new Map<string, Promise<Values | null>>();
   /** Every record read for the email, for its related records. */
   readonly read = new Set<string>();
-  /** The fields that fed the email, by record: who last wrote each is checked (B2). */
-  readonly sources = new Map<string, { object: string; id: string; fields: Set<string> }>();
-  note(object: string, id: unknown, field: string): void {
+  /**
+   * The fields that fed the email, by record: who last wrote each is checked (B2). A relation
+   * followed on the way (`class.room` in `class.room.name`) is a `link`: which record the email
+   * names is shown too (the third review).
+   */
+  readonly sources = new Map<
+    string,
+    { object: string; id: string; fields: Map<string, "value" | "link"> }
+  >();
+  /** The slot (or `$calendar`) being filled, and the fields each one read. */
+  context = "";
+  readonly bySlot = new Map<string, Set<string>>();
+  note(object: string, id: unknown, field: string, kind: "value" | "link" = "value"): void {
     if (typeof id !== "string") return;
     const key = `${object}:${id}`;
-    const found = this.sources.get(key) ?? { object, id, fields: new Set<string>() };
-    found.fields.add(field);
+    const found = this.sources.get(key) ?? { object, id, fields: new Map() };
+    if (found.fields.get(field) !== "value") found.fields.set(field, kind);
     this.sources.set(key, found);
+    const slot = this.bySlot.get(this.context) ?? new Set<string>();
+    slot.add(markKey(object, id, field));
+    this.bySlot.set(this.context, slot);
   }
   constructor(db: Db) {
     this.#db = db;
@@ -331,6 +347,9 @@ class Records {
   }
 }
 
+/** A mark's key: object, record and field. */
+const markKey = (o: string, r: string, f: string) => `${o}\u0000${r}\u0000${f}`;
+
 /** The object a relation field points to, by registry name. */
 function targetOf(object: string, field: string): string | null {
   const definition = object === ROUTINE_ABOUT_ORDER ? undefined : getObject(object);
@@ -358,6 +377,8 @@ async function walk(
     const id = text(value);
     const to = targetOf(currentObject, segment);
     if (!id || !to) return undefined;
+    // Which record the path goes through is shown too: an AI re-pointing a class at another room.
+    records.note(currentObject, current.id, segment, "link");
     currentObject = to;
     current = await records.get(to, id);
   }
@@ -800,6 +821,9 @@ export async function prepareRoutineMail(
   const site = siteOriginOf(settings.siteOrigin);
   const packSettings = await extensionSettingValues(db, input.extensionId);
   for (const [name, slot] of Object.entries(spec.slots)) {
+    // What each slot reads is noted under its name: an email is checked (and an approval clears)
+    // for what its own words show, never another recipient's (the third review).
+    records.context = name;
     if ("field" in slot) await fieldSlot(records, object, record, name, slot, fill);
     else if ("link" in slot) {
       let link = siteLink(packSettings[slot.link], site);
@@ -827,6 +851,7 @@ export async function prepareRoutineMail(
     const out: Record<string, string | null> = {};
     for (const [name, slot] of Object.entries(spec.slots)) {
       if ("field" in slot || "link" in slot || "each" in slot) continue;
+      records.context = name;
       out[name] = packValue(name, slot, send.values?.[name], await zoneFor(slot), guardian);
     }
     return out;
@@ -836,74 +861,95 @@ export async function prepareRoutineMail(
   const memberProblem = memberName ? unroutineText(memberName, 80) : "the member has no name";
   const guardianValues = { ...fill.values, ...(await packValues(true)), ...member };
 
+  records.context = CALENDAR;
   const calendar = await calendarFor(records, object, record, message, selfValues, fill);
+  records.context = "";
 
   // Default deny (ADR 0590, the second review): every value the email shows and every address it
   // goes to needs a host-kept mark that a person stands behind it, for the value it has now. No
   // mark, a mark for another value, the host's or an AI's, or any failure to read: held.
-  const shown: Shown[] = [];
-  const unmarked: string[] = [];
+  // Each check, by mark key: what it showed (its hash) and why it is not routine, if it is not.
+  const checked = new Map<string, { shown: Shown; problem: string | null }>();
+  // The keys every email of the send rests on (the record, its link, its state), and each
+  // recipient's own address; slots' keys are in records.bySlot.
+  const base = new Set<string>();
+  const ofRecipient = new Map<string, Set<string>>();
+  let unreadable: string | null = null;
+  const markOf = (o: string, r: string, f: string) =>
+    db
+      .selectFrom("core_value_mark")
+      .select(["value_hash", "standing"])
+      .where("object_type", "=", o)
+      .where("record_id", "=", r)
+      .where("field", "=", f)
+      .executeTakeFirst();
+  const check = async (
+    o: string,
+    r: string,
+    f: string,
+    value: unknown,
+    allowed: readonly Standing[],
+    label: string,
+  ): Promise<string> => {
+    const key = markKey(o, r, f);
+    if (checked.has(key)) return key;
+    const h = await valueHash(value);
+    const mark = await markOf(o, r, f);
+    const ok = mark && mark.value_hash === h && allowed.includes(mark.standing);
+    checked.set(key, {
+      shown: { o, r, f, h },
+      problem: ok
+        ? null
+        : `${label} (${mark ? (mark.value_hash === h ? mark.standing : "changed since") : "no one"})`,
+    });
+    return key;
+  };
   try {
-    const check = async (
-      o: string,
-      r: string,
-      f: string,
-      value: unknown,
-      allowed: readonly Standing[],
-      label: string,
-    ) => {
-      const h = await valueHash(value);
-      shown.push({ o, r, f, h });
-      const mark = await db
-        .selectFrom("core_value_mark")
-        .select(["value_hash", "standing"])
-        .where("object_type", "=", o)
-        .where("record_id", "=", r)
-        .where("field", "=", f)
-        .executeTakeFirst();
-      if (!mark || mark.value_hash !== h || !allowed.includes(mark.standing)) {
-        unmarked.push(
-          `${label} (${mark ? (mark.value_hash === h ? mark.standing : "changed since") : "no one"})`,
-        );
-      }
-    };
     const definition = object === ROUTINE_ABOUT_ORDER ? undefined : getObject(object);
     // The record exists by a person's, the customer's or the host's own rule, never an AI's.
-    await check(
-      object,
-      send.record,
-      CREATED,
-      "",
-      ["person", "customer", "public", "default", "host"],
-      `the ${spec.about} itself`,
+    base.add(
+      await check(
+        object,
+        send.record,
+        CREATED,
+        "",
+        ["person", "customer", "public", "default", "host"],
+        `the ${spec.about} itself`,
+      ),
     );
     // Its link to its Person, and its state, the same.
     const personField = definition?.customer?.field;
     if (personField) {
-      await check(
-        object,
-        send.record,
-        personField,
-        record[personField],
-        ["person", "customer", "default", "host"],
-        `whose ${spec.about} it is`,
+      base.add(
+        await check(
+          object,
+          send.record,
+          personField,
+          record[personField],
+          ["person", "customer", "default", "host"],
+          `whose ${spec.about} it is`,
+        ),
       );
     }
     const stateField = definition?.states?.field;
     if (stateField) {
-      await check(
-        object,
-        send.record,
-        stateField,
-        record[stateField],
-        ["person", "customer", "default", "host"],
-        `the ${spec.about}'s state`,
+      base.add(
+        await check(
+          object,
+          send.record,
+          stateField,
+          record[stateField],
+          ["person", "customer", "default", "host"],
+          `the ${spec.about}'s state`,
+        ),
       );
     }
-    // Every field that fed a slot or the calendar: a person's own write, or a default.
+    // Every field that fed a slot or the calendar: a person's own write, or a default. Every
+    // relation followed on the way (which room, which class): anything but an AI's, as the link
+    // to the Person is.
     for (const source of records.sources.values()) {
       const row = await records.get(source.object, source.id);
-      for (const field of source.fields) {
+      for (const [field, kind] of source.fields) {
         const shownValue = row?.[field];
         // Nothing shown (an optional slot left empty): nothing to stand behind.
         if (shownValue === null || shownValue === undefined || shownValue === "") continue;
@@ -913,15 +959,16 @@ export async function prepareRoutineMail(
           source.object,
           source.id,
           field,
-          row?.[field],
-          ["person", "default"],
+          shownValue,
+          kind === "link" ? ["person", "customer", "default", "host"] : ["person", "default"],
           `${source.object} ${source.id}'s ${field}`,
         );
       }
     }
-    // Each address it goes to.
-    let paidByMember = false;
+    // Each address it goes to: its own mark on its Person, always (the third review).
     for (const recipient of recipients) {
+      const keys = new Set<string>();
+      ofRecipient.set(recipient.address, keys);
       if (recipient.rule === "order") {
         // A paid order's own address (the one that paid), or a customer's verified address.
         const orderId =
@@ -929,8 +976,16 @@ export async function prepareRoutineMail(
             ? send.record
             : text(record[definition?.sellable?.moves?.order ?? ""]);
         const order = orderId ? await records.get(ROUTINE_ABOUT_ORDER, orderId) : null;
-        if (!order) unmarked.push("the order");
-        if (order)
+        if (!order) {
+          const key = markKey("order", orderId ?? "", CREATED);
+          checked.set(key, {
+            shown: { o: "order", r: orderId ?? "", f: CREATED, h: "" },
+            problem: "the order",
+          });
+          keys.add(key);
+          continue;
+        }
+        keys.add(
           await check(
             "order",
             String(order.id),
@@ -938,50 +993,84 @@ export async function prepareRoutineMail(
             "",
             ["person", "customer", "public", "host"],
             "the order",
-          );
+          ),
+        );
         continue;
       }
       if (!recipient.personId) continue;
-      if (await verifiedAddress(db, recipient.personId, recipient.address)) continue;
-      // The address that paid: the Person's own paid order's address (a ticket's holder).
-      if (await paidAddress(db, recipient.personId, recipient.address)) {
-        if (recipient.personId === aboutPersonId) paidByMember = true;
-        continue;
-      }
-      const emails = await db
-        .selectFrom("core_person_emails")
-        .select("email")
-        .where("person_id", "=", recipient.personId)
-        .execute();
-      await check(
-        "person",
-        recipient.personId,
-        "emails",
-        emails.map((e) => e.email),
-        ["person", "default"],
-        `${recipient.address}`,
-      );
+      keys.add(await addressCheck(recipient.personId, recipient.address));
+      keys.add(await primaryCheck(recipient.personId, recipient.address));
     }
     // The member's name: a person's write, or the member's own (signed in, or typed at checkout
     // when paying from the address the email goes to: a visitor's name, to themselves).
     if (aboutPersonId && memberName !== null) {
+      const own = recipients.every((r) => r.personId === aboutPersonId);
+      const paid = own && (await paidFrom(aboutPersonId, recipients));
+      records.context = ROUTINE_MEMBER_SLOT;
+      records.note("person", aboutPersonId, "displayName");
+      records.context = "";
       await check(
         "person",
         aboutPersonId,
         "displayName",
         memberName,
-        paidByMember && recipients.every((r) => r.personId === aboutPersonId)
-          ? ["person", "customer", "public", "default"]
-          : ["person", "customer", "default"],
+        paid ? ["person", "customer", "public", "default"] : ["person", "customer", "default"],
         "the member's name",
       );
     }
   } catch (error) {
-    unmarked.push(
-      `who stands behind it could not be read (${error instanceof Error ? error.message : String(error)})`,
-    );
+    unreadable = `who stands behind it could not be read (${error instanceof Error ? error.message : String(error)})`;
   }
-  if (unmarked.length) held.push(`no person stands behind ${unmarked.join(", ")}`);
+
+  /**
+   * An address on a Person (the third review): its own mark (`emails:<address>`), whoever wrote
+   * the list since. A person's or a default is routine; the account's own sign-in address may be
+   * the customer's; one the host added (a ticket holder's, from the order that paid) only when it
+   * is their verified sign-in address or paid one of their orders. An AI's never, whoever signs in
+   * or pays with it later.
+   */
+  async function addressCheck(personId: string, address: string): Promise<string> {
+    const f = addressField(address);
+    const key = markKey("person", personId, f);
+    if (checked.has(key)) return key;
+    const h = await valueHash(address);
+    const mark = await markOf("person", personId, f);
+    let problem: string | null = null;
+    if (!mark || mark.value_hash !== h) problem = `${address} (no one)`;
+    else if (mark.standing === "person" || mark.standing === "default") problem = null;
+    else if (mark.standing === "customer") {
+      problem = (await verifiedAddress(db, personId, address)) ? null : `${address} (customer)`;
+    } else if (mark.standing === "host" || mark.standing === "public") {
+      problem =
+        (await verifiedAddress(db, personId, address)) || (await paidAddress(db, personId, address))
+          ? null
+          : `${address} (${mark.standing})`;
+    } else problem = `${address} (${mark.standing})`;
+    checked.set(key, { shown: { o: "person", r: personId, f, h }, problem });
+    return key;
+  }
+
+  /** Which of a Person's addresses is primary (the one the host writes to): never an AI's choice. */
+  async function primaryCheck(personId: string, address: string): Promise<string> {
+    const key = markKey("person", personId, PRIMARY_ADDRESS);
+    if (checked.has(key)) return key;
+    const h = await valueHash(address);
+    const mark = await markOf("person", personId, PRIMARY_ADDRESS);
+    const problem =
+      !mark || mark.value_hash !== h
+        ? `which of their addresses is ${address}'s primary one (no one)`
+        : mark.standing === "ai"
+          ? `which of their addresses is primary (ai)`
+          : null;
+    checked.set(key, { shown: { o: "person", r: personId, f: PRIMARY_ADDRESS, h }, problem });
+    return key;
+  }
+
+  /** Whether one of the Person's own addresses the email goes to paid one of their orders. */
+  async function paidFrom(personId: string, to: readonly Recipient[]): Promise<boolean> {
+    for (const r of to) if (await paidAddress(db, personId, r.address)) return true;
+    return false;
+  }
 
   const rows: Insertable<CoreDatabase["core_routine_mail"]>[] = [];
   const keys: string[] = [];
@@ -992,7 +1081,30 @@ export async function prepareRoutineMail(
     const values = guardian ? guardianValues : selfValues;
     const subject = renderTemplate(parseTemplate(template.subject), values).slice(0, 300);
     const body = renderTemplate(parseTemplate(template.text), values);
+    // What this email itself shows and rests on: the record, its own address, the slots its
+    // words name, the calendar file it carries. Only these are checked for it, and only these an
+    // approval of it clears (the third review).
+    const used = new Set<string>([
+      ...parseTemplate(template.subject).slots,
+      ...parseTemplate(template.text).slots,
+    ]);
+    const rests = new Set<string>([...base, ...(ofRecipient.get(recipient.address) ?? [])]);
+    for (const k of records.bySlot.get("") ?? []) rests.add(k);
+    for (const [slot, read] of records.bySlot) {
+      if (used.has(slot) || (slot === CALENDAR && calendar.length))
+        for (const k of read) rests.add(k);
+    }
+    const shown: Shown[] = [];
+    const unmarked: string[] = [];
+    for (const k of rests) {
+      const c = checked.get(k);
+      if (!c) continue;
+      shown.push(c.shown);
+      if (c.problem) unmarked.push(c.problem);
+    }
+    if (unreadable) unmarked.push(unreadable);
     const reasons = [...held, ...fill.problems];
+    if (unmarked.length) reasons.push(`no person stands behind ${unmarked.join(", ")}`);
     const namesMember = [template.subject, template.text].some((t) =>
       parseTemplate(t).slots.has(ROUTINE_MEMBER_SLOT),
     );
@@ -1037,7 +1149,7 @@ export async function prepareRoutineMail(
       body: on ? body : null,
       calendar: on && calendar.length ? JSON.stringify(calendar) : null,
       related: JSON.stringify([...records.read].slice(0, 20)),
-      sources: JSON.stringify(shown),
+      sources: JSON.stringify(unreadable ? [] : shown),
       pending_action_id: null,
       error: null,
       created_at: now,

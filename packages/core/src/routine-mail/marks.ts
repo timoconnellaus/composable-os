@@ -46,7 +46,7 @@ const ORDER: Record<Standing, number> = {
 
 /** The weakest of several standings (an AI's beats the host's beats a buyer's beats a person's). */
 export function weakest(standings: readonly Standing[]): Standing {
-  let out: Standing = "person";
+  let out: Standing = standings[0] ?? "person";
   for (const s of standings) if (ORDER[s] > ORDER[out]) out = s;
   return out;
 }
@@ -95,23 +95,71 @@ const MARKS_CHUNK_BYTES = 500_000;
 type Pending = Map<string, { h: string; s: Standing }>;
 const keyOf = (o: string, r: string, f: string) => `${o}\u0000${r}\u0000${f}`;
 
+/** The mark of one of a Person's addresses, and of which address is their primary one. */
+export const addressField = (address: string) => `emails:${address.trim().toLowerCase()}`;
+export const PRIMARY_ADDRESS = "emails:$primary";
+
+/** The addresses of a Person's address list (`[{ email, primary }]`), folded, and the primary. */
+function addressesOf(list: unknown): { all: string[]; primary: string | null } {
+  if (!Array.isArray(list)) return { all: [], primary: null };
+  const rows = list
+    .map((v) =>
+      typeof v === "string"
+        ? { email: v, primary: false }
+        : typeof v === "object" && v
+          ? {
+              email: (v as { email?: unknown }).email,
+              primary: (v as { primary?: unknown }).primary === true,
+            }
+          : null,
+    )
+    .filter((v): v is { email: string; primary: boolean } => typeof v?.email === "string")
+    .map((v) => ({ email: v.email.trim().toLowerCase(), primary: v.primary }));
+  const primary = rows.find((r) => r.primary)?.email ?? rows[0]?.email ?? null;
+  return { all: [...new Set(rows.map((r) => r.email))], primary };
+}
+
 /**
- * A source's standing: its mark, when the mark is for the value it had; else the host's. A mark
- * this same batch writes (a series changed with the classes it moves) is the one that counts.
+ * Sources' standings, read once per batch: a source's mark, when the mark is for the value it had;
+ * else the host's. A mark this same batch writes (a series changed with the classes it moves) is
+ * the one that counts. Memoised per (object, record, field, value), so a series' hundreds of
+ * classes read each series field once.
  */
-async function sourceStanding(db: Db, source: MarkSource, pending: Pending): Promise<Standing> {
-  const hash = await valueHash(source.value);
-  const queued = pending.get(keyOf(source.object, source.id, source.field));
-  if (queued) return queued.h === hash ? queued.s : "host";
-  const mark = await db
-    .selectFrom("core_value_mark")
-    .select(["standing", "value_hash"])
-    .where("object_type", "=", source.object)
-    .where("record_id", "=", source.id)
-    .where("field", "=", source.field)
-    .executeTakeFirst();
-  if (!mark || mark.value_hash !== hash) return "host";
-  return mark.standing;
+class SourceMarks {
+  readonly #db: Db;
+  readonly #seen = new Map<string, Promise<Standing>>();
+  constructor(
+    db: Db,
+    readonly pending: Pending,
+  ) {
+    this.#db = db;
+  }
+
+  async of(source: MarkSource): Promise<Standing> {
+    const hash = await valueHash(source.value);
+    const key = keyOf(source.object, source.id, source.field);
+    const queued = this.pending.get(key);
+    if (queued) return queued.h === hash ? queued.s : "host";
+    const memo = `${key}\u0000${hash}`;
+    let found = this.#seen.get(memo);
+    if (!found) {
+      found = this.#read(source, hash);
+      this.#seen.set(memo, found);
+    }
+    return found;
+  }
+
+  async #read(source: MarkSource, hash: string): Promise<Standing> {
+    const mark = await this.#db
+      .selectFrom("core_value_mark")
+      .select(["standing", "value_hash"])
+      .where("object_type", "=", source.object)
+      .where("record_id", "=", source.id)
+      .where("field", "=", source.field)
+      .executeTakeFirst();
+    if (!mark || mark.value_hash !== hash) return "host";
+    return mark.standing;
+  }
 }
 
 /** One change as the pipeline records it, for its marks. */
@@ -121,13 +169,18 @@ export interface MarkedChange {
   action: string;
   /** Field → value after the change. */
   after: Record<string, unknown>;
+  /** Field → value before it (an update's changed fields). */
+  before?: Record<string, unknown> | undefined;
   marks?: ChangeMarks | undefined;
 }
 
 /**
  * The marks of a batch of changes, to commit with them: each field's value, who stands behind it
  * (the caller's standing, its sources' for a copy, the host's for what the host filled), and a
- * creation's `$created`.
+ * creation's `$created`. A Person's addresses are marked one by one (`emails:<address>`, and
+ * which is primary): an address keeps the mark of whoever added it, whoever rewrites the list
+ * later. `given` (a tool a person ran, ADR 0590): values that equal what the person gave the
+ * tool are the person's, though the run writes as the host.
  */
 export async function markStatements(
   db: Db,
@@ -135,12 +188,19 @@ export async function markStatements(
   standing: Standing,
   byId: string | null,
   now: string,
+  given?: ReadonlySet<string>,
 ): Promise<Compilable[]> {
   const out: Compilable[] = [];
   type Row = { o: string; r: string; f: string; h: string; s: Standing };
   const all: Row[] = [];
   const pending: Pending = new Map();
+  const sources = new SourceMarks(db, pending);
   const copies: { row: Row; sources: MarkSource[] }[] = [];
+  const own = (value: unknown, s: Standing): Standing => {
+    if (s !== "host" || standing !== "host" || !given?.size) return s;
+    const form = normalForm(value);
+    return form && given.has(form) ? "person" : s;
+  };
   // Own values first, then copies: a copy may name a value this batch writes, in any order.
   for (const change of changes) {
     if (change.action === "erase") {
@@ -163,15 +223,62 @@ export async function markStatements(
         s = weakest(["default", standing === "ai" ? "ai" : "default"]);
       } else if (host.has(field) && !copied?.length) {
         s = weakest(["host", standing]);
+      } else if (!copied?.length) {
+        s = own(value, s);
       }
       const row: Row = { o: change.object, r: change.id, f: field, h: await valueHash(value), s };
       all.push(row);
       if (copied?.length) copies.push({ row, sources: copied });
       else pending.set(keyOf(row.o, row.r, row.f), { h: row.h, s: row.s });
+      if (change.object !== "person" || field !== "emails") continue;
+      // Each address its own mark: an added one is marked as the list's value would be (a merge's
+      // from the Person it came from); one already there keeps its mark; a removed one loses it.
+      const before = addressesOf(change.before?.emails);
+      const after = addressesOf(value);
+      for (const gone of before.all.filter((a) => !after.all.includes(a))) {
+        out.push(
+          db
+            .deleteFrom("core_value_mark")
+            .where("object_type", "=", "person")
+            .where("record_id", "=", change.id)
+            .where("field", "=", addressField(gone)),
+        );
+      }
+      const added = after.all.filter((a) => !before.all.includes(a));
+      for (const address of added) {
+        const r: Row = {
+          o: "person",
+          r: change.id,
+          f: addressField(address),
+          h: await valueHash(address),
+          s: copied?.length ? s : own(address, s),
+        };
+        all.push(r);
+        const from = (copied ?? [])
+          .filter((c) => addressesOf(c.value).all.includes(address))
+          .map((c) => ({ ...c, field: addressField(address), value: address }));
+        if (copied?.length) copies.push({ row: r, sources: from.length ? from : copied });
+        else pending.set(keyOf(r.o, r.r, r.f), { h: r.h, s: r.s });
+      }
+      if (after.primary && (after.primary !== before.primary || change.action !== "update")) {
+        const r: Row = {
+          o: "person",
+          r: change.id,
+          f: PRIMARY_ADDRESS,
+          h: await valueHash(after.primary),
+          s: copied?.length ? s : own(after.primary, s),
+        };
+        all.push(r);
+        const from = (copied ?? [])
+          .filter((c) => addressesOf(c.value).primary === after.primary)
+          .map((c) => ({ ...c, field: PRIMARY_ADDRESS, value: after.primary }));
+        if (copied?.length) copies.push({ row: r, sources: from.length ? from : copied });
+        else pending.set(keyOf(r.o, r.r, r.f), { h: r.h, s: r.s });
+      }
     }
   }
-  for (const { row, sources } of copies) {
-    const of = await Promise.all(sources.map((c) => sourceStanding(db, c, pending)));
+  for (const { row, sources: from } of copies) {
+    const of = await Promise.all(from.map((c) => sources.of(c)));
     row.s = weakest([...of, ...(standing === "ai" ? (["ai"] as const) : [])]);
     pending.set(keyOf(row.o, row.r, row.f), { h: row.h, s: row.s });
   }
@@ -204,6 +311,27 @@ export async function markStatements(
       ) as unknown as Compilable,
     );
   }
+  return out;
+}
+
+/** The normal forms of the leaf values a person gave a tool, for `markStatements`' `given`. */
+export function givenValues(input: unknown): Set<string> {
+  const out = new Set<string>();
+  const visit = (v: unknown, depth: number) => {
+    if (depth > 8 || out.size > 500) return;
+    if (Array.isArray(v)) {
+      const form = normalForm(v);
+      if (form) out.add(form);
+      for (const item of v) visit(item, depth + 1);
+    } else if (v && typeof v === "object") {
+      for (const item of Object.values(v)) visit(item, depth + 1);
+    } else {
+      const form = normalForm(v);
+      if (form) out.add(form);
+      if (typeof v === "string") out.add(v.trim().toLowerCase());
+    }
+  };
+  visit(input, 0);
   return out;
 }
 
