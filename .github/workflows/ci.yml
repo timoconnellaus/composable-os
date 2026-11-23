@@ -16,13 +16,48 @@ jobs:
   # Documents get a fast lane: when everything a change touches is under docs/ or is a Markdown
   # file at the root (scripts/ci-docs-only.mjs), the build, unit and Playwright jobs are skipped
   # and only the document checks run. If the diff cannot be worked out, everything runs.
+  #
+  # This job also picks the runners (ADR 0630; CONTRIBUTING.md, How CI is laid out). There are two
+  # lanes:
+  # - `fast`, the Namespace profile (8 vCPU, a cache volume), for the jobs on the critical path:
+  #   the e2e shards, typecheck and the unit shards marked `critical` in scripts/ci-unit-shards.mjs.
+  #   The profile runs at most eight runners at once across every run, so only those go there.
+  # - `standard`, GitHub's runners, for every job that finishes well before the e2e shards do
+  #   (lint, the npm packages, the landing page, the control plane, the other unit shards).
+  # This job, the documents check and the two that gather results run on GitHub's runners too:
+  # they take seconds, and GitHub starts them in one or two.
   changes:
     name: What changed
     runs-on: ubuntu-latest
     outputs:
       docs_only: ${{ steps.diff.outputs.docs_only }}
       unit_matrix: ${{ steps.unit.outputs.matrix }}
+      fast: ${{ steps.runner.outputs.fast }}
+      standard: ${{ steps.runner.outputs.standard }}
     steps:
+      # The one place the runners are chosen.
+      # - A pull request from a fork runs on GitHub's runners, always, whatever the variables say:
+      #   a stranger's change must not spend this repository's Namespace minutes or reach its cache
+      #   volume. (A pull request whose head repository is gone counts as a fork.)
+      # - Everything else (pushes to main, pull requests from this repository's branches) uses the
+      #   lanes above. The repository variables CI_FAST_RUNNER and CI_STANDARD_RUNNER replace them
+      #   (Settings → Secrets and variables → Actions → Variables), with no commit: set
+      #   CI_FAST_RUNNER to `ubuntu-latest` when Namespace is down, or CI_STANDARD_RUNNER to
+      #   `namespace-profile-composable-os` if the profile can run more at once.
+      - id: runner
+        env:
+          FORK: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+          FAST: ${{ vars.CI_FAST_RUNNER }}
+          STANDARD: ${{ vars.CI_STANDARD_RUNNER }}
+        run: |
+          if [ "$FORK" = true ]; then
+            fast=ubuntu-latest standard=ubuntu-latest
+          else
+            fast=${FAST:-namespace-profile-composable-os} standard=${STANDARD:-ubuntu-latest}
+          fi
+          echo "fast=$fast" >> "$GITHUB_OUTPUT"
+          echo "standard=$standard" >> "$GITHUB_OUTPUT"
+          echo "fork: $FORK; fast lane: $fast; standard lane: $standard"
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
@@ -69,30 +104,20 @@ jobs:
     name: Lint
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.standard }}
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
       - run: pnpm lint
 
   typecheck:
     name: Typecheck
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.fast }}
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
       - run: pnpm typecheck
       # The landing page (apps/marketing): its build fails on any tracker or third-party load.
       - run: pnpm --filter @composable-os/marketing build
@@ -101,24 +126,20 @@ jobs:
   # packages each shard runs, and `pnpm lint` checks that every package's tests run exactly once).
   # Each shard is `turbo run test` over its packages, so tests still get their `^typecheck` first;
   # nothing is cached between runs. The gatekeepers and the rest keep `--concurrency=2`, and the
-  # gatekeepers' shard then runs gatekeeper-microsoft's timing tests alone.
+  # gatekeepers' shard then runs gatekeeper-microsoft's timing tests alone. The shards marked
+  # `critical` there run on the fast lane, the others on the standard one.
   unit:
     name: Unit ${{ matrix.shard }}
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.critical && needs.changes.outputs.fast || needs.changes.outputs.standard }}
     strategy:
       # Let every shard finish, so one failure shows all the others too.
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.unit_matrix) }}
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
       - run: node scripts/ci-unit-shards.mjs --run "$SHARD"
         env:
           SHARD: ${{ matrix.shard }}
@@ -133,17 +154,12 @@ jobs:
     name: npm packages
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.standard }}
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
       - name: The release bundle (for the client repo the check makes)
         run: node scripts/release/build-release.ts --version 0.0.0-beta.0 --out release-out
       - name: The npm packages, and a fresh client repo built from them
@@ -178,16 +194,12 @@ jobs:
     name: Landing page (Playwright)
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.standard }}
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
+      - uses: ./.github/actions/setup
         with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @composable-os/marketing exec playwright install --with-deps chromium
+          playwright: "@composable-os/marketing"
       # Builds the site and serves it with the real Worker and a local D1 (playwright.config.ts).
       - run: pnpm --filter @composable-os/marketing test:e2e
       - uses: actions/upload-artifact@v4
@@ -207,7 +219,7 @@ jobs:
     name: E2E shard ${{ matrix.shard }}/4
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.fast }}
     strategy:
       # Let every shard finish, so one failure shows all the others too.
       fail-fast: false
@@ -215,13 +227,9 @@ jobs:
         shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
+      - uses: ./.github/actions/setup
         with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @composable-os/app exec playwright install --with-deps chromium
+          playwright: "@composable-os/app"
       - run: pnpm --filter @composable-os/app test:e2e --shard=${{ matrix.shard }}/4
       - uses: actions/upload-artifact@v4
         if: failure()
@@ -237,16 +245,12 @@ jobs:
     name: E2E control plane
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.standard }}
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
+      - uses: ./.github/actions/setup
         with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @composable-os/control exec playwright install --with-deps chromium
+          playwright: "@composable-os/control"
       - run: pnpm --filter @composable-os/control test:e2e
       - uses: actions/upload-artifact@v4
         if: failure()
