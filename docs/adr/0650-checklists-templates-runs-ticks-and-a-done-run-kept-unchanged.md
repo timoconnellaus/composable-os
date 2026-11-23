@@ -29,8 +29,8 @@ the assistant's record reads reach them:
 | --- | --- |
 | `core_checklist` | A template: name, purpose, active, a version counter, who wrote it and when |
 | `core_checklist_step` | Its steps as they are now, in order: text, required, asks for a note |
-| `core_checklist_run` | A run on one record: the template's id, version, name and steps copied as JSON, its person, opens and closes (unix seconds), state (`open`, `done`, `missed`, `cancelled`), who closed it and why, the missed steps |
-| `core_checklist_tick` | One per step of a run: done, or not done with why; a note; who ticked it and for whom; on someone's behalf and why |
+| `core_checklist_run` | A run on one record: the template's id, version, name and steps copied as JSON, its person, opens and closes (unix seconds), state (`open`, `done`, `missed`, `cancelled`), when and by whom its record was ended after it opened, who closed it and why, the missed required steps |
+| `core_checklist_tick` | Every tick of a run's steps, insert-only: done, not done with why, or cleared; a note; who ticked it and for whom; on someone's behalf and why. The latest of a step counts |
 | `core_checklist_note` | A correction someone who rosters adds beside a closed run |
 
 The fifth table is a deviation from the spec's four: the spec says a correction is "a note added to
@@ -43,31 +43,46 @@ run is whole on its own and its steps are guarded by the same trigger as the res
 
 **One run per record, ever** (`UNIQUE (object_type, record_id)`). A run is made by the minute cron
 once a live record with a usable template (active, 1 to 50 steps) is within a day of opening (a
-guess), or by the first tick if that comes sooner. A shift with no checklist has no run. A run
-closed as cancelled is not made again if its shift is restored after its close.
+guess), or by the first tick if that comes sooner, only from an active checklist whose holder (the
+duty) is not in the Trash. A shift with no checklist has no run. A shift restored after its run's
+close keeps that closed run and gets no new one.
 
 **Whose run it is** is the record's person now: the host keeps it current while the run is open
-(the cron, and every tick and done). A shift reassigned mid-run is continued by its new person;
-each tick keeps who made it and for whom, and whoever ticked it still reads it. The person is fixed
-when the run closes. **When it may be ticked**: from the record's start until its end and a grace of
+(the cron, and every tick and done). A shift reassigned mid-run is continued by its new person, who
+sees which steps are done and by whom but not the earlier person's notes or reasons, and cannot
+change or clear a tick someone else made (only someone who rosters can, `checklist_not_your_tick`);
+the earlier person keeps reading their own ticks. The person is fixed when the run closes. **When it may be ticked**: from the record's start until its end and a grace of
 2 hours (the spec's guess), read from the record as it is now, so a shift moved moves its window. A
 record that is not live (cancelled, in the Trash) takes no ticks; one with nobody on it neither.
 
 **Closing.** The person marks it done, or someone who rosters for them, with why; the database
-refuses `done` unless every required step has a tick (done, or not done with why). A step that asks
-for a note is not ticked done without one (refused by the operation and by the tick's trigger).
-After its close and grace the cron closes an open run: **missed** when its record is live, keeping
-the positions of the steps nobody ticked, and the rosterers are told in one person-only notice per
-minute that names the shift, its person and the steps not done (never a note); **cancelled** when
-its record is cancelled, in the Trash or gone. An open run nobody has ticked whose record now names
-another checklist (or none) is removed, and a run of the new one made.
+refuses `done` unless every required step's latest tick is done or not done with why. A step that
+asks for a note is not ticked done without one (refused by the operation and by the tick's
+trigger). **Every tick is kept**: a later tick of a step (by the person, or by someone who rosters
+for them) is a new row and the latest counts; a clear is a `cleared` tick. Earlier ticks are history
+read by those who roster and by their authors. After its close and grace the cron closes an open
+run: **missed** when its record is live, or when the record left its live states after the run
+opened by someone who does not roster, keeping the positions of the required steps nobody ticked,
+and the rosterers are told in one person-only notice per minute that names the shift, its person
+and the required steps not done (never a note); **cancelled** when its record left its live states
+before the run opened, or was ended by someone who rosters or by the host (who is kept as the run's
+`closed_by`). An open run nobody has ticked whose record now names another checklist (or none) is
+removed and remade, **only before its window opens**: once open, a run keeps the checklist it opened
+with.
+
+**Who may change what a run hangs on** (where a pack declares who rosters, by every write path, as
+ADRs 0626 and 0627 hold who works a shift and when): a write of a field a `checklists` declaration
+names as its template (a duty's `checklist`) is a rosterer's, and an AI's change of it is approved
+only by a rosterer; cancelling, putting in the Trash or removing a shift that has started is a
+rosterer's, and an AI never does it (`person_applies`), so the person on a shift cannot make a
+checklist disappear before it is missed. Every such end of a record is marked on its open, opened
+run with who did it, which decides missed or cancelled at its close.
 
 **A closed run never changes**, for every writer and statement shape. Triggers refuse: inserting a
 run over any existing one (by id or record) or a closed one; any change of a closed run; changing an
 open run's record, template, version, name, steps or made time; deleting a closed or ticked run;
-inserting, changing (before or after, so `UPDATE OR REPLACE` onto a closed run is caught) or
-deleting a tick of a run that is not open; any change or removal of a correction. A `REPLACE` of a
-tick is an insert on the same run's key, so checking the run checks the row it would replace.
+inserting a tick on a run that is not open, or over an existing tick's id (a `REPLACE`); any change
+or removal of a tick, on an open run or a closed one; any change or removal of a correction.
 Mapped to `checklist_closed`, `checklist_fixed`, `checklist_incomplete` and
 `checklist_note_needed`. **No host step can fail for ever on them**: the cron inserts runs only
 `WHERE NOT EXISTS` a run for the record, removes only open runs with no tick (in the `WHERE`), and
@@ -76,8 +91,9 @@ minute looks again without it. The run table has no foreign key to records, so a
 erase or merge of a shift is never refused by it; the pay lock's triggers are on the shift tables
 and the checklist writes none of them; deactivation and generation never touch the run tables.
 
-**Who reads a run**: its person (now, at its close, or anyone who ticked it or was ticked for) and
-people who roster (`isRosterer`: admins, and accounts granted `rostering:manage`). To anyone else
+**Who reads a run**: while it is open, the record's person now; once closed, the person it closed
+for (`account_id`), never whoever is on the shift later; anyone who made a tick on it (their own
+ticks' words only); and people who roster (`isRosterer`: admins, and accounts granted `rostering:manage`). To anyone else
 it is answered as not there (`not_found`), not even that it was missed. **Never an AI**: every
 checklist tool is `humanOnly`, and each operation also checks that the verified caller
 (`calledBy.actor`) is a person. The roster (`staffing.week`) gives everyone a shift's checklist
@@ -113,7 +129,10 @@ from the caller's standing, whether it is their own or on someone's behalf.
 **Private text.** A step's note, why it was not done, why it was ticked or marked done for someone,
 and a correction's text are redacted from the audit log (the tool's and the operation's `redact`);
 the writes answer without them, so no stored idempotent reply holds them; they are never in a
-notice or an error. The blocks keep them in component state only, send them through
+notice or an error. A tick's words are read only by its author and those who roster. The audit
+rows of the checklist operations (`auditForPeople`) and of every `humanOnly` extension tool are
+never listed to an AI actor (`audit.list`), and a tick's audit summary names its run and step, not
+how it went. The blocks keep them in component state only, send them through
 `forgetAfter`, read runs with `gcTime: 0`, and clear them on `pagehide` and a bfcache restore, and
 in the app when it leaves the foreground.
 
@@ -124,9 +143,11 @@ corrections). Each host refusal has its own state.
 
 **Cost.** Every read is set-based: per declaring object one read of its records with their
 template, one of the runs, one of the ticks, one of the names; nothing per step or per shift. The
-cron's writes are a few statements per object, batched through JSON (one insert of every new run,
-one update of those following their record, one close of the missed and one of the cancelled, at
-most 200 runs a minute per object). Measured D1 statements per call at the largest input (ceiling
+cron runs in two steps, each its own batch and only when it has work (a quiet minute writes
+nothing): closing (one update of the runs following their record, one close of the missed and one
+of the cancelled, one removal) and making (new runs bound as JSON in statements of at most 256 KiB
+each, so 200 runs of a 50-step checklist never pass D1's limit on a bound value); a failure of one
+never holds the other back. At most 200 runs a minute per object. Measured D1 statements per call at the largest input (ceiling
 250, D1 allows 1,000): the cron making 400 runs' first 200, 10; the cron closing 200, 16; `week`
 over 62 days with 400 shifts with checklists, 30; `checklist` of a 50-step run, 19;
 `checklistRuns`, 17.
@@ -143,6 +164,13 @@ over 62 days with 400 shifts with checklists, 30; `checklist` of a 50-step run, 
 - **Known gap** (ADR 0629's open item): Rostering's web blocks still mount only on the host app's
   development page (`/blocks`); the product's admin cannot yet show a pack's own screens to staff.
   Settings → Checklists is real admin UI.
+
+- **A pack disabled** leaves its open runs as they are: its objects leave the field registry, so the
+  cron neither ticks nor closes them; enabled again, they close by the rules above (a run past its
+  close and grace then is missed, and the rosterers are told).
+- **`staffing.forget`** (not built) will need a guarded way to clear notes, reasons and account ids
+  on closed runs and ticks: the immutability triggers refuse any change, so it needs its own
+  trigger exception (a reviewed migration), not a workaround.
 
 ## Left out (the spec's follow-ons)
 Photos on a step (decision 22); a step missed twice raising a task; checklists on a class type, an

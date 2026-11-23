@@ -36,10 +36,12 @@ import {
 import {
   checklistDue,
   checklistWorkDue,
+  latestTicks,
   type RunRow,
   type RunView,
   runOf,
   runViews,
+  ticked,
 } from "../checklists/runs.ts";
 import {
   ConflictError,
@@ -321,29 +323,35 @@ async function factsFor(ctx: HandlerContext, object: string, id: string): Promis
 
 interface Standing {
   account: string;
-  /** The record's person now. */
+  /** The record's person now, while its run is open (or not made yet): theirs to tick. */
   isPerson: boolean;
   rosters: boolean;
   /** Whether they may read the run. */
   reads: boolean;
 }
 
-/** The caller's standing toward a record's run (one read of who ticked it, one of who rosters). */
+/**
+ * The caller's standing toward a record's run (ADR 0650, the review of PR #298). Who reads it:
+ * those who roster; while it is open (or not made yet), the record's person now; once closed, the
+ * person it closed for (`account_id`), never whoever is on the shift later; and anyone who made a
+ * tick on it, who reads their own ticks' words only (`runViews`).
+ */
 async function standing(
   ctx: HandlerContext,
   account: string,
   facts: RecordFacts,
   run: RunRow | null,
 ): Promise<Standing> {
-  const isPerson = facts.account !== null && facts.account === account;
+  const open = run === null || run.state === "open";
+  const isPerson = open && facts.account !== null && facts.account === account;
   const rosters = await isRosterer(ctx.db, account);
-  let reads = isPerson || rosters || run?.account_id === account;
+  let reads = isPerson || rosters || (!open && run?.account_id === account);
   if (!reads && run) {
     const ticked = await ctx.db
       .selectFrom("core_checklist_tick")
-      .select("run_id")
+      .select("id")
       .where("run_id", "=", run.id)
-      .where((eb) => eb.or([eb("ticked_by", "=", account), eb("ticked_for", "=", account)]))
+      .where("ticked_by", "=", account)
       .executeTakeFirst();
     reads = ticked !== undefined;
   }
@@ -356,15 +364,19 @@ const notThere = (object: string, id: string) => new NotFoundError(`checklist of
 // --- Shapes ---------------------------------------------------------------------------------------
 
 const tickShape = z.object({
+  state: z.enum(["done", "not_done", "cleared"]),
   done: z.boolean(),
   why: z.string().nullable(),
   note: z.string().nullable(),
+  onBehalfWhy: z.string().nullable(),
+  withheld: z
+    .boolean()
+    .describe("It has words only its author and those who roster read (a note, why)"),
   by: z.string(),
   byName: z.string(),
   for: z.string(),
   forName: z.string(),
   onBehalf: z.boolean().describe("Ticked by someone who rosters for the run's person"),
-  onBehalfWhy: z.string().nullable(),
   at: z.string(),
   label: z
     .string()
@@ -393,7 +405,10 @@ const runShape = z.object({
       text: z.string(),
       required: z.boolean(),
       asksNote: z.boolean(),
-      tick: tickShape.nullable(),
+      tick: tickShape.nullable().describe("The step's latest tick"),
+      history: z
+        .array(tickShape)
+        .describe("Its earlier ticks: every one for someone who rosters, your own otherwise"),
       missed: z.boolean(),
     }),
   ),
@@ -414,10 +429,11 @@ export const checklistForRecord = defineOperation({
   name: "checklist.forRecord",
   description:
     "Tool-only (a shipped pack's tool): a shift's checklist and how it is going, for its person " +
-    "or someone who rosters: each step, its tick (who ticked it, and for whom), what was missed, " +
-    "and corrections. Before its run is made, the checklist's steps as they are now. `canTick` " +
-    "says whether the caller may tick it now (its person, or someone who rosters for them, from " +
-    "when it opens until 2 hours after it closes). To anyone else it is not there. A person's own " +
+    "or someone who rosters: each step, its latest tick (who ticked it, and for whom), what was " +
+    "missed, and corrections; what someone wrote on a tick only to its author and those who " +
+    "roster. Before its run is made, the checklist's steps as they are now. `canTick` says " +
+    "whether the caller may tick it now (its person, or someone who rosters for them, from when " +
+    "it opens until 2 hours after it closes). To anyone else it is not there. A person's own " +
     "read, never an assistant's. Read-only.",
   input: z.object(recordInput),
   output: z.object({
@@ -438,6 +454,7 @@ export const checklistForRecord = defineOperation({
   permission: "records:read",
   risk: "read",
   toolOnly: true,
+  auditForPeople: true,
   mcp: { expose: false },
   async handler(input, ctx) {
     const account = await personAtScreen(ctx, "checklist.forRecord");
@@ -456,7 +473,9 @@ export const checklistForRecord = defineOperation({
             return usable(t) ? t : null;
           })()
         : null;
-    const view = run ? ((await runViews(ctx.db, [run]))[0] as RunView) : null;
+    const view = run
+      ? ((await runViews(ctx.db, [run], { account, rosters: s.rosters }))[0] as RunView)
+      : null;
     const preview =
       !run && template && "steps" in template
         ? template.steps.map((st) => ({ text: st.text, required: st.required, asksNote: st.note }))
@@ -515,37 +534,30 @@ async function prepareTick(
   const run = await runOf(ctx.db, facts.object, facts.id);
   const s = await standing(ctx, account, facts, run);
   if (!s.isPerson && !s.rosters) {
-    if (s.reads) {
+    if (s.reads && run?.state === "open") {
       throw new ForbiddenError(
         "This checklist is no longer yours to tick: its shift is someone else's now.",
         { rule: "checklist_not_yours" },
       );
     }
-    throw notThere(input.object, input.id);
+    if (!s.reads) throw notThere(input.object, input.id);
+  }
+  if (run && run.state !== "open") {
+    throw new ConflictError(
+      `This checklist is ${run.state === "done" ? "done" : `closed (${run.state})`}, so it does not change.`,
+      { rule: "checklist_closed", state: run.state },
+    );
   }
   if (!facts.live) {
     throw new ConflictError(
       "This shift is not on (cancelled or removed), so its checklist is not ticked.",
-      {
-        rule: "checklist_not_live",
-      },
+      { rule: "checklist_not_live" },
     );
   }
   if (facts.account === null) {
     throw new ConflictError(
       "Nobody is on this shift, so there is nobody to tick its checklist for.",
-      {
-        rule: "checklist_nobody",
-      },
-    );
-  }
-  if (run && run.state !== "open") {
-    throw new ConflictError(
-      `This checklist is ${run.state === "done" ? "done" : `closed (${run.state})`}, so it does not change.`,
-      {
-        rule: "checklist_closed",
-        state: run.state,
-      },
+      { rule: "checklist_nobody" },
     );
   }
   const now = Math.floor(Date.parse(ctx.now) / 1000);
@@ -594,11 +606,12 @@ export const checklistTick = defineOperation({
   name: "checklist.tick",
   description:
     "Tool-only (a shipped pack's tool): tick one step of a shift's checklist: done (with a note " +
-    "where the step asks for one), not done (with why), or clear a tick. The shift's person ticks " +
-    "their own; someone who rosters may tick for them, with why (`forWhy`), kept as ticked by " +
-    "them for that person, never as the person's own. From when the shift starts until 2 hours " +
-    "after it ends; a checklist marked done never changes. A person's own act, never an " +
-    "assistant's.",
+    "where the step asks for one), not done (with why), or clear it. Every tick is kept: a later " +
+    "one of the same step is added, and the latest counts. The shift's person ticks their own " +
+    "and changes only their own ticks; someone who rosters may tick for them, with why " +
+    "(`forWhy`), kept as ticked by them for that person, never as the person's own. From when " +
+    "the shift starts until 2 hours after it ends; a checklist marked done never changes. A " +
+    "person's own act, never an assistant's.",
   input: z.object({
     ...recordInput,
     step: z
@@ -622,10 +635,12 @@ export const checklistTick = defineOperation({
   permission: "records:write",
   risk: "write",
   toolOnly: true,
+  auditForPeople: true,
   mcp: { expose: false },
   // What someone wrote on a step, why it was not done, why it was ticked for them: private.
-  redact: PRIVATE_INPUTS,
-  auditSummary: (output) => ({ run: output.run, step: output.step, state: output.state }),
+  redact: [...PRIVATE_INPUTS, "state"],
+  // Which run and step only: never how it went.
+  auditSummary: (output) => ({ run: output.run, step: output.step }),
   async handler(input, ctx) {
     const p = await prepareTick(ctx, "checklist.tick", input);
     const step = p.steps[input.step];
@@ -646,6 +661,24 @@ export const checklistTick = defineOperation({
         rule: "checklist_why",
       });
     }
+    const latest = p.run ? (await latestTicks(ctx.db, [p.run.id])).get(p.run.id) : undefined;
+    const current = latest?.get(input.step);
+    // Someone else's tick is changed only by someone who rosters (the review of PR #298): the
+    // person a shift passed to continues it, and never overwrites what the earlier person did.
+    if (current && current.ticked_by !== p.account && !p.onBehalf) {
+      if (!(await isRosterer(ctx.db, p.account))) {
+        throw new ForbiddenError(
+          "Someone else ticked this step: only whoever rosters changes it.",
+          { rule: "checklist_not_your_tick" },
+        );
+      }
+    }
+    if (input.state === "clear" && !ticked(current)) {
+      throw new ValidationError("This step is not ticked, so there is nothing to clear.", {
+        field: "state",
+        rule: "checklist_nothing_to_clear",
+      });
+    }
     if (p.make) ctx.write(p.make);
     // The record's run, whoever made it: this call a moment ago, or the minute cron meanwhile.
     const runOfRecord = sql<string>`(SELECT id FROM core_checklist_run WHERE object_type = ${p.facts.object} AND record_id = ${p.facts.id})`;
@@ -656,47 +689,28 @@ export const checklistTick = defineOperation({
         .set({ account_id: p.facts.account })
         .where("id", "=", runOfRecord)
         .where("state", "=", "open"),
-    );
-    if (input.state === "clear") {
-      ctx.write(
-        ctx.db
-          .deleteFrom("core_checklist_tick")
-          .where("run_id", "=", runOfRecord)
-          .where("position", "=", input.step),
-      );
-    } else {
-      const values = {
-        done: input.state === "done" ? 1 : 0,
-        why: input.state === "done" ? null : why,
-        note,
+      // Every tick is a new row; the latest counts (a clear is a `cleared` tick).
+      ctx.db.insertInto("core_checklist_tick").values({
+        id: newId("checklistTick"),
+        run_id: runOfRecord,
+        position: input.step,
+        state: input.state === "clear" ? "cleared" : input.state,
+        why: input.state === "not_done" ? why : null,
+        note: input.state === "clear" ? null : note,
         ticked_by: p.account,
         ticked_for: p.facts.account,
         on_behalf: p.onBehalf ? 1 : 0,
         on_behalf_why: p.onBehalf ? (input.forWhy?.trim() ?? null) : null,
         ticked_at: ctx.now,
-      };
-      ctx.write(
-        ctx.db
-          .insertInto("core_checklist_tick")
-          .values({ run_id: runOfRecord, position: input.step, ...values })
-          .onConflict((oc) => oc.columns(["run_id", "position"]).doUpdateSet(values)),
-      );
-    }
-    const before = p.run
-      ? await ctx.db
-          .selectFrom("core_checklist_tick")
-          .select("position")
-          .where("run_id", "=", p.run.id)
-          .execute()
-      : [];
-    const ticked = new Set(before.map((t) => t.position));
-    if (input.state === "clear") ticked.delete(input.step);
-    else ticked.add(input.step);
+      }),
+    );
+    const now = new Map([...(latest ?? new Map())].map(([k, v]) => [k, ticked(v)]));
+    now.set(input.step, input.state !== "clear");
     return {
       run: p.runId,
       step: input.step,
       state: input.state,
-      ticked: ticked.size,
+      ticked: [...now.values()].filter(Boolean).length,
       of: p.steps.length,
     };
   },
@@ -717,22 +731,16 @@ export const checklistComplete = defineOperation({
   permission: "records:write",
   risk: "write",
   toolOnly: true,
+  auditForPeople: true,
   mcp: { expose: false },
   redact: PRIVATE_INPUTS,
-  auditSummary: (output) => output,
+  auditSummary: (output) => ({ run: output.run }),
   async handler(input, ctx) {
     const p = await prepareTick(ctx, "checklist.complete", input);
-    const ticks = p.run
-      ? await ctx.db
-          .selectFrom("core_checklist_tick")
-          .select("position")
-          .where("run_id", "=", p.run.id)
-          .execute()
-      : [];
-    const ticked = new Set(ticks.map((t) => t.position));
+    const latest = p.run ? (await latestTicks(ctx.db, [p.run.id])).get(p.run.id) : undefined;
     const left = p.steps
       .map((s, i) => ({ s, i }))
-      .filter(({ s, i }) => s.required && !ticked.has(i));
+      .filter(({ s, i }) => s.required && !ticked(latest?.get(i)));
     if (left.length) {
       throw new ValidationError(
         `Not every required step is ticked: ${left.map(({ s }) => s.text).join("; ")}.`,
@@ -788,6 +796,7 @@ export const checklistCorrect = defineOperation({
   toolOnly: true,
   mcp: { expose: false },
   redact: ["text"],
+  auditForPeople: true,
   auditSummary: (output) => output,
   async handler(input, ctx) {
     const account = await assertRostererAtScreen(ctx, "checklist.correct");
@@ -859,6 +868,7 @@ export const checklistRuns = defineOperation({
   permission: "records:read",
   risk: "read",
   toolOnly: true,
+  auditForPeople: true,
   mcp: { expose: false },
   async handler(input, ctx) {
     await assertRostererAtScreen(ctx, "checklist.runs");
@@ -882,9 +892,6 @@ export const checklistRuns = defineOperation({
       .selectFrom("core_checklist_run as r")
       .selectAll("r")
       .select([
-        sql<number>`(SELECT count(*) FROM core_checklist_tick t WHERE t.run_id = r.id)`.as(
-          "ticked",
-        ),
         sql<number>`(SELECT count(*) FROM core_checklist_tick t WHERE t.run_id = r.id AND t.on_behalf = 1)`.as(
           "behalf",
         ),
@@ -898,6 +905,11 @@ export const checklistRuns = defineOperation({
     const rows = await q.execute();
     const truncated = rows.length > RUNS_MAX;
     if (truncated) rows.length = RUNS_MAX;
+    // Each step's latest tick counts (a clear un-ticks it): read once for every run listed.
+    const latest = await latestTicks(
+      ctx.db,
+      rows.map((r) => r.id),
+    );
     const names = new Map<string, string>();
     const accounts = [...new Set(rows.map((r) => r.account_id).filter((a): a is string => !!a))];
     if (accounts.length) {
@@ -941,7 +953,7 @@ export const checklistRuns = defineOperation({
           opens: new Date(r.opens * 1000).toISOString(),
           closes: new Date(r.closes * 1000).toISOString(),
           steps: steps.length,
-          ticked: Number(r.ticked),
+          ticked: [...(latest.get(r.id)?.values() ?? [])].filter(ticked).length,
           onBehalf: Number(r.behalf),
           missed: missed.map((i) => steps[i]?.text ?? `Step ${i + 1}`),
           corrections: Number(r.notes),
@@ -956,10 +968,11 @@ export const checklistRuns = defineOperation({
 export const checklistDueOperation = defineOperation({
   name: "checklist.due",
   description:
-    "Platform use only (the minute cron, as the host): makes checklist runs for shifts opening " +
-    "within a day, keeps open runs with their shift's person and times, and closes those past " +
-    "their close and grace: missed (the rosterers are told) or cancelled. Returns what it did.",
-  input: z.object({}),
+    "Platform use only (the minute cron, as the host), in two steps, each its own call: `close` " +
+    "keeps open runs with their shift's person and times and closes those past their close and " +
+    "grace (missed, and the rosterers are told; or cancelled); `make` makes checklist runs for " +
+    "shifts opening within a day. Returns what it did.",
+  input: z.object({ step: z.enum(["close", "make"]) }),
   output: z.object({
     made: z.number().int(),
     missed: z.number().int(),
@@ -972,32 +985,51 @@ export const checklistDueOperation = defineOperation({
   hostStep: true,
   mcp: { expose: false },
   auditSummary: (output) => output,
-  async handler(_input, ctx) {
+  async handler(input, ctx) {
     if (ctx.origin.surface !== "system") throw new UnknownOperationError("checklist.due");
-    return checklistDue(ctx);
+    return checklistDue(ctx, input.step);
   },
 });
 
-/** The minute cron's checklist step: one `checklist.due`, as the host, when there is work. */
+type DueResult = { made: number; missed: number; cancelled: number; moved: number };
+
+/**
+ * The minute cron's checklist work: `checklist.due` as the host, closing then making, each its own
+ * call and only when it has work (a quiet minute writes nothing). A failure of one never holds the
+ * other back: both are tried, and the first failure is raised after.
+ */
 export async function runChecklistDue(
   db: CrmDb,
   { floor, clock }: { floor?: GateFloor; clock?: () => Date } = {},
-): Promise<{ made: number; missed: number; cancelled: number; moved: number }> {
-  const now = (clock?.() ?? new Date()).toISOString();
-  if (!(await checklistWorkDue(db.query, now)))
-    return { made: 0, missed: 0, cancelled: 0, moved: 0 };
-  return (await invoke(
-    "checklist.due",
-    {},
-    {
-      actor: "automation",
-      user: SYSTEM_USER,
-      origin: { surface: "system", automationId: "system.checklists" },
-      db,
-      ...(floor ? { floor } : {}),
-      ...(clock ? { clock } : {}),
-    },
-  )) as { made: number; missed: number; cancelled: number; moved: number };
+): Promise<DueResult> {
+  const total: DueResult = { made: 0, missed: 0, cancelled: 0, moved: 0 };
+  let failure: unknown = null;
+  for (const step of ["close", "make"] as const) {
+    const now = (clock?.() ?? new Date()).toISOString();
+    try {
+      if (!(await checklistWorkDue(db.query, now, step))) continue;
+      const out = (await invoke(
+        "checklist.due",
+        { step },
+        {
+          actor: "automation",
+          user: SYSTEM_USER,
+          origin: { surface: "system", automationId: "system.checklists" },
+          db,
+          ...(floor ? { floor } : {}),
+          ...(clock ? { clock } : {}),
+        },
+      )) as DueResult;
+      total.made += out.made;
+      total.missed += out.missed;
+      total.cancelled += out.cancelled;
+      total.moved += out.moved;
+    } catch (error) {
+      failure ??= error;
+    }
+  }
+  if (failure) throw failure;
+  return total;
 }
 
 export const checklistOperations = [

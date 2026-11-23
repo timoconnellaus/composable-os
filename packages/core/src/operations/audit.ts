@@ -4,7 +4,7 @@ import { sql } from "kysely";
 import { z } from "zod";
 import { VERDICT_OPERATION } from "../adjudicator/review.ts";
 import { decodeCursor, encodeCursor, pageSchema } from "../list.ts";
-import { AUDITED_READS, defineOperation } from "../operation.ts";
+import { AUDITED_READS, defineOperation, PEOPLE_ONLY_AUDIT } from "../operation.ts";
 import { ALL_ACTORS } from "../principals.ts";
 import { jsonList } from "../records/common.ts";
 import { recordRefSchema } from "../records/links.ts";
@@ -102,6 +102,17 @@ export const auditList = defineOperation({
     // answered yes.
     if (ctx.actor !== "human" && AUDITED_READS.size) {
       query = query.where("a.operation", "not in", [...AUDITED_READS]);
+    }
+    // A person's own acts are a person's to read (stage 45 step 4b, ADR 0650): the rows of a
+    // checklist's ticks, and of every extension tool only a person may call (`humanOnly`: ticking
+    // a checklist, taking a shift, saying one is away, pay), are never listed to an AI actor.
+    if (ctx.actor !== "human") {
+      if (PEOPLE_ONLY_AUDIT.size) {
+        query = query.where("a.operation", "not in", [...PEOPLE_ONLY_AUDIT]);
+      }
+      query = query.where(
+        sql<boolean>`a.operation NOT IN (SELECT 'x.' || e.id || '.' || t.key FROM core_extensions e, json_each(e.manifest, '$.tools') t WHERE json_extract(t.value, '$.humanOnly') = 1)`,
+      );
     }
     if (input.userId) query = query.where("a.user_id", "=", input.userId);
     if (input.actor) query = query.where("a.actor", "=", input.actor);

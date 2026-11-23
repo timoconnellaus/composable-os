@@ -1448,17 +1448,24 @@ export interface CoreChecklistRunTable {
   closes: number;
   state: "open" | "done" | "missed" | "cancelled";
   made_at: string;
+  /** The record left its live states after the run opened: when, and by a rosterer or the host. */
+  ended_at: string | null;
+  ended_by: string | null;
   closed_at: string | null;
   closed_by: string | null;
   closed_why: string | null;
   missed_steps: string | null;
 }
 
-/** Migration 0815: one tick of a run's step, keeping who ticked it and for whom. */
+/**
+ * Migration 0815: one tick of a run's step, keeping who ticked it and for whom. Never changed or
+ * removed: a later tick of the step is a new row, and the latest counts.
+ */
 export interface CoreChecklistTickTable {
+  id: string;
   run_id: string;
   position: number;
-  done: number;
+  state: "done" | "not_done" | "cleared";
   why: string | null;
   note: string | null;
   ticked_by: string;

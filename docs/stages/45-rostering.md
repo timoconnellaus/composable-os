@@ -1152,6 +1152,19 @@ triggers). No `core_write_guard` remake (0852 stays free).
   not touch runs (the checklist writes no shift). No host step can fail for ever on the
   checklist's triggers (inserts only where no run is, removal only of untouched open runs, closes
   guarded and retried next minute; no foreign key to the shift, so a Trash purge is never refused).
+- **Decided in review of PR #298** (coordinator's decisions, the owner may override; ADR 0650):
+  which checklist a duty carries is a rosterer's by every write path, and an AI's change of it is
+  approved only by a rosterer; cancelling or binning a shift that has started is a rosterer's
+  (never an AI's), marked on its run with who; once a run's window has opened it keeps its
+  checklist; a run whose shift ended after it opened by someone who does not roster is missed, and
+  the rosterers are told of every miss; a closed run is read by the person it closed for, never by
+  whoever is on the shift later; reassigned mid-run, the new person sees what is done and by whom
+  but not the earlier person's notes, and only a rosterer changes someone else's tick; every tick
+  is kept (insert-only, the latest counts, a clear is a recorded tick); a tick's words are its
+  author's and the rosterers'; the checklist operations' and `humanOnly` tools' audit rows are
+  never listed to an AI; a duty naming an inactive checklist, or in the Trash, gives no run and no
+  work; missed steps are the required ones; new runs are bound in chunks of at most 256 KiB and
+  closing never waits on making.
 - **Cost**: set-based reads; the cron's writes a few JSON-batched statements per object. D1
   statements per call at the largest input (ceiling 250): the cron making 200 runs 10, closing 200
   16, `week` over 62 days with 400 checklisted shifts 30, `checklist` of 50 steps 19,

@@ -105,6 +105,8 @@ export const ID_PREFIXES = {
   checklistRun: "ckr",
   /** A correction added beside a closed checklist run (ADR 0650). */
   checklistNote: "ckn",
+  /** One tick of a checklist run's step, never changed (ADR 0650). */
+  checklistTick: "ckt",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

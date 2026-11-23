@@ -180,10 +180,11 @@ type View = {
     id: string;
     state: string;
     account: string | null;
-    template: { version: number };
+    template: { id: string; version: number };
     steps: {
       text: string;
       missed: boolean;
+      history: { note: string | null; by: string }[];
       tick: {
         by: string;
         for: string;
@@ -447,7 +448,15 @@ describe("a completed run refuses every change to its ticks, for everyone", () =
     );
     expect(await rule(done(person, s))).toBe("checklist_closed");
     const id = r?.id as string;
+    const tickId = (
+      await env.DB.prepare("SELECT id FROM core_checklist_tick WHERE run_id = ? LIMIT 1")
+        .bind(id)
+        .first<{ id: string }>()
+    )?.id as string;
     const now = new Date().toISOString();
+    const otherPerson = await account(unique("Other Ot"));
+    const other = await shiftOf(duty, -14 * MINUTE, otherPerson.id);
+    await tick(otherPerson, other, 0);
     for (const statement of [
       ["UPDATE core_checklist_tick SET note = 'changed' WHERE run_id = ?", [id]],
       [
@@ -456,15 +465,28 @@ describe("a completed run refuses every change to its ticks, for everyone", () =
       ],
       ["DELETE FROM core_checklist_tick WHERE run_id = ?", [id]],
       [
-        "INSERT OR REPLACE INTO core_checklist_tick (run_id, position, done, ticked_by, ticked_for, on_behalf, ticked_at) VALUES (?, 0, 1, 'x', 'x', 0, ?)",
-        [id, now],
+        "INSERT OR REPLACE INTO core_checklist_tick (id, run_id, position, state, ticked_by, ticked_for, on_behalf, ticked_at) VALUES (?, ?, 0, 'done', 'x', 'x', 0, ?)",
+        [tickId, id, now],
       ],
       [
-        "INSERT INTO core_checklist_tick (run_id, position, done, ticked_by, ticked_for, on_behalf, ticked_at) VALUES (?, 0, 1, 'x', 'x', 0, ?) ON CONFLICT (run_id, position) DO UPDATE SET note = 'x'",
+        "INSERT INTO core_checklist_tick (id, run_id, position, state, ticked_by, ticked_for, on_behalf, ticked_at) VALUES (?, ?, 0, 'done', 'x', 'x', 0, ?) ON CONFLICT (id) DO UPDATE SET note = 'x'",
+        [tickId, id, now],
+      ],
+      [
+        "INSERT INTO core_checklist_tick (id, run_id, position, state, ticked_by, ticked_for, on_behalf, ticked_at) VALUES ('ckt_new', ?, 0, 'cleared', 'x', 'x', 0, ?)",
         [id, now],
       ],
       ["UPDATE core_checklist_run SET state = 'open', closed_at = NULL WHERE id = ?", [id]],
       ["UPDATE core_checklist_run SET steps = '[]' WHERE id = ?", [id]],
+      ["UPDATE core_checklist_run SET account_id = 'someone' WHERE id = ?", [id]],
+      ["UPDATE core_checklist_run SET missed_steps = '[0]' WHERE id = ?", [id]],
+      ["UPDATE OR REPLACE core_checklist_run SET record_id = 'elsewhere' WHERE id = ?", [id]],
+      ["UPDATE OR REPLACE core_checklist_run SET account_id = 'someone' WHERE id = ?", [id]],
+      // An open run moved onto the closed run's record by UPDATE OR REPLACE.
+      [
+        "UPDATE OR REPLACE core_checklist_run SET record_id = ? WHERE object_type = ? AND record_id = ?",
+        [s, SHIFT, other],
+      ],
       ["DELETE FROM core_checklist_run WHERE id = ?", [id]],
       [
         "INSERT OR REPLACE INTO core_checklist_run (id, object_type, record_id, checklist_id, version, name, steps, opens, closes, state, made_at) VALUES (?, 'x', 'y', 'c', 1, 'n', '[{}]', 0, 0, 'open', ?)",
@@ -492,6 +514,36 @@ describe("a completed run refuses every change to its ticks, for everyone", () =
     expect(v.run?.steps.every((x) => x.tick?.by === person.id && x.tick.note === null)).toBe(true);
     // A correction is a note beside it, by someone who rosters, never a change to a tick.
     await run("x.rostering.checklistCorrect", { run: id, text: "The alarm was set late" }, staff());
+    const noteId = (
+      await env.DB.prepare("SELECT id FROM core_checklist_note WHERE run_id = ?")
+        .bind(id)
+        .first<{ id: string }>()
+    )?.id as string;
+    for (const statement of [
+      [
+        "INSERT OR REPLACE INTO core_checklist_note (id, run_id, text, written_by, written_at) VALUES (?, ?, 'rewritten', 'x', ?)",
+        [noteId, id, now],
+      ],
+      [
+        "INSERT INTO core_checklist_note (id, run_id, text, written_by, written_at) VALUES (?, ?, 'rewritten', 'x', ?) ON CONFLICT (id) DO UPDATE SET text = 'rewritten'",
+        [noteId, id, now],
+      ],
+      ["UPDATE OR REPLACE core_checklist_note SET text = 'x' WHERE id = ?", [noteId]],
+      ["UPDATE core_checklist_note SET text = 'x' WHERE id = ?", [noteId]],
+      ["DELETE FROM core_checklist_note WHERE id = ?", [noteId]],
+    ] as const) {
+      const error = await env.DB.prepare(statement[0])
+        .bind(...statement[1])
+        .run()
+        .then(
+          () => null,
+          (e: Error) => e.message,
+        );
+      expect([statement[0], error]).toEqual([
+        statement[0],
+        expect.stringMatching(/core_checklist_fixed/),
+      ]);
+    }
     expect((await view(person, s)).run?.corrections.map((c) => c.text)).toEqual([
       "The alarm was set late",
     ]);
@@ -686,6 +738,334 @@ describe("each checklist operation guards itself, whoever's tool calls it", () =
       expect([name, error]).toEqual([name, expect.stringMatching(/not_found|rostering/)]);
     }
   });
+});
+
+// --- The review of PR #298 -----------------------------------------------------------------------------
+
+describe("which checklist a duty carries is a rosterer's (the review of PR #298, item 1)", () => {
+  it("a member, a team account and the shift's own person cannot change or clear it; a rosterer can; an AI's change is approved only by a rosterer", async () => {
+    const first = await template([{ text: "One" }]);
+    const second = await template([{ text: "Other" }]);
+    const duty = await dutyWith(first);
+    const member = await account(unique("Member Mb"));
+    const team = await fixedRole(unique("Team Tm"), "rostering.team");
+    const person = await account(unique("Person Ps"));
+    await shiftOf(duty, -10 * MINUTE, person.id);
+    for (const who of [member, team, person]) {
+      for (const value of [null, second]) {
+        const e = await refusal(
+          run(
+            "record.update",
+            { object: DUTY, id: duty, values: { checklist: value } },
+            asUser(who),
+          ),
+        );
+        expect([who.name, JSON.stringify(e)]).toEqual([
+          who.name,
+          expect.stringMatching(/"rule":"rostering"|"code":"forbidden"/),
+        ]);
+      }
+    }
+    // The assistant asks; a member cannot approve it, a rosterer can.
+    const asked = await refusal(
+      run("record.update", { object: DUTY, id: duty, values: { checklist: second } }, asAi(admin)),
+    );
+    expect(asked.code).toBe("pending_approval");
+    const actionId = (asked.details as { actionId: string }).actionId;
+    await refusal(run("approval.approve", { actionIds: [actionId] }, asUser(member)));
+    const rosterer = await account(unique("Rosterer Rs"));
+    await run("user.setPermissions", { id: rosterer.id, permissions: [MANAGE] }, staff());
+    await run("approval.approve", { actionIds: [actionId] }, asUser(rosterer));
+    const stored = await env.DB.prepare("SELECT checklist FROM x_rostering_duty WHERE id = ?")
+      .bind(duty)
+      .first<{ checklist: string }>();
+    expect(stored?.checklist).toBe(second);
+    await run(
+      "record.update",
+      { object: DUTY, id: duty, values: { checklist: null } },
+      asUser(rosterer),
+    );
+  });
+
+  it("once a run's window has opened it keeps the checklist it opened with; before, it is remade", async () => {
+    const first = await template([{ text: "First steps" }]);
+    const second = await template([{ text: "Second steps" }]);
+    const duty = await dutyWith(first);
+    const person = await account(unique("Kept Kp"));
+    // Ended 1 h 55 min ago: open, inside its grace, nothing ticked.
+    const opened = await shiftOf(duty, -(2 * HOUR + 55 * MINUTE), person.id);
+    const later = await shiftOf(duty, 6 * HOUR, person.id);
+    await cron();
+    const before = await runRow(opened);
+    const laterBefore = await runRow(later);
+    await run("record.update", { object: DUTY, id: duty, values: { checklist: second } }, staff());
+    await cron();
+    expect((await runRow(opened))?.id).toBe(before?.id);
+    expect((await view(admin, opened)).run?.template.id).toBe(first);
+    // The one not yet open is remade from the new checklist.
+    const remade = await runRow(later);
+    expect(remade?.id).not.toBe(laterBefore?.id);
+    expect((await view(admin, later)).run?.template.id).toBe(second);
+    // So clearing the checklist cannot make the opened one disappear: it is missed at its close.
+    await run("record.update", { object: DUTY, id: duty, values: { checklist: null } }, staff());
+    await cron(new Date(Date.now() + 6 * MINUTE));
+    expect((await runRow(opened))?.state).toBe("missed");
+  });
+});
+
+describe("cancelling or binning a shift that has started is a rosterer's (item 1)", () => {
+  it("the shift's own person, a member and a team account are refused; a rosterer's cancel closes the run as cancelled with who", async () => {
+    const duty = await dutyWith(await template([{ text: "One" }]));
+    const person = await account(unique("Own Ow"));
+    const member = await account(unique("Member Mm"));
+    const team = await fixedRole(unique("Team Tt"), "rostering.team");
+    const s = await shiftOf(duty, -(2 * HOUR + 55 * MINUTE), person.id);
+    await cron();
+    for (const who of [person, member, team]) {
+      const cancel = await refusal(
+        run("record.update", { object: SHIFT, id: s, values: { state: "cancelled" } }, asUser(who)),
+      );
+      expect(JSON.stringify(cancel)).toMatch(/"rule":"rostering"|"code":"forbidden"/);
+      const bin = await refusal(run("record.delete", { object: SHIFT, id: s }, asUser(who)));
+      expect(JSON.stringify(bin)).toMatch(/"rule":"rostering"|"code":"forbidden"/);
+    }
+    // An assistant never cancels it, even for someone who rosters.
+    expect(
+      await rule(
+        run("record.update", { object: SHIFT, id: s, values: { state: "cancelled" } }, asAi(admin)),
+      ),
+    ).toBe("person_applies");
+    const rosterer = await account(unique("Rosterer Rc"));
+    await run("user.setPermissions", { id: rosterer.id, permissions: [MANAGE] }, staff());
+    await run(
+      "record.update",
+      { object: SHIFT, id: s, values: { state: "cancelled" } },
+      asUser(rosterer),
+    );
+    await cron(new Date(Date.now() + 6 * MINUTE));
+    const r = await runRow(s);
+    expect(r?.state).toBe("cancelled");
+    expect((r as { closed_by?: string } | null)?.closed_by).toBe(rosterer.id);
+  });
+
+  it("a run whose shift ended after it opened by someone who does not roster closes as missed, and the rosterers are told", async () => {
+    const name = unique("Ended ");
+    const duty = await dutyWith(await template([{ text: "One" }], name));
+    const person = await account(unique("Ender En"));
+    const s = await shiftOf(duty, -(2 * HOUR + 55 * MINUTE), person.id);
+    await cron();
+    // Only a path that does not ask who rosters leaves this mark (a product with no rosterers'
+    // declaration): the host's rule at the close is what is checked here.
+    await env.DB.prepare(
+      "UPDATE core_checklist_run SET ended_at = ?, ended_by = NULL WHERE object_type = ? AND record_id = ?",
+    )
+      .bind(new Date().toISOString(), SHIFT, s)
+      .run();
+    await env.DB.prepare("UPDATE x_rostering_shift SET deleted_at = ? WHERE id = ?")
+      .bind(new Date().toISOString(), s)
+      .run();
+    await cron(new Date(Date.now() + 6 * MINUTE));
+    expect((await runRow(s))?.state).toBe("missed");
+    const told = await env.DB.prepare("SELECT body FROM core_notifications WHERE title LIKE ?")
+      .bind(`%${name}%`)
+      .all<{ body: string }>();
+    expect(told.results.length).toBeGreaterThan(0);
+  });
+});
+
+describe("a closed run's readers (item 2)", () => {
+  it("the shift reassigned after the close: the new person reads nothing of it, the person it closed for still does", async () => {
+    const duty = await dutyWith(await template([{ text: "Count", note: true }]));
+    const first = await account(unique("Closed Cf"));
+    const second = await account(unique("After Af"));
+    const s = await shiftOf(duty, -30 * MINUTE, first.id);
+    await tick(first, s, 0, { note: "A private count" });
+    await done(first, s);
+    await run("x.rostering.assign", { object: SHIFT, id: s, account: second.id }, staff());
+    expect(await rule(view(second, s))).toBe("not_found");
+    expect((await view(first, s)).run?.steps[0]?.tick?.note).toBe("A private count");
+  });
+});
+
+describe("reassigned mid-run, and every tick kept (items 3 and 4)", () => {
+  it("the new person sees what is done and by whom, never the earlier person's words, and cannot change their tick; a rosterer can, and the earlier tick stays", async () => {
+    const duty = await dutyWith(await template([{ text: "Count", note: true }, { text: "Two" }]));
+    const first = await account(unique("Earlier Ea"));
+    const second = await account(unique("Later La"));
+    const s = await shiftOf(duty, -30 * MINUTE, first.id);
+    await tick(first, s, 0, { note: "Earlier words" });
+    await run("x.rostering.assign", { object: SHIFT, id: s, account: second.id }, staff());
+    const seen = await view(second, s);
+    expect(seen.run?.steps[0]?.tick).toMatchObject({ by: first.id, note: null, withheld: true });
+    expect(JSON.stringify(seen)).not.toContain("Earlier words");
+    expect(await rule(tick(second, s, 0, { note: "Mine now" }))).toBe("checklist_not_your_tick");
+    expect(await rule(tick(second, s, 0, { state: "clear" }))).toBe("checklist_not_your_tick");
+    // A rosterer's overwrite is a new tick; the earlier one stays, for its author and rosterers.
+    await tick(admin, s, 0, { state: "not_done", why: "Short", forWhy: "Checked on the day" });
+    const asRosterer = await view(admin, s);
+    expect(asRosterer.run?.steps[0]?.tick).toMatchObject({ by: admin.id, onBehalf: true });
+    expect(asRosterer.run?.steps[0]?.history).toEqual([
+      expect.objectContaining({ note: "Earlier words" }),
+    ]);
+    const asFirst = await view(first, s);
+    expect(asFirst.run?.steps[0]?.history[0]?.note).toBe("Earlier words");
+    // A clear is a tick too.
+    await tick(admin, s, 0, { state: "clear", forWhy: "Do it again" });
+    const rows = await env.DB.prepare(
+      "SELECT t.state FROM core_checklist_tick t JOIN core_checklist_run r ON r.id = t.run_id WHERE r.record_id = ? AND t.position = 0 ORDER BY t.ticked_at, t.id",
+    )
+      .bind(s)
+      .all<{ state: string }>();
+    expect(rows.results.map((r) => r.state)).toEqual(["done", "not_done", "cleared"]);
+    expect((await view(admin, s)).run?.steps[0]?.tick).toBeNull();
+  });
+
+  it("tick rows are insert-only on an open run too, by every statement shape", async () => {
+    const duty = await dutyWith(await template([{ text: "One" }]));
+    const person = await account(unique("Insert In"));
+    const s = await shiftOf(duty, -10 * MINUTE, person.id);
+    await tick(person, s, 0);
+    const t = await env.DB.prepare(
+      "SELECT t.id, t.run_id FROM core_checklist_tick t JOIN core_checklist_run r ON r.id = t.run_id WHERE r.record_id = ?",
+    )
+      .bind(s)
+      .first<{ id: string; run_id: string }>();
+    const now = new Date().toISOString();
+    for (const statement of [
+      ["UPDATE core_checklist_tick SET note = 'x' WHERE id = ?", [t?.id]],
+      ["UPDATE OR REPLACE core_checklist_tick SET position = 0 WHERE id = ?", [t?.id]],
+      ["DELETE FROM core_checklist_tick WHERE id = ?", [t?.id]],
+      [
+        "INSERT OR REPLACE INTO core_checklist_tick (id, run_id, position, state, ticked_by, ticked_for, on_behalf, ticked_at) VALUES (?, ?, 0, 'cleared', 'x', 'x', 0, ?)",
+        [t?.id, t?.run_id, now],
+      ],
+      [
+        "INSERT INTO core_checklist_tick (id, run_id, position, state, ticked_by, ticked_for, on_behalf, ticked_at) VALUES (?, ?, 0, 'cleared', 'x', 'x', 0, ?) ON CONFLICT (id) DO UPDATE SET state = 'cleared'",
+        [t?.id, t?.run_id, now],
+      ],
+    ] as const) {
+      const error = await env.DB.prepare(statement[0])
+        .bind(...statement[1])
+        .run()
+        .then(
+          () => null,
+          (e: Error) => e.message,
+        );
+      expect([statement[0], error]).toEqual([
+        statement[0],
+        expect.stringMatching(/core_checklist_fixed/),
+      ]);
+    }
+    // Done needs every required step's latest tick: the database refuses it otherwise.
+    const second = await shiftOf(duty, -9 * MINUTE, (await account(unique("Db Db"))).id);
+    await cron();
+    const r = await runRow(second);
+    const incomplete = await env.DB.prepare(
+      "UPDATE core_checklist_run SET state = 'done', closed_at = ? WHERE id = ?",
+    )
+      .bind(now, r?.id)
+      .run()
+      .then(
+        () => null,
+        (e: Error) => e.message,
+      );
+    expect(incomplete).toMatch(/core_checklist_incomplete/);
+  });
+});
+
+describe("an AI never lists a checklist's audit rows (item 5)", () => {
+  it("audit.list for an admin's assistant leaves out the ticks, for a person it lists them without how it went", async () => {
+    const duty = await dutyWith(await template([{ text: "One" }, { text: "Two" }]));
+    const person = await account(unique("Audited Au"));
+    const s = await shiftOf(duty, -10 * MINUTE, person.id);
+    await tick(person, s, 0, { state: "not_done", why: "A private why" });
+    for (const operation of ["checklist.tick", "x.rostering.tick"]) {
+      const ai = await run<{ items: unknown[] }>("audit.list", { operation }, asAi(admin));
+      expect([operation, ai.items.length]).toEqual([operation, 0]);
+      const human = await run<{ items: unknown[] }>("audit.list", { operation }, staff());
+      expect(human.items.length).toBeGreaterThan(0);
+      expect(JSON.stringify(human.items)).not.toContain("not_done");
+      expect(JSON.stringify(human.items)).not.toContain("A private why");
+    }
+  });
+});
+
+describe("the cron's quiet minute and its floor (items 6 and 7)", () => {
+  it("a duty naming an inactive checklist gives no work: a quiet minute writes nothing", async () => {
+    const t = await template([{ text: "One" }]);
+    const duty = await dutyWith(t);
+    await run(
+      "checklist.save",
+      { id: t, name: "Retired one", active: false, steps: [{ text: "One" }] },
+      staff(),
+    );
+    const trashedDuty = await dutyWith(await template([{ text: "Two" }]));
+    const person = await account(unique("Quiet Qu"));
+    const s = await shiftOf(duty, 40 * DAY, person.id);
+    const t2 = await shiftOf(trashedDuty, 40 * DAY + 2 * HOUR, person.id);
+    await run("record.delete", { object: DUTY, id: trashedDuty }, staff());
+    const at = new Date(Date.now() + 40 * DAY - HOUR);
+    // Settle anything else due then.
+    for (let i = 0; i < 5; i++) await runChecklistDue(db, { clock: () => at });
+    const count = async () =>
+      (
+        await env.DB.prepare(
+          "SELECT count(*) AS n FROM core_audit WHERE operation = 'checklist.due'",
+        ).first<{
+          n: number;
+        }>()
+      )?.n;
+    const before = await count();
+    for (let i = 0; i < 3; i++) await runChecklistDue(db, { clock: () => at });
+    expect(await count()).toBe(before);
+    expect(await runRow(s)).toBeNull();
+    expect(await runRow(t2)).toBeNull();
+  });
+
+  it("runs as the host under an approval floor on automation writes, never queued", async () => {
+    const duty = await dutyWith(await template([{ text: "One" }]));
+    const s = await shiftOf(duty, 45 * DAY, (await account(unique("Floor Fl"))).id);
+    const floor = { automation: { write: "review" as const } };
+    const pending = async () =>
+      (await env.DB.prepare("SELECT count(*) AS n FROM core_pending_action").first<{ n: number }>())
+        ?.n ?? 0;
+    const before = await pending();
+    await runChecklistDue(db, { floor, clock: () => new Date(Date.now() + 45 * DAY - HOUR) });
+    expect(await pending()).toBe(before);
+    expect((await runRow(s))?.state).toBe("open");
+  });
+});
+
+describe("the largest checklist (item 8) and required steps only (item 9)", () => {
+  it("200 runs of a 50-step checklist of the longest steps are made, in statements under the size limit", async () => {
+    const steps = Array.from({ length: 50 }, (_, i) => ({
+      text: `${i} ${"x".repeat(296)}`.slice(0, 300),
+      required: i % 2 === 0,
+    }));
+    const duty = await dutyWith(await template(steps));
+    const people: ActingUser[] = [];
+    for (let i = 0; i < 200; i++) people.push(await account(`Big ${i} ${unique("")}`));
+    const ids: string[] = [];
+    for (let i = 0; i < 200; i++) {
+      ids.push(await shiftOf(duty, 50 * DAY + i * 2 * MINUTE, people[i]?.id ?? null, 0.03));
+    }
+    const at = new Date(Date.now() + 50 * DAY - HOUR);
+    await runChecklistDue(db, { clock: () => at });
+    const made = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_checklist_run WHERE record_id IN (SELECT value FROM json_each(?))",
+    )
+      .bind(JSON.stringify(ids))
+      .first<{ n: number }>();
+    expect(made?.n).toBe(200);
+    // Missed: only the required steps nobody ticked.
+    const late = new Date(Date.now() + 50 * DAY + 8 * HOUR + 3 * HOUR);
+    await runChecklistDue(db, { clock: () => late });
+    const r = await runRow(ids[0] as string);
+    expect(r?.state).toBe("missed");
+    expect(JSON.parse(r?.missed_steps ?? "[]")).toEqual(
+      Array.from({ length: 25 }, (_, i) => i * 2),
+    );
+  }, 300_000);
 });
 
 // --- What one call reads -----------------------------------------------------------------------------

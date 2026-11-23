@@ -141,7 +141,7 @@ function recordSelect(d: Declared) {
     ? sql`v.${sql.ref(d.template.column)}`
     : sql.ref(`t.${d.template.column}`);
   const join = d.template.via
-    ? sql`LEFT JOIN ${sql.table(d.template.via.table)} v ON v.id = t.${sql.ref(d.template.via.column)}`
+    ? sql`LEFT JOIN ${sql.table(d.template.via.table)} v ON v.id = t.${sql.ref(d.template.via.column)} AND v.deleted_at IS NULL`
     : sql``;
   return sql`SELECT t.id AS id, t.${sql.ref(d.who)} AS who, t.${sql.ref(d.opens)} AS opens,
     t.${sql.ref(d.closes)} AS closes, t.${sql.ref(d.state)} AS state, t.deleted_at AS deleted,
@@ -335,24 +335,89 @@ export function newRunValues(id: string, facts: RecordFacts, template: TemplateC
   };
 }
 
+/** The most bytes of runs one statement binds (well under D1's limit on a bound value). */
+export const RUN_CHUNK_BYTES = 256 * 1024;
+
 /**
- * One statement making many runs (the minute cron's), each only where its record has none (so it
- * never fails on one made meanwhile).
+ * The statements making many runs (the minute cron's), as few as fit `RUN_CHUNK_BYTES` each: each
+ * run only where its record has none (so none fails on one made meanwhile).
  */
-export function makeRunsStatement(runs: readonly ReturnType<typeof newRunValues>[]): CompiledQuery {
-  return CompiledQuery.raw(
-    `INSERT INTO core_checklist_run (id, object_type, record_id, checklist_id, version, name, steps,
-      account_id, opens, closes, state, made_at)
-    SELECT json_extract(j.value, '$.id'), json_extract(j.value, '$.object'),
-      json_extract(j.value, '$.record'), json_extract(j.value, '$.checklist'),
-      json_extract(j.value, '$.version'), json_extract(j.value, '$.name'),
-      json_extract(j.value, '$.steps'), json_extract(j.value, '$.account'),
-      json_extract(j.value, '$.opens'), json_extract(j.value, '$.closes'), 'open',
-      json_extract(j.value, '$.madeAt')
-    FROM json_each(?) j
-    WHERE NOT EXISTS (SELECT 1 FROM core_checklist_run r
-      WHERE r.object_type = json_extract(j.value, '$.object')
-        AND r.record_id = json_extract(j.value, '$.record'))`,
-    [JSON.stringify(runs)],
-  );
+export function makeRunsStatements(
+  runs: readonly ReturnType<typeof newRunValues>[],
+): CompiledQuery[] {
+  const out: CompiledQuery[] = [];
+  let chunk: string[] = [];
+  let size = 2;
+  const flush = () => {
+    if (!chunk.length) return;
+    out.push(
+      CompiledQuery.raw(
+        `INSERT INTO core_checklist_run (id, object_type, record_id, checklist_id, version, name,
+          steps, account_id, opens, closes, state, made_at)
+        SELECT json_extract(j.value, '$.id'), json_extract(j.value, '$.object'),
+          json_extract(j.value, '$.record'), json_extract(j.value, '$.checklist'),
+          json_extract(j.value, '$.version'), json_extract(j.value, '$.name'),
+          json_extract(j.value, '$.steps'), json_extract(j.value, '$.account'),
+          json_extract(j.value, '$.opens'), json_extract(j.value, '$.closes'), 'open',
+          json_extract(j.value, '$.madeAt')
+        FROM json_each(?) j
+        WHERE NOT EXISTS (SELECT 1 FROM core_checklist_run r
+          WHERE r.object_type = json_extract(j.value, '$.object')
+            AND r.record_id = json_extract(j.value, '$.record'))`,
+        [`[${chunk.join(",")}]`],
+      ),
+    );
+    chunk = [];
+    size = 2;
+  };
+  for (const run of runs) {
+    const json = JSON.stringify(run);
+    const bytes = new TextEncoder().encode(json).length + 1;
+    if (chunk.length && size + bytes > RUN_CHUNK_BYTES) flush();
+    chunk.push(json);
+    size += bytes;
+  }
+  flush();
+  return out;
+}
+
+// --- Who may change what a checklist hangs on (ADR 0650, the review of PR #298) -------------------
+
+/**
+ * The fields of `object` that a `checklists` declaration names as its template: its own, or one of
+ * the object a relation names (a duty's `checklist`, for its shifts). Which checklist staff are
+ * asked to follow is a rosterer's to say, by every write path, where a pack declares who rosters.
+ */
+export function checklistTemplateFields(object: ObjectDefinition): string[] {
+  const out: string[] = [];
+  for (const o of listObjects()) {
+    const def = o.checklists;
+    if (!def) continue;
+    if (def.template.via ? def.template.viaObject === object.name : o.name === object.name) {
+      out.push(def.template.field);
+    }
+  }
+  return [...new Set(out)];
+}
+
+/**
+ * The statement marking a record's open, opened run as ended by `by` (someone who rosters, or the
+ * host: the run then closes as cancelled) or by someone who does not (null: it closes as missed),
+ * when the record leaves its live states; or clearing the mark when it comes back.
+ */
+export function endedStatement(
+  object: string,
+  id: string,
+  ended: { at: string; by: string | null } | null,
+  now: number,
+): CompiledQuery {
+  return ended
+    ? CompiledQuery.raw(
+        "UPDATE core_checklist_run SET ended_at = ?, ended_by = ? WHERE object_type = ? AND record_id = ? AND state = 'open' AND opens <= ?",
+        [ended.at, ended.by, object, id, now],
+      )
+    : CompiledQuery.raw(
+        "UPDATE core_checklist_run SET ended_at = NULL, ended_by = NULL WHERE object_type = ? AND record_id = ? AND state = 'open' AND ended_at IS NOT NULL",
+        [object, id],
+      );
 }

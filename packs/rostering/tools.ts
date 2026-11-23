@@ -924,15 +924,17 @@ export const exportPeriod = defineTool({
 // now; these tools ask and pass on what it answers.
 
 const checklistTick = z.object({
+  state: z.enum(["done", "not_done", "cleared"]),
   done: z.boolean(),
   why: z.string().nullable(),
   note: z.string().nullable(),
+  onBehalfWhy: z.string().nullable(),
+  withheld: z.boolean().describe("Has words only its author and whoever rosters read"),
   by: z.string(),
   byName: z.string(),
   for: z.string(),
   forName: z.string(),
   onBehalf: z.boolean(),
-  onBehalfWhy: z.string().nullable(),
   at: z.string(),
   label: z.string().describe('"Ticked by X", or "Ticked by X for Y"'),
 });
@@ -959,7 +961,10 @@ const checklistRun = z.object({
       text: z.string(),
       required: z.boolean(),
       asksNote: z.boolean(),
-      tick: checklistTick.nullable(),
+      tick: checklistTick.nullable().describe("The latest tick"),
+      history: z
+        .array(checklistTick)
+        .describe("Earlier ticks: all for whoever rosters, your own otherwise"),
       missed: z.boolean(),
     }),
   ),
@@ -1005,9 +1010,10 @@ export const checklist = defineTool({
 export const tick = defineTool({
   description:
     "Tick one step of your shift's checklist: done (with a note where the step asks for one), " +
-    "not done (with why), or clear your tick. From when the shift starts until 2 hours after it " +
-    "ends. Whoever rosters may tick someone's for them, saying why (forWhy): it is kept as " +
-    "ticked by them for that person. A person's own act.",
+    "not done (with why), or clear your tick. Every tick is kept; the latest counts, and only " +
+    "whoever rosters changes a tick someone else made. From when the shift starts until 2 hours " +
+    "after it ends. Whoever rosters may tick someone's for them, saying why (forWhy): it is kept " +
+    "as ticked by them for that person. A person's own act.",
   input: z.object({
     ...shiftRef,
     step: z.number().int().min(0).max(49),
@@ -1027,8 +1033,9 @@ export const tick = defineTool({
   permission: [...TEAM],
   grantLiftsRoleLimits: true,
   humanOnly: true,
-  // What someone writes on a step, why it was not done, why it was ticked for them: private.
-  redact: ["note", "why", "forWhy"],
+  // What someone writes on a step, why it was not done, why it was ticked for them, and how it
+  // went: never in the audit log.
+  redact: ["note", "why", "forWhy", "state"],
   handler: async (input, ctx) => (await ctx.ops.call("checklist.tick", input)) as never,
 });
 

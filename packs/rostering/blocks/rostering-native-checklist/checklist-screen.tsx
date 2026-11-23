@@ -109,7 +109,13 @@ export function ShiftChecklistNative({
   };
   const steps =
     run?.steps ??
-    (data?.preview ?? []).map((s, position) => ({ ...s, position, tick: null, missed: false }));
+    (data?.preview ?? []).map((s, position) => ({
+      ...s,
+      position,
+      tick: null,
+      history: [],
+      missed: false,
+    }));
   const state = run ? run.state : (shift.checklist.state ?? null);
   const alert = (r: RosterRefusal) => {
     const next = refusalNext(r.kind, false);
@@ -179,6 +185,12 @@ export function ShiftChecklistNative({
                 {step.tick ? <Text>{tickLabel(step.tick)}</Text> : null}
                 {step.tick?.why ? <Text>Why: {step.tick.why}</Text> : null}
                 {step.tick?.note ? <Text>Note: {step.tick.note}</Text> : null}
+                {step.history.map((h) => (
+                  <Text key={`${h.at}-${h.by}`}>
+                    Earlier: {h.state === "cleared" ? h.label : tickLabel(h)}
+                    {h.note ? ` · Note: ${h.note}` : ""}
+                  </Text>
+                ))}
                 {step.missed ? <Text>Missed</Text> : null}
                 {editable ? (
                   <View>

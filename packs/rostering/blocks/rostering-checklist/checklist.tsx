@@ -141,10 +141,17 @@ export function ShiftChecklist({
     required: boolean;
     asksNote: boolean;
     tick: ChecklistStep["tick"];
+    history: ChecklistStep["history"];
     missed: boolean;
   }[] =
     run?.steps ??
-    (data?.preview ?? []).map((s, position) => ({ ...s, position, tick: null, missed: false }));
+    (data?.preview ?? []).map((s, position) => ({
+      ...s,
+      position,
+      tick: null,
+      history: [],
+      missed: false,
+    }));
   const state = run ? run.state : (shift.checklist.state ?? null);
 
   return (
@@ -240,6 +247,25 @@ export function ShiftChecklist({
                         </p>
                       ) : null}
                       {step.tick?.note ? <p className="text-xs">Note: {step.tick.note}</p> : null}
+                      {step.tick?.withheld ? (
+                        <p className="text-xs text-muted-foreground">
+                          What they wrote is theirs and whoever rosters' to read.
+                        </p>
+                      ) : null}
+                      {step.history.length ? (
+                        <details className="text-xs" data-history={step.position}>
+                          <summary>Earlier ticks ({step.history.length})</summary>
+                          <ul className="grid gap-1">
+                            {step.history.map((h) => (
+                              <li key={`${h.at}-${h.by}`}>
+                                {h.state === "cleared" ? h.label : tickLabel(h)}
+                                {h.why ? ` · Why: ${h.why}` : ""}
+                                {h.note ? ` · Note: ${h.note}` : ""}
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      ) : null}
                       {step.missed ? <p className="text-xs font-semibold">Missed</p> : null}
                       {editable ? (
                         <div className="grid gap-1">

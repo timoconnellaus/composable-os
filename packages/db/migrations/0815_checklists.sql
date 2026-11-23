@@ -72,8 +72,14 @@ CREATE TABLE core_checklist_run (
   closes INTEGER NOT NULL,
   state TEXT NOT NULL CHECK (state IN ('open', 'done', 'missed', 'cancelled')),
   made_at TEXT NOT NULL,
-  -- Closed: when; by whom (the person, someone who rosters for them, or null: the host); and,
-  -- marked done for someone, why.
+  -- The record left its live states (cancelled, the Trash, removed) after the run opened: when,
+  -- and by whom when that was someone who rosters (or the host). Set by the host's record writes;
+  -- cleared if it comes back. At the close, a record ended by someone who does not roster is
+  -- missed, not cancelled.
+  ended_at TEXT,
+  ended_by TEXT,
+  -- Closed: when; by whom (the person, someone who rosters for them, whoever cancelled it, or
+  -- null: the host); and, marked done for someone, why.
   closed_at TEXT,
   closed_by TEXT,
   closed_why TEXT CHECK (closed_why IS NULL OR length(closed_why) <= 500),
@@ -88,14 +94,19 @@ CREATE INDEX core_checklist_run_opens ON core_checklist_run (opens);
 CREATE INDEX core_checklist_run_account ON core_checklist_run (account_id, opens);
 CREATE INDEX core_checklist_run_template ON core_checklist_run (checklist_id, opens);
 
--- One tick per step of a run (position from 0, as in the run's steps).
+-- Ticks of a run's steps (position from 0, as in the run's steps). **A tick is never changed or
+-- removed**: a later tick of the same step (by the person, or by someone who rosters for them) is a
+-- new row, and the latest counts; a clear is a `cleared` tick. So every tick anyone made stays,
+-- the earlier ones readable as history by those who roster and by their authors.
 CREATE TABLE core_checklist_tick (
+  -- Time-ordered (a ULID): with `ticked_at`, the latest of a step is the last.
+  id TEXT PRIMARY KEY NOT NULL,
   run_id TEXT NOT NULL,
   position INTEGER NOT NULL CHECK (position BETWEEN 0 AND 49),
-  -- 1: done. 0: not done, with why.
-  done INTEGER NOT NULL CHECK (done IN (0, 1)),
+  -- done; not done, with why; or cleared (the step counts as not ticked again).
+  state TEXT NOT NULL CHECK (state IN ('done', 'not_done', 'cleared')),
   why TEXT CHECK (why IS NULL OR length(why) BETWEEN 1 AND 500),
-  -- What the person wrote on the step. Private: the person and those who roster only.
+  -- What the person wrote on the step. Private: its author and those who roster only.
   note TEXT CHECK (note IS NULL OR length(note) BETWEEN 1 AND 1000),
   -- Who ticked it, and whose run it was for. On someone's behalf: someone who rosters ticked it
   -- for the run's person, with why; never shown or counted as the person's own tick.
@@ -104,11 +115,13 @@ CREATE TABLE core_checklist_tick (
   on_behalf INTEGER NOT NULL CHECK (on_behalf IN (0, 1)),
   on_behalf_why TEXT CHECK (on_behalf_why IS NULL OR length(on_behalf_why) BETWEEN 1 AND 500),
   ticked_at TEXT NOT NULL,
-  CHECK (done = 1 OR why IS NOT NULL),
+  CHECK (state != 'not_done' OR why IS NOT NULL),
   CHECK ((on_behalf = 0 AND ticked_by = ticked_for AND on_behalf_why IS NULL)
-    OR (on_behalf = 1 AND ticked_by != ticked_for AND on_behalf_why IS NOT NULL)),
-  PRIMARY KEY (run_id, position)
-) WITHOUT ROWID;
+    OR (on_behalf = 1 AND ticked_by != ticked_for AND on_behalf_why IS NOT NULL))
+);
+
+-- A run's ticks, step by step, latest last.
+CREATE INDEX core_checklist_tick_run ON core_checklist_tick (run_id, position, ticked_at, id);
 
 -- A correction: a note someone who rosters adds beside a closed run. Never changed or removed.
 CREATE TABLE core_checklist_note (
@@ -134,7 +147,8 @@ BEGIN
 END;
 
 -- A closed run never changes. An open one keeps what it is (its record, template and steps); the
--- host moves its person and times, and closes it: done only with every required step ticked.
+-- host moves its person and times, marks who ended its record, and closes it: done only with
+-- every required step's latest tick done or not done.
 CREATE TRIGGER core_checklist_run_update
 BEFORE UPDATE ON core_checklist_run
 BEGIN
@@ -151,8 +165,9 @@ BEGIN
   WHERE NEW.state = 'done' AND EXISTS (
     SELECT 1 FROM json_each(NEW.steps) s
     WHERE json_extract(s.value, '$.required') = 1
-      AND NOT EXISTS (SELECT 1 FROM core_checklist_tick t
-        WHERE t.run_id = NEW.id AND t.position = s.key));
+      AND coalesce((SELECT t.state FROM core_checklist_tick t
+        WHERE t.run_id = NEW.id AND t.position = s.key
+        ORDER BY t.ticked_at DESC, t.id DESC LIMIT 1), 'cleared') = 'cleared');
 END;
 
 -- A run is never removed once closed or ticked.
@@ -164,9 +179,8 @@ BEGIN
     OR EXISTS (SELECT 1 FROM core_checklist_tick t WHERE t.run_id = OLD.id);
 END;
 
--- A tick only on an open run's step; a step that asks for a note is not done without one. The row
--- a REPLACE would delete is on the same run (the key is the run and the step), so checking the
--- run checks it too.
+-- A tick is added to an open run's step only, never over another tick (a REPLACE of its id); a
+-- step that asks for a note is not ticked done without one.
 CREATE TRIGGER core_checklist_tick_insert
 BEFORE INSERT ON core_checklist_tick
 BEGIN
@@ -174,39 +188,26 @@ BEGIN
   WHERE NOT EXISTS (SELECT 1 FROM core_checklist_run r WHERE r.id = NEW.run_id
     AND r.state = 'open');
   SELECT RAISE(ABORT, 'core_checklist_fixed')
-  WHERE NEW.position >= (SELECT json_array_length(r.steps) FROM core_checklist_run r
-    WHERE r.id = NEW.run_id);
+  WHERE EXISTS (SELECT 1 FROM core_checklist_tick t WHERE t.id = NEW.id)
+    OR NEW.position >= (SELECT json_array_length(r.steps) FROM core_checklist_run r
+      WHERE r.id = NEW.run_id);
   SELECT RAISE(ABORT, 'core_checklist_note_needed')
-  WHERE NEW.done = 1 AND (NEW.note IS NULL OR trim(NEW.note) = '')
+  WHERE NEW.state = 'done' AND (NEW.note IS NULL OR trim(NEW.note) = '')
     AND (SELECT json_extract(r.steps, '$[' || NEW.position || '].note') FROM core_checklist_run r
       WHERE r.id = NEW.run_id) = 1;
 END;
 
--- A tick changes only while both runs it is on, before and after, are open (an UPDATE OR REPLACE
--- moving it onto a closed run's step is refused by NEW's run).
+-- A tick is never changed or removed, on an open run or a closed one.
 CREATE TRIGGER core_checklist_tick_update
 BEFORE UPDATE ON core_checklist_tick
 BEGIN
-  SELECT RAISE(ABORT, 'core_checklist_closed')
-  WHERE NOT EXISTS (SELECT 1 FROM core_checklist_run r WHERE r.id = OLD.run_id
-      AND r.state = 'open')
-    OR NOT EXISTS (SELECT 1 FROM core_checklist_run r WHERE r.id = NEW.run_id
-      AND r.state = 'open');
-  SELECT RAISE(ABORT, 'core_checklist_fixed')
-  WHERE NEW.position >= (SELECT json_array_length(r.steps) FROM core_checklist_run r
-    WHERE r.id = NEW.run_id);
-  SELECT RAISE(ABORT, 'core_checklist_note_needed')
-  WHERE NEW.done = 1 AND (NEW.note IS NULL OR trim(NEW.note) = '')
-    AND (SELECT json_extract(r.steps, '$[' || NEW.position || '].note') FROM core_checklist_run r
-      WHERE r.id = NEW.run_id) = 1;
+  SELECT RAISE(ABORT, 'core_checklist_fixed');
 END;
 
 CREATE TRIGGER core_checklist_tick_delete
 BEFORE DELETE ON core_checklist_tick
 BEGIN
-  SELECT RAISE(ABORT, 'core_checklist_closed')
-  WHERE NOT EXISTS (SELECT 1 FROM core_checklist_run r WHERE r.id = OLD.run_id
-    AND r.state = 'open');
+  SELECT RAISE(ABORT, 'core_checklist_fixed');
 END;
 
 -- A correction is added beside a closed run, and never changed, replaced or removed.

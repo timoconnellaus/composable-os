@@ -299,7 +299,7 @@ describe("the manifest", () => {
     ]) {
       expect(tools[name]?.humanOnly, name).toBe(true);
     }
-    expect(tools.tick?.redact).toEqual(["note", "why", "forWhy"]);
+    expect(tools.tick?.redact).toEqual(["note", "why", "forWhy", "state"]);
     expect(tools.checklistDone?.redact).toEqual(["forWhy"]);
     expect(tools.checklistCorrect?.redact).toEqual(["text"]);
     // Pay: restricted, and a person's only: an assistant never reads or changes it.

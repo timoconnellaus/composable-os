@@ -19406,7 +19406,7 @@
     },
     {
       "name": "checklist.due",
-      "description": "Platform use only (the minute cron, as the host): makes checklist runs for shifts opening within a day, keeps open runs with their shift's person and times, and closes those past their close and grace: missed (the rosterers are told) or cancelled. Returns what it did.",
+      "description": "Platform use only (the minute cron, as the host), in two steps, each its own call: `close` keeps open runs with their shift's person and times and closes those past their close and grace (missed, and the rosterers are told; or cancelled); `make` makes checklist runs for shifts opening within a day. Returns what it did.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -19414,7 +19414,18 @@
       "kind": "mutation",
       "input": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "step": {
+            "type": "string",
+            "enum": [
+              "close",
+              "make"
+            ]
+          }
+        },
+        "required": [
+          "step"
+        ]
       },
       "output": {
         "type": "object",
@@ -78702,6 +78713,14 @@
                             {
                               "type": "object",
                               "properties": {
+                                "state": {
+                                  "type": "string",
+                                  "enum": [
+                                    "done",
+                                    "not_done",
+                                    "cleared"
+                                  ]
+                                },
                                 "done": {
                                   "type": "boolean"
                                 },
@@ -78716,6 +78735,16 @@
                                     "string",
                                     "null"
                                   ]
+                                },
+                                "onBehalfWhy": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "withheld": {
+                                  "type": "boolean",
+                                  "description": "Has words only its author and whoever rosters read"
                                 },
                                 "by": {
                                   "type": "string"
@@ -78732,12 +78761,6 @@
                                 "onBehalf": {
                                   "type": "boolean"
                                 },
-                                "onBehalfWhy": {
-                                  "type": [
-                                    "string",
-                                    "null"
-                                  ]
-                                },
                                 "at": {
                                   "type": "string"
                                 },
@@ -78747,15 +78770,17 @@
                                 }
                               },
                               "required": [
+                                "state",
                                 "done",
                                 "why",
                                 "note",
+                                "onBehalfWhy",
+                                "withheld",
                                 "by",
                                 "byName",
                                 "for",
                                 "forName",
                                 "onBehalf",
-                                "onBehalfWhy",
                                 "at",
                                 "label"
                               ],
@@ -78764,7 +78789,88 @@
                             {
                               "type": "null"
                             }
-                          ]
+                          ],
+                          "description": "The latest tick"
+                        },
+                        "history": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "state": {
+                                "type": "string",
+                                "enum": [
+                                  "done",
+                                  "not_done",
+                                  "cleared"
+                                ]
+                              },
+                              "done": {
+                                "type": "boolean"
+                              },
+                              "why": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "note": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "onBehalfWhy": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "withheld": {
+                                "type": "boolean",
+                                "description": "Has words only its author and whoever rosters read"
+                              },
+                              "by": {
+                                "type": "string"
+                              },
+                              "byName": {
+                                "type": "string"
+                              },
+                              "for": {
+                                "type": "string"
+                              },
+                              "forName": {
+                                "type": "string"
+                              },
+                              "onBehalf": {
+                                "type": "boolean"
+                              },
+                              "at": {
+                                "type": "string"
+                              },
+                              "label": {
+                                "type": "string",
+                                "description": "\"Ticked by X\", or \"Ticked by X for Y\""
+                              }
+                            },
+                            "required": [
+                              "state",
+                              "done",
+                              "why",
+                              "note",
+                              "onBehalfWhy",
+                              "withheld",
+                              "by",
+                              "byName",
+                              "for",
+                              "forName",
+                              "onBehalf",
+                              "at",
+                              "label"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "description": "Earlier ticks: all for whoever rosters, your own otherwise"
                         },
                         "missed": {
                           "type": "boolean"
@@ -78776,6 +78882,7 @@
                         "required",
                         "asksNote",
                         "tick",
+                        "history",
                         "missed"
                       ],
                       "additionalProperties": false
@@ -82244,7 +82351,7 @@
     },
     {
       "name": "x.rostering.tick",
-      "description": "Tick one step of your shift's checklist: done (with a note where the step asks for one), not done (with why), or clear your tick. From when the shift starts until 2 hours after it ends. Whoever rosters may tick someone's for them, saying why (forWhy): it is kept as ticked by them for that person. A person's own act. (Extension tool from Rostering 0.1.0.)",
+      "description": "Tick one step of your shift's checklist: done (with a note where the step asks for one), not done (with why), or clear your tick. Every tick is kept; the latest counts, and only whoever rosters changes a tick someone else made. From when the shift starts until 2 hours after it ends. Whoever rosters may tick someone's for them, saying why (forWhy): it is kept as ticked by them for that person. A person's own act. (Extension tool from Rostering 0.1.0.)",
       "risk": "write",
       "audiences": [
         "staff"

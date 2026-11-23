@@ -29,6 +29,7 @@ import { assignOwner, recordAssignment } from "../assignment/index.ts";
 import { assertNoLiveClaim } from "../capacity/claimants.ts";
 import { assertNoConfirmedClaims, counterWrite } from "../capacity/records.ts";
 import { WAITLIST_FOR } from "../capacity/waitlist.ts";
+import { checklistRecordRestored, checklistRecordWritten } from "../checklists/writes.ts";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import {
   ALLOWANCE_FIELDS,
@@ -1153,6 +1154,16 @@ export async function updateRecord(
     { ...before.values, ...valuesOf(prepared) },
     { by },
   );
+  // A shift that has started is cancelled by someone who rosters, and its checklist run marked
+  // with who (ADR 0650, the review of PR #298).
+  await checklistRecordWritten(
+    ctx,
+    object,
+    id,
+    before.values,
+    { ...before.values, ...valuesOf(prepared) },
+    by,
+  );
   await holderWritten(ctx, object, id, before.values, { ...before.values, ...valuesOf(prepared) });
   const own = prepared.filter((p) => p.own);
   if (own.length || !isCoreObject(object.name)) {
@@ -1370,6 +1381,7 @@ async function trashRecordAsHost(ctx: HandlerContext, object: ObjectDefinition, 
   if (object.claims) ctx.write(guardStatement("claimant", object.name, id, 0));
   // A shift in the Trash claims nobody's time (its trigger drops the claim, ADR 0621).
   await staffedReleased(ctx, object, id);
+  await checklistRecordWritten(ctx, object, id, before.values, null, "host");
   const table = objectTableOf(object.name) as string;
   ctx.write(
     CompiledQuery.raw(`UPDATE ${table} SET deleted_at = ?, deleted_by = ? WHERE id = ?`, [
@@ -1533,6 +1545,7 @@ export const recordDelete = defineOperation({
     // A shift in the Trash claims nobody's time (its trigger drops the claim, ADR 0621); a coach
     // profile on shifts not yet ended is not trashed while it still names their person.
     await staffedReleased(ctx, object, input.id);
+    await checklistRecordWritten(ctx, object, input.id, before.values, null, undefined);
     await assertHolderTrashable(ctx, object, input.id);
     const table = objectTableOf(object.name) as string;
     ctx.write(
@@ -1582,6 +1595,8 @@ export const recordRestore = defineOperation({
     await assertRosterRestore(ctx, object, input.id);
     // A shift's time may have been given to its person meanwhile (ADR 0621): refused naming it.
     await staffedRestored(ctx, object, input.id);
+    // Back from the Trash: its checklist run is no longer ended (ADR 0650).
+    checklistRecordRestored(ctx, object, input.id);
     // A granted holder comes back only in a final state (ADR 0513).
     const stateColumn = object.states
       ? fieldStorage(object.name, object.states.field)?.column

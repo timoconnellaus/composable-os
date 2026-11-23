@@ -344,6 +344,7 @@ export function checklistStateLabel(state: ChecklistState | ChecklistRun["state"
 
 /** A step's tick as every screen shows it: what was ticked, by whom and for whom. */
 export function tickLabel(tick: ChecklistTick): string {
+  if (tick.state === "cleared") return tick.label;
   return `${tick.done ? "Done" : "Not done"}: ${tick.label}`;
 }
 
@@ -396,6 +397,8 @@ export type RosterRefusalKind =
   | "checklist_not_live"
   | "checklist_nobody"
   | "checklist_not_yours"
+  | "checklist_not_your_tick"
+  | "checklist_nothing_to_clear"
   | "checklist_for_why"
   | "checklist_note_needed"
   | "checklist_why"
@@ -465,6 +468,8 @@ const KNOWN_RULES: ReadonlySet<string> = new Set<RosterRefusalKind>([
   "checklist_not_live",
   "checklist_nobody",
   "checklist_not_yours",
+  "checklist_not_your_tick",
+  "checklist_nothing_to_clear",
   "checklist_for_why",
   "checklist_note_needed",
   "checklist_why",
