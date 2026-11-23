@@ -76,6 +76,10 @@ export type Role = (typeof ROLES)[number];
  * - `people:link` link a guardian to a dependant and end the link (stage 31a, ADR 0540): who may
  *   act for whom. Admins only by default, grantable as `orders:refund` is, and a person only
  *   whatever is granted (the operations are `actors: ["human"]`).
+ * - `agreements:manage` write agreement documents, and publish, attach, detach and retire them
+ *   (stage 44, ADR 0640). Admins only by default, grantable as `orders:refund` is. Publishing,
+ *   attaching, detaching and retiring are a person's whatever is granted (`actors: ["human"]`);
+ *   an AI acting for an account that holds it may only write a document's working copy.
  */
 export const PERMISSIONS = [
   "records:read",
@@ -91,8 +95,18 @@ export const PERMISSIONS = [
   "records:publish",
   "subscriptions:manage",
   "people:link",
+  "agreements:manage",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
+
+/**
+ * The namespaces of the core permissions (`agreements`, `orders`, `people`, …): no extension may
+ * take one as its id, or it could declare a core permission as its own grantable one (stage 44
+ * review). Derived from PERMISSIONS, so a new core permission reserves its namespace by itself.
+ */
+export const CORE_PERMISSION_NAMESPACES: readonly string[] = [
+  ...new Set(PERMISSIONS.map((p) => p.split(":")[0] as string)),
+];
 
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   viewer: ["records:read"],
@@ -115,6 +129,7 @@ export const GRANTABLE_PERMISSIONS = [
   "orders:refund",
   "subscriptions:manage",
   "people:link",
+  "agreements:manage",
 ] as const;
 
 /**

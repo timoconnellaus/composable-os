@@ -12,6 +12,7 @@ import { dashboardSpecSchema } from "../dashboards/spec.ts";
 import { ConfigError, ValidationError } from "../errors.ts";
 import { listObjects } from "../fields/index.ts";
 import type { HandlerContext } from "../operation.ts";
+import { CORE_PERMISSION_NAMESPACES } from "../principals.ts";
 import { hasAccessSourceKind } from "../visibility/access.ts";
 // The host's own kinds of access source register themselves when loaded: loaded here too, so the
 // install check (and `cos ext check`, which bundles it alone) knows them (ADR 0488).
@@ -97,6 +98,7 @@ export async function checkManifest(
     .filter((name) => name.includes(".") && !name.startsWith(`${id}.`));
   const { manifest, issues } = validateManifest(rawManifest, {
     knownObjects,
+    reservedIds: CORE_PERMISSION_NAMESPACES,
     baseFields: (object) => (isCoreTarget(object) ? coreFormulaFields(object) : {}),
   });
   const all = issues.map(fromManifest);
