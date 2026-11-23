@@ -4,8 +4,8 @@
 // writer is deterministic and turns nothing it is given into PDF structure. All text here is
 // fixture text, not wording anyone should use.
 import { env } from "cloudflare:workers";
+import { type AgreementPdf, agreementPdf } from "@composable-os/agreement-pdf";
 import { beforeEach, describe, expect, it } from "vitest";
-import { type AgreementPdf, agreementPdf } from "../src/agreement-pdf";
 import type { EmailSendReceipt } from "../src/types";
 import { resetFakes, sentEmails, submissions } from "./fakes";
 
@@ -30,6 +30,9 @@ async function host(
     hostAgreement?: boolean;
     hostSignIn?: boolean;
     hostRoutine?: { siteOrigin: string | null };
+    hostPurpose?: string;
+    seedable?: boolean;
+    autoApply?: boolean;
   } = {},
 ) {
   seq += 1;
@@ -470,4 +473,109 @@ describe("keys and lists are kept apart by who is sending (the review of PR #283
       mine.id,
     );
   });
+});
+
+describe("keys per class, not per kind; pools; the upgrade (the second review of PR #283)", () => {
+  const SITE = "https://gym.example";
+  const routineMail = {
+    to: ["member@members.test"],
+    subject: "Booked: Strength",
+    text: `You are booked into Strength.\n\nSee your bookings: ${SITE}/bookings.`,
+  };
+
+  it("routine mail retried after its row was held finds its first send: one email", async () => {
+    const h = await host({ hostPurpose: "routine-mail", hostRoutine: { siteOrigin: SITE } });
+    const first = await send(h, { ...routineMail, idempotencyKey: "routine:rml_1" });
+    expect(submissions[0]?.[1].actionKind?.tag).toBe("email.routine");
+    await h.apply(first.id);
+    // The retry: the same purpose, now held (no routine decision), so another kind.
+    await h.open(SENDER_URL, { hostPurpose: "routine-mail" });
+    const second = await send(h, { ...routineMail, idempotencyKey: "routine:rml_1" });
+    expect(second).toEqual({ status: "sent", id: first.id });
+    expect(submissions).toHaveLength(1);
+    expect(sentEmails).toHaveLength(1);
+  });
+
+  it("a caller's key answers its retry whatever kind the retry is decided", async () => {
+    const h = await host({});
+    const a = await send(h, {
+      to: ["colleague@example.com"],
+      subject: "s",
+      text: "t",
+      idempotencyKey: "step-1",
+    });
+    const b = await send(h, {
+      to: ["someone@outside.test"],
+      subject: "s",
+      text: "t",
+      idempotencyKey: "step-1",
+    });
+    expect(b.id).toBe(a.id);
+    expect(submissions).toHaveLength(1);
+  });
+
+  it("a held routine queue is the routine class by its purpose alone", async () => {
+    const h = await host({});
+    const theirs = await send(h, { ...routineMail, idempotencyKey: "routine:rml_9" });
+    // Held: `hostRoutineMail` answers nothing; only `hostPurpose` says it is the host's.
+    await h.open(SENDER_URL, { hostPurpose: "routine-mail" });
+    const ours = await send(h, { ...routineMail, idempotencyKey: "routine:rml_9" });
+    expect(ours.id).not.toBe(theirs.id);
+    expect(submissions).toHaveLength(2);
+  });
+
+  it("callers' 500 waiting sends never block the host's copy, which has its own allowance", async () => {
+    const h = await host({});
+    for (let i = 0; i < 500; i++) {
+      await send(h, { to: ["a@outside.test"], subject: `s${i}`, text: "t" });
+    }
+    await expect(
+      send(h, { to: ["a@outside.test"], subject: "one more", text: "t" }),
+    ).rejects.toThrow(/Too many pending actions/);
+    await h.open(SENDER_URL, { hostPurpose: "agreements", hostAgreement: true });
+    const copy = await send(h, message);
+    expect(copy.status).toBe("pending");
+    await h.apply(copy.id);
+    expect(sentEmails.map((m) => m.to)).toEqual([["member@members.test"]]);
+  }, 120_000);
+
+  it("a key remembered before keys were kept per class still answers its retry, but never the copy's", async () => {
+    const h = await host({ seedable: true });
+    const first = await send(h, { to: ["colleague@example.com"], subject: "s", text: "t" });
+    // As an older version left it: `idem:<key>` → the send's id.
+    await h.seed("idem:step-old", first.id);
+    await h.seed("idem:agreement-copy:aga_fixture1", first.id);
+    const again = await send(h, {
+      to: ["colleague@example.com"],
+      subject: "s",
+      text: "t",
+      idempotencyKey: "step-old",
+    });
+    expect(again.id).toBe(first.id);
+    expect(submissions).toHaveLength(1);
+    await h.open(SENDER_URL, { hostPurpose: "agreements", hostAgreement: true });
+    const copy = await send(h, message);
+    expect(copy.id).not.toBe(first.id);
+  });
+
+  it("callers' keys never evict the copy's", async () => {
+    // The copy waits (not yet applied), so its retry must still find it after the flood.
+    const h = await host({ hostPurpose: "agreements", hostAgreement: true });
+    const copy = await send(h, message);
+    // More keyed sends than a class keeps, from callers (to colleagues, applied at once).
+    await h.open(SENDER_URL, { autoApply: true });
+    for (let i = 0; i < 2_005; i++) {
+      await send(h, {
+        to: ["colleague@example.com"],
+        subject: `s${i}`,
+        text: "t",
+        idempotencyKey: `bulk-${i}`,
+      });
+    }
+    await h.open(SENDER_URL, { hostPurpose: "agreements", hostAgreement: true });
+    const again = await send(h, message);
+    expect(again.id).toBe(copy.id);
+    await h.apply(copy.id);
+    expect(sentEmails.filter((m) => m.to.includes("member@members.test"))).toHaveLength(1);
+  }, 300_000);
 });

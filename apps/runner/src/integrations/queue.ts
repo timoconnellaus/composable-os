@@ -351,16 +351,27 @@ export class HostQueue extends RpcTarget {
         });
         await auditOutboundApplied(db, submission, { ok: true }, decision.judgeUsage);
       } catch (error) {
+        const outcome = parseApplyOutcome(error instanceof Error ? error.message : String(error));
+        // An agreement's copy: the provider's words may name the recipient, and an admin's MCP
+        // client reads the audit, so its row keeps the outcome only (ADR 0645).
+        const agreements = this.#caller.kind === "system" && this.#caller.purpose === "agreements";
         this.failed.push({
           action,
           actionKind: description.actionKind?.tag ?? null,
           title: description.title,
-          ...parseApplyOutcome(error instanceof Error ? error.message : String(error)),
+          ...(agreements ? { ...outcome, message: `Not sent (${outcome.outcome})` } : outcome),
         });
         await auditOutboundApplied(
           db,
           submission,
-          { ok: false, message: error instanceof Error ? error.message : String(error) },
+          {
+            ok: false,
+            message: agreements
+              ? `Not sent (${outcome.outcome})`
+              : error instanceof Error
+                ? error.message
+                : String(error),
+          },
           decision.judgeUsage,
         );
       }

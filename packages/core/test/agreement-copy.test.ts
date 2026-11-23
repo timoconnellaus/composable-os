@@ -9,10 +9,10 @@
 // another customer, the public or an AI. A download and the attachment are the same bytes for the
 // same values. All text here is fixture text, not wording anyone should use.
 import { env } from "cloudflare:workers";
-import { beforeAll, describe, expect, it } from "vitest";
 // The email gatekeeper's own check and PDF writer, as it runs them on the copy (relative paths, as
 // cos-runner's fake outbox imports its rules: core holds no copy of either).
-import { type AgreementPdf, agreementPdf } from "../../gatekeeper-email-send/src/agreement-pdf.ts";
+import { type AgreementPdf, agreementPdf } from "@composable-os/agreement-pdf";
+import { beforeAll, describe, expect, it } from "vitest";
 import { parseMessage } from "../../gatekeeper-email-send/src/validate.ts";
 import { sendAgreementCopies } from "../src/agreements/copy.ts";
 import type {
@@ -50,7 +50,7 @@ const SIGNATURE = {
 
 // --- The mail double: the email gatekeeper as the host's callAsHost reaches it --------------------
 
-type Mode = "apply" | "pending" | "crash" | "retryable" | "unknown" | "invalid" | "deny";
+type Mode = "apply" | "pending" | "crash" | "retryable" | "unknown" | "invalid" | "deny" | "full";
 interface Sent {
   to: string[];
   subject: string;
@@ -111,6 +111,11 @@ function mailDouble(payments: IntegrationRuntime) {
       }
       const mode = modes.shift() ?? "apply";
       if (mode === "invalid") throw new Error("Invalid email: agreement.title must be a line.");
+      if (mode === "full") {
+        throw new Error(
+          "Too many pending actions; approve or reject some in the approval queue first.",
+        );
+      }
       next += 1;
       const id = next;
       const action = { action: id, actionKind: "email.agreement", title: "Send email" };
@@ -822,13 +827,38 @@ describe("exactly once", () => {
     expect(deliveredFor(done.id)).toHaveLength(0);
   });
 
+  it("the sender's queue full of other sends: the copy waits, the try is not counted, admins are told once", async () => {
+    const buyer = await createBuyer(admin, "full");
+    mail.modes.push(...Array.from({ length: 10 }, () => "full" as const));
+    const done = await accept(buyer.principal, waiver);
+    expect(await copyRow(done.id)).toMatchObject({
+      state: "queued",
+      error: "queue_full",
+      attempts: 0,
+    });
+    // More full queues than a copy has tries: still waiting, never failed.
+    for (let i = 1; i <= 9; i++) await sweep(later(16 * i));
+    expect(await copyRow(done.id)).toMatchObject({ state: "queued", attempts: 0 });
+    const notices = await env.DB.prepare(
+      "SELECT body FROM core_notifications WHERE user_id = ? AND dedupe_key = 'agreement-copy:queue-full'",
+    )
+      .bind(admin.id)
+      .all<{ body: string }>();
+    expect(notices.results).toHaveLength(1);
+    expect(JSON.stringify(notices.results)).not.toContain(buyer.email);
+    // Once the queue has room it goes.
+    mail.modes.length = 0;
+    await sweep(later(16 * 10));
+    expect(await copyRow(done.id)).toMatchObject({ state: "sent", error: null });
+    expect(deliveredFor(done.id)).toHaveLength(1);
+  });
   it("refused by the deploy-time floor: failed, not waiting", async () => {
     const buyer = await createBuyer(admin, "denied");
     mail.modes.push("deny");
     const done = await accept(buyer.principal, waiver);
     expect(await copyRow(done.id)).toMatchObject({
       state: "failed",
-      error: "Refused by the deploy-time approval floor",
+      error: "floor_denied",
       next_at: null,
     });
     await sweep(later(24 * 60 * 3));
@@ -904,7 +934,7 @@ describe("exactly once", () => {
          WHEN OLD.erased_at IS NULL AND NEW.erased_at IS NOT NULL
          BEGIN
            UPDATE core_agreement_copy
-           SET to_address = NULL, next_at = NULL,
+           SET to_address = NULL, next_at = NULL, error = NULL, pending_action_id = NULL,
              state = CASE WHEN state IN ('sent', 'failed') THEN state ELSE 'cancelled' END
            WHERE acceptance_id = NEW.id;
          END`,

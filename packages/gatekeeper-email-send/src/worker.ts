@@ -7,6 +7,7 @@
 // is validated explicitly, see validate.ts and sender.ts.
 
 import { DurableObject, RpcStub, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
+import { agreementPdf } from "@composable-os/agreement-pdf";
 import type {
   AccountDescription,
   ActionKind,
@@ -40,7 +41,6 @@ import {
   isAgreementShaped,
   isHostAgreementMail,
 } from "./agreement";
-import { agreementPdf } from "./agreement-pdf";
 import {
   CALENDAR_FILENAME,
   CANCEL_FILENAME,
@@ -107,18 +107,38 @@ const SENDER_RESOURCE: SupportedResource = {
 const SEND_KIND: ActionKind = { tag: "email.send", label: "Send email" };
 const INTERNAL_KIND: ActionKind = { tag: "email.internal", label: "Send email to colleagues" };
 
-/** Sends that may wait for approval at once, per sender (the journal's default is 50). */
+/**
+ * Sends that may wait for approval at once, per sender (the journal's default is 50): callers'
+ * (and the host's routine and orders mail) together, and the host's own independent mail (an
+ * agreement's copy, a sign-in code) apart, so callers' sends can never crowd those out (the second
+ * review of PR #283). The journal holds both.
+ */
 const MAX_PENDING_SENDS = 500;
+const MAX_PENDING_HOST_SENDS = 100;
+/** The host's mail that never waits behind, nor counts against, anyone else's. */
+const INDEPENDENT_CLASSES: ReadonlySet<QueueClass> = new Set(["agreements", "sign-in"]);
+const TOO_MANY_PENDING =
+  "Too many pending actions; approve or reject some in the approval queue first.";
 
 /** How many sent and rejected emails the facet remembers for `listSent()`. */
 const HISTORY_LIMIT = 200;
 /** How many rows `listSent()` returns. */
 const LIST_LIMIT = 100;
 const HISTORY_PREFIX = "history:";
-/** Idempotency keys (ADR 0574): key → the send's id, and the order they were seen in. */
-const IDEMPOTENCY_PREFIX = "idem:";
-const IDEMPOTENCY_ORDER = "idemorder:";
+/**
+ * Idempotency keys (ADR 0574, ADR 0645): `idemc:<class>:<key>` → the send's id, and per class the
+ * order they were seen in, each class pruned by its own volume (the agreements mail's slots are
+ * bounded by acceptances, and kept longer).
+ */
+const IDEMPOTENCY_PREFIX = "idemc:";
+const IDEMPOTENCY_ORDER = "idemcorder:";
 const IDEMPOTENCY_LIMIT = 2_000;
+const IDEMPOTENCY_LIMITS: Partial<Record<QueueClass, number>> = { agreements: 20_000 };
+/**
+ * Keys remembered before keys were kept per class (`idem:<key>`). A miss reads them too, except
+ * the copy's, so a retry across the deploy still finds its first send. Drop after one release.
+ */
+const LEGACY_IDEMPOTENCY_PREFIX = "idem:";
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9_.:-]{1,200}$/;
 
 /** A send's idempotency key, checked, and the message without it. */
@@ -268,11 +288,13 @@ type SessionBackend = {
    */
   resubmit(queue: RpcStub<ApprovalQueue>, id: number): Promise<boolean>;
   /**
-   * The send an idempotency key already made (ADR 0574), "busy" while it is being made. `slot` is
-   * the key within its queue class and kind: one class's key never answers another's send.
+   * The send an idempotency key already made (ADR 0574), "busy" while it is being made. Keys are
+   * kept per queue class: one class's key never answers another's send.
    */
-  recall(slot: string): number | "busy" | null;
-  remember(slot: string, id: number | "busy" | null): void;
+  recall(queueClass: QueueClass, key: string): number | "busy" | null;
+  remember(queueClass: QueueClass, key: string, id: number | "busy" | null): void;
+  /** How many sends wait in the same pool as `queueClass`'s (independent host mail, or the rest). */
+  pendingIn(queueClass: QueueClass): number;
   listSent(viewer: QueueClass): EmailSendRecord[];
   internalDomains(): string | undefined;
   allowedDomains(): string | undefined;
@@ -324,15 +346,24 @@ class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
             ? "sendInternal"
             : "send";
     // A caller retrying a step passes the same key: the send it already made is answered again,
-    // never queued twice (ADR 0574). Keys are remembered per queue class and kind, so a key only
-    // ever answers a send from the same class of caller, of the same kind.
-    const slot = key ? `${queueClass}:${kind}:${key}` : null;
-    if (slot) {
-      const known = this.#backend.recall(slot);
+    // never queued twice (ADR 0574). Keys are remembered per queue class only (not the kind: the
+    // host may decide a routine email held on its retry, or a caller's recipients make it
+    // internal on one try and not the next), so a key only ever answers a send from the same
+    // class of caller.
+    if (key) {
+      const known = this.#backend.recall(queueClass, key);
       if (known === "busy") throw new Error("A send with this idempotency key is in progress.");
       if (known !== null) return this.#again(known, queueClass);
     }
-    if (slot) this.#backend.remember(slot, "busy");
+    // Each pool's own limit: callers' sends never crowd out the host's independent mail.
+    const independent = INDEPENDENT_CLASSES.has(queueClass);
+    if (
+      this.#backend.pendingIn(queueClass) >=
+      (independent ? MAX_PENDING_HOST_SENDS : MAX_PENDING_SENDS)
+    ) {
+      throw new Error(TOO_MANY_PENDING);
+    }
+    if (key) this.#backend.remember(queueClass, key, "busy");
     let id: number;
     try {
       id = await this.#backend.submit(
@@ -341,10 +372,10 @@ class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
         kind,
       );
     } catch (error) {
-      if (slot) this.#backend.remember(slot, null);
+      if (key) this.#backend.remember(queueClass, key, null);
       throw error;
     }
-    if (slot) this.#backend.remember(slot, id);
+    if (key) this.#backend.remember(queueClass, key, id);
     // An auto-approved send may already have been applied while the submission was in flight.
     return { status: this.#backend.wasSent(id) ? "sent" : "pending", id };
   }
@@ -400,7 +431,8 @@ export class EmailSendGatekeeper
   // worth of them before new sends are refused (as back-pressure, ADR 0573).
   readonly #journal = new ActionJournal<TaggedAction<Actions>>(this.ctx.storage.kv, {
     namespace: "email",
-    maxPending: MAX_PENDING_SENDS,
+    // Both pools' limits; `send` holds each pool to its own.
+    maxPending: MAX_PENDING_SENDS + MAX_PENDING_HOST_SENDS,
   });
 
   readonly #host: EmailHost = {
@@ -477,30 +509,52 @@ export class EmailSendGatekeeper
     this.#record(id, email, { status: "sent", sentAt: new Date().toISOString(), messageId });
   }
 
-  #recall(key: string): number | "busy" | null {
-    const value = this.ctx.storage.kv.get<number | string>(IDEMPOTENCY_PREFIX + key);
+  #recall(queueClass: QueueClass, key: string): number | "busy" | null {
+    const kv = this.ctx.storage.kv;
+    let value = kv.get<number | string>(`${IDEMPOTENCY_PREFIX}${queueClass}:${key}`);
+    // Upgrade: a key remembered before keys were kept per class (never the copy's). Drop after
+    // one release.
+    if (value === undefined && !key.startsWith(AGREEMENT_KEY_PREFIX)) {
+      value = kv.get<number | string>(LEGACY_IDEMPOTENCY_PREFIX + key);
+    }
     if (value === undefined) return null;
     if (typeof value === "number") return value;
     // A send being made, unless it was left so by a crash long enough ago to try again.
     return Date.now() - Number(value.slice(5)) < 300_000 ? "busy" : null;
   }
 
-  /** Keeps the most recent IDEMPOTENCY_LIMIT keys; older ones are forgotten (a week of retries). */
-  #remember(key: string, id: number | "busy" | null): void {
+  /**
+   * Keeps each class's most recent keys (IDEMPOTENCY_LIMIT, more for the agreements mail); older
+   * ones are forgotten (a week of retries). One class's volume never evicts another's keys.
+   */
+  #remember(queueClass: QueueClass, key: string, id: number | "busy" | null): void {
     const kv = this.ctx.storage.kv;
+    const slot = `${IDEMPOTENCY_PREFIX}${queueClass}:${key}`;
     if (id === null) {
-      kv.delete(IDEMPOTENCY_PREFIX + key);
+      kv.delete(slot);
       return;
     }
-    const known = kv.get(IDEMPOTENCY_PREFIX + key) !== undefined;
-    kv.put(IDEMPOTENCY_PREFIX + key, id === "busy" ? `busy:${Date.now()}` : id);
+    const known = kv.get(slot) !== undefined;
+    kv.put(slot, id === "busy" ? `busy:${Date.now()}` : id);
     if (known) return;
-    kv.put(`${IDEMPOTENCY_ORDER}${String(Date.now()).padStart(15, "0")}:${key}`, key);
-    const order = [...kv.list<string>({ prefix: IDEMPOTENCY_ORDER })];
-    for (const [entry, old] of order.slice(0, Math.max(0, order.length - IDEMPOTENCY_LIMIT))) {
+    const order = `${IDEMPOTENCY_ORDER}${queueClass}:`;
+    kv.put(`${order}${String(Date.now()).padStart(15, "0")}:${key}`, key);
+    const entries = [...kv.list<string>({ prefix: order })];
+    const limit = IDEMPOTENCY_LIMITS[queueClass] ?? IDEMPOTENCY_LIMIT;
+    for (const [entry, old] of entries.slice(0, Math.max(0, entries.length - limit))) {
       kv.delete(entry);
-      kv.delete(IDEMPOTENCY_PREFIX + old);
+      kv.delete(`${IDEMPOTENCY_PREFIX}${queueClass}:${old}`);
     }
+  }
+
+  /** Sends waiting in `queueClass`'s pool: the host's independent mail, or everyone else's. */
+  #pendingIn(queueClass: QueueClass): number {
+    const independent = INDEPENDENT_CLASSES.has(queueClass);
+    return this.#journal
+      .listPending()
+      .filter(
+        ({ action }) => INDEPENDENT_CLASSES.has(action.payload.queue ?? "caller") === independent,
+      ).length;
   }
 
   #record(
@@ -580,7 +634,10 @@ export class EmailSendGatekeeper
     const backend: SessionBackend = {
       sender: this.#sender(),
       submit: (queue, email, kind) => this.#actions().submit(queue, kind, email),
-      wasSent: (id) => this.#journal.wasApplied(id),
+      // The journal's record, or (once the journal has forgotten it) the sent history's.
+      wasSent: (id) =>
+        this.#journal.wasApplied(id) ||
+        this.ctx.storage.kv.get<HistoryEntry>(historyKey(id))?.status === "sent",
       resubmit: async (queue, id) => {
         const waiting = this.#journal.listPending().find((p) => p.id === id);
         if (!waiting) return false;
@@ -592,8 +649,10 @@ export class EmailSendGatekeeper
         });
         return true;
       },
-      recall: (key) => this.#recall(key),
-      remember: (key, id) => this.#remember(key, id),
+      recall: (queueClass, key) => this.#recall(queueClass, key),
+      remember: (queueClass, key, id) => this.#remember(queueClass, key, id),
+      pendingIn: (queueClass) => this.#pendingIn(queueClass),
+
       listSent: (viewer) => this.#listSent(viewer),
       internalDomains: () => this.env.INTERNAL_DOMAINS,
       allowedDomains: () => this.env.ALLOWED_SENDER_DOMAINS,

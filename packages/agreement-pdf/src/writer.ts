@@ -1,6 +1,7 @@
 // The signed agreement as a PDF (stage 44 step 4, ADR 0645): a small PDF writer of our own, used
-// by this gatekeeper for the copy's attachment and by the host's download routes, so the two files
-// are the same bytes for the same values.
+// by the email gatekeeper for the copy's attachment and by the host's download routes, so the two
+// files are the same bytes for the same values. Its own package (`@composable-os/agreement-pdf`),
+// with no dependencies, so neither the host's core nor its runner carries it.
 //
 // - Plain PDF 1.4: the standard Helvetica and Courier fonts (no font is embedded, no file or
 //   network is read), WinAnsi text, no compression, no dates, no ids: the same values always make
@@ -13,7 +14,7 @@
 //   annotation, script or form field is ever written.
 // - Strokes are numbers checked by the caller, written as fixed-precision numbers.
 //
-// No imports: the host's download route uses this same module.
+// No imports.
 
 /** A run of text in a block (ADR 0440's inline runs). */
 export type PdfInline =

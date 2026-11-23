@@ -815,9 +815,9 @@ export class FakeGatekeeper extends DurableObject<
         `Invalid email: idempotencyKey ${AGREEMENT_KEY_PREFIX}… is the host's own agreements mail's.`,
       );
     }
-    const slot = key
-      ? `idem:${queueClass}:${message.agreement ? "agreement" : "mail"}:${key}`
-      : null;
+    // Per queue class only, as email-send keeps them (never per kind: a retried send may be
+    // decided another kind, and must still find its first send).
+    const slot = key ? `idemc:${queueClass}:${key}` : null;
     if (slot) {
       const known = this.ctx.storage.kv.get<number>(slot);
       if (known !== undefined) {

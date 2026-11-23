@@ -16,14 +16,13 @@
 //   a try the gatekeeper proved was not sent. A try whose outcome is unknown is never retried.
 //
 // Nothing here puts a name typed, a signature or an answer in a log, an error or the approval
-// card; the error column holds the gatekeeper's words, which never carry the message.
+// card; the error column holds a category, never the gatekeeper's or the provider's words.
+
+import type { AgreementPdf } from "@composable-os/agreement-pdf";
+// The PDF's page estimate only (a few hundred bytes); the writer is the gatekeeper's and the
+// download route's, never core's.
+import { AGREEMENT_PDF_PAGE_LIMIT, fitsAgreementPdf } from "@composable-os/agreement-pdf/estimate";
 import type { CoreDatabase } from "@composable-os/db";
-// The email gatekeeper's PDF writer measures what it can draw (no imports of its own).
-import {
-  AGREEMENT_PDF_MAX_PAGES,
-  type AgreementPdf,
-  agreementPdfPages,
-} from "@composable-os/gatekeeper-email-send/agreement-pdf";
 import { productName } from "@composable-os/product";
 import { product } from "@composable-os/products/active";
 import { type Kysely, sql } from "kysely";
@@ -119,12 +118,14 @@ export async function versionDocument(db: Db, versionId: string): Promise<Agreem
   };
 }
 
-export { AGREEMENT_PDF_MAX_PAGES };
+export const AGREEMENT_PDF_MAX_PAGES = AGREEMENT_PDF_PAGE_LIMIT;
 
 /**
- * Whether a version with these words fits the signed PDF the writer draws, with the longest
- * record and answers an acceptance of it may carry: every question answered yes with the longest
- * note, a full record and a signature (after the review of PR #283). The writer's own measure.
+ * Whether a version with these words surely fits the signed PDF, with the longest record and
+ * answers an acceptance of it may carry: every question answered yes with the longest note, a
+ * full record and a signature (after the reviews of PR #283). A cheap upper bound
+ * (`@composable-os/agreement-pdf/estimate`), never below what the writer draws: the host's core
+ * does not carry the writer.
  */
 export function fitsSignedPdf(draft: {
   title: string;
@@ -132,38 +133,24 @@ export function fitsSignedPdf(draft: {
   tickLabel: string;
   questions: readonly Question[] | null;
 }): boolean {
-  const long = (n: number) => "W ".repeat(Math.ceil(n / 2)).slice(0, n);
-  try {
-    agreementPdfPages({
-      business: long(200),
-      title: draft.title,
-      versionNumber: 1_000_000,
-      versionHash: "0".repeat(64),
-      body: (draft.body ?? { blocks: [] }) as AgreementPdf["body"],
-      tickLabel: draft.tickLabel,
-      ...(draft.questions?.length
-        ? {
-            questions: draft.questions.map((q) => ({ key: q.key, text: q.text })),
-            answers: draft.questions.map((q) => ({ key: q.key, yes: true, note: long(1_000) })),
-          }
-        : {}),
-      record: Array.from({ length: 12 }, (_, i) => ({ label: `Line ${i}`, value: long(300) })),
-      signature: {
-        width: 1000,
-        height: 400,
-        strokes: [
-          [
-            [0, 0],
-            [1000, 400],
-          ],
-        ],
-      },
-      acceptanceId: `aga_${"0".repeat(26)}`,
-    });
-    return true;
-  } catch {
-    return false;
-  }
+  const long = (n: number) => "W".repeat(n);
+  return fitsAgreementPdf({
+    business: long(200),
+    title: draft.title,
+    versionNumber: 1_000_000,
+    versionHash: "0".repeat(64),
+    body: (draft.body ?? { blocks: [] }) as AgreementPdf["body"],
+    tickLabel: draft.tickLabel,
+    ...(draft.questions?.length
+      ? {
+          questions: draft.questions.map((q) => ({ key: q.key, text: q.text })),
+          answers: draft.questions.map((q) => ({ key: q.key, yes: true, note: long(1_000) })),
+        }
+      : {}),
+    record: Array.from({ length: 12 }, (_, i) => ({ label: `Line ${i}`, value: long(300) })),
+    signature: { width: 1000, height: 400, strokes: [[[0, 0]]] },
+    acceptanceId: `aga_${"0".repeat(26)}`,
+  });
 }
 
 /** The blank form of a version, to print and sign on paper. */
@@ -449,13 +436,18 @@ const retryAt = (attempts: number, now: Date) => later(now, Math.min(60, 2 ** at
 const askAgainAt = (attempts: number, now: Date) =>
   later(now, Math.min(1_440, 15 * 2 ** Math.max(0, attempts - 1)) * 60_000);
 
-const short = (message: string) => message.replace(/\s+/g, " ").slice(0, 500);
+/** How long a copy waits when the sender's queue is full of other sends. */
+const QUEUE_FULL_WAIT_MS = 15 * 60_000;
 
 /**
  * Tells admins, once, that copies are waiting for an email channel (after the review of PR #283).
  * The notice names no one: how many, and where to set it.
  */
-async function noChannelNotice(db: Db, now: string): Promise<void> {
+async function adminNotice(
+  db: Db,
+  now: string,
+  notice: { title: string; body: string; dedupeKey: string },
+): Promise<void> {
   const admins = await db
     .selectFrom("core_user")
     .select("id")
@@ -469,12 +461,10 @@ async function noChannelNotice(db: Db, now: string): Promise<void> {
     {
       to: admins.map((a) => ({ userId: a.id })),
       type: "system.message",
-      title: "Copies of signed agreements are waiting to be emailed",
-      body:
-        "No email channel is set, so the copies people are owed of what they agreed to wait. " +
-        "Set one in Settings, Notification delivery; they go out once it is set.",
+      title: notice.title,
+      body: notice.body,
       link: null,
-      dedupeKey: "agreement-copy:no-channel",
+      dedupeKey: notice.dedupeKey,
       source: { actor: "system" },
     },
     now,
@@ -517,7 +507,15 @@ export async function sendAgreementCopies(
       .where("state", "=", "queued")
       .limit(1)
       .executeTakeFirst();
-    if (anyQueued) await noChannelNotice(db, at);
+    if (anyQueued) {
+      await adminNotice(db, at, {
+        title: "Copies of signed agreements are waiting to be emailed",
+        body:
+          "No email channel is set, so the copies people are owed of what they agreed to wait. " +
+          "Set one in Settings, Notification delivery; they go out once it is set.",
+        dedupeKey: "agreement-copy:no-channel",
+      });
+    }
     return run;
   }
 
@@ -550,7 +548,8 @@ export async function sendAgreementCopies(
     if (!claimed) continue;
     const settle = (set: {
       state: "queued" | "sent" | "waiting" | "failed" | "cancelled";
-      error?: string | null;
+      error?: CopyError | null;
+      attempts?: number;
       next_at: string | null;
       send_key?: string;
       pending_action_id?: string | null;
@@ -573,7 +572,7 @@ export async function sendAgreementCopies(
     try {
       message = await copyMessage(db, id);
     } catch (error) {
-      await settle({ state: "failed", error: short(errorText(error)), next_at: null });
+      await settle({ state: "failed", error: "not_drawable", next_at: null });
       run.failed += 1;
       continue;
     }
@@ -598,12 +597,33 @@ export async function sendAgreementCopies(
       // Refused before it was queued, or a send the gatekeeper says was turned down or failed:
       // final. Anything else (the queue full, a send with this key in flight, the host
       // unreachable) is tried again later with the same key.
-      const text = short(errorText(error));
-      if (/Invalid email|Refused:/.test(text) || claimed.attempts >= MAX_ATTEMPTS) {
-        await settle({ state: "failed", error: text, next_at: null });
+      const category = errorCategory(errorText(error));
+      if (category === "queue_full") {
+        // The sender's queue is full of other sends: like a missing channel, not this copy's
+        // fault. It waits (capped), the try is not counted, and admins are told once.
+        await settle({
+          state: "queued",
+          error: category,
+          next_at: later(now, QUEUE_FULL_WAIT_MS),
+          attempts: claimed.attempts - 1,
+        });
+        await adminNotice(db, at, {
+          title: "Copies of signed agreements are waiting behind other email",
+          body:
+            "The email connection has too many emails waiting for approval, so copies of " +
+            "signed agreements wait too. Approve or reject what waits in Approvals.",
+          dedupeKey: "agreement-copy:queue-full",
+        });
+        run.retrying += 1;
+      } else if (
+        category === "invalid" ||
+        category === "turned_down" ||
+        claimed.attempts >= MAX_ATTEMPTS
+      ) {
+        await settle({ state: "failed", error: category, next_at: null });
         run.failed += 1;
       } else {
-        await settle({ state: "queued", error: text, next_at: retryAt(claimed.attempts, now) });
+        await settle({ state: "queued", error: category, next_at: retryAt(claimed.attempts, now) });
         run.retrying += 1;
       }
       continue;
@@ -618,7 +638,7 @@ export async function sendAgreementCopies(
       // The deploy-time floor refused it: never sent, and not asked about again.
       await settle({
         state: "failed",
-        error: "Refused by the deploy-time approval floor",
+        error: "floor_denied",
         next_at: null,
       });
       run.failed += 1;
@@ -635,7 +655,7 @@ export async function sendAgreementCopies(
       // Known not sent (a rate limit): a new key, since this one now names a send that failed.
       await settle({
         state: "queued",
-        error: short(failed.message),
+        error: "rate_limited",
         next_at: retryAt(claimed.attempts, now),
         send_key: `${copyKey(id)}:${claimed.attempts + 1}`,
       });
@@ -644,11 +664,7 @@ export async function sendAgreementCopies(
       // Refused for good, or the outcome is unknown: never tried again, so never sent twice.
       await settle({
         state: "failed",
-        error: short(
-          failed.outcome === "unknown"
-            ? `It may or may not have gone out: ${failed.message}`
-            : failed.message,
-        ),
+        error: failed.outcome === "unknown" ? "outcome_unknown" : "refused",
         next_at: null,
       });
       run.failed += 1;
@@ -656,7 +672,7 @@ export async function sendAgreementCopies(
       // Neither sent nor waiting on a decision the host can see: asked about again later.
       await settle({
         state: "waiting",
-        error: "Not sent yet: asked again later",
+        error: "not_decided",
         next_at: askAgainAt(claimed.attempts, now),
       });
       run.waiting += 1;
@@ -683,6 +699,29 @@ export async function sendCopiesNow(
       error instanceof Error ? error.name : "error",
     );
   }
+}
+
+/**
+ * What went wrong, as a category: never the provider's or the gatekeeper's own words, which may
+ * name the recipient (after the second review of PR #283). Staff and the audit see only this.
+ */
+export type CopyError =
+  | "queue_full"
+  | "invalid"
+  | "turned_down"
+  | "refused"
+  | "rate_limited"
+  | "outcome_unknown"
+  | "floor_denied"
+  | "not_decided"
+  | "not_drawable"
+  | "unreachable";
+
+function errorCategory(text: string): CopyError {
+  if (/Too many pending/.test(text)) return "queue_full";
+  if (/Invalid email/.test(text)) return "invalid";
+  if (/Refused:/.test(text)) return "turned_down";
+  return "unreachable";
 }
 
 function errorText(error: unknown): string {

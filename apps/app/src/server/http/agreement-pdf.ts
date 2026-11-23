@@ -11,16 +11,14 @@
 //   GET /api/v1/agreements/versions/<agv_…>.pdf
 //
 // The public gets the answer any unknown acceptance gets: not found.
+
+import { type AgreementPdf, agreementPdf } from "@composable-os/agreement-pdf";
 import {
   type AnyInvocationContext,
   coreInvoker,
   errorReply,
   OperationError,
 } from "@composable-os/core";
-import {
-  type AgreementPdf,
-  agreementPdf,
-} from "@composable-os/gatekeeper-email-send/agreement-pdf";
 
 const ACCEPTANCE = /^\/api(?:\/v1)?\/agreements\/acceptances\/(aga_[A-Za-z0-9_-]{1,60})\.pdf$/;
 const VERSION = /^\/api(?:\/v1)?\/agreements\/versions\/(agv_[A-Za-z0-9_-]{1,60})\.pdf$/;

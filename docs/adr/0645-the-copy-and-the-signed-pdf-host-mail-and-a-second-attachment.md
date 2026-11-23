@@ -51,7 +51,7 @@ supplies would let anyone send any file to anyone.
   It is its own kind (`email.agreement`), never sign-in or routine mail. The approval card, if the
   floor ever sends it to review, says "Signed agreement: [title], version [n], [how], [when]": no
   name, no strokes, no answer.
-- **One PDF writer of our own** (`packages/gatekeeper-email-send/src/agreement-pdf.ts`, no imports):
+- **One PDF writer of our own** (`packages/agreement-pdf/src/writer.ts`, its own package since the second review; no imports):
   PDF 1.4 with the standard Helvetica and Courier fonts (nothing embedded, nothing remote, no
   annotation, action or form), no compression and no dates, so the same values give the same
   bytes. Every text is written as a hex string of WinAnsi bytes, so nothing in a document, a name
@@ -147,3 +147,35 @@ the system's, once per key, refused to every other caller and purpose.
 - **The PDF writer measures publishing**: `agreement.publish` refuses a body whose signed PDF,
   with the longest record and answers it may carry, would pass 400 pages. Core now imports the
   writer for that measure, so cos-runner carries it.
+
+## Amended 2026-11-23: after the second review of PR #283 (before it merged)
+
+- **Keys are kept per class of queue, not per kind.** The kind can change between a send and its
+  retry (the host holds a routine email it first decided routine; a caller's recipients make it
+  internal one time and not the next), so a key keyed by kind missed its first send and a second
+  one was made. A key is remembered as `idemc:<class>:<key>` and answers any retry from the same
+  class. The fake outbox keys them the same way.
+- **Each class's keys are pruned by its own volume**: callers' 2,000 most recent, the agreements
+  mail's 20,000 (bounded by acceptances), so no class's keyed sends evict another's.
+- **Upgrade**: a key remembered before (`idem:<key>`) is still read on a miss, except a copy's,
+  so a retried routine email or automation step finds its first send across the deploy. **This
+  fallback is dropped after one release.**
+- **Pending sends are held to two pools**: callers' (with the host's routine and orders mail), at
+  most 500 waiting; and the host's independent mail (agreements, sign-in), at most 100 waiting, so
+  callers' sends never block a copy or a sign-in code. A copy refused because its pool is full
+  stays `queued` (15 minutes), the try is not counted, and admins are told once.
+- **The writer is its own package** (`@composable-os/agreement-pdf`, no dependencies), imported by
+  the email gatekeeper and the host's download route. The host's core asks only its page estimate
+  (`@composable-os/agreement-pdf/estimate`: every character as wide as the widest, a greedy line
+  break's waste, the narrowest indent, the tallest block kept together), which never says fewer
+  pages than the writer draws (tested against the writer over seeded random documents), so core
+  and cos-runner carry no writer.
+- **What went wrong is a category** (`queue_full`, `refused`, `rate_limited`, `outcome_unknown`,
+  `floor_denied`, `turned_down`, `invalid`, `unreachable`, `not_decided`, `not_drawable`), never
+  the gatekeeper's or the provider's words, which may name the recipient; the audit row of a copy
+  that failed to apply says only its outcome. Erase clears the category and the pending approval's
+  id with the address.
+- **What stays in the email gatekeeper's storage until step 8** (erase does not reach it yet): the
+  sent history's recipient and subject for its last 200 sends (`listSent`, shown only to the same
+  class of queue), and every pending, failed or not-yet-forgotten journal record of a copy, with
+  the whole message: the address, the record lines, the name typed and the strokes.

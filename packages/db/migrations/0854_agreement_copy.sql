@@ -42,7 +42,8 @@ CREATE TABLE core_agreement_copy (
   claimed_at TEXT,
   sent_at TEXT,
   pending_action_id TEXT,
-  -- What went wrong, in the gatekeeper's words (never the message or the address).
+  -- What went wrong, as a category (`queue_full`, `refused`, …): never the gatekeeper's or the
+  -- provider's words, which may name the recipient. Cleared on erase.
   error TEXT CHECK (error IS NULL OR length(error) <= 500),
   -- Paper: the staff user who pressed "Email a copy".
   requested_by TEXT,
@@ -138,7 +139,7 @@ AFTER UPDATE OF erased_at ON core_agreement_acceptance
 WHEN OLD.erased_at IS NULL AND NEW.erased_at IS NOT NULL
 BEGIN
   UPDATE core_agreement_copy
-  SET to_address = NULL, next_at = NULL,
+  SET to_address = NULL, next_at = NULL, error = NULL, pending_action_id = NULL,
     state = CASE WHEN state IN ('sent', 'failed') THEN state ELSE 'cancelled' END
   WHERE acceptance_id = NEW.id;
 END;

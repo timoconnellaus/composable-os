@@ -7,13 +7,10 @@
 // - a person on the staff gets any one, and a version's blank form to print.
 // All text here is fixture text.
 import { env } from "cloudflare:workers";
+import { type AgreementPdf, agreementPdf } from "@composable-os/agreement-pdf";
 import { createIdentityProvider, getCustomerIdentity } from "@composable-os/auth";
 import { inviteCustomer } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
-import {
-  type AgreementPdf,
-  agreementPdf,
-} from "@composable-os/gatekeeper-email-send/agreement-pdf";
 import { beforeAll, describe, expect, it } from "vitest";
 import { handleAgreementPdf } from "../src/server/http/agreement-pdf.ts";
 import { type ApiEnv, apiContext } from "../src/server/http/api.ts";

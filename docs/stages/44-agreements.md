@@ -1139,7 +1139,7 @@ with dated notes.
 | 5 | **Blocks and hooks**: Agree, Before you go on, My agreements, a child's, the checkout and booking steps; the web signature pad (pointer events) and the native one | base-layer blocks, a headless `agreements` entry in `packages/client`, the client template's routes, the Bookings and Memberships web blocks (the inline step) | Yes, once step 2's operations are merged; coordinate with whoever owns the drop-in and timetable blocks |
 | 6 | **Signing at the desk** (decision 22): `core_agreement_desk_device` (admin enrolment announced to every admin, browser and network recorded, rotation idempotent for 60 seconds, a clone revokes) and `core_agreement_desk_session` (bound to the device staff chose, idle and total limits and the bounded heartbeat held on the server); `agreement.desk.enrol` and `revoke` (admins, a person) and `start` and `end` (`agreements:desk`, made grantable to fixed-role accounts, ADR 0600 amended); `desk.claim`, `desk.documents`, `desk.accept`, `desk.heartbeat`, `desk.finish` (public, needing the device credential and the session token); the desk origin (its own hostname, set up by `cos deploy`), its cookies (`HttpOnly`, `Secure`, `SameSite=Strict`), the `Origin` check; HMAC of codes and tokens under an env secret; the lock-out; the staff side's Sign at the desk (with the claiming device) and Desk tablets; the address marks on the Acceptances list, by mailbox, over every path that changes an address; the copy's wording; the desk page at tablet width from the Agree block's web skin. No native work | `agreements/` (a new `desk.ts`), `operations/agreement-desk.ts`, `open-operations.json`, `principals.ts` (the fixed-role grantable list), `apps/app/src/server/identity.ts` and the Worker's routing (the desk origin), `packages/release` and `cos deploy` (the hostname), a new desk route, the admin Person page | After step 2 (it records acceptances) and step 4 (every desk acceptance sends its copy); its page after step 5's Agree block. Beside anything but other work on public paths in `identity.ts` |
 | 7 | **Cooling off**: the setting, `subscription.coolOff`, refunds owed per period | `subscriptions/` (a new `cooling-off.ts`), `orders/refund-due.ts`, `packs/memberships` (the setting, the member's button) | Yes, beside 31 work; **not beside other `subscriptions/` work** (issue #254's hardening) |
-| 8 | **Erase, merge, the Trash and retention**: erase keeps acceptances detached, deletes answers, the minor mark and open desk sessions; merge re-points; the purge after the retention period (copy rows with it); a copy that was waiting for a person: its pending approval cancelled and its email-gatekeeper journal entry scrubbed (left here by step 4's review) | `records/erase.ts`, `records/erase-stores.ts`, `person.merge`, `purge.ts` | **Not beside other erase or merge work** (the "erase completeness" reserved area, stage 43 step 4) |
+| 8 | **Erase, merge, the Trash and retention**: erase keeps acceptances detached, deletes answers, the minor mark and open desk sessions; merge re-points; the purge after the retention period (copy rows with it); a copy that was waiting for a person: its pending approval cancelled, and the email gatekeeper's storage scrubbed of an erased person's copies (the sent history's recipient and subject, and the journal records with the whole message; left here by step 4's reviews) | `records/erase.ts`, `records/erase-stores.ts`, `person.merge`, `purge.ts` | **Not beside other erase or merge work** (the "erase completeness" reserved area, stage 43 step 4) |
 | 9 | **Stage 43's consent** as a `care` acceptance (when stage 43 step 4 is built) | `agreements/`, stage 43's `care.ts` | With stage 43 step 4 |
 | 10 | **The first client**: the business writes and publishes its four documents, attaches them; a moved member's first sign-in in test mode; a visitor's drop-in; a parent for a child; a member at the desk | The first client's own repository and deployment | After 3 to 6; before members pay or train on the new system |
 
@@ -1496,9 +1496,11 @@ Deviations and decisions, and why:
 
 - **A PDF writer of our own**, not a vendored library: about 800 lines with no imports, the
   standard fonts only, every text a hex string. A library would have added hundreds of KiB and
-  font embedding and parsing this needs none of; nothing is added to `UPSTREAMS.md`. Since the
-  review, core imports it to measure a body at publish, so cos-runner carries it: its main module
-  is 7,561 KiB after merging `main` at 51b62077 (budget 7,680).
+  font embedding and parsing this needs none of; nothing is added to `UPSTREAMS.md`. It is its
+  own package (`@composable-os/agreement-pdf`, no dependencies), imported by the email gatekeeper
+  and the download route; core asks only its page estimate at publish (never fewer pages than the
+  writer draws), so cos-runner carries no writer: its main module is 7,546 KiB after merging
+  `main` at 51b62077 (budget 7,680).
 - **The gatekeeper's `agreement` part has no field for answers** (only `answers: "in-app"`), where
   the spec allowed answers "only where the host asked": the copy never asks, and a part that
   cannot hold them cannot leak them.
@@ -1532,16 +1534,25 @@ Deviations and decisions, and why:
   submits again on the retry) and any later rule that holds host mail: a waiting copy is asked
   about again (15 minutes, doubling, at most a day) until it is `sent` or turned down (`failed`).
 - **Idempotency keys are kept apart by who is sending** (the review of PR #283, ADR 0645 as
-  amended): per class of queue and kind, the copy's keys refused to every other queue; and
-  `listSent()` shows the host's agreements, sign-in and orders mail only to that same queue.
+  amended): per class of queue (not per kind, the second review: a retry may be decided another
+  kind), each class pruned by its own volume, the copy's keys refused to every other queue, keys
+  remembered before still read on a miss for one release; `listSent()` shows the host's
+  agreements, sign-in and orders mail only to that same queue; and callers' waiting sends (500)
+  never block the host's copies and sign-in codes (their own 100). A copy refused for a full queue
+  waits, uncounted, and admins are told once. What went wrong is kept as a category, never the
+  provider's words.
 - **The minute cron's copy step pauses with the automation kill switch**, as every minute step.
 
 Not built here: the "Email a copy" button and the download links on screen (steps 5 and the admin
 Person tab), the desk's copy wording and previous address (step 6), the retention purge of copy
-rows (step 8). Left for step 8 by the review of PR #283: on erase, cancelling a person's pending
-approval of a copy that was waiting, and scrubbing the email gatekeeper's journal entry of a copy
-(it holds the name typed and the strokes until the journal forgets it); erase already clears the
-copy row's address and cancels any copy not yet sent.
+rows (step 8). Left for step 8 by the reviews of PR #283: on erase, cancelling a person's pending
+approval of a copy that was waiting, and scrubbing the email gatekeeper's storage. Until then it
+keeps, for an erased person: the sent history's recipient and subject for each of its last 200
+sends (`listSent`, shown only to the same class of queue); and every pending, failed or
+not-yet-forgotten journal record of their copies, with the whole message (the address, the
+record lines, the name typed and the strokes). Erase already clears the copy row's address, its
+error category and its pending approval's id, and cancels any copy not yet sent.
+
  Not verified: the PDF in Email Service itself (it is passed as bytes, which the
 binding's types allow) and in mail clients; the copy through the real email-send gatekeeper and
 the real integration host together (each is tested with the other's double: the runner with the
