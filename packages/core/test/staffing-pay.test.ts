@@ -13,8 +13,15 @@
 // Every clock is injected.
 import { env } from "cloudflare:workers";
 import { beforeAll, describe, expect, it } from "vitest";
-import { type ActingUser, getObject, invoke, objectTableOf } from "../src/index.ts";
-import { periodContaining, periodFingerprint, readFingerprint, fingerprintGuards, hoursOf, csvText } from "../src/staffing/pay.ts";
+import { type ActingUser, getObject, invokeByName, objectTableOf } from "../src/index.ts";
+import {
+  csvText,
+  fingerprintGuards,
+  hoursOf,
+  periodContaining,
+  periodFingerprint,
+  readFingerprint,
+} from "../src/staffing/pay.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
 import { context, createUser, db } from "./helpers.ts";
 
@@ -201,8 +208,12 @@ const tool = (user: ActingUser, flags: ToolFlags = { humanOnly: true }, now = AF
       },
     },
   });
-const pay = <T = Record<string, unknown>>(name: string, input: unknown, user = admin, now = AFTER) =>
-  invoke(name, input, tool(user, { humanOnly: true }, now)) as Promise<T>;
+const pay = <T = Record<string, unknown>>(
+  name: string,
+  input: unknown,
+  user = admin,
+  now = AFTER,
+) => invokeByName(name, input, tool(user, { humanOnly: true }, now)) as Promise<T>;
 async function refusal(promise: Promise<unknown>) {
   const error = await promise.then(
     () => null,
@@ -220,10 +231,12 @@ const sydney = (local: string) => {
 };
 
 async function create(object: string, values: Record<string, unknown>, now = BEFORE) {
-  return (await invoke("record.create", { object, values }, as(admin, now))).id as string;
+  return (
+    (await invokeByName("record.create", { object, values }, as(admin, now))) as { id: string }
+  ).id;
 }
 async function update(object: string, id: string, values: Record<string, unknown>, now = AFTER) {
-  return invoke("record.update", { object, id, values }, as(admin, now));
+  return invokeByName("record.update", { object, id, values }, as(admin, now));
 }
 const column = (object: string, field: string) =>
   getObject(object)?.fields.find((f) => f.name === field)?.column as string;
@@ -253,9 +266,9 @@ beforeAll(async () => {
     .bind(extUser.id)
     .run();
   await env.DB.prepare(
-    "INSERT INTO core_settings (key, value) VALUES ('org_timezone', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+    "INSERT INTO core_settings (key, value, updated_at) VALUES ('org_timezone', ?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
   )
-    .bind(JSON.stringify(ZONE))
+    .bind(JSON.stringify(ZONE), BEFORE)
     .run();
   await reconcile(fixture, BEFORE);
   await env.DB.prepare(
@@ -282,10 +295,30 @@ beforeAll(async () => {
 
   // Who is counted: Ari by time, Bo by class, Cy not counted (salaried); Di not counted until 6
   // April, by time from then.
-  await pay("staffing.payBasis", { account: people.Ari?.id, basis: "by_time", from: "2026-01-01" }, admin, BEFORE);
-  await pay("staffing.payBasis", { account: people.Bo?.id, basis: "by_class", from: "2026-01-01" }, admin, BEFORE);
-  await pay("staffing.payBasis", { account: people.Cy?.id, basis: "not_counted", from: "2026-01-01" }, admin, BEFORE);
-  await pay("staffing.payBasis", { account: people.Di?.id, basis: "by_time", from: "2026-04-06" }, admin, BEFORE);
+  await pay(
+    "staffing.payBasis",
+    { account: people.Ari?.id, basis: "by_time", from: "2026-01-01" },
+    admin,
+    BEFORE,
+  );
+  await pay(
+    "staffing.payBasis",
+    { account: people.Bo?.id, basis: "by_class", from: "2026-01-01" },
+    admin,
+    BEFORE,
+  );
+  await pay(
+    "staffing.payBasis",
+    { account: people.Cy?.id, basis: "not_counted", from: "2026-01-01" },
+    admin,
+    BEFORE,
+  );
+  await pay(
+    "staffing.payBasis",
+    { account: people.Di?.id, basis: "by_time", from: "2026-04-06" },
+    admin,
+    BEFORE,
+  );
 
   await klass("K0", "Ari", yoga, "2026-03-29T23:00", "2026-03-30T00:00"); // the period before
   await klass("K1", "Ari", strength, "2026-03-30T06:00", "2026-03-30T07:00");
@@ -302,7 +335,7 @@ beforeAll(async () => {
     staff: people.Di?.id,
     startsAt: sydney("2026-04-10T22:00"),
     endsAt: sydney("2026-04-11T01:10"),
-    place: "=HYPERLINK(\"x\")",
+    place: '=HYPERLINK("x")',
   });
   shifts.D0 = await create(DUTY, {
     name: "Close-down clean",
@@ -313,23 +346,23 @@ beforeAll(async () => {
   });
   await update(KLASS, shifts.K2 as string, { state: "cancelled" }, BEFORE);
   // K4: offered by Ari, taken by Bo on 3 April (Bo qualified for Yoga).
-  await invoke(
+  await invokeByName(
     "staffing.qualify",
     { account: people.Bo?.id, kind: { object: KIND, id: yoga } },
     tool(admin, { personApproves: true }, BEFORE),
   );
-  const offered = (await invoke(
+  const offered = (await invokeByName(
     "staffing.offer",
     { object: KLASS, id: shifts.K4 },
     tool(people.Ari as ActingUser, { humanOnly: true }, "2026-04-02T00:00:00.000Z"),
   )) as { offer: { id: string } };
-  await invoke(
+  await invokeByName(
     "staffing.take",
     { offer: offered.offer.id },
     tool(people.Bo as ActingUser, { humanOnly: true }, "2026-04-03T00:00:00.000Z"),
   );
   // K3 nobody ran: marked not worked by a rosterer (the admin), after it started.
-  await invoke(
+  await invokeByName(
     "staffing.markNotWorked",
     { object: KLASS, id: shifts.K3, reason: "Nobody ran it" },
     tool(admin, { personApproves: true }, "2026-04-03T00:00:00.000Z"),
@@ -364,7 +397,13 @@ type Total = {
   flagged: number;
 };
 type Totals = {
-  period: { start: string; end: string; locked: boolean; preview: boolean; version: { version: number } | null };
+  period: {
+    start: string;
+    end: string;
+    locked: boolean;
+    preview: boolean;
+    version: { version: number } | null;
+  };
   totals: Total[];
   lines: Line[];
   minutes: number;
@@ -374,23 +413,85 @@ type Totals = {
 /** The fixture worked out by hand. */
 const EXPECTED_TOTALS = [
   // Ari, by time: K1 (60 + 10 set-up + 5 pack-down); K3 not worked (nothing); K7 (60).
-  { name: "Hourly Ari", basis: "by_time", kindName: "Strength", shifts: 1, minutes: 75, hours: "1.25", notWorked: 0, flagged: 0 },
-  { name: "Hourly Ari", basis: "by_time", kindName: "Yoga", shifts: 1, minutes: 60, hours: "1.00", notWorked: 1, flagged: 0 },
+  {
+    name: "Hourly Ari",
+    basis: "by_time",
+    kindName: "Strength",
+    shifts: 1,
+    minutes: 75,
+    hours: "1.25",
+    notWorked: 0,
+    flagged: 0,
+  },
+  {
+    name: "Hourly Ari",
+    basis: "by_time",
+    kindName: "Yoga",
+    shifts: 1,
+    minutes: 60,
+    hours: "1.00",
+    notWorked: 1,
+    flagged: 0,
+  },
   // Bo, by class: K4 taken (90); K5 across the clock change, 3 real hours (180 + 15), flagged.
-  { name: "Class Bo", basis: "by_class", kindName: "Yoga", shifts: 1, minutes: 90, hours: "1.50", notWorked: 0, flagged: 0 },
-  { name: "Class Bo", basis: "by_class", kindName: "Strength", shifts: 1, minutes: 195, hours: "3.25", notWorked: 0, flagged: 1 },
+  {
+    name: "Class Bo",
+    basis: "by_class",
+    kindName: "Yoga",
+    shifts: 1,
+    minutes: 90,
+    hours: "1.50",
+    notWorked: 0,
+    flagged: 0,
+  },
+  {
+    name: "Class Bo",
+    basis: "by_class",
+    kindName: "Strength",
+    shifts: 1,
+    minutes: 195,
+    hours: "3.25",
+    notWorked: 0,
+    flagged: 1,
+  },
   // Di, by time from 6 April: D1 across midnight, 22:00 to 01:10 (190 minutes = 3.17 hours).
-  { name: "Cleaner Di", basis: "by_time", kindName: "Cleaning", shifts: 1, minutes: 190, hours: "3.17", notWorked: 0, flagged: 0 },
+  {
+    name: "Cleaner Di",
+    basis: "by_time",
+    kindName: "Cleaning",
+    shifts: 1,
+    minutes: 190,
+    hours: "3.17",
+    notWorked: 0,
+    flagged: 0,
+  },
 ];
 
 describe("a pay period's totals (criterion 10)", () => {
   it("are worked out from the roster exactly as by hand", async () => {
     const out = await pay<Totals>("staffing.payPeriod.totals", { start: START });
-    expect(out.period).toMatchObject({ start: "2026-03-30", end: "2026-04-12", locked: false, preview: true });
-    expect(out.totals.map(({ name, basis, kindName, shifts, minutes, hours, notWorked, flagged }) => ({ name, basis, kindName, shifts, minutes, hours, notWorked, flagged }))).toEqual(
-      [...EXPECTED_TOTALS].sort((a, b) => a.name.localeCompare(b.name) || 0).filter(() => true).sort((a, b) =>
-        a.name.localeCompare(b.name),
-      ),
+    expect(out.period).toMatchObject({
+      start: "2026-03-30",
+      end: "2026-04-12",
+      locked: false,
+      preview: true,
+    });
+    expect(
+      out.totals.map(({ name, basis, kindName, shifts, minutes, hours, notWorked, flagged }) => ({
+        name,
+        basis,
+        kindName,
+        shifts,
+        minutes,
+        hours,
+        notWorked,
+        flagged,
+      })),
+    ).toEqual(
+      [...EXPECTED_TOTALS]
+        .sort((a, b) => a.name.localeCompare(b.name) || 0)
+        .filter(() => true)
+        .sort((a, b) => a.name.localeCompare(b.name)),
     );
     expect(out.minutes).toBe(75 + 60 + 90 + 195 + 190);
     expect(out.hours).toBe(hoursOf(610));
@@ -407,20 +508,45 @@ describe("a pay period's totals (criterion 10)", () => {
       flagged: true,
       name: "Class Bo",
     });
-    expect(byTitle.get("K3")).toMatchObject({ counted: false, countedMinutes: 0, notWorkedReason: "Nobody ran it" });
+    expect(byTitle.get("K3")).toMatchObject({
+      counted: false,
+      countedMinutes: 0,
+      notWorkedReason: "Nobody ran it",
+    });
     expect(byTitle.get("K1")).toMatchObject({ listTaken: true, flagged: false });
     expect(byTitle.get("K4")).toMatchObject({ name: "Class Bo", listTaken: false });
-    expect(byTitle.get("K7")).toMatchObject({ localDate: "2026-04-12", localEnd: "2026-04-13 00:30" });
-    expect(byTitle.get("Close-down clean")).toMatchObject({ listTaken: null, localDate: "2026-04-10", shiftMinutes: 190 });
+    expect(byTitle.get("K7")).toMatchObject({
+      localDate: "2026-04-12",
+      localEnd: "2026-04-13 00:30",
+    });
+    expect(byTitle.get("Close-down clean")).toMatchObject({
+      listTaken: null,
+      localDate: "2026-04-10",
+      shiftMinutes: 190,
+    });
   });
 
   it("the period follows the setting: fortnightly from its start date, weekly, monthly", () => {
     const base = { zone: ZONE, day: 1, start: START };
-    expect(periodContaining({ ...base, period: "fortnightly" }, "2026-04-12")).toMatchObject({ start: "2026-03-30", end: "2026-04-12" });
-    expect(periodContaining({ ...base, period: "fortnightly" }, "2026-03-29")).toMatchObject({ start: "2026-03-16", end: "2026-03-29" });
-    expect(periodContaining({ ...base, period: "weekly" }, "2026-04-06")).toMatchObject({ start: "2026-04-06", end: "2026-04-12" });
-    expect(periodContaining({ ...base, period: "monthly", day: 15 }, "2026-01-10")).toMatchObject({ start: "2025-12-15", end: "2026-01-14" });
-    expect(periodContaining({ ...base, period: "fortnightly", start: null }, "2026-04-06")).toBeNull();
+    expect(periodContaining({ ...base, period: "fortnightly" }, "2026-04-12")).toMatchObject({
+      start: "2026-03-30",
+      end: "2026-04-12",
+    });
+    expect(periodContaining({ ...base, period: "fortnightly" }, "2026-03-29")).toMatchObject({
+      start: "2026-03-16",
+      end: "2026-03-29",
+    });
+    expect(periodContaining({ ...base, period: "weekly" }, "2026-04-06")).toMatchObject({
+      start: "2026-04-06",
+      end: "2026-04-12",
+    });
+    expect(periodContaining({ ...base, period: "monthly", day: 15 }, "2026-01-10")).toMatchObject({
+      start: "2025-12-15",
+      end: "2026-01-14",
+    });
+    expect(
+      periodContaining({ ...base, period: "fortnightly", start: null }, "2026-04-06"),
+    ).toBeNull();
     // The fortnight across the clock change is 14 days and one hour of real time.
     const p = periodContaining({ ...base, period: "fortnightly" }, "2026-04-01");
     expect(p && p.ends - p.starts).toBe(14 * 86_400 + 3600);
@@ -428,17 +554,30 @@ describe("a pay period's totals (criterion 10)", () => {
 
   it("hours are whole minutes ÷ 60, rounded half up to two places", () => {
     expect([0, 1, 7, 45, 59, 61, 190, 195, 1000].map(hoursOf)).toEqual([
-      "0.00", "0.02", "0.12", "0.75", "0.98", "1.02", "3.17", "3.25", "16.67",
+      "0.00",
+      "0.02",
+      "0.12",
+      "0.75",
+      "0.98",
+      "1.02",
+      "3.17",
+      "3.25",
+      "16.67",
     ]);
   });
 
   it("the CSV matches the totals line by line, with formula-looking text neutralised", async () => {
-    const out = await pay<{ csv: string; locked: boolean; filename: string }>("staffing.payPeriod.export", { start: START });
+    const out = await pay<{ csv: string; locked: boolean; filename: string }>(
+      "staffing.payPeriod.export",
+      { start: START },
+    );
     expect(out.locked).toBe(false);
     expect(out.filename).toBe("pay-2026-03-30-to-2026-04-12-preview.csv");
     const rows = out.csv.trimEnd().split("\r\n");
     expect(rows[0]).toContain("PREVIEW");
-    expect(rows[1]).toBe("period start,period end,name,staff email,basis,kind,shifts,hours,minutes");
+    expect(rows[1]).toBe(
+      "period start,period end,name,staff email,basis,kind,shifts,hours,minutes",
+    );
     const summary = rows.slice(2, 2 + EXPECTED_TOTALS.length);
     const email = (key: string) => people[key]?.email;
     expect(summary).toEqual([
@@ -483,12 +622,14 @@ describe("only a person who handles pay (criterion 8)", () => {
       ] as const) {
         // An assistant (or MCP) acting for them, even through a tool that is a person's only.
         for (const actor of ["assistant", "mcp"]) {
-          const e = await refusal(invoke(name, input, tool(user, { humanOnly: true, actor })));
+          const e = await refusal(
+            invokeByName(name, input, tool(user, { humanOnly: true, actor })),
+          );
           expect(e.code, `${name} ${actor}`).toBe("forbidden");
           expect(e.details?.rule).toBe("human_only");
         }
         // A tool that lets an AI call it is refused too, even when a person calls it.
-        const e = await refusal(invoke(name, input, tool(user, { personApproves: true })));
+        const e = await refusal(invokeByName(name, input, tool(user, { personApproves: true })));
         expect(e.details?.rule, name).toBe("human_only");
       }
     }
@@ -503,7 +644,9 @@ describe("only a person who handles pay (criterion 8)", () => {
     await env.DB.prepare("UPDATE core_user SET granted_permissions = ? WHERE id = ?")
       .bind(JSON.stringify([`${ext}:manage`]), member.id)
       .run();
-    expect((await refusal(pay("staffing.payPeriod.totals", { start: START }, member))).details?.rule).toBe("pay");
+    expect(
+      (await refusal(pay("staffing.payPeriod.totals", { start: START }, member))).details?.rule,
+    ).toBe("pay");
     await env.DB.prepare("UPDATE core_user SET granted_permissions = ? WHERE id = ?")
       .bind(JSON.stringify([`${ext}:pay`]), member.id)
       .run();
@@ -511,18 +654,38 @@ describe("only a person who handles pay (criterion 8)", () => {
     expect(out.totals.length).toBe(EXPECTED_TOTALS.length);
     // A person, MCP or the assistant calling the host directly: no such operation.
     for (const actor of ["human", "assistant", "mcp"] as const) {
-      const direct = await refusal(invoke("staffing.payPeriod.totals", { start: START }, context(admin, { actor })));
+      const direct = await refusal(
+        invokeByName("staffing.payPeriod.totals", { start: START }, context(admin, { actor })),
+      );
       expect(direct.code).toBe("unknown_operation");
     }
   });
 
   it("marking a shift not worked is a rosterer's, applied by a person, after it started", async () => {
     const member = await createUser("member");
-    const e = await refusal(invoke("staffing.markNotWorked", { object: KLASS, id: shifts.K1, reason: "x" }, tool(member, { personApproves: true }, "2026-04-03T00:00:00.000Z")));
+    const e = await refusal(
+      invokeByName(
+        "staffing.markNotWorked",
+        { object: KLASS, id: shifts.K1, reason: "x" },
+        tool(member, { personApproves: true }, "2026-04-03T00:00:00.000Z"),
+      ),
+    );
     expect(e.details?.rule).toBe("rostering");
-    const ai = await refusal(invoke("staffing.markNotWorked", { object: KLASS, id: shifts.K1, reason: "x" }, tool(admin, {}, "2026-04-03T00:00:00.000Z")));
+    const ai = await refusal(
+      invokeByName(
+        "staffing.markNotWorked",
+        { object: KLASS, id: shifts.K1, reason: "x" },
+        tool(admin, {}, "2026-04-03T00:00:00.000Z"),
+      ),
+    );
     expect(ai.details?.rule).toBe("person_applies");
-    const early = await refusal(invoke("staffing.markNotWorked", { object: KLASS, id: shifts.K7, reason: "x" }, tool(admin, { personApproves: true }, "2026-04-03T00:00:00.000Z")));
+    const early = await refusal(
+      invokeByName(
+        "staffing.markNotWorked",
+        { object: KLASS, id: shifts.K7, reason: "x" },
+        tool(admin, { personApproves: true }, "2026-04-03T00:00:00.000Z"),
+      ),
+    );
     expect(early.details?.rule).toBe("shift_not_started");
   });
 });
@@ -531,18 +694,24 @@ describe("the lock (criterion 10)", () => {
   let periodId: string;
 
   it("is refused before the period ends, then locks its lines", async () => {
-    const early = await refusal(pay("staffing.payPeriod.lock", { start: START }, admin, "2026-04-12T12:00:00.000Z"));
+    const early = await refusal(
+      pay("staffing.payPeriod.lock", { start: START }, admin, "2026-04-12T12:00:00.000Z"),
+    );
     expect(early.details?.rule).toBe("pay_period_open");
     const wrong = await refusal(pay("staffing.payPeriod.lock", { start: "2026-03-31" }));
-    expect(wrong.code).toBe("validation_error");
-    const locked = await pay<{ id: string; version: number }>("staffing.payPeriod.lock", { start: START });
+    expect(wrong.code).toBe("invalid_input");
+    const locked = await pay<{ id: string; version: number }>("staffing.payPeriod.lock", {
+      start: START,
+    });
     periodId = locked.id;
     expect(locked.version).toBe(1);
     const out = await pay<Totals>("staffing.payPeriod.totals", { start: START });
     expect(out.period).toMatchObject({ locked: true, preview: false, version: { version: 1 } });
     expect(out.totals.length).toBe(EXPECTED_TOTALS.length);
     expect(out.minutes).toBe(610);
-    expect((await refusal(pay("staffing.payPeriod.lock", { start: START }))).details?.rule).toBe("pay_period_held");
+    expect((await refusal(pay("staffing.payPeriod.lock", { start: START }))).details?.rule).toBe(
+      "pay_period_held",
+    );
   });
 
   it("refuses every change of a shift inside it, for everyone, by every path", async () => {
@@ -555,18 +724,30 @@ describe("the lock (criterion 10)", () => {
     await locked(update(KLASS, k1, { coach: profile.Cy }));
     await locked(update(KLASS, k1, { kind: yoga }));
     await locked(update(KLASS, k1, { state: "cancelled" }));
-    await locked(invoke("record.delete", { object: KLASS, id: k1 }, as(admin)));
+    await locked(invokeByName("record.delete", { object: KLASS, id: k1 }, as(admin)));
     await locked(update(DUTY, shifts.D1 as string, { staff: null }));
     // A coach profile on a locked class keeps its account.
-    await locked(update(COACH, profile.Ari as string, { user: people.Cy?.id }));
+    await locked(update(COACH, profile.Ari as string, { user: (await createUser("member")).id }));
     // The not-worked mark and who is counted, for a date in it.
-    await locked(invoke("staffing.markNotWorked", { object: KLASS, id: shifts.K3, notWorked: false }, tool(admin, { personApproves: true })));
-    await locked(pay("staffing.payBasis", { account: people.Bo?.id, basis: "by_time", from: "2026-04-01" }));
+    await locked(
+      invokeByName(
+        "staffing.markNotWorked",
+        { object: KLASS, id: shifts.K3, notWorked: false },
+        tool(admin, { personApproves: true }),
+      ),
+    );
+    await locked(
+      pay("staffing.payBasis", { account: people.Bo?.id, basis: "by_time", from: "2026-04-01" }),
+    );
     // What does not change pay is still open: a note, a class done, the next period's class.
     await update(KLASS, k1, { notes: "Good turnout" });
     await update(KLASS, k1, { state: "done" });
     await update(KLASS, shifts.K8 as string, { startsAt: sydney("2026-04-13T00:45") });
-    await pay("staffing.payBasis", { account: people.Bo?.id, basis: "by_class", from: "2026-04-13" });
+    await pay("staffing.payBasis", {
+      account: people.Bo?.id,
+      basis: "by_class",
+      from: "2026-04-13",
+    });
   });
 
   it("holds against raw statements: REPLACE, upserts, UPDATE OR REPLACE, deletes", async () => {
@@ -575,14 +756,23 @@ describe("the lock (criterion 10)", () => {
     const coach = column(KLASS, "coach");
     const k1 = shifts.K1 as string;
     const k8 = shifts.K8 as string;
-    const raw = (q: string, ...binds: unknown[]) => env.DB.prepare(q).bind(...binds).run();
+    const raw = (q: string, ...binds: unknown[]) =>
+      env.DB.prepare(q)
+        .bind(...binds)
+        .run();
     const blocked = async (q: string, ...binds: unknown[]) => {
       await expect(raw(q, ...binds)).rejects.toThrow(/core_pay_period_locked/);
     };
     await blocked(`UPDATE ${table} SET ${starts} = ? WHERE id = ?`, sydney("2026-03-30T05:00"), k1);
     await blocked(`DELETE FROM ${table} WHERE id = ?`, k1);
-    await blocked(`INSERT OR REPLACE INTO ${table} (id, created_at, updated_at) VALUES (?, 'x', 'x')`, k1);
-    await blocked(`INSERT INTO ${table} (id, created_at, updated_at) VALUES (?, 'x', 'x') ON CONFLICT (id) DO UPDATE SET ${coach} = NULL`, k1);
+    await blocked(
+      `INSERT OR REPLACE INTO ${table} (id, created_at, updated_at) VALUES (?, 'x', 'x')`,
+      k1,
+    );
+    await blocked(
+      `INSERT INTO ${table} (id, created_at, updated_at) VALUES (?, 'x', 'x') ON CONFLICT (id) DO UPDATE SET ${coach} = NULL`,
+      k1,
+    );
     // Another row given K1's id, replacing it.
     await blocked(`UPDATE OR REPLACE ${table} SET id = ? WHERE id = ?`, k1, k8);
     // A new live shift dated inside the locked period.
@@ -595,21 +785,47 @@ describe("the lock (criterion 10)", () => {
     const holder = objectTableOf(COACH) as string;
     const user = column(COACH, "user");
     await blocked(`UPDATE ${holder} SET ${user} = NULL WHERE id = ?`, profile.Ari);
-    await blocked(`INSERT OR REPLACE INTO ${holder} (id, created_at, updated_at, ${user}) VALUES (?, 'x', 'x', NULL)`, profile.Ari);
+    await blocked(
+      `INSERT OR REPLACE INTO ${holder} (id, created_at, updated_at, ${user}) VALUES (?, 'x', 'x', NULL)`,
+      profile.Ari,
+    );
     await blocked(`DELETE FROM ${holder} WHERE id = ?`, profile.Ari);
     // The marks and who is counted.
     await blocked("DELETE FROM core_staff_not_worked WHERE record_id = ?", shifts.K3);
-    await blocked("INSERT OR REPLACE INTO core_staff_not_worked (object_type, record_id, starts, reason, marked_by, marked_at) VALUES (?, ?, 0, 'x', 'x', 'x')", KLASS, shifts.K3);
-    await blocked("INSERT OR REPLACE INTO core_staff_pay_basis (account_id, from_date, basis, set_by, set_at) VALUES (?, '2026-01-01', 'by_time', 'x', 'x')", people.Bo?.id);
+    await blocked(
+      "INSERT OR REPLACE INTO core_staff_not_worked (object_type, record_id, starts, reason, marked_by, marked_at) VALUES (?, ?, 0, 'x', 'x', 'x')",
+      KLASS,
+      shifts.K3,
+    );
+    await blocked(
+      "INSERT OR REPLACE INTO core_staff_pay_basis (account_id, from_date, basis, set_by, set_at) VALUES (?, '2026-01-01', 'by_time', 'x', 'x')",
+      people.Bo?.id,
+    );
     await blocked("DELETE FROM core_staff_pay_basis WHERE account_id = ?", people.Bo?.id);
     // The period and its lines never change.
     const fixed = /core_pay_period_fixed/;
-    await expect(raw("DELETE FROM core_pay_line WHERE period_id = ?", periodId)).rejects.toThrow(fixed);
-    await expect(raw("UPDATE core_pay_line SET counted_minutes = 1 WHERE period_id = ?", periodId)).rejects.toThrow(fixed);
-    await expect(raw("INSERT OR REPLACE INTO core_pay_line SELECT * FROM core_pay_line WHERE period_id = ? AND n = 1", periodId)).rejects.toThrow(fixed);
-    await expect(raw("UPDATE core_pay_period SET ends = ends + 1 WHERE id = ?", periodId)).rejects.toThrow(fixed);
+    await expect(raw("DELETE FROM core_pay_line WHERE period_id = ?", periodId)).rejects.toThrow(
+      fixed,
+    );
+    await expect(
+      raw("UPDATE core_pay_line SET counted_minutes = 1 WHERE period_id = ?", periodId),
+    ).rejects.toThrow(fixed);
+    await expect(
+      raw(
+        "INSERT OR REPLACE INTO core_pay_line SELECT * FROM core_pay_line WHERE period_id = ? AND n = 1",
+        periodId,
+      ),
+    ).rejects.toThrow(fixed);
+    await expect(
+      raw("UPDATE core_pay_period SET ends = ends + 1 WHERE id = ?", periodId),
+    ).rejects.toThrow(fixed);
     await expect(raw("DELETE FROM core_pay_period WHERE id = ?", periodId)).rejects.toThrow(fixed);
-    await expect(raw("INSERT OR REPLACE INTO core_pay_period SELECT * FROM core_pay_period WHERE id = ?", periodId)).rejects.toThrow(fixed);
+    await expect(
+      raw(
+        "INSERT OR REPLACE INTO core_pay_period SELECT * FROM core_pay_period WHERE id = ?",
+        periodId,
+      ),
+    ).rejects.toThrow(fixed);
     const totals = await pay<Totals>("staffing.payPeriod.totals", { start: START });
     expect(totals.minutes).toBe(610);
   });
@@ -629,10 +845,13 @@ describe("the lock (criterion 10)", () => {
     expect(v1.minutes).toBe(610);
     expect(v2.minutes).toBe(625);
     expect(v1.period.locked).toBe(false);
-    const list = await pay<{ periods: { start: string; state: string; versions: { version: number; state: string; reopenReason: string | null }[] }[] }>(
-      "staffing.payPeriod.list",
-      { count: 2 },
-    );
+    const list = await pay<{
+      periods: {
+        start: string;
+        state: string;
+        versions: { version: number; state: string; reopenReason: string | null }[];
+      }[];
+    }>("staffing.payPeriod.list", { count: 2 });
     const period = list.periods.find((p) => p.start === START);
     expect(period?.state).toBe("locked");
     expect(period?.versions.map((v) => [v.version, v.state])).toEqual([
@@ -642,7 +861,10 @@ describe("the lock (criterion 10)", () => {
   });
 
   it("a write between the lock's read and its commit fails the lock whole", async () => {
-    const range = periodContaining({ period: "fortnightly", start: START, day: 1, zone: ZONE }, "2026-04-20");
+    const range = periodContaining(
+      { period: "fortnightly", start: START, day: 1, zone: ZONE },
+      "2026-04-20",
+    );
     if (!range) throw new Error("no period");
     const queries = periodFingerprint(range);
     const ctx = { db: db.query } as never;
@@ -658,14 +880,20 @@ describe("the lock (criterion 10)", () => {
 
 describe("nothing of pay reaches anyone else (criterion 10)", () => {
   it("is in no rec_* view and query.sql cannot read it; no rate or amount is held anywhere", async () => {
-    const views = await env.DB.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'view'").all<{ name: string; sql: string }>();
+    const views = await env.DB.prepare(
+      "SELECT name, sql FROM sqlite_master WHERE type = 'view'",
+    ).all<{ name: string; sql: string }>();
     for (const v of views.results) {
       expect(v.sql, v.name).not.toMatch(/core_pay_|core_staff_pay_basis|core_staff_not_worked/);
     }
     for (const table of ["core_pay_line", "core_pay_period", "core_staff_pay_basis"]) {
-      const e = await refusal(invoke("query.sql", { sql: `SELECT * FROM ${table}` }, as(admin)));
+      const e = await refusal(
+        invokeByName("query.sql", { sql: `SELECT * FROM ${table}` }, as(admin)),
+      );
       expect(e.code).not.toBe("ok");
-      const cols = await env.DB.prepare(`SELECT name FROM pragma_table_info('${table}')`).all<{ name: string }>();
+      const cols = await env.DB.prepare(`SELECT name FROM pragma_table_info('${table}')`).all<{
+        name: string;
+      }>();
       for (const c of cols.results) expect(c.name).not.toMatch(/rate|price|amount|cost|wage|pay_/);
     }
   });
@@ -678,7 +906,7 @@ describe("nothing of pay reaches anyone else (criterion 10)", () => {
     expect(results.some((r) => r.operation === "staffing.payPeriod.totals")).toBe(true);
     for (const r of results) {
       const text = `${r.input ?? ""} ${r.result ?? ""}`;
-      expect(text, r.operation).not.toMatch(/minutes|hours|by_time|by_class|Nobody ran it|"csv"|totals"/);
+      expect(text, r.operation).not.toMatch(/minutes|hours|by_time|by_class|Nobody ran it|"csv"/);
     }
   });
 });

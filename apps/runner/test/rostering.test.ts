@@ -146,6 +146,18 @@ const MANAGE_TOOLS = [
   "awayFor",
   "awayList",
   "uncovered",
+  "markNotWorked",
+].map((t) => `x.rostering.${t}`);
+/** Pay (step 6): restricted, and a person's only. */
+const PAY = "rostering:pay";
+const PAY_TOOLS = [
+  "payBasis",
+  "payBases",
+  "periods",
+  "periodTotals",
+  "lock",
+  "reopen",
+  "export",
 ].map((t) => `x.rostering.${t}`);
 
 let admin: ActingUser;
@@ -540,6 +552,7 @@ describe("restricted permissions (criterion 8, ADR 0625)", () => {
       },
       "x.rostering.awayList": {},
       "x.rostering.uncovered": {},
+      "x.rostering.markNotWorked": { object: SHIFT, id: shift, reason: "Not here" },
     };
     for (const name of MANAGE_TOOLS) {
       for (const who of [member, viewer]) {
@@ -1114,5 +1127,135 @@ export default defineExtension({ id: "rogue", version: "0.1.0", contractVersion:
     expect(out.issues.some((i) => i.code === "outside_audience" && i.path === "staffing")).toBe(
       true,
     );
+  });
+});
+
+// --- Pay (step 6, ADR 0627) -----------------------------------------------------------------------
+
+describe("pay (step 6: criteria 8 and 10 on the shipped packs)", () => {
+  const start = () => localDate(-28 * DAY);
+  const inputs = (account: string): Record<string, unknown> => ({
+    "x.rostering.payBasis": { account, basis: "by_time" },
+    "x.rostering.payBases": {},
+    "x.rostering.periods": {},
+    "x.rostering.periodTotals": { start: start() },
+    "x.rostering.lock": { start: start() },
+    "x.rostering.reopen": { start: start(), reason: "A correction" },
+    "x.rostering.export": { start: start() },
+  });
+  const setStart = () =>
+    run(
+      "extensionSettings.update",
+      { extension: "rostering", values: { payPeriodStart: start() } },
+      staff(),
+    );
+
+  it("a member, a viewer and a rosterer are refused every pay tool until granted pay; an AI always", async () => {
+    await setStart();
+    const member = await account("Member Pay", "member");
+    const viewer = await account("Viewer Pay", "viewer");
+    const rosterer = await account("Rosterer Pay", "member");
+    await grant(rosterer, [MANAGE]);
+    for (const name of PAY_TOOLS) {
+      for (const who of [member, viewer, rosterer]) {
+        const error = await refusal(run(name, inputs(who.id)[name], asUser(who)));
+        expect([name, who.name, error.code]).toEqual([name, who.name, "forbidden"]);
+      }
+    }
+    // An admin holds them; a member granted pay holds them.
+    await run("x.rostering.periods", {}, staff());
+    await grant(member, [PAY]);
+    await run("x.rostering.periods", {}, asUser(member));
+    await run("x.rostering.periodTotals", { start: start() }, asUser(member));
+    // An assistant or an MCP client acting for an admin or a granted member: refused, every one.
+    for (const who of [admin, member]) {
+      for (const actor of ["assistant", "mcp"] as const) {
+        const ctx = asUser(who, {
+          actor,
+          origin: { surface: actor === "mcp" ? "mcp" : "assistant" },
+        });
+        for (const name of PAY_TOOLS) {
+          const error = await refusal(run(name, inputs(who.id)[name], ctx));
+          expect([name, actor, error.code]).toEqual([name, actor, "forbidden"]);
+        }
+      }
+    }
+    // Marking a shift not worked: an assistant's request waits for a person.
+    const shift = await dutyShift(-2 * HOUR, admin.id);
+    const asked = await refusal(
+      run(
+        "x.rostering.markNotWorked",
+        { object: SHIFT, id: shift, reason: "Not here" },
+        staff({ actor: "assistant", origin: { surface: "assistant" } }),
+      ),
+    );
+    expect(asked.code).toBe("pending_approval");
+  });
+
+  it("a class with set-up minutes is totalled, locked, exported and then kept", async () => {
+    await setStart();
+    const paid = await coach("Paid Coach Pat");
+    const withSetup = await create("programs.classtype", {
+      name: unique("Spin"),
+      "bookings.rosterBeforeMinutes": 15,
+      "bookings.rosterAfterMinutes": 5,
+    });
+    const startsAt = new Date(Date.now() - 20 * DAY).toISOString();
+    const klassId = await create(CLASS, {
+      classType: withSetup,
+      startsAt,
+      endsAt: new Date(Date.parse(startsAt) + HOUR).toISOString(),
+      timezone: ZONE,
+      places: 10,
+      coach: paid.profile,
+    });
+    await run(
+      "x.rostering.payBasis",
+      { account: paid.user.id, basis: "by_class", from: localDate(-60 * DAY) },
+      staff(),
+    );
+    type Totals = {
+      totals: { account: string; shifts: number; minutes: number; hours: string }[];
+      period: { locked: boolean };
+    };
+    const preview = await run<Totals>("x.rostering.periodTotals", { start: start() }, staff());
+    expect(preview.period.locked).toBe(false);
+    expect(preview.totals.find((t) => t.account === paid.user.id)).toMatchObject({
+      shifts: 1,
+      minutes: 80,
+      hours: "1.33",
+    });
+    await run("x.rostering.lock", { start: start() }, staff());
+    const locked = await run<Totals>("x.rostering.periodTotals", { start: start() }, staff());
+    expect(locked.period.locked).toBe(true);
+    const file = await run<{ csv: string; locked: boolean }>(
+      "x.rostering.export",
+      { start: start() },
+      staff(),
+    );
+    expect(file.locked).toBe(true);
+    expect(file.csv).toContain("Paid Coach Pat");
+    expect(file.csv).not.toContain("PREVIEW");
+    // The class is kept: its time is refused, for an admin too.
+    const moved = await refusal(
+      run(
+        "record.update",
+        {
+          object: CLASS,
+          id: klassId,
+          values: { endsAt: new Date(Date.parse(startsAt) + 2 * HOUR).toISOString() },
+        },
+        staff(),
+      ),
+    );
+    expect(moved.details?.rule).toBe("pay_period_locked");
+    // Nothing of what it totals in the audit log: which period, and who.
+    const audit = await env.DB.prepare(
+      "SELECT input, result FROM core_audit WHERE operation LIKE 'staffing.pay%' OR operation LIKE 'x.rostering.%'",
+    ).all<{ input: string | null; result: string | null }>();
+    for (const r of audit.results) {
+      expect(`${r.input} ${r.result}`).not.toMatch(/"minutes"|"hours"|by_class|"csv"/);
+    }
+    await run("x.rostering.reopen", { start: start(), reason: "Checked again" }, staff());
   });
 });

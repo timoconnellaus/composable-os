@@ -580,6 +580,10 @@
       "sha256": "96f13c74d16c3adf366a3df5c17d898564b67ca0e1d001d2fc36846386b5e478"
     },
     {
+      "name": "0813_pay_periods.sql",
+      "sha256": "f1447e968f92b913b79f8eaa3284e5258cf3247aeffe8d97f8edd45dbf37907b"
+    },
+    {
       "name": "0850_agreements.sql",
       "sha256": "ac44a255fe73e8195da0f8ef6fed7572e561918517d138581094d9f46e2789e5"
     },

@@ -1829,10 +1829,7 @@ export function validateManifest(
           `staffing.settings.${key}`,
           `"${setting}" must be a setting a person approves (personApproves): the roster's numbers are never an AI's to change`,
         );
-      } else if (
-        type === "select" &&
-        (declared.options ?? []).some((o) => !PERIODS.has(o.value))
-      ) {
+      } else if (type === "select" && (declared.options ?? []).some((o) => !PERIODS.has(o.value))) {
         contract(
           `staffing.settings.${key}`,
           `"${setting}" offers only weekly, fortnightly and monthly`,

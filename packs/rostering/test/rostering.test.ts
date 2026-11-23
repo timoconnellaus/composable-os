@@ -101,7 +101,11 @@ function hostWith(): TestHost {
         notWorked: input.notWorked,
         changed: true,
       }),
-      "staffing.payBasis": (input) => ({ account: input.account, from: "2026-06-01", changed: true }),
+      "staffing.payBasis": (input) => ({
+        account: input.account,
+        from: "2026-06-01",
+        changed: true,
+      }),
       "staffing.payBases": () => ({ today: "2026-06-01", items: [] }),
       "staffing.payPeriod.list": () => ({
         setting: { period: "fortnightly", start: "2026-06-01", day: 1, zone: "Australia/Sydney" },
@@ -383,7 +387,11 @@ describe("the pay tools", () => {
     await host.runTool("periods", {}, { caller: ME });
     await host.runTool("periodTotals", { start: "2026-06-01" }, { caller: ME });
     await host.runTool("lock", { start: "2026-06-01" }, { caller: ME });
-    await host.runTool("reopen", { start: "2026-06-01", reason: "A late correction" }, { caller: ME });
+    await host.runTool(
+      "reopen",
+      { start: "2026-06-01", reason: "A late correction" },
+      { caller: ME },
+    );
     const out = await host.runTool<{ filename: string }>(
       "export",
       { start: "2026-06-01" },

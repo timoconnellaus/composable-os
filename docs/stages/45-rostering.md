@@ -31,7 +31,10 @@ notices and leaving, is built ([ADR 0623](../adr/0623-offers-and-takes-the-race-
 "Built in step 3" below). Build step 4, restricted pack permissions, the `rostering.team` role
 and the Rostering pack's spine, is built ([ADR 0625](../adr/0625-restricted-pack-permissions.md),
 [ADR 0626](../adr/0626-the-rostering-pack-and-bookings-additions.md), no migration; see "Built in
-step 4" below). Builds on stage
+step 4" below). Build step 6, pay periods (who is counted, totals with evidence, the not-worked
+mark, the lock, reopening and the export), is built ([ADR
+0627](../adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md), migration 0813; see
+"Built in step 6" below). Builds on stage
 31a (built) and ADR 0600 (merged). Replaces the roadmap's placeholder stage 40 (Rosters), which was
 never specced. Where this spec guesses, it says **(guess)**.
 
@@ -911,6 +914,48 @@ migration; no `core_write_guard` remake (0852 stays free).
   is not declared yet: a permission must be a tool's), `feed`/`feedRotate` (step 5), the checklist
   (4b), the dashboards and screens (7), `staffName` with `staffing.forget`, the notices' words in
   the pack (they stay the host's), and the class type's preparation and pack-down minutes (pay).
+
+### Built in step 6 (2026-11-23)
+[ADR 0627](../adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md), migration 0813
+(`core_staff_pay_basis`, `core_staff_not_worked`, `core_pay_period`, `core_pay_line` and their
+triggers). No `core_write_guard` remake (0852 stays free). All new operations are tool-only.
+- **Who is counted** (`staffing.payBasis`, `staffing.payBases`): by time, by class or not counted,
+  **from a local date** (decided here: so a period totalled again uses the basis in force on each
+  shift's date, not today's). A date on or before a locked period's last day is refused.
+- **The period** is Rostering's settings (`payPeriod`, default fortnightly; `payPeriodStart`, a
+  `YYYY-MM-DD` text setting, as the manifest has no date setting; `payPeriodDay` for monthly), read
+  by the host through `staffing.settings`, each a person's to change. A pack declares who handles pay
+  as `staffing.pays` (a restricted, grantable permission: Rostering's `rostering:pay`).
+- **Totals** (`staffing.payPeriod.totals`, `staffing.payPeriod.list`): as this spec says, worked
+  out set-based from every staffed object. Decided here: every total carries **both** shifts and
+  whole minutes whatever the basis (payroll reads the one it pays on); hours are minutes ÷ 60
+  rounded half up to two places, from summed minutes; a shift's minutes are its instants' difference
+  (a clock change counts the real time); a shift with no account, a cancelled one and one in the
+  Trash are no line. Bookings' class type gains `rosterBeforeMinutes` and `rosterAfterMinutes`
+  (`personApproves`), declared as the class's `payBefore` and `payAfter`.
+- **Evidence**: a new `staffed.evidence` declaration (an object of the same extension naming the
+  shift, and who marked it); Bookings' class names its bookings' `markedBy`. Each line says whether
+  its list was taken, by whom, and is flagged when not by its person.
+- **The not-worked mark** (`staffing.markNotWorked`, Rostering's `markNotWorked`): a rosterer's,
+  `personApproves`, with why, only once the shift has started (decided here), clearable.
+- **The lock** (`staffing.payPeriod.lock`) of an ended period writes its lines in one batch, guarded
+  by a fingerprint of what they were read from (a write in between fails it as `roster_changed`).
+  After it, the database refuses a change of the person, times, kind or liveness of a shift inside
+  it (triggers the reconciler builds with the time claim's), its marks, and who is counted then,
+  for every writer and every statement shape (REPLACE, upserts, `UPDATE OR REPLACE`, deletes).
+  Decided here: a note, or `scheduled` to `done`, is not refused (neither changes pay); a coach
+  profile in the Trash may still be purged. More than 10,000 shifts in one period is refused.
+- **Reopen** with why (kept with the version, not in the audit log); locking again makes version 2
+  and keeps version 1's lines readable.
+- **The export** (`staffing.payPeriod.export`, Rostering's `export`): the CSV as this spec says,
+  with an end date on each line's times (a shift across midnight), the evidence, and text a
+  spreadsheet would run prefixed with an apostrophe. A preview of an open period says so.
+- **Pay is a person's only**: every pay operation refuses a caller who is not a person (the tool
+  `humanOnly` and the verified caller a person) or does not handle pay. Reads of totals and exports
+  are audited (`auditReads`) as which period and who; no figure, basis or reason reaches the audit
+  log, a notice, a tool run or an error. Rostering adds `payBases` (a read of who is counted, not in
+  this spec's tool list) beside `payBasis`.
+- **Not in this step**: the screens (7), `staffing.forget`, overtime or any pay rule.
 
 **The spine is steps 2 to 4**: without the claim, the rules and the permissions, nothing can be
 rostered safely. Step 1 is built; step 2 can start now and is the riskiest (every write that covers

@@ -269,6 +269,13 @@ describe("the declaration", () => {
         `${table(KLASS)}__staffed_del`,
         `${table(KLASS)}__staffed_ins`,
         `${table(KLASS)}__staffed_upd`,
+        // The pay lock (stage 45 step 6, ADR 0627), built and dropped with the claim's.
+        `${table(COACH)}__paylock_${table(KLASS)}_del`,
+        `${table(COACH)}__paylock_${table(KLASS)}_ins`,
+        `${table(COACH)}__paylock_${table(KLASS)}_upd`,
+        `${table(KLASS)}__paylock_del`,
+        `${table(KLASS)}__paylock_ins`,
+        `${table(KLASS)}__paylock_upd`,
       ].sort(),
     );
   });

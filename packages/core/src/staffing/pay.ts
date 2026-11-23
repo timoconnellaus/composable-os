@@ -17,7 +17,7 @@
 //   the summed minutes (never a sum of rounded hours). The minutes are what count.
 import { CompiledQuery, sql } from "kysely";
 import { ValidationError } from "../errors.ts";
-import { ident } from "../extensions/naming.ts";
+import { columnName, ident, sideTable } from "../extensions/naming.ts";
 import { objectTableOf } from "../extensions/schema.ts";
 import { getObject, listObjects } from "../fields/index.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
@@ -260,7 +260,10 @@ async function basesOf(
 }
 
 /** The basis in force on `date`: the latest row from on or before it, or not counted. */
-export function basisOn(rows: readonly { from: string; basis: PayBasis }[] | undefined, date: string) {
+export function basisOn(
+  rows: readonly { from: string; basis: PayBasis }[] | undefined,
+  date: string,
+) {
   let basis: PayBasis = "not_counted";
   for (const r of rows ?? []) if (r.from <= date) basis = r.basis;
   return basis;
@@ -372,9 +375,7 @@ export async function periodLines(ctx: HandlerContext, range: PeriodRange): Prom
   const counted = withAccount
     .map((x) => ({ ...x, date: localDateOf(x.r.starts, range.zone) }))
     .map((x) => ({ ...x, basis: basisOn(bases.get(x.account), x.date) }))
-    .filter(
-      (x): x is typeof x & { basis: "by_time" | "by_class" } => x.basis !== "not_counted",
-    );
+    .filter((x): x is typeof x & { basis: "by_time" | "by_class" } => x.basis !== "not_counted");
   if (!counted.length) return [];
 
   // The marks, the kinds (name, before and after minutes), the places and the evidence, once each.
@@ -402,18 +403,32 @@ export async function periodLines(ctx: HandlerContext, range: PeriodRange): Prom
     const kindIds = [...new Set(mine.map((x) => x.r.kind).filter((k): k is string => !!k))];
     if (kindDef && kindTable && kindIds.length) {
       const titleCol = column(kindDef, kindDef.titleField);
-      const beforeCol = def.payBefore ? column(kindDef, def.payBefore.field.split(".")[1]) : null;
-      const afterCol = def.payAfter ? column(kindDef, def.payAfter.field.split(".")[1]) : null;
-      const rows = await sql<{ id: string; name: unknown; before: unknown; after: unknown }>`
-        SELECT id, ${titleCol ? sql.ref(titleCol) : sql`NULL`} AS name,
-          ${beforeCol ? sql.ref(beforeCol) : sql`NULL`} AS before,
-          ${afterCol ? sql.ref(afterCol) : sql`NULL`} AS after
-        FROM ${sql.table(kindTable)} WHERE id IN ${jsonList(kindIds)}`.execute(ctx.db);
+      // The kind's minutes: its own field, or one this extension adds to it (`bookings.
+      // rosterBeforeMinutes`), which lives in this extension's side table for it (ADR 0015).
+      const ext = shape.object.name.split(".")[0] as string;
+      const minutesSource = (path: { field: string } | undefined) => {
+        const local = path?.field.split(".")[1];
+        if (!local) return null;
+        const own = column(kindDef, local);
+        if (own) return { table: kindTable, column: own };
+        return column(kindDef, `${ext}.${local}`)
+          ? { table: sideTable(ext, kindObject as string), column: columnName(local) }
+          : null;
+      };
+      const minutesSql = (src: { table: string; column: string } | null) =>
+        src
+          ? sql`(SELECT ${sql.ref(`m.${src.column}`)} FROM ${sql.table(src.table)} m WHERE m.id = k.id)`
+          : sql`NULL`;
+      const rows = await sql<{ id: string; name: unknown; before_m: unknown; after_m: unknown }>`
+        SELECT k.id AS id, ${titleCol ? sql.ref(`k.${titleCol}`) : sql`NULL`} AS name,
+          ${minutesSql(minutesSource(def.payBefore))} AS before_m,
+          ${minutesSql(minutesSource(def.payAfter))} AS after_m
+        FROM ${sql.table(kindTable)} k WHERE k.id IN ${jsonList(kindIds)}`.execute(ctx.db);
       for (const k of rows.rows) {
         kinds.set(`${kindObject}\u0000${k.id}`, {
           name: text(k.name) ?? kindDef.label,
-          before: minutesOf(k.before),
-          after: minutesOf(k.after),
+          before: minutesOf(k.before_m),
+          after: minutesOf(k.after_m),
         });
       }
     }
@@ -488,7 +503,11 @@ export async function periodLines(ctx: HandlerContext, range: PeriodRange): Prom
       kind: kindObject && r.kind ? { object: kindObject, id: r.kind } : null,
       kindName: kind?.name ?? r.shape.object.label,
       title: text(r.title) ?? r.shape.object.label,
-      place: placeOf ? (r.place ? (places.get(`${name}\u0000${r.place}`) ?? null) : null) : text(r.place),
+      place: placeOf
+        ? r.place
+          ? (places.get(`${name}\u0000${r.place}`) ?? null)
+          : null
+        : text(r.place),
       starts: r.starts,
       ends: r.ends,
       localDate: date,
@@ -680,7 +699,8 @@ const msOf = (expr: string) =>
 export function periodFingerprint(range: PeriodRange): string[] {
   const out: string[] = [];
   for (const shape of staffedShapes()) {
-    const where = rangeWhere(shape.starts, range);
+    // Out of the Trash (as the start index is): trashing or restoring one changes the count.
+    const where = `deleted_at IS NULL AND ${rangeWhere(shape.starts, range)}`;
     const table = ident(shape.table);
     out.push(`SELECT count(*) FROM ${table} WHERE ${where}`);
     out.push(`SELECT ${msOf("updated_at")} FROM ${table} WHERE ${where}`);

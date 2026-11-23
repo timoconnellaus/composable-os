@@ -208,7 +208,8 @@ async function linesFor(
     version !== undefined
       ? versions.find((v) => v.version === version)
       : versions.find((v) => v.state === "locked");
-  if (version !== undefined && !chosen) throw new NotFoundError("pay period version", String(version));
+  if (version !== undefined && !chosen)
+    throw new NotFoundError("pay period version", String(version));
   if (chosen) {
     const rows = await ctx.db
       .selectFrom("core_pay_line")
@@ -409,7 +410,12 @@ export const staffingPayPeriodList = defineOperation({
     const now = nowSeconds(ctx);
     const today = localDateOf(now, config.zone);
     const current = periodContaining(config, today);
-    const setting = { period: config.period, start: config.start, day: config.day, zone: config.zone };
+    const setting = {
+      period: config.period,
+      start: config.start,
+      day: config.day,
+      zone: config.zone,
+    };
     if (!current) return { setting, set: false, periods: [] };
     const ranges: PeriodRange[] = [current];
     for (let i = 0; i < (input.count ?? 6); i++) {
@@ -699,7 +705,12 @@ export const staffingMarkNotWorked = defineOperation({
     notWorked: z.boolean().default(true),
     reason: z.string().trim().min(1).max(500).optional(),
   }),
-  output: z.object({ object: z.string(), id: z.string(), notWorked: z.boolean(), changed: z.boolean() }),
+  output: z.object({
+    object: z.string(),
+    id: z.string(),
+    notWorked: z.boolean(),
+    changed: z.boolean(),
+  }),
   permission: "records:write",
   risk: "write",
   toolOnly: true,

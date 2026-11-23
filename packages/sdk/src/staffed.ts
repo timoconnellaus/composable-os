@@ -184,7 +184,8 @@ export function checkObjectStaffed(
   // The evidence a shift was worked: another object of this extension naming it, and who marked.
   if (staffed.evidence) {
     const { object: other, link, by } = staffed.evidence;
-    const evidence = other !== name && Object.hasOwn(m.objects, other) ? m.objects[other] : undefined;
+    const evidence =
+      other !== name && Object.hasOwn(m.objects, other) ? m.objects[other] : undefined;
     const linkField = evidence ? own(evidence, link) : undefined;
     if (!evidence) {
       contract(`${at}.evidence.object`, `"${other}" must be another object of this extension`);

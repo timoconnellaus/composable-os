@@ -351,9 +351,12 @@ export function toOperationError(error: unknown): OperationError {
     );
   }
   if (message.includes("core_pay_period_fixed")) {
-    return new ConflictError("A locked pay period and its lines never change, so nothing was changed.", {
-      rule: "pay_period_fixed",
-    });
+    return new ConflictError(
+      "A locked pay period and its lines never change, so nothing was changed.",
+      {
+        rule: "pay_period_fixed",
+      },
+    );
   }
   // A live shift whose end is not after its start (ADR 0621), written by a path that does not
   // check first: the trigger on the staffed object's table refuses it.
