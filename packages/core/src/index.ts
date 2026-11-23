@@ -4,6 +4,14 @@ export * from "./adjudicator/agreement.ts";
 export * from "./adjudicator/review.ts";
 export * from "./adjudicator/reviewers.ts";
 export * from "./adjudicator/run.ts";
+export {
+  AGREEMENT_FOR,
+  AGREEMENT_HOW,
+  AGREEMENT_WHO,
+  agreementPoints,
+  shownHash,
+} from "./agreements/documents.ts";
+export { runAgreementsDue } from "./agreements/schedule.ts";
 export * from "./ai/admin.ts";
 export * from "./ai/cache-review.ts";
 export * from "./ai/embedding.ts";

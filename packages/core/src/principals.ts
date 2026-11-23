@@ -76,6 +76,10 @@ export type Role = (typeof ROLES)[number];
  * - `people:link` link a guardian to a dependant and end the link (stage 31a, ADR 0540): who may
  *   act for whom. Admins only by default, grantable as `orders:refund` is, and a person only
  *   whatever is granted (the operations are `actors: ["human"]`).
+ * - `agreements:manage` write agreement documents, and publish, attach, detach and retire them
+ *   (stage 44, ADR 0610). Admins only by default, grantable as `orders:refund` is. Publishing,
+ *   attaching, detaching and retiring are a person's whatever is granted (`actors: ["human"]`);
+ *   an AI acting for an account that holds it may only write a document's working copy.
  */
 export const PERMISSIONS = [
   "records:read",
@@ -91,6 +95,7 @@ export const PERMISSIONS = [
   "records:publish",
   "subscriptions:manage",
   "people:link",
+  "agreements:manage",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -115,6 +120,7 @@ export const GRANTABLE_PERMISSIONS = [
   "orders:refund",
   "subscriptions:manage",
   "people:link",
+  "agreements:manage",
 ] as const;
 
 /**

@@ -321,6 +321,36 @@ export function toOperationError(error: unknown): OperationError {
       reason: "not_full",
     });
   }
+  // Agreement documents (migration 0790, ADR 0610): a version nobody changes; a publish of a
+  // working copy changed since it was read, or of a retired document; attaching a document that
+  // is not live; two publishes of the same number at once.
+  if (message.includes("core_agreement_version_immutable")) {
+    return new ForbiddenError("A published version of a document is never changed or deleted.", {
+      rule: "agreement_version_immutable",
+    });
+  }
+  if (
+    message.includes("core_agreement_draft_changed") ||
+    message.includes("UNIQUE constraint failed: core_agreement_version")
+  ) {
+    return new ConflictError(
+      "The document changed while you were publishing it. Look at it again; nothing was published.",
+      { rule: "agreement_draft_changed" },
+    );
+  }
+  if (message.includes("core_agreement_retired") || message.includes("core_agreement_not_live")) {
+    return new ConflictError("This document is not live: it cannot change there.", {
+      rule: "agreement_not_live",
+    });
+  }
+  if (
+    message.includes("core_agreement_agree_from_back") ||
+    message.includes("core_agreement_rev_back")
+  ) {
+    return new ConflictError("What is in effect moved on meanwhile. Nothing was changed.", {
+      rule: "agreement_moved",
+    });
+  }
   // A guardian's write after their link ended, or the dependant went to the Trash (migration
   // 0650, ADR 0540): as if the Person were not there.
   if (message.includes("core_person_link_not_live")) {
