@@ -16,17 +16,17 @@ deployment, Control plane, Release), ADRs [0001](../adr/0001-self-hosted-single-
 `products/crm/apps/control/src/` (`dispatch/`, `instances.ts`, `rollout.ts`, `lifecycle.ts`,
 `metering.ts`).
 
-Status: **proposal.** The owner's interview of 2026-11-23 settled the decisions below (ADR 0610).
-The questions at the end are open, and build steps 2 onward wait for them. Build step 1, the
-checks on a real namespace, needs only the Workers for Platforms subscription and can start once
-it is on.
+Status: **spec agreed** (owner interviewed 2026-11-23, and answered the open questions the same
+day: decisions 13 to 22). Workers for Platforms is on in the fleet's account, and the owner has
+said build step 1 may start.
 
 ## Goal
 
 A client's product runs in our Cloudflare account by default. `cos deploy`, run in the client's
 repository, puts its host and web app in our Workers for Platforms namespace. One command updates
 every hosted client to a new platform release. A client can be moved to its own Cloudflare account
-with all its data, and the first client is moved the other way, from its own account into ours.
+with all its data. The first client, which has nothing in its own account yet, is deployed here
+first.
 
 ## What exists today (from the code)
 
@@ -89,6 +89,21 @@ with all its data, and the first client is moved the other way, from its own acc
 | 10 | The first client moves from its own account into ours, staging and live together, and stays bespoke |
 | 11 | The first standard product is built from the first client's setup, with what is only that client's left in its own extensions |
 | 12 | No trial on a real namespace before deciding. The first build step is that trial |
+
+### The owner's answers to the open questions (2026-11-23)
+
+| # | Decision | Was |
+| --- | --- | --- |
+| 13 | **Hosted hostnames are on `composableos.app`,** a domain used for nothing else | question 1 |
+| 14 | **The fleet's account is the one `composableos.dev` is on today.** Workers for Platforms is on there and `composableos.app` is registered there. A separate account for the business was offered and not chosen | added in the interview |
+| 15 | **The first client's DNS is on Cloudflare in its own account, and its site answers on the bare domain.** Its domain is connected by custom hostname; Cloudflare DNS allows the CNAME on a bare domain, so the zone does not move | question 2 |
+| 16 | **No fair-use numbers yet.** Usage is reported for two months, then the limits are set from it | question 3 |
+| 17 | **A moved host's source is kept, stopped, for 90 days** | question 4, proposed 30 |
+| 18 | **A move may take a client's site and app down for up to an hour, overnight on a weeknight,** and is meant to succeed in one run | question 5 |
+| 19 | **We deploy a hosted bespoke client,** and so does its repository's CI on a merge to `main`, with a secret we add | question 6 |
+| 20 | **A hosted bespoke client's repository is ours while it is hosted,** in our GitHub organisation. The client may read it and propose changes by pull request. When the client moves to its own account the repository is transferred to it with its history | added in the interview |
+| 21 | **The first client has nothing in staging or live yet:** no members, no payments, no videos. So it does not move in: its first deploys go to the fleet, as fresh installs. This replaces decision 10's move | questions 7 and 5 |
+| 22 | **Build step 1 may start** | added in the interview |
 
 ## The design in one page
 
@@ -171,14 +186,15 @@ moves the repository only.
 
 ### Hostnames
 
-- Every host gets a hostname on a domain of ours for its staff address, and one for its web app
-  (question 1). They work at once and need nothing from the client.
+- Every host gets `<client>-admin.composableos.app` for its staff address and
+  `<client>.composableos.app` for its web app (`<client>-<env>…` for an environment other than
+  live). They work at once and need nothing from the client.
 - **A client's own domain** is added one of two ways, chosen by where its DNS is:
   - its zone is in our account: a Worker route on that zone to `cos-dispatch`;
   - its zone is elsewhere: a Cloudflare for SaaS custom hostname on our domain, which the client
     points a CNAME at. The route is published only once Cloudflare reports the hostname active.
-- An apex hostname (`example.com` with no `www`) needs the client's DNS to allow a CNAME there.
-  Where it cannot, the apex redirects to `www`.
+- A bare domain (`example.com` with no `www`) needs the client's DNS to allow a CNAME there.
+  Cloudflare DNS does (decision 15). Where a provider cannot, the bare domain redirects to `www`.
 
 ### Crons, queues and Workflows
 
@@ -235,11 +251,12 @@ The order protects the running host:
 5. Check the destination: record counts per object, file hashes, a sign-in as a staff user and as
    a customer, the smoke check.
 6. **Switch last:** the hostnames, then payment and other provider webhooks.
-7. The source stays stopped and untouched for a set time (question 4), then is removed by a
-   separate command. Until then `cos move --back` restores service from the source.
+7. The source stays stopped and untouched for 90 days, then is removed by a separate command. Until then `cos move --back` restores service from the source.
 
 Sessions survive a move because the auth secrets travel. A customer who is mid-checkout at step 3
-sees the site unavailable for the length of steps 3 to 6.
+sees the site unavailable for the length of steps 3 to 6: an hour at most, run overnight on a
+weeknight (decision 18). The command measures a rehearsal against a copy first and refuses to
+start the real run if the rehearsal's stop was longer than the hour.
 
 ### What is shared, and how it is kept safe
 
@@ -256,15 +273,19 @@ sees the site unavailable for the length of steps 3 to 6.
 
 A daily job in `cos-fleet` records per client: Worker requests and CPU time, database size, stored
 files, Stream minutes stored and delivered, and AI spend. `cos fleet usage` prints the month so
-far against the fair-use limits (question 3). This stage measures and reports. It does not charge
+far. There are no limits yet (decision 16). This stage measures and reports. It does not charge
 or cut anything off.
 
 ### Who may deploy
 
 Deploying to the fleet needs a token on our account, which cannot be limited to one client's
 Workers. So a hosted client's deploys run with our token: from our machines, or from the client
-repository's CI with a secret we add. A client that wants to deploy with its own token goes in its
-own account (decision 7).
+repository's CI on a merge to `main`, with a secret we add (decision 19). Anyone who can push to a
+repository holding that secret can reach every client, so **the repository is ours while the
+client is hosted** (decision 20): the client reads it and proposes changes by pull request, and
+pull requests from forks never receive the secret. On a move to the client's own account the
+repository is transferred with its history and the secret becomes a token on that account. A
+client that wants to deploy with its own token goes in its own account (decision 7).
 
 ## Out of scope
 
@@ -303,8 +324,9 @@ own account (decision 7).
    work, the provider connection works, and the search index answers.
 10. A move that fails at any step before the switch leaves the source serving as before.
 11. `cos move --back` after a completed move restores service from the source.
-12. The first client's staging and live hosts run in the fleet, on its own domain, with payments
-    taken and the provider's webhooks received, and its old hosts are stopped.
+12. The first client's staging and live hosts are deployed to the fleet as fresh installs, from
+    its repository, in our GitHub organisation. Live answers on its own bare domain through a
+    custom hostname, a test payment is taken and the provider's webhook is received.
 13. `cos fleet usage` shows, per client, requests, database size, stored files, Stream minutes and
     AI spend for the month.
 14. A product without `hosting` deploys exactly as before: the installer's and `cos deploy`'s
@@ -316,7 +338,7 @@ own account (decision 7).
 ## Dependencies
 
 Stages 8, 10 and 24. A Workers for Platforms subscription on our account, and a domain of ours
-for hosted hostnames (question 1). Nothing here waits for stages 31 to 45.
+for hosted hostnames (`composableos.app`). Nothing here waits for stages 31 to 45.
 
 ## Migrations and numbers
 
@@ -346,14 +368,15 @@ control plane's.
 4. **Client domains:** routes on a zone of ours, custom hostnames for a zone elsewhere.
 5. **The fleet update, holds and rollback.** Criteria 6 and 7.
 6. **The Stream broker.** Criterion 8.
-7. **The move:** export and import on each Durable Object class, the secrets hand-over, then the
-   command. Criteria 9 to 11.
-8. **The first client's move,** staging and live in one run, after a rehearsal against a copy.
-   Criterion 12.
-9. **Usage.** Criterion 13.
+7. **The first client's first deploys,** staging then live. Criterion 12. It has no data to move
+   (decision 21), so this does not wait for the move.
+8. **Usage.** Criterion 13.
+9. **The move:** export and import on each Durable Object class, the secrets hand-over, then the
+   command, tested by moving a host out of the fleet and back. Criteria 9 to 11. It is what the
+   leaving promise rests on, so it is built before a second client is hosted.
 10. Docs and skills. Criterion 15.
 
-Steps 3 to 6 and step 7 can run side by side after step 2.
+Step 9 can run beside steps 3 to 8 after step 2.
 
 ## Decided by this spec, open to override
 
@@ -372,18 +395,4 @@ Steps 3 to 6 and step 7 can run side by side after step 2.
 
 ## Questions for the owner
 
-1. **Which domain of ours carries hosted hostnames?** Each host gets `<client>.` and
-   `<client>-admin.` on it before the client's own domain is connected. It should be a domain used
-   for nothing else, so a client's pages can never set cookies for our own sites.
-2. **Where is the first client's DNS, and does its site use the apex** (no `www`)? This decides
-   whether its domain is routed by moving the zone into our account or by custom hostnames.
-3. **What are the fair-use limits?** At least: stored video minutes, delivered video minutes,
-   stored files, and AI spend per month. Usage is only reported in this stage, so a first guess is
-   enough.
-4. **How long is a moved host's source kept,** stopped, before it is removed? Proposed: 30 days.
-5. **How long may the first client's site be read-only or unavailable during its move,** and at
-   what time of the week? The length depends on the size of its data; a rehearsal gives the number.
-6. **Who deploys a hosted bespoke client?** Proposed: us, and the client repository's CI on merge
-   to `main` with a secret we add. The client's own developers do not hold the token.
-7. **Does the first client hold its own Stream videos and Stripe account today?** Stripe stays the
-   client's own account on every tier. Videos would move into our Stream account with the host.
+None open. Decisions 13 to 22 answer them.

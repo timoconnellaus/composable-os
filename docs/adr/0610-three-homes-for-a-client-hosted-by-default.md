@@ -78,3 +78,18 @@ packs, no org extensions, no web app, no label.
   decided (ADR 0465).
 - Per-client measurement exists for AI only. Stream, stored files, database size and Worker usage
   need adding before a fair-use limit means anything.
+
+## Amended 2026-11-23: the first client, the repository, the account
+From the owner's answers to stage 46's open questions, the same day:
+- **The first client does not move in.** It has nothing in its own account's staging or live hosts
+  yet, so its first deploys go to our account as fresh installs. The move between accounts is
+  still built, for the leaving promise, before a second client is hosted.
+- **A hosted bespoke client's repository is ours while it is hosted** and is transferred to the
+  client, with its history, when it moves to its own account. The deploy secret can reach every
+  hosted client, so only we may push to a repository that holds it.
+- **The fleet's account is the one `composableos.dev` is on.** A separate account used only for
+  hosted clients was offered and not chosen, so the first consequence above also covers whatever
+  else runs in that account.
+- Hosted hostnames are on `composableos.app`. A moved host's source is kept for 90 days. Fair-use
+  limits are set after two months of reported usage.
+
