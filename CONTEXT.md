@@ -1087,8 +1087,11 @@ ADR 0501). A claimant may declare a **waitlist** (`claims.waitlist`, below, ADR 
 A record that declares `recurring`: a weekly rule in local wall-clock time (weekdays, a time, a
 length, from and until dates, a zone) that makes dated records of another object ahead, up to its
 horizon (a timetable line makes its classes). Each record made is its **occurrence**, keyed on the
-series and its local date so it is made once; one edited by staff is the series' no more. 06:00 is
-06:00 across a clock change (stage 31, ADR 0500).
+series and its local date so it is made once. A copied field staff change on one occurrence (its
+coach) is its **field exception**: the series never writes that field again and still writes the
+rest; one whose time or state staff change is **detached** whole and the series' no more. **Follow
+the series** clears exceptions (ADR 0620). 06:00 is 06:00 across a clock change (stage 31, ADR
+0500).
 _Avoid_: recurrence rule, RRULE, schedule (an automation's trigger); `sellable.recurring` (a
 plan paid every period, below), which shares the word and nothing else
 
@@ -1283,7 +1286,7 @@ _Avoid_: session, slot, booking
 **Roster** (stage 45, proposed)
 Every shift in a range, with who works each. The **pattern** is its regular week (a class series'
 coach, a duty series' person); an **exception** is one date changed from it, and only that field
-leaves the series. A **rosterer** may roster others (`rostering:manage`). Not Bookings' tool
+leaves the series (a field exception, built: ADR 0620). A **rosterer** may roster others (`rostering:manage`). Not Bookings' tool
 `roster`, which is a class's list.
 _Avoid_: rota, schedule (an automation's trigger), timetable (the members' classes)
 

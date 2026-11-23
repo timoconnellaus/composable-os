@@ -245,6 +245,16 @@ async function made(seriesId: string): Promise<Made[]> {
   return out;
 }
 
+/** A record's field exceptions as stored: field, who, when. */
+async function own(recordId: string): Promise<[string, string, string][]> {
+  const { results } = await env.DB.prepare(
+    "SELECT field, set_by, set_at FROM core_recurrence_exception WHERE record_id = ? ORDER BY field",
+  )
+    .bind(recordId)
+    .all<{ field: string; set_by: string; set_at: string }>();
+  return results.map((r) => [r.field, r.set_by, r.set_at]);
+}
+
 /** The local wall clock of an instant in a zone, by Intl alone (not the helper under test). */
 function wallClock(instant: unknown, zone: string): string {
   return new Intl.DateTimeFormat("en-GB", {
@@ -444,22 +454,24 @@ describe("exceptions and changes", () => {
       as(now),
     );
     let classes = await made(id);
+    // The coach swap keeps only the coach as the class's own; the cancel detaches it whole.
     expect(classes.slice(0, 3).map((c) => [c.edited, c.values.changed])).toEqual([
-      [true, true],
+      [false, null],
       [true, true],
       [false, null],
     ]);
+    expect(await own(first.id)).toEqual([["coach", admin.id, now]]);
 
-    // The series moves to 07:00 with another coach and 10 places: every class nobody edited
-    // follows; the edited and the cancelled stay as they were.
+    // The series moves to 07:00 with another coach and 10 places: every class follows, the
+    // swapped one in all but its coach; the cancelled one stays as it was.
     await invoke(
       "record.update",
       { object: SERIES, id, values: { time: "07:00", coach: "Coach C", places: 10 } },
       as(now),
     );
     classes = await made(id);
-    expect(classes[0]?.values).toMatchObject({ coach: "Coach B", places: 12 });
-    expect(wallClock(classes[0]?.values.startsAt, "Australia/Sydney")).toBe("06:00");
+    expect(classes[0]?.values).toMatchObject({ coach: "Coach B", places: 10, changed: null });
+    expect(wallClock(classes[0]?.values.startsAt, "Australia/Sydney")).toBe("07:00");
     expect(classes[1]?.values).toMatchObject({ state: "cancelled", coach: "Coach A" });
     for (const c of classes.slice(2)) {
       expect(c.values).toMatchObject({ coach: "Coach C", places: 10, changed: null });
@@ -847,5 +859,277 @@ describe("review fixes: guarded plans, the horizon, from a date, Trash, cost", (
     expect(new Date(localDaysBefore(at, 7, "Australia/Sydney")).toISOString()).toBe(
       "2026-09-30T20:00:12.345Z",
     );
+  });
+});
+
+// --- Field-level exceptions (stage 45 step 1, ADR 0620) --------------------------------------------
+
+// A series change planned, then a hand edit to one of its classes committed before it: what two
+// people a moment apart would do. And the other way round. And one batch editing several classes
+// of one series beside the series itself (a bulk edit), which must not trip its own guards.
+const raceInput = z.object({
+  series: z.string(),
+  klass: z.string(),
+  seriesValues: z.record(z.string(), z.unknown()),
+  klassValues: z.record(z.string(), z.unknown()),
+  now: z.string(),
+});
+const changeThenEdit = defineOperation({
+  name: "fixture.changeThenEdit",
+  description: "Test fixture: plans a series change, then a class edit commits first.",
+  input: raceInput,
+  output: z.object({ ok: z.boolean() }),
+  permission: "records:write",
+  risk: "write",
+  async handler(input, ctx) {
+    await updateRecord(ctx, requireExtensionObject(SERIES), input.series, input.seriesValues);
+    await invoke(
+      "record.update",
+      { object: KLASS, id: input.klass, values: input.klassValues },
+      as(input.now),
+    );
+    return { ok: true };
+  },
+});
+const editThenChange = defineOperation({
+  name: "fixture.editThenChange",
+  description: "Test fixture: plans a class edit, then a series change commits first.",
+  input: raceInput,
+  output: z.object({ ok: z.boolean() }),
+  permission: "records:write",
+  risk: "write",
+  async handler(input, ctx) {
+    await updateRecord(ctx, requireExtensionObject(KLASS), input.klass, input.klassValues);
+    await invoke(
+      "record.update",
+      { object: SERIES, id: input.series, values: input.seriesValues },
+      as(input.now),
+    );
+    return { ok: true };
+  },
+});
+const bulkEdit = defineOperation({
+  name: "fixture.bulkEdit",
+  description: "Test fixture: several classes of one series and the series, in one batch.",
+  input: z.object({
+    series: z.string(),
+    klasses: z.array(z.string()),
+    coach: z.string(),
+    places: z.number(),
+  }),
+  output: z.object({ ok: z.boolean() }),
+  permission: "records:write",
+  risk: "write",
+  async handler(input, ctx) {
+    for (const k of input.klasses) {
+      await updateRecord(ctx, requireExtensionObject(KLASS), k, { coach: input.coach });
+    }
+    await updateRecord(ctx, requireExtensionObject(SERIES), input.series, {
+      places: input.places,
+    });
+    return { ok: true };
+  },
+});
+const fieldRaces = createInvoker(
+  createRegistry([...coreRegistry.list(), changeThenEdit, editThenChange, bulkEdit]),
+);
+
+const setCoach = (id: string, coach: string, now: string) =>
+  invoke("record.update", { object: KLASS, id, values: { coach } }, as(now));
+
+describe("field-level exceptions (ADR 0620)", () => {
+  it("a field set back by hand to the series' value follows it again; recurring.follow does it on purpose", async () => {
+    const now = "2029-01-01T00:00:00.000Z";
+    const id = await series({ firstDate: "2029-01-01" }, now);
+    await tick(now);
+    const [c0, c1] = await made(id);
+    if (!c0 || !c1) throw new Error("expected classes");
+    await setCoach(c0.id, "Coach B", now);
+    expect((await own(c0.id)).map((r) => r[0])).toEqual(["coach"]);
+    // Back to the series' own coach by hand: no longer an exception, and a later coach reaches it.
+    await setCoach(c0.id, "Coach A", now);
+    expect(await own(c0.id)).toEqual([]);
+    await setCoach(c1.id, "Coach B", now);
+    await invoke("record.update", { object: SERIES, id, values: { coach: "Coach D" } }, as(now));
+    let classes = await made(id);
+    expect(classes[0]?.values.coach).toBe("Coach D");
+    expect(classes[1]?.values.coach).toBe("Coach B");
+    expect(
+      await invoke("recurring.exceptions", { object: KLASS, id: c1.id }, as(now)),
+    ).toMatchObject({
+      generated: true,
+      series: { object: SERIES, id, date: c1.date },
+      detached: false,
+      fields: [{ field: "coach", setBy: admin.id, setAt: now }],
+    });
+    // "Follow the series": the field takes the series' value now, and follows from now on.
+    expect(
+      await invoke("recurring.follow", { object: KLASS, id: c1.id, fields: ["coach"] }, as(now)),
+    ).toEqual({ followed: ["coach"], kept: [], reattached: false });
+    classes = await made(id);
+    expect(classes[1]?.values.coach).toBe("Coach D");
+    expect(await own(c1.id)).toEqual([]);
+    await expect(
+      invoke("recurring.follow", { object: KLASS, id: c1.id, fields: ["name"] }, as(now)),
+    ).rejects.toMatchObject({ code: "invalid_input", details: { rule: "recurring_not_copied" } });
+    // A one-off has nothing to follow.
+    const oneOff = await invoke(
+      "record.create",
+      { object: KLASS, values: { name: "Open gym", startsAt: "2029-01-20T23:00:00.000Z" } },
+      as(now),
+    );
+    expect(
+      await invoke("recurring.exceptions", { object: KLASS, id: oneOff.id }, as(now)),
+    ).toMatchObject({ generated: false, detached: false, fields: [] });
+    await expect(
+      invoke("recurring.follow", { object: KLASS, id: oneOff.id }, as(now)),
+    ).rejects.toMatchObject({ details: { rule: "recurring_not_generated" } });
+  });
+
+  it("a class detached under the old rule stays detached on upgrade, and follows only when asked", async () => {
+    const now = "2029-02-05T00:00:00.000Z";
+    const id = await series({ firstDate: "2029-02-05" }, now);
+    await tick(now);
+    const [c0, c1, c2] = await made(id);
+    if (!c0 || !c1 || !c2) throw new Error("expected classes");
+    // c0's coach was swapped before ADR 0620: its whole occurrence marked edited, no exception.
+    await setCoach(c0.id, "Coach B", now);
+    await env.DB.prepare("UPDATE core_recurrence_occurrence SET edited_at = ? WHERE record_id = ?")
+      .bind(now, c0.id)
+      .run();
+    await env.DB.prepare("DELETE FROM core_recurrence_exception WHERE record_id = ?")
+      .bind(c0.id)
+      .run();
+    await invoke(
+      "record.update",
+      { object: SERIES, id, values: { places: 9, coach: "Coach C" } },
+      as(now),
+    );
+    let classes = await made(id);
+    // Nothing it had changes meaning: the series still leaves it alone.
+    expect(classes[0]?.values).toMatchObject({ coach: "Coach B", places: 12 });
+    expect(classes[2]?.values).toMatchObject({ coach: "Coach C", places: 9 });
+    expect(
+      await invoke("recurring.exceptions", { object: KLASS, id: c0.id }, as(now)),
+    ).toMatchObject({ detached: true, fields: [] });
+    // A person makes it follow the places again and keep its coach: the coach is its exception.
+    expect(
+      await invoke("recurring.follow", { object: KLASS, id: c0.id, fields: ["places"] }, as(now)),
+    ).toEqual({ followed: ["places"], kept: ["coach"], reattached: true });
+    classes = await made(id);
+    expect(classes[0]).toMatchObject({ edited: false, values: { coach: "Coach B", places: 9 } });
+    expect((await own(c0.id)).map((r) => r[0])).toEqual(["coach"]);
+    await invoke(
+      "record.update",
+      { object: SERIES, id, values: { places: 7, coach: "Coach E" } },
+      as(now),
+    );
+    classes = await made(id);
+    expect(classes[0]?.values).toMatchObject({ coach: "Coach B", places: 7 });
+    // A class moved by hand is still detached whole, and cannot follow without moving.
+    const later = new Date(Date.parse(String(c1.values.startsAt)) + 3_600_000).toISOString();
+    await invoke(
+      "record.update",
+      { object: KLASS, id: c1.id, values: { startsAt: later } },
+      as(now),
+    );
+    classes = await made(id);
+    expect(classes[1]).toMatchObject({ edited: true, values: { changed: true } });
+    await expect(
+      invoke("recurring.follow", { object: KLASS, id: c1.id }, as(now)),
+    ).rejects.toMatchObject({ code: "conflict", details: { rule: "recurring_moved" } });
+    // Cancelled (or past) classes are never changed by their series.
+    await invoke(
+      "record.update",
+      { object: KLASS, id: c2.id, values: { state: "cancelled" } },
+      as(now),
+    );
+    await expect(
+      invoke("recurring.follow", { object: KLASS, id: c2.id }, as(now)),
+    ).rejects.toMatchObject({ code: "conflict", details: { rule: "recurring_past" } });
+    await invoke("record.update", { object: SERIES, id, values: { coach: "Coach F" } }, as(now));
+    expect((await made(id))[2]?.values).toMatchObject({ state: "cancelled", coach: "Coach E" });
+  });
+
+  it("a date the series drops goes even with a coach swapped on it, and its exceptions with it", async () => {
+    const now = "2029-03-05T00:00:00.000Z";
+    const id = await series({ firstDate: "2029-03-05" }, now);
+    await tick(now);
+    const [first] = await made(id);
+    if (!first) throw new Error("expected a class");
+    await setCoach(first.id, "Coach B", now);
+    const drop = new Date(`${first.date}T00:00:00Z`).getUTCDay() === 2 ? ["thu"] : ["tue"];
+    await invoke("record.update", { object: SERIES, id, values: { weekdays: drop } }, as(now));
+    expect((await made(id)).map((c) => c.id)).not.toContain(first.id);
+    expect(await own(first.id)).toEqual([]);
+  });
+
+  it("a series change and a hand edit racing: exactly one commits, and neither is lost", async () => {
+    const now = "2029-04-02T00:00:00.000Z";
+    const id = await series({ firstDate: "2029-04-02" }, now);
+    await tick(now);
+    const [c0, c1] = await made(id);
+    if (!c0 || !c1) throw new Error("expected classes");
+    // The swap commits under a series change planned before it: the change fails, whole.
+    await expect(
+      fieldRaces.invoke(
+        "fixture.changeThenEdit",
+        {
+          series: id,
+          klass: c0.id,
+          seriesValues: { coach: "Coach Z" },
+          klassValues: { coach: "Coach B" },
+          now,
+        },
+        as(now),
+      ),
+    ).rejects.toMatchObject({ code: "conflict", details: { rule: "recurring_stale" } });
+    let classes = await made(id);
+    expect(classes[0]?.values.coach).toBe("Coach B");
+    expect(classes[1]?.values.coach).toBe("Coach A");
+    // Made again, it reads the swap: the swapped class keeps it, the rest follow.
+    await invoke("record.update", { object: SERIES, id, values: { coach: "Coach Z" } }, as(now));
+    classes = await made(id);
+    expect(classes.slice(0, 3).map((c) => c.values.coach)).toEqual([
+      "Coach B",
+      "Coach Z",
+      "Coach Z",
+    ]);
+    // A series change commits under a swap planned before it: the swap fails, whole.
+    await expect(
+      fieldRaces.invoke(
+        "fixture.editThenChange",
+        {
+          series: id,
+          klass: c1.id,
+          seriesValues: { coach: "Coach W" },
+          klassValues: { coach: "Coach W" },
+          now,
+        },
+        as(now),
+      ),
+    ).rejects.toMatchObject({ code: "conflict", details: { rule: "recurring_stale" } });
+    classes = await made(id);
+    expect(classes[1]?.values.coach).toBe("Coach W");
+    expect(await own(c1.id)).toEqual([]);
+  });
+
+  it("one batch editing several classes of a series and the series itself commits", async () => {
+    const now = "2029-05-07T00:00:00.000Z";
+    const id = await series({ firstDate: "2029-05-07" }, now);
+    await tick(now);
+    const [c0, c1, c2] = await made(id);
+    if (!c0 || !c1 || !c2) throw new Error("expected classes");
+    await fieldRaces.invoke(
+      "fixture.bulkEdit",
+      { series: id, klasses: [c0.id, c1.id], coach: "Coach B", places: 5 },
+      as(now),
+    );
+    const classes = await made(id);
+    expect(classes.slice(0, 3).map((c) => [c.values.coach, c.values.places])).toEqual([
+      ["Coach B", 5],
+      ["Coach B", 5],
+      ["Coach A", 5],
+    ]);
   });
 });

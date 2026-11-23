@@ -932,8 +932,9 @@ export async function updateRecord(
     },
   );
   prepared = withHostValues(prepared, withValues(outcome, spent.values), object);
-  // A record a series made, changed by anyone but the host, is its own from now on (ADR 0500).
-  const edited = generatedRecordEdited(
+  // A record a series made, changed by anyone but the host: the fields changed are its own, or
+  // the whole record when its time or state changed (ADRs 0500 and 0620).
+  const edited = await generatedRecordEdited(
     ctx,
     object,
     id,

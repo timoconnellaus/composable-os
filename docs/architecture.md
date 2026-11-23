@@ -1096,9 +1096,15 @@ records up to its horizon (56 days by default): a series is due when written, an
 in its zone. `core_recurrence_occurrence` (migration 0560) keys each record on the series and
 its local date in the batch that creates it, so nothing is made twice. 06:00 stays 06:00 across a
 clock change; a time in a change's gap moves forward by the gap, one that happens twice is the
-first. A record staff change (time, copied fields, state) is marked edited and left alone; a
-change to the series reaches the rest at once, in its batch, and moving or cancelling records
-with places taken needs `recurring.change` with the count confirmed. Closures cancel the records
+first. A copied field staff change on one record (a coach swapped) is that record's own field
+exception (`core_recurrence_exception`, migration 0810, with who and when; [ADR
+0620](adr/0620-field-level-exceptions-in-recurring.md)): the series never writes it again and
+still writes the rest; set back by hand to the series' value, or `recurring.follow`, it follows
+again (`recurring.exceptions` reads them). A record whose time or state staff change is detached
+whole and left alone, as are those detached before ADR 0620. A change to the series reaches its
+future records at once, field by field, in its batch, and moving or cancelling records with places
+taken needs `recurring.change` with the count confirmed. Edits to a series' records guard and bump
+its version, so an edit and a series change racing cannot overwrite each other. Closures cancel the records
 they cover and nothing is made in them (`recurring.close` with the count when they cover booked
 records). Runs and changes are planned from a read and guarded at commit (`core_write_guard`: the
 series' version, each planned record's places), so a race fails as a conflict instead of leaving
