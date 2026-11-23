@@ -19,8 +19,7 @@ and `bound.ts`, `server/mcp/handler.ts`, `apps/runner/src/index.ts`, `automation
 `extensions/shipped-list.ts`, `packages/auth/src/index.ts`, `packages/release/src/update.ts`.
 
 Status: **spec agreed** (the owner chose the design on 2026-11-23, decisions 1 to 6, and answered
-the open questions the same day, decisions 7 to 11). One question is still open and blocks
-nothing: whether Workers for Platforms is switched off.
+the open questions the same day, decisions 7 to 12).
 
 This stage replaces most of stage 46. What stage 46 decided about people and promises stands
 (its decisions 13 to 22); how a hosted client's Workers are laid out does not.
@@ -104,7 +103,7 @@ The first client is the gym that stage 27 was built for.
 | 1 | Dozens of gyms on a standard product are expected, so the layout is chosen for that |
 | 2 | **One host, a database per client.** The host is deployed once; each client's records are in a Durable Object of its own |
 | 3 | The gym of stage 27 becomes the standard, if it can: the standard product is built from its setup, and it is the first client |
-| 4 | Workers for Platforms is not the layout. Its checks are recorded in stage 46: a host's own Workers cannot be bound to each other, consume queues or run Workflows inside a namespace. Routing all three through a fleet Worker was tested and works, and was not chosen |
+| 4 | The host itself does not run per client in a Workers for Platforms namespace. The checks are recorded in stage 46: a host's own Workers cannot be bound to each other, consume queues or run Workflows inside one. Routing all three through a fleet Worker was tested and works, and was not chosen. (Recorded here at first as "Workers for Platforms is not used", which the owner had not said: see decision 12) |
 | 5 | A set of Workers per client (built today) is not the layout for hosted clients either: it does not fit dozens of gyms |
 | 6 | Stage 46's decisions 13 to 22 stand: hostnames on `composableos.app`, the fleet's account, usage reported before limits are set, a moved client's old copy kept 90 days, our repositories while a client is hosted, and the leaving promise |
 
@@ -117,13 +116,15 @@ The first client is the gym that stage 27 was built for.
 | 9 | **A client in its own account, and a self-hosted install, stay as built,** on D1 | question 3 |
 | 10 | **Staging is a second deployment** holding every client's staging environment. Each release runs there before live | question 4 |
 | 11 | **The first client starts with its own web app and repository.** The standard web app and settings-only gyms are the next stage, with their own interview | question 5 |
+| 12 | **Workers for Platforms holds each client's own code that has to be a Worker.** In this stage that is a bespoke client's web app: one Worker each, in a namespace, calling the shared host. Later it is also where a client's own gatekeeper would go, as a second Worker. A client's own records, tools and automations stay extensions, run in the host's sandbox | question 6, which proposed switching it off |
 
 ## The design in one page
 
 ```
- customer ─► gym-a.com ─► standard web app ─┐
- customer ─► ghetto.com ─► Ghetto's web app ─┤ HOST binding, the client fixed on the binding
- staff ────► gym-a-admin.composableos.app ───┤
+ customer ─► gym-a.com ─► standard web app ───────────────────┐
+ customer ─► ghetto.com ─► cos-front ─► Ghetto's web app ──────┤ HOST binding, the client fixed on it
+                          (namespace cos-clients: clients' code)│
+ staff ────► gym-a-admin.composableos.app ─────────────────────┤
                                              ▼
         ┌──────────────── the host, deployed once ────────────────┐
         │ app ──► runner ──► gatekeepers        queues, Workflows │
@@ -264,8 +265,9 @@ endpoint id says which client's connection it is for.
 - **`cos client add <id>`** writes the registry row, creates the database, applies migrations,
   installs the product's packs and the client's own extensions, and prints the two hostnames. No
   Worker is uploaded.
-- **`cos deploy`** in a hosted client's repository uploads its web app (with the client fixed on
-  its `HOST` binding), stores its own extensions and updates its registry settings. It never
+- **`cos deploy`** in a hosted client's repository uploads its web app into the namespace (with
+  the client fixed on its `HOST` binding), stores its own extensions and updates its registry
+  settings. It never
   uploads the host.
 - **An update of the host** is the deploy engine's update, with the database steps done for every
   client: pause, then for each client bookmark and migrate, then upload the Workers once, smoke
@@ -281,11 +283,25 @@ endpoint id says which client's connection it is for.
   client's files, its videos by creator, its secrets. Export then install in the client's own
   account is the leaving promise; a removed client's export is kept 90 days.
 
-### What is not shared
+### A client's own code
 
-A client's own web app is its own Worker, as today. A client's own extensions are data in the
-host, run by Worker Loader. A client in its own Cloudflare account runs the same release as a
-single-client deployment.
+- **Its web app** is one Worker of the client's code, in the Workers for Platforms namespace
+  `cos-clients` (decision 12). It does not count toward the account's limit of 500 Workers, and
+  it sits apart from our own Workers.
+  - `cos-front`, a small Worker of ours, receives requests for clients' web hostnames, looks the
+    hostname up in the registry and passes the request to that client's web Worker, with a CPU
+    and subrequest limit. It never derives a Worker from the hostname.
+  - The web Worker's `HOST` binding points at the host's `ClientApp` with the client fixed on the
+    binding. Stage 46's checks showed a namespace Worker can call an ordinary Worker's named
+    entrypoint this way, and that the receiving side can refuse another client.
+  - A web Worker has that one binding and nothing else: no database, bucket or secret of ours.
+- **Its extensions** are data in the host, run by Worker Loader with no network, as today.
+- **Its own gatekeeper,** when a client needs one, would be a second Worker in the namespace that
+  the runner calls for that client only. Not in this stage; the namespace and `cos-front` leave
+  room for it. It is kept apart from the web Worker because it holds credentials and can reach
+  the internet.
+- **A client in its own Cloudflare account** runs the same release as a single-client deployment,
+  with its web app as an ordinary Worker.
 
 ## Out of scope
 
@@ -295,7 +311,8 @@ single-client deployment.
 - Charging for usage, and limits.
 - Moving the single-client deployment off D1.
 - Selling the hosted CRM by sign-up, and the stage 10 control plane, which is unchanged.
-- Workers for Platforms.
+- A client's own gatekeeper (decision 12 leaves room for it).
+- Running the host per client in a namespace.
 
 ## Acceptance criteria
 
@@ -314,8 +331,9 @@ single-client deployment.
 7. Each cron's work runs for every active client, and one client's failure does not stop the
    others'.
 8. An unknown hostname gets a 404 and reaches no client's data.
-9. A client's own web app, through its `HOST` binding, can reach only its own client, whatever
-   hostname or header it sends.
+9. A client's own web app runs in the namespace and is reached only through `cos-front`. Through
+   its `HOST` binding it can reach only its own client, whatever hostname or header it sends, and
+   it holds no other binding.
 10. No operation, extension or assistant tool can read or change a client's registry settings or
     secrets. Changing the approval floor is possible only through `cos` with the account's token.
 11. `cos client add` makes a working client with no Worker upload, in under a minute.
@@ -336,7 +354,7 @@ single-client deployment.
 ## Dependencies
 
 Stages 8, 22 to 28 and 31 as built. The fleet's account and `composableos.app` (stage 46,
-decisions 13 and 14). Nothing here needs Workers for Platforms.
+decisions 13 and 14). Workers for Platforms, on in that account, for clients' web apps.
 
 ## Migrations and numbers
 
@@ -358,7 +376,8 @@ the host's.
 5. **Module-level caches and the two-client suite.** Criterion 5.
 6. **Secrets and addresses per client;** gatekeeper callbacks on one address. Criterion 10.
 7. **`cos client add`, the update, export, import, remove.** Criteria 11 to 14.
-8. **Hostnames:** `composableos.app` addresses, then custom hostnames for a client's own domain.
+8. **Hostnames, `cos-front` and the namespace:** `composableos.app` addresses, a client's web
+   app in the namespace, then custom hostnames for a client's own domain.
 9. **The first client,** staging then live. Criterion 15.
 10. **Usage.** Criterion 16.
 11. Docs, skills and the ADR amendments. Criterion 17.
@@ -381,5 +400,4 @@ Steps 2 and 3 can run side by side; 4 and 6 after 3.
 
 ## Questions for the owner
 
-1. **Shall Workers for Platforms be switched off?** Nothing in this design uses it. Only the
-   owner can cancel it. It blocks nothing.
+None open. Decisions 7 to 12 answer them.

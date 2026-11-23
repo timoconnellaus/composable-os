@@ -40,7 +40,12 @@ database for each client. It can open a different Durable Object for each.
 - **The three tiers of ADR 0610 stand.** Standard and bespoke clients are both clients of the
   shared host; a bespoke client adds its own web app and extensions. The own-account tier is a
   single-client deployment.
-- **Workers for Platforms is not used.** Neither is a set of Workers per hosted client.
+- **The host does not run per client,** neither in a Workers for Platforms namespace nor as a
+  set of ordinary Workers for each hosted client.
+- **Workers for Platforms holds a client's own code that has to be a Worker:** a bespoke
+  client's web app now, one Worker each, calling the shared host with the client fixed on its
+  binding; a client's own gatekeeper later. This is the use the product is made for: our Worker
+  calling, or being called by, one Worker of a customer's code.
 
 ## Consequences
 - **One deploy reaches every client.** A bad release does too. Updates go to a staging deployment
