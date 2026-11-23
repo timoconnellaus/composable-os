@@ -986,13 +986,25 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
       await changeOrder(ctx, row, "cancelled", { person_id: null }, "host");
     }
   }
+  // An unconfirmed checkout is closed when it is theirs, or when they are its payer (who would be
+  // charged), whoever the holder is (a guardian paying for a child). A holder-only erase with a
+  // live payer leaves the payer's checkout open.
   ctx.write(
     ctx.db
       .updateTable("core_subscription_checkout")
       .set({ email: null, erased_at: ctx.now })
       .where("subscription_ref", "is", null)
       .where("erased_at", "is", null)
-      .where(theirSubscription),
+      .where(sql<SqlBool>`(${theirSubscription}) OR payer_person_id IN ${ids}`),
+  );
+  // On any checkout or subscription they are on (payer or holder), an address of their own goes;
+  // nothing else of the other Person's is touched. A live subscription whose payer is erased
+  // keeps billing as the provider runs it (ADR 0646: left for later).
+  const onIt = sql<SqlBool>`(payer_person_id IN ${ids} OR holder_person_id IN ${ids})
+    AND email IS NOT NULL AND lower(email) IN ${addresses}`;
+  ctx.write(
+    ctx.db.updateTable("core_subscription_checkout").set({ email: null }).where(onIt),
+    ctx.db.updateTable("core_subscription").set({ email: null }).where(onIt),
   );
   for (const part of chunk(orders.map((o) => o.id))) {
     ctx.write(

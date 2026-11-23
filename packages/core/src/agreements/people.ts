@@ -161,7 +161,9 @@ export async function buyerAcceptances(
             AND (c.payer_person_id IS NULL OR c.payer_person_id IN ${people})
             AND (c.holder_person_id IS NULL OR c.holder_person_id IN ${people}))
           OR (c.id IS NOT NULL AND c.payer_person_id IS NULL AND c.holder_person_id IS NULL
-            AND lower(c.email) IN ${addrs}))
+            AND lower(c.email) IN ${addrs})
+          -- An unconfirmed checkout they would have paid for: erase closes it, whoever holds it.
+          OR (c.id IS NOT NULL AND c.subscription_ref IS NULL AND c.payer_person_id IN ${people}))
         AND a.id > ${after}
       ORDER BY a.id
       LIMIT ${GUEST_BATCH}`.execute(ctx.db);

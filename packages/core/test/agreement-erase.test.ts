@@ -1906,3 +1906,105 @@ describe("the erase preview (round 2, finding 4d)", () => {
     }
   });
 });
+
+describe("a checkout or subscription shared by payer and holder (round 2, the coordinator's split)", () => {
+  /** An unconfirmed checkout and a live subscription paid by `payer` for `holder`. */
+  async function shared(label: string, payer: { id: string; email: string }, holderId: string) {
+    const checkout = await run<{ subscriptionId: string }>(
+      "subscription.start",
+      {
+        plan: { object: PLAN, id: plan },
+        returnUrl: RETURN,
+        email: payer.email,
+        agreements: guestAgrees(),
+      },
+      as(PUBLIC),
+    );
+    await env.DB.prepare(
+      "UPDATE core_subscription_checkout SET payer_person_id = ?, holder_person_id = ? WHERE id = ?",
+    )
+      .bind(payer.id, holderId, checkout.subscriptionId)
+      .run();
+    // A live subscription between the same two, as the provider's confirmation would make it.
+    const subscriptionId = `sbs_${unique(label)}`;
+    const now = new Date().toISOString();
+    await env.DB.prepare(
+      `INSERT INTO core_subscription (id, payer_person_id, holder_person_id, email, placed_as,
+         plan_object, plan_id, plan_title, amount, currency, interval, state, provider, provider_ref,
+         cancel_at_period_end, observed_at, created_at, updated_at, version)
+       VALUES (?, ?, ?, ?, 'public', ?, ?, 'Monthly', 4000, ?, 'month', 'active', 'fake', ?, 0, ?, ?, ?, 0)`,
+    )
+      .bind(
+        subscriptionId,
+        payer.id,
+        holderId,
+        payer.email,
+        PLAN,
+        plan,
+        CURRENCY,
+        `fsub_${subscriptionId}`,
+        now,
+        now,
+        now,
+      )
+      .run();
+    return { checkout: checkout.subscriptionId, subscriptionId };
+  }
+
+  it("the payer erased, the holder live: the checkout closes and loses the payer's address; the subscription keeps everything but that address", async () => {
+    const payer = await createBuyer(admin, "spay");
+    const holder = await createBuyer(admin, "shold");
+    const { checkout, subscriptionId } = await shared(
+      "pe",
+      { id: payer.principal.personId, email: payer.email },
+      holder.principal.personId,
+    );
+    const subBefore = await row("core_subscription", "id", subscriptionId);
+    await erase(payer.principal.personId);
+    expect(await row("core_subscription_checkout", "id", checkout)).toMatchObject({
+      erased_at: expect.any(String),
+      email: null,
+      holder_person_id: holder.principal.personId,
+    });
+    // Its buyer's acceptances go with it: nothing will be confirmed for them.
+    expect(await rows("core_agreement_acceptance", "subscription_checkout", checkout)).toEqual([]);
+    const sub = await row("core_subscription", "id", subscriptionId);
+    expect(sub).toMatchObject({
+      email: null,
+      holder_person_id: holder.principal.personId,
+      state: "active",
+    });
+    expect({
+      ...sub,
+      email: subBefore?.email,
+      payer_person_id: subBefore?.payer_person_id,
+    }).toEqual(subBefore);
+    expect(await row("core_customer", "person_id", holder.principal.personId)).not.toBeNull();
+  });
+
+  it("the holder erased, the payer live: the payer's checkout stays open and keeps the payer's address", async () => {
+    const payer = await createBuyer(admin, "lpay");
+    const holder = await createBuyer(admin, "ehold");
+    const { checkout, subscriptionId } = await shared(
+      "he",
+      { id: payer.principal.personId, email: payer.email },
+      holder.principal.personId,
+    );
+    const checkoutBefore = await row("core_subscription_checkout", "id", checkout);
+    const acceptances = await rows("core_agreement_acceptance", "subscription_checkout", checkout);
+    const subBefore = await row("core_subscription", "id", subscriptionId);
+    await erase(holder.principal.personId);
+    // Only the holder's reference goes (the database's own ON DELETE SET NULL); the rest is the
+    // payer's, untouched.
+    expect(await row("core_subscription_checkout", "id", checkout)).toEqual({
+      ...checkoutBefore,
+      holder_person_id: null,
+    });
+    expect(await rows("core_agreement_acceptance", "subscription_checkout", checkout)).toEqual(
+      acceptances,
+    );
+    const sub = await row("core_subscription", "id", subscriptionId);
+    expect(sub).toMatchObject({ email: payer.email, payer_person_id: payer.principal.personId });
+    expect({ ...sub, holder_person_id: subBefore?.holder_person_id }).toEqual(subBefore);
+  });
+});

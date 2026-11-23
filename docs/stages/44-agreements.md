@@ -1633,9 +1633,11 @@ Deviations and decisions, and why:
 - **The open desk session** (decision 22) has no table yet: step 6 must end a Person's open session
   on erase and keep a closed one detached with the acceptances it made.
 
-cos-runner's main module is 5,624 KiB as shipped after the second review's fixes, on `main` at 42fe315b (budget 7,168).
+cos-runner's main module is 5,625 KiB as shipped after the second review's fixes, on `main` at 42fe315b (budget 7,168).
 
-A Person purged from the Trash owes the same scrub of their copies (the same trigger). Not built
+A Person purged from the Trash owes the same scrub of their copies (the same trigger). Left for later (an issue to file): a live subscription whose payer is erased keeps billing at
+the provider and the holder keeps what it grants; erase has never ended a subscription, and what
+it should do (cancel at the provider, tell staff, refund) is stage 32's decision. Not built
 here: a download link on the kept page (no screen downloads a PDF yet, as
 step 4 said). Not verified: the scrub against the real email-send and integration host together
 (each is tested with the other's double), and the purge against D1 at a scale of thousands of kept

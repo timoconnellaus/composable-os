@@ -198,3 +198,14 @@ of a copy that was waiting for a person.
 - **No cap makes anyone un-erasable.** The addresses an erased Person's agreements hold are read in
   bounded batches, however many; the erased-address list is written 20 rows a statement (D1 binds
   at most 100 values), which a person with more than 25 addresses used to exceed.
+- **A checkout or subscription shared by a payer and a holder** (a guardian paying for a child).
+  An unconfirmed checkout whose payer is erased is closed whoever holds it (the payer is who would
+  be charged), and its buyer's acceptances go with it. On any checkout or subscription the erased
+  Person is on, as payer or holder, its address is cleared when it is one of their own; nothing
+  else of the other Person's is touched (the plan changes' reasons only when every Person on it is
+  erased), and a holder-only erase leaves a live payer's purchase as it is apart from that.
+  **A live subscription whose payer is erased keeps billing**: the host does not cancel it with
+  the provider, and the holder keeps what it grants. This predates this step (erase has never
+  ended a subscription) and is left for later: what erasing a paying Person should do to their
+  running subscriptions (cancel at the provider, tell staff, refund) is a decision for stage 32's
+  owner.
