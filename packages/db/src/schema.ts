@@ -1206,6 +1206,29 @@ export interface CoreRecurrenceOccurrenceTable {
   record_id: string;
   edited_at: Defaulted<string | null>;
   created_at: string;
+  /** Migration 0810: bumped by a hand write to the record and by a change of its series. */
+  version: Defaulted<number>;
+}
+
+/** Migration 0810: guards on occurrences' versions (stores nothing; its trigger checks). */
+export interface CoreRecurrenceGuardTable {
+  kind: "occurrence" | "occurrences";
+  object_type: string;
+  record_id: string;
+  from_date: string | null;
+  expected: number;
+}
+
+/**
+ * Migration 0810 (stage 45 step 1, ADR 0620): a copied field a generated record keeps as its own.
+ * The series writes the record's other fields and never this one, until it is cleared.
+ */
+export interface CoreRecurrenceExceptionTable {
+  object_type: string;
+  record_id: string;
+  field: string;
+  set_by: string;
+  set_at: string;
 }
 
 /** Migration 0533 (stage 32b, ADR 0493): an allowance holder's terms, kept from its record. */
@@ -2615,6 +2638,8 @@ export interface CoreDatabase {
   core_sellable_refund_due: CoreSellableRefundDueTable;
   core_recurrence_series: CoreRecurrenceSeriesTable;
   core_recurrence_occurrence: CoreRecurrenceOccurrenceTable;
+  core_recurrence_exception: CoreRecurrenceExceptionTable;
+  core_recurrence_guard: CoreRecurrenceGuardTable;
   core_write_guard: CoreWriteGuardTable;
   core_allowance: CoreAllowanceTable;
   core_allowance_period: CoreAllowancePeriodTable;

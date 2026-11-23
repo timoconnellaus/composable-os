@@ -46545,7 +46545,8 @@
         "record.list",
         "record.similar",
         "record.version",
-        "record.versions"
+        "record.versions",
+        "recurring.exceptions"
       ]
     },
     {
@@ -46849,7 +46850,8 @@
         "record.list",
         "record.similar",
         "record.version",
-        "record.versions"
+        "record.versions",
+        "recurring.exceptions"
       ]
     },
     {
@@ -46913,7 +46915,8 @@
         "record.list",
         "record.similar",
         "record.version",
-        "record.versions"
+        "record.versions",
+        "recurring.exceptions"
       ]
     },
     {
@@ -46970,7 +46973,8 @@
         "record.list",
         "record.similar",
         "record.version",
-        "record.versions"
+        "record.versions",
+        "recurring.exceptions"
       ]
     },
     {
@@ -47334,7 +47338,8 @@
         "record.list",
         "record.similar",
         "record.version",
-        "record.versions"
+        "record.versions",
+        "recurring.exceptions"
       ]
     },
     {
@@ -47651,7 +47656,8 @@
         "record.list",
         "record.similar",
         "record.version",
-        "record.versions"
+        "record.versions",
+        "recurring.exceptions"
       ]
     },
     {
@@ -47719,7 +47725,8 @@
         "record.list",
         "record.similar",
         "record.version",
-        "record.versions"
+        "record.versions",
+        "recurring.exceptions"
       ]
     },
     {
@@ -47805,7 +47812,8 @@
         "record.list",
         "record.similar",
         "record.version",
-        "record.versions"
+        "record.versions",
+        "recurring.exceptions"
       ]
     },
     {
@@ -47913,7 +47921,8 @@
         "record.list",
         "record.similar",
         "record.version",
-        "record.versions"
+        "record.versions",
+        "recurring.exceptions"
       ]
     },
     {
@@ -48014,7 +48023,8 @@
         "record.list",
         "record.similar",
         "record.version",
-        "record.versions"
+        "record.versions",
+        "recurring.exceptions"
       ]
     },
     {
@@ -48236,7 +48246,8 @@
         "record.list",
         "record.similar",
         "record.version",
-        "record.versions"
+        "record.versions",
+        "recurring.exceptions"
       ]
     },
     {
@@ -48338,7 +48349,8 @@
         "record.list",
         "record.similar",
         "record.version",
-        "record.versions"
+        "record.versions",
+        "recurring.exceptions"
       ]
     },
     {
@@ -48624,7 +48636,17 @@
         ],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [
+        "record.compareVersions",
+        "record.count",
+        "record.get",
+        "record.groups",
+        "record.list",
+        "record.similar",
+        "record.version",
+        "record.versions",
+        "recurring.exceptions"
+      ]
     },
     {
       "name": "recurring.close",
@@ -48687,7 +48709,190 @@
         ],
         "additionalProperties": false
       },
+      "invalidates": [
+        "record.compareVersions",
+        "record.count",
+        "record.get",
+        "record.groups",
+        "record.list",
+        "record.similar",
+        "record.version",
+        "record.versions",
+        "recurring.exceptions"
+      ]
+    },
+    {
+      "name": "recurring.exceptions",
+      "description": "Read what a record made by a recurring schedule (a class from its timetable line) keeps as its own instead of following its series: the fields changed by hand on it (a coach swapped for that date), with who changed each and when, and whether it is detached from its series whole (its time or state was changed by hand). A later change to the series still reaches every other field of it. A one-off record answers generated false.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 81
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "object",
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "generated": {
+            "type": "boolean"
+          },
+          "series": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "object": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "date": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "object",
+                  "id",
+                  "date"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "detached": {
+            "type": "boolean"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "setBy": {
+                  "type": "string"
+                },
+                "setAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "field",
+                "setBy",
+                "setAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "generated",
+          "series",
+          "detached",
+          "fields"
+        ],
+        "additionalProperties": false
+      },
       "invalidates": []
+    },
+    {
+      "name": "recurring.follow",
+      "description": "Make fields of a record made by a recurring schedule (a class) follow its series again: each named field (default every field the series sets: its coach, room, places) takes the series' value now and follows later changes to it. A record detached from its series whole follows it again too, provided its time is still the series' for its date (refused with rule recurring_moved otherwise); the fields not named that differ from the series stay its own. Refused for a past, cancelled or finished record. Returns the fields that follow the series and those kept.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 81
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "fields": {
+            "description": "The fields to follow the series again (at least one); leave it out for every field the series sets.",
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        },
+        "required": [
+          "object",
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "followed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "kept": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "reattached": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "followed",
+          "kept",
+          "reattached"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "record.compareVersions",
+        "record.count",
+        "record.get",
+        "record.groups",
+        "record.list",
+        "record.similar",
+        "record.version",
+        "record.versions",
+        "recurring.exceptions"
+      ]
     },
     {
       "name": "recurring.generate",
@@ -48740,7 +48945,17 @@
         ],
         "additionalProperties": false
       },
-      "invalidates": []
+      "invalidates": [
+        "record.compareVersions",
+        "record.count",
+        "record.get",
+        "record.groups",
+        "record.list",
+        "record.similar",
+        "record.version",
+        "record.versions",
+        "recurring.exceptions"
+      ]
     },
     {
       "name": "routine.backtest",
