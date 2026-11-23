@@ -144,6 +144,8 @@ export interface ObjectDefinition {
   unique?: readonly UniqueDefinition[];
   /** Extension objects: a weekly schedule generating records of another object (ADR 0500). */
   recurring?: RecurringDefinition;
+  /** Extension objects: a shift, who works it, when and on what (stage 45, ADR 0621). */
+  staffed?: StaffedDefinition;
   /**
    * The user field that holds the record's owner (ADR 0246): `ownerId` on people and
    * organisations, the declared `owner` of an extension object. Assignment rules set it.
@@ -536,6 +538,24 @@ export interface WaitlistDefinition {
 export interface UniqueDefinition {
   fields: readonly string[];
   states?: readonly string[] | undefined;
+}
+
+/**
+ * The SDK's StaffedSpec (ADR 0621) with registry names: fields are the object's own (local names
+ * are registry names), and `who.object` is the registry name of the record holding the account
+ * when the person is a relation (a class's coach profile).
+ */
+export interface StaffedDefinition {
+  who: { field: string; account?: string | undefined; object?: string | undefined };
+  starts: string;
+  ends: string;
+  zone?: string | undefined;
+  kind: string;
+  live: readonly string[];
+  place?: string | undefined;
+  pattern?: { link: string; who: string } | undefined;
+  payBefore?: { field: string } | undefined;
+  payAfter?: { field: string } | undefined;
 }
 
 /** The SDK's RecurringScheduleSpec with the objects' registry names (ADR 0500). */

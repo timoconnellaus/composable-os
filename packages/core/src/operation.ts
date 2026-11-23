@@ -65,6 +65,11 @@ export interface RecordChange {
    * rule's name as `assignedBy`.
    */
   assignment?: { field: string; rule: string } | undefined;
+  /**
+   * A shift's warnings (stage 45, ADR 0622): the write was made with them, not refused. The audit
+   * row's summary records them beside the record.
+   */
+  warnings?: readonly { code: string; account: string | null; message: string }[] | undefined;
 }
 
 /** A link from an activity or task to a record. */
@@ -428,7 +433,10 @@ export interface OperationDefinition<
   /**
    * Open to customers only from inside a pack's tool they called (ADR 0414): a direct call gets
    * the unknown-operation answer. For the generic record writes (`my.create`, `my.update`),
-   * which a customer never calls themselves. Shown in open-operations.json.
+   * which a customer never calls themselves. Shown in open-operations.json. A staff operation may
+   * be tool-only too (stage 45, ADR 0621: the host's staffing operations): reached only from an
+   * extension tool's run, never by a person, MCP or the assistant directly, and left out of the
+   * HTTP contract.
    */
   toolOnly?: boolean;
   /**
@@ -591,8 +599,9 @@ export function operationProblems(op: AnyOperation): string[] {
   if (op.toolOnly !== undefined) {
     if (op.toolOnly !== true) problems.push("toolOnly is true or left out");
     if (op.name?.startsWith("x.")) problems.push("an extension tool cannot be toolOnly");
-    if (!audiencesOf(op).includes("customer")) {
-      problems.push("toolOnly is only for an operation open to customer callers");
+    const audiences = audiencesOf(op);
+    if (!audiences.includes("customer") && !(audiences.length === 1 && audiences[0] === "staff")) {
+      problems.push("toolOnly is for an operation open to customer callers, or to staff only");
     }
   }
   if (isOpenOutside(op) && op.alwaysReview) {

@@ -10,6 +10,7 @@ import type { DocumentPathSpec, DocumentSchema } from "./document.ts";
 import type { FieldTypeName } from "./field-types.ts";
 import type { RecurringScheduleSpec } from "./recurring.ts";
 import type { SellableSpec } from "./sellable.ts";
+import type { StaffedSpec } from "./staffed.ts";
 import type { StatesSpec } from "./states.ts";
 import type { UniqueSpec } from "./unique.ts";
 
@@ -279,6 +280,12 @@ export interface ObjectSpec {
    * ADR 0500): a timetable's series and its classes.
    */
   recurring?: RecurringScheduleSpec;
+  /**
+   * A shift (see StaffedSpec, ADR 0621): who works the record, when, and on what kind of work.
+   * The host refuses, in the database, one account on two overlapping shifts, and answers each
+   * write with its warnings (away, not qualified, no one on it).
+   */
+  staffed?: StaffedSpec;
   /**
    * The record's owner: a `user` field of this object (ADR 0246, stage 14). Assignment rules set
    * it when a record is created without one, and stage 14's visibility policies read it.

@@ -314,6 +314,15 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
         message: `A runtime extension cannot make ${name} something customers and the public can buy. ${why}`,
       });
     }
+    // Who works when feeds pay, and claims staff accounts' time (ADR 0621): a reviewed change.
+    if (object.staffed) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.staffed`,
+        message: `A runtime extension cannot declare ${name} a shift staff work. ${why}`,
+      });
+    }
   }
   return issues;
 }

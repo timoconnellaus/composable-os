@@ -40,6 +40,7 @@ import { checkFormula, type FormulaFieldRef } from "./formula/compile.ts";
 import { checkObjectRecurring, recurringManifestSchema } from "./recurring.ts";
 import { renamedMessage } from "./renamed.ts";
 import { checkObjectSellable, sellableManifestSchema } from "./sellable.ts";
+import { checkObjectStaffed, staffedManifestSchema } from "./staffed.ts";
 import { checkObjectStates, resolveFieldPath, statesManifestSchema } from "./states.ts";
 import { checkObjectUnique, uniqueManifestSchema } from "./unique.ts";
 
@@ -214,6 +215,7 @@ export const objectManifestSchema = z.object({
   claims: claimsManifestSchema.optional(),
   unique: uniqueManifestSchema.optional(),
   recurring: recurringManifestSchema.optional(),
+  staffed: staffedManifestSchema.optional(),
   owner: z.string().max(40).optional(),
   customer: z
     .object({
@@ -1058,6 +1060,7 @@ export function validateManifest(
     checkObjectClaims(m, name, object, contract);
     checkObjectUnique(m, name, object, contract);
     checkObjectRecurring(m, name, object, contract);
+    checkObjectStaffed(m, name, object, contract);
     object.requireOneOf?.forEach((group, i) => {
       for (const field of group) {
         if (!object.fields[field]) {

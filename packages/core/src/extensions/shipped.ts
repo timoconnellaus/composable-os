@@ -6,6 +6,7 @@ import type { CrmDb } from "@composable-os/db";
 import { toOperationError } from "../errors.ts";
 import type { GateFloor } from "../gate.ts";
 import { invokeByName } from "../invoke.ts";
+import { notifyStatements } from "../notifications/send.ts";
 import { SYSTEM_USER } from "../users.ts";
 import type { ExtensionHost, ShippedExtension } from "./host.ts";
 
@@ -49,6 +50,7 @@ async function installOne(
   options: { db: CrmDb; host: ExtensionHost; floor?: GateFloor },
   shipped: ShippedExtension,
 ): Promise<ShippedInstallResult> {
+  let commit: string | null = null;
   try {
     const installed = await options.db.query
       .selectFrom("core_extensions")
@@ -59,7 +61,7 @@ async function installOne(
       return { id: shipped.id, outcome: "ejected" };
     }
     if (!installed && shipped.optional) return { id: shipped.id, outcome: "available" };
-    const { commit } = await options.host.commitShipped(shipped.id);
+    commit = (await options.host.commitShipped(shipped.id)).commit;
     const row = await options.db.query
       .selectFrom("core_extensions")
       .select(["commit_oid"])
@@ -84,6 +86,38 @@ async function installOne(
   } catch (error) {
     const typed = toOperationError(error);
     console.error(`installing shipped extension ${shipped.id} failed`, typed.toJSON());
+    await tellAdmins(options.db, shipped.id, commit, typed.message);
     return { id: shipped.id, outcome: "failed", error: typed.message };
+  }
+}
+
+/**
+ * A shipped extension this release could not install or upgrade (a reconcile refused over the
+ * records there, stage 45: shifts that clash) is told to the admins in the product, once per
+ * release of it, with why: the old version keeps running until they put the records right. Never
+ * throws: the boot carries on.
+ */
+async function tellAdmins(
+  db: CrmDb,
+  id: string,
+  commit: string | null,
+  why: string,
+): Promise<void> {
+  try {
+    const plan = await notifyStatements(
+      db.query,
+      {
+        to: [{ role: "admin" }],
+        type: "system.message",
+        title: `The ${id} extension could not be upgraded`,
+        body: `${why.slice(0, 1500)} It keeps running as it was; it is tried again on the next start.`,
+        dedupeKey: `shipped-install-failed:${id}:${commit ?? "unknown"}`,
+        source: { actor: "system" },
+      },
+      new Date().toISOString(),
+    );
+    if (plan.statements.length) await db.batch(plan.statements);
+  } catch (error) {
+    console.error(`could not tell the admins that ${id} failed to install`, error);
   }
 }
