@@ -1633,7 +1633,7 @@ Deviations and decisions, and why:
 - **The open desk session** (decision 22) has no table yet: step 6 must end a Person's open session
   on erase and keep a closed one detached with the acceptances it made.
 
-cos-runner's main module is 5,560 KiB as shipped after merging `main` at e3a90293 (budget 7,168; `main` 5,531).
+cos-runner's main module is 5,619 KiB as shipped after merging `main` at 42fe315b (budget 7,168).
 
 A Person purged from the Trash owes the same scrub of their copies (the same trigger). Not built
 here: a download link on the kept page (no screen downloads a PDF yet, as
