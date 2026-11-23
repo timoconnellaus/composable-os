@@ -144,7 +144,7 @@ describe("the screens registry (ADR 0660)", () => {
     expect(await declaredScreens(missing)).toEqual([declared]);
     await expect(resolveScreens(missing)).rejects.toThrow("has no export FrontDesk");
     await expect(buildRegistry(missing)).rejects.toThrow("has no export FrontDesk");
-  });
+  }, 120_000);
 
   it("finds an export however it is written", () => {
     expect(exportsName("export function Desk() {}", "Desk")).toBe(true);

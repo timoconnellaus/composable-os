@@ -257,6 +257,7 @@ One build session may take all four; step 4 must not land without 1 to 3.
   install). `screens.mine` (`packages/core/src/operations/screens.ts`): two statements; the gate is
   `staffAuthority` per tool, with the tool's audience and actors; empty for any actor but a person.
   `PACK_ROLE_CORE_READS = ["screens.mine"]` in `pack-roles.ts` is the one widening of pack roles.
+  Not exposed to MCP (`mcp.expose: false`): the admin's read, and empty for an MCP client anyway.
 - **Step 2.** `apps/app/screens-plugin.ts` (`virtual:cos-screens`: a lazy loader per screen, every
   pack's hooks for `/blocks`, an empty module on the server); `pack-blocks-plugin.ts` now runs in
   the build too. `/s/$pack/$screen` (`ssr: false`), record tabs `s:<pack>.<screen>` in
@@ -266,8 +267,9 @@ One build session may take all four; step 4 must not land without 1 to 3.
   account gets `FixedRoleLayout` (its screens, account menu without the email read, sign out; its
   home lists its screens or says its work is in the app); every other path throws `notFound()` in
   `_app`'s `beforeLoad`. Root and `_app` "not found" is one page (`components/not-found.tsx`).
-- **Step 4.** Screens declared in Bookings, Memberships, Rostering, Programs and Courses (gates in
-  ADR 0660). E2E through the admin's navigation: `bookings.spec.ts` (the desk as an admin, the
+- **Step 4.** Screens declared in Bookings, Memberships, Rostering (with step 4b's checklists:
+  My shifts with each duty's checklist, and the rosterers' Checklists), Programs and Courses
+  (gates in ADR 0660). E2E through the admin's navigation: `bookings.spec.ts` (the desk as an admin, the
   class list's tab, a coach's shell, ticking and the desk granted and removed, a coach granted the
   desk), `rostering-blocks.spec.ts` (the roster week, my shifts, offers, my calendar, pay; Pay
   "not found" for the team). A production build is checked by `apps/app/test-node/
