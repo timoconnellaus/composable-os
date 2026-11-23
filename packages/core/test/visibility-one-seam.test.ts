@@ -109,8 +109,10 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   // Stage 32b (ADR 0493): a spend checks its Person is not in the Trash, in the write's own path.
   "agreements/due.ts": [2, WHY.agreements],
   // Stage 44 step 4 (ADR 0645): the signed PDF names whom it is for, and a paper copy goes to
-  // the Person's own address; read only after the operation checked who may have it.
-  "agreements/copy.ts": [2, WHY.agreements],
+  // the Person's own address; read only after the operation checked who may have it. A child's
+  // paper copy reads the child's live guardians (ADR 0648), each then shown only if the seam lets
+  // the member of staff see them (`agreement.copy.preview`).
+  "agreements/copy.ts": [4, WHY.agreements],
   // Stage 44 step 8 (ADR 0646): erase finds a buyer's unsettled purchases by the erased Person's
   // address or id, and reads the erased Person's names (to find the paper forms that name them),
   // inside person.erase, which only an admin calls.
