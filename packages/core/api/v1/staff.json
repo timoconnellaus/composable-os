@@ -76971,11 +76971,16 @@
           },
           "zone": {
             "type": "string"
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "Cut short: more shifts than one answer holds; ask for fewer days"
           }
         },
         "required": [
           "shifts",
-          "zone"
+          "zone",
+          "truncated"
         ],
         "additionalProperties": false
       },
@@ -78112,11 +78117,16 @@
           },
           "zone": {
             "type": "string"
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "Cut short: more shifts than one answer holds; ask for fewer days"
           }
         },
         "required": [
           "shifts",
-          "zone"
+          "zone",
+          "truncated"
         ],
         "additionalProperties": false
       },

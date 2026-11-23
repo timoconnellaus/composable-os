@@ -1350,7 +1350,8 @@ Every shift in a range, with who works each (`staffing.week`, through Rostering'
 `mine`): never a class's bookings, places or members. A **rosterer** may roster others: an admin,
 or an account granted `rostering:manage` (restricted, ADR 0625); a rosterer is told what changes the
 roster (takes, lapses, leave over shifts, a shift just left uncovered, the daily list of uncovered
-shifts; ADR 0624) and sees each shift's warnings. The **pattern** is its regular week (a class
+shifts; ADR 0624) and sees each shift's warnings. With Rostering installed, only a rosterer says who
+works a shift, by any path; anyone else offers their own. The **pattern** is its regular week (a class
 series' coach, a duty series' person); an **exception** is one date changed from it, and only that
 field leaves the series (a field exception, built: ADR 0620). Not Bookings' tool `roster`, which is
 a class's list.

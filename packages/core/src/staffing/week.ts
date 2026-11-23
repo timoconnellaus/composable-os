@@ -42,8 +42,8 @@ export interface RosterShift {
   warnings: StaffWarning[] | null;
 }
 
-/** The most shifts one object gives one read. */
-const PER_OBJECT = 1000;
+/** The most shifts one object gives one read; more, and the answer says it was cut short. */
+export const PER_OBJECT = 1000;
 
 // biome-ignore lint/suspicious/noExplicitAny: x_* tables are not in CoreDatabase; names come from the registry.
 type AnyDb = import("kysely").Kysely<any>;
@@ -85,8 +85,9 @@ export async function rosterRange(
   range: { from: number; to: number; account?: string | undefined },
   reader: string,
   options: { warnings: boolean; uncoveredDays: number },
-): Promise<RosterShift[]> {
+): Promise<{ shifts: RosterShift[]; truncated: boolean }> {
   const out: RosterShift[] = [];
+  let truncated = false;
   const lo = new Date((range.from - 86_400) * 1000).toISOString();
   const hi = new Date((range.to + 86_400) * 1000).toISOString();
   const people = new Map<string, string>();
@@ -120,8 +121,13 @@ export async function rosterRange(
         AND ${sql.ref(starts)} >= ${lo} AND ${sql.ref(starts)} < ${hi}
         AND CAST(strftime('%s', ${sql.ref(starts)}) AS INTEGER) >= ${range.from}
         AND CAST(strftime('%s', ${sql.ref(starts)}) AS INTEGER) < ${range.to}
-      ORDER BY ${sql.ref(starts)} LIMIT ${PER_OBJECT}`.execute(ctx.db);
+      ORDER BY ${sql.ref(starts)} LIMIT ${PER_OBJECT + 1}`.execute(ctx.db);
     if (!rows.rows.length) continue;
+    // More than one read gives: the answer says it was cut short (ask for fewer days).
+    if (rows.rows.length > PER_OBJECT) {
+      truncated = true;
+      rows.rows.length = PER_OBJECT;
+    }
     // Whose each shift is: the user field itself, or its holder's account (a coach profile's).
     const accountOf = new Map<string, string | null>();
     if (def.who.account && def.who.object) {
@@ -215,7 +221,10 @@ export async function rosterRange(
     }
   }
   if (options.warnings) await addWarnings(ctx, out, options.uncoveredDays);
-  return out.sort((a, b) => a.startsAt.localeCompare(b.startsAt) || a.id.localeCompare(b.id));
+  return {
+    shifts: out.sort((a, b) => a.startsAt.localeCompare(b.startsAt) || a.id.localeCompare(b.id)),
+    truncated,
+  };
 }
 
 /**

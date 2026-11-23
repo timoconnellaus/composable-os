@@ -73,6 +73,8 @@ import { type ChangeMarks, CREATED, type MarkSource } from "../routine-mail/mark
 import { loadGeneralSettings } from "../settings.ts";
 import {
   assertHolderTrashable,
+  assertRosterRestore,
+  assertRosterWrite,
   holderWritten,
   type StaffWarning,
   staffedReleased,
@@ -711,6 +713,8 @@ export async function createRecord(
   prepared = withHostValues(prepared, withValues(outcome, spent.values), object);
   // One live record per declared key (ADR 0502); the database's index refuses a race.
   await assertUnique(ctx, object, id, valuesOf(prepared));
+  // Who works a shift, or a pattern's person: a rosterer's to say (ADR 0626).
+  await assertRosterWrite(ctx, object, null, valuesOf(prepared), by);
   // A shift: never one person on two at once, refused naming the other; its warnings (ADR 0621).
   await staffedWritten(ctx, object, id, null, valuesOf(prepared), { by });
   const own = prepared.filter((p) => p.own);
@@ -1116,6 +1120,14 @@ export async function updateRecord(
   // One live record per declared key (ADR 0502); the database's index refuses a race.
   if (object.unique)
     await assertUnique(ctx, object, id, { ...before.values, ...valuesOf(prepared) });
+  // Who works a shift, a pattern's person or a profile's account: a rosterer's to say (ADR 0626).
+  await assertRosterWrite(
+    ctx,
+    object,
+    before.values,
+    { ...before.values, ...valuesOf(prepared) },
+    by,
+  );
   // A shift (or the profile holding the account of some): never one person on two shifts at once,
   // refused naming the other; a shift's warnings (ADR 0621, 0622).
   await staffedWritten(
@@ -1551,6 +1563,8 @@ export const recordRestore = defineOperation({
     if (deletedAt === null) throw new ValidationError(`${input.id} is not in Trash`);
     // Its slug may have been taken while it was in the Trash (stage 28, ADR 0444).
     await assertRestorable(ctx, object, input.id);
+    // Back with someone on it (a shift's person, a series' regular person): a rosterer's (ADR 0626).
+    await assertRosterRestore(ctx, object, input.id);
     // A shift's time may have been given to its person meanwhile (ADR 0621): refused naming it.
     await staffedRestored(ctx, object, input.id);
     // A granted holder comes back only in a final state (ADR 0513).

@@ -31,6 +31,7 @@ import { orgReader, visibleSource } from "../visibility/index.ts";
 import { shiftRemoved, shiftWritten } from "./changes.ts";
 import {
   actingAccount,
+  assertMayRoster,
   mayRoster,
   queueNotice,
   rosterers,
@@ -265,6 +266,84 @@ export async function doubleBooked(
       other,
     },
   );
+}
+
+// --- Who may say who works (the review of PR #284, ADR 0626) ---------------------------------------
+
+/**
+ * The fields of `object` that say who works shifts: a staffed object's person; a series' field that
+ * is some staffed object's pattern (its regular person); and a holder's account (a coach profile's
+ * user, which puts that account on every shift naming the profile), the last only once it exists.
+ */
+function rosterFields(object: ObjectDefinition, creating: boolean): string[] {
+  const fields: string[] = [];
+  if (object.staffed) fields.push(object.staffed.who.field);
+  for (const o of listObjects()) {
+    const def = o.staffed;
+    if (!def) continue;
+    const link = def.pattern ? o.fields.find((f) => f.name === def.pattern?.link) : undefined;
+    if (def.pattern && link?.options?.to === object.name) fields.push(def.pattern.who);
+    if (!creating && def.who.account && def.who.object === object.name) {
+      fields.push(def.who.account);
+    }
+  }
+  return [...new Set(fields)];
+}
+
+/**
+ * A caller's write that sets or changes who works a shift, a pattern's person or a holder's account
+ * is a rosterer's, by every path that writes a record (create, update, createMany, import, a
+ * version restored, a series changed): refused otherwise, where a pack declares who rosters. The
+ * host's own writes (a take, a series' generation, a leaver taken off) are not the caller's.
+ * Creating a shift or a pattern with nobody on it stays open to whoever may write the object.
+ */
+export async function assertRosterWrite(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  before: Record<string, unknown> | null,
+  after: Record<string, unknown>,
+  by: Mover | undefined,
+): Promise<void> {
+  if (by === "host" || batchOf(ctx).taking) return;
+  const fields = rosterFields(object, before === null);
+  const changed = fields.filter((f) =>
+    before === null
+      ? text(after[f]) !== null
+      : Object.hasOwn(after, f) && !same(before[f], after[f]),
+  );
+  if (!changed.length) return;
+  await assertMayRoster(ctx, `say who works a ${object.label.toLowerCase()}`);
+}
+
+/**
+ * A record restored from the Trash that says who works shifts (a shift with its person, a series
+ * with its regular person, which the series then generates from): the caller's to say (ADR 0626).
+ */
+export async function assertRosterRestore(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string,
+): Promise<void> {
+  const fields = rosterFields(object, true);
+  const table = objectTableOf(object.name);
+  if (!fields.length || !table) return;
+  const columns = fields
+    .map((f) => object.fields.find((x) => x.name === f)?.column)
+    .filter((c): c is string => !!c);
+  if (!columns.length) return;
+  const row = (await (ctx.db as AnyDb)
+    .selectFrom(table)
+    .select(columns.map((c, i) => `${c} as f${i}`))
+    .where("id", "=", id)
+    .executeTakeFirst()) as Record<string, unknown> | undefined;
+  if (row && columns.some((_, i) => text(row[`f${i}`]) !== null)) {
+    await assertMayRoster(ctx, `restore a ${object.label.toLowerCase()} with someone on it`);
+  }
+}
+
+/** Whether `values` (a write of `object`) would set who works shifts: for an approval (ADR 0626). */
+export function setsRosterFields(object: ObjectDefinition, values: Record<string, unknown>) {
+  return rosterFields(object, false).some((f) => Object.hasOwn(values, f));
 }
 
 /** Notes a claim written (or released, null) by this batch, for the batch's later reads. */

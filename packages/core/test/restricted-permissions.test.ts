@@ -30,7 +30,14 @@ const pack = defineExtension({
   restricted: ["rpack:manage"],
   staffing: { rosters: "rpack:manage", settings: { offerCutoffMinutes: "cutoff" } },
   settings: {
-    cutoff: { type: "number", label: "Cut-off", default: 45, min: 0, max: 600 },
+    cutoff: {
+      type: "number",
+      label: "Cut-off",
+      default: 45,
+      min: 0,
+      max: 600,
+      personApproves: true,
+    },
     days: { type: "number", label: "Days", default: 10 },
   },
   objects: {},
@@ -190,6 +197,12 @@ describe("restricted pack permissions (ADR 0625)", () => {
     expect(
       issues((c) => {
         c.staffing = { rosters: "rpack:manage", settings: { uncoveredDays: "nope" } };
+      }),
+    ).toEqual([expect.stringContaining("staffing.settings.uncoveredDays")]);
+    // The roster's numbers are a person's to change: a setting an AI could write is refused.
+    expect(
+      issues((c) => {
+        c.staffing = { rosters: "rpack:manage", settings: { uncoveredDays: "days" } };
       }),
     ).toEqual([expect.stringContaining("staffing.settings.uncoveredDays")]);
     expect(

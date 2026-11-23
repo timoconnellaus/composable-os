@@ -20,6 +20,7 @@
 
 import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, sql } from "kysely";
+import { ForbiddenError } from "../errors.ts";
 import { notifyStatements } from "../notifications/send.ts";
 import type { NotificationLink } from "../notifications/types.ts";
 import type { HandlerContext } from "../operation.ts";
@@ -123,6 +124,30 @@ export async function isRosterer(db: Kysely<CoreDatabase>, account: string): Pro
 /** Whether the caller (the account the call is for) may roster other people. */
 export function mayRoster(ctx: HandlerContext): Promise<boolean> {
   return isRosterer(ctx.db, actingAccount(ctx));
+}
+
+/**
+ * Whether an installed, active, shipped pack declares who rosters (Rostering's `staffing`). Where
+ * none does (a product with Bookings alone), who is on a shift stays whoever may write the record,
+ * as before stage 45 step 4 (ADR 0626).
+ */
+export async function rosteringDeclared(db: Kysely<CoreDatabase>): Promise<boolean> {
+  return (await declarations(db)).length > 0;
+}
+
+/**
+ * Refuses the caller's write of who works a shift (or a pattern's person, or a coach profile's
+ * account) unless they roster, where a pack declares who rosters (ADR 0626, the review of PR #284).
+ * Putting someone on a shift, taking them off, or yourself, is a rosterer's; a person gives their
+ * own shift away by offering it.
+ */
+export async function assertMayRoster(ctx: HandlerContext, what: string): Promise<void> {
+  if (!(await rosteringDeclared(ctx.db))) return;
+  if (await mayRoster(ctx)) return;
+  throw new ForbiddenError(
+    `Only someone who rosters may ${what}. Offer your own shift instead, or ask whoever rosters.`,
+    { rule: "rostering" },
+  );
 }
 
 /** Every active rosterer's account: admins, and those granted the rosterers' permission. */

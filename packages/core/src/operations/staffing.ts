@@ -1180,7 +1180,8 @@ export const staffingWeek = defineOperation({
     "Tool-only (a shipped pack's tool): the roster, every live shift of every kind (classes, " +
     "duty shifts) from `from` to `to` (local dates in the organisation's zone, both included; at " +
     `most ${WEEK_MAX_DAYS} days), in order of start: its kind, title, times, place, who is on it ` +
-    "(and whether it is you), whether it has nobody on it, and its open offer. `mine` keeps " +
+    "(and whether it is you), whether it has nobody on it, and its open offer (`truncated` when " +
+    "more than 1,000 of one kind fall in the range). `mine` keeps " +
     "your own shifts, `account` one person's. Someone who rosters also gets each shift's " +
     "warnings. Never a class's bookings, places or list, nor any member. Read-only.",
   input: z.object({
@@ -1189,7 +1190,13 @@ export const staffingWeek = defineOperation({
     mine: z.boolean().optional().describe("Only your own shifts"),
     account: accountId.optional().describe("Only this person's shifts"),
   }),
-  output: z.object({ shifts: z.array(rosterShiftSchema), zone: z.string() }),
+  output: z.object({
+    shifts: z.array(rosterShiftSchema),
+    zone: z.string(),
+    truncated: z
+      .boolean()
+      .describe("More shifts than one answer holds (1,000 of a kind): ask for fewer days"),
+  }),
   permission: "records:read",
   risk: "read",
   toolOnly: true,
@@ -1214,13 +1221,13 @@ export const staffingWeek = defineOperation({
     const start = wallClockToInstant({ ...from, hour: 0, minute: 0 }, timezone) / 1000;
     const end = wallClockToInstant({ ...addLocalDays(to, 1), hour: 0, minute: 0 }, timezone) / 1000;
     const rosterer = await mayRoster(ctx);
-    const shifts = await rosterRange(
+    const { shifts, truncated } = await rosterRange(
       ctx,
       { from: start, to: end, account: input.mine ? actingAccount(ctx) : input.account },
       actingAccount(ctx),
       { warnings: rosterer, uncoveredDays: (await rosterNumbers(ctx.db)).uncoveredDays },
     );
-    return { shifts, zone: timezone };
+    return { shifts, zone: timezone, truncated };
   },
 });
 

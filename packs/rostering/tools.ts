@@ -57,7 +57,13 @@ const shift = z.object({
   warnings: z.array(warning).nullable().describe("For someone who rosters only"),
 });
 
-const roster = z.object({ shifts: z.array(shift), zone: z.string() });
+const roster = z.object({
+  shifts: z.array(shift),
+  zone: z.string(),
+  truncated: z
+    .boolean()
+    .describe("Cut short: more shifts than one answer holds; ask for fewer days"),
+});
 
 const summary = z.object({
   object: z.string(),

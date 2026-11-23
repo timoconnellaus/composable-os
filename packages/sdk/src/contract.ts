@@ -977,7 +977,10 @@ export interface ExtensionSpec {
 export interface StaffingRulesSpec {
   /** A restricted permission of this extension's tools: who holds it (and admins) roster. */
   rosters: string;
-  /** Number settings of this extension the host reads; the host's defaults when left out. */
+  /**
+   * Number settings of this extension the host reads, each `personApproves`; the host's defaults
+   * when left out.
+   */
   settings?: {
     /** Minutes before a shift starts that offers close (default 60). */
     offerCutoffMinutes?: string;

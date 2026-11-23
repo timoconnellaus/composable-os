@@ -188,7 +188,9 @@ extension declares it; it never implements it. Each behaviour the platform has i
   Rostering's (`packs/rostering`): they call the host's tool-only `staffing.*` operations, which act
   for the tool's verified caller; the pack declaring `staffing: { rosters, settings? }` (a
   restricted permission, and its number settings for the offer cut-off and the uncovered window)
-  sets who rosters and the numbers (ADR 0626).
+  sets who rosters and the numbers (ADR 0626), each number setting `personApproves`. With such
+  a pack installed, only a rosterer writes who works a shift (its person, a series' regular person,
+  a profile's account), by any path; never set one in a tool or an automation.
 - **`sellable`** on an object: its records can be bought (ticket types, passes, products). Only
   an object that declares it can go on an order, and the host reads its price and rules from the
   record: `sellable: { price: "<currency field>", saleWindow?: { from?, until? }, maxPerOrder?,

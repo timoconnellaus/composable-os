@@ -50,7 +50,9 @@ and the uncovered window were constants "until Rostering's setting"), and a hori
 
 **The roster's rules from the pack's settings.** A shipped pack declares `staffing: { rosters,
 settings? }`: the restricted permission whose holders roster (with admins), and which number
-settings are the offer cut-off and the uncovered window. The host reads them
+settings are the offer cut-off and the uncovered window, each a setting a person approves (the
+contract refuses one that is not: the roster's numbers are never an AI's to change). The host reads
+them
 (`rosterNumbers`, `isRosterer`, `rosterers` in `packages/core/src/staffing/rosterers.ts`): the
 setting's stored value, else its default, within bounds (0 to 10,080 minutes; 1 to 62 days); the
 host's defaults (60 minutes, 14 days) with no such pack. Only a shipped pack or the org's own may
@@ -59,10 +61,50 @@ declare it (`outside_audience`). Who rosters is now `rostering:manage` everywher
 operation, the `user.deactivate` notice. Nothing hard-codes admin but `isRosterer` itself (admins
 always may, decision 16).
 
+**Who says who works a shift: a rosterer, by every path** (added in the review of PR #284, a
+coordinator's decision the owner may override). Restricting the rosterers' tools alone was
+cosmetic: a member could write a duty shift's person, a class's coach or a duty series' regular
+person with `record.update`, putting themselves on any shift past the take's qualification check
+and cut-off. So, wherever an installed shipped pack declares who rosters (`staffing.rosters`), the
+host refuses (`forbidden`, `rule: "rostering"`) a caller's write that sets or changes:
+- a staffed object's person (`who`), on create (a shift made with someone on it) and update;
+- a pattern's person (a series field that is some staffed object's `pattern.who`), on create and
+  update, and so `recurring.change` of it;
+- a holder's account (a coach profile's `user`) once the profile exists (it puts that account on
+  every shift naming the profile; a new profile is nobody's shift yet);
+
+unless the caller (the account a tool was called for, or the calling account) rosters. Every path
+that writes a record reaches the check (`assertRosterWrite`, `staffing/index.ts`, called by
+`createRecord` and `updateRecord`): `record.create`, `record.update`, `record.createMany`,
+`record.import`, `recurring.change`, `record.restoreVersion` (no staffed object is publishable
+today). `recurring.follow` back to the pattern's person and `record.restore` of a shift or series
+with someone on it are refused the same way. There is no merge of extension records. Taking
+yourself off a shift this way is refused too: you offer it. Creating a shift or a pattern with
+nobody on it, and every other field, stay open to whoever may write the object. The host's own
+writes are not the caller's: a take (the batch notes the offer it takes), a series' generation and
+a change it carries to its records (`by: "host"`), `staffing.assign` (whose caller is a rosterer),
+and `user.deactivate` (the host's statements). **Where no installed pack declares who rosters (a
+product with Bookings alone), nothing changes**: whoever may write a class sets its coach, as
+before this step.
+
+For a product with Bookings and Rostering this changes Bookings' staff flows: a member can still
+make, move and edit a class and its series, but naming, changing or removing a coach (a class's, a
+series', or a coach profile's account) needs a rosterer (an admin, or a member granted
+`rostering:manage`). Bookings' tools write no coach, and its existing tests install no Rostering,
+so they are unchanged.
+
+**An AI's roster change is approved only by someone who could make it** (the review of PR #284,
+ADR 0480's rule): approving a pending call of a restricted tool (`assign`, `qualify`) needs a
+person who holds that tool themselves (`staffAuthority`, their role or a grant); approving a
+pending record write of who works a shift needs a person who rosters (`staffing/approvals.ts`).
+The requester's authority still holds at apply too: a proposer whose grant was taken away fails.
+
 **`recurring.horizonSetting`**: a number setting of the extension (days) that sets a series' horizon
 when it holds a value; `horizonDays` stays the default. The duty series' is the duty horizon.
 
-**The roster read**, `staffing.week { from, to, mine?, account? }` (tool-only, read): every live
+**The roster read**, `staffing.week { from, to, mine?, account? }` (tool-only, read; `truncated`
+when more than 1,000 shifts of one object fall in the range, so a reader is never shown a silently
+shortened roster): every live
 shift of every staffed object in a range of local dates (at most 62 days), set-based: the shift's
 object and id, title, kind and its name, times, zone, place, whether it has nobody on it or a person
 with no account, the person's account and name, whether it is the reader's, its open offer, and,
@@ -102,6 +144,15 @@ classes are steps 6 and 7's.
   for a person.
 - `packages/core/test/restricted-permissions.test.ts`: the rosterers by grant, and the numbers from
   the settings.
+- The review of PR #284 (`apps/runner/test/rostering.test.ts`): a duty shift's person by
+  `record.update` and `record.create` refused to a member, a viewer and a coach and made by a
+  granted rosterer and an admin; a member taking themselves or someone off refused; `createMany`
+  and `import` refused to a member; a series' person by create, update and `recurring.change`;
+  `recurring.follow`; a restore from the Trash; a class's coach and a coach profile's account; a
+  leaver still taken off; an AI's `assign` and an AI's coach swap refused to a member approver and
+  applied by a rosterer, and failing at apply once the proposer's grant is gone; a team tool called
+  from another pack's code or an automation answered `staff_caller`; the roster cut short says so
+  (`packages/core/test/staffing-offers.test.ts`).
 
 ## Consequences
 - The feed (step 5), pay (step 6) and the screens (step 7) are still to come; until step 7 the

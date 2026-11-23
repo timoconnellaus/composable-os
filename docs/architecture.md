@@ -1189,7 +1189,10 @@ offer cut-off, the uncovered window; 60 minutes and 14 days otherwise). The oper
 tool's verified caller (`ctx.extension.tool.calledBy`, never the input or the extension's own
 account). `staffing.week` is the roster read across every staffed object: times, kinds, places,
 who is on each and its open offer, and for a rosterer its warnings; never a booking, a place count
-or a Person. A leave note reaches only a person, never an assistant or the audit log.
+or a Person. A leave note reaches only a person, never an assistant or the audit log. Where a pack
+declares who rosters, a caller's write of who works a shift (a shift's person, a pattern's person,
+a coach profile's account), by any path, is a rosterer's (`assertRosterWrite`); an AI's such change,
+or its call of a restricted tool, is approved only by someone who could make it.
 
 `sellable.moves` ([ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md),
 `packages/core/src/orders/moves.ts` and `refund-due.ts`) is a paid line that moves a record that

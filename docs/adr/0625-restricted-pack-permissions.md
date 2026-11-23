@@ -57,6 +57,12 @@ to their own account (they hold it already, and would keep it once made a member
 marks each one `restricted`. A fixed-role account may be granted one (a coach who also rosters), as
 any pack permission (ADR 0600); never a core permission.
 
+**Approving one** (the review of PR #284): an assistant's or MCP client's call of a restricted
+tool that waits for a person (`personApproves`) is approved only by a person who holds the tool
+themselves (`staffAuthority` for the approver, as ADR 0480 holds a publish to the approver's
+permission); the requester's grant never stands in for the approver's, and is judged again when
+the action applies.
+
 **The caller of a pack's tool.** The runtime puts the tool's verified caller on the run, beside its
 name and flags: `ctx.extension.tool.calledBy: { account, actor }` (the pipeline's staff account, or
 the account an assistant or MCP client acts for; for an automation's or another extension's run,

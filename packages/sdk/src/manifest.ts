@@ -1783,6 +1783,12 @@ export function validateManifest(
           `staffing.settings.${key}`,
           `"${setting}" must be a number setting of this extension`,
         );
+      } else if (declared.personApproves !== true) {
+        // The roster's numbers decide when offers close and who is warned: a person's to change.
+        contract(
+          `staffing.settings.${key}`,
+          `"${setting}" must be a setting a person approves (personApproves): the roster's numbers are never an AI's to change`,
+        );
       }
     }
   }

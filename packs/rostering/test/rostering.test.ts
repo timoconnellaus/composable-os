@@ -66,7 +66,7 @@ const AWAY = {
 function hostWith(): TestHost {
   return createTestHost(rostering, {
     operations: {
-      "staffing.week": () => ({ shifts: [SHIFT], zone: "Australia/Sydney" }),
+      "staffing.week": () => ({ shifts: [SHIFT], zone: "Australia/Sydney", truncated: false }),
       "staffing.offers": () => ({ open: [{ ...OFFER, unavailable: false }], mine: [] }),
       "staffing.offer": () => ({ offer: OFFER, told: null }),
       "staffing.withdraw": () => ({ offer: { ...OFFER, state: "withdrawn" } }),

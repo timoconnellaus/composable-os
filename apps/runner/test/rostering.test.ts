@@ -80,6 +80,13 @@ export default defineExtension({
       risk: "read",
       handler: async (_input, ctx) => ({ uncovered: await ctx.ops.call("x.rostering.uncovered", {}) }),
     }),
+    weekRelay: defineTool({
+      description: "Test fixture: asks Rostering's team read for the roster, from another pack's code.",
+      input: z.object({}),
+      output: z.object({}).passthrough(),
+      risk: "read",
+      handler: async (_input, ctx) => ({ week: await ctx.ops.call("x.rostering.week", {}) }),
+    }),
   },
 });
 `,
@@ -732,5 +739,380 @@ describe("Bookings' coach fields are a person's to change (ADR 0626)", () => {
     await run("record.update", { object: CLASS, id: k, values: { notes: "Bring water" } }, ai);
     await run("record.update", { object: CLASS, id: k, values: { coach: other.profile } }, staff());
     expect((await get(CLASS, k)).coach).toBe(other.profile);
+  });
+});
+
+// --- The review of PR #284 ---------------------------------------------------------------------
+
+/** Whether a call was refused because only a rosterer may say who works a shift. */
+async function rosteringRefusal(promise: Promise<unknown>) {
+  const error = await refusal(promise);
+  expect([error.code, error.details?.rule]).toEqual(["forbidden", "rostering"]);
+}
+
+describe("who works a shift is a rosterer's to say, by every path (the review of PR #284, ADR 0626)", () => {
+  let member: ActingUser;
+  let viewer: ActingUser;
+  let coachUser: ActingUser;
+  let rosterer: ActingUser;
+  let victim: ActingUser;
+  beforeAll(async () => {
+    member = await account("Member Rex", "member");
+    viewer = await account("Viewer Vi", "viewer");
+    coachUser = (await coach("Coach Pat")).user;
+    rosterer = await account("Rosterer Ro", "member");
+    await grant(rosterer, [MANAGE]);
+    victim = await account("Victim Vic", "member");
+  });
+  const shiftValues = (inMs: number, staffId: string | null) => {
+    const startsAt = new Date(Date.now() + inMs).toISOString();
+    return {
+      duty,
+      startsAt,
+      endsAt: new Date(Date.parse(startsAt) + HOUR).toISOString(),
+      timezone: ZONE,
+      ...(staffId ? { staff: staffId } : {}),
+    };
+  };
+
+  it("a duty shift's person by record.update and record.create: refused to a member, a viewer and a coach; made by a rosterer and an admin", async () => {
+    let at = 30 * DAY;
+    const next = () => {
+      at += 3 * HOUR;
+      return at;
+    };
+    for (const who of [member, viewer, coachUser]) {
+      const shift = await dutyShift(next(), null);
+      const error = await refusal(
+        run(
+          "record.update",
+          { object: SHIFT, id: shift, values: { staff: victim.id } },
+          asUser(who),
+        ),
+      );
+      expect(error.code, who.name).toBe("forbidden");
+      expect((await get(SHIFT, shift)).staff ?? null).toBeNull();
+    }
+    // A member: refused for the rosterers' reason, on themselves too, and on a create.
+    const open = await dutyShift(next(), null);
+    await rosteringRefusal(
+      run(
+        "record.update",
+        { object: SHIFT, id: open, values: { staff: victim.id } },
+        asUser(member),
+      ),
+    );
+    await rosteringRefusal(
+      run(
+        "record.update",
+        { object: SHIFT, id: open, values: { staff: member.id } },
+        asUser(member),
+      ),
+    );
+    await rosteringRefusal(
+      run(
+        "record.create",
+        { object: SHIFT, values: shiftValues(next(), victim.id) },
+        asUser(member),
+      ),
+    );
+    // Creating one with nobody on it, and other fields of it, stay open to a member.
+    const theirs = await run<{ id: string }>(
+      "record.create",
+      { object: SHIFT, values: shiftValues(next(), null) },
+      asUser(member),
+    );
+    await run(
+      "record.update",
+      { object: SHIFT, id: theirs.id, values: { notes: "Mop" } },
+      asUser(member),
+    );
+    // A rosterer by grant, and an admin.
+    await run(
+      "record.update",
+      { object: SHIFT, id: open, values: { staff: victim.id } },
+      asUser(rosterer),
+    );
+    expect((await get(SHIFT, open)).staff).toBe(victim.id);
+    await run(
+      "record.update",
+      { object: SHIFT, id: theirs.id, values: { staff: victim.id } },
+      staff(),
+    );
+    // Nor may a member take someone, or themselves, off: they offer it instead.
+    await rosteringRefusal(
+      run("record.update", { object: SHIFT, id: open, values: { staff: null } }, asUser(member)),
+    );
+    await rosteringRefusal(
+      run("record.update", { object: SHIFT, id: open, values: { staff: null } }, asUser(victim)),
+    );
+  });
+
+  it("record.createMany and record.import: refused to a member, made by a rosterer", async () => {
+    await rosteringRefusal(
+      run(
+        "record.createMany",
+        { object: SHIFT, records: [shiftValues(40 * DAY, victim.id)] },
+        asUser(member),
+      ),
+    );
+    const imported = await run(
+      "record.import",
+      {
+        object: SHIFT,
+        records: [{ key: unique("k"), values: shiftValues(40 * DAY + 2 * HOUR, victim.id) }],
+      },
+      asUser(member),
+    ).catch((e: unknown) => e);
+    expect(JSON.stringify(imported)).toMatch(/rosters|rostering/);
+    expect(JSON.stringify(imported)).not.toContain('"created"');
+    const made = await run<{ ids: string[] }>(
+      "record.createMany",
+      { object: SHIFT, records: [shiftValues(40 * DAY + 4 * HOUR, victim.id)] },
+      asUser(rosterer),
+    );
+    expect(made.ids).toHaveLength(1);
+  });
+
+  it("a duty series' regular person, by record.create, record.update and recurring.change: a rosterer's", async () => {
+    const values = {
+      duty,
+      weekdays: ["mon"],
+      time: "05:00",
+      length: 30,
+      firstDate: localDate(60 * DAY),
+      timezone: ZONE,
+    };
+    await rosteringRefusal(
+      run(
+        "record.create",
+        { object: SERIES, values: { ...values, staff: victim.id } },
+        asUser(member),
+      ),
+    );
+    // With nobody on it, a member may make one; naming a person is a rosterer's.
+    const series = await run<{ id: string }>(
+      "record.create",
+      { object: SERIES, values },
+      asUser(member),
+    );
+    await rosteringRefusal(
+      run(
+        "record.update",
+        { object: SERIES, id: series.id, values: { staff: victim.id } },
+        asUser(member),
+      ),
+    );
+    await rosteringRefusal(
+      run(
+        "recurring.change",
+        { object: SERIES, id: series.id, values: { staff: victim.id }, confirm: 1 },
+        asUser(member),
+      ),
+    );
+    await run(
+      "record.update",
+      { object: SERIES, id: series.id, values: { staff: victim.id } },
+      asUser(rosterer),
+    );
+    await run(
+      "record.update",
+      { object: SERIES, id: series.id, values: { state: "ended" } },
+      staff(),
+    );
+  });
+
+  it("recurring.follow back to the pattern's person: a rosterer's", async () => {
+    const series = await create(SERIES, {
+      duty,
+      weekdays: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+      time: "04:00",
+      length: 20,
+      firstDate: localDate(2 * DAY),
+      lastDate: localDate(4 * DAY),
+      timezone: ZONE,
+      staff: victim.id,
+    });
+    await run("recurring.generate", { object: SERIES, id: series }, staff({ actor: "automation" }));
+    const made = await run<{ items: { id: string }[] }>(
+      "record.list",
+      { object: SHIFT, filter: { field: "series", op: "eq", value: series }, limit: 5 },
+      staff(),
+    );
+    const one = made.items[0]?.id as string;
+    await run("record.update", { object: SHIFT, id: one, values: { staff: rosterer.id } }, staff());
+    await rosteringRefusal(run("recurring.follow", { object: SHIFT, id: one }, asUser(member)));
+    expect((await get(SHIFT, one)).staff).toBe(rosterer.id);
+    await run("recurring.follow", { object: SHIFT, id: one }, asUser(rosterer));
+    expect((await get(SHIFT, one)).staff).toBe(victim.id);
+    await run("record.update", { object: SERIES, id: series, values: { state: "ended" } }, staff());
+  });
+
+  it("restoring a shift with its person from the Trash: a rosterer's", async () => {
+    const shift = await dutyShift(70 * DAY, victim.id);
+    await run("record.delete", { object: SHIFT, id: shift }, staff());
+    await rosteringRefusal(run("record.restore", { object: SHIFT, id: shift }, asUser(member)));
+    await run("record.restore", { object: SHIFT, id: shift }, asUser(rosterer));
+    expect((await get(SHIFT, shift)).staff).toBe(victim.id);
+  });
+
+  it("Bookings with Rostering: a class's coach, and a coach profile's account, are a rosterer's", async () => {
+    const a = await coach("Coach Ash");
+    const classValues = (inMs: number) => ({
+      classType: type,
+      startsAt: new Date(Date.now() + inMs).toISOString(),
+      endsAt: new Date(Date.now() + inMs + HOUR).toISOString(),
+      timezone: ZONE,
+      places: 10,
+    });
+    // A member makes a class with no coach, as before; naming one is a rosterer's.
+    const k = await run<{ id: string }>(
+      "record.create",
+      { object: CLASS, values: classValues(33 * DAY) },
+      asUser(member),
+    );
+    await rosteringRefusal(
+      run(
+        "record.update",
+        { object: CLASS, id: k.id, values: { coach: a.profile } },
+        asUser(member),
+      ),
+    );
+    await rosteringRefusal(
+      run(
+        "record.create",
+        { object: CLASS, values: { ...classValues(34 * DAY), coach: a.profile } },
+        asUser(member),
+      ),
+    );
+    await run(
+      "record.update",
+      { object: CLASS, id: k.id, values: { coach: a.profile } },
+      asUser(rosterer),
+    );
+    // Giving a's profile to another account would put it on every class of the profile.
+    const spare = await account("Spare Sam", "member");
+    await rosteringRefusal(
+      run(
+        "record.update",
+        { object: "bookings.coach", id: a.profile, values: { user: spare.id } },
+        asUser(member),
+      ),
+    );
+    // A new profile with an account is nobody's shift yet: open to whoever may write it.
+    await run(
+      "record.create",
+      { object: "bookings.coach", values: { name: unique("Coach"), user: victim.id } },
+      asUser(member),
+    );
+  });
+
+  it("the host's own writes are not the caller's: a leaver is taken off their shifts", async () => {
+    const leaver = await account("Leaver Lou", "member");
+    const shift = await dutyShift(80 * DAY, leaver.id);
+    const asked = await refusal(run("user.deactivate", { id: leaver.id }, staff()));
+    const count = Number((asked.details as { count?: number } | undefined)?.count ?? 1);
+    await run("user.deactivate", { id: leaver.id, confirm: count }, staff());
+    expect((await get(SHIFT, shift)).staff ?? null).toBeNull();
+  });
+});
+
+describe("an AI's roster change is approved only by someone who could make it (the review of PR #284)", () => {
+  async function pendingId(promise: Promise<unknown>): Promise<string> {
+    const e = await refusal(promise);
+    expect(e.code).toBe("pending_approval");
+    return (e.details as { actionId: string }).actionId;
+  }
+  const ai = (user: ActingUser) =>
+    asUser(user, { actor: "assistant", origin: { surface: "assistant" } });
+
+  it("a restricted tool's call: a member's approval is refused, a rosterer's applies", async () => {
+    const proposer = await account("Proposer Pam", "member");
+    await grant(proposer, [MANAGE]);
+    const approver = await account("Approver Al", "member");
+    await grant(approver, [MANAGE]);
+    const target = await account("Target Tia", "member");
+    const plain = await account("Plain Pete", "member");
+    const shift = await dutyShift(90 * DAY, null);
+    const id = await pendingId(
+      run("x.rostering.assign", { object: SHIFT, id: shift, account: target.id }, ai(proposer)),
+    );
+    expect((await refusal(run("approval.approve", { actionIds: [id] }, asUser(plain)))).code).toBe(
+      "forbidden",
+    );
+    expect((await get(SHIFT, shift)).staff ?? null).toBeNull();
+    await run("approval.approve", { actionIds: [id] }, asUser(approver));
+    expect((await get(SHIFT, shift)).staff).toBe(target.id);
+  });
+
+  it("revoking the proposer's grant still fails the apply, whoever approves", async () => {
+    const proposer = await account("Proposer Pia", "member");
+    await grant(proposer, [MANAGE]);
+    const target = await account("Target Ty", "member");
+    const shift = await dutyShift(91 * DAY, null);
+    const id = await pendingId(
+      run("x.rostering.assign", { object: SHIFT, id: shift, account: target.id }, ai(proposer)),
+    );
+    await grant(proposer, []);
+    await run("approval.approve", { actionIds: [id] }, staff()).catch(() => undefined);
+    expect((await get(SHIFT, shift)).staff ?? null).toBeNull();
+  });
+
+  it("an AI's change of a class's coach: a member's approval is refused, a rosterer's applies", async () => {
+    const a = await coach("Coach Cy");
+    const b = await coach("Coach Di");
+    const k = await klass(35 * DAY, a.profile);
+    const rosterer = await account("Rosterer Ray", "member");
+    await grant(rosterer, [MANAGE]);
+    const plain = await account("Plain Peg", "member");
+    const id = await pendingId(
+      run(
+        "record.update",
+        { object: CLASS, id: k, values: { coach: b.profile } },
+        staff({ actor: "assistant", origin: { surface: "assistant" } }),
+      ),
+    );
+    expect((await refusal(run("approval.approve", { actionIds: [id] }, asUser(plain)))).code).toBe(
+      "forbidden",
+    );
+    expect((await get(CLASS, k)).coach).toBe(a.profile);
+    await run("approval.approve", { actionIds: [id] }, asUser(rosterer));
+    expect((await get(CLASS, k)).coach).toBe(b.profile);
+  });
+});
+
+describe("a tool's caller is the person the host verified (ADR 0625)", () => {
+  it("another pack's code, or an automation, calling a team tool is refused as no staff caller", async () => {
+    const viaPack = await refusal(run("x.rosterrelay.weekRelay", {}, staff()));
+    expect(JSON.stringify(viaPack)).toContain("staff_caller");
+    const viaAutomation = await refusal(
+      run(
+        "x.rostering.week",
+        {},
+        staff({
+          actor: "automation",
+          origin: { surface: "automation", automationId: "fixture.probe" },
+        }),
+      ),
+    );
+    expect(JSON.stringify(viaAutomation)).toContain("staff_caller");
+  });
+
+  it("a runtime extension may not declare the roster's rules", async () => {
+    const out = await run<{ issues: { code: string; path: string }[] }>(
+      "extension.check",
+      {
+        id: "rogue",
+        files: {
+          "index.ts": `import { defineExtension } from "@composable-os/sdk";
+export default defineExtension({ id: "rogue", version: "0.1.0", contractVersion: 1, objects: {}, staffing: { rosters: "rogue:x" } });
+`,
+        },
+      },
+      staff(),
+    );
+    expect(out.issues.some((i) => i.code === "outside_audience" && i.path === "staffing")).toBe(
+      true,
+    );
   });
 });

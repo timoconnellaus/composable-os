@@ -895,6 +895,18 @@ migration; no `core_write_guard` remake (0852 stays free).
   spec's `awayFor`, for the unavailability screen; a tool may declare input fields the audit log
   never keeps (`redact`), used for the leave note (the tool's own audit row held it); an assistant
   reading its own person's time off gets the times without the notes (step 3 gave it the notes).
+- **Who works a shift is a rosterer's to say, by every path** (the review of PR #284; a
+  coordinator's decision the owner may override): where a pack declares who rosters, a caller's
+  write of a shift's person, a pattern's person or a coach profile's account is refused unless
+  they roster, by record writes, imports, series changes, `recurring.follow` and restores; the
+  host's own writes (a take, the generation, a leaver) are not refused. A product with Bookings
+  alone is unchanged. An AI's roster change is approved only by someone who could make it. See
+  ADR 0626. (Step 4 as first written restricted only the tools: a member could still write a
+  shift's person directly.)
+- **A `rostering.team` account may be granted `rostering:manage`** by a human admin, and then rosters
+  (ADR 0625 allows a fixed-role account any pack permission; a coach who also rosters is the case
+  the spec names). This is deliberate.
+- **The roster read says when it is cut short** (`truncated`, past 1,000 shifts of one object).
 - **Not in this step**: `markNotWorked` and the pay tools and settings (step 6, so `rostering:pay`
   is not declared yet: a permission must be a tool's), `feed`/`feedRotate` (step 5), the checklist
   (4b), the dashboards and screens (7), `staffName` with `staffing.forget`, the notices' words in

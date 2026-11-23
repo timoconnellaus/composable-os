@@ -41,6 +41,7 @@ import {
   patternNotApplied,
   personDeactivated,
 } from "../staffing/index.ts";
+import { assertMayRoster } from "../staffing/rosterers.ts";
 import {
   isoWeekday,
   localParts,
@@ -782,6 +783,11 @@ export async function followSeries(
   }
   const changed = def.into.changed;
   if (reattached && changed && record[changed] === true) values[changed] = null;
+  // Back to the pattern's person is still a change of who works it: a rosterer's (ADR 0626).
+  const who = object.staffed?.who.field;
+  if (who && Object.hasOwn(values, who)) {
+    await assertMayRoster(ctx, `put a ${object.label.toLowerCase()} back to its pattern's person`);
+  }
   if (Object.keys(values).length) {
     // The series' values, so their marks are the series' (ADR 0590); places raised to what is
     // claimed are the host's own.
