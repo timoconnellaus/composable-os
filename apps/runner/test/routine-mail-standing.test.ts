@@ -1,7 +1,8 @@
 // Who stands behind what a tool or an automation writes (ADR 0590, the third and fourth reviews),
 // as the marks the host keeps: a runtime extension's tool (authored in the app) writes as an AI
-// even when a person clicks it, except the values the person gave it (a shipped pack's tool writes
-// as the host: Bookings' bookFor, in routine-mail-reads.test.ts); a run that used a model, or read
+// even when a person clicks it, the values the person typed included (a shipped pack's tool writes
+// as the host, the person's own values theirs: Bookings' bookFor, in routine-mail-reads.test.ts);
+// a run that used a model, or read
 // outside text through a gatekeeper, writes as an AI from then on, not even the person's values
 // kept; what a run reads back from its storage is never a person's; an automation authored in the
 // app writes as an AI, so mail it causes is held. A field default taken from an extension setting
@@ -83,6 +84,16 @@ export default defineExtension({
         return { id: out.id };
       },
     }),
+    copyTo: defineTool({
+      description: "Writes what the person typed into another item.",
+      risk: "write",
+      input: z.object({ id: z.string(), note: z.string() }),
+      output: z.object({ ok: z.boolean() }),
+      async handler({ id, note }, ctx) {
+        await ctx.ops.call("record.update", { object: "${ITEM}", id, values: { note } });
+        return { ok: true };
+      },
+    }),
     make: defineTool({
       description: "Makes an item named as given, with a note of its own.",
       risk: "write",
@@ -143,12 +154,22 @@ beforeAll(async () => {
 describe("a runtime extension's tool a person runs (the fourth review, M1)", {
   timeout: 60_000,
 }, () => {
-  it("writes as an AI, except the values the person gave it", async () => {
+  it("writes as an AI, the values the person typed too (the fifth review)", async () => {
     const name = unique("Given");
     const { id } = await op<{ id: string }>(`x.${EXT}.make`, { name });
-    expect(await markOf(id, "name")).toBe("person");
+    expect(await markOf(id, "name")).toBe("ai");
     expect(await markOf(id, "note")).toBe("ai");
     expect(await markOf(id, "$created")).toBe("ai");
+  });
+
+  it("the person's typed value written into another record is an AI's too", async () => {
+    const other = await op<{ id: string }>("record.create", {
+      object: ITEM,
+      values: { name: unique("Other") },
+    });
+    const typed = unique("Typed");
+    await op(`x.${EXT}.copyTo`, { id: other.id, note: typed });
+    expect(await markOf(other.id, "note")).toBe("ai");
   });
 
   it("writes as an AI after reading through a gatekeeper, the person's values too (L2)", async () => {

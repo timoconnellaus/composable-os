@@ -11,11 +11,13 @@ import {
 import { db } from "./helpers.ts";
 
 describe("a tool's run (the fourth review, M1 and L1)", () => {
-  it("a runtime extension's tool a person clicks writes as an AI; their own input stays theirs", () => {
-    const out = toolRunStanding({ actor: "human" }, "runtime", { name: "Ada" });
-    expect(out.standing).toBe("ai");
-    expect(out.given?.has("Ada")).toBe(true);
-    expect(toolRunStanding({ actor: "human" }, "shipped", { name: "Ada" }).standing).toBe("host");
+  it("a runtime extension's tool a person clicks writes as an AI, keeping no given values (the fifth review)", () => {
+    expect(toolRunStanding({ actor: "human" }, "runtime", { name: "Ada", ok: true })).toEqual({
+      standing: "ai",
+    });
+    const shipped = toolRunStanding({ actor: "human" }, "shipped", { name: "Ada" });
+    expect(shipped.standing).toBe("host");
+    expect(shipped.given?.has("Ada")).toBe(true);
   });
 
   it("an AI's call writes as an AI with no given values; a person's approval of it gives them", () => {
@@ -33,19 +35,28 @@ describe("a tool's run (the fourth review, M1 and L1)", () => {
   });
 
   it("a tool called by a run writes no better than that run, with that run's person's values", () => {
+    // An AI's run (a runtime tool's) carries no given values into a tool it calls.
     const ai = callerMarks({ actor: "extension", markStanding: "ai", markGiven: new Set(["Ada"]) });
-    expect(ai).toEqual({ markStanding: "ai", markGiven: ["Ada"] });
-    const inner = toolRunStanding({ actor: "extension", ...ai }, "shipped", { name: "Other" });
-    expect(inner.standing).toBe("ai");
+    expect(ai).toEqual({ markStanding: "ai" });
+    expect(toolRunStanding({ actor: "extension", ...ai }, "shipped", { name: "Ada" })).toEqual({
+      standing: "ai",
+    });
+    // A shipped pack's run carries its person's values; the called tool's own input is never theirs.
+    const host = callerMarks({
+      actor: "extension",
+      markStanding: "host",
+      markGiven: new Set(["Ada"]),
+    });
+    const inner = toolRunStanding({ actor: "extension", ...host }, "shipped", { name: "Other" });
+    expect(inner.standing).toBe("host");
     expect(inner.given?.has("Ada")).toBe(true);
-    // Its own input (chosen by the calling code) is never a person's.
     expect(inner.given?.has("Other")).toBe(false);
-    const host = toolRunStanding(
+    const automation = toolRunStanding(
       { actor: "automation", ...callerMarks({ actor: "automation", markStanding: "host" }) },
       "shipped",
       { name: "Other" },
     );
-    expect(host).toEqual({ standing: "host" });
+    expect(automation).toEqual({ standing: "host" });
     // A person's or an AI's own call carries nothing: the pipeline decides its standing.
     expect(callerMarks({ actor: "human" })).toEqual({});
   });
@@ -75,13 +86,22 @@ describe("the marks a run's writes leave", () => {
     return Object.fromEntries(rows.map((r) => [r.f, r.s]));
   };
 
-  it("an AI's run: only a value equal to the person's own input is theirs", async () => {
+  it("an AI's run: nothing is a person's, even a value equal to their input (the fifth review)", async () => {
     const marks = await standings(
-      [change("rec_a", { name: "Ada", note: "Made by the code" })],
+      [change("rec_a", { name: "Ada", ok: true, note: "Made by the code" })],
       "ai",
+      givenValues({ name: "Ada", ok: true }),
+    );
+    expect(marks).toMatchObject({ name: "ai", ok: "ai", note: "ai", $created: "ai" });
+  });
+
+  it("a shipped pack's run: a value equal to the person's input is theirs", async () => {
+    const marks = await standings(
+      [change("rec_c", { name: "Ada", note: "Made by the code" })],
+      "host",
       givenValues({ name: "Ada" }),
     );
-    expect(marks).toMatchObject({ name: "person", note: "ai", $created: "ai" });
+    expect(marks).toMatchObject({ name: "person", note: "host", $created: "host" });
   });
 
   it("a value a run read back from its storage is the host's at best, never a person's", async () => {

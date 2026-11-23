@@ -408,3 +408,20 @@ sent); `apps/runner/test/routine-mail-standing.test.ts` (a runtime tool a person
 gatekeeper read, a value read back from storage); `packages/core/test/routine-mail-standing.test.ts`
 (the tool-run rules and the caller carried into a called tool); `packages/sdk/test/routine-mail.test.ts`
 (the link setting and `each.via` rules).
+
+## Amended 2026-11-23, after the fifth security review
+
+- **A run that writes as an AI keeps no given values.** This replaces the fourth review's "the
+  values the person gave it stay theirs" for runtime extensions' tools: matching on value alone, a
+  runtime tool's code could copy what the person typed (or any `true` or number they passed) into
+  any field of any record and have it marked a person's. Now a non-shipped tool a person clicks
+  writes everything as an AI, and a tool it calls carries no given values either (`callerMarks`).
+  A shipped pack's tool keeps them as before: its code is reviewed and released with the platform.
+- **`each.where.in` cannot hold an empty value** (`cos ext check` refuses it): an empty value is
+  never checked, so a line picked by it would go unchecked. No shipped pack uses `where`.
+
+Proof: `packages/core/test/routine-mail-standing.test.ts` (a runtime tool's run keeps no given
+values; an AI's run marks a value equal to the input, and a `true`, as an AI's; a shipped pack's
+run keeps them); `apps/runner/test/routine-mail-standing.test.ts` (a runtime tool writing the
+person's typed value to its own record and to another record: both an AI's);
+`packages/sdk/test/routine-mail.test.ts` (an empty `where.in` value refused).

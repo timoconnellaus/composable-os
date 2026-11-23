@@ -191,6 +191,27 @@ describe("the declaration", () => {
       /guest\.booking must be readOnly/,
     );
     expect(issues({ confirmation: each("bookingSet") }).join("\n")).not.toMatch(/readOnly/);
+    // An empty value picking a line would go unchecked (the fifth review): refused.
+    const picked = (values: string[]) =>
+      kind({
+        slots: {
+          guests: {
+            each: {
+              object: "guest",
+              via: "bookingSet",
+              where: { field: "name", in: values },
+              max: 5,
+              line: "- {name}",
+              slots: { name: { field: "name" } },
+            },
+          },
+        },
+        messages: { booked: { subject: "Booked", text: "Guests:\n{guests}" } },
+      });
+    expect(issues({ confirmation: picked(["a", ""]) }).join("\n")).toMatch(
+      /where\.in cannot hold an empty value/,
+    );
+    expect(issues({ confirmation: picked(["a"]) }).join("\n")).not.toMatch(/empty value/);
   });
 });
 

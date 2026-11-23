@@ -197,9 +197,9 @@ export async function markStatements(
   const sources = new SourceMarks(db, pending);
   const copies: { row: Row; sources: MarkSource[] }[] = [];
   const own = (value: unknown, s: Standing): Standing => {
-    // A person's own given values are theirs, whether the run writes as the host or (a runtime
-    // extension's tool) as an AI.
-    if (s !== standing || (standing !== "host" && standing !== "ai") || !given?.size) return s;
+    // A person's own given values are theirs only in a run that writes as the host (a shipped
+    // pack's tool): never in an AI's run (the fifth review).
+    if (s !== "host" || standing !== "host" || !given?.size) return s;
     const form = normalForm(value);
     return form && given.has(form) ? "person" : s;
   };
@@ -392,9 +392,10 @@ export function callerMarks(ctx: {
   markGiven?: ReadonlySet<string> | undefined;
 }): { markStanding?: "host" | "ai"; markGiven?: string[] } {
   if (ctx.actor !== "extension" && ctx.actor !== "automation") return {};
+  const ai = ctx.markStanding === "ai";
   return {
-    markStanding: ctx.markStanding === "ai" ? "ai" : "host",
-    ...(ctx.markGiven ? { markGiven: [...ctx.markGiven] } : {}),
+    markStanding: ai ? "ai" : "host",
+    ...(ctx.markGiven && !ai ? { markGiven: [...ctx.markGiven] } : {}),
   };
 }
 
@@ -429,5 +430,7 @@ export function toolRunStanding(
     : !caller.principal && (caller.actor === "human" || approved)
       ? givenValues(input)
       : undefined;
-  return { standing: ai ? "ai" : "host", ...(given ? { given } : {}) };
+  // A run that writes as an AI keeps no given values (the fifth review): a runtime extension's
+  // code could copy what the person typed into any field of any record.
+  return { standing: ai ? "ai" : "host", ...(given && !ai ? { given } : {}) };
 }

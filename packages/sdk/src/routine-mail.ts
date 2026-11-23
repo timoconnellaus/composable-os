@@ -662,6 +662,10 @@ export function routineMailIssues(manifest: CheckManifest): { path: string; mess
         if (each.where && !object.fields[each.where.field]) {
           contract(`${at}.each.where`, `"${each.where.field}" is not a field of ${each.object}`);
         }
+        if (each.where?.in.some((v) => v === "")) {
+          // An empty value is never checked (nothing shown): a line it picked would go unchecked.
+          contract(`${at}.each.where`, "where.in cannot hold an empty value");
+        }
         if (each.distinct) {
           const d = routinePathType(manifest, each.object, each.distinct);
           if ("problem" in d) contract(`${at}.each.distinct`, d.problem);

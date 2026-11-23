@@ -272,10 +272,8 @@ export class RunHost extends RpcTarget {
     // After a model or outside text, nothing the run writes is a person's, not even what equals
     // their input (the model may have chosen it).
     if (run.usedModel) return { markStanding: "ai" };
-    return {
-      markStanding: run.standing === "ai" ? "ai" : "host",
-      ...(run.given ? { markGiven: run.given } : {}),
-    };
+    if (run.standing === "ai") return { markStanding: "ai" };
+    return { markStanding: "host", ...(run.given ? { markGiven: run.given } : {}) };
   }
 
   /** A read tool's sandbox (RunState.readOnly): refuses what is not a read, before it runs. */
