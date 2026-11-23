@@ -13,7 +13,7 @@
 //   away over the shift (`unavailable`), not qualified for its kind (`not_qualified`), or a live
 //   shift left with nobody on it within the uncovered window (`uncovered`). The write's answer and
 //   its audit row carry them; `staffing.check` gives the same answer before the write.
-import { type Kysely, sql } from "kysely";
+import { CompiledQuery, type Kysely, sql } from "kysely";
 import { ConflictError, ValidationError } from "../errors.ts";
 import { objectTableOf } from "../extensions/schema.ts";
 import { getObject, listObjects } from "../fields/index.ts";
@@ -337,14 +337,13 @@ export async function staffedReleased(
   ctx: HandlerContext,
   object: ObjectDefinition,
   id: string,
-  by?: Mover,
 ): Promise<void> {
   if (!object.staffed) return;
   noteClaim(ctx, object.name, id, null);
   const values = await storedShiftValues(ctx, object, id, true);
-  // The host's removal (a series no longer making that date) tells nobody per shift (ADR 0624).
-  const shift = values && by !== "host" ? await shiftOf(ctx, object, values) : null;
-  await shiftRemoved(ctx, object, id, values, shift);
+  // A series no longer making that date removes it as the host: its person hears too, in the one
+  // summary of the series' change (ADR 0624).
+  await shiftRemoved(ctx, object, id, values, values ? await shiftOf(ctx, object, values) : null);
 }
 
 /** The stored values a staffed record's claim reads, in or out of the Trash (a restore). */
@@ -490,7 +489,11 @@ export async function holderWritten(
     if (same(before[def.who.account], after[def.who.account])) continue;
     const account = text(after[def.who.account]);
     const t = tablesOf(staffed);
-    if (!account || !t) continue;
+    if (!t) continue;
+    // Its shifts are someone else's now: their open offers were the old person's to make, so they
+    // are cancelled, at commit (an offer made meanwhile too), and their offerers told (ADR 0623).
+    await holderOffersCancelled(ctx, staffed, t, id);
+    if (!account) continue;
     const mine = selectClaims(t, `r.${t.who} = ${literal(id)}`, literal(account));
     const outside = await sql
       .raw<{
@@ -549,6 +552,36 @@ export async function holderWritten(
   }
 }
 
+/** The open offers of the shifts a holder (a coach profile) names, cancelled with its account. */
+async function holderOffersCancelled(
+  ctx: HandlerContext,
+  staffed: ObjectDefinition,
+  t: StaffedTables,
+  holderId: string,
+): Promise<void> {
+  const why = "The shift's coach profile was given to another account, so the offer was cancelled.";
+  const shifts = `SELECT r.id FROM ${t.table} r WHERE r.${t.who} = ${literal(holderId)}`;
+  ctx.write(
+    CompiledQuery.raw(
+      `UPDATE core_staff_offer SET state = 'cancelled', ended_at = ?, ended_by = ?, why = ? WHERE state = 'open' AND object_type = ? AND record_id IN (${shifts})`,
+      [ctx.now, ctx.user.id, why, staffed.name],
+    ),
+  );
+  const open = await sql
+    .raw<{ from_account: string | null; made_by: string; record_id: string }>(
+      `SELECT from_account, made_by, record_id FROM core_staff_offer WHERE state = 'open' AND object_type = ${literal(staffed.name)} AND record_id IN (${shifts}) LIMIT 50`,
+    )
+    .execute(ctx.db);
+  for (const offer of open.rows) {
+    await queueNotice(ctx, {
+      to: [offer.from_account ?? offer.made_by],
+      title: "Your offer was cancelled",
+      body: why,
+      link: shiftLink(staffed.name, offer.record_id),
+    });
+  }
+}
+
 /**
  * A record holding the account of other objects' shifts (a coach profile) sent to the Trash: refused
  * while a live shift that has not ended names it (ADR 0621), answering how many, so a person
@@ -594,6 +627,25 @@ export async function generationClash(
 ): Promise<Clash | null> {
   const claim = claimOf(await shiftOf(ctx, object, values));
   return claim ? clashWith(ctx, object.name, null, claim) : null;
+}
+
+/**
+ * Whether the person a record's values name has a deactivated account (ADR 0624): the host's
+ * generation makes such a date with nobody on it, whatever its series still names.
+ */
+export async function personDeactivated(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  values: Record<string, unknown>,
+): Promise<boolean> {
+  const shift = await shiftOf(ctx, object, values);
+  if (!shift?.account) return false;
+  const row = await ctx.db
+    .selectFrom("core_user")
+    .select("deactivated_at")
+    .where("id", "=", shift.account)
+    .executeTakeFirst();
+  return Boolean(row?.deactivated_at);
 }
 
 /**
@@ -666,11 +718,7 @@ function changesStaffing(
   return fields.some((f) => f !== undefined && !same(before[f], after[f]));
 }
 
-/** The object a staffed object's kinds are records of (a class type), or null. */
-export function kindObjectOf(object: ObjectDefinition): string | null {
-  const def = object.staffed;
-  return (def && object.fields.find((f) => f.name === def.kind)?.options?.to) || null;
-}
+export { kindObjectOf } from "./kinds.ts";
 
 /**
  * Whether `account` may do the kind of work `kind` names: a live kind record, and qualified. Not

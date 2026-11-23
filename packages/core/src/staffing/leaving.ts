@@ -7,8 +7,10 @@
 //
 // Set-based, so a coach with a long future and a longer past is a handful of statements: the
 // future shifts are read from their claims (indexed by account and end, so nothing past is read),
-// and each object's shifts are cleared by one statement whose ids are taken from those claims
-// again at commit, so a shift the series made between this read and the commit is cleared too.
+// and each object's shifts are cleared by one statement over the ids read. Guards in the batch
+// (core_staff_guard) fail it whole if their future shifts, or any row it clears, changed since the
+// read (a class the series made meanwhile included), so the audit rows and marks it writes are
+// exactly the rows it changed. Patterns in the Trash are cleared too.
 import { CompiledQuery, sql } from "kysely";
 import { ConflictError } from "../errors.ts";
 import { objectTableOf } from "../extensions/schema.ts";
@@ -85,8 +87,16 @@ async function futureShifts(ctx: HandlerContext, account: string): Promise<Futur
     .where("ends", ">", now)
     .where("starts", ">", now)
     .orderBy("starts")
-    .limit(READ_MAX)
+    .limit(READ_MAX + 1)
     .execute();
+  // Never cleared silently beyond what is read: a leaver on more future shifts than one call
+  // reads is refused, whole, with what to do (no business has nearly so many in its horizon).
+  if (claims.length > READ_MAX) {
+    throw new ConflictError(
+      `This person is on more than ${READ_MAX} future shifts, more than one deactivation takes off at once. Give some of them to others first, then deactivate them.`,
+      { rule: "deactivate_too_many", max: READ_MAX },
+    );
+  }
   const byObject = new Map<string, typeof claims>();
   for (const c of claims) byObject.set(c.object_type, [...(byObject.get(c.object_type) ?? []), c]);
   const out: FutureShift[] = [];
@@ -116,7 +126,10 @@ async function futureShifts(ctx: HandlerContext, account: string): Promise<Futur
   return out.sort((a, b) => a.startsAt.localeCompare(b.startsAt));
 }
 
-/** The series (patterns) whose person is `account`, for every staffed object a series makes. */
+/**
+ * The series (patterns) whose person is `account`, for every staffed object a series makes, in or
+ * out of the Trash (a series restored later must not bring them back).
+ */
 async function patternsOf(ctx: HandlerContext, account: string): Promise<Pattern[]> {
   const out: Pattern[] = [];
   for (const staffed of listObjects()) {
@@ -136,7 +149,7 @@ async function patternsOf(ctx: HandlerContext, account: string): Promise<Pattern
         title ? sql.ref(title) : sql`NULL`
       } AS title, ${sql.ref(column)} AS was FROM ${sql.table(table)} WHERE ${sql.ref(
         column,
-      )} IN ${jsonList(values)} AND deleted_at IS NULL LIMIT 200`.execute(ctx.db);
+      )} IN ${jsonList(values)} LIMIT 200`.execute(ctx.db);
       for (const row of rows.rows) {
         out.push({
           object: series.name,
@@ -181,15 +194,31 @@ export async function leaveRoster(
     );
   }
   const now = Math.floor(Date.parse(ctx.now) / 1000);
+  // Each statement below is followed by a guard on how many rows it changed (or, first, on how
+  // many future shifts they have): if anything changed since this read, the whole batch fails and
+  // nothing is applied, so what is recorded and marked is exactly what was changed (ADR 0624).
+  const guard = (expected: number) =>
+    CompiledQuery.raw("INSERT INTO core_staff_guard (expected, actual) VALUES (?, changes())", [
+      expected,
+    ]);
+  for (const object of new Set(shifts.map((s) => s.object))) {
+    ctx.write(
+      CompiledQuery.raw(
+        "INSERT INTO core_staff_guard (expected, actual) SELECT ?, count(*) FROM core_staff_time WHERE account_id = ? AND object_type = ? AND ends > ? AND starts > ?",
+        [shifts.filter((s) => s.object === object).length, account, object, now, now],
+      ),
+    );
+  }
   // The patterns first: each series names nobody from now on, and its version moves, so a run
   // planned from the series as it was fails and makes its dates again from this.
   for (const p of patterns) {
     const table = objectTableOf(p.object) as string;
     ctx.write(
       CompiledQuery.raw(
-        `UPDATE ${table} SET ${p.column} = NULL, updated_at = ?, updated_by = ? WHERE id = ? AND ${p.column} = ? AND deleted_at IS NULL`,
+        `UPDATE ${table} SET ${p.column} = NULL, updated_at = ?, updated_by = ? WHERE id = ? AND ${p.column} = ?`,
         [ctx.now, ctx.user.id, p.id, p.was],
       ),
+      guard(1),
       armSeriesStatement(p.object, p.id, ctx.now, ctx.now),
     );
     noteSeriesBump(ctx, p.object, p.id);
@@ -203,19 +232,22 @@ export async function leaveRoster(
       marks: { hostFilled: [p.field] },
     });
   }
-  // Every future shift of theirs, object by object: the ids are taken from their claims at commit.
+  // Every future shift of theirs, object by object, by the ids read, still naming them.
   for (const object of new Set(shifts.map((s) => s.object))) {
     const def = getObject(object);
     const table = objectTableOf(object);
     const who = def ? columnOf(def, def.staffed?.who.field) : null;
     if (!def?.staffed || !table || !who) continue;
+    const mine = shifts.filter((x) => x.object === object);
+    const was = [...new Set(mine.map((s) => s.was).filter((v): v is string => Boolean(v)))];
     ctx.write(
       CompiledQuery.raw(
-        `UPDATE ${table} SET ${who} = NULL, updated_at = ?, updated_by = ? WHERE deleted_at IS NULL AND id IN (SELECT record_id FROM core_staff_time WHERE account_id = ? AND object_type = ? AND ends > ? AND starts > ?)`,
-        [ctx.now, ctx.user.id, account, object, now, now],
+        `UPDATE ${table} SET ${who} = NULL, updated_at = ?, updated_by = ? WHERE deleted_at IS NULL AND id IN (SELECT value FROM json_each(?)) AND ${who} IN (SELECT value FROM json_each(?))`,
+        [ctx.now, ctx.user.id, JSON.stringify(mine.map((s) => s.id)), JSON.stringify(was)],
       ),
+      guard(mine.length),
     );
-    for (const s of shifts.filter((x) => x.object === object)) {
+    for (const s of mine) {
       ctx.recordChange({
         object,
         id: s.id,

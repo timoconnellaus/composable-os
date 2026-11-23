@@ -1342,7 +1342,7 @@ async function trashRecordAsHost(ctx: HandlerContext, object: ObjectDefinition, 
   if (object.capacity) ctx.write(guardStatement("claimed", object.name, id, 0));
   if (object.claims) ctx.write(guardStatement("claimant", object.name, id, 0));
   // A shift in the Trash claims nobody's time (its trigger drops the claim, ADR 0621).
-  await staffedReleased(ctx, object, id, "host");
+  await staffedReleased(ctx, object, id);
   const table = objectTableOf(object.name) as string;
   ctx.write(
     CompiledQuery.raw(`UPDATE ${table} SET deleted_at = ?, deleted_by = ? WHERE id = ?`, [

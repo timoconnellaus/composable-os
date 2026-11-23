@@ -177,6 +177,31 @@ async function offerOut(ctx: HandlerContext, offer: OfferRow, s: StoredShift | n
   };
 }
 
+/** A shift's kind of work as an offer keeps it, or null. */
+function kindOf(s: StoredShift): { object: string; id: string } | null {
+  const object = kindObjectOf(s.object);
+  return object && s.shift.kind ? { object, id: s.shift.kind } : null;
+}
+
+/** Whether anyone but `from` is qualified for the shift's kind (active staff), from that alone. */
+async function anyoneQualified(
+  ctx: HandlerContext,
+  s: StoredShift,
+  from: string | null,
+): Promise<boolean> {
+  const kindObject = kindObjectOf(s.object);
+  if (!kindObject || !s.shift.kind) return false;
+  let query = ctx.db
+    .selectFrom("core_staff_qualification as q")
+    .innerJoin("core_user as u", "u.id", "q.account_id")
+    .select("q.account_id")
+    .where("q.kind_object", "=", kindObject)
+    .where("q.kind_record", "=", s.shift.kind)
+    .where("u.deactivated_at", "is", null);
+  if (from) query = query.where("q.account_id", "!=", from);
+  return Boolean(await query.limit(1).executeTakeFirst());
+}
+
 /** A live shift that is not in the Trash, or the refusal. */
 async function requireLiveShift(ctx: HandlerContext, object: string, id: string) {
   const s = await loadShift(ctx, object, id);
@@ -483,6 +508,9 @@ export const staffingAway = defineOperation({
   risk: "write",
   toolOnly: true,
   mcp: { expose: false },
+  // The note never reaches the audit log (an admin's MCP client reads it): only they and
+  // rosterers, through this pack's person-only screens, see it.
+  redact: ["note"],
   auditSummary: (output) => ({ id: output.id, shifts: output.count }),
   async handler(input, ctx) {
     await assertShippedToolRun(ctx, "staffing.away");
@@ -646,8 +674,11 @@ export const staffingAwayList = defineOperation({
   async handler(input, ctx) {
     await assertShippedToolRun(ctx, "staffing.awayList");
     const account = input.account ?? (mayRoster(ctx.user) ? undefined : ctx.user.id);
-    if (account !== undefined && account !== ctx.user.id) {
+    if (account !== ctx.user.id) {
       assertRosterer(ctx, "read someone else's time off");
+      // Other people's leave, with its notes, is read by a person, never by an assistant acting for
+      // a rosterer (as the notice of leave over shifts is person-only).
+      assertPersonsOwnAct(ctx, "Reading other people's time off");
     }
     const from = input.from ?? ctx.now.slice(0, 10);
     let query = ctx.db.selectFrom("core_staff_away").selectAll();
@@ -766,6 +797,16 @@ export const staffingOffer = defineOperation({
       }
       told = [input.to];
     } else {
+      // An offer nobody could ever take is refused, from qualifications alone (before anyone's
+      // leave or shifts are looked at, so it says nothing about either).
+      if (!(await anyoneQualified(ctx, s, from))) {
+        throw new ConflictError(
+          s.shift.kind
+            ? "Nobody else is marked as qualified for this kind of work, so nobody could take it. Whoever rosters can mark people qualified, or reassign it."
+            : "This shift has no kind of work set, so nobody could take it. Whoever rosters reassigns it.",
+          { rule: "nobody_qualified" },
+        );
+      }
       told = await eligibleAccounts(ctx, s, new Set([from ?? "", ctx.user.id]));
     }
     const made = makeOfferStatement(ctx, {
@@ -773,6 +814,8 @@ export const staffingOffer = defineOperation({
       id: s.id,
       from,
       to: input.to ?? null,
+      starts: s.shift.starts as number,
+      kind: kindOf(s),
     });
     ctx.write(made.statement);
     const title = shiftTitle(s.object, s.values);
@@ -791,6 +834,9 @@ export const staffingOffer = defineOperation({
       from_account: from,
       made_by: ctx.user.id,
       to_account: input.to ?? null,
+      starts: s.shift.starts as number,
+      kind_object: kindOf(s)?.object ?? null,
+      kind_record: kindOf(s)?.id ?? null,
       state: "open" as const,
       made_at: ctx.now,
       taken_by: null,
@@ -919,6 +965,15 @@ export const staffingTake = defineOperation({
       });
     }
     const s = await requireLiveShift(ctx, offer.object_type, offer.record_id);
+    // The shift is still the offerer's (or still has nobody, for an uncovered one): a take never
+    // removes someone who did not offer it. Every write that changes the shift's person cancels its
+    // open offer in its own batch; this refuses what got past (ADR 0623).
+    if (s.shift.account !== offer.from_account || (!offer.from_account && s.shift.covered)) {
+      throw new ConflictError(
+        "This shift has changed hands since it was offered, so the offer no longer stands.",
+        { rule: "offer_stale" },
+      );
+    }
     assertLive(s);
     assertBeforeCutoff(ctx, s);
     const e = await eligibilityOf(ctx, s, ctx.user.id);
@@ -1003,17 +1058,32 @@ export const staffingOffers = defineOperation({
   async handler(_input, ctx) {
     await assertShippedToolRun(ctx, "staffing.offers");
     const me = ctx.user.id;
+    // Filtered before the limit, by the offer's own columns: still before the cut-off, open to me,
+    // not mine, of a kind I am qualified for; the soonest first. However many offers I cannot take
+    // are open, the ones I can are not hidden behind them.
+    const closes = Math.floor(Date.parse(ctx.now) / 1000) + OFFER_CUTOFF_MINUTES * 60;
     const rows = await ctx.db
-      .selectFrom("core_staff_offer")
-      .selectAll()
-      .where("state", "=", "open")
-      .where((eb) => eb.or([eb("to_account", "is", null), eb("to_account", "=", me)]))
-      .orderBy("made_at")
+      .selectFrom("core_staff_offer as o")
+      .selectAll("o")
+      .where("o.state", "=", "open")
+      .where("o.starts", ">", closes)
+      .where((eb) => eb.or([eb("o.to_account", "is", null), eb("o.to_account", "=", me)]))
+      .where((eb) => eb.or([eb("o.from_account", "is", null), eb("o.from_account", "!=", me)]))
+      .where((eb) =>
+        eb.exists(
+          eb
+            .selectFrom("core_staff_qualification as q")
+            .select("q.account_id")
+            .where("q.account_id", "=", me)
+            .whereRef("q.kind_object", "=", "o.kind_object")
+            .whereRef("q.kind_record", "=", "o.kind_record"),
+        ),
+      )
+      .orderBy("o.starts")
       .limit(50)
       .execute();
     const open = [];
     for (const offer of rows) {
-      if (offer.from_account === me) continue;
       const s = await loadShift(ctx, offer.object_type, offer.record_id);
       if (!s || s.deleted || !s.shift.live || pastCutoff(s.shift.starts, ctx.now)) continue;
       const e = await eligibilityOf(ctx, s, me);
@@ -1127,6 +1197,8 @@ export const staffingDueOperation = defineOperation({
   permission: "records:write",
   risk: "write",
   actors: ["automation"],
+  // The host's own step: never queued for review under an approval floor on automation writes.
+  hostStep: true,
   mcp: { expose: false },
   auditSummary: (output) => output,
   async handler(_input, ctx) {

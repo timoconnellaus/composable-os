@@ -23,6 +23,12 @@ CREATE TABLE core_staff_offer (
   made_by TEXT NOT NULL,
   -- One named person it is offered to; null for everyone eligible.
   to_account TEXT,
+  -- The shift's start (unix seconds), kept current while open: offers lapse in order of it.
+  starts INTEGER NOT NULL,
+  -- The shift's kind of work (its object and record), kept current while open: a taker's list
+  -- reads only offers of the kinds they are qualified for (the take checks again).
+  kind_object TEXT,
+  kind_record TEXT,
   state TEXT NOT NULL CHECK (state IN ('open', 'taken', 'withdrawn', 'cancelled', 'lapsed')),
   made_at TEXT NOT NULL,
   taken_by TEXT,
@@ -40,6 +46,9 @@ CREATE TABLE core_staff_offer (
 -- One open offer per shift; the open offers are read through it (the minute cron's lapse).
 CREATE UNIQUE INDEX core_staff_offer_open ON core_staff_offer (object_type, record_id)
   WHERE state = 'open';
+-- The open offers in order of their shift's start: the minute cron lapses the nearest first, and
+-- takers' lists read the soonest, however many far ones are open.
+CREATE INDEX core_staff_offer_due ON core_staff_offer (starts) WHERE state = 'open';
 -- A person's open offers, from them and to them (theirs to see; cancelled when they leave).
 CREATE INDEX core_staff_offer_from ON core_staff_offer (from_account) WHERE state = 'open';
 CREATE INDEX core_staff_offer_to ON core_staff_offer (to_account) WHERE state = 'open';
@@ -67,6 +76,24 @@ BEGIN
   WHERE NEW.id != OLD.id OR NEW.object_type != OLD.object_type OR NEW.record_id != OLD.record_id
     OR NEW.from_account IS NOT OLD.from_account OR NEW.to_account IS NOT OLD.to_account
     OR NEW.made_by != OLD.made_by OR NEW.made_at != OLD.made_at;
+END;
+
+-- A batch planned from a read of what it changes (a leaver's future shifts and patterns, ADR 0624)
+-- carries how many rows it expects a statement to change, or how many rows of a kind it read; the
+-- batch fails whole when that is no longer so (`core_staff_changed`), so what it records and marks
+-- is exactly what it changed. Nothing is stored.
+CREATE TABLE core_staff_guard (
+  expected INTEGER NOT NULL,
+  actual INTEGER NOT NULL
+);
+
+CREATE TRIGGER core_staff_guard_check
+BEFORE INSERT ON core_staff_guard
+BEGIN
+  SELECT CASE
+    WHEN NEW.actual != NEW.expected THEN RAISE(ABORT, 'core_staff_changed')
+    ELSE RAISE(IGNORE)
+  END;
 END;
 
 -- Who is qualified for one kind of work (the offer's eligible people), read by the kind.

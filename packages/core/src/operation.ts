@@ -194,6 +194,12 @@ export interface HandlerContext {
   /** Queues statements (Kysely insert/update/delete builders) for the commit batch, in order. */
   write(...statements: (Compilable | CompiledQuery)[]): void;
   /**
+   * Runs `fn` once the handler has returned, before the batch commits, to queue writes gathered
+   * over the whole call (stage 45, ADR 0624: one notice per person for a bulk write). Absent on a
+   * simulated call, whose writes are not committed.
+   */
+  readonly beforeCommit?: ((fn: () => Promise<void>) => void) | undefined;
+  /**
    * Records a touched record for the audit log. For `update`s, changed fields flagged
    * `track: "timeline"` in the field registry also post a system activity on the record.
    */

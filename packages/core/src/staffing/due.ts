@@ -16,7 +16,7 @@ import { loadGeneralSettings } from "../settings.ts";
 import { localParts } from "../time/local.ts";
 import { shiftTitle, shiftZone } from "./changes.ts";
 import { loadShift, UNCOVERED_WINDOW_DAYS } from "./index.ts";
-import { endOfferStatement, pastCutoff, whenOf } from "./offers.ts";
+import { endOfferStatement, OFFER_CUTOFF_MINUTES, pastCutoff, whenOf } from "./offers.ts";
 import { queueNotice, rosterers, shiftLink, staffName } from "./rosterers.ts";
 
 /** The most open offers one tick looks at. */
@@ -84,13 +84,19 @@ export async function uncoveredShifts(
   return out.sort((a, b) => a.startsAt.localeCompare(b.startsAt));
 }
 
+/** The latest shift start whose offer has closed at `now` (unix seconds). */
+const cutoffOf = (now: string) => Math.floor(Date.parse(now) / 1000) + OFFER_CUTOFF_MINUTES * 60;
+
 /** Open offers past their cut-off lapse; those whose shift is gone are cancelled. */
 async function lapseOffers(ctx: HandlerContext): Promise<{ lapsed: number; cancelled: number }> {
+  // The offers whose cut-off has come, nearest first, by the index on their shift's start: however
+  // many far ones are open, these are read.
   const open = await ctx.db
     .selectFrom("core_staff_offer")
     .selectAll()
     .where("state", "=", "open")
-    .orderBy("made_at")
+    .where("starts", "<=", cutoffOf(ctx.now))
+    .orderBy("starts")
     .limit(OFFERS_PER_TICK)
     .execute();
   let lapsed = 0;
@@ -174,18 +180,14 @@ async function dailyUncovered(ctx: HandlerContext): Promise<number> {
  */
 export async function staffingWorkDue(db: Kysely<CoreDatabase>, nowIso: string): Promise<boolean> {
   if (!listObjects().some((o) => o.staffed)) return false;
-  const ctx = { db, now: nowIso } as unknown as HandlerContext;
-  const open = await db
+  const due = await db
     .selectFrom("core_staff_offer")
-    .select(["object_type", "record_id"])
+    .select("id")
     .where("state", "=", "open")
-    .orderBy("made_at")
-    .limit(OFFERS_PER_TICK)
-    .execute();
-  for (const offer of open) {
-    const s = await loadShift(ctx, offer.object_type, offer.record_id);
-    if (!s || s.deleted || !s.shift.live || pastCutoff(s.shift.starts, nowIso)) return true;
-  }
+    .where("starts", "<=", cutoffOf(nowIso))
+    .limit(1)
+    .executeTakeFirst();
+  if (due) return true;
   const { timezone } = await loadGeneralSettings(db);
   const local = localParts(Date.parse(nowIso), timezone);
   if (local.hour < DAILY_NOTICE_HOUR) return false;

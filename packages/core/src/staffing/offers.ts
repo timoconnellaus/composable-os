@@ -44,7 +44,14 @@ export async function offerById(db: Kysely<CoreDatabase>, id: string) {
 /** The statement that makes an offer (refused by the database if the shift has one open). */
 export function makeOfferStatement(
   ctx: HandlerContext,
-  offer: { object: string; id: string; from: string | null; to: string | null },
+  offer: {
+    object: string;
+    id: string;
+    from: string | null;
+    to: string | null;
+    starts: number;
+    kind: { object: string; id: string } | null;
+  },
 ) {
   const id = newId("staffOffer");
   return {
@@ -56,6 +63,9 @@ export function makeOfferStatement(
       from_account: offer.from,
       made_by: ctx.user.id,
       to_account: offer.to,
+      starts: offer.starts,
+      kind_object: offer.kind?.object ?? null,
+      kind_record: offer.kind?.id ?? null,
       state: "open",
       made_at: ctx.now,
       taken_by: null,
@@ -81,6 +91,46 @@ export function endOfferStatement(
     .updateTable("core_staff_offer")
     .set({ state: end, ended_at: ctx.now, ended_by: ctx.user.id, why: why.slice(0, 200) })
     .where("id", "=", offerId);
+}
+
+/**
+ * The statement that cancels the shift's open offer, if there is one at commit (an offer made
+ * while the write that cancels it was in flight included). Matching nothing is not an error.
+ */
+export function cancelOpenOfferStatement(
+  ctx: HandlerContext,
+  object: string,
+  id: string,
+  why: string,
+) {
+  return ctx.db
+    .updateTable("core_staff_offer")
+    .set({ state: "cancelled", ended_at: ctx.now, ended_by: ctx.user.id, why: why.slice(0, 200) })
+    .where("object_type", "=", object)
+    .where("record_id", "=", id)
+    .where("state", "=", "open");
+}
+
+/**
+ * The shift of an open offer moved, or became another kind of work: the offer follows (the minute
+ * cron lapses by its start; a taker's list reads by its kind).
+ */
+export function followShiftStatement(
+  ctx: HandlerContext,
+  object: string,
+  id: string,
+  shift: { starts: number; kind: { object: string; id: string } | null },
+) {
+  return ctx.db
+    .updateTable("core_staff_offer")
+    .set({
+      starts: shift.starts,
+      kind_object: shift.kind?.object ?? null,
+      kind_record: shift.kind?.id ?? null,
+    })
+    .where("object_type", "=", object)
+    .where("record_id", "=", id)
+    .where("state", "=", "open");
 }
 
 /** The take: the offer is the caller's. Refused by the database if it is no longer open. */

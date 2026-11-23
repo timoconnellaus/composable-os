@@ -37,6 +37,8 @@ export const recurringGenerate = defineOperation({
   permission: "records:write",
   risk: "write",
   actors: ["automation"],
+  // The host's own step: never queued for review under an approval floor on automation writes.
+  hostStep: true,
   mcp: { expose: false },
   auditSummary: (output) => ({ made: output.made }),
   async handler(input, ctx) {

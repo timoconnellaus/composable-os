@@ -860,6 +860,8 @@ async function invokeOnce<O extends AnyOperation>(
   }
 
   const writes: (Compilable | CompiledQuery)[] = [];
+  // Work a handler's helpers asked to do once its writes are all queued (HandlerContext.beforeCommit).
+  const beforeCommits: (() => Promise<void>)[] = [];
   const changes: RecordChange[] = [];
   const activities: Compilable[] = [];
   // Applying an approved action, or a call it makes (ADR 0022 amendment, 2026-11-22): every
@@ -904,6 +906,9 @@ async function invokeOnce<O extends AnyOperation>(
       : {}),
     write: (...statements) => {
       writes.push(...statements);
+    },
+    beforeCommit: (fn) => {
+      beforeCommits.push(fn);
     },
     recordChange: (change) => {
       changes.push(change);
@@ -1221,6 +1226,10 @@ async function invokeOnce<O extends AnyOperation>(
       ? await holdRoleToday(ctx.db.query, roleToday, op.name, input, Date.parse(now))
       : input;
     result = await op.handler(limited as typeof input, handlerCtx);
+    // What the handler's helpers gathered over the whole call (one notice per person, not one per
+    // record a bulk write touched), queued last, in this same batch.
+    for (let i = 0; i < beforeCommits.length; i++)
+      await (beforeCommits[i] as () => Promise<void>)();
   } catch (error) {
     if (ctx.simulate && op.risk === "read" && isDryRunRefusal(error)) {
       return notRunRead(error) as OperationOutput<O>;
@@ -1505,6 +1514,8 @@ function readOnlyContext(
     db,
     records: recordAccess({ db, principal: handlerCtx.principal }),
     pipeline: { ...handlerCtx.pipeline, crm },
+    // Nothing gathered for a commit that never happens.
+    beforeCommit: undefined,
   };
 }
 

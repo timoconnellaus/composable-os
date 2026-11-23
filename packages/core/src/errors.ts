@@ -319,6 +319,14 @@ export function toOperationError(error: unknown): OperationError {
       rule: "offer_open",
     });
   }
+  // A batch planned from a read of the roster that changed before it committed (migration 0812,
+  // ADR 0624): a leaver's shifts or patterns changed meanwhile. Nothing was applied.
+  if (message.includes("core_staff_changed")) {
+    return new ConflictError(
+      "The roster changed while this was being done, so nothing was changed. Try again.",
+      { rule: "roster_changed" },
+    );
+  }
   if (message.includes("core_staff_offer_fixed") || message.includes("core_staff_offer_replaced")) {
     return new ConflictError("An offer is never changed or replaced, so nothing was changed.", {
       rule: "offer_fixed",

@@ -1330,6 +1330,11 @@ export interface CoreStaffOfferTable {
   from_account: string | null;
   made_by: string;
   to_account: string | null;
+  /** The shift's start, unix seconds, kept current while open. */
+  starts: number;
+  /** The shift's kind (object and record), kept current while open. */
+  kind_object: string | null;
+  kind_record: string | null;
   state: "open" | "taken" | "withdrawn" | "cancelled" | "lapsed";
   made_at: string;
   taken_by: string | null;
@@ -1337,6 +1342,12 @@ export interface CoreStaffOfferTable {
   ended_at: string | null;
   ended_by: string | null;
   why: string | null;
+}
+
+/** Migration 0812 (stage 45, ADR 0624): a batch's count guard; nothing is stored. */
+export interface CoreStaffGuardTable {
+  expected: number;
+  actual: number;
 }
 
 /** Migration 0812 (stage 45, ADR 0624): the local date the roster's daily work last ran. */
@@ -2761,6 +2772,7 @@ export interface CoreDatabase {
   core_staff_away: CoreStaffAwayTable;
   core_staff_offer: CoreStaffOfferTable;
   core_staff_run: CoreStaffRunTable;
+  core_staff_guard: CoreStaffGuardTable;
   core_write_guard: CoreWriteGuardTable;
   core_allowance: CoreAllowanceTable;
   core_allowance_period: CoreAllowancePeriodTable;

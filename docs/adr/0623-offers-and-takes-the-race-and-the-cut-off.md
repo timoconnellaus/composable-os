@@ -60,3 +60,22 @@ reassign the shift at the same moment. A read before the write is not a guarante
   `staffing.offers`; its `take` tool must be `humanOnly`.
 - An offer's row keeps who offered and who took, which `staffing.forget` (a later step) deletes.
 - `explainFailure` is available to any operation whose batch can lose a race it can explain.
+
+## Amended 2026-11-23 (review of PR #282, before merge)
+- **A take never removes someone who did not offer it.** Every write that changes who works a
+  shift cancels its open offer by the shift, at commit (`WHERE object, record, state = 'open'`),
+  not by an offer id read earlier, so an offer made while that write was in flight is cancelled
+  too. A coach profile given another account cancels the open offers of every shift naming it. The
+  take itself refuses (`offer_stale`) when the shift's person is no longer the offer's `from` (or an
+  uncovered shift has someone on it), whatever path changed it.
+- **The offer keeps its shift's start and kind**, kept current while it is open (the write that
+  moves the shift moves them). The minute cron lapses offers in order of start through an index on
+  open offers, so a near offer behind many far ones lapses on time; a taker's list reads only open
+  offers before the cut-off, open to them, of a kind they are qualified for, soonest first, so the
+  ones they can take are never hidden behind ones they cannot. Migration 0812 was edited in place
+  (unmerged): a database that applied the earlier version must be rebuilt.
+- **An offer nobody could take is refused** (`nobody_qualified`, a coordinator decision the owner
+  may override): an offer to everyone, when nobody but the offerer is qualified for the shift's
+  kind, or the shift has no kind. It is decided from qualifications alone, before anyone's leave or
+  shifts are read, so the refusal says nothing about either. An offer to one named person is
+  checked as before.

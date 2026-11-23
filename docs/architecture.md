@@ -1170,10 +1170,14 @@ rest are told who took it (an operation's `explainFailure` reads again after a f
 take writes the person through the record operations, so it is a field exception of its series
 and its time claim moves, in the take's batch. Offers close an hour before the shift (the cut-off)
 and lapse there (the minute cron's `staffing.due`, which also sends the rosterers the daily list of
-uncovered shifts). Every write of a shift, by any path, cancels its open offer when it goes to
-someone else or ends, and tells the people put on or taken off it, the person whose shift moved or
-was cancelled, and the rosterers when it is left uncovered (`staffing/changes.ts`); the host's own
-writes tell nobody per shift. A take, an offer, a withdrawal and saying someone is away are a
+uncovered shifts; offers lapse in order of their shift's start, kept on the offer). Every write of
+a shift, by any path, cancels its open offer (by the shift, at commit) when it goes to someone else
+or ends, and so does a coach profile given another account; a take refuses an offer whose shift
+changed hands. Each write tells the people put on or taken off it, the person whose shift moved or
+was cancelled, and the rosterers when it is left uncovered (`staffing/changes.ts`), gathered over
+the call and sent before it commits (the handler context's `beforeCommit`): one notice per person
+per call, a summary for a change of a series or an import. A series' generation tells nobody per
+record. A take, an offer, a withdrawal and saying someone is away are a
 person's own act (the calling tool must be `humanOnly`); `assign` and `qualify` are applied by a
 person (`personApproves`). `user.deactivate` takes a leaver off every future shift and pattern,
 confirmed by count, cancels their offers and tells the rosterers (`staffing/leaving.ts`). Who may

@@ -754,6 +754,7 @@ describe("the take", () => {
     await invoke("staffing.take", { offer: made.offer.id }, tool(taker));
     expect(await stored(DUTY, shift, "staff")).toBe(taker.id);
     // Withdrawn by a rosterer: its offerer hears the shift is still theirs.
+    await qualify((await createUser("member")).id, k);
     const second = await invoke("staffing.offer", { object: DUTY, id: shift }, tool(taker));
     await invoke("staffing.withdraw", { offer: second.offer.id }, tool(admin));
     expect(await notices(taker.id, "Your offer was withdrawn: Open")).toHaveLength(1);
@@ -832,6 +833,7 @@ describe("leaving", () => {
     const leaver = await coach("Leaver");
     const colleague = await createUser("member");
     await qualify(leaver.user.id, k);
+    await qualify(colleague.id, k);
     const series = (
       await create(SERIES, {
         name: "Leaver's class",
@@ -906,5 +908,444 @@ describe("leaving", () => {
     const told = await notices(other.id, "% left: 1 shift%");
     expect(told).toHaveLength(1);
     expect(told[0]?.body).toContain("Second's duty");
+  });
+});
+
+// The review of PR #282: each finding as a test of the fixed behaviour.
+async function klass(name: string, kindId: string, coachProfile: string | null, day: string) {
+  return (
+    await create(KLASS, {
+      name,
+      kind: kindId,
+      coach: coachProfile,
+      startsAt: at(day, "18:00"),
+      endsAt: at(day, "19:00"),
+      timezone: "UTC",
+    })
+  ).id as string;
+}
+async function offerState(id: string) {
+  return (
+    await env.DB.prepare("SELECT state FROM core_staff_offer WHERE id = ?")
+      .bind(id)
+      .first<{ state: string }>()
+  )?.state;
+}
+
+describe("a take never removes someone who did not offer it", () => {
+  it("a coach profile given another account cancels its shifts' open offers", async () => {
+    const k = await kind("Holder");
+    const a = await coach("Holder A");
+    const b = await createUser("member");
+    const c = await coach("Holder C");
+    await qualify(a.user.id, k);
+    await qualify(c.user.id, k);
+    const shift = await klass("Holder class", k, a.profile, "04");
+    const { offer } = await invoke("staffing.offer", { object: KLASS, id: shift }, tool(a.user));
+    await update(COACH, a.profile, { user: b.id });
+    expect((await claimOf(KLASS, shift))?.account_id).toBe(b.id);
+    expect(await offerState(offer.id)).toBe("cancelled");
+    expect(await notices(a.user.id, "Your offer was cancelled")).toHaveLength(1);
+    await expect(invoke("staffing.take", { offer: offer.id }, tool(c.user))).rejects.toMatchObject({
+      details: { rule: "offer_closed", state: "cancelled" },
+    });
+    expect((await claimOf(KLASS, shift))?.account_id).toBe(b.id);
+  });
+
+  it("a take of an offer whose shift changed hands by any other path is refused", async () => {
+    const k = await kind("Stale");
+    const a = await createUser("member");
+    const b = await createUser("member");
+    const c = await createUser("member");
+    await qualify(c.id, k);
+    const shift = await duty("Stale", k, a.id, "05");
+    const { offer } = await invoke("staffing.offer", { object: DUTY, id: shift }, tool(a));
+    // A write that does not go through the record operations (the offer is left open).
+    await env.DB.prepare(
+      `UPDATE ${objectTableOf(DUTY)} SET ${column(DUTY, "staff")} = ? WHERE id = ?`,
+    )
+      .bind(b.id, shift)
+      .run();
+    await expect(invoke("staffing.take", { offer: offer.id }, tool(c))).rejects.toMatchObject({
+      details: { rule: "offer_stale" },
+    });
+    expect(await stored(DUTY, shift, "staff")).toBe(b.id);
+  });
+
+  it("a write of the shift cancels an open offer by the shift, at commit", async () => {
+    const k = await kind("By shift");
+    const a = await createUser("member");
+    const b = await createUser("member");
+    await qualify(b.id, k);
+    const shift = await duty("By shift", k, a.id, "06");
+    const { offer } = await invoke("staffing.offer", { object: DUTY, id: shift }, tool(a));
+    // The statement the write queues names the shift, not the offer it read.
+    await update(DUTY, shift, { staff: b.id });
+    expect(await offerState(offer.id)).toBe("cancelled");
+  });
+});
+
+describe("offers lapse and list in order of their shift, however many are open", () => {
+  it("a near offer behind fifty far ones lapses; a taker sees theirs behind fifty they cannot take", async () => {
+    const far = await kind("Far");
+    const anyone = await createUser("member");
+    await qualify(anyone.id, far);
+    for (let i = 0; i < 50; i++) {
+      const s = await duty(`Far ${i}`, far, null, "13", `${String(i % 20).padStart(2, "0")}:00`);
+      await invoke("staffing.offer", { object: DUTY, id: s }, tool(admin));
+    }
+    const mine = await kind("Mine");
+    const me = await createUser("member");
+    await qualify(me.id, mine);
+    const near = await duty("Near", mine, null, "01", "03:00");
+    const later = await duty("Later", mine, null, "11", "09:00");
+    const nearOffer = await invoke(
+      "staffing.offer",
+      { object: DUTY, id: near },
+      tool(admin, undefined, "2026-05-31T00:00:30.000Z"),
+    );
+    const laterOffer = await invoke(
+      "staffing.offer",
+      { object: DUTY, id: later },
+      tool(admin, undefined, "2026-05-31T00:00:40.000Z"),
+    );
+    const list = await invoke(
+      "staffing.offers",
+      {},
+      tool(me, undefined, "2026-05-31T00:02:00.000Z"),
+    );
+    expect(list.open.map((o) => o.id).sort()).toEqual(
+      [nearOffer.offer.id, laterOffer.offer.id].sort(),
+    );
+    const ran = await runStaffingDue(db, { clock: () => new Date("2026-06-01T02:30:00.000Z") });
+    expect(ran.lapsed).toBeGreaterThanOrEqual(1);
+    expect(await offerState(nearOffer.offer.id)).toBe("lapsed");
+    expect(await offerState(laterOffer.offer.id)).toBe("open");
+  });
+
+  it("an offer follows its shift's new time", async () => {
+    const k = await kind("Follows");
+    const a = await createUser("member");
+    const b = await createUser("member");
+    await qualify(b.id, k);
+    const shift = await duty("Follows", k, a.id, "20");
+    const { offer } = await invoke("staffing.offer", { object: DUTY, id: shift }, tool(a));
+    await update(DUTY, shift, { startsAt: at("02", "18:00"), endsAt: at("02", "19:00") });
+    const row = await env.DB.prepare("SELECT starts FROM core_staff_offer WHERE id = ?")
+      .bind(offer.id)
+      .first<{ starts: number }>();
+    expect(row?.starts).toBe(Date.parse(at("02", "18:00")) / 1000);
+  });
+});
+
+describe("leave notes never reach an AI", () => {
+  it("the audit row holds no note; other people's leave is read by a person only", async () => {
+    const sam = await createUser("member");
+    await invoke(
+      "staffing.away",
+      {
+        kind: "leave",
+        note: "A private reason",
+        startsAt: "2026-06-20T00:00",
+        endsAt: "2026-06-21T00:00",
+        zone: "UTC",
+      },
+      tool(sam),
+    );
+    const audit = await env.DB.prepare(
+      "SELECT input FROM core_audit WHERE operation = 'staffing.away' AND user_id = ?",
+    )
+      .bind(sam.id)
+      .all<{ input: string }>();
+    expect(audit.results).toHaveLength(1);
+    expect(audit.results[0]?.input).not.toContain("A private reason");
+    await expect(invoke("staffing.awayList", {}, aiTool(admin))).rejects.toMatchObject({
+      details: { rule: "human_only" },
+    });
+    await expect(
+      invoke("staffing.awayList", { account: sam.id }, aiTool(admin)),
+    ).rejects.toMatchObject({ details: { rule: "human_only" } });
+    // A person's own list, through any tool, stays theirs.
+    const own = await invoke("staffing.awayList", {}, aiTool(sam));
+    expect(own.items.map((i) => i.note)).toEqual(["A private reason"]);
+  });
+});
+
+describe("the host's steps under a review floor", () => {
+  const floor = { automation: { write: "review" as const } };
+  const pending = async () =>
+    (await env.DB.prepare("SELECT count(*) AS n FROM core_pending_action").first<{ n: number }>())
+      ?.n ?? 0;
+
+  it("staffing.due runs, never queued", async () => {
+    const k = await kind("Floor");
+    const someone = await createUser("member");
+    await qualify(someone.id, k);
+    const s = await duty("Floor", k, null, "01", "05:00");
+    const { offer } = await invoke("staffing.offer", { object: DUTY, id: s }, tool(admin));
+    const before = await pending();
+    await runStaffingDue(db, { floor, clock: () => new Date("2026-06-01T04:10:00.000Z") });
+    expect(await pending()).toBe(before);
+    expect(await offerState(offer.id)).toBe("lapsed");
+  });
+
+  it("recurring.generate runs, never queued", async () => {
+    const k = await kind("Floor series");
+    const before = await pending();
+    const series = (
+      await create(SERIES, {
+        name: "Floor series",
+        weekdays: ["mon"],
+        time: "05:00",
+        length: 60,
+        firstDate: "2026-06-01",
+        lastDate: "2026-06-10",
+        timezone: "UTC",
+        kind: k,
+      })
+    ).id as string;
+    await runRecurringDue(db, { floor, clock: () => new Date(NOW) });
+    expect(await pending()).toBe(before);
+    const made = await env.DB.prepare(
+      `SELECT count(*) AS n FROM ${objectTableOf(KLASS)} WHERE ${column(KLASS, "series")} = ?`,
+    )
+      .bind(series)
+      .first<{ n: number }>();
+    expect(made?.n).toBe(2);
+  });
+});
+
+describe("offers that could reach nobody, and who calls", () => {
+  it("an open offer is refused when nobody else is qualified, or the shift has no kind", async () => {
+    const k = await kind("Nobody");
+    const a = await createUser("member");
+    await qualify(a.id, k);
+    const s = await duty("Nobody", k, a.id, "05", "20:00");
+    await expect(invoke("staffing.offer", { object: DUTY, id: s }, tool(a))).rejects.toMatchObject({
+      details: { rule: "nobody_qualified" },
+    });
+    const noKind = (
+      await create(DUTY, {
+        name: "No kind",
+        staff: a.id,
+        startsAt: at("06", "10:00"),
+        endsAt: at("06", "11:00"),
+      })
+    ).id as string;
+    await expect(
+      invoke("staffing.offer", { object: DUTY, id: noKind }, tool(a)),
+    ).rejects.toMatchObject({ details: { rule: "nobody_qualified" } });
+  });
+
+  it("a take needs a qualification row even where the business has none for the kind", async () => {
+    const k = await kind("Strict");
+    const giver = await createUser("member");
+    const other = await createUser("member");
+    const taker = await createUser("member");
+    await qualify(other.id, k);
+    const s = await duty("Strict", k, giver.id, "07", "20:00");
+    const { offer } = await invoke("staffing.offer", { object: DUTY, id: s }, tool(giver));
+    // No qualification at all for the kind's object now: a write would not be warned, but a take
+    // is held to the rule.
+    const saved = await env.DB.prepare(
+      "SELECT * FROM core_staff_qualification WHERE kind_object = ?",
+    )
+      .bind(KIND)
+      .all<Record<string, string>>();
+    await env.DB.prepare("DELETE FROM core_staff_qualification WHERE kind_object = ?")
+      .bind(KIND)
+      .run();
+    try {
+      await expect(invoke("staffing.take", { offer: offer.id }, tool(taker))).rejects.toMatchObject(
+        { code: "forbidden", details: { rule: "not_qualified" } },
+      );
+    } finally {
+      for (const r of saved.results) {
+        await env.DB.prepare(
+          "INSERT INTO core_staff_qualification (account_id, kind_object, kind_record, set_by, set_at) VALUES (?, ?, ?, ?, ?)",
+        )
+          .bind(r.account_id, r.kind_object, r.kind_record, r.set_by, r.set_at)
+          .run();
+      }
+    }
+  });
+
+  it("a runtime extension's tool is answered as no such operation", async () => {
+    const runtime = extId("stfrt");
+    await env.DB.prepare(
+      "INSERT INTO core_extensions (id, source, status, version, commit_oid, manifest, user_id, installed_at, updated_at) VALUES (?, 'runtime', 'active', '1.0.0', 'c1', '{}', ?, ?, ?)",
+    )
+      .bind(runtime, admin.id, NOW, NOW)
+      .run();
+    const ctx = context(admin, {
+      actor: "extension",
+      clock: () => new Date(NOW),
+      extension: {
+        id: runtime,
+        permissions: { operations: STAFFING, objects: {} } as never,
+        tool: { name: "roster", humanOnly: true, permission: "rostering:team" },
+      },
+    });
+    await expect(invoke("staffing.uncovered", {}, ctx)).rejects.toMatchObject({
+      code: "unknown_operation",
+    });
+  });
+});
+
+describe("leaving, exactly", () => {
+  it("a pattern in the Trash is cleared; a restored one makes dates with nobody; audit and marks match", async () => {
+    const k = await kind("Exact");
+    const leaver = await coach("Exact leaver");
+    const series = (
+      await create(SERIES, {
+        name: "Exact class",
+        weekdays: ["tue"],
+        time: "06:00",
+        length: 60,
+        firstDate: "2026-05-01",
+        timezone: "UTC",
+        coach: leaver.profile,
+        kind: k,
+      })
+    ).id as string;
+    const trashed = (
+      await create(SERIES, {
+        name: "Exact trashed",
+        weekdays: ["fri"],
+        time: "09:00",
+        length: 60,
+        firstDate: "2026-05-01",
+        timezone: "UTC",
+        coach: leaver.profile,
+        kind: k,
+      })
+    ).id as string;
+    await runRecurringDue(db, { clock: () => new Date(NOW) });
+    await invoke("record.delete", { object: SERIES, id: trashed }, as(admin));
+    const t = objectTableOf(KLASS) as string;
+    const made = await env.DB.prepare(
+      `SELECT id FROM ${t} WHERE ${column(KLASS, "series")} = ? AND deleted_at IS NULL ORDER BY ${column(KLASS, "startsAt")}`,
+    )
+      .bind(series)
+      .all<{ id: string }>();
+    const refused = await invoke("user.deactivate", { id: leaver.user.id }, as(admin)).catch(
+      (e) => e,
+    );
+    const count = refused.details?.count as number;
+    // Its classes and both patterns, the one in the Trash included.
+    expect(count).toBe(made.results.length + 2);
+    await invoke("user.deactivate", { id: leaver.user.id, confirm: count }, as(admin));
+    expect(await stored(SERIES, trashed, "coach")).toBeNull();
+    for (const { id } of made.results) {
+      expect(await stored(KLASS, id, "coach")).toBeNull();
+      const changes = await env.DB.prepare(
+        "SELECT c.diff FROM core_audit_changes c JOIN core_audit a ON a.id = c.audit_id WHERE c.record_id = ? AND a.operation = 'user.deactivate'",
+      )
+        .bind(id)
+        .all<{ diff: string }>();
+      expect(changes.results).toHaveLength(1);
+      const mark = await env.DB.prepare(
+        "SELECT standing FROM core_value_mark WHERE object_type = ? AND record_id = ? AND field = 'coach'",
+      )
+        .bind(KLASS, id)
+        .first<{ standing: string }>();
+      expect(mark?.standing).toBe("host");
+    }
+    // Restored, and still naming the profile of someone who left (a person sets it back by hand):
+    // its new dates have nobody on them and claim nobody's time.
+    await invoke("record.restore", { object: SERIES, id: trashed }, as(admin));
+    await env.DB.prepare(
+      `UPDATE ${objectTableOf(SERIES)} SET ${column(SERIES, "coach")} = ? WHERE id = ?`,
+    )
+      .bind(leaver.profile, trashed)
+      .run();
+    await runRecurringDue(db, { clock: () => new Date(NOW) });
+    const fromTrash = await env.DB.prepare(
+      `SELECT count(*) AS n, count(${column(KLASS, "coach")}) AS covered FROM ${t} WHERE ${column(KLASS, "series")} = ? AND deleted_at IS NULL`,
+    )
+      .bind(trashed)
+      .first<{ n: number; covered: number }>();
+    expect(fromTrash?.n).toBeGreaterThan(0);
+    expect(fromTrash?.covered).toBe(0);
+    const claims = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_staff_time WHERE account_id = ? AND starts > ?",
+    )
+      .bind(leaver.user.id, Date.parse(NOW) / 1000)
+      .first<{ n: number }>();
+    expect(claims?.n).toBe(0);
+  });
+
+  it("the batch's guard fails it whole when what it read has changed", async () => {
+    await expect(
+      env.DB.prepare("INSERT INTO core_staff_guard (expected, actual) VALUES (2, 1)").run(),
+    ).rejects.toThrow(/core_staff_changed/);
+    await env.DB.prepare("INSERT INTO core_staff_guard (expected, actual) VALUES (1, 1)").run();
+    const kept = await env.DB.prepare("SELECT count(*) AS n FROM core_staff_guard").first<{
+      n: number;
+    }>();
+    expect(kept?.n).toBe(0);
+  });
+});
+
+describe("one notice per person for a change of many shifts", () => {
+  it("a series' coach changed: one summary to each coach, not one per class", async () => {
+    const k = await kind("Summary");
+    const first = await coach("Summary first");
+    const second = await coach("Summary second");
+    const series = (
+      await create(SERIES, {
+        name: "Summary class",
+        weekdays: ["wed"],
+        time: "12:00",
+        length: 60,
+        firstDate: "2026-06-01",
+        timezone: "UTC",
+        coach: first.profile,
+        kind: k,
+      })
+    ).id as string;
+    await runRecurringDue(db, { clock: () => new Date(NOW) });
+    const classes = await env.DB.prepare(
+      `SELECT count(*) AS n FROM ${objectTableOf(KLASS)} WHERE ${column(KLASS, "series")} = ?`,
+    )
+      .bind(series)
+      .first<{ n: number }>();
+    expect(classes?.n).toBeGreaterThan(1);
+    await update(SERIES, series, { coach: second.profile });
+    const on = await notices(second.user.id);
+    expect(on).toHaveLength(1);
+    expect(on[0]?.title).toBe(`You are on ${classes?.n} shifts`);
+    const off = await notices(first.user.id);
+    expect(off).toHaveLength(1);
+    expect(off[0]?.title).toBe(`You are off ${classes?.n} shifts`);
+    // Its time moved: one notice of the moves.
+    await update(SERIES, series, { time: "13:00" });
+    const moved = await notices(second.user.id, "% of your shifts changed time");
+    expect(moved).toHaveLength(1);
+  });
+
+  it("an import of many shifts tells each person once", async () => {
+    const k = await kind("Import");
+    const staff = await createUser("member");
+    await invoke(
+      "record.import",
+      {
+        object: DUTY,
+        records: ["15", "16", "17"].map((day) => ({
+          key: `import-${day}`,
+          values: {
+            name: `Imported ${day}`,
+            kind: k,
+            staff: staff.id,
+            startsAt: at(day, "07:00"),
+            endsAt: at(day, "08:00"),
+          },
+        })),
+      },
+      as(admin),
+    );
+    const told = await notices(staff.id);
+    expect(told).toHaveLength(1);
+    expect(told[0]?.title).toBe("You are on 3 shifts");
   });
 });
