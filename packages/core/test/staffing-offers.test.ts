@@ -284,8 +284,13 @@ async function stored(object: string, id: string, field: string) {
 
 describe("only a shipped pack's tool, and an AI's limits", () => {
   it("a person, MCP or the assistant calling directly gets no such operation", async () => {
-    for (const name of ["staffing.offer", "staffing.take", "staffing.away", "staffing.qualify"]) {
-      await expect(invoke(name, {}, as(admin))).rejects.toMatchObject({
+    for (const name of [
+      "staffing.offer",
+      "staffing.take",
+      "staffing.away",
+      "staffing.qualify",
+    ] as const) {
+      await expect(invoke(name, {} as never, as(admin))).rejects.toMatchObject({
         code: "unknown_operation",
       });
     }
