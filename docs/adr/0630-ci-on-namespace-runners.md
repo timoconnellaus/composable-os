@@ -110,10 +110,14 @@ add another cold dev-server start per run, which is where the known "fetch faile
 shards still run on 4-vCPU GitHub runners.
 
 ## Consequences
-- A run on a branch of this repository took 383 s warm, against 589 to 644 s before. The
-  required check "Lint, typecheck, unit tests" finished at about +300 s (343 to 408 s before),
-  and "E2E smoke (Playwright)" at +383 s (589 to 644 s). The PR that made this change has
-  the full table.
+- With the two lanes, a run on a branch of this repository took 383 s and 354 s, against 589
+  to 644 s before (and 527 to 592 s for runs on GitHub's runners in the same hour). The
+  required check "Lint, typecheck, unit tests" finished at +301 to +320 s (+343 to +408 s
+  before), and "E2E smoke (Playwright)" at +354 to +383 s (+589 to +644 s). The PR that made
+  this change has the table per job.
+- The critical path is now the slowest app e2e shard on Namespace (300 to 357 s), then the
+  GitHub-lane unit shards (core 3/3 and the app's, up to about 300 s, which vary by ±50 s from
+  run to run on GitHub's runners).
 - Runs from several branches at once share the workspace's eight runners. A second run that starts
   while one holds seven waits for runners, so in a busy hour a run can take longer than these
   numbers. The fix is on the account side: more concurrent vCPU (the Business plan has 160).
