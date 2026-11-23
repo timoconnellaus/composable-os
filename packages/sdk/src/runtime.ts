@@ -27,6 +27,7 @@ import type {
   StorageModule,
 } from "./contract.ts";
 import { toManifest } from "./manifest.ts";
+import type { RoutineMailModule, RoutineSendResult } from "./routine-mail.ts";
 
 type HostFn = (...args: unknown[]) => Promise<unknown>;
 
@@ -36,6 +37,8 @@ export interface RawHostModules {
   storage?: { get: HostFn; set: HostFn; del: HostFn; list: HostFn };
   log?: { write: HostFn };
   ai?: { summarise: HostFn; extract: HostFn; classify: HostFn };
+  /** `codemode:routine-mail` (ADR 0590). */
+  "routine-mail"?: { send: HostFn };
   /** `codemode:<gatekeeper>` modules, by gatekeeper name. */
   [gatekeeper: string]: Record<string, HostFn> | undefined;
 }
@@ -130,6 +133,16 @@ export function buildContext(
         classify: (text, labels) => raw.ai?.classify(text, labels) as Promise<never>,
       }
     : absent("ai");
+  const routine = raw["routine-mail"];
+  const routineMail: RoutineMailModule = routine?.send
+    ? {
+        send: async (input) => {
+          const reply = (await routine.send?.(input)) as OpsReply;
+          if (reply.ok) return reply.value as RoutineSendResult;
+          throw new OpsCallError(reply.error.code, reply.error.message, reply.error.details);
+        },
+      }
+    : absent("routine-mail");
   const gatekeeper = (name: string): GatekeeperModule => {
     const mod = raw[name] as Record<string, HostFn> | undefined;
     if (!mod?.call) return absent<GatekeeperModule>(name);
@@ -150,6 +163,7 @@ export function buildContext(
     log,
     ai,
     gatekeeper: gatekeeper as ExtensionContext["gatekeeper"],
+    routineMail,
     ...(caller ? { caller: Object.freeze({ ...caller }) as StartedBy } : {}),
   };
 }

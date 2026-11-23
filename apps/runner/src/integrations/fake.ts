@@ -8,6 +8,10 @@
 // Not a template for production gatekeepers: no PKCE, no credentials, a trivially simple journal.
 // See packages/gatekeeper-email-send and packages/gatekeeper-slack-post for real ones.
 import { DurableObject, RpcStub, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
+import {
+  hostRoutineMail,
+  isRoutineShaped,
+} from "../../../../packages/gatekeeper-email-send/src/routine.ts";
 // The email-send gatekeeper's own rule for the host's sign-in mail, so the fake decides it the
 // same way (ADR 0456). The module imports only types.
 import {
@@ -784,6 +788,12 @@ export class FakeGatekeeper extends DurableObject<
           : {}),
       }) &&
       (await isHostSignInMail(queue));
+    // Routine mail (ADR 0590), decided exactly as email-send decides it.
+    const routineMail = signIn ? null : await hostRoutineMail(queue);
+    const routine =
+      routineMail !== null &&
+      message.internal === undefined &&
+      isRoutineShaped({ to, subject, text }, routineMail.siteOrigin);
     const journal = this.#journal();
     const id = journal.next;
     journal.next += 1;
@@ -792,7 +802,7 @@ export class FakeGatekeeper extends DurableObject<
       to,
       subject,
       text,
-      ...(signIn ? { independent: true } : {}),
+      ...(signIn || routine ? { independent: true } : {}),
     };
     this.ctx.storage.kv.put("journal", journal);
     const related = Array.isArray(message.relatedRecords) ? message.relatedRecords.map(String) : [];
@@ -811,9 +821,11 @@ export class FakeGatekeeper extends DurableObject<
       autoApprovable: internal || signIn,
       actionKind: signIn
         ? { tag: "fake.signin", label: "Send sign-in codes" }
-        : internal
-          ? { tag: "fake.internal", label: "Send internal mail" }
-          : { tag: "fake.send", label: "Send mail" },
+        : routine
+          ? { tag: "fake.routine", label: "Send members' routine email" }
+          : internal
+            ? { tag: "fake.internal", label: "Send internal mail" }
+            : { tag: "fake.send", label: "Send mail" },
     });
     return { id, status: this.#journal().actions[id]?.status === "sent" ? "sent" : "pending" };
   }

@@ -14,6 +14,7 @@ import {
   GavelIcon,
   LifeBuoyIcon,
   ListOrderedIcon,
+  MailCheckIcon,
   MicIcon,
   PlugIcon,
   PlugZapIcon,
@@ -63,6 +64,7 @@ function Section({
     | "/settings/automations"
     | "/settings/duplicates"
     | "/settings/orders"
+    | "/settings/routine-email"
     | "/settings/plan"
     | "/settings/support-access";
 }) {
@@ -249,6 +251,14 @@ function SettingsPage() {
               title="Orders"
               description="The order currency, how long an unpaid order lasts, part payments and where buyers come back to."
               to="/settings/orders"
+            />
+          )}
+          {isAdmin && (
+            <Section
+              icon={<MailCheckIcon className="size-5" />}
+              title="Routine email"
+              description="The fixed emails your packs send members on their own, each kind's switch, and what was sent."
+              to="/settings/routine-email"
             />
           )}
           {isAdmin && (

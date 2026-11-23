@@ -49059,6 +49059,377 @@
       ]
     },
     {
+      "name": "routineMail.get",
+      "description": "Routine email (ADR 0590): every kind the shipped packs declare (a booking's confirmation, a class reminder) with whether it is on and how many were sent on their own, waited for a person or were not sent in the last 7 days; the business's site the emails may link to; and whether the approval policy lets routine email go out on its own now. Admins only. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "kinds": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "The kind: <extension>.<kind>, e.g. bookings.reminder"
+                },
+                "extension": {
+                  "type": "string"
+                },
+                "extensionLabel": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "about": {
+                  "type": "string",
+                  "description": "The object each email is about"
+                },
+                "messages": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "on": {
+                  "type": "boolean",
+                  "description": "Sent; off sends nothing and queues nothing"
+                },
+                "defaultOn": {
+                  "type": "boolean"
+                },
+                "lastWeek": {
+                  "type": "object",
+                  "properties": {
+                    "sent": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "waiting": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "off": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "other": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "sent",
+                    "waiting",
+                    "off",
+                    "other"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Emails of this kind in the last 7 days: sent on their own (or once approved), waiting for a person, not sent because the kind was off, and refused or failed"
+                }
+              },
+              "required": [
+                "id",
+                "extension",
+                "extensionLabel",
+                "label",
+                "description",
+                "about",
+                "messages",
+                "on",
+                "defaultOn",
+                "lastWeek"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "siteOrigin": {
+            "description": "The business's own site: the only place a routine email links to",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sendsOnItsOwn": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "review",
+              "deny"
+            ],
+            "description": "What the approval policy and the deploy floor do with routine mail now: auto (it sends on its own), review (each waits for a person: the Cautious policy, or a floor of review on outbound) or deny (a floor refuses outbound)"
+          }
+        },
+        "required": [
+          "kinds",
+          "siteOrigin",
+          "sendsOnItsOwn"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "routineMail.log",
+      "description": "The routine email log (ADR 0590), newest first: each email a shipped pack's automation asked for, its kind, the record it is about, who it went to and by which rule (the record's person, their guardian or a paid order's own address), what started it and who made that change, whether it went on its own or was held for a person and why, and what became of it. Filter by kind or status. Admins only. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "off",
+              "ready",
+              "sending",
+              "sent",
+              "waiting",
+              "denied",
+              "failed"
+            ]
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "recordId": {
+                  "type": "string"
+                },
+                "recipient": {
+                  "type": "string"
+                },
+                "recipientRule": {
+                  "type": "string",
+                  "enum": [
+                    "person",
+                    "guardian",
+                    "order"
+                  ],
+                  "description": "How the host chose the recipient: the record's person, their guardian, or a paid order's own address"
+                },
+                "automationId": {
+                  "type": "string"
+                },
+                "runId": {
+                  "type": "string"
+                },
+                "trigger": {
+                  "type": "string",
+                  "description": "What started the run: record, fieldChanged, dateRelative, schedule, manual…"
+                },
+                "triggeredBy": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "actor": {
+                          "type": "string"
+                        },
+                        "userId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "approved": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "actor",
+                        "userId",
+                        "approved"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Who made the change that started it; null for the clock"
+                },
+                "routine": {
+                  "type": "boolean",
+                  "description": "Allowed to go without a person"
+                },
+                "heldReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "off",
+                    "ready",
+                    "sending",
+                    "sent",
+                    "waiting",
+                    "denied",
+                    "failed"
+                  ]
+                },
+                "pendingActionId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "error": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "at",
+                "kind",
+                "message",
+                "object",
+                "recordId",
+                "recipient",
+                "recipientRule",
+                "automationId",
+                "runId",
+                "trigger",
+                "triggeredBy",
+                "routine",
+                "heldReason",
+                "status",
+                "pendingActionId",
+                "error"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "routineMail.settings.update",
+      "description": "Turn one kind of routine email on or off (kinds: { 'bookings.reminder': false }: off sends nothing and queues nothing), or set the business's own site, the only place routine email links to (siteOrigin, an https origin; null removes the links). Only what you pass changes. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "kinds": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "additionalProperties": {
+              "type": "boolean"
+            }
+          },
+          "siteOrigin": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "kinds": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "boolean"
+            }
+          },
+          "siteOrigin": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "kinds",
+          "siteOrigin"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "routineMail.get",
+        "routineMail.log"
+      ]
+    },
+    {
       "name": "sample.install",
       "description": "Add a small set of sample organisations, people and tasks (marked '(sample)') to explore the CRM with. sample.remove deletes exactly these. Human admins only.",
       "risk": "write",

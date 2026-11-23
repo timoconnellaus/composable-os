@@ -9,7 +9,13 @@ const SENDER_URL = "email-send://sender/crm%40example.com";
 let seq = 0;
 
 /** A fresh host with a facet for SENDER_URL, so no test inherits another's durable state. */
-async function host(options: { autoApply?: boolean; hostSignIn?: boolean } = {}) {
+async function host(
+  options: {
+    autoApply?: boolean;
+    hostSignIn?: boolean;
+    hostRoutine?: { siteOrigin: string | null };
+  } = {},
+) {
   seq += 1;
   const stub = env.TEST_HOST.getByName(`host-${seq}-${crypto.randomUUID()}`);
   await stub.open(SENDER_URL, options);

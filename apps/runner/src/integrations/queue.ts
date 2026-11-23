@@ -42,6 +42,24 @@ export type QueueCaller =
       purpose: "sign-in";
       origin: SignInMailOrigin;
       user: ActingUser;
+    }
+  | {
+      kind: "system";
+      // Routine mail (ADR 0590): only the integration host's `sendRoutineMail` opens it, for one
+      // row of core_routine_mail it read itself. `routine` is the host's decision; the run it
+      // belongs to is where a held one waits.
+      purpose: "routine-mail";
+      user: ActingUser;
+      routine: {
+        id: string;
+        kind: string;
+        routine: boolean;
+        heldReason: string | null;
+        automationId: string;
+        runId: string;
+        extensionId: string;
+        siteOrigin: string | null;
+      };
     };
 
 export interface ObservationRecord {
@@ -102,6 +120,8 @@ export class HostQueue extends RpcTarget {
     outcome: ApplyOutcome;
     message: string;
   }[] = [];
+  /** Actions the gate denied (the deploy floor), rejected on the facet. */
+  readonly denied: number[] = [];
   /** Work that must finish before the call returns (auto-applies, hook enables). */
   readonly deferred: Promise<unknown>[] = [];
 
@@ -165,6 +185,17 @@ export class HostQueue extends RpcTarget {
   }
 
   /**
+   * Whether this session is the host's own routine mail, decided routine (ADR 0590), and the
+   * business's site its links may point to. Email-send gives a send its routine kind only when
+   * this answers, and only for a message of routine shape: a held one answers null and is an
+   * ordinary send. The answer comes from how the host opened the queue, never from the caller.
+   */
+  async hostRoutineMail(): Promise<{ siteOrigin: string | null } | null> {
+    if (this.#caller.kind !== "system" || this.#caller.purpose !== "routine-mail") return null;
+    return this.#caller.routine.routine ? { siteOrigin: this.#caller.routine.siteOrigin } : null;
+  }
+
+  /**
    * Whether this session is the host's own orders call (`callAsHost`, purpose `orders`): an
    * order's checkout, a subscription's, its portal (ADR 0485). The payments gatekeeper opens a
    * customer's billing portal only for such a session; the answer comes from how the host opened
@@ -176,22 +207,43 @@ export class HostQueue extends RpcTarget {
 
   async submitAction(action: number, description: OutboundDescription): Promise<void> {
     const host = this.#host;
+    const routine =
+      this.#caller.kind === "system" && this.#caller.purpose === "routine-mail"
+        ? this.#caller.routine
+        : null;
     const caller =
       this.#caller.kind === "actor"
         ? this.#caller.caller
-        : {
-            actor: "automation" as const,
-            userId: this.#caller.user.id,
-            userName: this.#caller.user.name,
-            role: this.#caller.user.role,
-            origin:
-              this.#caller.purpose === "sign-in"
-                ? { surface: "system" as const, automationId: this.#caller.origin }
-                : {
-                    surface: "automation" as const,
-                    automationId: `${this.#caller.purpose}:${host.connectionId}`,
-                  },
-          };
+        : routine
+          ? {
+              // A routine email is its automation run's: a held one waits in the run's change set.
+              actor: "automation" as const,
+              userId: this.#caller.user.id,
+              userName: this.#caller.user.name,
+              role: this.#caller.user.role,
+              origin: {
+                surface: "automation" as const,
+                automationId: routine.automationId,
+                runId: routine.runId,
+                extensionId: routine.extensionId,
+              },
+              reason: routine.routine
+                ? `Routine email ${routine.kind} (${routine.id})`
+                : `Routine email ${routine.kind}, held for a person: ${routine.heldReason ?? "not routine"}`,
+            }
+          : {
+              actor: "automation" as const,
+              userId: this.#caller.user.id,
+              userName: this.#caller.user.name,
+              role: this.#caller.user.role,
+              origin:
+                this.#caller.purpose === "sign-in"
+                  ? { surface: "system" as const, automationId: this.#caller.origin }
+                  : {
+                      surface: "automation" as const,
+                      automationId: `${this.#caller.purpose}:${host.connectionId}`,
+                    },
+            };
     const submission: OutboundSubmission = {
       connectionId: host.connectionId,
       connectionTitle: host.connectionTitle,
@@ -211,6 +263,9 @@ export class HostQueue extends RpcTarget {
       ...(this.#caller.kind === "system" && this.#caller.purpose === "orders"
         ? { hostMessage: true }
         : {}),
+      // Routine mail (ADR 0590): the host's decision, which the gate applies only with the
+      // gatekeeper's routine kind; anything else from this queue waits for a person.
+      ...(routine ? { routineMail: { routine: routine.routine } } : {}),
       ...(this.#caller.kind === "actor" && this.#caller.caller.request
         ? { asked: this.#caller.caller.request }
         : {}),
@@ -225,6 +280,7 @@ export class HostQueue extends RpcTarget {
     // that submitted it.
     const later = new Promise<void>((resolve) => setTimeout(resolve, 0)).then(async () => {
       if (decision.decision === "deny") {
+        this.denied.push(action);
         await host.reject(host.facetKey, action);
         return;
       }

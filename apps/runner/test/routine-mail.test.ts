@@ -1,0 +1,675 @@
+// Routine mail (ADR 0590) on the shipped packs, through a real email-send gatekeeper and the fake
+// Email Service, under the default (Balanced) preset. A member's routine email goes out on its
+// own; and every way of getting an email out without a person's approval that is not a shipped
+// pack's own declared email to the record's own people is tried here, and fails:
+//   - as the assistant or an MCP client (a change an AI made, not approved: held for a person);
+//   - a replay of a run (automation.replay, which an AI may call): held;
+//   - Code Mode, a tool, a customer's call: the routine-mail module does not answer;
+//   - an extension that is not shipped (or a shipped one ejected), another extension's kind, a
+//     run that is not the automation's own: refused;
+//   - text or a link in a member's name or a class's title: held;
+//   - naming an address, free text for a slot, a choice not declared: refused;
+//   - naming a record the run is not about: refused;
+//   - the kind switched off: nothing sent, nothing queued;
+//   - the Cautious preset, and over the daily cap per recipient: held.
+// The deploy floor's review and deny are tested in packages/core/test/routine-mail.test.ts.
+import { introspectWorkflow } from "cloudflare:test";
+import { env } from "cloudflare:workers";
+import {
+  type ActingUser,
+  type CustomerPrincipal,
+  type ExtensionHost,
+  type InvocationContext,
+  invokeByName,
+  type OutsideInvocationContext,
+  prepareRoutineMail,
+  queueEventSink,
+  refreshSchemaRegistry,
+} from "@composable-os/core";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { automationHost } from "../src/automations/host.ts";
+import { RunHost } from "../src/executor/host.ts";
+import { integrationRuntime } from "../src/integrations/runtime.ts";
+import { setPreset } from "./automation-fixture.ts";
+import { createAdmin, db, host, unique } from "./helpers.ts";
+
+const packFiles = (glob: Record<string, string>) =>
+  Object.fromEntries(
+    Object.entries(glob)
+      .map(([path, text]) => [path.split("/").pop() as string, text] as const)
+      .filter(([name]) => name !== "vitest.config.ts"),
+  );
+const files: Record<string, Record<string, string>> = {
+  programs: packFiles(
+    import.meta.glob<string>("../../../packs/programs/*.ts", {
+      query: "?raw",
+      import: "default",
+      eager: true,
+    }),
+  ),
+  bookings: packFiles(
+    import.meta.glob<string>("../../../packs/bookings/*.ts", {
+      query: "?raw",
+      import: "default",
+      eager: true,
+    }),
+  ),
+  memberships: packFiles(
+    import.meta.glob<string>("../../../packs/memberships/*.ts", {
+      query: "?raw",
+      import: "default",
+      eager: true,
+    }),
+  ),
+};
+const OURS = new Set(Object.keys(files));
+const shippedHost: ExtensionHost = {
+  ...host,
+  shipped: async () => [
+    ...(await host.shipped()).filter((s) => !OURS.has(s.id)),
+    { id: "bookings", version: "0.1.0" },
+    { id: "memberships", version: "0.1.0" },
+    { id: "programs", version: "0.1.0" },
+  ],
+  commitShipped: (id) =>
+    files[id]
+      ? host.commit({
+          id,
+          files: files[id] as Record<string, string>,
+          message: `Shipped ${id} 0.1.0`,
+          author: { name: "Composable OS", email: "release@composableos.dev" },
+        })
+      : host.commitShipped(id),
+};
+
+const integrations = integrationRuntime(env);
+const HOUR = 3_600_000;
+const DAY = 24 * HOUR;
+const CLASS = "bookings.class";
+const SITE = "https://gym.example";
+const MAILING = [
+  "bookingConfirmed",
+  "waitlistPassedOver",
+  "placeFree",
+  "classChanged",
+  "classCancelled",
+  "classReminder",
+  "dropInOrder",
+];
+
+let introspector: Awaited<ReturnType<typeof introspectWorkflow>>;
+let admin: ActingUser;
+let mailConnection: string;
+const sink = queueEventSink(env.AUTOMATION_EVENTS);
+const staff = (extra: Partial<InvocationContext> = {}): InvocationContext => ({
+  actor: "human",
+  user: admin,
+  origin: { surface: "ui" },
+  db,
+  integrations,
+  extensionHost: shippedHost,
+  events: sink,
+  ...extra,
+});
+const as = (principal: CustomerPrincipal): OutsideInvocationContext => ({
+  principal,
+  db,
+  integrations,
+  extensionHost: shippedHost,
+  events: sink,
+});
+const run = <T = Record<string, unknown>>(
+  name: string,
+  input: unknown,
+  ctx: InvocationContext | OutsideInvocationContext,
+) => invokeByName(name, input, ctx) as Promise<T>;
+const create = async (object: string, values: Record<string, unknown>) =>
+  (await run<{ id: string }>("record.create", { object, values }, staff())).id;
+
+interface Sent {
+  to: string[];
+  subject: string;
+  text?: string;
+}
+async function mailTo(address: string): Promise<Sent[]> {
+  const all = (await env.TEST_EMAIL_OUTBOX.list()) as Sent[];
+  return all.filter((m) => m.to.includes(address.toLowerCase()));
+}
+
+interface Row {
+  id: string;
+  kind: string;
+  status: string;
+  routine: number;
+  held_reason: string | null;
+  recipient: string;
+  recipient_rule: string;
+  pending_action_id: string | null;
+  run_id: string;
+  trigger_type: string;
+}
+/** The routine mail rows about a record, once there are `count` decided ones. */
+async function rowsFor(recordId: string, count = 1): Promise<Row[]> {
+  let rows: Row[] = [];
+  await vi.waitFor(
+    async () => {
+      rows = (
+        await env.DB.prepare(
+          "SELECT * FROM core_routine_mail WHERE record_id = ? ORDER BY created_at, id",
+        )
+          .bind(recordId)
+          .all<Row>()
+      ).results;
+      expect(rows.filter((r) => r.status !== "ready" && r.status !== "sending")).toHaveLength(
+        count,
+      );
+    },
+    { timeout: 30_000, interval: 200 },
+  );
+  return rows;
+}
+
+async function pendingOf(actionId: string) {
+  return env.DB.prepare(
+    "SELECT operation, action_kind, status, input FROM core_pending_action WHERE id = ?",
+  )
+    .bind(actionId)
+    .first<{ operation: string; action_kind: string; status: string; input: string }>();
+}
+
+async function member(
+  label: string,
+  name?: string,
+): Promise<CustomerPrincipal & { email: string }> {
+  const tag = unique(label).toLowerCase();
+  const email = `${tag}@members.test`;
+  const person = await run<{ id: string }>(
+    "person.create",
+    { givenName: name ?? `Given-${tag}`, emails: [{ email }] },
+    staff(),
+  );
+  const customerId = `cus_${tag}`;
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    "INSERT INTO core_customer (id, person_id, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
+  )
+    .bind(customerId, person.id, email, now, now)
+    .run();
+  return { kind: "customer", customerId, personId: person.id, email };
+}
+
+async function givePass(personId: string): Promise<void> {
+  const type = await create("memberships.passtype", {
+    title: unique("Pack "),
+    price: 50,
+    uses: 10,
+    validDays: 60,
+    status: "on_sale",
+  });
+  await run(
+    "x.memberships.givePass",
+    { personId, passTypeId: type, reason: "Integration test" },
+    staff(),
+  );
+}
+
+let type: string;
+async function klass(extra: Record<string, unknown> = {}): Promise<string> {
+  const startsAt = new Date(Date.now() + 2 * DAY).toISOString();
+  return create(CLASS, {
+    classType: type,
+    startsAt,
+    endsAt: new Date(Date.parse(startsAt) + HOUR).toISOString(),
+    timezone: "Australia/Sydney",
+    places: 10,
+    ...extra,
+  });
+}
+
+type Out = Record<string, unknown> & { result: string; bookingId?: string };
+const book = (who: CustomerPrincipal, classId: string, extra: Record<string, unknown> = {}) =>
+  run<Out>("x.bookings.book", { classId, ...extra }, as(who));
+
+/** A booked member, their booking's confirmation decided. */
+async function booked(label: string, classId?: string) {
+  const who = await member(label);
+  await givePass(who.personId);
+  const k = classId ?? (await klass());
+  const out = await book(who, k);
+  expect(out.result).toBe("booked");
+  const [row] = await rowsFor(out.bookingId as string);
+  return { who, classId: k, bookingId: out.bookingId as string, row: row as Row };
+}
+
+beforeAll(async () => {
+  introspector = await introspectWorkflow(env.AUTOMATION_WORKFLOW);
+  await introspector.modifyAll(async (m) => {
+    await m.disableSleeps();
+    await m.disableRetryDelays();
+  });
+  admin = await createAdmin();
+  await setPreset("balanced");
+  await refreshSchemaRegistry(db.query);
+  for (const id of ["programs", "bookings", "memberships"]) {
+    await run("extension.install", { id, shipped: true }, staff());
+  }
+  await refreshSchemaRegistry(db.query);
+  await run("integration.setVendor", { vendor: "email-send", enabled: true }, staff());
+  const mail = await run<{ connection: { id: string } }>(
+    "connection.create",
+    { vendor: "email-send", scope: "org" },
+    staff(),
+  );
+  mailConnection = mail.connection.id;
+  await run(
+    "connection.bindResource",
+    { id: mailConnection, url: `email-send://sender/${encodeURIComponent("gym@example.com")}` },
+    staff(),
+  );
+  for (const name of MAILING) {
+    await run(
+      "automation.bindConnection",
+      { id: `bookings.${name}`, slot: "mail", connectionId: mailConnection },
+      staff(),
+    );
+  }
+  await run("routineMail.settings.update", { siteOrigin: SITE }, staff());
+  await run(
+    "extensionSettings.update",
+    { extension: "bookings", values: { bookingsUrl: `${SITE}/bookings` } },
+    staff(),
+  );
+  type = await create("programs.classtype", { name: unique("Strength") });
+}, 120_000);
+
+afterAll(async () => {
+  await setPreset("balanced");
+  await introspector[Symbol.asyncDispose]();
+});
+
+describe("a member's routine email under Balanced", () => {
+  it("goes on its own, to the booking's person, linking only to the gym's site; the log says so", async () => {
+    const { who, row } = await booked("routine");
+    expect(row).toMatchObject({
+      kind: "bookings.confirmation",
+      status: "sent",
+      routine: 1,
+      recipient: who.email,
+      recipient_rule: "person",
+      trigger_type: "record",
+      pending_action_id: null,
+    });
+    const [mail] = await mailTo(who.email);
+    expect(mail?.subject).toMatch(/^Booked: Strength/);
+    expect(mail?.text).toContain(`You can see your bookings when you sign in: ${SITE}/bookings.`);
+    // The words are cleared once it is decided; the kind, record and recipient stay.
+    const stored = await env.DB.prepare("SELECT subject, body FROM core_routine_mail WHERE id = ?")
+      .bind(row.id)
+      .first();
+    expect(stored).toEqual({ subject: null, body: null });
+    const log = await run<{ items: { id: string; status: string; triggeredBy: unknown }[] }>(
+      "routineMail.log",
+      { kind: "bookings.confirmation" },
+      staff(),
+    );
+    expect(log.items.find((i) => i.id === row.id)).toMatchObject({
+      status: "sent",
+      triggeredBy: { actor: "customer", approved: false },
+    });
+    const view = await run<{ kinds: { id: string; lastWeek: { sent: number } }[] }>(
+      "routineMail.get",
+      {},
+      staff(),
+    );
+    expect(view.kinds.find((k) => k.id === "bookings.confirmation")?.lastWeek.sent).toBeGreaterThan(
+      0,
+    );
+    expect(view.kinds.map((k) => k.id)).toEqual(
+      expect.arrayContaining([
+        "bookings.confirmation",
+        "bookings.waitingList",
+        "bookings.change",
+        "bookings.cancellation",
+        "bookings.reminder",
+        "bookings.dropIn",
+      ]),
+    );
+  });
+
+  it("a retried step sends nothing twice: the host finds the row it made", async () => {
+    const { bookingId, row } = await booked("retry");
+    const again = await prepareRoutineMail(db.query, {
+      extensionId: "bookings",
+      automationId: "bookings.bookingConfirmed",
+      runId: row.run_id,
+      connectionId: mailConnection,
+      send: { kind: "confirmation", record: bookingId, message: "booked" },
+    });
+    expect(again.toSend).toEqual([]);
+    expect(again.done).toEqual([{ id: row.id, status: "sent", routine: true }]);
+  });
+});
+
+describe("the switch per kind", () => {
+  it("off sends nothing and queues nothing, and the admin sees it; on again sends", async () => {
+    await run(
+      "routineMail.settings.update",
+      { kinds: { "bookings.confirmation": false } },
+      staff(),
+    );
+    try {
+      const who = await member("off");
+      await givePass(who.personId);
+      const out = await book(who, await klass());
+      const [row] = await rowsFor(out.bookingId as string);
+      expect(row).toMatchObject({ status: "off", routine: 0, pending_action_id: null });
+      expect(await mailTo(who.email)).toEqual([]);
+      const pending = await env.DB.prepare(
+        "SELECT count(*) AS n FROM core_pending_action WHERE operation = 'integration.outbound' AND status = 'pending' AND input LIKE ?",
+      )
+        .bind(`%${who.email}%`)
+        .first<{ n: number }>();
+      expect(pending?.n).toBe(0);
+      const view = await run<{ kinds: { id: string; on: boolean; lastWeek: { off: number } }[] }>(
+        "routineMail.get",
+        {},
+        staff(),
+      );
+      expect(view.kinds.find((k) => k.id === "bookings.confirmation")).toMatchObject({
+        on: false,
+        lastWeek: { off: expect.any(Number) },
+      });
+    } finally {
+      await run(
+        "routineMail.settings.update",
+        { kinds: { "bookings.confirmation": true } },
+        staff(),
+      );
+    }
+    const { row } = await booked("on-again");
+    expect(row.status).toBe("sent");
+  });
+});
+
+describe("never on an AI's say-so alone", () => {
+  it("a booking the assistant made (an extension tool) is told only once a person approves the email", async () => {
+    const who = await member("assistant");
+    await givePass(who.personId);
+    const out = await run<Out>(
+      "x.bookings.bookFor",
+      { classId: await klass(), personId: who.personId, paidAtDesk: true },
+      staff({ actor: "assistant", origin: { surface: "assistant", sessionId: unique("ses") } }),
+    );
+    expect(out.result).toBe("booked");
+    const [row] = await rowsFor(out.bookingId as string);
+    expect(row).toMatchObject({ status: "waiting", routine: 0 });
+    expect(row?.held_reason).toMatch(/an AI made the change/);
+    expect(await mailTo(who.email)).toEqual([]);
+    // The approval is the ordinary one: an email.send a person reads in full.
+    const pending = await pendingOf(row?.pending_action_id as string);
+    expect(pending).toMatchObject({
+      operation: "integration.outbound",
+      action_kind: "email.send",
+      status: "pending",
+    });
+    expect(pending?.input).toContain("You are booked into");
+  });
+
+  it("an MCP client's change to a class time is told only once a person approves each email", async () => {
+    const { who, classId, bookingId } = await booked("mcp");
+    const later = new Date(Date.now() + 3 * DAY).toISOString();
+    await run(
+      "record.update",
+      {
+        object: CLASS,
+        id: classId,
+        values: { startsAt: later, endsAt: new Date(Date.parse(later) + HOUR).toISOString() },
+      },
+      staff({
+        actor: "mcp",
+        origin: { surface: "mcp", sessionId: unique("cap"), clientName: "Bot" },
+      }),
+    );
+    const rows = await rowsFor(bookingId, 2);
+    const change = rows.find((r) => r.kind === "bookings.change");
+    expect(change).toMatchObject({ status: "waiting", routine: 0 });
+    expect((await mailTo(who.email)).map((m) => m.subject)).toEqual([
+      expect.stringMatching(/^Booked: /),
+    ]);
+  });
+
+  it("a replay of a run (which an AI may ask for) is held: it would send the email again", async () => {
+    const { who, bookingId, row } = await booked("replay");
+    const replayed = await run<{ runId: string }>(
+      "automation.replay",
+      { runId: row.run_id },
+      staff({
+        actor: "assistant",
+        origin: { surface: "assistant", sessionId: unique("ses") },
+        automationHost: automationHost(env as never),
+      }),
+    );
+    expect(replayed.runId).not.toBe(row.run_id);
+    const rows = await rowsFor(bookingId, 2);
+    const again = rows.find((r) => r.run_id === replayed.runId);
+    expect(again).toMatchObject({ status: "waiting", routine: 0 });
+    expect(again?.held_reason).toMatch(/the run is a replay/);
+    expect((await mailTo(who.email)).length).toBe(1);
+  });
+
+  it("there is no operation to send routine mail: the assistant and MCP cannot name one", async () => {
+    for (const actor of ["assistant", "mcp"] as const) {
+      await expect(
+        run(
+          "routineMail.send",
+          { kind: "confirmation", record: "rec_x" },
+          staff({ actor, origin: { surface: actor === "mcp" ? "mcp" : "assistant" } }),
+        ),
+      ).rejects.toMatchObject({ code: expect.stringMatching(/unknown|not_found|validation/) });
+    }
+  });
+});
+
+describe("only an automation of a shipped pack", () => {
+  const runState = (over: Record<string, unknown>) =>
+    ({
+      runId: "xrn_1",
+      extensionId: "bookings",
+      modules: new Set(["ops", "routine-mail"]),
+      user: admin,
+      permissions: { read: [], write: [], operations: [], modules: ["ops", "routine-mail"] },
+      deadline: Date.now() + 60_000,
+      logs: [],
+      operations: [],
+      ...over,
+    }) as never;
+  const ask = (state: never) =>
+    new RunHost(env, state).call("routine-mail", "send", [
+      { kind: "confirmation", record: "rec_x", message: "booked" },
+    ]) as Promise<{ ok: boolean; error?: { code: string; message: string } }>;
+
+  it("Code Mode, a tool and a customer's call get no routine mail", async () => {
+    const code = await ask(
+      runState({
+        code: {
+          caller: { actor: "assistant", user: admin, origin: { surface: "assistant" } },
+          pending: [],
+          calls: 0,
+        },
+        automation: {
+          automationId: "bookings.bookingConfirmed",
+          runId: "arn_x",
+          depth: 0,
+          chain: [],
+          rootEventId: "x",
+        },
+      }),
+    );
+    expect(code).toMatchObject({ ok: false, error: { code: "forbidden" } });
+    const tool = await ask(
+      runState({ tool: { name: "book", humanOnly: false, permission: null } }),
+    );
+    expect(tool).toMatchObject({ ok: false, error: { code: "forbidden" } });
+    await expect(
+      ask(runState({ outside: { principal: { kind: "public" }, tool: "book" } })),
+    ).rejects.toThrow(/not available in a tool called by a customer/);
+  });
+
+  it("refuses an extension that is not shipped, a kind it does not declare, and a run not its own", async () => {
+    const { bookingId, row } = await booked("refused");
+    const send = { kind: "confirmation", record: bookingId, message: "booked" };
+    const prepare = (over: Record<string, unknown>) =>
+      prepareRoutineMail(db.query, {
+        extensionId: "bookings",
+        automationId: "bookings.bookingConfirmed",
+        runId: row.run_id,
+        connectionId: mailConnection,
+        send,
+        ...over,
+      });
+    // Ejected (now a runtime extension, the assistant's to change): refused.
+    await env.DB.prepare(
+      "UPDATE core_extensions SET source = 'runtime' WHERE id = 'bookings'",
+    ).run();
+    try {
+      await expect(prepare({})).rejects.toMatchObject({ code: "forbidden" });
+    } finally {
+      await env.DB.prepare(
+        "UPDATE core_extensions SET source = 'shipped' WHERE id = 'bookings'",
+      ).run();
+    }
+    // Another extension naming Bookings' kind, or Bookings' run claimed by another automation.
+    await expect(
+      prepare({ extensionId: "memberships", automationId: "memberships.renewal" }),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    await expect(prepare({ automationId: "bookings.classReminder" })).rejects.toMatchObject({
+      code: "forbidden",
+    });
+    await expect(prepare({ runId: "arn_not_a_run" })).rejects.toMatchObject({ code: "forbidden" });
+    await expect(prepare({ send: { ...send, kind: "newsletter" } })).rejects.toMatchObject({
+      code: "forbidden",
+    });
+  });
+});
+
+describe("the words are the declaration's, and the recipient the host's", () => {
+  it("refuses an address, free text for a slot the host fills, and a choice not declared", async () => {
+    const { bookingId, row } = await booked("words");
+    const prepare = (send: unknown, automationId = "bookings.bookingConfirmed") =>
+      prepareRoutineMail(db.query, {
+        extensionId: "bookings",
+        automationId,
+        runId: row.run_id,
+        connectionId: mailConnection,
+        send,
+      });
+    for (const send of [
+      { kind: "confirmation", record: bookingId, message: "booked", to: "victim@evil.test" },
+      { kind: "confirmation", record: bookingId, message: "booked", text: "Free money" },
+      {
+        kind: "confirmation",
+        record: bookingId,
+        message: "booked",
+        values: { class: "Claim your prize at https://evil.test" },
+      },
+      {
+        kind: "confirmation",
+        record: bookingId,
+        message: "booked",
+        values: { link: "https://evil.test" },
+      },
+      { kind: "confirmation", record: bookingId, message: "phishing" },
+    ]) {
+      await expect(prepare(send), JSON.stringify(send)).rejects.toMatchObject({
+        name: "ValidationError",
+      });
+    }
+  });
+
+  it("refuses a record the run is not about (another member's booking in another class)", async () => {
+    // Both of one class type, in different classes: sharing the type ties nothing.
+    const a = await booked("mine");
+    const b = await booked("theirs");
+    await expect(
+      prepareRoutineMail(db.query, {
+        extensionId: "bookings",
+        automationId: "bookings.bookingConfirmed",
+        runId: a.row.run_id,
+        connectionId: mailConnection,
+        send: { kind: "confirmation", record: b.bookingId, message: "booked" },
+      }),
+    ).rejects.toMatchObject({ code: "forbidden" });
+  });
+
+  it("a link or an address in a child's name, or a link in a class title, is held for a person", async () => {
+    const parent = await member("parent");
+    const childId = (
+      await run<{ id: string }>("person.create", { givenName: "Robin www.evil.test" }, staff())
+    ).id;
+    await run("person.link.add", { guardianId: parent.personId, dependantId: childId }, staff());
+    await givePass(childId);
+    const out = await book(parent, await klass(), { forPersonId: childId });
+    expect(out.result).toBe("booked");
+    const [held] = await rowsFor(out.bookingId as string);
+    expect(held).toMatchObject({ recipient_rule: "guardian", status: "waiting", routine: 0 });
+    expect(held?.held_reason).toMatch(/member's name holds a link/);
+    expect(await mailTo(parent.email)).toEqual([]);
+
+    const titled = await klass({ title: "Strength: claim your refund at https://evil.test" });
+    const who = await member("title");
+    await givePass(who.personId);
+    const second = await book(who, titled);
+    const [row] = await rowsFor(second.bookingId as string);
+    expect(row).toMatchObject({ status: "waiting", routine: 0 });
+    expect(row?.held_reason).toMatch(/class holds a link/);
+    expect(await mailTo(who.email)).toEqual([]);
+  });
+});
+
+describe("the policy and the rails", () => {
+  it("under Cautious, routine email waits for a person", async () => {
+    await setPreset("cautious");
+    try {
+      const who = await member("cautious");
+      await givePass(who.personId);
+      const out = await book(who, await klass());
+      const [row] = await rowsFor(out.bookingId as string);
+      expect(row).toMatchObject({ status: "waiting", routine: 1 });
+      expect((await pendingOf(row?.pending_action_id as string))?.action_kind).toBe(
+        "email.routine",
+      );
+      expect(await mailTo(who.email)).toEqual([]);
+    } finally {
+      await setPreset("balanced");
+    }
+  });
+
+  it("over the daily cap per recipient, the next one waits for a person", async () => {
+    const who = await member("capped");
+    await givePass(who.personId);
+    const now = new Date().toISOString();
+    for (let i = 0; i < 20; i++) {
+      await env.DB.prepare(
+        `INSERT INTO core_routine_mail (id, kind, message, extension_id, record_object, record_id,
+           recipient, recipient_rule, automation_id, run_id, trigger_type, idempotency_key, routine,
+           status, created_at, updated_at)
+         VALUES (?, 'bookings.reminder', 'reminder', 'bookings', 'bookings.booking', ?, ?, 'person',
+           'bookings.classReminder', 'arn_cap', 'dateRelative', ?, 1, 'sent', ?, ?)`,
+      )
+        .bind(
+          `rml_cap_${who.customerId}_${i}`,
+          `rec_${i}`,
+          who.email,
+          `cap:${who.email}:${i}`,
+          now,
+          now,
+        )
+        .run();
+    }
+    const out = await book(who, await klass());
+    const [row] = await rowsFor(out.bookingId as string);
+    expect(row).toMatchObject({ status: "waiting", routine: 0 });
+    expect(row?.held_reason).toMatch(/has had 20 routine emails today/);
+    expect(await mailTo(who.email)).toEqual([]);
+  });
+});

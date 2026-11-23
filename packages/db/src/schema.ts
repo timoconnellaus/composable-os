@@ -1062,6 +1062,36 @@ export interface CoreSellableRefundDueTable {
   updated_at: string;
 }
 
+/** Migration 0750 (ADR 0590): one routine email the host was asked to send. */
+export interface CoreRoutineMailTable {
+  id: string;
+  kind: string;
+  message: string;
+  extension_id: string;
+  record_object: string;
+  record_id: string;
+  recipient: string;
+  recipient_rule: "person" | "guardian" | "order";
+  recipient_person_id: Defaulted<string | null>;
+  automation_id: string;
+  run_id: string;
+  trigger_type: string;
+  triggered_by: Defaulted<string | null>;
+  idempotency_key: string;
+  routine: number;
+  held_reason: Defaulted<string | null>;
+  status: "off" | "ready" | "sending" | "sent" | "waiting" | "denied" | "failed";
+  connection_id: Defaulted<string | null>;
+  subject: Defaulted<string | null>;
+  body: Defaulted<string | null>;
+  calendar: Defaulted<string | null>;
+  related: Defaulted<string | null>;
+  pending_action_id: Defaulted<string | null>;
+  error: Defaulted<string | null>;
+  created_at: string;
+  updated_at: string;
+}
+
 /** Migration 0650: a guardian's write's guard; its trigger stores nothing. */
 export interface CorePersonLinkGuardTable {
   guardian_id: string;
@@ -2494,6 +2524,7 @@ export interface CoreDatabase {
   core_person_link: CorePersonLinkTable;
   core_person_link_guard: CorePersonLinkGuardTable;
   core_sellable_refund_due: CoreSellableRefundDueTable;
+  core_routine_mail: CoreRoutineMailTable;
   core_recurrence_series: CoreRecurrenceSeriesTable;
   core_recurrence_occurrence: CoreRecurrenceOccurrenceTable;
   core_write_guard: CoreWriteGuardTable;

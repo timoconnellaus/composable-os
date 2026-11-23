@@ -1850,7 +1850,7 @@ describe("tax at checkout on tickets (stage 42 criteria 12a, 12b and 12c)", () =
 // --- Issue #257: the day-before reminder reaches the holder -----------------------------------------
 
 describe("the event reminder (issue #257)", () => {
-  it("queues an email to the holder's primary address the day before", async () => {
+  it("emails the holder's primary address the day before, as routine email (ADR 0590)", async () => {
     const { event, tickets } = await paidTickets(2);
     // Tomorrow, in UTC: the reminder is due today.
     const tomorrow = new Date(Date.now() + DAY);
@@ -1889,22 +1889,26 @@ describe("the event reminder (issue #257)", () => {
     const now = new Date();
     now.setUTCHours(Math.max(now.getUTCHours(), 1), 10, 0, 0);
     await runZonedDateRelative(env, now);
-    // Under Balanced the send waits for a person (the run waits for the decision): it is queued,
-    // to the holder's own address.
+    // Routine email (ADR 0590): under Balanced it goes on its own, to the holder's own address,
+    // once however many tickets they hold.
     const to = (
       await run<{ emails: { email: string }[] }>("person.get", { id: holder }, staff(admin))
     ).emails[0]?.email as string;
     expect(to).toBeTruthy();
     await vi.waitFor(
       async () => {
-        const pending = await env.DB.prepare(
-          "SELECT input FROM core_pending_action WHERE operation = 'integration.outbound' AND action_kind = 'email.send' AND input LIKE ?",
+        const sent = await env.DB.prepare(
+          "SELECT status, routine, recipient_rule FROM core_routine_mail WHERE kind = 'ticketing.eventReminder' AND recipient = ?",
         )
-          .bind(`%${to}%`)
-          .all<{ input: string }>();
-        expect(pending.results.some((r) => r.input.includes("Tomorrow:"))).toBe(true);
+          .bind(to.toLowerCase())
+          .all<{ status: string; routine: number; recipient_rule: string }>();
+        expect(sent.results).toEqual([{ status: "sent", routine: 1, recipient_rule: "person" }]);
       },
       { timeout: 30_000, interval: 250 },
     );
+    const mail = (
+      (await env.TEST_EMAIL_OUTBOX.list()) as { to: string[]; subject: string }[]
+    ).filter((m) => m.to.includes(to.toLowerCase()));
+    expect(mail.map((m) => m.subject)).toEqual([expect.stringMatching(/^Tomorrow: /)]);
   });
 });

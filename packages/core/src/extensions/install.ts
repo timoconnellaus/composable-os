@@ -241,6 +241,27 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
       message: `A runtime extension cannot declare a permission an admin grants. ${why}`,
     });
   }
+  // Routine mail goes to members without a person's approval (ADR 0590): only a shipped
+  // extension's declaration may say what it says, so code written in the app declares none and
+  // gets no module to send it.
+  for (const name of Object.keys(manifest.routineMail ?? {})) {
+    issues.push({
+      stage: "contract",
+      code: "outside_audience",
+      path: `routineMail.${name}`,
+      message: `A runtime extension cannot declare routine mail. ${why}`,
+    });
+  }
+  manifest.permissions.modules.forEach((module, i) => {
+    if (module === "routine-mail") {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `permissions.modules.${i}`,
+        message: `A runtime extension cannot send routine mail. ${why}`,
+      });
+    }
+  });
   for (const name of Object.keys(manifest.roles ?? {})) {
     issues.push({
       stage: "contract",

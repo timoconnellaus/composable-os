@@ -905,6 +905,15 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
   if (s.object !== "person") return 0;
   const ids = jsonList(s.recordIds);
   const addresses = jsonList(s.addresses.length ? s.addresses.map((a) => a.toLowerCase()) : [""]);
+  // Their routine mail (ADR 0590): who was sent what about which record. Deleted, by Person or
+  // by address (a guardian's, a paid visitor's).
+  ctx.write(
+    ctx.db
+      .deleteFrom("core_routine_mail")
+      .where((eb) =>
+        eb.or([eb("recipient_person_id", "in", ids), eb("recipient", "in", addresses)]),
+      ),
+  );
   // Their continuation offers (stage 32a, ADR 0491): an address and a date, nothing the books
   // need. Deleted, by Person or by address.
   ctx.write(

@@ -1054,6 +1054,18 @@ fixed code template. A human admin lets it apply without review; until then sign
 set up (ADR 0456).
 _Avoid_: system email, transactional email
 
+**Routine mail**
+A shipped pack's own fixed email to the person a record belongs to (a booking's confirmation, a
+class change or cancellation, a reminder), declared in its manifest and sent by the host without a
+person's approval: the host chooses the recipient from the record, fills the words from it, and
+holds for a person anything that is not routine. Each kind an admin can turn off (ADR 0590). Not a
+newsletter, not anything an AI wrote.
+_Avoid_: transactional email, notification, automated email
+
+**Routine mail kind**
+One declared email of a pack (`bookings.reminder`), with its messages: what an admin turns on or
+off in Settings → Routine email.
+
 **Headless entry**
 A pack's functions and hooks over the typed client, with no markup (`<package>/headless`). Blocks
 render what it returns (ADR 0418).

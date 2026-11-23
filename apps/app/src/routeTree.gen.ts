@@ -60,6 +60,7 @@ import { Route as AppSettingsNotificationRoutesRouteImport } from './routes/_app
 import { Route as AppSettingsNotificationsRouteImport } from './routes/_app/settings/notifications'
 import { Route as AppSettingsOrdersRouteImport } from './routes/_app/settings/orders'
 import { Route as AppSettingsPlanRouteImport } from './routes/_app/settings/plan'
+import { Route as AppSettingsRoutineEmailRouteImport } from './routes/_app/settings/routine-email'
 import { Route as AppSettingsStorageRouteImport } from './routes/_app/settings/storage'
 import { Route as AppSettingsSupportAccessRouteImport } from './routes/_app/settings/support-access'
 import { Route as AppSettingsUpdatesRouteImport } from './routes/_app/settings/updates'
@@ -337,6 +338,11 @@ const AppSettingsPlanRoute = AppSettingsPlanRouteImport.update({
   path: '/settings/plan',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsRoutineEmailRoute = AppSettingsRoutineEmailRouteImport.update({
+  id: '/settings/routine-email',
+  path: '/settings/routine-email',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsStorageRoute = AppSettingsStorageRouteImport.update({
   id: '/settings/storage',
   path: '/settings/storage',
@@ -455,6 +461,7 @@ export interface FileRoutesByFullPath {
   '/settings/notifications': typeof AppSettingsNotificationsRoute
   '/settings/orders': typeof AppSettingsOrdersRoute
   '/settings/plan': typeof AppSettingsPlanRoute
+  '/settings/routine-email': typeof AppSettingsRoutineEmailRoute
   '/settings/storage': typeof AppSettingsStorageRoute
   '/settings/support-access': typeof AppSettingsSupportAccessRoute
   '/settings/updates': typeof AppSettingsUpdatesRoute
@@ -521,6 +528,7 @@ export interface FileRoutesByTo {
   '/settings/notifications': typeof AppSettingsNotificationsRoute
   '/settings/orders': typeof AppSettingsOrdersRoute
   '/settings/plan': typeof AppSettingsPlanRoute
+  '/settings/routine-email': typeof AppSettingsRoutineEmailRoute
   '/settings/storage': typeof AppSettingsStorageRoute
   '/settings/support-access': typeof AppSettingsSupportAccessRoute
   '/settings/updates': typeof AppSettingsUpdatesRoute
@@ -589,6 +597,7 @@ export interface FileRoutesById {
   '/_app/settings/notifications': typeof AppSettingsNotificationsRoute
   '/_app/settings/orders': typeof AppSettingsOrdersRoute
   '/_app/settings/plan': typeof AppSettingsPlanRoute
+  '/_app/settings/routine-email': typeof AppSettingsRoutineEmailRoute
   '/_app/settings/storage': typeof AppSettingsStorageRoute
   '/_app/settings/support-access': typeof AppSettingsSupportAccessRoute
   '/_app/settings/updates': typeof AppSettingsUpdatesRoute
@@ -657,6 +666,7 @@ export interface FileRouteTypes {
     | '/settings/notifications'
     | '/settings/orders'
     | '/settings/plan'
+    | '/settings/routine-email'
     | '/settings/storage'
     | '/settings/support-access'
     | '/settings/updates'
@@ -723,6 +733,7 @@ export interface FileRouteTypes {
     | '/settings/notifications'
     | '/settings/orders'
     | '/settings/plan'
+    | '/settings/routine-email'
     | '/settings/storage'
     | '/settings/support-access'
     | '/settings/updates'
@@ -790,6 +801,7 @@ export interface FileRouteTypes {
     | '/_app/settings/notifications'
     | '/_app/settings/orders'
     | '/_app/settings/plan'
+    | '/_app/settings/routine-email'
     | '/_app/settings/storage'
     | '/_app/settings/support-access'
     | '/_app/settings/updates'
@@ -1185,6 +1197,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsPlanRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings/routine-email': {
+      id: '/_app/settings/routine-email'
+      path: '/settings/routine-email'
+      fullPath: '/settings/routine-email'
+      preLoaderRoute: typeof AppSettingsRoutineEmailRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings/storage': {
       id: '/_app/settings/storage'
       path: '/settings/storage'
@@ -1324,6 +1343,7 @@ interface AppRouteChildren {
   AppSettingsNotificationsRoute: typeof AppSettingsNotificationsRoute
   AppSettingsOrdersRoute: typeof AppSettingsOrdersRoute
   AppSettingsPlanRoute: typeof AppSettingsPlanRoute
+  AppSettingsRoutineEmailRoute: typeof AppSettingsRoutineEmailRoute
   AppSettingsStorageRoute: typeof AppSettingsStorageRoute
   AppSettingsSupportAccessRoute: typeof AppSettingsSupportAccessRoute
   AppSettingsUpdatesRoute: typeof AppSettingsUpdatesRoute
@@ -1379,6 +1399,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSettingsNotificationsRoute: AppSettingsNotificationsRoute,
   AppSettingsOrdersRoute: AppSettingsOrdersRoute,
   AppSettingsPlanRoute: AppSettingsPlanRoute,
+  AppSettingsRoutineEmailRoute: AppSettingsRoutineEmailRoute,
   AppSettingsStorageRoute: AppSettingsStorageRoute,
   AppSettingsSupportAccessRoute: AppSettingsSupportAccessRoute,
   AppSettingsUpdatesRoute: AppSettingsUpdatesRoute,

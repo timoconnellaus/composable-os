@@ -52,6 +52,8 @@ export const HOST_METHODS = {
   storage: ["get", "set", "del", "list"],
   log: ["write"],
   ai: ["summarise", "extract", "classify"],
+  // Routine mail (ADR 0590): answered only in an automation run of a shipped extension.
+  "routine-mail": ["send"],
   // `codemode:<gatekeeper>` (stage 6a): one module per shipped gatekeeper.
   ...(Object.fromEntries(GATEKEEPER_MODULES.map((m) => [m, GATEKEEPER_METHODS])) as Record<
     GatekeeperModuleName,

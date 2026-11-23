@@ -333,7 +333,7 @@ describe("booked (criterion 13)", () => {
     const [mail, ...more] = await mailsOnce(parent.email, 1);
     expect(more).toEqual([]);
     expect(mail?.subject).toMatch(/\(Robin\)$/);
-    expect(mail?.text).toContain("You booked Robin into");
+    expect(mail?.text).toContain("Robin is booked into");
   });
 
   it("sends nothing when a member cancels their own booking", async () => {
@@ -509,26 +509,28 @@ describe("the reminder (criterion 13)", () => {
   });
 });
 
-describe("under Balanced", () => {
-  it("each email waits for a person: nothing reaches the outbox before approval", async () => {
+describe("under Balanced (routine mail, ADR 0590)", () => {
+  it("a member's confirmation is routine email: it goes on its own, and nothing waits", async () => {
     await setPreset("balanced");
     try {
       const k = await klass(type, 2 * DAY);
       const who = await member("balanced");
       await givePass(who.personId);
       const out = await book(who, k);
-      await vi.waitFor(
-        async () =>
-          expect((await runsFor("bookingConfirmed", out.bookingId as string))[0]?.status).toBe(
-            "review",
-          ),
-        { timeout: 30_000, interval: 200 },
-      );
-      expect(await mailTo(who.email)).toEqual([]);
-      const pending = await env.DB.prepare(
-        "SELECT count(*) AS n FROM core_pending_action WHERE operation = 'integration.outbound' AND status = 'pending' AND action_kind = 'email.send'",
-      ).first<{ n: number }>();
-      expect(pending?.n).toBeGreaterThanOrEqual(1);
+      await finished("bookingConfirmed", out.bookingId as string);
+      const [mail] = await mailsOnce(who.email, 1);
+      expect(mail?.subject).toMatch(/^Booked: /);
+      const row = await env.DB.prepare(
+        "SELECT status, routine, recipient_rule, pending_action_id FROM core_routine_mail WHERE record_id = ? AND kind = 'bookings.confirmation'",
+      )
+        .bind(out.bookingId)
+        .first();
+      expect(row).toEqual({
+        status: "sent",
+        routine: 1,
+        recipient_rule: "person",
+        pending_action_id: null,
+      });
     } finally {
       await setPreset("autonomous");
     }

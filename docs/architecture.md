@@ -331,6 +331,17 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   connection, private activities, suggested contacts and job-change suggestions.
 - **Code**: `integration.call` (MCP), and `codemode:<gatekeeper>` host modules for extension tools and
   Code Mode.
+- **Routine mail** ([ADR 0590](adr/0590-routine-mail.md)): a shipped pack declares fixed member
+  emails (`routineMail` in its manifest: kinds about its records, words with slots the host fills);
+  its automations ask for one with `codemode:routine-mail` naming a kind and a record. The host
+  (`packages/core/src/routine-mail/`) checks the caller is a shipped extension's automation run,
+  chooses the recipients from the record (its customer Person, their live guardians, a paid
+  order's own address), fills and checks every value, holds anything unusual for a person (a link
+  in a name, over 20 a day to one address, an AI's unapproved change, a replay), and
+  writes one `core_routine_mail` row per recipient; the integration host's `sendRoutineMail` sends
+  a row's own words through the automation's bound email-send connection, whose `email.routine`
+  kind the gate applies without review under Balanced and Autonomous (Cautious and the deploy floor
+  still hold it). Each kind has a human admin's switch (Settings → Routine email), with the log.
 - **Gatekeepers we wrote**: `gatekeeper-email-send`, `gatekeeper-slack-post`, `gatekeeper-webhook`.
   Inbound webhooks and sync events land in `core_integration_event`; cos-runner's cron turns them
   into `webhook` and `syncEvent` automation triggers (ADR 0173), dropping private activities.

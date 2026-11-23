@@ -85,6 +85,8 @@ export const ID_PREFIXES = {
   /** A family link: a guardian and a dependant (stage 31a, ADR 0540). */
   personLink: "pln",
   refundDue: "rdu",
+  /** A routine email the host was asked to send (ADR 0590). */
+  routineMail: "rml",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

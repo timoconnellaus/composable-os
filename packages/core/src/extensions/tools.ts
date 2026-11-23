@@ -77,6 +77,9 @@ export function toolOperation(
         );
       }
       // Called inside an automation cascade: the tool's own calls stay in it (ADR 0478).
+      // Called by an AI (the assistant, an MCP client): the tool's own writes keep this call as
+      // their root, so what they start knows an AI asked for them, and whether a person approved
+      // it (routine mail holds such a send for a person, ADR 0590).
       const o = ctx.origin;
       const cascade =
         o.rootEventId !== undefined
@@ -87,7 +90,11 @@ export function toolOperation(
               ...(o.automationId ? { automationId: o.automationId } : {}),
               ...(o.runId ? { runId: o.runId } : {}),
             }
-          : undefined;
+          : ctx.auditId &&
+              ctx.principal.kind === "staff" &&
+              (ctx.actor === "assistant" || ctx.actor === "mcp")
+            ? { depth: 0, chain: [], rootEventId: ctx.auditId }
+            : undefined;
       const result = await requireHost(ctx).runTool({
         id: manifest.id,
         commit: row.commit_oid,

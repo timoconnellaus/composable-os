@@ -181,7 +181,17 @@ export interface GateRequest {
    * action is reviewed unless the gatekeeper marked it `autoApprovable` AND an admin enabled
    * auto-approval for its kind. Cautious always reviews; the floor still applies.
    */
-  outbound?: { autoApprovable: boolean; enabled: boolean };
+  outbound?: {
+    autoApprovable: boolean;
+    enabled: boolean;
+    /**
+     * Routine mail (ADR 0590): a shipped pack's declared email the host composed and addressed
+     * itself, every check passed. Under Balanced and Autonomous it applies without review;
+     * Cautious reviews it as every outbound action, and the floor still applies, so an operator's
+     * `review` or `deny` on outbound holds or stops it.
+     */
+    routine?: boolean;
+  };
 }
 
 export interface GateResult {
@@ -210,6 +220,13 @@ export function evaluateGate(
     policy.preset === "balanced" &&
     request.outbound?.autoApprovable &&
     request.outbound.enabled
+  ) {
+    policyDecision = "auto";
+  }
+  if (
+    request.risk === "outbound" &&
+    request.outbound?.routine === true &&
+    policy.preset !== "cautious"
   ) {
     policyDecision = "auto";
   }

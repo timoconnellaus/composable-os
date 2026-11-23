@@ -48,6 +48,7 @@ function calendarsOf(message: EmailSendMessage): EmailCalendarEvent[] {
 }
 
 import type { SenderConfiguratorRpc } from "./configurator/sender-configurator-types";
+import { hostRoutineMail, isRoutineShaped, ROUTINE_KIND } from "./routine";
 import { assertSenderAllowed, SENDER_URL_PATTERN, senderFromUrl, senderUrl } from "./sender";
 import { isHostSignInMail, isSignInCodeMessage, SIGN_IN_KIND } from "./sign-in";
 import {
@@ -124,7 +125,12 @@ function splitIdempotencyKey(input: unknown): { key: string | null; rest: unknow
 /** What the journal stores for one send: the sender at submit time and the validated message. */
 type StoredEmail = { from: string; message: EmailSendMessage };
 
-type Actions = { send: StoredEmail; sendInternal: StoredEmail; sendSignIn: StoredEmail };
+type Actions = {
+  send: StoredEmail;
+  sendInternal: StoredEmail;
+  sendSignIn: StoredEmail;
+  sendRoutine: StoredEmail;
+};
 type SendKind = keyof Actions;
 
 /** A settled send, as `listSent()` reports it. */
@@ -176,9 +182,9 @@ function describeSend(email: StoredEmail, internal: boolean) {
   };
 }
 
-const sendDefinition = (internal: boolean, kind?: ActionKind) => ({
+const sendDefinition = (internal: boolean, kind?: ActionKind, autoApprovable?: boolean) => ({
   kind: kind ?? (internal ? INTERNAL_KIND : SEND_KIND),
-  autoApprovable: internal || kind !== undefined,
+  autoApprovable: autoApprovable ?? (internal || kind !== undefined),
   delivery: "continue-with-simulation" as const,
   // A crash between handing the email to Email Service and recording it must not send it twice.
   claimBeforeApply: true,
@@ -197,6 +203,9 @@ const actions = defineActions<EmailHost, Actions>(
     sendInternal: sendDefinition(true),
     // The host's sign-in code (ADR 0456): an independent send, so it never waits behind another.
     sendSignIn: sendDefinition(false, SIGN_IN_KIND),
+    // Routine mail (ADR 0590): the host's own decision, not an admin's switch, lets it apply,
+    // so it is not auto-approvable; an independent send, so it never waits behind another.
+    sendRoutine: sendDefinition(false, ROUTINE_KIND, false),
   },
   // Email Service has no per-user authority to pin: the Worker's own binding sends every email,
   // and apply re-checks the sender domain against the current configuration instead.
@@ -256,13 +265,17 @@ class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
     const parsed = parseMessage(rest);
     const sender = this.#backend.sender;
     assertSenderAllowed(sender, this.#backend.allowedDomains());
-    // The host's sign-in mail only from the host's own queue, and only the fixed template.
+    // The host's sign-in mail only from the host's own queue, and only the fixed template; its
+    // routine mail only from the host's own queue, and only of routine shape (ADR 0590).
+    const routine = await hostRoutineMail(this.#queue);
     const kind: SendKind =
       isSignInCodeMessage(parsed) && (await isHostSignInMail(this.#queue))
         ? "sendSignIn"
-        : isInternal(parsed, this.#backend.internalDomains())
-          ? "sendInternal"
-          : "send";
+        : routine && isRoutineShaped(parsed, routine.siteOrigin)
+          ? "sendRoutine"
+          : isInternal(parsed, this.#backend.internalDomains())
+            ? "sendInternal"
+            : "send";
     if (key) this.#backend.remember(key, "busy");
     let id: number;
     try {

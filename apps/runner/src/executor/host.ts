@@ -18,12 +18,15 @@ import {
   type ExtensionHost,
   ForbiddenError,
   invokeByName,
+  OperationError,
   type Origin,
   type OutsidePrincipal,
   PendingApprovalError,
   type Permission,
   parseFloor,
+  prepareRoutineMail,
   queueEventSink,
+  refreshSchemaRegistry,
   resolveExtensionOperation,
   type TestSimulation,
   type TodayLimits,
@@ -35,7 +38,13 @@ import type { ExtensionManifest } from "@composable-os/sdk";
 import { runModelRole } from "../extensions/ai.ts";
 import { CODE_MAX_CALLS } from "../extensions/code-mode.ts";
 import { embedsFromEvents } from "../extensions/embeddings.ts";
-import { boundGatekeeperCall, gatekeeperCall } from "../integrations/code.ts";
+import {
+  boundGatekeeperCall,
+  gatekeeperCall,
+  gatekeeperErrorCode,
+  routineMailConnection,
+} from "../integrations/code.ts";
+import { hostFor } from "../integrations/runtime.ts";
 import { HOST_METHODS, type HostModule, isGatekeeperModule, isHostModule } from "./worker-code.ts";
 
 export const MAX_LOGS = 200;
@@ -220,6 +229,8 @@ export class RunHost extends RpcTarget {
         return this.#storage(method as "get" | "set" | "del" | "list", list);
       case "log":
         return this.#log(list);
+      case "routine-mail":
+        return this.#routineMail(list);
       case "ai":
         return json(
           await runModelRole(this.#env, method as "summarise" | "extract" | "classify", list),
@@ -551,6 +562,78 @@ export class RunHost extends RpcTarget {
           .execute();
         return rows.map((r) => ({ key: r.key, value: JSON.parse(r.value) as unknown }));
       }
+    }
+  }
+
+  /**
+   * `codemode:routine-mail` (ADR 0590): a shipped extension's declared email, sent by the host.
+   * Only an automation run answers: not a tool (whoever called it), not Code Mode, not a customer.
+   * The extension, its automation and the run are this run's, set by the host; the core decides
+   * the rest from the database (`prepareRoutineMail`) and the integration host sends each row.
+   */
+  async #routineMail(args: unknown[]): Promise<unknown> {
+    const run = this.#run;
+    const automation = run.automation;
+    const started = Date.now();
+    const reply = (value: Envelope) => {
+      run.operations.push({
+        operation: "routineMail.send",
+        ok: value.ok,
+        ...(value.ok ? {} : { code: value.error.code }),
+        ms: Date.now() - started,
+        object: "routine-mail",
+        step: null,
+        writes: 0,
+      });
+      return json(value);
+    };
+    if (!automation || run.code || run.outside || run.tool || run.readOnly) {
+      return reply({
+        ok: false,
+        error: {
+          code: "forbidden",
+          message: "Routine mail is sent only by an automation of a shipped extension",
+        },
+      });
+    }
+    // Test mode (ADR 0133) sends nothing and records nothing.
+    if (automation.simulate) {
+      return reply({ ok: true, value: { sent: 0, held: 0, off: false, none: true } });
+    }
+    const env = this.#env as unknown as Env;
+    const db = createCrmDb(env.DB).query;
+    try {
+      await refreshSchemaRegistry(db);
+      const connection = await routineMailConnection(env, automation.automationId);
+      const prepared = await prepareRoutineMail(db, {
+        extensionId: run.extensionId,
+        automationId: automation.automationId,
+        runId: automation.runId,
+        connectionId: connection.connectionId,
+        send: args[0],
+      });
+      let sent = 0;
+      let held = 0;
+      for (const done of prepared.done) {
+        if (done.status === "sent" && done.routine) sent += 1;
+        else if (done.status === "waiting" || !done.routine) held += done.status === "off" ? 0 : 1;
+      }
+      for (const row of prepared.toSend) {
+        const outcome = await hostFor(env, connection.connectionId).sendRoutineMail({
+          id: row.id,
+          resource: connection.resource,
+        });
+        if (outcome.status === "sent" && row.routine) sent += 1;
+        else if (outcome.status === "waiting") held += 1;
+      }
+      return reply({
+        ok: true,
+        value: { sent, held, off: prepared.off, none: prepared.none },
+      });
+    } catch (error) {
+      const code = error instanceof OperationError ? error.code : gatekeeperErrorCode(error);
+      const message = error instanceof Error ? error.message : String(error);
+      return reply({ ok: false, error: { code, message: message.slice(0, 2000) } });
     }
   }
 
