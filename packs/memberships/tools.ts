@@ -162,6 +162,15 @@ export const buy = defineTool({
   input: z.object({
     passTypeId: id,
     email: z.string().trim().max(320).optional().describe("A guest's email address"),
+    agreements: z
+      .array(z.record(z.string(), z.unknown()))
+      .max(20)
+      .optional()
+      .describe(
+        "A guest only: their acceptances of what is due, passed on to the host as they are (each " +
+          "{ versionId, typedName, signature?, answers? }); the host checks and records them. A " +
+          "signed-in member agrees first.",
+      ),
   }),
   output: z.object({
     id: z.string(),
@@ -183,6 +192,7 @@ export const buy = defineTool({
       lines: [{ object: PASSTYPE, id: input.passTypeId, quantity: 1 }],
       pay: "full",
       ...(input.email === undefined ? {} : { email: input.email }),
+      ...(input.agreements === undefined ? {} : { agreements: input.agreements }),
     });
     return {
       id: order.id,

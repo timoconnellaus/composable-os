@@ -22,9 +22,15 @@ type Db = Kysely<CoreDatabase>;
 
 export interface AcceptRequest {
   versionId: string;
-  /** Whom it is for. */
-  personId: string;
-  by: "self" | "guardian" | "paper";
+  /** Whom it is for. Null only for a guest's, which has no Person until settlement (step 3). */
+  personId: string | null;
+  by: "self" | "guardian" | "paper" | "guest";
+  /**
+   * A guest's only (stage 44 step 3, ADR 0644): what it is taken with, an order or a subscription
+   * checkout, which the insert trigger requires to exist at commit (so its statements go after the
+   * order's or the checkout's in the batch).
+   */
+  guest?: { orderId?: string | null; subscriptionCheckout?: string | null };
   /** A guardian's own Person (by: guardian). */
   agentPersonId?: string | null;
   /** The customer account that agreed (self or guardian), or null. */
@@ -157,9 +163,25 @@ export async function planAcceptance(
     );
   }
 
-  const facts = await personFacts(db, request.personId);
-  if (!facts.exists || facts.inTrash) throw new NotFoundError("person", request.personId);
-  if (request.by === "self" && isMinor(facts)) {
+  // A guest's has no Person until its order is paid (or its subscription confirmed): nobody's
+  // standing is read for it, so its answer says nothing about who has the address.
+  if (request.by === "guest") {
+    if (
+      request.personId !== null ||
+      (!request.guest?.orderId && !request.guest?.subscriptionCheckout)
+    ) {
+      throw new ValidationError("A guest's acceptance is taken with an order", {
+        rule: "agreement_guest",
+      });
+    }
+  } else if (request.personId === null) {
+    throw new NotFoundError("person", "");
+  }
+  const facts = request.personId === null ? null : await personFacts(db, request.personId);
+  if (facts && (!facts.exists || facts.inTrash)) {
+    throw new NotFoundError("person", request.personId ?? "");
+  }
+  if (facts && request.by === "self" && isMinor(facts)) {
     throw new ForbiddenError("A parent or guardian agrees for you.", { rule: "agreement_minor" });
   }
   if (request.by === "guardian") {
@@ -168,9 +190,9 @@ export async function planAcceptance(
     if (isMinor(await personFacts(db, guardian))) {
       throw new ForbiddenError("A parent or guardian agrees for you.", { rule: "agreement_minor" });
     }
-    if (!(await isLiveDependant(db, guardian, request.personId))) {
+    if (!request.personId || !(await isLiveDependant(db, guardian, request.personId))) {
       // As if the Person were not there: a link is shown only to its own people (ADR 0540).
-      throw new NotFoundError("person", request.personId);
+      throw new NotFoundError("person", request.personId ?? "");
     }
   }
 
@@ -223,12 +245,12 @@ export async function planAcceptance(
     });
   }
 
-  if (request.idempotent) {
+  if (request.idempotent && request.personId !== null) {
     const same = await db
       .selectFrom("core_agreement_acceptance as a")
       .leftJoin("core_agreement_answer as n", "n.acceptance_id", "a.id")
       .select(["a.id", "a.accepted_at", "n.answers"])
-      .where("a.person_id", "=", request.personId)
+      .where("a.person_id", "=", request.personId as string)
       .where("a.version_id", "=", version.id)
       .where("a.by", "=", request.by)
       .where("a.erased_at", "is", null)
@@ -268,6 +290,9 @@ export async function planAcceptance(
       by: request.by,
       agent_person_id: request.by === "guardian" ? (request.agentPersonId ?? null) : null,
       account_id: request.accountId ?? null,
+      order_id: request.by === "guest" ? (request.guest?.orderId ?? null) : null,
+      subscription_checkout:
+        request.by === "guest" ? (request.guest?.subscriptionCheckout ?? null) : null,
       email: request.email ?? null,
       how: request.by === "paper" ? "paper" : version.how,
       typed_name: request.typedName,
@@ -297,7 +322,7 @@ export async function planAcceptance(
       }),
     );
   }
-  if (request.by === "guardian" && request.agentPersonId) {
+  if (request.by === "guardian" && request.agentPersonId && request.personId) {
     statements.push(linkGuardStatement(request.agentPersonId, request.personId));
   }
   if (answers?.anyYes) {

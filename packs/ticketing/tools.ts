@@ -229,6 +229,15 @@ export const orderStart = defineTool({
       .max(320)
       .optional()
       .describe("A guest's email address. A signed-in customer passes none."),
+    agreements: z
+      .array(z.record(z.string(), z.unknown()))
+      .max(20)
+      .optional()
+      .describe(
+        "A guest only: their acceptances of what is due, passed on to the host as they are (each " +
+          "{ versionId, typedName, signature?, answers? }); the host checks and records them. A " +
+          "signed-in member agrees first.",
+      ),
   }),
   output: orderOutput,
   risk: "write",
@@ -242,6 +251,7 @@ export const orderStart = defineTool({
       })),
       pay: input.pay,
       ...(input.email === undefined ? {} : { email: input.email }),
+      ...(input.agreements === undefined ? {} : { agreements: input.agreements }),
     });
     return {
       id: order.id,

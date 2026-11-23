@@ -61,6 +61,10 @@ export function toolOperation(
       : {}),
     ...(packPermissions.length ? { packPermissions } : {}),
     ...(packGrantable.length ? { packGrantable } : {}),
+    // A visitor's acceptances passed on to the host in the buying call (stage 44 step 3, ADR
+    // 0644): the name they typed, a signature and health answers never reach the audit log, from
+    // any tool.
+    redact: ["agreements"],
     async handler(input, ctx) {
       // The pipeline already never dry-runs a tool that may write (approvals/dry-run.ts: that is
       // the guarantee); this keeps the handler safe if it is ever called with a simulation.

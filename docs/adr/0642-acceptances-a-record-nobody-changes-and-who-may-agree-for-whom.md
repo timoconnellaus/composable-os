@@ -131,3 +131,11 @@ permission; erase and merge.
   delete trigger, so a Person could leave or enter the Trash unseen). Refusing was chosen over
   bumping: the host only ever inserts a new Person (`person.create`, a new id) and changes one in
   place, so no host path needs it. `INSERT OR IGNORE` over an existing Person is refused too.
+
+## Amended 2026-11-23: a guest's acceptances (stage 44 step 3, [ADR 0644](0644-enforcement-nobody-pays-or-books-without-what-is-due.md))
+`accept.ts` plans a guest's acceptance (`by: "guest"`, no Person, the order or the subscription
+checkout, the order's address, channel `web`), queued after the order or the checkout row. They
+settle by trigger (migration 0853): to the order's Person once something is paid on it, or to the
+checkout's holder (payer for a payer document) once the provider confirms the subscription; an
+order that closes unpaid deletes them, and the minute cron deletes those of a checkout never
+confirmed after three days.

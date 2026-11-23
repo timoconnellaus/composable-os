@@ -19,6 +19,8 @@
 // No extension code runs, and nothing here moves money: an owed refund is asked of the payments
 // gatekeeper by the minute cron (`order.refundDue`), as the outbound action `payments.refund`,
 // which only a person with `orders:refund` approves (ADR 0429).
+
+import { type GuestAcceptance, guestMinorNotice } from "../agreements/enforce.ts";
 import { normaliseCustomerEmail, sameEmailPeople } from "../customers/accounts.ts";
 import {
   ConfigError,
@@ -66,6 +68,8 @@ export interface StartHeldInput {
   forPersonId?: string | undefined;
   /** The buyer's address: a guest's, or staff's for whom they start it. */
   email?: string | undefined;
+  /** A visitor's acceptances, carried in the buying call (stage 44 step 3). */
+  agreements?: readonly GuestAcceptance[] | undefined;
 }
 
 export interface StartedHeld {
@@ -373,10 +377,13 @@ export async function startHeld(ctx: HandlerContext, input: StartHeldInput): Pro
     priced: [line],
     lines: [{ object: object.name, id: recordId, quantity: 1 }],
     personId: payer,
+    // Who it is for: the booking's Person (a child a guardian buys for), not only who pays.
+    participantId: holder,
     email,
     placedAs: caller.kind,
     pay: "full",
     accessHash: token ? await hashOrderToken(token) : null,
+    agreements: input.agreements,
   });
   return { row: started.row, lines: started.lines, recordId, token };
 }
@@ -787,6 +794,8 @@ const orderMoves: MoveHook = async (outer, move) => {
             }
             personId = buyer.personId;
             made = buyer.created;
+            // A guest's drop-in landing on a minor tells staff (ADR 0644).
+            if (personId && !made) await guestMinorNotice(ctx, { orderId: move.id }, personId);
             if (personId) {
               ctx.write(
                 ctx.db

@@ -77,3 +77,15 @@ What it records with `recordChange` is checked in full, exactly as before. No ex
   they did not start, which expires. Nothing of theirs is shown to the guest.
 - The confirmation email carries the token; sending it is the rest of stage 25.
 - `order.view` answers staff and customers too: holding the token is the proof, whoever holds it.
+
+## Amended 2026-11-23: a guest's acceptances settle with the order (stage 44 step 3, [ADR 0644](0644-enforcement-nobody-pays-or-books-without-what-is-due.md))
+- **A guest agrees in the buying call.** `order.start` (and `order.startHeld`, through a pack's
+  tool) takes `agreements`: the guest's acceptances of every document attached for everyone at the
+  points of what they buy, checked without reading any Person (the answer is the same whatever the
+  address matches; a member who has agreed is asked again). They are recorded with the order and
+  the order's address, with no Person.
+- **They become the order's Person's** once something is paid on the order and it has a Person: the
+  verified payment's batch, or `order.setPerson`'s when the address matched several People
+  (migration 0853's trigger). An order that closes unpaid (expired, cancelled) deletes them.
+- **Staff starting an order for an address several People share** are refused while anything is
+  due there: nobody's acceptances can be read until staff merge them.

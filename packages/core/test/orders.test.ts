@@ -118,7 +118,8 @@ describe("prices are the host's (criterion 3)", () => {
     const schema = z.toJSONSchema(orderStartInput, { io: "input" }) as {
       properties: Record<string, { items?: { properties: Record<string, unknown> } }>;
     };
-    expect(Object.keys(schema.properties).sort()).toEqual(["email", "lines", "pay"]);
+    // `agreements` is a visitor's acceptances (stage 44 step 3): no amount anywhere in it.
+    expect(Object.keys(schema.properties).sort()).toEqual(["agreements", "email", "lines", "pay"]);
     expect(Object.keys(schema.properties.lines?.items?.properties ?? {}).sort()).toEqual([
       "id",
       "object",

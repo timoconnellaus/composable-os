@@ -148,6 +148,9 @@ export default defineExtension({
           "outline",
         ],
       },
+      // Where agreement may be needed (stage 44, ADR 0641): nothing is attached by default, so it
+      // sells as before until the business attaches a document (its terms) to "course".
+      agreements: { point: "course", label: "Buying a course", suggests: ["terms"] },
       sellable: {
         price: "price",
         saleWindow: { from: "onSaleFrom" },
@@ -208,6 +211,9 @@ export default defineExtension({
         slug: "slug",
       },
       public: { read: ["title", "slug", "summary", "description", "cover", "courses", "price"] },
+      // Where agreement may be needed (stage 44, ADR 0641): nothing is attached by default, so it
+      // sells as before until the business attaches a document (its terms) to "course".
+      agreements: { point: "course", label: "Buying a course", suggests: ["terms"] },
       sellable: {
         price: "price",
         tax: { code: "txcd_20060158" },
@@ -243,6 +249,9 @@ export default defineExtension({
       },
       // Every live plan is offered on the site.
       public: { read: ["title", "description", "price", "trialDays"] },
+      // Where agreement may be needed (stage 44, ADR 0641): nothing is attached by default, so it
+      // sells as before until the business attaches a document (its terms) to "course".
+      agreements: { point: "course", label: "Buying a course", suggests: ["terms"] },
       sellable: {
         price: "price",
         // As its courses (ADR 0479): taxed only once a human admin turns tax on.

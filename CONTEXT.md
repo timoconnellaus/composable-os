@@ -1262,17 +1262,19 @@ retire bumps one counter (`core_agreement_rev`) that the guard at commit reads. 
 version (`core_publish_version`).
 
 **Agreement point** (the `agreements` behaviour; stage 44: declared and attached in step 1,
-`agreementsDue` and its guard in step 2, asked at checkout and booking from step 3)
+`agreementsDue` and its guard in step 2, asked at checkout, subscription start and booking in
+step 3)
 A place a pack says agreement may be needed: buying a membership or a pass, making a booking,
 buying a ticket or a course, a care link. A person with `agreements:manage` **attaches** published
 documents to points; nothing is needed anywhere by default (ADR 0641). The host asks one question, `agreementsDue`, when an order or a
 subscription starts and when a record enters a declared state, and the write's batch carries a guard
 that fails if any document changed since. The host's own moves (a promotion, a paid drop-in booked)
-are never checked.
+are never checked. Shipped points: `membership` (a plan, a pass type, a pass given by hand),
+`booking`, `event` (a ticket type) and `course` (a course, a bundle, a course plan).
 _Avoid_: requirement (alone), gate (the approval gate)
 
 **Acceptance** (stage 44: by a customer, a guardian and from paper built in step 2; a guest's
-from step 3, at the desk from step 6)
+built in step 3, at the desk from step 6)
 One record that a person agreed to one version of a document: by themselves, by a **guardian** for
 a dependant, by a **guest** with their order (the Person's from the verified payment), or **recorded
 from paper** by a person on the staff (shown as that, never as the member's own), or **at the desk**

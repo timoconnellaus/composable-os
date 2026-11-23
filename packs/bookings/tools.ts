@@ -626,6 +626,15 @@ export const buy = defineTool({
     classId: z.string().min(1).max(64),
     forPersonId: forPerson,
     email: z.string().trim().max(320).optional().describe("A guest's email address"),
+    agreements: z
+      .array(z.record(z.string(), z.unknown()))
+      .max(20)
+      .optional()
+      .describe(
+        "A guest only: their acceptances of what is due, passed on to the host as they are (each " +
+          "{ versionId, typedName, signature?, answers? }); the host checks and records them. A " +
+          "signed-in member agrees first.",
+      ),
   }),
   output: z.union([
     z.object({
@@ -658,6 +667,7 @@ export const buy = defineTool({
         values: { class: input.classId },
         ...(input.forPersonId ? { forPersonId: input.forPersonId } : {}),
         ...(input.email === undefined ? {} : { email: input.email }),
+        ...(input.agreements === undefined ? {} : { agreements: input.agreements }),
       });
       return {
         result: "pending" as const,

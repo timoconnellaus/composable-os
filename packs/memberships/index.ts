@@ -264,6 +264,14 @@ export default defineExtension({
           },
         },
       },
+      // Where agreement may be needed (stage 44, ADR 0641): the business attaches its documents
+      // (its terms, a waiver) to "membership"; nothing is needed until it does. The host asks
+      // when a subscription to a plan or an order for a pass type starts (ADR 0644).
+      agreements: {
+        point: "membership",
+        label: "Buying a membership or a pass",
+        suggests: ["terms", "waiver", "health", "guardian"],
+      },
     },
     membership: {
       label: "Membership",
@@ -436,6 +444,14 @@ export default defineExtension({
         },
         onePerPerson: "onePerPerson",
       },
+      // Where agreement may be needed (stage 44, ADR 0641): the business attaches its documents
+      // (its terms, a waiver) to "membership"; nothing is needed until it does. The host asks
+      // when a subscription to a plan or an order for a pass type starts (ADR 0644).
+      agreements: {
+        point: "membership",
+        label: "Buying a membership or a pass",
+        suggests: ["terms", "waiver", "health", "guardian"],
+      },
     },
     pass: {
       label: "Pass",
@@ -490,6 +506,16 @@ export default defineExtension({
           // permission (`voidPass`, a person only); never a customer.
           { from: "active", to: "void", by: ["host"], tools: ["voidPass"], final: true },
         ],
+      },
+      // A pass given by staff by hand (givePass) starts a pass as buying one does: the same point,
+      // asked by the engine when a caller makes one (stage 44, ADR 0644). A pass a paid order
+      // grants is the host's, asked when the order started.
+      agreements: {
+        point: "membership",
+        label: "Buying a membership or a pass",
+        suggests: ["terms", "waiver", "health", "guardian"],
+        enter: ["active"],
+        person: "person",
       },
       // As a membership: their own, and a linked child's for a guardian, read only (ADR 0540).
       customer: {

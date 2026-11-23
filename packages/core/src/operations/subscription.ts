@@ -22,6 +22,7 @@
 // gatekeeper for a caller outside the org, so they keep the database; each touches only the
 // caller's own subscription (through the seam) or the checkout it opens.
 import { z } from "zod";
+import { guestAcceptancesSchema } from "../agreements/enforce.ts";
 import { SUBSCRIPTION_STATES } from "../fields/subscription.ts";
 import { filterSchema } from "../filter.ts";
 import { LIST_MAX_LIMIT, sortSchema } from "../list.ts";
@@ -178,6 +179,10 @@ export const subscriptionStart = defineOperation({
     "A signed-in customer with a continuation offer (moving their subscription from another " +
     "platform) takes it with `offerId`: free until their paid-up date, then charged, with no " +
     "trial on top; with under 48 hours left it is charged at once. " +
+    "Nobody starts one without the agreements the business needs for the plan (its terms, a " +
+    "waiver): refused with rule agreements_due and the documents while any is due, a " +
+    "continuation offer included (a guest passes their acceptances in `agreements`; a " +
+    "signed-in customer agrees first; staff send a link or record paper). " +
     "The host prices it from the plan: no " +
     "price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the " +
     "provider confirms it. Returns the page's address and what will be charged, in minor units.",
@@ -211,6 +216,7 @@ export const subscriptionStart = defineOperation({
         "Staff only: the Person who holds what it gives (a child whose parent pays), when not " +
           "the payer. The payer, named by email, is billed; the trial and access are the holder's.",
       ),
+    agreements: guestAcceptancesSchema.optional(),
   }),
   output: z.object({
     subscriptionId: z.string(),
@@ -244,6 +250,8 @@ export const subscriptionStart = defineOperation({
   staffInput: ["holderPersonId"],
   hostInternal: true,
   mcp: { expose: false },
+  // What a visitor typed, drew and answered never reaches the audit log.
+  redact: ["agreements"],
   auditSummary: (output, input) => ({
     subscriptionId: output.subscriptionId,
     plan: input.plan,

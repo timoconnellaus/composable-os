@@ -251,3 +251,11 @@ A guest's booking is nobody's until it is paid for, and stays so: once paid, and
 whose it is, its messages (payment received and the place held, a change, a cancellation by the
 gym, the reminder, the refund) go to the order's own address, about that booking only. A hold not
 paid for hears nothing.
+
+## Amended 2026-11-23: `order.startHeld` carries a guest's acceptances (stage 44 step 3, [ADR 0644](0644-enforcement-nobody-pays-or-books-without-what-is-due.md))
+A drop-in's booking is asked at its point (`booking`) at its order, for the booking's Person (a
+guardian's child) and the payer, before the place is held: the host then makes it `held` and books
+it at payment as the host, so the engine does not ask it again. A guest passes their acceptances in
+`agreements` (`x.bookings.buy` passes them on); they are recorded with the order and no Person, and
+become the Person's that the verified payment matches the address to, in the payment's batch, or at
+`order.setPerson`. An order that expires or is cancelled unpaid deletes them.
