@@ -2,8 +2,26 @@
 // Book or Cancel button on each. A parent the gym linked to a child picks who they are booking
 // for (ADR 0540); the child's own membership or pass pays. A member with nothing to spend on a
 // class may pay for it instead (a drop-in, when the app passes `payReturnUrl`; web only). Whether booking is open, whether the gym books a class, the places
-// left, whether a cancel is in time and what it spends are the host's: this shows its answers.
-import type { BookingsHooks, TimetableClass } from "@composable-os/pack-bookings/client";
+// class), whether a cancel is in time and what it spends are the host's: this shows its answers.
+//
+// What must be agreed to first (stage 44: a waiver, a health form, a new version to agree to
+// again) is the host's answer too: when "Book" or "Pay" is refused with it, the documents are shown
+// inline in the class's row (the web-agree block's step), then it is tried again. A child's are
+// agreed to by the parent booking for them; a member a parent agrees for is told so.
+import {
+  type AgreementsHooks,
+  type AgreementsOutcome,
+  forgetAfter,
+  purchaseErrorWords,
+  type RefusedDocument,
+  withAgreements,
+} from "@composable-os/client";
+import type {
+  BookingsHooks,
+  BookResult,
+  BuyResult,
+  TimetableClass,
+} from "@composable-os/pack-bookings/client";
 import {
   bookingFor,
   classTime,
@@ -12,6 +30,10 @@ import {
 } from "@composable-os/pack-bookings/client";
 import { useState } from "react";
 import { Button } from "../ui-button/button.tsx";
+import { MemberAgreementStep } from "../web-agree/agreement-step.tsx";
+
+/** The agreements hooks the inline step uses. */
+export type TimetableAgreements = Pick<AgreementsHooks, "useDue" | "useAccept">;
 
 type Hooks = Pick<
   BookingsHooks,
@@ -20,11 +42,14 @@ type Hooks = Pick<
 
 export function Timetable({
   bookings,
+  agreements,
   from,
   to,
   payReturnUrl,
 }: {
   bookings: Hooks;
+  /** For what must be agreed to first, shown inline. Without it, the refusal is only named. */
+  agreements?: TimetableAgreements;
   /** The first moment shown (ISO 8601); the host's default is now. */
   from?: string;
   to?: string;
@@ -78,6 +103,7 @@ export function Timetable({
             booking={bookingFor(klass.id, mine.data?.bookings)}
             forPerson={chosen ? { id: chosen.personId, name: chosen.name } : null}
             bookings={bookings}
+            agreements={agreements}
             payReturnUrl={payReturnUrl}
             onDone={(text) => {
               setMessage(text);
@@ -95,6 +121,7 @@ function ClassRow({
   booking,
   forPerson,
   bookings,
+  agreements,
   onDone,
   payReturnUrl,
 }: {
@@ -103,6 +130,7 @@ function ClassRow({
   /** A child the member is booking for, or null for themselves. */
   forPerson: { id: string; name: string } | null;
   bookings: Pick<BookingsHooks, "useBook" | "useCancel" | "useBuy">;
+  agreements: TimetableAgreements | undefined;
   onDone: (message: string) => void;
   payReturnUrl: string | undefined;
 }) {
@@ -115,7 +143,80 @@ function ClassRow({
     state: "cancelled" | "late_cancelled";
     message: string;
   } | null>(null);
+  // What the host said must be agreed to first, and whether booking or paying was refused.
+  const [due, setDue] = useState<{ documents: RefusedDocument[]; then: "book" | "pay" } | null>(
+    null,
+  );
   const name = klass.title ?? "Class";
+  const forWhom = forPerson ? { forPersonId: forPerson.id } : {};
+
+  /** What a refusal for agreements becomes: the inline step, or the host's words. */
+  function agreementsRefused(outcome: AgreementsOutcome<unknown>, then: "book" | "pay"): boolean {
+    if (outcome.kind === "due") {
+      if (agreements) setDue({ documents: outcome.documents, then });
+      else {
+        onDone(
+          `Something must be agreed to first: ${outcome.documents.map((d) => d.title).join(", ")}.`,
+        );
+      }
+      return true;
+    }
+    if (outcome.kind === "minor_payer") {
+      onDone(outcome.message);
+      return true;
+    }
+    return false;
+  }
+
+  /** Books; `said` is what agreeing just now told them (where the copy went), said first. */
+  async function bookIt(said: string | null = null) {
+    const first = said ? `${said} ` : "";
+    let outcome: AgreementsOutcome<BookResult>;
+    try {
+      outcome = await withAgreements(() => book.mutateAsync({ classId: klass.id, ...forWhom }));
+    } catch (error) {
+      onDone(
+        `${first}${purchaseErrorWords(error) ?? "We could not book that just now. Try again soon."}`,
+      );
+      return;
+    }
+    if (agreementsRefused(outcome, "book") || outcome.kind !== "done") return;
+    const done = outcome.value;
+    setCanPay(done.result === "refused" && done.reason === "no_use");
+    onDone(
+      first +
+        (done.result === "booked"
+          ? `Booked${forPerson ? ` for ${forPerson.name}` : ""}: ${name}, ${classTime(klass)}.`
+          : done.result === "waiting"
+            ? `${name}: ${done.message}`
+            : refusalMessage(done, klass.timeZone)),
+    );
+  }
+
+  async function pay(said: string | null = null) {
+    if (!payReturnUrl) return;
+    const first = said ? `${said} ` : "";
+    let outcome: AgreementsOutcome<BuyResult>;
+    try {
+      outcome = await withAgreements(() =>
+        forgetAfter(buy.start, { classId: klass.id, ...forWhom }),
+      );
+    } catch (error) {
+      onDone(
+        `${first}${purchaseErrorWords(error) ?? "We could not start the payment. Try again soon."}`,
+      );
+      return;
+    }
+    if (agreementsRefused(outcome, "pay") || outcome.kind !== "done") return;
+    const held = outcome.value;
+    if (held.result === "refused") {
+      onDone(refusalMessage(held, klass.timeZone));
+      return;
+    }
+    const page = await buy.checkout.mutateAsync({ id: held.orderId, returnUrl: payReturnUrl });
+    window.location.assign(page.url);
+  }
+
   return (
     <li className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3">
       <div className="grid gap-1">
@@ -168,47 +269,29 @@ function ClassRow({
           </Button>
         )
       ) : canPay && payReturnUrl ? (
-        <Button
-          disabled={buy.start.isPending || buy.checkout.isPending}
-          onClick={async () => {
-            const held = await buy.start.mutateAsync({
-              classId: klass.id,
-              ...(forPerson ? { forPersonId: forPerson.id } : {}),
-            });
-            if (held.result === "refused") {
-              onDone(refusalMessage(held, klass.timeZone));
-              return;
-            }
-            const page = await buy.checkout.mutateAsync({
-              id: held.orderId,
-              returnUrl: payReturnUrl,
-            });
-            window.location.assign(page.url);
-          }}
-        >
+        <Button disabled={buy.start.isPending || buy.checkout.isPending} onClick={() => void pay()}>
           Pay for {name}
         </Button>
       ) : (
-        <Button
-          disabled={book.isPending}
-          onClick={async () => {
-            const done = await book.mutateAsync({
-              classId: klass.id,
-              ...(forPerson ? { forPersonId: forPerson.id } : {}),
-            });
-            setCanPay(done.result === "refused" && done.reason === "no_use");
-            onDone(
-              done.result === "booked"
-                ? `Booked${forPerson ? ` for ${forPerson.name}` : ""}: ${name}, ${classTime(klass)}.`
-                : done.result === "waiting"
-                  ? `${name}: ${done.message}`
-                  : refusalMessage(done, klass.timeZone),
-            );
-          }}
-        >
+        <Button disabled={book.isPending} onClick={() => void bookIt()}>
           Book {name}
         </Button>
       )}
+      {due && agreements ? (
+        <div className="basis-full">
+          <MemberAgreementStep
+            agreements={agreements}
+            documents={due.documents}
+            continueLabel={due.then === "pay" ? "Agree and pay" : "Agree and book"}
+            onCancel={() => setDue(null)}
+            onAgreed={(said) => {
+              const then = due.then;
+              setDue(null);
+              void (then === "pay" ? pay(said) : bookIt(said));
+            }}
+          />
+        </div>
+      ) : null}
     </li>
   );
 }

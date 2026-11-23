@@ -299,6 +299,12 @@ export interface AgreementPoint {
   label: string;
   suggests: string[];
   objects: string[];
+  /**
+   * Whether the screens of every object declaring the point let a person agree on the way
+   * (`inlineStep`, stage 44 step 5). False: attaching a document there refuses purchases or
+   * bookings on those screens until the person agrees elsewhere.
+   */
+  inlineStep: boolean;
 }
 
 /** Every point installed objects declare, each once (objects may share one). */
@@ -310,6 +316,7 @@ export function agreementPoints(): AgreementPoint[] {
     const point = points.get(declared.point);
     if (point) {
       point.objects.push(object.name);
+      if (declared.inlineStep !== true) point.inlineStep = false;
       for (const kind of declared.suggests ?? []) {
         if (!point.suggests.includes(kind)) point.suggests.push(kind);
       }
@@ -319,6 +326,7 @@ export function agreementPoints(): AgreementPoint[] {
         label: declared.label,
         suggests: [...(declared.suggests ?? [])],
         objects: [object.name],
+        inlineStep: declared.inlineStep === true,
       });
     }
   }

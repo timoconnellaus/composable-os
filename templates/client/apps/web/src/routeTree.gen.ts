@@ -11,6 +11,8 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AccountRouteImport } from './routes/account'
+import { Route as AgreementsRouteImport } from './routes/agreements'
+import { Route as BeforeYouGoOnRouteImport } from './routes/before-you-go-on'
 import { Route as SignInRouteImport } from './routes/sign-in'
 
 const IndexRoute = IndexRouteImport.update({
@@ -23,6 +25,16 @@ const AccountRoute = AccountRouteImport.update({
   path: '/account',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AgreementsRoute = AgreementsRouteImport.update({
+  id: '/agreements',
+  path: '/agreements',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BeforeYouGoOnRoute = BeforeYouGoOnRouteImport.update({
+  id: '/before-you-go-on',
+  path: '/before-you-go-on',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SignInRoute = SignInRouteImport.update({
   id: '/sign-in',
   path: '/sign-in',
@@ -32,30 +44,44 @@ const SignInRoute = SignInRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
+  '/agreements': typeof AgreementsRoute
+  '/before-you-go-on': typeof BeforeYouGoOnRoute
   '/sign-in': typeof SignInRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
+  '/agreements': typeof AgreementsRoute
+  '/before-you-go-on': typeof BeforeYouGoOnRoute
   '/sign-in': typeof SignInRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
+  '/agreements': typeof AgreementsRoute
+  '/before-you-go-on': typeof BeforeYouGoOnRoute
   '/sign-in': typeof SignInRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/account' | '/sign-in'
+  fullPaths: '/' | '/account' | '/agreements' | '/before-you-go-on' | '/sign-in'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/account' | '/sign-in'
-  id: '__root__' | '/' | '/account' | '/sign-in'
+  to: '/' | '/account' | '/agreements' | '/before-you-go-on' | '/sign-in'
+  id:
+    | '__root__'
+    | '/'
+    | '/account'
+    | '/agreements'
+    | '/before-you-go-on'
+    | '/sign-in'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AccountRoute: typeof AccountRoute
+  AgreementsRoute: typeof AgreementsRoute
+  BeforeYouGoOnRoute: typeof BeforeYouGoOnRoute
   SignInRoute: typeof SignInRoute
 }
 
@@ -75,6 +101,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AccountRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/before-you-go-on': {
+      id: '/before-you-go-on'
+      path: '/before-you-go-on'
+      fullPath: '/before-you-go-on'
+      preLoaderRoute: typeof BeforeYouGoOnRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/agreements': {
+      id: '/agreements'
+      path: '/agreements'
+      fullPath: '/agreements'
+      preLoaderRoute: typeof AgreementsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/sign-in': {
       id: '/sign-in'
       path: '/sign-in'
@@ -88,6 +128,8 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AccountRoute: AccountRoute,
+  AgreementsRoute: AgreementsRoute,
+  BeforeYouGoOnRoute: BeforeYouGoOnRoute,
   SignInRoute: SignInRoute,
 }
 export const routeTree = rootRouteImport

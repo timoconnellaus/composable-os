@@ -1,0 +1,11 @@
+{
+  "name": "web-agree",
+  "pack": null,
+  "skin": "web",
+  "operations": ["me.agreements.due", "me.agreements.accept", "agreement.guestVersions"],
+  "files": ["agree.tsx", "signature-pad.tsx", "agreement-step.tsx", "LICENSE"],
+  "dependsOn": ["ui-button", "ui-input", "ui-label"],
+  "packages": {
+    "@composable-os/client": "*"
+  }
+}

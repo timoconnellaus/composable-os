@@ -271,6 +271,8 @@ export default defineExtension({
         point: "membership",
         label: "Buying a membership or a pass",
         suggests: ["terms", "waiver", "health", "guardian"],
+        // The plans and passes blocks show what is due and let a person agree (stage 44 step 5).
+        inlineStep: true,
       },
     },
     membership: {
@@ -451,6 +453,7 @@ export default defineExtension({
         point: "membership",
         label: "Buying a membership or a pass",
         suggests: ["terms", "waiver", "health", "guardian"],
+        inlineStep: true,
       },
     },
     pass: {
@@ -516,6 +519,7 @@ export default defineExtension({
         suggests: ["terms", "waiver", "health", "guardian"],
         enter: ["active"],
         person: "person",
+        inlineStep: true,
       },
       // As a membership: their own, and a linked child's for a guardian, read only (ADR 0540).
       customer: {

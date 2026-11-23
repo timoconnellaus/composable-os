@@ -9,11 +9,14 @@
     "x.bookings.book",
     "x.bookings.cancel",
     "x.bookings.buy",
-    "order.checkout"
+    "order.checkout",
+    "me.agreements.due",
+    "me.agreements.accept"
   ],
   "files": ["timetable.tsx", "LICENSE"],
-  "dependsOn": ["ui-button"],
+  "dependsOn": ["ui-button", "web-agree"],
   "packages": {
+    "@composable-os/client": "*",
     "@composable-os/pack-bookings": "*"
   }
 }

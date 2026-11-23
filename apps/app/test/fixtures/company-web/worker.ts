@@ -7,9 +7,11 @@
 //   GET  /account                                     the signed-in page: the name from me.get
 //   GET  /                                            the public page
 //   GET  /api/media/<id>                              the template's media route (issue #181)
+//   GET  /api/v1/agreements/acceptances/<id>.pdf      a signed agreement's PDF (stage 44)
 //
 // Bundled by the app's vitest config with esbuild and run as an auxiliary Worker.
 import {
+  agreementPdfRoute,
   authRoute,
   type HostEnv,
   mediaRoute,
@@ -27,6 +29,8 @@ export default {
     if (call) return call;
     const picture = await mediaRoute(request, env);
     if (picture) return picture;
+    const pdf = await agreementPdfRoute(request, env);
+    if (pdf) return withSessionKept(request, env, pdf);
     const { pathname } = new URL(request.url);
     if (pathname === "/account") {
       const me = await signedInCustomer(env, request);

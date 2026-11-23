@@ -6,6 +6,7 @@
   "files": ["course-page.tsx", "LICENSE"],
   "dependsOn": ["ui-button", "ui-input", "ui-label"],
   "packages": {
+    "@composable-os/client": "*",
     "@composable-os/pack-courses": "*"
   }
 }

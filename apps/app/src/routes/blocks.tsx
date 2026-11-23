@@ -9,6 +9,15 @@
 //
 // The blocks are read where they sit (`packs/<id>/blocks/<block>/`), their base-layer imports
 // joined to `blocks/` by pack-blocks-plugin.ts. A production build mounts nothing.
+//
+// The base layer's web blocks that call the host (`blocks/web-*`: the agreement blocks, stage 44)
+// mount here too, and every block is also given the agreements hooks as `agreements`
+// (createAgreementsHooks from @composable-os/client), for the inline agreement step.
+import {
+  AGREEMENTS_HOOKS_CALL,
+  type AgreementsClient,
+  createAgreementsHooks,
+} from "@composable-os/client";
 import {
   BOOKINGS_HOOKS_CALL,
   type BookingsClient,
@@ -68,6 +77,8 @@ const files: Record<string, () => Promise<Record<string, unknown>>> = import.met
       "../../../../packs/*/blocks/*/*.tsx",
       // Native blocks are React Native: a phone renders them, never this page.
       "!../../../../packs/*/blocks/*-native-*/*.tsx",
+      // The base layer's web blocks that call the host (sign-in posts to the app's own routes).
+      "../../../../blocks/web-*/*.tsx",
     ])
   : {};
 
@@ -193,11 +204,19 @@ function BlocksPage() {
   const { block, component, props } = Route.useSearch();
   const [Component, setComponent] = useState<ComponentType<Record<string, unknown>> | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
-  const pack = block?.split("-")[0] ?? "";
+  // A base-layer block (`web-…`) belongs to no pack.
+  const base = block?.startsWith("web-") ?? false;
+  const pack = base ? "" : (block?.split("-")[0] ?? "");
   const hooks = usePackHooks(pack);
+  const agreements = createAgreementsHooks(
+    { useQuery, useMutation } as never,
+    browserClient<FullClient<AgreementsClient>>(AGREEMENTS_HOOKS_CALL),
+  );
   useEffect(() => {
     if (!block || !component) return;
-    const key = Object.keys(files).find((path) => path.includes(`/packs/${pack}/blocks/${block}/`));
+    const key = Object.keys(files).find((path) =>
+      path.includes(base ? `/blocks/${block}/` : `/packs/${pack}/blocks/${block}/`),
+    );
     if (!key) {
       setFailed(`No web block ${block}`);
       return;
@@ -209,16 +228,16 @@ function BlocksPage() {
         else setComponent(() => found as ComponentType<Record<string, unknown>>);
       })
       .catch((error: unknown) => setFailed(String(error)));
-  }, [block, component, pack]);
+  }, [block, component, pack, base]);
   if (!import.meta.env.DEV) return <p>Blocks are mounted here in development only.</p>;
   if (!block || !component) return <p>Name a block and its export: /blocks?block=…&component=…</p>;
   if (failed) return <p role="alert">{failed}</p>;
-  if (!Component || !hooks) return <p aria-busy="true">Loading {block}…</p>;
+  if (!Component || (!hooks && !base)) return <p aria-busy="true">Loading {block}…</p>;
   const extra = props ? (JSON.parse(props) as Record<string, unknown>) : {};
   if (extra.signIn === "customer") extra.signIn = customerSignIn;
   return (
     <main className="mx-auto max-w-5xl p-6" data-block={block}>
-      <Component {...{ [pack]: hooks, ...extra }} />
+      <Component {...{ ...(base ? {} : { [pack]: hooks }), agreements, ...extra }} />
     </main>
   );
 }

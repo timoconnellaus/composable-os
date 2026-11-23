@@ -2,6 +2,116 @@
   "version": "v1",
   "operations": [
     {
+      "name": "agreement.guestVersions",
+      "description": "The words a visitor buying without an account is asked to agree to: each version named (by the versionId of an agreements_due refusal from a buying call), as it will be recorded: its title, body, tick label, health questions and how it is agreed to. Only the version in effect of a live document attached somewhere and asked of everyone; any other id (an older version, one scheduled for later) is left out. The business's text, never anyone's personal data. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "versionIds": {
+            "minItems": 1,
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "A version's id (agv_…), as an agreements_due refusal named it"
+            }
+          }
+        },
+        "required": ["versionIds"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "versions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "documentId": {
+                  "type": "string"
+                },
+                "number": {
+                  "type": "number"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "body": {},
+                "tickLabel": {
+                  "type": "string"
+                },
+                "questions": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          },
+                          "noteOnYes": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": ["key", "text", "noteOnYes"],
+                        "additionalProperties": false
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "how": {
+                  "type": "string",
+                  "enum": ["typed", "drawn"]
+                },
+                "effectiveFrom": {
+                  "type": "string"
+                },
+                "hash": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "documentId",
+                "number",
+                "kind",
+                "title",
+                "body",
+                "tickLabel",
+                "questions",
+                "how",
+                "effectiveFrom",
+                "hash"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["versions"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "allowance.get",
       "description": "How many uses a pass, membership or other allowance holder has spent and has left, in the period containing `at` (default now): this week or month (from Monday, or the 1st, in its time zone), or in all for a pass of N. Staff also get its uses per period (null is unlimited), whether it can be spent (live), and the dates it is valid between; a signed-in customer reads their own only, with the terms their own record shows them. Anyone else's is not found. Read-only: uses are spent by booking.",
       "risk": "read",
@@ -707,9 +817,13 @@
           },
           "acceptedAt": {
             "type": "string"
+          },
+          "copyTo": {
+            "description": "The address the copy is emailed to (your sign-in address), or null for none",
+            "type": ["string", "null"]
           }
         },
-        "required": ["id", "documentId", "versionNumber", "acceptedAt"],
+        "required": ["id", "documentId", "versionNumber", "acceptedAt", "copyTo"],
         "additionalProperties": false
       },
       "invalidates": [

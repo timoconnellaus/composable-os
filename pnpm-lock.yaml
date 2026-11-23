@@ -278,6 +278,9 @@ importers:
 
   blocks:
     devDependencies:
+      '@composable-os/client':
+        specifier: workspace:*
+        version: link:../packages/client
       '@types/react':
         specifier: 19.3.0
         version: 19.3.0

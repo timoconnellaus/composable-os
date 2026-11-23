@@ -2,6 +2,7 @@
 // titles and minutes, the free previews, and either "buy" or "open". Whether the visitor holds the
 // course, and its price, are the host's (`useCourse`); buying is the host's order and the
 // provider's page (`useBuy`); a trailer plays with a token the host signs (`usePlayback`).
+import { agreementBlockedWords } from "@composable-os/client";
 import type { CoursesHooks } from "@composable-os/pack-courses/client";
 import { formatPrice, minutes } from "@composable-os/pack-courses/client";
 import { useState } from "react";
@@ -55,7 +56,11 @@ export function CoursePage({
       });
       window.location.assign(checkout.url);
     } catch (e) {
-      setProblem(e instanceof Error ? e.message : "We could not start your order");
+      // Something must be agreed to first (stage 44): no agreement step here yet.
+      setProblem(
+        agreementBlockedWords(e) ??
+          (e instanceof Error ? e.message : "We could not start your order"),
+      );
     }
   }
 

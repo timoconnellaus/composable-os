@@ -1682,7 +1682,7 @@ and [0641](adr/0641-agreement-points-a-pack-declares-documents-a-person-attaches
 and [0642](adr/0642-acceptances-a-record-nobody-changes-and-who-may-agree-for-whom.md) and
 [0643](adr/0643-health-answers-read-by-a-person-with-the-permission-every-read-audited.md),
 `packages/core/src/agreements/`, `operations/agreement.ts`, `operations/agreement-acceptance.ts`,
-`operations/agreement-retention.ts`, `packages/sdk/src/agreements.ts`; steps 1 to 4 and 8 built,
+`operations/agreement-retention.ts`, `packages/sdk/src/agreements.ts`; steps 1 to 5 and 8 built,
 [0644](adr/0644-enforcement-nobody-pays-or-books-without-what-is-due.md) for step 3). The documents a business asks people to agree to are core tables, not records
 (migration 0850), in no `rec_*` view: `core_agreement_document` (its kind, state and working copy),
 `core_agreement_version` (each published wording and its terms, with the SHA-256 of everything it
@@ -1732,7 +1732,19 @@ field there (the copy says they are in the app). The same writer draws the downl
 (`apps/app/src/server/http/agreement-pdf.ts`): `me.agreements.pdf` (a customer, their own and a
 linked child's, also over the client-app binding), `agreement.acceptance.pdf` (staff, a person,
 answers only with `agreements:health`, every download audited) and `agreement.version.pdf` (a
-version's blank form for paper). Step 8 (migration 0855,
+version's blank form for paper. Step 5 is the screens: base-layer blocks over a headless entry
+in the typed client's runtime (`packages/client/src/agreements.ts`: `createAgreementsHooks`,
+`agreementRefusal` and `withAgreements`, which read a buying or booking call's refusal and try
+once more on `agreements_changed`, the form's checks and input, and `StrokeRecorder`, which records
+a drawn signature in the host's stroke format within its limits). `web-agree` and `native-agree`
+(the Agree form, the signature pad on pointer events or React Native's touch responder, and the
+inline step), `web-agreements-due` and `native-agreements-due` ("Before you go on") and
+`web-my-agreements` and `native-my-agreements`. Bookings' drop-in and timetable blocks (web and
+native) and Memberships' passes and plans blocks show the step inline when the host refuses "Pay",
+"Book", "Buy" or "Join" with what is due; a visitor reads the words through
+`agreement.guestVersions` (open to the public: only the versions in effect a guest is asked) and their
+acceptances travel in the buying call.
+Step 8 (migration 0855,
 [ADR 0646](adr/0646-erase-merge-and-retention-for-agreements.md)) is **erase, merge and
 retention**: erase (`agreements/people.ts`) deletes an erased Person's health answers, minor mark,
 health notices and a buyer's acceptances on an unpaid order or unconfirmed checkout at once,

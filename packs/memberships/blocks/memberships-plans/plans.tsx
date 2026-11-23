@@ -7,6 +7,21 @@
 // A guest who wants the trial confirms their address with a code here, on the plan, when the app
 // passes `signIn` (the web sign-in block's two calls), and goes on to the provider's page signed
 // in, with the trial (ADR 0459). Whether a new address gets a code is the host's.
+//
+// What must be agreed to first (stage 44: the membership terms, a waiver) is the host's answer
+// too: when "Join" is refused with it, the documents are shown inline (the web-agree block's
+// step) and "Join" is tried again. A visitor's agreements travel in subscription.start, held in
+// memory until then; a member's are recorded as they agree. A minor is told a parent or guardian
+// buys it.
+import {
+  type AgreeInput,
+  type AgreementsHooks,
+  agreementRefusal,
+  forgetAfter,
+  purchaseErrorWords,
+  type RefusedDocument,
+  withAgreements,
+} from "@composable-os/client";
 import type {
   MembershipsHooks,
   NoTrial,
@@ -18,6 +33,11 @@ import { Button } from "../ui-button/button.tsx";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui-card/card.tsx";
 import { Input } from "../ui-input/input.tsx";
 import { Label } from "../ui-label/label.tsx";
+import { useForgetOnLeave } from "../web-agree/agree.tsx";
+import { GuestAgreementStep, MemberAgreementStep } from "../web-agree/agreement-step.tsx";
+
+/** The agreements hooks the inline step uses: a member's (due, accept) and a visitor's (words). */
+export type PlansAgreements = Pick<AgreementsHooks, "useDue" | "useAccept" | "useGuestVersions">;
 
 /** Signing a guest in by an emailed code, as the app does it (the web sign-in block's calls). */
 export interface PlansSignIn {
@@ -45,11 +65,14 @@ function noTrialWords(reason: NoTrial): string {
 
 export function Plans({
   memberships,
+  agreements,
   returnUrl,
   signedIn,
   signIn,
 }: {
   memberships: Pick<MembershipsHooks, "usePlans" | "useSubscribe">;
+  /** For what must be agreed to first, shown inline. Without it, the refusal is only named. */
+  agreements?: PlansAgreements;
   /** Where the provider's page sends the member back to (one of the host's listed origins). */
   returnUrl: string;
   /** A signed-in customer subscribes as themselves; a guest gives their email. */
@@ -68,25 +91,72 @@ export function Plans({
   const [codeSent, setCodeSent] = useState(false);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
+  // What the host said must be agreed to first, for which plan, and as whom.
+  const [due, setDue] = useState<{
+    planId: string;
+    hasTrial: boolean;
+    customer: boolean;
+    documents: RefusedDocument[];
+  } | null>(null);
+  // A visitor's agreements for one plan: this component's state only, kept if the membership does
+  // not start (nothing typed twice), forgotten once it starts and when they leave the page.
+  const [agreed, setAgreed] = useState<{ planId: string; given: AgreeInput[] } | null>(null);
+  // A member's "a copy is on its way".
+  const [said, setSaid] = useState<string | null>(null);
+  useForgetOnLeave(() => setAgreed(null));
   const asCustomer = signedIn || confirmed;
   if (isPending) return <p aria-busy="true">Loading the memberships…</p>;
   if (error || !data) return <p role="alert">We could not load the memberships.</p>;
   if (!data.plans.length) return <p>No memberships are on sale yet.</p>;
 
-  async function onSubscribe(planId: string, hasTrial: boolean, customer = asCustomer) {
+  async function onSubscribe(
+    planId: string,
+    hasTrial: boolean,
+    customer = asCustomer,
+    given: AgreeInput[] | null = agreed?.planId === planId ? agreed.given : null,
+  ) {
     setProblem(null);
     setNoTrial(null);
     try {
-      const started = await subscribe.mutateAsync({
-        plan: { object: PLAN, id: planId },
-        returnUrl,
-        ...(customer ? {} : { email }),
-      });
+      const outcome = await withAgreements((previous) =>
+        forgetAfter(subscribe, {
+          plan: { object: PLAN, id: planId },
+          returnUrl,
+          ...(customer ? {} : { email }),
+          ...(!customer && given && previous?.kind !== "read_again" ? { agreements: given } : {}),
+        }),
+      );
+      if (outcome.kind !== "done") setAgreed(null);
+      if (outcome.kind === "due") {
+        if (agreements) setDue({ planId, hasTrial, customer, documents: outcome.documents });
+        else {
+          setProblem(
+            `Something must be agreed to first: ${outcome.documents.map((d) => d.title).join(", ")}.`,
+          );
+        }
+        return;
+      }
+      if (outcome.kind === "minor_payer") {
+        setProblem(outcome.message);
+        return;
+      }
+      const started = outcome.value;
+      // Recorded with the checkout: nothing of it is kept here any more.
+      setAgreed(null);
       // Never sent to a page that charges today without a word: the host's reason for no trial.
       if (hasTrial && started.noTrial) setNoTrial({ planId, started });
       else window.location.assign(started.url);
     } catch (e) {
-      setProblem(e instanceof Error ? e.message : "We could not start your membership");
+      const refusal = agreementRefusal(e);
+      if (refusal) setAgreed(null);
+      setProblem(
+        purchaseErrorWords(e) ??
+          (refusal
+            ? refusal.message
+            : e instanceof Error
+              ? e.message
+              : "We could not start your membership"),
+      );
     }
   }
 
@@ -117,6 +187,36 @@ export function Plans({
     } finally {
       setBusy(false);
     }
+  }
+
+  if (due && agreements) {
+    const { planId, hasTrial, customer } = due;
+    const back = () => setDue(null);
+    return customer ? (
+      <MemberAgreementStep
+        agreements={agreements}
+        documents={due.documents}
+        continueLabel="Agree and join"
+        onCancel={back}
+        onAgreed={(copy) => {
+          setDue(null);
+          setSaid(copy);
+          void onSubscribe(planId, hasTrial, true, null);
+        }}
+      />
+    ) : (
+      <GuestAgreementStep
+        agreements={agreements}
+        documents={due.documents}
+        continueLabel="Agree and join"
+        onCancel={back}
+        onAgreed={(given) => {
+          setDue(null);
+          setAgreed({ planId, given });
+          void onSubscribe(planId, hasTrial, false, given);
+        }}
+      />
+    );
   }
 
   const reason = noTrial?.started.noTrial;
@@ -204,6 +304,12 @@ export function Plans({
           </Card>
         );
       })}
+      {said ? <p role="status">{said}</p> : null}
+      {agreed ? (
+        <p className="text-sm">
+          What you agreed to is kept for this membership: press Join to try again.
+        </p>
+      ) : null}
       {problem ? <p role="alert">{problem}</p> : null}
     </section>
   );
