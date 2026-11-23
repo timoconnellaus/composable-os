@@ -17,16 +17,10 @@
 // is not there. What someone writes on a step, why it was not done and why it was ticked for
 // someone never reaches the audit log, a notice, an error or a stored reply: the inputs are
 // redacted and the writes answer without them.
+
+import type { CrmDb } from "@composable-os/db";
 import { sql } from "kysely";
 import { z } from "zod";
-import type { CrmDb } from "@composable-os/db";
-import {
-  ConflictError,
-  ForbiddenError,
-  NotFoundError,
-  UnknownOperationError,
-  ValidationError,
-} from "../errors.ts";
 import {
   declaredOf,
   GRACE_SECONDS,
@@ -47,6 +41,13 @@ import {
   runOf,
   runViews,
 } from "../checklists/runs.ts";
+import {
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  UnknownOperationError,
+  ValidationError,
+} from "../errors.ts";
 import type { GateFloor } from "../gate.ts";
 import { newId } from "../ids.ts";
 import { invoke } from "../invoke.ts";
@@ -73,9 +74,7 @@ const templateShape = z.object({
   purpose: z.string().nullable(),
   active: z.boolean(),
   version: z.number().int(),
-  steps: z.array(
-    z.object({ text: z.string(), required: z.boolean(), note: z.boolean() }),
-  ),
+  steps: z.array(z.object({ text: z.string(), required: z.boolean(), note: z.boolean() })),
   updatedAt: z.string(),
   updatedBy: z.string(),
 });
@@ -367,7 +366,9 @@ const tickShape = z.object({
   onBehalf: z.boolean().describe("Ticked by someone who rosters for the run's person"),
   onBehalfWhy: z.string().nullable(),
   at: z.string(),
-  label: z.string().describe('"Ticked by X", or "Ticked by X for Y" for a tick on someone\'s behalf'),
+  label: z
+    .string()
+    .describe('"Ticked by X", or "Ticked by X for Y" for a tick on someone\'s behalf'),
 });
 
 const runShape = z.object({
@@ -397,7 +398,13 @@ const runShape = z.object({
     }),
   ),
   corrections: z.array(
-    z.object({ id: z.string(), text: z.string(), by: z.string(), byName: z.string(), at: z.string() }),
+    z.object({
+      id: z.string(),
+      text: z.string(),
+      by: z.string(),
+      byName: z.string(),
+      at: z.string(),
+    }),
   ),
 });
 
@@ -517,20 +524,29 @@ async function prepareTick(
     throw notThere(input.object, input.id);
   }
   if (!facts.live) {
-    throw new ConflictError("This shift is not on (cancelled or removed), so its checklist is not ticked.", {
-      rule: "checklist_not_live",
-    });
+    throw new ConflictError(
+      "This shift is not on (cancelled or removed), so its checklist is not ticked.",
+      {
+        rule: "checklist_not_live",
+      },
+    );
   }
   if (facts.account === null) {
-    throw new ConflictError("Nobody is on this shift, so there is nobody to tick its checklist for.", {
-      rule: "checklist_nobody",
-    });
+    throw new ConflictError(
+      "Nobody is on this shift, so there is nobody to tick its checklist for.",
+      {
+        rule: "checklist_nobody",
+      },
+    );
   }
   if (run && run.state !== "open") {
-    throw new ConflictError(`This checklist is ${run.state === "done" ? "done" : `closed (${run.state})`}, so it does not change.`, {
-      rule: "checklist_closed",
-      state: run.state,
-    });
+    throw new ConflictError(
+      `This checklist is ${run.state === "done" ? "done" : `closed (${run.state})`}, so it does not change.`,
+      {
+        rule: "checklist_closed",
+        state: run.state,
+      },
+    );
   }
   const now = Math.floor(Date.parse(ctx.now) / 1000);
   if (!inWindow(facts, now)) {
@@ -585,7 +601,12 @@ export const checklistTick = defineOperation({
     "assistant's.",
   input: z.object({
     ...recordInput,
-    step: z.number().int().min(0).max(MAX_STEPS - 1).describe("The step's position, from 0"),
+    step: z
+      .number()
+      .int()
+      .min(0)
+      .max(MAX_STEPS - 1)
+      .describe("The step's position, from 0"),
     state: z.enum(["done", "not_done", "clear"]),
     note: z.string().trim().max(1000).optional().describe("What was found or done"),
     why: z.string().trim().max(500).optional().describe("Why it was not done"),
@@ -620,7 +641,10 @@ export const checklistTick = defineOperation({
       });
     }
     if (input.state === "not_done" && !why) {
-      throw new ValidationError("Say why it was not done.", { field: "why", rule: "checklist_why" });
+      throw new ValidationError("Say why it was not done.", {
+        field: "why",
+        rule: "checklist_why",
+      });
     }
     if (p.make) ctx.write(p.make);
     // Whose run it is now (a shift reassigned is continued by its new person).
@@ -666,7 +690,13 @@ export const checklistTick = defineOperation({
     const ticked = new Set(before.map((t) => t.position));
     if (input.state === "clear") ticked.delete(input.step);
     else ticked.add(input.step);
-    return { run: p.runId, step: input.step, state: input.state, ticked: ticked.size, of: p.steps.length };
+    return {
+      run: p.runId,
+      step: input.step,
+      state: input.state,
+      ticked: ticked.size,
+      of: p.steps.length,
+    };
   },
 });
 
@@ -698,7 +728,9 @@ export const checklistComplete = defineOperation({
           .execute()
       : [];
     const ticked = new Set(ticks.map((t) => t.position));
-    const left = p.steps.map((s, i) => ({ s, i })).filter(({ s, i }) => s.required && !ticked.has(i));
+    const left = p.steps
+      .map((s, i) => ({ s, i }))
+      .filter(({ s, i }) => s.required && !ticked.has(i));
     if (left.length) {
       throw new ValidationError(
         `Not every required step is ticked: ${left.map(({ s }) => s.text).join("; ")}.`,
@@ -848,13 +880,13 @@ export const checklistRuns = defineOperation({
       .selectFrom("core_checklist_run as r")
       .selectAll("r")
       .select([
-        sql<number>`(SELECT count(*) FROM core_checklist_tick t WHERE t.run_id = r.id)`.as("ticked"),
+        sql<number>`(SELECT count(*) FROM core_checklist_tick t WHERE t.run_id = r.id)`.as(
+          "ticked",
+        ),
         sql<number>`(SELECT count(*) FROM core_checklist_tick t WHERE t.run_id = r.id AND t.on_behalf = 1)`.as(
           "behalf",
         ),
-        sql<number>`(SELECT count(*) FROM core_checklist_note n WHERE n.run_id = r.id)`.as(
-          "notes",
-        ),
+        sql<number>`(SELECT count(*) FROM core_checklist_note n WHERE n.run_id = r.id)`.as("notes"),
       ])
       .where("r.opens", ">=", start)
       .where("r.opens", "<", end)
@@ -950,7 +982,8 @@ export async function runChecklistDue(
   { floor, clock }: { floor?: GateFloor; clock?: () => Date } = {},
 ): Promise<{ made: number; missed: number; cancelled: number; moved: number }> {
   const now = (clock?.() ?? new Date()).toISOString();
-  if (!(await checklistWorkDue(db.query, now))) return { made: 0, missed: 0, cancelled: 0, moved: 0 };
+  if (!(await checklistWorkDue(db.query, now)))
+    return { made: 0, missed: 0, cancelled: 0, moved: 0 };
   return (await invoke(
     "checklist.due",
     {},

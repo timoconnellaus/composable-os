@@ -19,6 +19,7 @@ import {
   checkObjectClaims,
   claimsManifestSchema,
 } from "./capacity.ts";
+import { checklistsManifestSchema, checkObjectChecklists } from "./checklists.ts";
 import {
   type Extension,
   HOST_MODULES,
@@ -42,7 +43,6 @@ import { renamedMessage } from "./renamed.ts";
 import { routineMailIssues, routineMailManifestSchema } from "./routine-mail.ts";
 import { checkObjectSellable, sellableManifestSchema } from "./sellable.ts";
 import { checkObjectStaffed, staffedManifestSchema } from "./staffed.ts";
-import { checkObjectChecklists, checklistsManifestSchema } from "./checklists.ts";
 import { checkObjectStates, resolveFieldPath, statesManifestSchema } from "./states.ts";
 import { checkObjectUnique, uniqueManifestSchema } from "./unique.ts";
 

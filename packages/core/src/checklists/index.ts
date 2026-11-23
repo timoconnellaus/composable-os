@@ -47,7 +47,6 @@ export interface RunStep {
 
 export type RunState = "open" | "done" | "missed" | "cancelled";
 
-
 /** An object that declares `checklists`, with the columns its rules read. */
 export interface Declared {
   object: ObjectDefinition;
@@ -138,7 +137,9 @@ const text = (value: unknown) => (typeof value === "string" && value !== "" ? va
 
 /** The SELECT list and FROM of a declaring object's records with their template (one read). */
 function recordSelect(d: Declared) {
-  const tpl = d.template.via ? sql`v.${sql.ref(d.template.column)}` : sql.ref(`t.${d.template.column}`);
+  const tpl = d.template.via
+    ? sql`v.${sql.ref(d.template.column)}`
+    : sql.ref(`t.${d.template.column}`);
   const join = d.template.via
     ? sql`LEFT JOIN ${sql.table(d.template.via.table)} v ON v.id = t.${sql.ref(d.template.via.column)}`
     : sql``;
@@ -220,7 +221,13 @@ export async function templateCopies(
     .orderBy("position")
     .execute();
   for (const t of templates) {
-    out.set(t.id, { id: t.id, name: t.name, version: t.version, active: t.active === 1, steps: [] });
+    out.set(t.id, {
+      id: t.id,
+      name: t.name,
+      version: t.version,
+      active: t.active === 1,
+      steps: [],
+    });
   }
   for (const s of steps) {
     out.get(s.checklist_id)?.steps.push({
@@ -287,7 +294,10 @@ export const usable = (t: TemplateCopy | undefined): t is TemplateCopy =>
 /** Whether `now` (unix seconds) is inside a record's ticking window. */
 export function inWindow(facts: Pick<RecordFacts, "opens" | "closes">, now: number): boolean {
   return (
-    facts.opens !== null && facts.closes !== null && now >= facts.opens && now <= facts.closes + GRACE_SECONDS
+    facts.opens !== null &&
+    facts.closes !== null &&
+    now >= facts.opens &&
+    now <= facts.closes + GRACE_SECONDS
   );
 }
 

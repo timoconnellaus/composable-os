@@ -588,6 +588,10 @@
       "sha256": "0c4079597b185106ebb6c34440205a724cee52fb2af8fd6ca056ff040b3ba3fd"
     },
     {
+      "name": "0815_checklists.sql",
+      "sha256": "47f4719bf37670476d5e61ac42095c17398ddf8ad39cd76dc374e167b2e6ceb4"
+    },
+    {
       "name": "0850_agreements.sql",
       "sha256": "ac44a255fe73e8195da0f8ef6fed7572e561918517d138581094d9f46e2789e5"
     },

@@ -347,14 +347,20 @@ export function toOperationError(error: unknown): OperationError {
     );
   }
   if (message.includes("core_checklist_note_needed")) {
-    return new ValidationError("This step asks for a note, so it was not ticked done without one.", {
-      rule: "checklist_note_needed",
-    });
+    return new ValidationError(
+      "This step asks for a note, so it was not ticked done without one.",
+      {
+        rule: "checklist_note_needed",
+      },
+    );
   }
   if (message.includes("core_checklist_fixed")) {
-    return new ConflictError("A checklist run's steps and record never change, so nothing was changed.", {
-      rule: "checklist_fixed",
-    });
+    return new ConflictError(
+      "A checklist run's steps and record never change, so nothing was changed.",
+      {
+        rule: "checklist_fixed",
+      },
+    );
   }
   // A locked pay period never changes (migration 0813, ADR 0627): a shift inside one keeps its
   // person, times, kind and whether it is live; its not-worked marks and who was counted stay.

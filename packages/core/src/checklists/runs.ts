@@ -26,8 +26,8 @@ import {
   GRACE_SECONDS,
   MAKE_AHEAD_SECONDS,
   makeRunsStatement,
-  newRunValues,
   namesOf,
+  newRunValues,
   type RecordFacts,
   type RunState,
   type RunStep,
@@ -116,7 +116,10 @@ function parseList(json: string | null): number[] {
 }
 
 /** Runs as their readers see them: their ticks, corrections and names, read once for all. */
-export async function runViews(db: Kysely<CoreDatabase>, runs: readonly RunRow[]): Promise<RunView[]> {
+export async function runViews(
+  db: Kysely<CoreDatabase>,
+  runs: readonly RunRow[],
+): Promise<RunView[]> {
   if (!runs.length) return [];
   const ids = runs.map((r) => r.id);
   const ticks = await db
@@ -177,7 +180,8 @@ export async function runViews(db: Kysely<CoreDatabase>, runs: readonly RunRow[]
                 onBehalf: t.on_behalf === 1,
                 onBehalfWhy: t.on_behalf_why,
                 at: t.ticked_at,
-                label: t.on_behalf === 1 ? `Ticked by ${byName} for ${forName}` : `Ticked by ${byName}`,
+                label:
+                  t.on_behalf === 1 ? `Ticked by ${byName} for ${forName}` : `Ticked by ${byName}`,
               }
             : null,
         };
@@ -207,7 +211,9 @@ async function needingRuns(
   now: number,
   limit: number,
 ): Promise<RecordFacts[]> {
-  const tpl = d.template.via ? sql`v.${sql.ref(d.template.column)}` : sql.ref(`t.${d.template.column}`);
+  const tpl = d.template.via
+    ? sql`v.${sql.ref(d.template.column)}`
+    : sql.ref(`t.${d.template.column}`);
   const join = d.template.via
     ? sql`JOIN ${sql.table(d.template.via.table)} v ON v.id = t.${sql.ref(d.template.via.column)}`
     : sql``;
@@ -262,7 +268,9 @@ async function staleRuns(
   now: number,
   limit: number,
 ): Promise<Stale[]> {
-  const tpl = d.template.via ? sql`v.${sql.ref(d.template.column)}` : sql.ref(`t.${d.template.column}`);
+  const tpl = d.template.via
+    ? sql`v.${sql.ref(d.template.column)}`
+    : sql.ref(`t.${d.template.column}`);
   const join = d.template.via
     ? sql`LEFT JOIN ${sql.table(d.template.via.table)} v ON v.id = t.${sql.ref(d.template.via.column)}`
     : sql``;
@@ -324,10 +332,7 @@ async function staleRuns(
  * Whether the minute cron has checklist work now (read outside any operation, so a quiet minute
  * writes nothing): a record needing a run, or an open run due or out of step with its record.
  */
-export async function checklistWorkDue(
-  db: Kysely<CoreDatabase>,
-  nowIso: string,
-): Promise<boolean> {
+export async function checklistWorkDue(db: Kysely<CoreDatabase>, nowIso: string): Promise<boolean> {
   const now = Math.floor(Date.parse(nowIso) / 1000);
   for (const d of declaredObjects()) {
     if ((await staleRuns(db, d, now, 1)).length) return true;
@@ -444,7 +449,9 @@ export async function checklistDue(
     );
     const runs = needing.flatMap((facts) => {
       const template = templates.get(facts.template ?? "");
-      return usable(template) ? [newRunValues(newId("checklistRun"), facts, template, ctx.now)] : [];
+      return usable(template)
+        ? [newRunValues(newId("checklistRun"), facts, template, ctx.now)]
+        : [];
     });
     if (runs.length) {
       // Made only where no run is (after the removal above in this batch, for a remade one; if a

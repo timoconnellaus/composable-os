@@ -964,7 +964,13 @@ const checklistRun = z.object({
     }),
   ),
   corrections: z.array(
-    z.object({ id: z.string(), text: z.string(), by: z.string(), byName: z.string(), at: z.string() }),
+    z.object({
+      id: z.string(),
+      text: z.string(),
+      by: z.string(),
+      byName: z.string(),
+      at: z.string(),
+    }),
   ),
 });
 

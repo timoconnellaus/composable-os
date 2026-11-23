@@ -158,7 +158,11 @@ async function template(
 }
 /** A duty with that checklist. */
 const dutyWith = (checklist: string | null) =>
-  create(DUTY, { name: unique("Cleaning "), place: "Main floor", ...(checklist ? { checklist } : {}) });
+  create(DUTY, {
+    name: unique("Cleaning "),
+    place: "Main floor",
+    ...(checklist ? { checklist } : {}),
+  });
 /** A one-off shift of `duty` starting `inMs` from now, an hour long, worked by `user`. */
 async function shiftOf(duty: string, inMs: number, user: string | null, hours = 1) {
   const startsAt = new Date(Date.now() + inMs).toISOString();
@@ -180,7 +184,13 @@ type View = {
     steps: {
       text: string;
       missed: boolean;
-      tick: { by: string; for: string; onBehalf: boolean; label: string; note: string | null } | null;
+      tick: {
+        by: string;
+        for: string;
+        onBehalf: boolean;
+        label: string;
+        note: string | null;
+      } | null;
     }[];
     corrections: { text: string }[];
   } | null;
@@ -197,7 +207,13 @@ const done = (user: ActingUser, id: string, extra: Record<string, unknown> = {})
 const runRow = (record: string) =>
   env.DB.prepare("SELECT * FROM core_checklist_run WHERE object_type = ? AND record_id = ?")
     .bind(SHIFT, record)
-    .first<{ id: string; state: string; account_id: string | null; missed_steps: string | null; opens: number }>();
+    .first<{
+      id: string;
+      state: string;
+      account_id: string | null;
+      missed_steps: string | null;
+      opens: number;
+    }>();
 
 beforeAll(async () => {
   admin = await createAdmin();
@@ -225,13 +241,31 @@ describe("templates (Settings → Checklists)", () => {
       { text: "Note the stock", required: true, note: true },
     ]);
     const member = await account(unique("Reader Ro"));
-    expect((await run<{ items: { id: string }[] }>("checklist.list", {}, asUser(member))).items.map((i) => i.id)).toContain(id);
+    expect(
+      (await run<{ items: { id: string }[] }>("checklist.list", {}, asUser(member))).items.map(
+        (i) => i.id,
+      ),
+    ).toContain(id);
     // Writing one is checklists:write's: a member is refused until granted.
-    expect((await refusal(run("checklist.save", { name: "Mine", steps: [{ text: "x" }] }, asUser(member)))).code).toBe("forbidden");
+    expect(
+      (
+        await refusal(
+          run("checklist.save", { name: "Mine", steps: [{ text: "x" }] }, asUser(member)),
+        )
+      ).code,
+    ).toBe("forbidden");
     await run("user.setPermissions", { id: member.id, permissions: ["checklists:write"] }, staff());
-    await run("checklist.save", { name: unique("Granted "), steps: [{ text: "x" }] }, asUser(member));
+    await run(
+      "checklist.save",
+      { name: unique("Granted "), steps: [{ text: "x" }] },
+      asUser(member),
+    );
     // An inactive one cannot be picked on a duty.
-    await run("checklist.save", { id, name: got.steps.length ? "Retired" : "", active: false, steps: got.steps }, staff());
+    await run(
+      "checklist.save",
+      { id, name: got.steps.length ? "Retired" : "", active: false, steps: got.steps },
+      staff(),
+    );
     expect(JSON.stringify(await refusal(dutyWith(id)))).toContain("no such checklist in use");
   });
 
@@ -270,7 +304,11 @@ describe("a duty with a checklist gives each of its shifts a run of it as it was
     expect(await runRow(soon)).toMatchObject({ state: "open", account_id: person.id });
     expect(await runRow(later)).toBeNull(); // Not within a day yet.
     expect(await runRow(noList)).toBeNull(); // No checklist, no run.
-    await run("checklist.save", { id, name: "Changed", steps: [{ text: "Something else" }] }, staff());
+    await run(
+      "checklist.save",
+      { id, name: "Changed", steps: [{ text: "Something else" }] },
+      staff(),
+    );
     const v = await view(person, soon);
     expect(v.run?.steps.map((s) => s.text)).toEqual(["Empty the bins", "Lock the back door"]);
     expect(v.run?.template.version).toBe(1);
@@ -278,14 +316,14 @@ describe("a duty with a checklist gives each of its shifts a run of it as it was
     expect((await view(person, later)).preview?.map((s) => s.text)).toEqual(["Something else"]);
     // The roster says it has one, by name, to everyone; how it is going to its person and rosterers.
     const colleague = await account(unique("Colleague Co"));
-    const date = new Intl.DateTimeFormat("en-CA", { timeZone: ZONE }).format(new Date(Date.now() + 5 * HOUR));
+    const date = new Intl.DateTimeFormat("en-CA", { timeZone: ZONE }).format(
+      new Date(Date.now() + 5 * HOUR),
+    );
     const states = async (user: ActingUser, ai = false) =>
       (
-        await run<{ shifts: { id: string; checklist: { name: string; state: string | null } | null }[] }>(
-          "x.rostering.week",
-          { from: date, to: date },
-          ai ? asAi(user) : asUser(user),
-        )
+        await run<{
+          shifts: { id: string; checklist: { name: string; state: string | null } | null }[];
+        }>("x.rostering.week", { from: date, to: date }, ai ? asAi(user) : asUser(user))
       ).shifts.find((s) => s.id === soon)?.checklist;
     expect(await states(admin)).toEqual({ name: expect.any(String), state: "not_started" });
     expect(await states(person)).toEqual({ name: expect.any(String), state: "not_started" });
@@ -311,12 +349,25 @@ describe("who ticks", () => {
     expect((await view(person, s)).canTick).toBe(true);
     await tick(person, s, 0);
     const v = await view(person, s);
-    expect(v.run?.steps[0]?.tick).toMatchObject({ by: person.id, for: person.id, onBehalf: false, label: `Ticked by ${person.name}` });
+    expect(v.run?.steps[0]?.tick).toMatchObject({
+      by: person.id,
+      for: person.id,
+      onBehalf: false,
+      label: `Ticked by ${person.name}`,
+    });
     expect(await rule(view(colleague, s))).toBe("not_found");
     expect(await rule(tick(colleague, s, 1))).toBe("not_found");
     // An AI never ticks or reads it, for anyone.
-    expect((await refusal(run("x.rostering.tick", { object: SHIFT, id: s, step: 1, state: "done" }, asAi(person)))).code).toBe("forbidden");
-    expect((await refusal(run("x.rostering.checklist", { object: SHIFT, id: s }, asAi(admin)))).code).toBe("forbidden");
+    expect(
+      (
+        await refusal(
+          run("x.rostering.tick", { object: SHIFT, id: s, step: 1, state: "done" }, asAi(person)),
+        )
+      ).code,
+    ).toBe("forbidden");
+    expect(
+      (await refusal(run("x.rostering.checklist", { object: SHIFT, id: s }, asAi(admin)))).code,
+    ).toBe("forbidden");
     // Not yet open: a shift tomorrow is not ticked today.
     const tomorrow = await shiftOf(duty, DAY, person.id);
     expect(await rule(tick(person, tomorrow, 0))).toBe("checklist_window");
@@ -343,11 +394,18 @@ describe("who ticks", () => {
     );
     expect(runs.runs.find((r) => r.record === s)).toMatchObject({ onBehalf: 1, ticked: 1 });
     // A member who does not roster cannot read everyone's.
-    expect(await rule(run("x.rostering.checklistRuns", { from: date, to: date }, asUser(person)))).toBe("forbidden");
+    expect(
+      await rule(run("x.rostering.checklistRuns", { from: date, to: date }, asUser(person))),
+    ).toBe("forbidden");
   });
 
   it("a step asking for a note is not done without one; not done needs why", async () => {
-    const duty = await dutyWith(await template([{ text: "Count the floats", note: true }, { text: "Optional", required: false }]));
+    const duty = await dutyWith(
+      await template([
+        { text: "Count the floats", note: true },
+        { text: "Optional", required: false },
+      ]),
+    );
     const person = await account(unique("Noter No"));
     const s = await shiftOf(duty, -5 * MINUTE, person.id);
     expect(await rule(tick(person, s, 0))).toBe("checklist_note_needed");
@@ -384,13 +442,18 @@ describe("a completed run refuses every change to its ticks, for everyone", () =
     const r = await runRow(s);
     expect(r?.state).toBe("done");
     expect(await rule(tick(person, s, 0, { state: "clear" }))).toBe("checklist_closed");
-    expect(await rule(tick(admin, s, 0, { state: "not_done", why: "x", forWhy: "y" }))).toBe("checklist_closed");
+    expect(await rule(tick(admin, s, 0, { state: "not_done", why: "x", forWhy: "y" }))).toBe(
+      "checklist_closed",
+    );
     expect(await rule(done(person, s))).toBe("checklist_closed");
     const id = r?.id as string;
     const now = new Date().toISOString();
     for (const statement of [
       ["UPDATE core_checklist_tick SET note = 'changed' WHERE run_id = ?", [id]],
-      ["UPDATE OR REPLACE core_checklist_tick SET position = 1 WHERE run_id = ? AND position = 0", [id]],
+      [
+        "UPDATE OR REPLACE core_checklist_tick SET position = 1 WHERE run_id = ? AND position = 0",
+        [id],
+      ],
       ["DELETE FROM core_checklist_tick WHERE run_id = ?", [id]],
       [
         "INSERT OR REPLACE INTO core_checklist_tick (run_id, position, done, ticked_by, ticked_for, on_behalf, ticked_at) VALUES (?, 0, 1, 'x', 'x', 0, ?)",
@@ -419,15 +482,22 @@ describe("a completed run refuses every change to its ticks, for everyone", () =
           () => null,
           (e: Error) => e.message,
         );
-      expect([statement[0], error]).toEqual([statement[0], expect.stringMatching(/core_checklist_(closed|fixed)/)]);
+      expect([statement[0], error]).toEqual([
+        statement[0],
+        expect.stringMatching(/core_checklist_(closed|fixed)/),
+      ]);
     }
     const v = await view(person, s);
     expect(v.run?.state).toBe("done");
     expect(v.run?.steps.every((x) => x.tick?.by === person.id && x.tick.note === null)).toBe(true);
     // A correction is a note beside it, by someone who rosters, never a change to a tick.
     await run("x.rostering.checklistCorrect", { run: id, text: "The alarm was set late" }, staff());
-    expect((await view(person, s)).run?.corrections.map((c) => c.text)).toEqual(["The alarm was set late"]);
-    expect(await rule(run("x.rostering.checklistCorrect", { run: id, text: "x" }, asUser(person)))).toBe("forbidden");
+    expect((await view(person, s)).run?.corrections.map((c) => c.text)).toEqual([
+      "The alarm was set late",
+    ]);
+    expect(
+      await rule(run("x.rostering.checklistCorrect", { run: id, text: "x" }, asUser(person))),
+    ).toBe("forbidden");
   });
 });
 
@@ -454,7 +524,9 @@ describe("a run not done by its close and grace is missed", () => {
       .bind(`%${name}%`)
       .all<{ user_id: string; body: string; human_only: number }>();
     expect(told.results.map((n) => n.user_id)).toContain(admin.id);
-    expect(told.results.every((n) => n.body.includes("Heating on") && !n.body.includes("Unlock"))).toBe(true);
+    expect(
+      told.results.every((n) => n.body.includes("Heating on") && !n.body.includes("Unlock")),
+    ).toBe(true);
     expect(told.results.every((n) => n.human_only === 1)).toBe(true);
     // Missed is closed too.
     expect(await rule(tick(person, s, 1))).toMatch(/checklist_(closed|window)/);
@@ -480,13 +552,21 @@ describe("a run is read by its person and those who roster only", () => {
     expect(views.results).toEqual([]);
     // So no SQL a member may run, and no export of any object, reaches it.
     const sql = await refusal(
-      run("query.sql", { sql: "SELECT note FROM core_checklist_tick" }, asUser(await account(unique("Sql Sq")))),
+      run(
+        "query.sql",
+        { sql: "SELECT note FROM core_checklist_tick" },
+        asUser(await account(unique("Sql Sq"))),
+      ),
     );
     expect(JSON.stringify(sql)).not.toContain("Plasters low");
-    const assistant = await refusal(run("x.rostering.checklist", { object: SHIFT, id: s }, asAi(cleaner)));
+    const assistant = await refusal(
+      run("x.rostering.checklist", { object: SHIFT, id: s }, asAi(cleaner)),
+    );
     expect(assistant.code).toBe("forbidden");
     const date = new Intl.DateTimeFormat("en-CA", { timeZone: ZONE }).format(new Date());
-    expect((await refusal(run("x.rostering.checklistRuns", { from: date, to: date }, asAi(admin)))).code).toBe("forbidden");
+    expect(
+      (await refusal(run("x.rostering.checklistRuns", { from: date, to: date }, asAi(admin)))).code,
+    ).toBe("forbidden");
   });
 });
 
@@ -519,17 +599,33 @@ describe("the shift changes mid-run", () => {
     const startsAt = new Date(Date.now() - 5 * MINUTE).toISOString();
     await run(
       "record.update",
-      { object: SHIFT, id: moved, values: { startsAt, endsAt: new Date(Date.parse(startsAt) + HOUR).toISOString() } },
+      {
+        object: SHIFT,
+        id: moved,
+        values: { startsAt, endsAt: new Date(Date.parse(startsAt) + HOUR).toISOString() },
+      },
       staff(),
     );
     await cron(new Date(Date.now() + 10 * MINUTE));
     expect((await runRow(moved))?.state).toBe("open");
     await tick(person, moved, 0);
     // Cancelled mid-run: no ticks; at its close and grace, cancelled (not missed).
-    const cancelled = await shiftOf(duty, -(2 * HOUR + 55 * MINUTE), (await account(unique("Can Ca"))).id);
+    const cancelled = await shiftOf(
+      duty,
+      -(2 * HOUR + 55 * MINUTE),
+      (await account(unique("Can Ca"))).id,
+    );
     await cron();
-    await run("record.update", { object: SHIFT, id: cancelled, values: { state: "cancelled" } }, staff());
-    const trashed = await shiftOf(duty, -(2 * HOUR + 55 * MINUTE), (await account(unique("Tra Tr"))).id);
+    await run(
+      "record.update",
+      { object: SHIFT, id: cancelled, values: { state: "cancelled" } },
+      staff(),
+    );
+    const trashed = await shiftOf(
+      duty,
+      -(2 * HOUR + 55 * MINUTE),
+      (await account(unique("Tra Tr"))).id,
+    );
     await cron();
     await run("record.delete", { object: SHIFT, id: trashed }, staff());
     await cron(new Date(Date.now() + 10 * MINUTE));
@@ -549,7 +645,11 @@ describe("the shift changes mid-run", () => {
       (e: { details?: { count?: number } }) => e,
     );
     if (asked) {
-      await run("user.deactivate", { id: leaver.id, confirm: Number(asked.details?.count ?? 0) }, staff());
+      await run(
+        "user.deactivate",
+        { id: leaver.id, confirm: Number(asked.details?.count ?? 0) },
+        staff(),
+      );
     }
     expect((await view(admin, s)).run?.account).toBe(leaver.id);
     await done(admin, s, { forWhy: "They have left; the shift was worked" });
@@ -575,7 +675,10 @@ describe("each checklist operation guards itself, whoever's tool calls it", () =
     };
     for (const name of RELAYED) {
       for (const who of [member, admin]) {
-        expect([name, await rule(run(`x.checkrelay.${name}`, inputs[name], asUser(who)))]).toEqual([name, "human_only"]);
+        expect([name, await rule(run(`x.checkrelay.${name}`, inputs[name], asUser(who)))]).toEqual([
+          name,
+          "human_only",
+        ]);
       }
       // A person-only tool of another pack, called by a member who is not the shift's and does
       // not roster: the run is not theirs to read, tick or mark, nor everyone's to list.
@@ -588,7 +691,9 @@ describe("each checklist operation guards itself, whoever's tool calls it", () =
 // --- What one call reads -----------------------------------------------------------------------------
 
 /** How many statements `call` prepares against D1 (each query is one). */
-async function queriesOf(call: () => Promise<unknown>): Promise<{ queries: number; outcome: string }> {
+async function queriesOf(
+  call: () => Promise<unknown>,
+): Promise<{ queries: number; outcome: string }> {
   const d1 = env.DB as unknown as { prepare: (...a: unknown[]) => unknown };
   const prepare = d1.prepare.bind(d1);
   let queries = 0;
@@ -609,11 +714,14 @@ async function queriesOf(call: () => Promise<unknown>): Promise<{ queries: numbe
 
 /** Well under D1's 1,000 a call, for the largest input each takes. */
 const CEILING = 250;
-export const counted: Record<string, number> = {};
+const counted: Record<string, number> = {};
 
 describe("what one call reads, at the largest input (ADR 0629)", () => {
   it("the cron, the week with checklists, a run of 50 steps and the rosterers' list each stay well under D1's limit", async () => {
-    const steps = Array.from({ length: 50 }, (_, i) => ({ text: `Step ${i + 1}`, note: i % 10 === 0 }));
+    const steps = Array.from({ length: 50 }, (_, i) => ({
+      text: `Step ${i + 1}`,
+      note: i % 10 === 0,
+    }));
     const big = await template(steps);
     const duties = [await dutyWith(big), await dutyWith(await template([{ text: "One" }]))];
     // 400 shifts with checklists tomorrow and the day after, two duties, 200 people.
@@ -622,7 +730,11 @@ describe("what one call reads, at the largest input (ADR 0629)", () => {
     const ids: string[] = [];
     for (let i = 0; i < 400; i++) {
       ids.push(
-        await shiftOf(duties[i % 2] as string, 20 * DAY + (i % 2) * 4 * HOUR + Math.floor(i / 200) * DAY, people[i % 200]?.id ?? null),
+        await shiftOf(
+          duties[i % 2] as string,
+          20 * DAY + (i % 2) * 4 * HOUR + Math.floor(i / 200) * DAY,
+          people[i % 200]?.id ?? null,
+        ),
       );
     }
     const at = new Date(Date.now() + 20 * DAY - 2 * HOUR);
@@ -633,8 +745,12 @@ describe("what one call reads, at the largest input (ADR 0629)", () => {
     // Two minutes' work made them all (at most 200 a minute per object).
     await runChecklistDue(db, { clock: () => at });
     await runChecklistDue(db, { clock: () => at });
-    const from = new Intl.DateTimeFormat("en-CA", { timeZone: ZONE }).format(new Date(Date.now() + 19 * DAY));
-    const to = new Intl.DateTimeFormat("en-CA", { timeZone: ZONE }).format(new Date(Date.now() + 80 * DAY));
+    const from = new Intl.DateTimeFormat("en-CA", { timeZone: ZONE }).format(
+      new Date(Date.now() + 19 * DAY),
+    );
+    const to = new Intl.DateTimeFormat("en-CA", { timeZone: ZONE }).format(
+      new Date(Date.now() + 80 * DAY),
+    );
     for (const [label, call] of [
       ["week", () => run("x.rostering.week", { from, to }, staff())],
       ["checklist", () => run("x.rostering.checklist", { object: SHIFT, id: ids[0] }, staff())],
@@ -646,6 +762,12 @@ describe("what one call reads, at the largest input (ADR 0629)", () => {
       expect([label, c.queries < CEILING]).toEqual([label, true]);
       counted[label] = c.queries;
     }
-    expect(Object.keys(counted).sort()).toEqual(["checklist", "checklistRuns", "cron close", "cronMake", "week"]);
+    expect(Object.keys(counted).sort()).toEqual([
+      "checklist",
+      "checklistRuns",
+      "cron close",
+      "cronMake",
+      "week",
+    ]);
   }, 300_000);
 });

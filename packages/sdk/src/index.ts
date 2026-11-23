@@ -8,6 +8,7 @@ export * from "./allowance.ts";
 export * from "./automation.ts";
 export * from "./automation-check.ts";
 export * from "./capacity.ts";
+export * from "./checklists.ts";
 export * from "./contract.ts";
 export * from "./document.ts";
 export * from "./field-types.ts";
@@ -35,6 +36,5 @@ export {
 export * from "./sellable.ts";
 export * from "./slug.ts";
 export * from "./staffed.ts";
-export * from "./checklists.ts";
 export * from "./states.ts";
 export * from "./unique.ts";

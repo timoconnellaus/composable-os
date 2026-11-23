@@ -92,6 +92,47 @@ function UserName({ id }: { id: string }) {
   return <>{label(id)}</>;
 }
 
+/** A checklist template's name (stage 45 step 4b, ADR 0650), from one cached list. */
+function ChecklistName({ id }: { id: string }) {
+  const list = useOp("checklist.list", {}, { staleTime: 60_000 });
+  return <>{list.data?.items.find((c) => c.id === id)?.name ?? id}</>;
+}
+
+/** Picks one of the checklists in use, or none. */
+function ChecklistEditor({
+  value,
+  onChange,
+  id,
+}: {
+  value: unknown;
+  onChange: (value: unknown) => void;
+  id?: string;
+}) {
+  const list = useOp("checklist.list", { active: true }, { staleTime: 60_000 });
+  const current = typeof value === "string" ? value : null;
+  const items = list.data?.items ?? [];
+  return (
+    <Select value={current ?? NONE} onValueChange={(v) => onChange(v === NONE ? null : v)}>
+      <SelectTrigger id={id} className="w-full">
+        <SelectValue placeholder="None" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={NONE}>None</SelectItem>
+        {current && !items.some((c) => c.id === current) ? (
+          <SelectItem value={current}>
+            <ChecklistName id={current} />
+          </SelectItem>
+        ) : null}
+        {items.map((c) => (
+          <SelectItem key={c.id} value={c.id}>
+            {c.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 /** Read-only rendering of a field value. */
 export function FieldDisplay({ field, value }: { field: FieldInfo; value: unknown }) {
   const kind = widgetOf(field).display;
@@ -147,6 +188,8 @@ export function FieldDisplay({ field, value }: { field: FieldInfo; value: unknow
     }
     case "user":
       return <UserName id={String(value)} />;
+    case "checklist":
+      return <ChecklistName id={String(value)} />;
     case "email":
       return (
         <a href={`mailto:${String(value)}`} className="hover:underline">
@@ -496,6 +539,8 @@ export function FieldEditor({
       );
     case "user":
       return <UserEditor value={value} onChange={onChange} {...(id ? { id } : {})} />;
+    case "checklist":
+      return <ChecklistEditor value={value} onChange={onChange} {...(id ? { id } : {})} />;
     case "email":
       return (
         <Input

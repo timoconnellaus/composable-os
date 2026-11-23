@@ -6,13 +6,13 @@ import type { AgreementsSpec, HealthNotesSpec } from "./agreements.ts";
 import type { AllowanceSpec } from "./allowance.ts";
 import type { AutomationSpec } from "./automation.ts";
 import type { CapacitySpec, ClaimsSpec } from "./capacity.ts";
+import type { ChecklistsSpec } from "./checklists.ts";
 import type { DocumentPathSpec, DocumentSchema } from "./document.ts";
 import type { FieldTypeName } from "./field-types.ts";
 import type { RecurringScheduleSpec } from "./recurring.ts";
 import type { RoutineMailModule, RoutineMailSpec } from "./routine-mail.ts";
 import type { SellableSpec } from "./sellable.ts";
 import type { StaffedSpec } from "./staffed.ts";
-import type { ChecklistsSpec } from "./checklists.ts";
 import type { StatesSpec } from "./states.ts";
 import type { UniqueSpec } from "./unique.ts";
 

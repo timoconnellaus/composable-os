@@ -9,6 +9,7 @@
 // people, the kinds' names, the places and the open offers; the warnings from one read of the
 // qualifications and one of the unavailabilities of the people on it. A range is at most 62 days.
 import { sql } from "kysely";
+import { declaredOf, recordFacts, templateCopies, usable } from "../checklists/index.ts";
 import { objectTableOf } from "../extensions/schema.ts";
 import { getObject, listObjects } from "../fields/index.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
@@ -18,7 +19,6 @@ import { orgReader, visibleSource } from "../visibility/index.ts";
 import type { StaffWarning } from "./index.ts";
 import { regularOverlaps } from "./index.ts";
 import { kindObjectOf } from "./kinds.ts";
-import { declaredOf, recordFacts, templateCopies, usable } from "../checklists/index.ts";
 
 /** One shift on the roster. */
 export interface RosterShift {
@@ -268,7 +268,9 @@ async function addChecklists(
         "r.name",
         "r.state",
         "r.account_id",
-        sql<number>`(SELECT count(*) FROM core_checklist_tick t WHERE t.run_id = r.id)`.as("ticked"),
+        sql<number>`(SELECT count(*) FROM core_checklist_tick t WHERE t.run_id = r.id)`.as(
+          "ticked",
+        ),
       ])
       .where("r.object_type", "=", objectName)
       .where("r.record_id", "in", jsonList(ids))
@@ -285,8 +287,7 @@ async function addChecklists(
       const template = templates.get(facts.get(s.id)?.template ?? "");
       if (!run && !usable(template)) continue;
       const sees =
-        who === "all" ||
-        (who === "own" && (s.account === reader || run?.account_id === reader));
+        who === "all" || (who === "own" && (s.account === reader || run?.account_id === reader));
       const state: ChecklistState = !run
         ? "not_started"
         : run.state === "open"

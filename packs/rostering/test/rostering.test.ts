@@ -27,6 +27,7 @@ const SHIFT = {
   mine: true,
   offer: null,
   warnings: null,
+  checklist: null,
 };
 const SUMMARY = {
   object: "rostering.shift",
@@ -173,6 +174,27 @@ function hostWith(): TestHost {
         version: 1,
       }),
       "staffing.payPeriod.reopen": (input) => ({ id: "ppe_1", start: input.start, version: 1 }),
+      "checklist.forRecord": () => ({
+        template: { id: "ckl_1", name: "Close-down" },
+        run: null,
+        preview: [{ text: "Mop the floor", required: true, asksNote: false }],
+        opens: "2026-06-02T08:00:00.000Z",
+        closes: "2026-06-02T09:00:00.000Z",
+        tickUntil: "2026-06-02T11:00:00.000Z",
+        canTick: false,
+        onBehalf: false,
+        forName: "Sam",
+      }),
+      "checklist.tick": (input) => ({
+        run: "ckr_1",
+        step: input.step,
+        state: input.state,
+        ticked: 1,
+        of: 2,
+      }),
+      "checklist.complete": () => ({ run: "ckr_1", state: "done" }),
+      "checklist.runs": () => ({ zone: "Australia/Sydney", runs: [], truncated: false }),
+      "checklist.correct": (input) => ({ id: "ckn_1", run: input.run }),
       "staffing.payPeriod.export": (input) => ({
         filename: `pay-${input.start}-to-2026-06-14-v1.csv`,
         contentType: "text/csv",
@@ -240,6 +262,9 @@ describe("the manifest", () => {
       "feed",
       "feedRotate",
       "feedRevoke",
+      "checklist",
+      "tick",
+      "checklistDone",
     ];
     for (const name of team) {
       expect(tools[name]?.permission, name).toEqual(["rostering:team", "rostering:roster"]);
@@ -259,9 +284,24 @@ describe("the manifest", () => {
       "patterns",
       "setPattern",
       "planCheck",
+      "checklistRuns",
+      "checklistCorrect",
     ]) {
       expect(tools[name]?.permission, name).toBe("rostering:manage");
     }
+    // Checklists (step 4b): every one a person's own, at the screen; what is written never logged.
+    for (const name of [
+      "checklist",
+      "tick",
+      "checklistDone",
+      "checklistRuns",
+      "checklistCorrect",
+    ]) {
+      expect(tools[name]?.humanOnly, name).toBe(true);
+    }
+    expect(tools.tick?.redact).toEqual(["note", "why", "forWhy"]);
+    expect(tools.checklistDone?.redact).toEqual(["forWhy"]);
+    expect(tools.checklistCorrect?.redact).toEqual(["text"]);
     // Pay: restricted, and a person's only: an assistant never reads or changes it.
     const PAY = ["payBasis", "payBases", "periods", "periodTotals", "lock", "reopen", "export"];
     for (const name of PAY) {
@@ -307,6 +347,46 @@ describe("the manifest", () => {
       expect(tools[name]?.humanOnly, name).toBeUndefined();
       expect(tools[name]?.risk, name).toBe("read");
     }
+  });
+});
+
+describe("the checklist's tools (step 4b, ADR 0650)", () => {
+  it("a duty carries a checklist a person picks; its shifts declare whose it is to tick and when", () => {
+    const m = hostWith().manifest;
+    expect(m.objects.duty?.fields.checklist).toMatchObject({
+      type: "checklist",
+      personApproves: true,
+    });
+    expect(m.objects.shift?.checklists).toEqual({
+      template: "duty.checklist",
+      who: "staff",
+      opens: "startsAt",
+      closes: "endsAt",
+      live: ["scheduled"],
+    });
+  });
+
+  it("pass the host's answers on, and send nothing the host decides", async () => {
+    const host = hostWith();
+    const shift = { object: "rostering.shift", id: "shf_1" };
+    const view = await host.runTool<{ preview: unknown[] }>("checklist", shift, { caller: ME });
+    expect(view.preview).toHaveLength(1);
+    expect(callsTo(host, "checklist.forRecord")[0]?.input).toEqual(shift);
+    await host.runTool(
+      "tick",
+      { ...shift, step: 0, state: "done", note: "All clear" },
+      { caller: ME },
+    );
+    expect(callsTo(host, "checklist.tick")[0]?.input).toMatchObject({ step: 0, note: "All clear" });
+    await host.runTool("checklistDone", shift, { caller: ME });
+    expect(callsTo(host, "checklist.complete")).toHaveLength(1);
+    await host.runTool("checklistRuns", { from: "2026-06-01", to: "2026-06-07" }, { caller: ME });
+    expect(callsTo(host, "checklist.runs")[0]?.input).toEqual({
+      from: "2026-06-01",
+      to: "2026-06-07",
+    });
+    await host.runTool("checklistCorrect", { run: "ckr_1", text: "Late" }, { caller: ME });
+    expect(callsTo(host, "checklist.correct")[0]?.input).toEqual({ run: "ckr_1", text: "Late" });
   });
 });
 
