@@ -58,10 +58,12 @@ async function read(name: string, input: unknown, user = member): Promise<number
 
 describe("rows read on hot paths", () => {
   it("list pages in the default order walk the sort index", async () => {
-    expect(await read("person.list", { limit: 50 })).toBeLessThan(1_000);
-    expect(await read("organisation.list", { limit: 50 })).toBeLessThan(1_000);
+    // Each read includes sqlite_master once, a row per table and index: routine mail's log
+    // (migration 0750, seven rows) took person.list to about 1,001.
+    expect(await read("person.list", { limit: 50 })).toBeLessThan(1_050);
+    expect(await read("organisation.list", { limit: 50 })).toBeLessThan(1_050);
     expect(await read("activity.list", { limit: 50 })).toBeLessThan(1_500);
-    expect(await read("task.list", { limit: 50 })).toBeLessThan(1_000);
+    expect(await read("task.list", { limit: 50 })).toBeLessThan(1_050);
   });
 
   it("other sorts order ids first instead of computing every view column for every row", async () => {

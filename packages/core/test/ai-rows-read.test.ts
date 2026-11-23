@@ -104,10 +104,11 @@ describe("rows read on the AI paths", () => {
     // three tables, two indexes, a trigger) to about 544; stage 32b's plan changes (migration 0630)
     // and stage 31a's family link (migration 0650: two tables, two indexes, three triggers) to
     // about 565; stage 44's agreement documents (migration 0850: four tables, two indexes, ten
-    // triggers, an autoindex for the version's unique key) to about 588.
+    // triggers, an autoindex for the version's unique key) to about 588; routine mail's log
+    // (migration 0750: a table, its unique key's autoindex, five indexes) to about 605.
     expect(
       await measure("summary.get", { subject: { kind: "record", object: "person", id: personId } }),
-    ).toBeLessThan(600);
+    ).toBeLessThan(620);
     expect(
       await measure("summary.get", {
         subject: { kind: "record", object: "organisation", id: orgId },
