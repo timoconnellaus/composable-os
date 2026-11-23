@@ -81,7 +81,7 @@ export interface OutboundSubmission {
    * send its routine kind (one recipient, plain text, links only to the business's site).
    * Anything else from that queue, a held one included, always waits for a person.
    */
-  routineMail?: { routine: boolean } | undefined;
+  routineMail?: { routine: boolean; ordinary?: boolean } | undefined;
 }
 
 /** Gatekeeper kinds of routine mail (ADR 0590): email-send's, and the fake outbox's. */
@@ -273,7 +273,10 @@ export async function submitOutbound(db: CrmDb, s: OutboundSubmission): Promise<
   if (decision === "auto" && s.origin.jobId) decision = "review";
   // Routine mail the host held (over the daily cap, a value not routine, an AI's change no person
   // approved), or that the gatekeeper did not confirm: a person decides, whatever the preset.
-  if (decision === "auto" && s.routineMail && !routine) decision = "review";
+  // A pack whose routine email is not turned on yet (D1) sends as before: the policy decides.
+  if (decision === "auto" && s.routineMail && !routine && !s.routineMail.ordinary) {
+    decision = "review";
+  }
 
   // outbound.message (ADR 0238): a message an AI actor wrote is read before it leaves. A finding,
   // or no answer, turns an automatic send into a review; Jev never lets one through.

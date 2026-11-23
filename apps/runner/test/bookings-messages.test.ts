@@ -271,6 +271,8 @@ beforeAll(async () => {
     },
     staff(),
   );
+  // Routine email turned on by a human admin (ADR 0590, D1).
+  await run("routineMail.settings.update", { packs: { bookings: true } }, staff());
   // Each automation that mails waits for a person to bind its connection (ADR 0170).
   for (const name of AUTOMATIONS) {
     const automation = await run<{ pausedReason: string | null }>(

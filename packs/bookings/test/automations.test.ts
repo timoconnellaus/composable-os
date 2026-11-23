@@ -420,7 +420,7 @@ describe("dropInOrder", () => {
     );
     const run = await h.runAutomation("dropInOrder", { record: { object: "order", id: "ord_1" } });
     expect(run.undeclared).toEqual([]);
-    expect(asked(h)).toEqual([{ kind: "dropIn", record: "bkg_1", message: "refunded" }]);
+    expect(asked(h)).toEqual([{ kind: "dropIn", record: "ord_1", message: "refunded" }]);
     const other = host(
       {
         "bookings.class": [CLASS],
@@ -443,7 +443,7 @@ describe("dropInOrder", () => {
       { "order.get": () => ({ id: "ord_1", state: "paid", paid: 2500 }) },
     );
     await held.runAutomation("dropInOrder", { record: { object: "order", id: "ord_1" } });
-    expect(asked(held)).toEqual([{ kind: "dropIn", record: "bkg_1", message: "held" }]);
+    expect(asked(held)).toEqual([{ kind: "dropIn", record: "ord_1", message: "held" }]);
     const settled = host(
       {
         "bookings.class": [CLASS],

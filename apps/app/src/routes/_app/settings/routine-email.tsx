@@ -40,6 +40,7 @@ function RoutineEmailPage() {
     >
       {isAdmin ? (
         <div className="grid gap-6">
+          <PacksCard />
           <KindsCard />
           <SiteCard />
           <LogCard />
@@ -92,7 +93,8 @@ function KindsCard() {
           Each email's words are fixed by its pack, and it goes only to the person the record is
           about (and their parents or guardians), never to an address anyone types. One with
           anything unusual in it (a link in a name, more than 20 to one person in a day, a change an
-          AI made that nobody approved) waits in Approvals instead.
+          AI wrote that nobody approved, more than the organisation's daily limit) waits in
+          Approvals instead.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4">
@@ -139,6 +141,61 @@ function KindsCard() {
             ))}
           </ul>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function PacksCard() {
+  const state = useOp("routineMail.get", {});
+  const update = useOpMutation("routineMail.settings.update");
+  if (!state.data) return null;
+  const { packs, orgDailyCap, retentionMonths } = state.data;
+
+  async function toggle(id: string, label: string, on: boolean) {
+    try {
+      await update.mutateAsync({ packs: { [id]: on } });
+      toast.success(
+        on
+          ? `${label}'s routine email now goes out on its own`
+          : `${label}'s emails wait for approval again`,
+      );
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Turn routine email on</CardTitle>
+        <CardDescription>
+          Off until you turn it on. When it is on, each kind below is sent without anyone approving
+          it, to the person the record belongs to (and their parents or guardians), or to the
+          address that paid an order. Until then each of these emails waits for approval, as before.
+          At most {orgDailyCap.toLocaleString()} go out on their own in a day; the log is kept for{" "}
+          {retentionMonths} months.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        {packs.map((pack) => (
+          <div
+            key={pack.id}
+            className="flex items-center justify-between gap-4 rounded-md border p-3"
+            data-testid={`routine-pack-${pack.id}`}
+          >
+            <Label htmlFor={`routine-pack-${pack.id}`} className="font-medium">
+              {pack.label}: {pack.on ? "sent on its own" : "off, each waits for approval"}
+            </Label>
+            <Switch
+              id={`routine-pack-${pack.id}`}
+              checked={pack.on}
+              disabled={update.isPending}
+              onCheckedChange={(on) => void toggle(pack.id, pack.label, on)}
+              aria-label={`Send ${pack.label}'s routine email without approval`}
+            />
+          </div>
+        ))}
       </CardContent>
     </Card>
   );

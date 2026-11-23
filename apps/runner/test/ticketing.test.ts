@@ -1879,6 +1879,8 @@ describe("the event reminder (issue #257)", () => {
       },
       staff(admin),
     );
+    // Routine email turned on by a human admin (ADR 0590, D1).
+    await run("routineMail.settings.update", { packs: { ticketing: true } }, staff(admin));
     await run(
       "automation.bindConnection",
       { id: "ticketing.eventReminder", slot: "mail", connectionId: sender.connection.id },

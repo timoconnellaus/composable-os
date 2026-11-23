@@ -344,7 +344,11 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   writes one `core_routine_mail` row per recipient; the integration host's `sendRoutineMail` sends
   a row's own words through the automation's bound email-send connection, whose `email.routine`
   kind the gate applies without review under Balanced and Autonomous (Cautious and the deploy floor
-  still hold it). Each kind has a human admin's switch (Settings → Routine email), with the log.
+  still hold it). Off for each pack until a human admin turns it on (until then its emails are
+  ordinary sends); anything about the email an AI wrote that no person approved (the record, its
+  Persons, the fields that fed its slots) holds it; the daily caps (20 per mailbox, 2,000 for the
+  organisation) are counted where a row is claimed. Each kind has a human admin's switch (Settings →
+  Routine email), with the log, kept 12 months by default.
 - **Gatekeepers we wrote**: `gatekeeper-email-send`, `gatekeeper-slack-post`, `gatekeeper-webhook`.
   Inbound webhooks and sync events land in `core_integration_event`; cos-runner's cron turns them
   into `webhook` and `syncEvent` automation triggers (ADR 0173), dropping private activities.

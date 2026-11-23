@@ -12,6 +12,7 @@ import { dashboardSpecSchema } from "../dashboards/spec.ts";
 import { ConfigError, ValidationError } from "../errors.ts";
 import { listObjects } from "../fields/index.ts";
 import type { HandlerContext } from "../operation.ts";
+import { routineMailAvailableNotice } from "../routine-mail/index.ts";
 import { hasAccessSourceKind } from "../visibility/access.ts";
 // The host's own kinds of access source register themselves when loaded: loaded here too, so the
 // install check (and `cos ext check`, which bundles it alone) knows them (ADR 0488).
@@ -515,6 +516,12 @@ export async function installExtension(
         oc.columns(["extension_id", "commit_oid"]).doUpdateSet({ installed_at: ctx.now }),
       ),
   );
+  // Routine mail (ADR 0590, D1): off until a human admin turns it on; the admins are told once.
+  if (Object.keys(manifest.routineMail ?? {}).length) {
+    ctx.write(
+      ...(await routineMailAvailableNotice(ctx.db, input.id, manifest.label ?? input.id, ctx.now)),
+    );
+  }
   // The extension's automations join the registry (ADR 0130); enabled flags and pauses persist.
   ctx.write(
     ...automationSyncStatements(ctx.db, {

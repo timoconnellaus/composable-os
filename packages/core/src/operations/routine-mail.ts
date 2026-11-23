@@ -37,8 +37,25 @@ const kindSchema = z.object({
     ),
 });
 
+const packSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  on: z
+    .boolean()
+    .describe(
+      "Turned on by a human admin: its kinds send without approval. Off (the default): each " +
+        "of its emails is an ordinary send the approval policy decides, as before routine mail",
+    ),
+});
+
 const settingsOutput = z.object({
+  packs: z.array(packSchema),
   kinds: z.array(kindSchema),
+  orgDailyCap: z
+    .number()
+    .int()
+    .describe("Routine emails the organisation sends in a day before the rest wait for a person"),
+  retentionMonths: z.number().int().describe("Months the log is kept"),
   siteOrigin: z
     .string()
     .nullable()
@@ -81,7 +98,14 @@ export const routineMailGet = defineOperation({
       await loadApprovalPolicy(ctx.db),
       ctx.floor,
     );
+    const packs = new Map<string, { id: string; label: string; on: boolean }>();
+    for (const k of kinds) {
+      packs.set(k.extensionId, { id: k.extensionId, label: k.extensionLabel, on: k.packOn });
+    }
     return {
+      packs: [...packs.values()],
+      orgDailyCap: settings.orgDailyCap,
+      retentionMonths: settings.retentionMonths,
       kinds: kinds.map((k) => {
         const of = (status: string[]) =>
           counts
@@ -218,28 +242,44 @@ export const routineMailLog = defineOperation({
 export const routineMailSettingsUpdate = defineOperation({
   name: "routineMail.settings.update",
   description:
-    "Turn one kind of routine email on or off (kinds: { 'bookings.reminder': false }: off sends " +
+    "Turn a pack's routine email on (packs: { bookings: true }: its kinds then send without " +
+    "approval; off, each is an ordinary send the policy decides), turn one kind on or off " +
+    "(kinds: { 'bookings.reminder': false }: off sends " +
     "nothing and queues nothing), or set the business's own site, the only place routine email " +
-    "links to (siteOrigin, an https origin; null removes the links). Only what you pass changes. " +
+    "links to (siteOrigin, an https origin; null removes the links), the organisation's daily " +
+    "limit (orgDailyCap) or how long the log is kept (retentionMonths). Only what you pass changes. " +
     "Admins only, and only a human can call it: AI assistants, MCP clients, automations and " +
     "extensions are refused.",
   input: z.object({
+    packs: z.record(z.string().max(40), z.boolean()).optional(),
     kinds: z.record(z.string().max(80), z.boolean()).optional(),
     siteOrigin: z.string().max(200).nullable().optional(),
+    orgDailyCap: z.number().int().min(1).max(100_000).optional(),
+    retentionMonths: z.number().int().min(1).max(84).optional(),
   }),
   output: z.object({
+    packs: z.record(z.string(), z.boolean()),
     kinds: z.record(z.string(), z.boolean()),
     siteOrigin: z.string().nullable(),
+    orgDailyCap: z.number().int(),
+    retentionMonths: z.number().int(),
   }),
   permission: "settings:manage",
   risk: "write",
   actors: ["human"],
   mcp: { expose: false },
   async handler(input, ctx) {
-    if (input.kinds === undefined && input.siteOrigin === undefined) {
-      throw new ValidationError("Pass kinds, siteOrigin or both");
+    if (Object.values(input).every((v) => v === undefined)) {
+      throw new ValidationError("Pass what to change");
     }
-    const declared = new Set((await routineKinds(ctx.db)).map((k) => k.id));
+    const declaredKinds = await routineKinds(ctx.db);
+    const declared = new Set(declaredKinds.map((k) => k.id));
+    const declaredPacks = new Set(declaredKinds.map((k) => k.extensionId));
+    for (const id of Object.keys(input.packs ?? {})) {
+      if (!declaredPacks.has(id)) {
+        throw new ValidationError(`No shipped pack ${id} declares routine email`, { pack: id });
+      }
+    }
     for (const id of Object.keys(input.kinds ?? {})) {
       if (!declared.has(id)) {
         throw new ValidationError(`No shipped pack declares routine email "${id}"`, { kind: id });
@@ -257,8 +297,11 @@ export const routineMailSettingsUpdate = defineOperation({
     }
     const previous = await loadRoutineMailSettings(ctx.db);
     const next = {
+      packs: { ...previous.packs, ...(input.packs ?? {}) },
       kinds: { ...previous.kinds, ...(input.kinds ?? {}) },
       siteOrigin: siteOrigin === undefined ? previous.siteOrigin : siteOrigin,
+      orgDailyCap: input.orgDailyCap ?? previous.orgDailyCap,
+      retentionMonths: input.retentionMonths ?? previous.retentionMonths,
     };
     const value = JSON.stringify(next);
     ctx.write(

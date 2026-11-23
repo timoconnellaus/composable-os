@@ -397,20 +397,47 @@ export function renderTemplate(
 
 // Control and format characters (bidirectional overrides, zero-width joiners) let a value hide
 // or reorder what it shows.
-// biome-ignore lint/suspicious/noControlCharactersInRegex: matching them is the point.
-const HIDDEN = /[\u0000-\u001f\u007f-\u009f­؜᠎​-‏‪-‮⁠-⁯﻿￹-￻]/;
-// A link, an address, markup, or something a mail program turns into a link (`example.com`).
-const LINKISH = /:\/\/|www[.。．｡]|@|<|>|[[\]{}\\]|xn--|[\p{L}\p{N}-][.。．｡]\p{L}{2,}/iu;
+const HIDDEN =
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: matching them is the point.
+  // biome-ignore lint/suspicious/noMisleadingCharacterClass: single code points, on purpose.
+  /[\u0000-\u001f\u007f-\u009f\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\u3164\ufe00-\ufe0f\ufeff\uffa0\ufff9-\ufffb]/u;
+/** Dots, and the characters that look like one. */
+const DOT = "[.\\u2024\\u2027\\u00b7\\u2219\\u22c5\\u0701\\u3002\\uff0e\\uff61]";
+// A link, an address, markup, or something a mail program (or a reader) turns into a link:
+// `example.com`, `example . com`, `example(dot)com`, `hxxp`, an IP address, a scheme.
+const LINKISH = new RegExp(
+  [
+    ":\\/\\/",
+    `www\\s*${DOT}`,
+    "@",
+    "[<>[\\]{}\\\\]",
+    "xn--",
+    `[\\p{L}\\p{N}-]\\s*${DOT}\\s*\\p{L}{2,}`,
+    "[([]\\s*(?:dot|\\.)\\s*[)\\]]",
+    "\\bdot\\s+(?:com|net|org|io|co|au|uk|nz|info|biz)\\b",
+    "\\bhxxps?\\b",
+    "\\b\\d{1,3}(?:\\s*\\.\\s*\\d{1,3}){3}\\b",
+    "\\b(?:mailto|tel|sms|javascript|data|file|ftp|https?)\\s*:",
+  ].join("|"),
+  "iu",
+);
+// A phone number (eight or more digits, spaced or not), or an instruction to call or text one.
+const PHONE =
+  /(?:\+|\b)\d(?:[\s().-]*\d){7,}|\b(?:call|ring|text|sms|phone|whatsapp|tel)\b\D{0,20}\d[\d\s().-]{2,}\d/iu;
 
 /**
  * Why `value` cannot go into a routine email, or null when it can: one line of at most `max`
- * characters, no hidden characters, nothing that is or becomes a link or an address, no markup.
- * A member's name, a class's title and a cancellation's reason are checked with it.
+ * characters, no hidden, blank-looking or direction-changing characters, nothing that is or
+ * becomes a link or an address (look-alike dots and spelled-out ones included), no markup, no
+ * phone number and nothing asking the reader to call or text one. A member's name, a class's
+ * title and a cancellation's reason are checked with it. A legitimate title with a phone number
+ * in it is held for a person: that is the intended outcome.
  */
 export function unroutineText(value: string, max: number): string | null {
   if (value.length > max) return `longer than ${max} characters`;
   if (HIDDEN.test(value)) return "a line break or hidden character";
   if (LINKISH.test(value)) return "a link, an address or markup";
+  if (PHONE.test(value)) return "a phone number";
   return null;
 }
 

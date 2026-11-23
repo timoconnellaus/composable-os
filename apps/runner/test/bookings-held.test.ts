@@ -110,6 +110,8 @@ beforeAll(async () => {
     id: connectionId,
     url: `email-send://sender/${encodeURIComponent("held@example.com")}`,
   });
+  // Routine email turned on by a human admin (ADR 0590, D1).
+  await run("routineMail.settings.update", { packs: { bookings: true } });
   await run("automation.bindConnection", {
     id: "bookings.classCancelled",
     slot: "mail",

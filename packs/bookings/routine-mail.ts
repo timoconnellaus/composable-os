@@ -334,35 +334,41 @@ export const bookingsRoutineMail = {
     label: "Drop-in payments and refunds",
     description:
       "When a visitor pays for a class that staff still have to confirm, and when a paid " +
-      "drop-in's refund has been made. To the order's own address while the place has no " +
-      "Person, else to the member.",
-    about: "booking",
-    slots: CLASS_SLOTS,
+      "drop-in's refund has been made. About the order: to the address that paid it, never " +
+      "anyone else.",
+    // About the order (the coordinator's D3): a payer's notice goes to the address that paid.
+    about: "order",
+    slots: {
+      what: {
+        each: {
+          object: "booking",
+          via: "dropInOrder",
+          max: 1,
+          line: "{class} on {when}",
+          slots: {
+            class: { field: "class.title" },
+            when: { field: "class.startsAt", format: "datetime", zone: "class.timezone" },
+          },
+        },
+      },
+      link: { link: "bookingsUrl" },
+    },
     messages: {
       held: {
-        subject: "Payment received: {class}",
+        subject: "Payment received",
         text: [
-          "Payment received for {class} on {when}. Your place is held: the gym confirms it shortly, and you will get an email when it has.",
+          "Payment received for {what}. Your place is held: the gym confirms it shortly, and you will get an email when it has.",
           "",
           SIGN_IN,
         ].join("\n"),
-        calendar: CALENDAR,
       },
       refunded: {
-        subject: "Refund made: {class}",
+        subject: "Refund made",
         text: [
-          "Your refund for {class} on {when} has been made to the card you paid with. Banks can take a few days to show it.",
+          "Your refund for {what} has been made to the card you paid with. Banks can take a few days to show it.",
           "",
           SIGN_IN,
         ].join("\n"),
-        guardian: {
-          subject: "Refund made: {class} ({member})",
-          text: [
-            "The refund for {class} on {when}, which {member} was booked into, has been made to the card it was paid with. Banks can take a few days to show it.",
-            "",
-            SIGN_IN,
-          ].join("\n"),
-        },
       },
     },
   },

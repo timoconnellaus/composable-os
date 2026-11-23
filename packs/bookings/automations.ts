@@ -572,11 +572,12 @@ export const dropInOrder = defineAutomation({
       const booking = found.items[0];
       if (!booking) return [];
       const order = await ctx.ops.call<OrderShape>("order.get", { id: orderId });
-      if (order.state === "refunded") return [{ record: booking.id, message: "refunded" }];
+      // About the order (D3): the host sends it to the address that paid.
+      if (order.state === "refunded") return [{ record: orderId, message: "refunded" }];
       // Paid, and still held with no Person: staff settle whose it is (ADR 0560). A booking
       // that became booked with its Person is told by bookingConfirmed instead.
       if (text(booking.values.state) !== "pending" || text(booking.values.person)) return [];
-      return [{ record: booking.id, message: "held" }];
+      return [{ record: orderId, message: "held" }];
     });
     if (!sends.length) return { sent: 0 };
     return step.do("send", () => sendAll(ctx, "dropIn", sends));

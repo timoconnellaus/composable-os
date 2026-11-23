@@ -560,6 +560,10 @@
       "sha256": "9a4a447b20d94873349726ba157412acc88909cf622ce67789ba840beb4b3f59"
     },
     {
+      "name": "0750_routine_mail.sql",
+      "sha256": "0ca336b701d5d3e0b6c24daa5c63e8b169a821811bb1963d0a87b93c53360af1"
+    },
+    {
       "name": "0770_clear_fixed_role_grants.sql",
       "sha256": "3a259fde475685273a9b2311b68ea20093ef6aacb0aa0b3dc64d027e2e24d941"
     }

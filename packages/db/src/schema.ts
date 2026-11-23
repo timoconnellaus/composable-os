@@ -1073,12 +1073,16 @@ export interface CoreRoutineMailTable {
   recipient: string;
   recipient_rule: "person" | "guardian" | "order";
   recipient_person_id: Defaulted<string | null>;
+  recipient_key: string;
+  about_person_id: Defaulted<string | null>;
   automation_id: string;
   run_id: string;
   trigger_type: string;
   triggered_by: Defaulted<string | null>;
   idempotency_key: string;
   routine: number;
+  ordinary: Defaulted<number>;
+  claimed_at: Defaulted<string | null>;
   held_reason: Defaulted<string | null>;
   status: "off" | "ready" | "sending" | "sent" | "waiting" | "denied" | "failed";
   connection_id: Defaulted<string | null>;

@@ -189,7 +189,15 @@ describe("rendering", () => {
 
 describe("what a value may hold", () => {
   it("allows a plain name or title", () => {
-    for (const value of ["Strength", "Kai O'Neill", "Yoga & Pilates: level 2", "5.30pm HIIT"]) {
+    for (const value of [
+      "Strength",
+      "Kai O'Neill",
+      "Yoga & Pilates: level 2",
+      "5.30pm HIIT",
+      "Ring work 2",
+      "St John's Hall, Studio 3",
+      "Data and text in 10 minutes",
+    ]) {
       expect(unroutineText(value, 120), value).toBeNull();
     }
   });
@@ -209,6 +217,28 @@ describe("what a value may hold", () => {
       "xn--80ak6aa92e",
       "[Click](x)",
       "x".repeat(121),
+      // The review of PR #267 (B2): phone numbers and instructions to call, spelled-out and
+      // look-alike dots, defanged links, IP addresses, schemes, blank and direction characters.
+      "Strength - CANCELLED call 0400 123 456 for your refund",
+      "Refunds: 0400123456",
+      "+61 2 9876 5432",
+      "Text 0400 111 for a free class",
+      "Visit evil . com",
+      "evil(dot)com",
+      "evil [.] com",
+      "evil dot com",
+      "hxxps evil",
+      "Studio at 10.0.0.1",
+      "Pay\u2024com",
+      "Room\u00b7info",
+      "mailto:someone",
+      "tel:0400",
+      "javascript:alert",
+      "Sam\u2028Reply now",
+      "Sam\u2029x",
+      "Sam\u3164",
+      "Sam\u202aX",
+      "Sam\u2066X",
     ]) {
       expect(unroutineText(value, 120), value).not.toBeNull();
     }

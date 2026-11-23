@@ -35,9 +35,12 @@ import {
 } from "@composable-os/sdk";
 import type { Insertable, Kysely } from "kysely";
 import { z } from "zod";
+import { ADJUDICATOR_PRINCIPAL } from "../adjudicator/review.ts";
+import { mailboxKey } from "../customers/limits.ts";
 import { ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import { newId } from "../ids.ts";
+import { notifyStatements } from "../notifications/send.ts";
 import { loadRecord } from "../operations/record.ts";
 import { staffPrincipal } from "../principals.ts";
 import { viewColumnOf } from "../records/columns.ts";
@@ -52,13 +55,35 @@ type Values = Record<string, unknown>;
 
 export const ROUTINE_MAIL_SETTING = "routine_mail";
 
+/** Most routine emails the whole organisation sends in a rolling day, unless an admin chose. */
+export const ROUTINE_ORG_DAILY_CAP = 2_000;
+/** How long the routine email log is kept, in months, unless an admin chose. */
+export const ROUTINE_LOG_MONTHS = 12;
+
 export const routineMailSettingsSchema = z.object({
+  /**
+   * Extension id → routine email turned on (ADR 0590, the coordinator's D1): off until a human
+   * admin turns it on once; until then its emails are ordinary sends, decided by the policy.
+   */
+  packs: z.record(z.string().max(40), z.boolean()).default({}),
   /** Kind id (`bookings.reminder`) → on or off, where an admin chose; else the pack's default. */
   kinds: z.record(z.string().max(80), z.boolean()).default({}),
   /** The business's own site (`https://gym.example`): the only place a routine email links to. */
   siteOrigin: z.string().max(200).nullable().default(null),
+  /** Routine emails the organisation sends in a rolling day before the rest wait for a person. */
+  orgDailyCap: z.number().int().min(1).max(100_000).default(ROUTINE_ORG_DAILY_CAP),
+  /** Months the log is kept. */
+  retentionMonths: z.number().int().min(1).max(84).default(ROUTINE_LOG_MONTHS),
 });
 export type RoutineMailSettings = z.infer<typeof routineMailSettingsSchema>;
+
+const DEFAULT_SETTINGS: RoutineMailSettings = {
+  packs: {},
+  kinds: {},
+  siteOrigin: null,
+  orgDailyCap: ROUTINE_ORG_DAILY_CAP,
+  retentionMonths: ROUTINE_LOG_MONTHS,
+};
 
 export async function loadRoutineMailSettings(db: Db): Promise<RoutineMailSettings> {
   const row = await db
@@ -68,10 +93,40 @@ export async function loadRoutineMailSettings(db: Db): Promise<RoutineMailSettin
     .executeTakeFirst();
   try {
     const parsed = routineMailSettingsSchema.safeParse(row ? JSON.parse(row.value) : {});
-    return parsed.success ? parsed.data : { kinds: {}, siteOrigin: null };
+    return parsed.success ? parsed.data : DEFAULT_SETTINGS;
   } catch {
-    return { kinds: {}, siteOrigin: null };
+    return DEFAULT_SETTINGS;
   }
+}
+
+/**
+ * The admins' notice that an extension's routine email is available and off (D1): written when
+ * the extension is installed or upgraded while it is not turned on. Once per extension.
+ */
+export async function routineMailAvailableNotice(
+  db: Db,
+  extensionId: string,
+  label: string,
+  now: string,
+) {
+  const settings = await loadRoutineMailSettings(db);
+  if (settings.packs[extensionId] === true) return [];
+  const plan = await notifyStatements(
+    db,
+    {
+      to: [{ role: "admin" }],
+      type: "system.message",
+      title: `Routine email for ${label} is available, and off`,
+      body:
+        `${label} can send its members' fixed emails (confirmations, changes, cancellations, ` +
+        "reminders) without approval once a human admin turns it on in Settings → Routine " +
+        "email. Until then each one waits for approval, as before.",
+      dedupeKey: `routine-mail.available:${extensionId}`,
+      source: { actor: "system" },
+    },
+    now,
+  );
+  return plan.statements;
 }
 
 /** An https origin with no path, credentials or port games, or null. */
@@ -111,7 +166,10 @@ export interface RoutineKind {
   extensionLabel: string;
   name: string;
   spec: RoutineMailKindManifest;
+  /** The kind's own switch. */
   on: boolean;
+  /** The extension's routine email turned on by a human admin (D1). */
+  packOn: boolean;
 }
 
 /** Every kind a shipped, active extension declares, with whether it is on now. */
@@ -143,6 +201,7 @@ export async function routineKinds(db: Db): Promise<RoutineKind[]> {
         name,
         spec,
         on: settings.kinds[id] ?? spec.on !== false,
+        packOn: settings.packs[row.id] === true,
       });
     }
   }
@@ -186,6 +245,8 @@ interface Recipient {
   personId: string | null;
   /** The record's own person (or the paying visitor), not a guardian. */
   self: boolean;
+  /** Why an email to this address is not routine (an unpaid order's typed address). */
+  held?: string;
 }
 
 const ADDRESS = /^[^\s@<>()[\]\\,;:"]{1,64}@[a-z0-9.-]{1,190}\.[a-z]{2,}$/i;
@@ -200,6 +261,15 @@ class Records {
   readonly #cache = new Map<string, Promise<Values | null>>();
   /** Every record read for the email, for its related records. */
   readonly read = new Set<string>();
+  /** The fields that fed the email, by record: who last wrote each is checked (B2). */
+  readonly sources = new Map<string, { object: string; id: string; fields: Set<string> }>();
+  note(object: string, id: unknown, field: string): void {
+    if (typeof id !== "string") return;
+    const key = `${object}:${id}`;
+    const found = this.sources.get(key) ?? { object, id, fields: new Set<string>() };
+    found.fields.add(field);
+    this.sources.set(key, found);
+  }
   constructor(db: Db) {
     this.#db = db;
   }
@@ -218,7 +288,17 @@ class Records {
     if (object === ROUTINE_ABOUT_ORDER) {
       const row = await this.#db
         .selectFrom("core_order")
-        .select(["id", "email", "paid", "total", "currency", "balance_due_at", "state"])
+        .select([
+          "id",
+          "email",
+          "paid",
+          "total",
+          "currency",
+          "balance_due_at",
+          "state",
+          "placed_as",
+          "person_id",
+        ])
         .where("id", "=", id)
         .executeTakeFirst();
       if (!row) return null;
@@ -232,6 +312,8 @@ class Records {
         currency: row.currency,
         balanceDueAt: row.balance_due_at,
         state: row.state,
+        placedAs: row.placed_as,
+        personId: row.person_id,
       };
     }
     const definition = getObject(object);
@@ -267,7 +349,10 @@ async function walk(
   for (const [i, segment] of segments.entries()) {
     if (!current) return undefined;
     const value = current[segment];
-    if (i === segments.length - 1) return value;
+    if (i === segments.length - 1) {
+      records.note(currentObject, current.id, segment);
+      return value;
+    }
     const id = text(value);
     const to = targetOf(currentObject, segment);
     if (!id || !to) return undefined;
@@ -377,7 +462,7 @@ async function recipientsOf(
   records: Records,
   object: string,
   record: Values,
-): Promise<{ recipients: Recipient[]; memberName: string | null }> {
+): Promise<{ recipients: Recipient[]; memberName: string | null; personId: string | null }> {
   const out: Recipient[] = [];
   const seen = new Set<string>();
   const add = (address: string | null | undefined, r: Omit<Recipient, "address">) => {
@@ -389,14 +474,14 @@ async function recipientsOf(
   const paidOrder = async (orderId: string | null) => {
     if (!orderId) return;
     const order = await records.get(ROUTINE_ABOUT_ORDER, orderId);
-    // A paid order's own address (ADR 0560): an unpaid one is nobody's yet.
-    if (order && Number(order.paid) > 0) {
-      add(text(order.email), { rule: "order", personId: null, self: true });
-    }
+    if (!order) return;
+    const recipient = await routineOrderRecipient(db, order);
+    if (recipient)
+      add(recipient.address, { rule: "order", personId: null, self: true, ...recipient });
   };
   if (object === ROUTINE_ABOUT_ORDER) {
     await paidOrder(text(record.id));
-    return { recipients: out, memberName: null };
+    return { recipients: out, memberName: null, personId: text(record.personId) };
   }
   const definition = getObject(object);
   const personField = definition?.customer?.field;
@@ -405,10 +490,10 @@ async function recipientsOf(
     // A visitor's paid drop-in, held with no Person (ADR 0560): the order's own address.
     const moves = definition?.sellable?.moves;
     if (moves?.guest && moves.order) await paidOrder(text(record[moves.order]));
-    return { recipients: out, memberName: null };
+    return { recipients: out, memberName: null, personId: null };
   }
   const person = await livePerson(db, personId);
-  if (!person) return { recipients: out, memberName: null };
+  if (!person) return { recipients: out, memberName: null, personId };
   add(person.email, { rule: "person", personId, self: true });
   // The family link (ADR 0540): each live guardian, where the object opens to guardians.
   if (definition?.customer?.guardians) {
@@ -426,7 +511,133 @@ async function recipientsOf(
         add(guardian.email, { rule: "guardian", personId: link.guardian_id, self: false });
     }
   }
-  return { recipients: out, memberName: person.name };
+  return { recipients: out, memberName: person.name, personId };
+}
+
+/**
+ * The address an order's routine email may go to (D2): the order's own address once a payment
+ * was applied (ADR 0560); for a signed-in customer's free order, their own verified sign-in
+ * address; otherwise the address a visitor typed, which is not routine (held for a person).
+ */
+export async function routineOrderRecipient(
+  db: Db,
+  order: { email?: unknown; paid?: unknown; placedAs?: unknown; personId?: unknown },
+): Promise<{ address: string; held?: string } | null> {
+  const email = text(order.email);
+  if (Number(order.paid) > 0) return email ? { address: email } : null;
+  if (order.placedAs === "customer" && typeof order.personId === "string") {
+    const customer = await db
+      .selectFrom("core_customer")
+      .select("email")
+      .where("person_id", "=", order.personId)
+      .where("email_verified", "=", 1)
+      .executeTakeFirst();
+    if (customer?.email) return { address: customer.email };
+  }
+  return email
+    ? {
+        address: email,
+        held: "nothing was paid on the order, so its address is one a visitor typed",
+      }
+    : null;
+}
+
+/** Whether a person decided a pending action: a human account, not the adjudicator or code. */
+const PERSON_DECIDED = (decidedBy: string | null, kind: string | null) =>
+  decidedBy !== null && decidedBy !== ADJUDICATOR_PRINCIPAL && kind === "human";
+
+/**
+ * What an AI (the assistant, an MCP client) wrote about a record that no person approved and no
+ * person has since overwritten or cleared (B1, B2), from the audit trail: its creation, and the
+ * latest write of each field in `fields` (`all`: any write at all). Writes at or before `since`
+ * (a person's approval of an email about the record) are cleared.
+ */
+export async function aiWritten(
+  db: Db,
+  object: string,
+  id: string,
+  fields: ReadonlySet<string> | "all",
+  since: string | null,
+): Promise<string[]> {
+  const rows = await db
+    .selectFrom("core_audit_changes as c")
+    .innerJoin("core_audit as a", "a.id", "c.audit_id")
+    .leftJoin("core_pending_action as p", "p.id", "a.pending_action_id")
+    .leftJoin("core_user as u", "u.id", "p.decided_by")
+    .select([
+      "c.at",
+      "c.action",
+      "c.diff",
+      "a.id as auditId",
+      "a.actor",
+      "a.origin",
+      "p.decided_by",
+      "u.kind",
+    ])
+    .where("c.object_type", "=", object)
+    .where("c.record_id", "=", id)
+    .orderBy("c.id", "desc")
+    .limit(200)
+    .execute();
+  const roots = new Map<string, Promise<boolean>>();
+  /** A write is an AI's when an AI made it, or made the call its cascade began with (a tool). */
+  const byAi = async (r: (typeof rows)[number]): Promise<boolean> => {
+    if (since && r.at <= since) return false;
+    if (AI_ACTORS.has(r.actor)) return !PERSON_DECIDED(r.decided_by, r.kind ?? null);
+    let root: string | undefined;
+    try {
+      root = (JSON.parse(r.origin) as { rootEventId?: string }).rootEventId;
+    } catch {}
+    if (!root || root === r.auditId) return false;
+    let known = roots.get(root);
+    if (!known) {
+      known = startedBy(db, root).then((b) => Boolean(b && AI_ACTORS.has(b.actor) && !b.approved));
+      roots.set(root, known);
+    }
+    return known;
+  };
+  const out: string[] = [];
+  const created = rows.find((r) => r.action === "create");
+  if (created && (await byAi(created))) out.push(`${object} ${id} was made by an AI`);
+  if (fields === "all") {
+    for (const r of rows) {
+      if (r.action !== "create" && (await byAi(r))) {
+        out.push(`${object} ${id} was changed by an AI`);
+        break;
+      }
+    }
+    return out;
+  }
+  for (const field of fields) {
+    const latest = rows.find((r) => {
+      if (r.action !== "update") return true;
+      try {
+        return Object.hasOwn(JSON.parse(r.diff) as object, field);
+      } catch {
+        return false;
+      }
+    });
+    if (latest && latest.action === "update" && (await byAi(latest))) {
+      out.push(`${object} ${id}'s ${field} was last written by an AI`);
+    }
+  }
+  return out;
+}
+
+/** When a person last approved a held routine email about the record: what it clears. */
+async function personClearedAt(db: Db, object: string, id: string): Promise<string | null> {
+  const row = await db
+    .selectFrom("core_routine_mail as r")
+    .innerJoin("core_pending_action as p", "p.id", "r.pending_action_id")
+    .innerJoin("core_user as u", "u.id", "p.decided_by")
+    .select((eb) => eb.fn.max("p.decided_at").as("at"))
+    .where("r.record_object", "=", object)
+    .where("r.record_id", "=", id)
+    .where("p.status", "=", "applied")
+    .where("u.kind", "=", "human")
+    .where("p.decided_by", "!=", ADJUDICATOR_PRINCIPAL)
+    .executeTakeFirst();
+  return (row?.at as string | null | undefined) ?? null;
 }
 
 /** A person not in the Trash and not merged away: their primary address and name. */
@@ -458,15 +669,18 @@ async function startedBy(
 ): Promise<{ actor: string; userId: string | null; approved: boolean } | null> {
   if (!rootEventId) return null;
   const audit = await db
-    .selectFrom("core_audit")
-    .select(["actor", "user_id", "pending_action_id"])
-    .where("id", "=", rootEventId)
+    .selectFrom("core_audit as a")
+    .leftJoin("core_pending_action as p", "p.id", "a.pending_action_id")
+    .leftJoin("core_user as u", "u.id", "p.decided_by")
+    .select(["a.actor", "a.user_id", "p.decided_by", "u.kind"])
+    .where("a.id", "=", rootEventId)
     .executeTakeFirst();
   if (!audit) return null;
+  // Approved by a person: a human account decided it, never the adjudicator (F1).
   return {
     actor: audit.actor,
     userId: audit.user_id,
-    approved: audit.pending_action_id !== null,
+    approved: PERSON_DECIDED(audit.decided_by, audit.kind ?? null),
   };
 }
 
@@ -619,6 +833,8 @@ export async function prepareRoutineMail(
   const chain = text(trigger.originalRunId) ?? input.runId;
   const settings = await loadRoutineMailSettings(db);
   const on = settings.kinds[kindId] ?? spec.on !== false;
+  // D1: until a human admin turns the extension's routine email on, its emails are ordinary sends.
+  const packOn = settings.packs[input.extensionId] === true;
 
   // Why the whole send waits for a person, whoever it goes to.
   const held: string[] = [];
@@ -632,7 +848,11 @@ export async function prepareRoutineMail(
     held.push("an AI made the change that started it, and no person approved it");
   }
 
-  const { recipients, memberName } = await recipientsOf(db, records, object, record);
+  const {
+    recipients,
+    memberName,
+    personId: aboutPersonId,
+  } = await recipientsOf(db, records, object, record);
   if (!recipients.length) return { kind: kindId, off: !on, toSend: [], done: [], none: true };
 
   // The slots the host fills, once for the record; the pack's values per audience.
@@ -677,7 +897,23 @@ export async function prepareRoutineMail(
   const guardianValues = { ...fill.values, ...(await packValues(true)), ...member };
 
   const calendar = await calendarFor(records, object, record, message, selfValues, fill);
-  const daily = new Date(Date.parse(now) - 86_400_000).toISOString();
+
+  // B1 and B2: nothing about the email an AI wrote that no person approved, for the record's life:
+  // the record itself (any write), the Persons it goes to (any write: their address, their name),
+  // and each field that fed a slot (its latest write). A person approving one held email about the
+  // record clears what was written before that approval.
+  const since = await personClearedAt(db, object, send.record);
+  const written: string[] = [];
+  written.push(...(await aiWritten(db, object, send.record, "all", since)));
+  for (const person of new Set([aboutPersonId, ...recipients.map((r) => r.personId)])) {
+    if (person) written.push(...(await aiWritten(db, "person", person, "all", since)));
+  }
+  for (const source of records.sources.values()) {
+    if (source.object === object && source.id === send.record) continue;
+    written.push(...(await aiWritten(db, source.object, source.id, source.fields, since)));
+  }
+  if (written.length)
+    held.push(`written by an AI with no person's approval: ${written.join(", ")}`);
 
   const rows: Insertable<CoreDatabase["core_routine_mail"]>[] = [];
   const keys: string[] = [];
@@ -697,17 +933,8 @@ export async function prepareRoutineMail(
     }
     if (subject.length > 200 || !subject.trim()) reasons.push("the subject is too long or empty");
     if (body.length > 30_000) reasons.push("the email is too long");
-    const sentToday = await db
-      .selectFrom("core_routine_mail")
-      .select((eb) => eb.fn.countAll<number>().as("n"))
-      .where("recipient", "=", recipient.address)
-      .where("routine", "=", 1)
-      .where("status", "in", ["ready", "sending", "sent"])
-      .where("created_at", ">", daily)
-      .executeTakeFirst();
-    if (Number(sentToday?.n ?? 0) >= ROUTINE_DAILY_CAP) {
-      reasons.push(`${recipient.address} has had ${ROUTINE_DAILY_CAP} routine emails today`);
-    }
+    if (recipient.held) reasons.push(recipient.held);
+    // The daily caps are counted when the row is claimed (claimRoutineMail), not here.
     const key = `${chain}:${kindId}:${messageName}:${send.record}:${recipient.address}`;
     keys.push(key);
     rows.push({
@@ -720,13 +947,22 @@ export async function prepareRoutineMail(
       recipient: recipient.address,
       recipient_rule: recipient.rule,
       recipient_person_id: recipient.personId,
+      recipient_key: mailboxKey(recipient.address),
+      about_person_id: aboutPersonId,
       automation_id: input.automationId,
       run_id: input.runId,
       trigger_type: triggerType,
       triggered_by: by ? JSON.stringify(by) : null,
       idempotency_key: key,
-      routine: on && !reasons.length ? 1 : 0,
-      held_reason: on && reasons.length ? reasons.join("; ").slice(0, 1000) : null,
+      routine: on && packOn && !reasons.length ? 1 : 0,
+      ordinary: on && !packOn ? 1 : 0,
+      held_reason: !on
+        ? null
+        : !packOn
+          ? "routine email is not turned on for this pack: decided by the approval policy"
+          : reasons.length
+            ? reasons.join("; ").slice(0, 1000)
+            : null,
       status: on ? "ready" : "off",
       connection_id: on ? input.connectionId : null,
       subject: on ? subject.slice(0, 200) : null,
@@ -870,6 +1106,8 @@ export interface RoutineMailRow {
   id: string;
   kind: string;
   routine: boolean;
+  /** Not yet turned on (D1): an ordinary send, decided by the policy as before routine mail. */
+  ordinary: boolean;
   heldReason: string | null;
   automationId: string;
   runId: string;
@@ -883,25 +1121,133 @@ export interface RoutineMailRow {
   };
 }
 
-/** Claims a row to send through `connectionId`; null when it is not one to send there now. */
+/**
+ * Claims a row to send through `connectionId`; null when it is not one to send there now, `off`
+ * when its kind was turned off since it was prepared (F2: settled `off`, nothing sent). The pack
+ * switch is read again too (D1), and the daily caps are counted here, in the one statement that
+ * claims a routine row (D4): per mailbox (plus-tags and case folded) and for the organisation,
+ * so runs claiming at once cannot race past either. Over a cap the row is held for a person.
+ */
 export async function claimRoutineMail(
   db: Db,
   id: string,
   connectionId: string,
   now = new Date().toISOString(),
-): Promise<RoutineMailRow | null> {
-  const row = await db
+): Promise<RoutineMailRow | "off" | null> {
+  let row = await db
     .selectFrom("core_routine_mail")
     .selectAll()
     .where("id", "=", id)
     .executeTakeFirst();
   if (!row || (row.status !== "ready" && row.status !== "sending")) return null;
   if (row.connection_id !== connectionId || !row.subject || row.body === null) return null;
-  await db
-    .updateTable("core_routine_mail")
-    .set({ status: "sending", updated_at: now })
+  const settings = await loadRoutineMailSettings(db);
+  const kinds = await routineKinds(db);
+  const kind = kinds.find((k) => k.id === row?.kind);
+  if (!kind || !kind.on) {
+    await db
+      .updateTable("core_routine_mail")
+      .set({
+        status: "off",
+        routine: 0,
+        updated_at: now,
+        subject: null,
+        body: null,
+        calendar: null,
+      })
+      .where("id", "=", id)
+      .execute();
+    return "off";
+  }
+  if (row.routine === 1 && !kind.packOn) {
+    await db
+      .updateTable("core_routine_mail")
+      .set({ routine: 0, ordinary: 1, updated_at: now })
+      .where("id", "=", id)
+      .execute();
+  } else if (row.routine === 1) {
+    const day = new Date(Date.parse(now) - 86_400_000).toISOString();
+    const claimed = await db
+      .updateTable("core_routine_mail")
+      .set({ status: "sending", claimed_at: now, updated_at: now })
+      .where("id", "=", id)
+      .where("routine", "=", 1)
+      .where((eb) =>
+        eb.and([
+          eb(
+            eb
+              .selectFrom("core_routine_mail as o")
+              .select((o) => o.fn.countAll<number>().as("n"))
+              .where("o.recipient_key", "=", row?.recipient_key ?? "")
+              .where("o.routine", "=", 1)
+              .where("o.claimed_at", ">", day)
+              .where("o.id", "!=", id),
+            "<",
+            ROUTINE_DAILY_CAP,
+          ),
+          eb(
+            eb
+              .selectFrom("core_routine_mail as o")
+              .select((o) => o.fn.countAll<number>().as("n"))
+              .where("o.routine", "=", 1)
+              .where("o.claimed_at", ">", day)
+              .where("o.id", "!=", id),
+            "<",
+            settings.orgDailyCap,
+          ),
+        ]),
+      )
+      .executeTakeFirst();
+    if (Number(claimed.numUpdatedRows) === 0) {
+      const mailbox = await db
+        .selectFrom("core_routine_mail")
+        .select((eb) => eb.fn.countAll<number>().as("n"))
+        .where("recipient_key", "=", row.recipient_key)
+        .where("routine", "=", 1)
+        .where("claimed_at", ">", day)
+        .executeTakeFirst();
+      const overMailbox = Number(mailbox?.n ?? 0) >= ROUTINE_DAILY_CAP;
+      const reason = overMailbox
+        ? `${row.recipient} has had ${ROUTINE_DAILY_CAP} routine emails today`
+        : `the organisation has sent ${settings.orgDailyCap} routine emails today`;
+      await db
+        .updateTable("core_routine_mail")
+        .set({ routine: 0, held_reason: reason, status: "sending", updated_at: now })
+        .where("id", "=", id)
+        .execute();
+      if (!overMailbox) {
+        const plan = await notifyStatements(
+          db,
+          {
+            to: [{ role: "admin" }],
+            type: "system.message",
+            title: "Routine email reached today's limit",
+            body:
+              `${settings.orgDailyCap} routine emails went out in the last day. The rest wait in ` +
+              "Approvals until a person approves them (Settings → Routine email sets the limit).",
+            dedupeKey: `routine-mail.org-cap:${now.slice(0, 10)}`,
+            source: { actor: "system" },
+          },
+          now,
+        );
+        for (const statement of plan.statements) {
+          await (statement as unknown as { execute(): Promise<unknown> }).execute();
+        }
+      }
+    }
+  } else {
+    await db
+      .updateTable("core_routine_mail")
+      .set({ status: "sending", updated_at: now })
+      .where("id", "=", id)
+      .execute();
+  }
+  row = await db
+    .selectFrom("core_routine_mail")
+    .selectAll()
     .where("id", "=", id)
-    .execute();
+    .executeTakeFirstOrThrow();
+  if (!row.subject || row.body === null) return null;
   let related: string[] = [];
   try {
     related = (JSON.parse(row.related ?? "[]") as unknown[]).map(String).slice(0, 20);
@@ -915,6 +1261,7 @@ export async function claimRoutineMail(
     id: row.id,
     kind: row.kind,
     routine: row.routine === 1,
+    ordinary: row.ordinary === 1,
     heldReason: row.held_reason,
     automationId: row.automation_id,
     runId: row.run_id,
@@ -956,4 +1303,33 @@ export async function settleRoutineMail(
     })
     .where("id", "=", id)
     .execute();
+}
+
+/** Deletes log rows older than the retention setting (D5), in chunks; the daily purge calls it. */
+export async function purgeRoutineMail(db: Db, now: string): Promise<{ deleted: number }> {
+  const { retentionMonths } = await loadRoutineMailSettings(db);
+  const cutoff = new Date(Date.parse(now));
+  cutoff.setUTCMonth(cutoff.getUTCMonth() - retentionMonths);
+  let deleted = 0;
+  for (let round = 0; round < 20; round += 1) {
+    const rows = await db
+      .selectFrom("core_routine_mail")
+      .select("id")
+      .where("created_at", "<", cutoff.toISOString())
+      .orderBy("created_at")
+      .limit(500)
+      .execute();
+    if (!rows.length) break;
+    await db
+      .deleteFrom("core_routine_mail")
+      .where(
+        "id",
+        "in",
+        rows.map((r) => r.id),
+      )
+      .execute();
+    deleted += rows.length;
+    if (rows.length < 500) break;
+  }
+  return { deleted };
 }

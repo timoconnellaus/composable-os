@@ -1066,8 +1066,9 @@ _Avoid_: system email, transactional email
 A shipped pack's own fixed email to the person a record belongs to (a booking's confirmation, a
 class change or cancellation, a reminder), declared in its manifest and sent by the host without a
 person's approval: the host chooses the recipient from the record, fills the words from it, and
-holds for a person anything that is not routine. Each kind an admin can turn off (ADR 0590). Not a
-newsletter, not anything an AI wrote.
+holds for a person anything that is not routine, anything an AI wrote or changed about it that no
+person approved included. Off for each pack until a human admin turns it on (until then each email
+waits for approval as before); each kind an admin can turn off (ADR 0590). Not a newsletter.
 _Avoid_: transactional email, notification, automated email
 
 **Routine mail kind**

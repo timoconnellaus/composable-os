@@ -28,8 +28,10 @@ import {
 } from "@composable-os/core";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { automationHost } from "../src/automations/host.ts";
+import { runMomentDateRelative } from "../src/automations/schedule.ts";
 import { RunHost } from "../src/executor/host.ts";
-import { integrationRuntime } from "../src/integrations/runtime.ts";
+import { routineMailConnection } from "../src/integrations/code.ts";
+import { hostFor, integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
 import { createAdmin, db, host, unique } from "./helpers.ts";
 
@@ -273,7 +275,12 @@ beforeAll(async () => {
       staff(),
     );
   }
-  await run("routineMail.settings.update", { siteOrigin: SITE }, staff());
+  // Off until a human admin turns it on (D1): this file is about routine email turned on.
+  await run(
+    "routineMail.settings.update",
+    { siteOrigin: SITE, packs: { bookings: true } },
+    staff(),
+  );
   await run(
     "extensionSettings.update",
     { extension: "bookings", values: { bookingsUrl: `${SITE}/bookings` } },
@@ -651,16 +658,19 @@ describe("the policy and the rails", () => {
     for (let i = 0; i < 20; i++) {
       await env.DB.prepare(
         `INSERT INTO core_routine_mail (id, kind, message, extension_id, record_object, record_id,
-           recipient, recipient_rule, automation_id, run_id, trigger_type, idempotency_key, routine,
-           status, created_at, updated_at)
-         VALUES (?, 'bookings.reminder', 'reminder', 'bookings', 'bookings.booking', ?, ?, 'person',
-           'bookings.classReminder', 'arn_cap', 'dateRelative', ?, 1, 'sent', ?, ?)`,
+           recipient, recipient_key, recipient_rule, automation_id, run_id, trigger_type,
+           idempotency_key, routine, status, claimed_at, created_at, updated_at)
+         VALUES (?, 'bookings.reminder', 'reminder', 'bookings', 'bookings.booking', ?, ?, ?,
+           'person', 'bookings.classReminder', 'arn_cap', 'dateRelative', ?, 1, 'sent', ?, ?, ?)`,
       )
         .bind(
           `rml_cap_${who.customerId}_${i}`,
           `rec_${i}`,
+          // A plus-tagged, upper-cased address of the same mailbox counts against it (D4).
+          who.email.replace("@", `+tag${i}@`).toUpperCase(),
           who.email,
           `cap:${who.email}:${i}`,
+          now,
           now,
           now,
         )
@@ -671,5 +681,222 @@ describe("the policy and the rails", () => {
     expect(row).toMatchObject({ status: "waiting", routine: 0 });
     expect(row?.held_reason).toMatch(/has had 20 routine emails today/);
     expect(await mailTo(who.email)).toEqual([]);
+  });
+});
+
+// --- The review of PR #267 ---------------------------------------------------------------------
+
+const mcp = () =>
+  staff({ actor: "mcp", origin: { surface: "mcp", sessionId: unique("cap"), clientName: "Bot" } });
+const get = async (object: string, id: string) =>
+  (await run<{ values: Record<string, unknown> }>("record.get", { object, id }, staff())).values;
+const moveClass = (classId: string, hours: number, ctx = staff()) => {
+  const later = new Date(Date.now() + 2 * DAY + hours * HOUR).toISOString();
+  return run(
+    "record.update",
+    {
+      object: CLASS,
+      id: classId,
+      values: { startsAt: later, endsAt: new Date(Date.parse(later) + HOUR).toISOString() },
+    },
+    ctx,
+  );
+};
+
+describe("never on an AI's say-so, for the record's life (B1)", () => {
+  it("a booking an MCP client made: its later reminder, a clock run, is held too", async () => {
+    const who = await member("ai-later");
+    await givePass(who.personId);
+    const k = await klass();
+    const out = await run<Out>(
+      "x.bookings.bookFor",
+      { classId: k, personId: who.personId, paidAtDesk: true },
+      mcp(),
+    );
+    expect(out.result).toBe("booked");
+    await rowsFor(out.bookingId as string, 1);
+    const startsAt = Date.parse(String((await get(CLASS, k)).startsAt));
+    await runMomentDateRelative(env, new Date(startsAt - 180 * 60_000));
+    const rows = await rowsFor(out.bookingId as string, 2);
+    const reminder = rows.find((r) => r.kind === "bookings.reminder");
+    expect(reminder).toMatchObject({ status: "waiting", routine: 0 });
+    expect(reminder?.held_reason).toMatch(/written by an AI with no person's approval/);
+    expect(await mailTo(who.email)).toEqual([]);
+  });
+
+  it("a Person an AI made, booked by a person: held", async () => {
+    const email = `${unique("ai-person").toLowerCase()}@members.test`;
+    const person = await run<{ id: string }>(
+      "person.create",
+      { givenName: "Made by AI", emails: [{ email }] },
+      mcp(),
+    );
+    await givePass(person.id);
+    const out = await run<Out>(
+      "x.bookings.bookFor",
+      { classId: await klass(), personId: person.id, paidAtDesk: true },
+      staff(),
+    );
+    const [row] = await rowsFor(out.bookingId as string);
+    expect(row).toMatchObject({ status: "waiting", routine: 0 });
+    expect(row?.held_reason).toMatch(/person .* was made by an AI/);
+    expect(await mailTo(email)).toEqual([]);
+  });
+
+  it("an address an AI changed, then a person's booking: held", async () => {
+    const who = await member("ai-address");
+    await givePass(who.personId);
+    const moved = `${unique("moved").toLowerCase()}@elsewhere.test`;
+    await run("person.update", { id: who.personId, emails: [{ email: moved }] }, mcp());
+    const out = await run<Out>(
+      "x.bookings.bookFor",
+      { classId: await klass(), personId: who.personId, paidAtDesk: true },
+      staff(),
+    );
+    const [row] = await rowsFor(out.bookingId as string);
+    expect(row).toMatchObject({ recipient: moved, status: "waiting", routine: 0 });
+    expect(row?.held_reason).toMatch(/person .* was changed by an AI/);
+    expect(await mailTo(moved)).toEqual([]);
+  });
+
+  it("an AI's booking a person later approved: the approval clears it, and later email flows", async () => {
+    const who = await member("ai-approved");
+    await givePass(who.personId);
+    const k = await klass();
+    const out = await run<Out>(
+      "x.bookings.bookFor",
+      { classId: k, personId: who.personId, paidAtDesk: true },
+      mcp(),
+    );
+    const [held] = await rowsFor(out.bookingId as string);
+    expect(held).toMatchObject({ status: "waiting", routine: 0 });
+    // Gatekeeper actions apply in order: earlier held emails of this file's other tests first.
+    const before = await env.DB.prepare(
+      "SELECT id FROM core_pending_action WHERE status = 'pending' AND operation = 'integration.outbound' AND id <= ? ORDER BY id",
+    )
+      .bind(held?.pending_action_id)
+      .all<{ id: string }>();
+    await run("approval.approve", { actionIds: before.results.map((r) => r.id) }, staff());
+    await vi.waitFor(async () => expect(await mailTo(who.email)).toHaveLength(1), {
+      timeout: 30_000,
+      interval: 200,
+    });
+    await moveClass(k, 3);
+    const rows = await rowsFor(out.bookingId as string, 2);
+    expect(rows.find((r) => r.kind === "bookings.change")).toMatchObject({
+      status: "sent",
+      routine: 1,
+    });
+  });
+});
+
+describe("never words an AI wrote (B2)", () => {
+  it("a class title an MCP client set, then a person's change: the change email is held", async () => {
+    const { who, classId, bookingId } = await booked("ai-title");
+    await run(
+      "record.update",
+      {
+        object: CLASS,
+        id: classId,
+        values: { title: "Strength - CANCELLED call 0400 123 456 for your refund" },
+      },
+      mcp(),
+    );
+    await moveClass(classId, 4);
+    const rows = await rowsFor(bookingId, 2);
+    const change = rows.find((r) => r.kind === "bookings.change");
+    expect(change).toMatchObject({ status: "waiting", routine: 0 });
+    expect(change?.held_reason).toMatch(/title was last written by an AI/);
+    expect(change?.held_reason).toMatch(/a phone number/);
+    expect((await mailTo(who.email)).map((m) => m.subject)).toEqual([
+      expect.stringMatching(/^Booked: /),
+    ]);
+  });
+
+  it("a plain title an AI set is held too, until a person writes it", async () => {
+    const { classId, bookingId } = await booked("ai-plain");
+    await run(
+      "record.update",
+      { object: CLASS, id: classId, values: { title: "Strength Plus" } },
+      mcp(),
+    );
+    await moveClass(classId, 5);
+    const rows = await rowsFor(bookingId, 2);
+    expect(rows.find((r) => r.kind === "bookings.change")?.held_reason).toMatch(
+      /title was last written by an AI/,
+    );
+    await run(
+      "record.update",
+      { object: CLASS, id: classId, values: { title: "Strength Plus" } },
+      staff(),
+    );
+    await run(
+      "record.update",
+      { object: CLASS, id: classId, values: { title: "Strength Max" } },
+      staff(),
+    );
+    await moveClass(classId, 6);
+    const after = await rowsFor(bookingId, 3);
+    expect(after.filter((r) => r.kind === "bookings.change").at(-1)).toMatchObject({
+      status: "sent",
+      routine: 1,
+    });
+  });
+});
+
+describe("the switch at send time (F2), and off until turned on (D1)", () => {
+  it("a prepared email whose kind is turned off before it is sent sends nothing", async () => {
+    const { who, bookingId, row } = await booked("f2");
+    const prepared = await prepareRoutineMail(db.query, {
+      extensionId: "bookings",
+      automationId: "bookings.bookingConfirmed",
+      runId: row.run_id,
+      connectionId: mailConnection,
+      send: { kind: "confirmation", record: bookingId, message: "paid" },
+    });
+    expect(prepared.toSend).toHaveLength(1);
+    await run(
+      "routineMail.settings.update",
+      { kinds: { "bookings.confirmation": false } },
+      staff(),
+    );
+    try {
+      const connection = await routineMailConnection(env, "bookings.bookingConfirmed");
+      const outcome = await hostFor(env, connection.connectionId).sendRoutineMail({
+        id: prepared.toSend[0]?.id as string,
+        resource: connection.resource,
+      });
+      expect(outcome).toEqual({ status: "off" });
+      const stored = await env.DB.prepare("SELECT status FROM core_routine_mail WHERE id = ?")
+        .bind(prepared.toSend[0]?.id)
+        .first();
+      expect(stored).toEqual({ status: "off" });
+      expect(await mailTo(who.email)).toHaveLength(1);
+    } finally {
+      await run(
+        "routineMail.settings.update",
+        { kinds: { "bookings.confirmation": true } },
+        staff(),
+      );
+    }
+  });
+
+  it("until a human admin turns a pack on, its emails are ordinary sends; the admins were told", async () => {
+    const notice = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_notifications WHERE dedupe_key = 'routine-mail.available:bookings'",
+    ).first<{ n: number }>();
+    expect(notice?.n).toBeGreaterThan(0);
+    await run("routineMail.settings.update", { packs: { bookings: false } }, staff());
+    try {
+      const who = await member("pack-off");
+      await givePass(who.personId);
+      const out = await book(who, await klass());
+      const [row] = await rowsFor(out.bookingId as string);
+      expect(row).toMatchObject({ status: "waiting", routine: 0 });
+      expect((await pendingOf(row?.pending_action_id as string))?.action_kind).toBe("email.send");
+      expect(await mailTo(who.email)).toEqual([]);
+    } finally {
+      await run("routineMail.settings.update", { packs: { bookings: true } }, staff());
+    }
   });
 });

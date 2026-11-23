@@ -175,3 +175,67 @@ Each rule and the test that fails without it:
 | A link in a child's name or a class title: held | `apps/runner/test/routine-mail.test.ts` |
 | Cautious, and over the daily cap: held | `apps/runner/test/routine-mail.test.ts` |
 | Bookings' and Ticketing's emails on the shipped packs | `apps/runner/test/bookings-messages.test.ts`, `bookings-held.test.ts`, `ticketing.test.ts`; the packs' own tests |
+
+## Amended 2026-11-23, after the security review of PR #267
+The review found the exemption wider than the owner's sentence. Built, each with a test that fails
+without it:
+
+- **Never on an AI's say-so, for the record's life (B1).** Reading only the run's root change let a
+  booking an AI made get its later reminder (a clock run), change and cancellation unreviewed. A
+  send is now held when anything about it was written by an AI (the assistant or an MCP client, or
+  a tool or automation whose cascade began with one) that no person approved, read from the audit
+  trail by the host (`aiWritten`): the record the email is about (its creation or any write), the
+  Persons it goes to and the one it is about (their creation or any write: an address, a name),
+  and the order whose address it uses.
+- **Never words an AI wrote (B2).** Each field that fed a slot (a class's title, a room's name, a
+  cancellation's reason, an event's name or venue, a ticket's name, the calendar's title and place,
+  a time) holds the send when its latest write was an AI's that no person approved; a person's
+  later write of the field clears it. `unroutineText` also holds phone numbers and "call/ring/text"
+  followed by digits, spaced, spelled-out or bracketed dots (`example . com`, `(dot)`, `[.]`,
+  `dot com`), look-alike dots (U+2024, U+2027, U+00B7, U+2219, U+22C5, fullwidth and ideographic),
+  `hxxp`, IP addresses, scheme prefixes (`mailto:`, `tel:`, `javascript:`, `data:`), U+2028 and
+  U+2029, blank-looking characters (U+3164, U+115F, U+1160, U+FFA0, variation selectors) and every
+  bidirectional control. A legitimate title with a phone number in it is held for a person: that is
+  the intended outcome. Making the room's or class type's name `personApproves` was considered and
+  not done: it would make every AI edit of a name wait, where the per-field check holds only the
+  email.
+- **What a person's approval clears.** A person approving one held email about a record (its
+  outbound action applied by a human account) clears everything written about that record, its
+  Persons and the fields that fed it **up to that approval**: later routine mail about the record
+  flows. A write after the approval holds again. An approval is a person's only when a human
+  account decided it: **the adjudicator's approval is not a person's (F1)**, for the change that
+  started a run and for every write above.
+- **The switch is read again when a row is sent (F2).** A kind turned off after its email was
+  prepared (a retry of a failed send) settles the row `off` and sends nothing.
+
+The coordinator's decisions, built:
+
+- **D1, nothing starts flowing on deploy.** Each pack's routine email is off until a human admin
+  turns it on once (Settings → Routine email, which says what will then be sent without approval and
+  to whom). Until then its emails are prepared and are ordinary sends, decided by the policy exactly
+  as before this ADR (under Balanced each waits for approval; nothing is dropped). Installing or
+  upgrading a pack that declares routine mail while it is off tells the admins once, in the app.
+  The kind switches then work as above.
+- **D2, an unpaid order's address is not routine.** A visitor types any address: when nothing was
+  paid, the email to the order's address is held for a person. A signed-in customer's free order
+  goes, as routine, to their own verified sign-in address (`routineOrderRecipient`).
+- **D3, a refund notice goes to the address that paid.** Bookings' drop-in kind is about the order:
+  its payment-held and refund emails go to the order's own address, never the booking's Person or
+  guardians.
+- **D4, caps counted where a row is claimed.** Beside the 20 a day per address, now keyed on the
+  mailbox (plus-tags and case folded, as the sign-in code limit), an organisation-wide limit
+  (`orgDailyCap`, default 2,000 a rolling day; over it, held and the admins told once a day). Both
+  are counted in the single statement that claims a routine row (`claimRoutineMail`), so runs
+  claiming at once cannot race past either.
+- **D5, the log.** Rows about a record are deleted when the record's Person is erased
+  (`about_person_id`), rows sent to a guardian about an erased child included; the log is kept for
+  `retentionMonths` (default 12), purged by the daily housekeeping, and the settings page says so.
+
+Proof, added: `apps/runner/test/routine-mail.test.ts` (an MCP booking's later reminder held; an
+AI-made Person booked by a person held; an AI-changed address held; an AI booking a person approved,
+then a change that flows; an AI-written class title, phone number or plain, held until a person
+writes it; a kind turned off before a retry sends nothing; a pack not turned on: an ordinary send,
+the admins told; plus-tagged addresses against the cap), `packages/core/test/routine-mail-review.test.ts`
+(concurrent claims racing the cap, the organisation's limit, the switch at claim, an order's
+address, the adjudicator's approval, retention, erase), `packages/sdk/test/routine-mail.test.ts`
+(the stronger value checks).

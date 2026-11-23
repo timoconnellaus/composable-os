@@ -54,6 +54,8 @@ export type QueueCaller =
         id: string;
         kind: string;
         routine: boolean;
+        /** The pack's routine email not turned on yet: an ordinary send (D1). */
+        ordinary: boolean;
         heldReason: string | null;
         automationId: string;
         runId: string;
@@ -265,7 +267,7 @@ export class HostQueue extends RpcTarget {
         : {}),
       // Routine mail (ADR 0590): the host's decision, which the gate applies only with the
       // gatekeeper's routine kind; anything else from this queue waits for a person.
-      ...(routine ? { routineMail: { routine: routine.routine } } : {}),
+      ...(routine ? { routineMail: { routine: routine.routine, ordinary: routine.ordinary } } : {}),
       ...(this.#caller.kind === "actor" && this.#caller.caller.request
         ? { asked: this.#caller.caller.request }
         : {}),

@@ -618,18 +618,17 @@ export class RunHost extends RpcTarget {
         if (done.status === "sent" && done.routine) sent += 1;
         else if (done.status === "waiting" || !done.routine) held += done.status === "off" ? 0 : 1;
       }
+      let off = prepared.off;
       for (const row of prepared.toSend) {
         const outcome = await hostFor(env, connection.connectionId).sendRoutineMail({
           id: row.id,
           resource: connection.resource,
         });
-        if (outcome.status === "sent" && row.routine) sent += 1;
+        if (outcome.status === "sent") sent += 1;
         else if (outcome.status === "waiting") held += 1;
+        else if (outcome.status === "off") off = true;
       }
-      return reply({
-        ok: true,
-        value: { sent, held, off: prepared.off, none: prepared.none },
-      });
+      return reply({ ok: true, value: { sent, held, off, none: prepared.none } });
     } catch (error) {
       const code = error instanceof OperationError ? error.code : gatekeeperErrorCode(error);
       const message = error instanceof Error ? error.message : String(error);

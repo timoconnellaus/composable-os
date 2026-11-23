@@ -49073,6 +49073,30 @@
       "output": {
         "type": "object",
         "properties": {
+          "packs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "on": {
+                  "type": "boolean",
+                  "description": "Turned on by a human admin: its kinds send without approval. Off (the default): each of its emails is an ordinary send the approval policy decides, as before routine mail"
+                }
+              },
+              "required": [
+                "id",
+                "label",
+                "on"
+              ],
+              "additionalProperties": false
+            }
+          },
           "kinds": {
             "type": "array",
             "items": {
@@ -49160,6 +49184,18 @@
               "additionalProperties": false
             }
           },
+          "orgDailyCap": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Routine emails the organisation sends in a day before the rest wait for a person"
+          },
+          "retentionMonths": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Months the log is kept"
+          },
           "siteOrigin": {
             "description": "The business's own site: the only place a routine email links to",
             "type": [
@@ -49178,7 +49214,10 @@
           }
         },
         "required": [
+          "packs",
           "kinds",
+          "orgDailyCap",
+          "retentionMonths",
           "siteOrigin",
           "sendsOnItsOwn"
         ],
@@ -49367,7 +49406,7 @@
     },
     {
       "name": "routineMail.settings.update",
-      "description": "Turn one kind of routine email on or off (kinds: { 'bookings.reminder': false }: off sends nothing and queues nothing), or set the business's own site, the only place routine email links to (siteOrigin, an https origin; null removes the links). Only what you pass changes. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
+      "description": "Turn a pack's routine email on (packs: { bookings: true }: its kinds then send without approval; off, each is an ordinary send the policy decides), turn one kind on or off (kinds: { 'bookings.reminder': false }: off sends nothing and queues nothing), or set the business's own site, the only place routine email links to (siteOrigin, an https origin; null removes the links), the organisation's daily limit (orgDailyCap) or how long the log is kept (retentionMonths). Only what you pass changes. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -49376,6 +49415,16 @@
       "input": {
         "type": "object",
         "properties": {
+          "packs": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "additionalProperties": {
+              "type": "boolean"
+            }
+          },
           "kinds": {
             "type": "object",
             "propertyNames": {
@@ -49396,12 +49445,31 @@
                 "type": "null"
               }
             ]
+          },
+          "orgDailyCap": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000
+          },
+          "retentionMonths": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 84
           }
         }
       },
       "output": {
         "type": "object",
         "properties": {
+          "packs": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "boolean"
+            }
+          },
           "kinds": {
             "type": "object",
             "propertyNames": {
@@ -49416,11 +49484,24 @@
               "string",
               "null"
             ]
+          },
+          "orgDailyCap": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "retentionMonths": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
           }
         },
         "required": [
+          "packs",
           "kinds",
-          "siteOrigin"
+          "siteOrigin",
+          "orgDailyCap",
+          "retentionMonths"
         ],
         "additionalProperties": false
       },
