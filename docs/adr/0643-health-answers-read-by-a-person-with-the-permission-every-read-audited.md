@@ -89,3 +89,9 @@ summary (the model's input) hold none of it, and no audit row of any operation d
   Bookings declares `booking.healthNotes: { list: "class", person: "person" }`. A pack role's
   today-only limit holds on `value` as a record of the list's object (`pack-role-today.ts`), so a
   coach gets no marks for another day's class.
+
+## Amended 2026-11-23: the copy and the signed PDF (stage 44 step 4, [ADR 0645](0645-the-copy-and-the-signed-pdf-host-mail-and-a-second-attachment.md))
+The emailed copy of a health form never holds the answers: the email gatekeeper's `agreement`
+part has no field for them (only "in the app"). A downloaded PDF holds them for the person and a
+guardian (`me.agreements.pdf`) and for staff with `agreements:health` (`agreement.acceptance.pdf`,
+every download audited with no value in the row); staff without it get "withheld".

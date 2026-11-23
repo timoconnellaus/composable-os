@@ -52,3 +52,10 @@ cancellation's `METHOD:CANCEL`.
 - **Not verified in real calendar apps**: the files are checked line by line against RFC 5545 and
   5546 here; how Apple Calendar, Google Calendar and Outlook treat a PUBLISH or a CANCEL sent as an
   attachment (rather than as an iMIP invitation) has not been tried.
+
+## Amended 2026-11-23: a second attachment, the signed agreement (stage 44 step 4)
+"Nothing else can be attached" now has one exception, decided in
+[ADR 0645](0645-the-copy-and-the-signed-pdf-host-mail-and-a-second-attachment.md): `agreement`, the
+values of a signed agreement, from which the gatekeeper makes `agreement.pdf` when the send is
+applied. Only the host's own agreements mail (`callAsHost` with purpose `agreements`) may carry
+it, in the copy's shape; any other caller with it is refused. No caller supplies bytes.

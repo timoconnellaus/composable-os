@@ -11,8 +11,18 @@ import type {
 } from "@composable-os/gatekeeper-interface/gatekeeper";
 import type { OutgoingEmail } from "../src/transport";
 import type { EmailSendSession } from "../src/types";
-import type { EmailSendGatekeeper } from "../src/worker";
+import { EmailSendGatekeeper } from "../src/worker";
 import { fakeEmail, observations, sentEmails, submissions } from "./fakes";
+
+/**
+ * The real facet, plus a way for a test to seed its storage as an older version of it left it
+ * (the idempotency keys remembered before keys were kept per class).
+ */
+export class SeedableEmailSendGatekeeper extends EmailSendGatekeeper {
+  async seedStorage(key: string, value: unknown): Promise<void> {
+    this.ctx.storage.kv.put(key, value);
+  }
+}
 
 // Named one by one: the Workers pool derives ctx.exports from the main module's own export names,
 // and does not follow `export *`.
@@ -44,16 +54,30 @@ class FakeQueue extends RpcTarget {
   readonly #autoApply: ((id: number) => Promise<void>) | undefined;
   readonly #hostSignIn: boolean;
   readonly #routine: { siteOrigin: string | null } | null;
+  readonly #hostAgreement: boolean;
 
   constructor(
     autoApply?: (id: number) => Promise<void>,
     hostSignIn = false,
     routine: { siteOrigin: string | null } | null = null,
+    hostAgreement = false,
   ) {
     super();
     this.#autoApply = autoApply;
     this.#hostSignIn = hostSignIn;
     this.#routine = routine;
+    this.#hostAgreement = hostAgreement;
+  }
+
+  /** What the host says opened the queue (ADR 0645): one of its own purposes, or null. */
+  hostPurposeAnswer: string | null | undefined = undefined;
+  async hostPurpose(): Promise<string | null> {
+    return this.hostPurposeAnswer ?? null;
+  }
+
+  /** As the CRM's integration host answers: true only for its own agreements mail (ADR 0645). */
+  async isHostAgreementMail(): Promise<boolean> {
+    return this.#hostAgreement;
   }
 
   /** As the CRM's integration host answers: only for its own routine mail, decided routine (ADR 0590). */
@@ -90,25 +114,50 @@ export class TestHost extends DurableObject<Cloudflare.Env> {
       autoApply?: boolean;
       hostSignIn?: boolean;
       hostRoutine?: { siteOrigin: string | null };
+      hostAgreement?: boolean;
+      /** The host's purpose the queue answers (`agreements`, `routine-mail`, …). */
+      hostPurpose?: string;
+      /** A facet whose storage the test may seed (`seed`). */
+      seedable?: boolean;
     } = {},
   ): Promise<ResourceDescription> {
     const account = this.ctx.exports.EmailSendAccount({});
     const { class: gatekeeperClass } = await account.getGatekeeperClassFor(url);
-    const facet = this.ctx.facets.get<EmailSendGatekeeper>("gatekeeper", () => ({
-      // The class crosses RPC as an opaque DurableObjectClass; its interface is the facet's.
-      class: gatekeeperClass as unknown as DurableObjectClass<EmailSendGatekeeper>,
+    const facet = this.ctx.facets.get<SeedableEmailSendGatekeeper>("gatekeeper", () => ({
+      // The real class, with a seeding method for tests; the sender is the URL's, as the
+      // account's class would have it.
+      class: (options.seedable
+        ? // A test-only export: the generated types know the Worker's main module only.
+          (
+            this.ctx.exports as unknown as Record<string, (o: { props: unknown }) => unknown>
+          ).SeedableEmailSendGatekeeper?.({
+            props: { sender: decodeURIComponent(url.slice(url.lastIndexOf("/") + 1)) },
+          })
+        : gatekeeperClass) as unknown as DurableObjectClass<SeedableEmailSendGatekeeper>,
     }));
     this.#facet = facet;
     const queue = new FakeQueue(
       options.autoApply ? (id) => facet.applyAction(id) : undefined,
       options.hostSignIn === true,
       options.hostRoutine ?? null,
+      options.hostAgreement === true,
     );
+    queue.hostPurposeAnswer = options.hostPurpose;
+
     this.#session = (await facet.startSession(queue as never)) as unknown as EmailSendSession;
     return facet.describe();
   }
 
+  /** Writes `value` at `key` in the facet's storage (a facet opened `seedable`). */
+  async seed(key: string, value: unknown): Promise<void> {
+    await (this.#requireFacet() as unknown as Fetcher<SeedableEmailSendGatekeeper>).seedStorage(
+      key,
+      value,
+    );
+  }
+
   /** Calls a session method with arguments that may be anything, as extension code can. */
+
   async call(method: SessionMethod, args: unknown[]): Promise<unknown> {
     const session = this.#requireSession() as unknown as Record<
       SessionMethod,

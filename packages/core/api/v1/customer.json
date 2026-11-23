@@ -716,6 +716,7 @@
         "me.agreements.due",
         "me.agreements.get",
         "me.agreements.list",
+        "me.agreements.pdf",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -1194,6 +1195,166 @@
       "invalidates": []
     },
     {
+      "name": "me.agreements.pdf",
+      "description": "The signed PDF of one of your acceptances, as a signed-in customer, or a linked child's: the version as you were shown it and the record of who agreed, how and when, with a health form's answers. The name typed and the signature drawn are in it when you are the one who agreed. Built when asked, never stored. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "acceptanceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The acceptance's id (aga_…)"
+          }
+        },
+        "required": ["acceptanceId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string",
+            "description": "The file name to save it as"
+          },
+          "document": {
+            "type": "object",
+            "properties": {
+              "business": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "versionNumber": {
+                "type": "number"
+              },
+              "versionHash": {
+                "type": "string"
+              },
+              "body": {
+                "type": "object",
+                "properties": {
+                  "blocks": {
+                    "type": "array",
+                    "items": {}
+                  }
+                },
+                "required": ["blocks"],
+                "additionalProperties": false
+              },
+              "tickLabel": {
+                "type": "string"
+              },
+              "questions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["key", "text"],
+                  "additionalProperties": false
+                }
+              },
+              "answers": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "yes": {
+                          "type": "boolean"
+                        },
+                        "note": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["key", "yes"],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "type": "string",
+                    "const": "in-app"
+                  },
+                  {
+                    "type": "string",
+                    "const": "withheld"
+                  }
+                ]
+              },
+              "record": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["label", "value"],
+                  "additionalProperties": false
+                }
+              },
+              "signature": {
+                "type": "object",
+                "properties": {
+                  "width": {
+                    "type": "number"
+                  },
+                  "height": {
+                    "type": "number"
+                  },
+                  "strokes": {
+                    "type": "array",
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  }
+                },
+                "required": ["width", "height", "strokes"],
+                "additionalProperties": false
+              },
+              "acceptanceId": {
+                "type": "string"
+              },
+              "blank": {
+                "type": "boolean"
+              }
+            },
+            "required": ["business", "title", "versionNumber", "versionHash", "body", "tickLabel"],
+            "additionalProperties": false,
+            "description": "What the signed PDF says; the download route draws it"
+          }
+        },
+        "required": ["filename", "document"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "me.deleteAccount",
       "description": "Delete your customer account and ask for your personal data to be erased. You are signed out everywhere at once and can no longer sign in. Staff then erase your data, or tell you by email why some of it must be kept, by the due date returned. Asking again changes nothing.",
       "risk": "write",
@@ -1235,6 +1396,7 @@
         "me.agreements.due",
         "me.agreements.get",
         "me.agreements.list",
+        "me.agreements.pdf",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -1455,6 +1617,7 @@
         "me.agreements.due",
         "me.agreements.get",
         "me.agreements.list",
+        "me.agreements.pdf",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -1486,6 +1649,7 @@
         "me.agreements.due",
         "me.agreements.get",
         "me.agreements.list",
+        "me.agreements.pdf",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -1579,6 +1743,7 @@
         "me.agreements.due",
         "me.agreements.get",
         "me.agreements.list",
+        "me.agreements.pdf",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -4010,6 +4175,7 @@
         "me.agreements.due",
         "me.agreements.get",
         "me.agreements.list",
+        "me.agreements.pdf",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -4184,6 +4350,7 @@
         "me.agreements.due",
         "me.agreements.get",
         "me.agreements.list",
+        "me.agreements.pdf",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -4326,6 +4493,7 @@
         "me.agreements.due",
         "me.agreements.get",
         "me.agreements.list",
+        "me.agreements.pdf",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -4632,6 +4800,7 @@
         "me.agreements.due",
         "me.agreements.get",
         "me.agreements.list",
+        "me.agreements.pdf",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -5055,6 +5224,7 @@
         "me.agreements.due",
         "me.agreements.get",
         "me.agreements.list",
+        "me.agreements.pdf",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -5832,6 +6002,7 @@
         "me.agreements.due",
         "me.agreements.get",
         "me.agreements.list",
+        "me.agreements.pdf",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -5954,6 +6125,7 @@
         "me.agreements.due",
         "me.agreements.get",
         "me.agreements.list",
+        "me.agreements.pdf",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -6802,6 +6974,7 @@
         "me.agreements.due",
         "me.agreements.get",
         "me.agreements.list",
+        "me.agreements.pdf",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -6959,6 +7132,7 @@
         "me.agreements.due",
         "me.agreements.get",
         "me.agreements.list",
+        "me.agreements.pdf",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -7194,6 +7368,7 @@
         "me.agreements.due",
         "me.agreements.get",
         "me.agreements.list",
+        "me.agreements.pdf",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -8052,6 +8227,7 @@
         "me.agreements.due",
         "me.agreements.get",
         "me.agreements.list",
+        "me.agreements.pdf",
         "me.family",
         "me.get",
         "me.sessions.list",

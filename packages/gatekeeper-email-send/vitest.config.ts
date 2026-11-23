@@ -34,6 +34,11 @@ export default defineConfig({
         durableObjects: {
           TEST_HOST: { className: "TestHost", useSQLite: true },
           EMAIL_SEND_GATEKEEPER: { className: "EmailSendGatekeeper", useSQLite: true },
+          // A test may seed a facet's storage as an older version left it (test/worker.ts).
+          SEEDABLE_EMAIL_SEND_GATEKEEPER: {
+            className: "SeedableEmailSendGatekeeper",
+            useSQLite: true,
+          },
         },
         bindings: {
           ALLOWED_SENDER_DOMAINS: "example.com, Example.org",

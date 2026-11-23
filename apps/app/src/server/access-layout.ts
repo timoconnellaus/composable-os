@@ -141,6 +141,13 @@ export const ACCESS_STAFF: readonly StaffPath[] = [
       "through the client-app binding, which Access does not front.",
   },
   {
+    path: "/api/agreements/*",
+    why:
+      "A signed agreement's PDF and a version's blank form (stage 44, ADR 0645): staff download " +
+      "them. A customer downloads their own at /api/v1/agreements/… (bypassed with /api/v1) or " +
+      "through the client-app binding.",
+  },
+  {
     path: "/blocks",
     why: "A pack's web block mounted on its own, in development only; a deployed host renders nothing there.",
   },

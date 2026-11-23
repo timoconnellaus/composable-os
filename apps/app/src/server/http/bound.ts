@@ -10,6 +10,9 @@
 //                                             sign in, get the session, sign out
 //   GET /api/media/<id>                       a picture published content shows (stage 28, ADR
 //                                             0444), as media.serve decides; never an upload
+//   GET /api/v1/agreements/acceptances/<id>.pdf
+//                                             a customer's signed PDF (stage 44, ADR 0645), as
+//                                             me.agreements.pdf decides; never staff's routes
 // Not the staff UI, /mcp, the assistant, support access, or the native token routes
 // (/api/v1/auth/*): a web app signs customers in with a cookie and has no use for device tokens.
 //
@@ -45,6 +48,7 @@ import {
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { type MediaEnv, mediaResizerFor, mediaStoreFor } from "../media.ts";
+import { handleAgreementPdf, isAgreementPdfPath } from "./agreement-pdf.ts";
 import {
   type ApiEnv,
   customers,
@@ -105,6 +109,11 @@ const notServed = () =>
 export async function handleBound(request: Request, env: ApiEnv): Promise<Response> {
   const { pathname } = new URL(request.url);
   if (isCustomerAuthPath(pathname)) return handleCustomerAuth(request, env);
+  // A customer's own signed PDF: the caller is never staff here, so only me.agreements.pdf.
+  if (isAgreementPdfPath(pathname)) {
+    return handleAgreementPdf(request, { context: (req) => boundContext(req, env) });
+  }
+
   if (isMediaPath(pathname)) {
     const withMedia = env as ApiEnv & MediaEnv;
     return handleMedia(request, {

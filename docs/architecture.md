@@ -1667,7 +1667,7 @@ and [0641](adr/0641-agreement-points-a-pack-declares-documents-a-person-attaches
 and [0642](adr/0642-acceptances-a-record-nobody-changes-and-who-may-agree-for-whom.md) and
 [0643](adr/0643-health-answers-read-by-a-person-with-the-permission-every-read-audited.md),
 `packages/core/src/agreements/`, `operations/agreement.ts`, `operations/agreement-acceptance.ts`,
-`packages/sdk/src/agreements.ts`; steps 1 to 3 built,
+`packages/sdk/src/agreements.ts`; steps 1 to 4 built,
 [0644](adr/0644-enforcement-nobody-pays-or-books-without-what-is-due.md) for step 3). The documents a business asks people to agree to are core tables, not records
 (migration 0850), in no `rec_*` view: `core_agreement_document` (its kind, state and working copy),
 `core_agreement_version` (each published wording and its terms, with the SHA-256 of everything it
@@ -1698,8 +1698,27 @@ and `applyTransition` asks when a caller's record enters a state its point lists
 the guard (`agreements_changed` when the counter moved). A guest carries their acceptances in the
 buying call (`agreements`), recorded with the order or the subscription checkout and no Person;
 migration 0853's triggers give them the Person when the order is paid (or the checkout confirmed)
-and delete them when an order closes unpaid. The copy and PDF, signing at the desk, cooling off
-and retention are the later steps (`docs/stages/44-agreements.md`).
+and delete them when an order closes unpaid. Step 4 (migration 0854,
+[ADR 0645](adr/0645-the-copy-and-the-signed-pdf-host-mail-and-a-second-attachment.md)) sends the
+**copy**: `core_agreement_copy` keeps, beside each acceptance, whether its copy went (the
+acceptance never changes); triggers make the row when a person agrees (to the acceptance's own
+address) and when a guest's acceptance settles to its purchase (to the address it was bought
+with), and `agreement.copy.send` makes one for an adult's paper form (to the Person's own address, shown first by `agreement.copy.preview` and confirmed; a person
+with `agreements:paper`); no caller names an address and none can be changed. Idempotency keys are kept apart by the class of queue sending (`hostPurpose`), the copy's refused to any other, and a caller's `listSent` never shows the host's agreements, sign-in or orders mail.
+`agreements/copy.ts` sends it after the commit, and the minute cron sends what did not go, through
+`callAsHost` with purpose `agreements`: the host's own mail, applied unless the deploy-time floor
+denies it, with a system origin so no AI's outbound check reads it, and the idempotency key
+`agreement-copy:<id>` (a crashed send is retried with the same key; a new key only after a try
+the gatekeeper proved was not sent; an unknown outcome is never retried). The email gatekeeper
+attaches `agreement.pdf`, made by the PDF writer (`packages/agreement-pdf`, a package of its own: standard fonts, every
+text a hex string, deterministic) from checked values (`validate.ts`), only for the host's
+agreements queue (`isHostAgreementMail`) and only in the copy's shape; health answers have no
+field there (the copy says they are in the app). The same writer draws the downloads
+(`apps/app/src/server/http/agreement-pdf.ts`): `me.agreements.pdf` (a customer, their own and a
+linked child's, also over the client-app binding), `agreement.acceptance.pdf` (staff, a person,
+answers only with `agreements:health`, every download audited) and `agreement.version.pdf` (a
+version's blank form for paper). Signing at the desk, cooling off and retention are the later
+steps (`docs/stages/44-agreements.md`).
 
 Two reasons this is the centre of the design. Extension tools cannot run several writes as one
 transaction, so anything that must be atomic (take the last place and create the order) has to be

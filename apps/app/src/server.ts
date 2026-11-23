@@ -43,6 +43,7 @@ import { type AssistantHttpEnv, handleSocket, SOCKET_PATH } from "./server/assis
 import { runAgentJobCron } from "./server/assistant/job-cron.ts";
 import { handleRoutineDeliveries } from "./server/assistant/routines.ts";
 import { staffCodesFor } from "./server/host-mail.ts";
+import { handleAgreementPdf, isAgreementPdfPath } from "./server/http/agreement-pdf.ts";
 import {
   type ApiEnv,
   apiContext,
@@ -94,6 +95,12 @@ export default {
     // The media library's pictures (stage 28, ADR 0444): staff upload, and whoever may see a
     // picture is served it, as media.serve decides. Before the surface: /api/v1/media/<id> is the
     // outside world's address for one (issue #181).
+    // A signed agreement's PDF and a version's blank form (stage 44 step 4, ADR 0645): the
+    // operations decide who may have one; the route draws it. Before the surface, as media is.
+    if (isAgreementPdfPath(pathname)) {
+      const api = env as unknown as ApiEnv;
+      return handleAgreementPdf(request, { context: (req) => apiContext(req, api) });
+    }
     if (isMediaPath(pathname)) {
       const api = env as unknown as ApiEnv & MediaEnv;
       return handleMedia(request, {

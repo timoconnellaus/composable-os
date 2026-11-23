@@ -32,8 +32,9 @@ export type QueueCaller =
   | {
       kind: "system";
       // `payments`: verified payment events (stage 25). `orders`: the host's own calls for an
-      // order, a checkout and its confirmation email (`callAsHost`, ADR 0429).
-      purpose: "sync" | "webhook" | "payments" | "orders" | "probe";
+      // order, a checkout and its confirmation email (`callAsHost`, ADR 0429). `agreements`: the
+      // copy of a signed agreement (`callAsHost`, ADR 0645), the only queue that may attach one.
+      purpose: "sync" | "webhook" | "payments" | "orders" | "probe" | "agreements";
       user: ActingUser;
     }
   | {
@@ -198,6 +199,24 @@ export class HostQueue extends RpcTarget {
   }
 
   /**
+   * Which of the host's own purposes opened this queue, or null for a caller's (ADR 0645, after
+   * the review of PR #283). A gatekeeper keeps the host's mail apart by it (idempotency keys,
+   * `listSent`); the answer comes from how the host opened the queue, never from the caller.
+   */
+  async hostPurpose(): Promise<string | null> {
+    return this.#caller.kind === "system" ? this.#caller.purpose : null;
+  }
+
+  /**
+   * Whether this session is the host's own agreements mail (ADR 0645): the copy of a signed
+   * agreement. Email-send attaches the signed PDF only for such a session; the answer comes from
+   * how the host opened the queue, never from anything the caller sent.
+   */
+  async isHostAgreementMail(): Promise<boolean> {
+    return this.#caller.kind === "system" && this.#caller.purpose === "agreements";
+  }
+
+  /**
    * Whether this session is the host's own orders call (`callAsHost`, purpose `orders`): an
    * order's checkout, a subscription's, its portal (ADR 0485). The payments gatekeeper opens a
    * customer's billing portal only for such a session; the answer comes from how the host opened
@@ -209,6 +228,32 @@ export class HostQueue extends RpcTarget {
 
   async submitAction(action: number, description: OutboundDescription): Promise<void> {
     const host = this.#host;
+    // An agreement's copy submitted again (ADR 0645: a retry of one whose first submission was cut
+    // off): if a person's approval already waits for it, that is the answer, never a second one.
+    if (this.#caller.kind === "system" && this.#caller.purpose === "agreements") {
+      const waiting = await createCrmDb(host.env.DB)
+        .query.selectFrom("core_pending_action")
+        .select(["id", "change_set_id", "expires_at"])
+        .where("connection_id", "=", host.connectionId)
+        .where("facet_key", "=", host.facetKey)
+        .where("gk_action", "=", action)
+        .where("status", "=", "pending")
+        .executeTakeFirst();
+      if (waiting) {
+        this.pending.push({
+          status: "pending_approval",
+          changeSetId: waiting.change_set_id,
+          actionId: waiting.id,
+          operation: "integration.outbound",
+          provisionalIds: [],
+          dependsOn: [],
+          expiresAt: waiting.expires_at,
+          simulated: null,
+          message: "Waiting for a person's approval.",
+        });
+        return;
+      }
+    }
     const routine =
       this.#caller.kind === "system" && this.#caller.purpose === "routine-mail"
         ? this.#caller.routine
@@ -242,13 +287,17 @@ export class HostQueue extends RpcTarget {
               userId: this.#caller.user.id,
               userName: this.#caller.user.name,
               role: this.#caller.user.role,
+              // The host's own mail no AI wrote or reads (sign-in codes, an agreement's copy) is
+              // the system's: the outbound check never reads it (ADR 0645).
               origin:
                 this.#caller.purpose === "sign-in"
                   ? { surface: "system" as const, automationId: this.#caller.origin }
-                  : {
-                      surface: "automation" as const,
-                      automationId: `${this.#caller.purpose}:${host.connectionId}`,
-                    },
+                  : this.#caller.purpose === "agreements"
+                    ? { surface: "system" as const, automationId: "system.agreements" }
+                    : {
+                        surface: "automation" as const,
+                        automationId: `${this.#caller.purpose}:${host.connectionId}`,
+                      },
             };
     const submission: OutboundSubmission = {
       connectionId: host.connectionId,
@@ -265,10 +314,13 @@ export class HostQueue extends RpcTarget {
       floor: parseFloor(host.env.APPROVAL_FLOOR),
       // outbound.message (ADR 0238): a message an AI actor wrote is checked before it leaves.
       judge: runnerJudge(host.env),
-      // The host's own message (ADR 0429): only `callAsHost` opens a queue with this purpose.
-      ...(this.#caller.kind === "system" && this.#caller.purpose === "orders"
+      // The host's own message (ADR 0429): only `callAsHost` opens a queue with these purposes
+      // (an agreement's copy, ADR 0645, as an order's confirmation).
+      ...(this.#caller.kind === "system" &&
+      (this.#caller.purpose === "orders" || this.#caller.purpose === "agreements")
         ? { hostMessage: true }
         : {}),
+
       // Routine mail (ADR 0590): the host's decision, which the gate applies only with the
       // gatekeeper's routine kind; anything else from this queue waits for a person.
       ...(routine ? { routineMail: { routine: routine.routine, ordinary: routine.ordinary } } : {}),
@@ -299,16 +351,27 @@ export class HostQueue extends RpcTarget {
         });
         await auditOutboundApplied(db, submission, { ok: true }, decision.judgeUsage);
       } catch (error) {
+        const outcome = parseApplyOutcome(error instanceof Error ? error.message : String(error));
+        // An agreement's copy: the provider's words may name the recipient, and an admin's MCP
+        // client reads the audit, so its row keeps the outcome only (ADR 0645).
+        const agreements = this.#caller.kind === "system" && this.#caller.purpose === "agreements";
         this.failed.push({
           action,
           actionKind: description.actionKind?.tag ?? null,
           title: description.title,
-          ...parseApplyOutcome(error instanceof Error ? error.message : String(error)),
+          ...(agreements ? { ...outcome, message: `Not sent (${outcome.outcome})` } : outcome),
         });
         await auditOutboundApplied(
           db,
           submission,
-          { ok: false, message: error instanceof Error ? error.message : String(error) },
+          {
+            ok: false,
+            message: agreements
+              ? `Not sent (${outcome.outcome})`
+              : error instanceof Error
+                ? error.message
+                : String(error),
+          },
           decision.judgeUsage,
         );
       }
