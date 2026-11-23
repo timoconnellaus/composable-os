@@ -120,6 +120,13 @@ whatever is missing, in this order: the four queues, the KV namespace, the Vecto
 `crm-runner` (with the D1 database and R2 bucket), the core migrations, then `crm-app`. If it stops
 part way, fix the cause and run it again.
 
+**Where the data is stored.** This path sends no location hint, so Cloudflare places the database
+and bucket itself. To prefer Oceania, create both before the first deploy:
+`pnpm exec wrangler d1 create crm --location oc` and
+`pnpm exec wrangler r2 bucket create crm-blobs --location oc`. It is a preference Cloudflare
+follows where it can, not a guarantee that data stays in Australia, and it cannot be added once
+they exist. See [Where data is stored](deploying.md#where-data-is-stored).
+
 ## 4. Verify
 
 ```sh

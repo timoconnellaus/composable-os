@@ -207,6 +207,39 @@ describe("cos deploy", () => {
     expect([...world.cf.scripts.keys()].filter((n) => n.startsWith("demo-"))).toEqual([]);
   });
 
+  it("product.ts's location hint goes to the first install's D1 and R2 only (ADR 0580)", async () => {
+    await publish("1.0.0");
+    const dir = await created();
+    const deployed = await cos("deploy", "--skip-build", "--no-typecheck");
+    expect(deployed.code, deployed.output).toBe(0);
+    // No location in product.ts: no hint, and the installer asks nothing.
+    expect(world.cf.creates.map((c) => c.locationHint)).toEqual([undefined, undefined]);
+    // Added later: the host exists, so nothing is moved or sent, and the deploy says so.
+    writeFileSync(
+      join(dir, "product.ts"),
+      read(dir, "product.ts").replace(/(packs: \[[^\]]*\],)/, '$1\n  location: "oc",'),
+    );
+    const again = await cos("deploy", "--skip-build", "--no-typecheck");
+    expect(again.code, again.output).toBe(0);
+    expect(again.output).toContain("a setting cannot move them");
+    expect(world.cf.creates).toHaveLength(2);
+  });
+
+  it("a new host from a product.ts with location oc is created with the hint", async () => {
+    await publish("1.0.0");
+    const dir = await created();
+    writeFileSync(
+      join(dir, "product.ts"),
+      read(dir, "product.ts").replace(/(packs: \[[^\]]*\],)/, '$1\n  location: "oc",'),
+    );
+    const deployed = await cos("deploy", "--skip-build", "--no-typecheck");
+    expect(deployed.code, deployed.output).toBe(0);
+    expect(world.cf.creates).toEqual([
+      { type: "d1", name: "shop", locationHint: "oc" },
+      { type: "r2", name: "shop-blobs", locationHint: "oc" },
+    ]);
+  });
+
   it("keeps the names of a host deployed before client names, and never renames it (ADR 0193)", async () => {
     await publish("1.0.0");
     await created();

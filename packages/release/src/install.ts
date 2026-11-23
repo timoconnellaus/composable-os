@@ -51,6 +51,7 @@ export async function installRelease(input: InstallReleaseInput): Promise<Instal
       neededResources(manifest, input.state.gatekeepers, input.state),
       log,
       input.state.resourceNames,
+      { locationHint: input.state.locationHint },
     )),
   };
   const base: DeploymentState = { ...input.state, resources };
