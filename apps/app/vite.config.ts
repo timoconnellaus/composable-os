@@ -11,6 +11,7 @@ import { defineConfig } from "vite";
 import { devSecrets } from "./dev-secrets.ts";
 import { packBlocks } from "./pack-blocks-plugin.ts";
 import pkg from "./package.json" with { type: "json" };
+import { packScreens } from "./screens-plugin.ts";
 import { configuratorSpecs } from "./src/components/integrations/configurator/vite-plugin.ts";
 
 function gitCommit(): string {
@@ -27,6 +28,7 @@ function gitCommit(): string {
 }
 
 const PORT = Number(process.env.PORT ?? 5173);
+const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
 /**
  * Local dev's own org extensions (stage 27): the box office fixture, which scripts/dev-setup.mjs
@@ -64,8 +66,11 @@ export default defineConfig(({ command }) => ({
     __APP_COMMIT__: JSON.stringify(gitCommit()),
   },
   plugins: [
-    // Pack web blocks mounted where they sit (development, /blocks and e2e).
-    ...(command === "serve" ? [packBlocks(fileURLToPath(new URL("../..", import.meta.url)))] : []),
+    // Pack web blocks where they sit: the development page (/blocks) and the shipped packs'
+    // staff screens (stage 47), which the production build holds too.
+    packBlocks(REPO_ROOT),
+    // The shipped packs' staff screens, one lazy chunk each (screens-plugin.ts, ADR 0660).
+    packScreens(REPO_ROOT),
     // cos-runner runs in the same local runtime as an auxiliary Worker, so `pnpm dev` starts both
     // and the RUNNER service binding resolves locally.
     cloudflare({

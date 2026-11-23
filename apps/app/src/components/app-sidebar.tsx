@@ -30,6 +30,7 @@ import { usePendingCount } from "./approvals/hooks.ts";
 import { useThreadUnread } from "./assistant/thread-provider.tsx";
 import { useDuplicateCount } from "./duplicates/hooks.ts";
 import { useProductName } from "./product-name.ts";
+import { ScreensNav } from "./screens/screens-nav.tsx";
 
 function NavLink({
   item,
@@ -158,6 +159,8 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
         <ExtensionObjectsNav />
+        {/* The shipped packs' screens this person may open (stage 47). */}
+        <ScreensNav />
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>

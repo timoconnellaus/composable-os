@@ -13,7 +13,8 @@ precedent for code built into the admin at build time and loaded lazily);
 `packages/core/src/pack-roles.ts`; `apps/app/src/routes/_app.tsx`, `components/app-sidebar.tsx`
 and `lib/nav.ts`; `packages/create-composable-os/src/blocks.ts` and `scripts/check-blocks.mjs`.
 
-Status: **spec agreed** (owner interviewed 2026-11-24: decisions 1 to 4). Build may start.
+Status: **built** 2026-11-24 (owner interviewed 2026-11-24: decisions 1 to 4;
+[ADR 0660](../adr/0660-pack-screens-in-the-admin.md); see "Built" at the end).
 
 ## Goal
 
@@ -245,3 +246,49 @@ One build session may take all four; step 4 must not land without 1 to 3.
 - A fixed-role account's shell shows screens only.
 - Record screens are tabs on the record page.
 - An assistant gets no screens.
+
+## Built (2026-11-24)
+
+[ADR 0660](../adr/0660-pack-screens-in-the-admin.md) (amends 0005, 0010, 0401 and 0436; closes
+0629's and stage 45's open item). No migration. All four steps in one PR.
+
+- **Step 1.** `screens` in the manifest (`ScreenSpec`, `screenManifestSchema`, `screenIssues` in
+  `packages/sdk`); refused for a runtime extension by `checkManifest` (so `cos ext check` and
+  install). `screens.mine` (`packages/core/src/operations/screens.ts`): two statements; the gate is
+  `staffAuthority` per tool, with the tool's audience and actors; empty for any actor but a person.
+  `PACK_ROLE_CORE_READS = ["screens.mine"]` in `pack-roles.ts` is the one widening of pack roles.
+- **Step 2.** `apps/app/screens-plugin.ts` (`virtual:cos-screens`: a lazy loader per screen, every
+  pack's hooks for `/blocks`, an empty module on the server); `pack-blocks-plugin.ts` now runs in
+  the build too. `/s/$pack/$screen` (`ssr: false`), record tabs `s:<pack>.<screen>` in
+  `useRecordViews`, `ScreenView` with an error boundary, the staff client
+  (`src/lib/staff-client.ts`, shared with `/blocks`), and `forgetScreen` on close.
+- **Step 3.** `ScreensNav` in the sidebar; `getSession` returns the account's pack role and such an
+  account gets `FixedRoleLayout` (its screens, account menu without the email read, sign out; its
+  home lists its screens or says its work is in the app); every other path throws `notFound()` in
+  `_app`'s `beforeLoad`. Root and `_app` "not found" is one page (`components/not-found.tsx`).
+- **Step 4.** Screens declared in Bookings, Memberships, Rostering, Programs and Courses (gates in
+  ADR 0660). E2E through the admin's navigation: `bookings.spec.ts` (the desk as an admin, the
+  class list's tab, a coach's shell, ticking and the desk granted and removed, a coach granted the
+  desk), `rostering-blocks.spec.ts` (the roster week, my shifts, offers, my calendar, pay; Pay
+  "not found" for the team). A production build is checked by `apps/app/test-node/
+  screens-plugin.test.ts` (one chunk per screen, none in the entry; a missing block or export
+  fails). The site's Bookings and Rostering lines say staff use the screens in the admin.
+
+**Decided while building (open to override):**
+- A record screen may also have `nav`: then it is listed in the navigation and opened without the
+  record, and its block chooses one (the class list: today's classes, for a coach, who has no
+  record pages). Otherwise the coach could not reach its list.
+- Blocks that needed props the shell does not give got small wrapper exports in the same block:
+  `FrontDesk` (today in the browser's zone, a day picker), `TodayClassList`, `PersonMemberships`
+  (pass types read by a new staff hook, `useStaffPassTypes`, `record.list`) and `ProgramWorkspace`
+  (the program list, then the builder). The browser's zone stands for the desk's: the host's
+  answers (each class's own zone, the coach's today) still decide.
+- Courses' builder builds one course, so it is a record screen (a tab on the course), not a nav
+  screen.
+- Gates name every tool the screen calls (plus, for Programs, whose tools declare no permission, a
+  staff write). A member holds the team's Rostering tools, so a member sees the team's screens;
+  criterion 4's "no Rostering section" holds for an account with none of the rights (a coach
+  without the grant, a door account, `packages/core/test/screens.test.ts`).
+- `/blocks` stays for blocks that are not screens and for the specs that mount a block with props
+  (the members' blocks, and the time-away and not-a-rosterer journeys, which show the blocks' own
+  refusal states that the admin never reaches).

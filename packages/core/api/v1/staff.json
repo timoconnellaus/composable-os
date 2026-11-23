@@ -55092,6 +55092,106 @@
       "invalidates": []
     },
     {
+      "name": "screens.mine",
+      "description": "The staff screens of the installed packs the signed-in person may open in the admin: each one's pack, key, label, where it sits in the navigation, its route, and the object whose record page shows it as a tab. A screen is listed only when the person could call every tool that gates it. Empty for anyone but a person. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "screens": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "pack": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "nav": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "group": {
+                          "type": "string"
+                        },
+                        "order": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "group",
+                        "order"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "route": {
+                  "type": "string"
+                },
+                "record": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "object": {
+                          "type": "string"
+                        },
+                        "as": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "object",
+                        "as"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "pack",
+                "key",
+                "label",
+                "nav",
+                "route",
+                "record"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "screens"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "search.global",
       "description": "Search everything by name, email, domain or text: people (names, emails), organisations (name, domains), activities (subject, body) and tasks (title, notes). Every word must match the start of a word in the record, so partial input works ('ada lov', 'acme.co'). Best matches first, titles weighted over body text. Restrict with objects. Returns typed hits with title, subtitle and highlighted parts. Read-only.",
       "risk": "read",

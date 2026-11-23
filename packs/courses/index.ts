@@ -458,4 +458,15 @@ export default defineExtension({
     draft,
     startSession,
   },
+  // A staff screen in the product's admin (stage 47, ADR 0660): the course builder, a tab on the
+  // course (it builds one course). Gated by drafting a course, a staff write: any member.
+  screens: {
+    builder: {
+      label: "Builder",
+      block: "courses-builder",
+      export: "CourseBuilder",
+      opens: ["draft"],
+      record: { object: "courses.course", as: "courseId" },
+    },
+  },
 });

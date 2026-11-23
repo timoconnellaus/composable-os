@@ -629,4 +629,39 @@ export default defineExtension({
     draft,
     importText,
   },
+  // Staff screens in the product's admin (stage 47, ADR 0660). Programs' tools declare no
+  // permission, so the gate is a staff tool that writes (any member, never a viewer): the bank
+  // and the builder edit Programs' records, and the client view logs a client's sets. Each names
+  // the tools its screen calls; the bank's own calls are core record reads and writes.
+  screens: {
+    bank: {
+      label: "Exercise bank",
+      block: "programs-bank",
+      export: "ExerciseBank",
+      nav: { group: "Programs", order: 10 },
+      opens: ["importText"],
+    },
+    builder: {
+      label: "Program builder",
+      block: "programs-builder",
+      export: "ProgramWorkspace",
+      nav: { group: "Programs", order: 20 },
+      opens: ["assign", "draft", "importText"],
+    },
+    client: {
+      label: "Programs",
+      block: "programs-coach-client",
+      export: "CoachClient",
+      opens: [
+        "assign",
+        "sessionGet",
+        "logAdd",
+        "logUpdate",
+        "sessionComplete",
+        "history",
+        "progress",
+      ],
+      record: { object: "person", as: "personId" },
+    },
+  },
 });

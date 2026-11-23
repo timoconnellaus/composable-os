@@ -6,6 +6,7 @@ import { DashboardPage, parseFilterValues } from "#/components/dashboards/dashbo
 import type { FilterValues } from "#/components/dashboards/dashboard-view";
 import { ErrorState } from "#/components/empty-state";
 import { PageLayout } from "#/components/layout/page-layout";
+import { FixedRoleHome } from "#/components/screens/fixed-role-shell";
 import { useOp } from "#/lib/query";
 
 export const Route = createFileRoute("/_app/")({
@@ -17,6 +18,12 @@ export const Route = createFileRoute("/_app/")({
 });
 
 function Home() {
+  // A fixed-role account's home is its screens (stage 47): no dashboard, which its role cannot read.
+  const { packRole } = Route.useRouteContext();
+  return packRole ? <FixedRoleHome /> : <StaffHome />;
+}
+
+function StaffHome() {
   const { filters = {} } = Route.useSearch();
   const { isAdmin } = Route.useRouteContext();
   const navigate = useNavigate({ from: "/" });

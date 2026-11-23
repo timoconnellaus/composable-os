@@ -71,6 +71,7 @@ import { Route as AppSubscriptionsIdRouteImport } from './routes/_app/subscripti
 import { Route as ApiAssistantThreadRouteImport } from './routes/api/assistant/thread'
 import { Route as ApiAssistantTurnRouteImport } from './routes/api/assistant/turn'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as AppSPackScreenRouteImport } from './routes/_app/s.$pack.$screen'
 import { Route as AppSettingsAgreementsIndexRouteImport } from './routes/_app/settings/agreements.index'
 import { Route as AppSettingsAgreementsIdRouteImport } from './routes/_app/settings/agreements.$id'
 import { Route as AppSettingsAgreementsAcceptancesRouteImport } from './routes/_app/settings/agreements.acceptances'
@@ -399,6 +400,11 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppSPackScreenRoute = AppSPackScreenRouteImport.update({
+  id: '/s/$pack/$screen',
+  path: '/s/$pack/$screen',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsAgreementsIndexRoute =
   AppSettingsAgreementsIndexRouteImport.update({
     id: '/settings/agreements/',
@@ -512,6 +518,7 @@ export interface FileRoutesByFullPath {
   '/people/': typeof AppPeopleIndexRoute
   '/settings/': typeof AppSettingsIndexRoute
   '/subscriptions/': typeof AppSubscriptionsIndexRoute
+  '/s/$pack/$screen': typeof AppSPackScreenRoute
   '/settings/agreements/$id': typeof AppSettingsAgreementsIdRoute
   '/settings/agreements/acceptances': typeof AppSettingsAgreementsAcceptancesRoute
   '/settings/agreements/health': typeof AppSettingsAgreementsHealthRoute
@@ -584,6 +591,7 @@ export interface FileRoutesByTo {
   '/people': typeof AppPeopleIndexRoute
   '/settings': typeof AppSettingsIndexRoute
   '/subscriptions': typeof AppSubscriptionsIndexRoute
+  '/s/$pack/$screen': typeof AppSPackScreenRoute
   '/settings/agreements/$id': typeof AppSettingsAgreementsIdRoute
   '/settings/agreements/acceptances': typeof AppSettingsAgreementsAcceptancesRoute
   '/settings/agreements/health': typeof AppSettingsAgreementsHealthRoute
@@ -658,6 +666,7 @@ export interface FileRoutesById {
   '/_app/people/': typeof AppPeopleIndexRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
   '/_app/subscriptions/': typeof AppSubscriptionsIndexRoute
+  '/_app/s/$pack/$screen': typeof AppSPackScreenRoute
   '/_app/settings/agreements/$id': typeof AppSettingsAgreementsIdRoute
   '/_app/settings/agreements/acceptances': typeof AppSettingsAgreementsAcceptancesRoute
   '/_app/settings/agreements/health': typeof AppSettingsAgreementsHealthRoute
@@ -732,6 +741,7 @@ export interface FileRouteTypes {
     | '/people/'
     | '/settings/'
     | '/subscriptions/'
+    | '/s/$pack/$screen'
     | '/settings/agreements/$id'
     | '/settings/agreements/acceptances'
     | '/settings/agreements/health'
@@ -804,6 +814,7 @@ export interface FileRouteTypes {
     | '/people'
     | '/settings'
     | '/subscriptions'
+    | '/s/$pack/$screen'
     | '/settings/agreements/$id'
     | '/settings/agreements/acceptances'
     | '/settings/agreements/health'
@@ -877,6 +888,7 @@ export interface FileRouteTypes {
     | '/_app/people/'
     | '/_app/settings/'
     | '/_app/subscriptions/'
+    | '/_app/s/$pack/$screen'
     | '/_app/settings/agreements/$id'
     | '/_app/settings/agreements/acceptances'
     | '/_app/settings/agreements/health'
@@ -1338,6 +1350,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/s/$pack/$screen': {
+      id: '/_app/s/$pack/$screen'
+      path: '/s/$pack/$screen'
+      fullPath: '/s/$pack/$screen'
+      preLoaderRoute: typeof AppSPackScreenRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings/agreements/': {
       id: '/_app/settings/agreements/'
       path: '/settings/agreements'
@@ -1456,6 +1475,7 @@ interface AppRouteChildren {
   AppPeopleIndexRoute: typeof AppPeopleIndexRoute
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
   AppSubscriptionsIndexRoute: typeof AppSubscriptionsIndexRoute
+  AppSPackScreenRoute: typeof AppSPackScreenRoute
   AppSettingsAgreementsIdRoute: typeof AppSettingsAgreementsIdRoute
   AppSettingsAgreementsAcceptancesRoute: typeof AppSettingsAgreementsAcceptancesRoute
   AppSettingsAgreementsHealthRoute: typeof AppSettingsAgreementsHealthRoute
@@ -1517,6 +1537,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppPeopleIndexRoute: AppPeopleIndexRoute,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
   AppSubscriptionsIndexRoute: AppSubscriptionsIndexRoute,
+  AppSPackScreenRoute: AppSPackScreenRoute,
   AppSettingsAgreementsIdRoute: AppSettingsAgreementsIdRoute,
   AppSettingsAgreementsAcceptancesRoute: AppSettingsAgreementsAcceptancesRoute,
   AppSettingsAgreementsHealthRoute: AppSettingsAgreementsHealthRoute,

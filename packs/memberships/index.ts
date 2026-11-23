@@ -655,4 +655,16 @@ export default defineExtension({
   grantable: ["memberships:passes"],
   tools: { plans, passTypes, buy, mine, holdings, givePass, voidPass },
   dashboards: membershipsDashboards,
+  // Staff screens in the product's admin (stage 47, ADR 0660): a person's memberships and passes,
+  // a tab on the Person, for whoever may read them and give and void a pass by hand (any member
+  // of staff; a viewer reads no further than the record page).
+  screens: {
+    holdings: {
+      label: "Memberships",
+      block: "memberships-staff-holdings",
+      export: "PersonMemberships",
+      opens: ["holdings", "givePass", "voidPass"],
+      record: { object: "person", as: "personId" },
+    },
+  },
 });

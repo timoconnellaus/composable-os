@@ -2,16 +2,17 @@
 // on the drop-in block is the last): a member books a class from the
 // timetable and cancels it in time, with the membership's use given back; staff book a walk-in
 // into a class type only staff book, paid at the desk; and staff link a parent to a child on the
-// parent's page, and the parent books the child a class with the child's own pass. The blocks are the pack's own web blocks, mounted
-// where they sit (`/blocks`, development only), calling the host's HTTP surface from the browser
-// as a client app would. In local dev Programs and Bookings are the org's own extensions
+// parent's page, and the parent books the child a class with the child's own pass. The members'
+// blocks are the pack's own web blocks, mounted where they sit (`/blocks`, development only),
+// calling the host's HTTP surface from the browser as a client app would; the staff's (the desk,
+// a coach's class list) are its screens in the admin, opened from its navigation (stage 47). In local dev Programs and Bookings are the org's own extensions
 // (scripts/dev-setup.mjs). The Memberships pack (stage 32b) is built beside this step, so the
 // member's pass is a fixture holder (`bkfixture.pass`, a runtime extension installed here, never
 // the real pack's id, so the Memberships spec can share the database in either order); local
 // dev's Bookings is a variant whose `paidBy` also names the fixture (dev-setup.mjs). Step 4
 // replaces it with the real pack.
 import { type APIRequestContext, type Browser, expect, type Page, test } from "@playwright/test";
-import { open, unique } from "./helpers.ts";
+import { daytimeZone, open, openScreen, staffAccount, unique, watchRefusals } from "./helpers.ts";
 import {
   addFakeResource,
   connectFake,
@@ -78,8 +79,13 @@ async function setUp(page: Page) {
   });
 }
 
-/** A one-off class `startsIn` ms from now, of a new class type. */
-async function oneOff(page: Page, startsIn: number, typeValues: Record<string, unknown> = {}) {
+/** A one-off class `startsIn` ms from now, of a new class type, in `timezone`. */
+async function oneOff(
+  page: Page,
+  startsIn: number,
+  typeValues: Record<string, unknown> = {},
+  timezone = "UTC",
+) {
   const name = unique("Strength ");
   const classType = await op<{ id: string }>(page.request, "record.create", {
     object: "programs.classtype",
@@ -92,7 +98,7 @@ async function oneOff(page: Page, startsIn: number, typeValues: Record<string, u
       classType: classType.id,
       startsAt,
       endsAt: new Date(Date.now() + startsIn + HOUR).toISOString(),
-      timezone: "UTC",
+      timezone,
       places: 6,
     },
   });
@@ -217,12 +223,19 @@ test("a member books a class from the timetable and cancels it in time", async (
   }
 });
 
+// Stage 47: the desk in the admin, opened from its navigation (no `/blocks`); and the class's list
+// as a tab on the class's own page.
 test("staff book a walk-in into a class only staff book, paid at the desk", async ({ page }) => {
   test.setTimeout(120_000);
   await setUp(page);
   const klass = await oneOff(page, 2 * HOUR, { "bookings.staffOnly": true });
-  const date = klass.startsAt.slice(0, 10);
-  await page.goto(block("bookings-desk", "Desk", { date, timeZone: "UTC" }));
+  await openScreen(page, "Bookings", "Front desk");
+  // The day the class is on, where this browser is: the desk shows its own zone's days.
+  const zone = await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const date = new Intl.DateTimeFormat("en-CA", { timeZone: zone }).format(
+    new Date(klass.startsAt),
+  );
+  await page.getByLabel("Day").fill(date);
   const desk = page.getByRole("region", { name: "Front desk" });
   await expect(desk.getByText(klass.name).first()).toBeVisible();
   await expect(desk.getByText(/booked by staff/).first()).toBeVisible();
@@ -246,14 +259,26 @@ test("staff book a walk-in into a class only staff book, paid at the desk", asyn
     id: klass.id,
   });
   expect(after.values.taken).toBe(1);
+  // The class's page lists its list as a tab, for staff who may use it.
+  await open(page, `/x/bookings.class/${klass.id}`);
+  await page.getByRole("tab", { name: "Class list" }).click();
+  await expect(page.getByRole("region", { name: "Class list" })).toContainText(given);
 });
 
-// Step 7: the coach's list. A class about to start, someone booked; the list block ticks them,
+// Step 7 and stage 47: a coach (the coach role, nothing else) signs in to the admin and gets its
+// small shell: today's class list and nothing else, no call refused. It ticks the member booked,
 // and a second tick of the same name (another coach a moment later) is told who was first.
-test("a coach ticks who came on a class's list", async ({ page }) => {
-  test.setTimeout(120_000);
+// Granted the desk, it has the desk too; the grant removed, the desk is gone and "not found".
+test("a coach signs in to the admin, opens today's list and ticks who came", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  test.setTimeout(150_000);
   await setUp(page);
-  const klass = await oneOff(page, 30 * 60_000);
+  // A zone where the class is today's whatever time this runs: the host's "today" is its zone's.
+  const zone = daytimeZone();
+  const klass = await oneOff(page, 30 * 60_000, {}, zone);
   const person = await op<{ id: string }>(page.request, "person.create", {
     givenName: unique("Ticked"),
   });
@@ -265,25 +290,75 @@ test("a coach ticks who came on a class's list", async ({ page }) => {
     paidAtDesk: true,
   });
   expect(made.result).toBe("booked");
-  await page.goto(block("bookings-class-list", "ClassList", { classId: klass.id }));
-  const list = page.getByRole("region", { name: "Class list" });
-  await expect(list.getByText(`${name} · Booked`)).toBeVisible();
-  await list.getByRole("button", { name: `Tick ${name}` }).click();
-  await expect(list.getByRole("status")).toHaveText("Ticked: they came.");
-  await expect(list.getByRole("button", { name: `Untick ${name}` })).toBeVisible();
-  // The same name ticked again: once, and the second is told who was first.
-  const again = await op<{ result: string; message: string }>(
-    page.request,
-    "x.bookings.markAttended",
-    { bookingId: made.bookingId },
-  );
-  expect(again.result).toBe("already");
-  expect(again.message).toMatch(/^Already ticked as come by /);
-  const booking = await op<{ values: Record<string, unknown> }>(page.request, "record.get", {
-    object: "bookings.booking",
-    id: made.bookingId,
+  const coach = await staffAccount(browser, page, baseURL ?? "", unique("Coach "), {
+    packRole: "bookings.coach",
+    timezoneId: zone,
   });
-  expect(booking.values).toMatchObject({ state: "attended" });
+  try {
+    const watch = watchRefusals(coach.page);
+    await open(coach.page, "/");
+    await expect(coach.page.locator('[data-shell="fixed-role"]')).toBeVisible();
+    const screens = coach.page.locator('[data-testid^="screens-nav-"] a');
+    await expect(screens).toHaveText(["Class list"]);
+    // No search, assistant, notifications or records in its shell.
+    await expect(coach.page.getByTestId("open-palette")).toHaveCount(0);
+    await expect(coach.page.getByTestId("open-assistant")).toHaveCount(0);
+    await openScreen(coach.page, "Bookings", "Class list");
+    await coach.page
+      .getByRole("list", { name: "Today's classes" })
+      .getByRole("button", { name: new RegExp(klass.name) })
+      .click();
+    const list = coach.page.getByRole("region", { name: "Class list" });
+    await expect(list.getByText(`${name} · Booked`)).toBeVisible();
+    await list.getByRole("button", { name: `Tick ${name}` }).click();
+    await expect(list.getByRole("status")).toHaveText("Ticked: they came.");
+    await expect(list.getByRole("button", { name: `Untick ${name}` })).toBeVisible();
+    // The same name ticked again: once, and the second is told who was first.
+    const again = await op<{ result: string; message: string }>(
+      page.request,
+      "x.bookings.markAttended",
+      { bookingId: made.bookingId },
+    );
+    expect(again.result).toBe("already");
+    expect(again.message).toMatch(/^Already ticked as come by /);
+    const booking = await op<{ values: Record<string, unknown> }>(page.request, "record.get", {
+      object: "bookings.booking",
+      id: made.bookingId,
+    });
+    expect(booking.values).toMatchObject({ state: "attended" });
+    // Every other page of the admin is "not found" for it.
+    for (const path of [
+      "/people",
+      `/people/${person.id}`,
+      "/settings",
+      "/dashboards",
+      `/x/bookings.class/${klass.id}`,
+      "/s/bookings/desk",
+    ]) {
+      await coach.page.goto(path);
+      await expect(coach.page.getByTestId("not-found"), path).toBeVisible();
+    }
+    await watch.settled();
+    expect(watch.refused).toEqual([]);
+
+    // Granted the desk: the desk is its screen too.
+    await op(page.request, "user.setPermissions", {
+      id: coach.id,
+      permissions: ["bookings:desk"],
+    });
+    await open(coach.page, "/");
+    await expect(screens).toHaveText(["Front desk", "Class list"]);
+    await openScreen(coach.page, "Bookings", "Front desk");
+    await expect(coach.page.getByRole("region", { name: "Front desk" })).toBeVisible();
+    // The grant removed: gone on the next load, and its address is "not found".
+    await op(page.request, "user.setPermissions", { id: coach.id, permissions: [] });
+    await open(coach.page, "/");
+    await expect(screens).toHaveText(["Class list"]);
+    await coach.page.goto("/s/bookings/desk");
+    await expect(coach.page.getByTestId("not-found")).toBeVisible();
+  } finally {
+    await coach.context.close();
+  }
 });
 
 test("staff link a parent to their child, and the parent books the child a class", async ({
@@ -365,7 +440,7 @@ test("staff link a parent to their child, and the parent books the child a class
 // gatekeeper's fake provider, and is booked once the payment is verified.
 // Issue #258 (ADR 0600): coaches and the front desk are the same people. An admin ticks the desk
 // permission for a coach on Settings → Users; the coach, signed in with their own account, books a
-// walk-in on the desk block into a class two days ahead (not today: the desk's reach, not the
+// walk-in on the desk screen into a class two days ahead (not today: the desk's reach, not the
 // coach role's).
 test("an admin gives a coach the desk, and the coach books a walk-in", async ({
   page,
@@ -420,11 +495,13 @@ test("an admin gives a coach the desk, and the coach books a walk-in", async ({
     })
     .toEqual(["bookings:desk"]);
 
-  // The coach books a walk-in two days ahead on the desk.
+  // The coach books a walk-in two days ahead on the desk, opened from the admin's navigation.
   const screen = await coach.newPage();
-  await screen.goto(
-    block("bookings-desk", "Desk", { date: klass.startsAt.slice(0, 10), timeZone: "UTC" }),
-  );
+  await openScreen(screen, "Bookings", "Front desk");
+  const zone = await screen.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
+  await screen
+    .getByLabel("Day")
+    .fill(new Intl.DateTimeFormat("en-CA", { timeZone: zone }).format(new Date(klass.startsAt)));
   const front = screen.getByRole("region", { name: "Front desk" });
   await expect(front.getByText(klass.name).first()).toBeVisible();
   const form = front.getByRole("form", { name: "Book someone in" });

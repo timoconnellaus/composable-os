@@ -461,4 +461,75 @@ export default defineExtension({
     reopen,
     export: exportPeriod,
   },
+  // Staff screens in the product's admin (stage 47, ADR 0660), each gated by the tools it calls,
+  // so the host decides who sees it: the team's screens for the rostered team (the
+  // `rostering.team` role, `rostering:roster` granted to another role, and any member, who holds
+  // the team's tools); the rosterers' for admins and those granted `rostering:manage`
+  // (restricted); pay for admins and those granted `rostering:pay` (restricted, a person's only).
+  // The roster's assign controls show inside the week for a rosterer, from the host's `me`.
+  screens: {
+    roster: {
+      label: "Roster",
+      block: "rostering-week",
+      export: "RosterWeek",
+      nav: { group: "Rostering", order: 10 },
+      opens: ["me", "week"],
+    },
+    myShifts: {
+      label: "My shifts",
+      block: "rostering-my-shifts",
+      export: "MyShifts",
+      nav: { group: "Rostering", order: 20 },
+      opens: ["me", "mine", "offers", "offer", "withdraw"],
+    },
+    offers: {
+      label: "Offers",
+      block: "rostering-offers",
+      export: "OffersToMe",
+      nav: { group: "Rostering", order: 30 },
+      opens: ["me", "offers", "take"],
+    },
+    myTimeOff: {
+      label: "My time off",
+      block: "rostering-my-availability",
+      export: "MyAvailability",
+      nav: { group: "Rostering", order: 40 },
+      opens: ["me", "myAway", "away", "back", "offer"],
+    },
+    myCalendar: {
+      label: "My calendar",
+      block: "rostering-my-calendar",
+      export: "MyCalendar",
+      nav: { group: "Rostering", order: 50 },
+      opens: ["feed", "feedRotate", "feedRevoke"],
+    },
+    patterns: {
+      label: "Patterns",
+      block: "rostering-patterns",
+      export: "Patterns",
+      nav: { group: "Rostering", order: 60 },
+      opens: ["me", "patterns", "setPattern", "people"],
+    },
+    qualifications: {
+      label: "Who may do what",
+      block: "rostering-qualifications",
+      export: "Qualifications",
+      nav: { group: "Rostering", order: 70 },
+      opens: ["me", "people", "qualifications", "qualify"],
+    },
+    timeOff: {
+      label: "Time off",
+      block: "rostering-away",
+      export: "TimeOff",
+      nav: { group: "Rostering", order: 80 },
+      opens: ["me", "people", "awayList", "awayFor"],
+    },
+    pay: {
+      label: "Pay",
+      block: "rostering-pay",
+      export: "Pay",
+      nav: { group: "Rostering", order: 90 },
+      opens: ["me", "periods", "periodTotals", "payBases", "lock"],
+    },
+  },
 });

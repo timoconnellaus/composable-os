@@ -1,5 +1,12 @@
 // Shared steps for the signed-in e2e specs.
-import { expect, type Locator, type Page } from "@playwright/test";
+import {
+  type APIRequestContext,
+  type Browser,
+  type BrowserContext,
+  expect,
+  type Locator,
+  type Page,
+} from "@playwright/test";
 
 /** A short unique token, so specs can share the local database across runs. */
 export function unique(prefix = ""): string {
@@ -30,6 +37,150 @@ export async function expectNoHorizontalScroll(page: Page): Promise<void> {
 
 export function isPhone(page: Page): boolean {
   return (page.viewportSize()?.width ?? 1280) < 768;
+}
+
+/**
+ * Opens a shipped pack's staff screen through the admin's own navigation (stage 47): its section
+ * (`group`) and its link, as a person does, then waits until the screen has drawn.
+ */
+export async function openScreen(page: Page, group: string, label: string): Promise<void> {
+  await open(page, "/");
+  const link = page.getByTestId(`screens-nav-${group}`).getByRole("link", {
+    name: label,
+    exact: true,
+  });
+  if (isPhone(page)) await page.getByRole("button", { name: "Toggle navigation" }).click();
+  await link.click();
+  await waitForScreen(page);
+}
+
+/** Waits until the screen on the page has loaded its code and its data. */
+export async function waitForScreen(page: Page): Promise<void> {
+  await expect(page.locator("[data-screen]")).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('[data-screen] [aria-busy="true"]')).toHaveCount(0, {
+    timeout: 30_000,
+  });
+}
+
+/** Calls an operation on the host's HTTP surface as `request`'s session; its data, or throws. */
+async function surface<T>(request: APIRequestContext, name: string, input: unknown): Promise<T> {
+  const response = await request.post(`/api/v1/op/${name}`, {
+    data: input,
+    headers: { "idempotency-key": crypto.randomUUID() },
+  });
+  const body = (await response.json()) as { data?: T };
+  expect(response.status(), `${name}: ${JSON.stringify(body).slice(0, 300)}`).toBe(200);
+  return body.data as T;
+}
+
+export interface StaffAccount {
+  id: string;
+  name: string;
+  context: BrowserContext;
+  page: Page;
+}
+
+/**
+ * A member of staff in their own browser: signed up, given a pack role and grants by the admin
+ * (`admin`'s session), signed in. Close `context` when done.
+ */
+export async function staffAccount(
+  browser: Browser,
+  admin: Page,
+  baseURL: string,
+  name: string,
+  options: { packRole?: string; grants?: string[]; timezoneId?: string } = {},
+): Promise<StaffAccount> {
+  const origin = new URL(baseURL).origin;
+  const email = `${unique("staff")}@example.com`;
+  const password = "staff-password-not-secret";
+  const context = await browser.newContext({
+    baseURL,
+    storageState: { cookies: [], origins: [] },
+    ...(options.timezoneId ? { timezoneId: options.timezoneId } : {}),
+  });
+  const signUp = await context.request.post("/api/auth/sign-up/email", {
+    data: { name, email, password },
+    headers: { origin },
+  });
+  expect(signUp.ok(), await signUp.text()).toBe(true);
+  const users = await surface<{ items: { id: string }[] }>(admin.request, "user.list", {
+    filter: { field: "email", op: "eq", value: email },
+  });
+  const id = users.items[0]?.id as string;
+  if (options.packRole) {
+    await surface(admin.request, "user.setPackRole", { id, role: options.packRole });
+  }
+  if (options.grants?.length) {
+    await surface(admin.request, "user.setPermissions", { id, permissions: options.grants });
+  }
+  const signedIn = await context.request.post("/api/auth/sign-in/email", {
+    data: { email, password },
+    headers: { origin },
+  });
+  expect(signedIn.ok(), await signedIn.text()).toBe(true);
+  return { id, name, context, page: await context.newPage() };
+}
+
+/**
+ * A time zone where it is now between 02:00 and 21:59, so a class an hour or two from now is
+ * today's there whatever time the suite runs: the host decides "today" by the class's zone.
+ */
+export function daytimeZone(): string {
+  for (const zone of [
+    "UTC",
+    "Asia/Tokyo",
+    "America/New_York",
+    "Asia/Kolkata",
+    "Pacific/Honolulu",
+  ]) {
+    const hour = Number(
+      new Intl.DateTimeFormat("en-GB", {
+        timeZone: zone,
+        hour: "2-digit",
+        hourCycle: "h23",
+      }).format(new Date()),
+    );
+    if (hour >= 2 && hour <= 21) return zone;
+  }
+  return "UTC";
+}
+
+/**
+ * Every call the page makes that the host refuses (a 403, or an operation's `forbidden`), from now
+ * on: a fixed-role account's shell makes none (stage 47).
+ */
+export function watchRefusals(page: Page): { refused: string[]; settled: () => Promise<void> } {
+  const refused: string[] = [];
+  const reading: Promise<void>[] = [];
+  page.on("response", (response) => {
+    const url = new URL(response.url());
+    if (url.origin !== new URL(page.url() || response.url()).origin) return;
+    if (!url.pathname.startsWith("/_serverFn") && !url.pathname.startsWith("/api/")) return;
+    if (response.status() === 403) {
+      refused.push(url.pathname);
+      return;
+    }
+    reading.push(
+      response
+        .text()
+        .then((text) => {
+          if (!/"forbidden"/.test(text)) return;
+          // The operation the admin's server function was asked to call (its serialised input).
+          const body = response.request().postData() ?? "";
+          const asked = /"s":"([a-z][a-zA-Z0-9]*(?:\.[a-zA-Z0-9]+)+)"/.exec(body)?.[1];
+          refused.push(`${asked ?? url.pathname} on ${new URL(page.url()).pathname}`);
+        })
+        .catch(() => undefined),
+    );
+  });
+  return {
+    refused,
+    settled: async () => {
+      await page.waitForLoadState("networkidle");
+      await Promise.all(reading);
+    },
+  };
 }
 
 /**

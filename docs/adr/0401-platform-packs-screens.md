@@ -84,3 +84,9 @@ written per client.
 - Changed from the decision above: "A product definition naming the packs and platform version"
   holds; the host keeps its release's names and strings, because they are built into the
   verified release. Naming it for the client's product is platform work for later (ADR 0422).
+
+## Amendment, 2026-11-24 (stage 47, ADR 0660)
+Staff use a pack's screens **in the product's admin**, on the host's address: a shipped pack
+declares them (`screens`), the admin builds them in and lists for each person only those the host
+lets them open. A company's web app still never serves staff, so staff and customer sessions stay
+on separate hostnames. See [ADR 0660](0660-pack-screens-in-the-admin.md).
