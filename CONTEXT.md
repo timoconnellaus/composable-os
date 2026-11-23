@@ -839,6 +839,18 @@ prefixes its Worker and resource names and never appears in the deployment's dat
 sees it only as a deploy var (`COS_TENANT_ID`), for the **tenant tag** on Platform AI calls and
 for signing its calls back to the control plane.
 
+**Hosted client** (stage 46, proposed; ADR 0610)
+A client product's deployment in our Cloudflare account, in the Workers for Platforms namespace,
+deployed by `cos deploy` from the client's repository. It keeps the names its `product.ts` gives
+it and has no tenant id. Its **tier** is **standard** (settings only, on a standard product's
+release, behind a shared web app), **bespoke** (its own repository, web app and extensions) or
+**own account** (the same, in the client's Cloudflare account).
+_Avoid_: tenant (for a client), multi-tenant
+
+**Fleet** (stage 46, proposed)
+Every hosted client's hosts together. We set its platform version; a **hold** keeps one client
+on its version through a fleet update.
+
 **Control plane**
 `crm-control` on the hosted CRM's `app.` host (`products/crm/apps/control`): sign-up, plans,
 billing, provisioning, rollouts, support grants, export and delete. It never holds customer data.
