@@ -9,6 +9,7 @@
 import type { CrmDb } from "@composable-os/db";
 import { enforcePurchase, pointsOfObjects } from "../agreements/enforce.ts";
 import { ConflictError } from "../errors.ts";
+import { getObject } from "../fields/index.ts";
 import { notifyStatements } from "../notifications/send.ts";
 import type { HandlerContext } from "../operation.ts";
 import { changeOrder, formatMoney, type OrderRow, overdueOrders } from "./orders.ts";
@@ -116,18 +117,24 @@ export async function honourLatePayment(ctx: HandlerContext, row: OrderRow): Pro
   // Keeping it makes the purchase (stage 44 step 3, ADR 0644): a guest's acceptances went with the
   // order when it expired, so the order's Person must have what is due now, like any purchase.
   // Refused with the list: refund the payment, or have them agree and buy again.
+  // An order that moves a record (a drop-in, ADR 0560) is never honoured late: the order's move
+  // hook refuses it (`held_gone`), the place having gone back at expiry, so it is not judged here
+  // (its participant is the booking's Person, a child's for a guardian's drop-in, not the payer).
   const lines = await ctx.db
     .selectFrom("core_order_line")
     .select("object_type")
     .where("order_id", "=", row.id)
     .execute();
-  const agreed = await enforcePurchase(
-    ctx,
-    pointsOfObjects(lines.map((line) => line.object_type)),
-    { guest: false, participant: row.person_id, payer: row.person_id },
-    undefined,
-  );
-  if (agreed.guards.length) ctx.write(...agreed.guards);
+  const objects = lines.map((line) => line.object_type);
+  if (!objects.some((name) => getObject(name)?.sellable?.moves)) {
+    const agreed = await enforcePurchase(
+      ctx,
+      pointsOfObjects(objects),
+      { guest: false, participant: row.person_id, payer: row.person_id },
+      undefined,
+    );
+    if (agreed.guards.length) ctx.write(...agreed.guards);
+  }
   const paid = row.paid + payment.amount;
   const settled = paid >= row.total;
   const next = await changeOrder(

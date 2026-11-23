@@ -26,7 +26,9 @@
 // the order they made or the one the caller proved is theirs (their own Person through the seam,
 // or the order's token), and answer only with what a customer may read of an order.
 import { z } from "zod";
-import { guestAcceptancesSchema } from "../agreements/enforce.ts";
+import { isMinor, personFacts } from "../agreements/due.ts";
+import { enforcePurchase, guestAcceptancesSchema, pointsOfObjects } from "../agreements/enforce.ts";
+import { sameEmailPeople } from "../customers/accounts.ts";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { getObject, listObjects } from "../fields/index.ts";
 import { ORDER_STATES } from "../fields/order.ts";
@@ -362,6 +364,24 @@ export const orderStart = defineOperation({
   },
 });
 
+/**
+ * The People an address is theirs: the live ones with it, and the survivor of any merge of one
+ * that had it.
+ */
+async function addressPeople(ctx: HandlerContext, email: string): Promise<Set<string>> {
+  if (!email) return new Set();
+  const people = new Set(await sameEmailPeople(ctx.db, email));
+  const merged = await ctx.db
+    .selectFrom("core_person_emails as e")
+    .innerJoin("core_person as p", "p.id", "e.person_id")
+    .select("p.merged_into_id")
+    .where("e.email", "=", email)
+    .where("p.merged_into_id", "is not", null)
+    .execute();
+  for (const row of merged) if (row.merged_into_id) people.add(row.merged_into_id);
+  return people;
+}
+
 // --- Reading an order --------------------------------------------------------------------------
 
 export const orderGet = defineOperation({
@@ -515,6 +535,32 @@ export const orderSetPerson = defineOperation({
     }
     // The person must be one the caller can see, and live.
     await ctx.records.get("person", input.personId);
+    // One of the People the order's address matches, or the survivor of merging them (stage 44,
+    // the review of PR #280): never a Person with another address, whom the order's guest
+    // acceptances would otherwise settle to.
+    if (!(await addressPeople(ctx, row.email ?? "")).has(input.personId)) {
+      throw new ValidationError(
+        "That Person does not have this order's address: merge the People who do, then pass the " +
+          "one that remains",
+        { field: "personId", rule: "order_person" },
+      );
+    }
+    // A minor is the order's only once nothing is due for them (a guest's acceptances never count
+    // for a minor): a parent, a guardian or a paper form agrees first, or the order is refunded.
+    if (isMinor(await personFacts(ctx.db, input.personId))) {
+      const lines = await ctx.db
+        .selectFrom("core_order_line")
+        .select("object_type")
+        .where("order_id", "=", row.id)
+        .execute();
+      const agreed = await enforcePurchase(
+        ctx,
+        pointsOfObjects(lines.map((line) => line.object_type)),
+        { guest: false, participant: input.personId, payer: input.personId },
+        undefined,
+      );
+      if (agreed.guards.length) ctx.write(...agreed.guards);
+    }
     const next = await changeOrder(
       ctx,
       row,

@@ -552,6 +552,87 @@ describe("a visitor's drop-in (criterion 6)", () => {
   });
 });
 
+describe("the review of PR #280 on the shipped packs", () => {
+  it("a guest's drop-in with a minor's address stands, the child stays due and staff are told", async () => {
+    const kid = await member("minordrop");
+    await run("agreement.setMinor", { personId: kid.principal.personId, minor: true }, staff());
+    const id = await klass(yoga, 5 * HOUR);
+    const bought = await run<{ result: string; orderId: string; token: string; bookingId: string }>(
+      "x.bookings.buy",
+      { classId: id, email: kid.email, agreements: guestAgrees([waiver, health]) },
+      guest,
+    );
+    const checkout = await run<{ url: string }>(
+      "order.checkout",
+      { id: bought.orderId, token: bought.token, returnUrl: RETURN },
+      guest,
+    );
+    await payUrl(checkout.url);
+    await vi.waitFor(
+      async () =>
+        expect((await get(BOOKING, bought.bookingId)).person).toBe(kid.principal.personId),
+      { timeout: 15_000 },
+    );
+    const notice = await env.DB.prepare(
+      "SELECT human_only, body FROM core_notifications WHERE dedupe_key = ? LIMIT 1",
+    )
+      .bind(`agreement-guest-minor:${bought.orderId}`)
+      .first<{ human_only: number; body: string }>();
+    expect(notice?.human_only).toBe(1);
+    expect(notice?.body).toContain(bought.orderId);
+    // Their own booking is still refused: a guardian or a paper form agrees for them.
+    const next = await klass(yoga, 5 * HOUR);
+    expect(
+      (await refusal(run("x.bookings.book", { classId: next }, as(kid.principal)))).details.rule,
+    ).toBe("agreements_due");
+  });
+
+  it("a guardian's drop-in for a child, paid after it expired, is never honoured", async () => {
+    const parent = await member("lateparent");
+    for (const doc of [waiver, health]) await accept(parent, doc);
+    const child = (
+      await run<{ id: string }>("person.create", { givenName: unique("Kid") }, staff())
+    ).id;
+    await run(
+      "person.link.add",
+      { guardianId: parent.principal.personId, dependantId: child },
+      staff(),
+    );
+    for (const doc of [waiver, health]) await accept(parent, doc, child);
+    const id = await klass(yoga, 5 * HOUR);
+    const bought = await run<{ orderId: string; bookingId: string }>(
+      "x.bookings.buy",
+      { classId: id, forPersonId: child },
+      as(parent.principal),
+    );
+    const checkout = await run<{ url: string }>(
+      "order.checkout",
+      { id: bought.orderId, returnUrl: RETURN },
+      as(parent.principal),
+    );
+    for (let batch = 0; batch < 20; batch += 1) {
+      const swept = await run<{ expired: string[] }>(
+        "order.expireDue",
+        {},
+        staff({ actor: "automation", clock: () => new Date(Date.now() + 16 * 60_000) }),
+      );
+      if (swept.expired.includes(bought.orderId) || !swept.expired.length) break;
+    }
+    expect((await get(BOOKING, bought.bookingId)).state).toBe("expired");
+    await payUrl(checkout.url);
+    await vi.waitFor(
+      async () => {
+        const late = await run<{ items: { orderId: string }[] }>("order.paidLate", {}, staff());
+        expect(late.items.map((i) => i.orderId)).toContain(bought.orderId);
+      },
+      { timeout: 15_000 },
+    );
+    const honour = await refusal(run("order.honourLate", { id: bought.orderId }, staff()));
+    expect(honour.details).toMatchObject({ rule: "held_gone" });
+    expect((await get(BOOKING, bought.bookingId)).state).toBe("expired");
+  });
+});
+
 describe("agree again is not retroactive (criterion 3)", () => {
   it("the host still promotes a waiter, a booking stays booked, a coach unticks a name; the next booking asks", async () => {
     const a = await member("first");

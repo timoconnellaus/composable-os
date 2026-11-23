@@ -20,7 +20,7 @@
 // gatekeeper by the minute cron (`order.refundDue`), as the outbound action `payments.refund`,
 // which only a person with `orders:refund` approves (ADR 0429).
 
-import type { GuestAcceptance } from "../agreements/enforce.ts";
+import { type GuestAcceptance, guestMinorNotice } from "../agreements/enforce.ts";
 import { normaliseCustomerEmail, sameEmailPeople } from "../customers/accounts.ts";
 import {
   ConfigError,
@@ -794,6 +794,8 @@ const orderMoves: MoveHook = async (outer, move) => {
             }
             personId = buyer.personId;
             made = buyer.created;
+            // A guest's drop-in landing on a minor tells staff (ADR 0644).
+            if (personId && !made) await guestMinorNotice(ctx, { orderId: move.id }, personId);
             if (personId) {
               ctx.write(
                 ctx.db

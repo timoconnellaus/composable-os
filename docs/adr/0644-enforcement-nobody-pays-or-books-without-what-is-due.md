@@ -130,3 +130,30 @@ selling as before; `x.memberships.buy`, `subscription.start`, `x.bookings.book` 
 `x.memberships.givePass` refused, then allowed after paper; a visitor's drop-in with its
 acceptances settled at the verified payment; after "agree again" a coach unticking, a booking kept
 and the cron promoting a waiter, and the waiter's next booking asked.
+
+## Amended 2026-11-23: the review of PR #280
+
+- **A minor never pays where the payer must agree.** A Person who is a minor (marked, or a live
+  dependant) and would be the payer at a point with a payer document is refused by
+  `enforcePurchase` (`order.start`, `order.startHeld`, `subscription.start`, `order.honourLate`,
+  `order.setPerson`): `agreements_due` with `reason: "minor_payer"` and "a parent or guardian needs
+  to buy this for you". Nothing the child does satisfies it (`minorPayerDocuments` in
+  `agreements/due.ts`, the one place to relax it if the owner decides a guardian's earlier
+  agreement may let it through).
+- **A guest's acceptance counts only for its own purchase** (coordinator decision, **owner to
+  confirm**). It is checked in its buying call and settled to the matched Person as the evidence
+  of that purchase, and it never counts for that Person at a later point
+  (`guestAcceptanceCountsLater` in `agreements/due.ts`, one place). So a stranger's guest purchase
+  with a member's address never stands in for the member's own agreement, a booking's waiver or a
+  moved member's continuation offer.
+- **A guest's purchase with a minor's address** (coordinator decision, **owner to confirm**): it
+  stands (refusing at checkout would say the address is a child's). The child stays due (reason
+  `guardian`: a guest's never counts, nor a minor's own). In the batch that settles it (the
+  verified payment, a guest's drop-in matched at payment, `order.setPerson`, a confirmed
+  subscription checkout) staff with `agreements:manage` get a notice for the person only, naming the
+  order or checkout and nothing of the documents or answers (`guestMinorNotice`). No hold and no
+  refund are built.
+- **`order.setPerson`** takes only a Person the order's address matches (or the survivor of a
+  merge of one), refused otherwise (`order_person`), and a minor only once nothing is due for them.
+- **`order.honourLate`** does not judge an order that moves a record (a drop-in): its move hook
+  refuses honouring it (`held_gone`), and its participant is the booking's Person, not the payer.

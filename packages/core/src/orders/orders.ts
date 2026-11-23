@@ -11,7 +11,12 @@
 //     only platform code passes `by: "host"`, and no operation takes the mover from its input.
 import type { CoreDatabase, CoreOrderTable } from "@composable-os/db";
 import type { Kysely, Selectable } from "kysely";
-import { enforcePurchase, type GuestAcceptance, pointsOfObjects } from "../agreements/enforce.ts";
+import {
+  enforcePurchase,
+  type GuestAcceptance,
+  guestMinorNotice,
+  pointsOfObjects,
+} from "../agreements/enforce.ts";
 import { ConfigError, ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import { type OrderState, orderObject } from "../fields/order.ts";
@@ -597,6 +602,11 @@ export async function changeOrder(
     after: orderSnapshot(next),
   });
   if (to !== row.state) postOrderMove(ctx, next, row.state);
+  // A guest's purchase landing on a minor tells staff (ADR 0644): the batch that pays it or
+  // gives it its Person settles its acceptances (migration 0853).
+  if (next.person_id && next.paid > 0) {
+    await guestMinorNotice(ctx, { orderId: row.id }, next.person_id);
+  }
   return next;
 }
 

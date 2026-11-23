@@ -20,15 +20,26 @@
 // Staff never agree for anyone: a caller who is not a guest carries no acceptances, and is refused
 // with the list of what is due (send a link, sign at the desk, or record paper).
 import type { Compilable, CompiledQuery } from "kysely";
+import { sql } from "kysely";
 import { z } from "zod";
 import { ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
+import { notifyStatements } from "../notifications/send.ts";
 import type { HandlerContext } from "../operation.ts";
 import type { Mover } from "../records/transitions.ts";
 import { planAcceptance } from "./accept.ts";
 import { answersSchema, signatureSchema, typedNameSchema } from "./capture.ts";
-import { agreementsDueAt, agreementsGuard, dueRefusal, guestDue } from "./due.ts";
+import {
+  agreementsDueAt,
+  agreementsGuard,
+  dueRefusal,
+  guestDue,
+  isMinor,
+  minorPayerDocuments,
+  minorPayerRefusal,
+  personFacts,
+} from "./due.ts";
 
 /** The most acceptances one buying call carries. */
 export const GUEST_ACCEPTANCES_MAX = 20;
@@ -149,6 +160,10 @@ export async function enforcePurchase(
       payer: parties.payer,
       now: ctx.now,
     });
+    // A minor never pays where the payer must agree: a parent or guardian buys it for them
+    // (the review of PR #280; read after the counter, so a mark set meanwhile fails the guard).
+    const minorPays = await minorPayerDocuments(ctx.db, points, parties.payer);
+    if (minorPays.length) throw minorPayerRefusal(minorPays);
     if (due.length) throw dueRefusal(due);
     return { guards: [agreementsGuard(rev)], guestRows: NOTHING.guestRows };
   }
@@ -256,4 +271,68 @@ export async function enforceEntry(
   });
   if (due.length) throw dueRefusal(due);
   ctx.write(agreementsGuard(rev));
+}
+
+/** Staff who may act on agreements: admins, and anyone granted agreements:manage. */
+async function agreementManagers(ctx: HandlerContext): Promise<string[]> {
+  const { rows } = await sql<{ id: string }>`SELECT id FROM core_user
+    WHERE kind = 'human' AND deactivated_at IS NULL AND pack_role IS NULL
+      AND (role = 'admin' OR EXISTS (SELECT 1 FROM json_each(coalesce(granted_permissions, '[]'))
+        WHERE value = 'agreements:manage'))
+    ORDER BY id`.execute(ctx.db);
+  return rows.map((r) => r.id);
+}
+
+/**
+ * A guest's purchase whose address matched a Person who is a minor (coordinator decision of
+ * 2026-11-23 on the review of PR #280, owner to confirm; ADR 0644). Checkout cannot refuse it
+ * without saying the address is a child's, so the purchase stands; the guest's acceptances count
+ * for nothing after it (a guest's never do, and a minor's own never do), so the child stays due
+ * (reason `guardian`) until a parent, a guardian or a paper form agrees. Staff who may act on it
+ * are told, in the batch that settles it: a notice for the person only, naming the order or the
+ * checkout and nothing of the documents or the answers. Queued only while the purchase still has
+ * guest acceptances with no Person (so once).
+ */
+export async function guestMinorNotice(
+  ctx: HandlerContext,
+  link: { orderId?: string; subscriptionCheckout?: string },
+  personId: string | null,
+): Promise<void> {
+  if (!personId || (!link.orderId && !link.subscriptionCheckout)) return;
+  const pending = await ctx.db
+    .selectFrom("core_agreement_acceptance")
+    .select("id")
+    .where("by", "=", "guest")
+    .where("person_id", "is", null)
+    .where(
+      link.orderId ? "order_id" : "subscription_checkout",
+      "=",
+      (link.orderId ?? link.subscriptionCheckout) as string,
+    )
+    .executeTakeFirst();
+  if (!pending) return;
+  if (!isMinor(await personFacts(ctx.db, personId))) return;
+  const to = await agreementManagers(ctx);
+  if (!to.length) return;
+  const what = link.orderId
+    ? `Order ${link.orderId}`
+    : `Subscription checkout ${link.subscriptionCheckout}`;
+  const plan = await notifyStatements(
+    ctx.db,
+    {
+      to: to.map((userId) => ({ userId })),
+      type: "system.message",
+      title: "A guest's purchase was for someone marked as a minor",
+      body:
+        `${what} was paid as a guest with the address of a Person who is a minor. What it ` +
+        "bought stands; the agreements typed with it do not count for them. A parent or " +
+        "guardian agrees for them, or staff record a paper form, before they book or buy again.",
+      link: { kind: "record", object: "person", id: personId },
+      dedupeKey: `agreement-guest-minor:${link.orderId ?? link.subscriptionCheckout}`,
+      humanOnly: true,
+      source: { actor: "system" },
+    },
+    ctx.now,
+  );
+  ctx.write(...plan.statements);
 }

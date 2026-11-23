@@ -1448,3 +1448,13 @@ Deviations from the text above, and why:
   the reconciler's own change); "members with a booking ahead first" on the due list; the blocks
   that show what is due before "Pay" and "Book" (step 5). No e2e journey is in this step: each
   journey of criterion 16 needs step 5's screens.
+
+### Step 3: after the review of PR #280 (2026-11-23)
+
+Fixed in the same PR (ADR 0644 amended): a minor who would pay where the payer must agree is
+refused (`minor_payer`; a parent or guardian buys it). **Coordinator decisions, owner to
+confirm:** a guest's acceptance counts only for its own purchase, never at a later point; a
+guest's purchase with a minor's address stands, the child stays due for a guardian, and staff
+with `agreements:manage` are told. `order.setPerson` takes only a Person with the order's
+address, and a minor only once nothing is due. Left as a follow-up (an issue): staff-given
+enrolments and hand-made tickets are not asked while `givePass` is.
