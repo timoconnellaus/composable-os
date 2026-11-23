@@ -17,38 +17,47 @@ jobs:
   # file at the root (scripts/ci-docs-only.mjs), the build, unit and Playwright jobs are skipped
   # and only the document checks run. If the diff cannot be worked out, everything runs.
   #
-  # This job also picks the runner every job that does real work runs on (ADR 0630, and
-  # CONTRIBUTING.md, How CI is laid out). It and the small jobs (the documents check and the two
-  # that gather results) stay on GitHub-hosted runners: they take seconds, and GitHub starts them
-  # in one or two.
+  # This job also picks the runners (ADR 0630; CONTRIBUTING.md, How CI is laid out). There are two
+  # lanes:
+  # - `fast`, the Namespace profile (8 vCPU, a cache volume), for the jobs on the critical path:
+  #   the e2e shards, typecheck and the unit shards marked `critical` in scripts/ci-unit-shards.mjs.
+  #   The profile runs at most eight runners at once across every run, so only those go there.
+  # - `standard`, GitHub's runners, for every job that finishes well before the e2e shards do
+  #   (lint, the npm packages, the landing page, the control plane, the other unit shards).
+  # This job, the documents check and the two that gather results run on GitHub's runners too:
+  # they take seconds, and GitHub starts them in one or two.
   changes:
     name: What changed
     runs-on: ubuntu-latest
     outputs:
       docs_only: ${{ steps.diff.outputs.docs_only }}
       unit_matrix: ${{ steps.unit.outputs.matrix }}
-      runner: ${{ steps.runner.outputs.runner }}
+      fast: ${{ steps.runner.outputs.fast }}
+      standard: ${{ steps.runner.outputs.standard }}
     steps:
-      # The one place the runner is chosen.
-      # - A pull request from a fork runs on GitHub's runners, always: a stranger's change must not
-      #   spend this repository's Namespace minutes or read its cache volume. (A pull request whose
-      #   head repository is gone counts as a fork.)
-      # - Everything else (pushes to main, pull requests from this repository's branches) runs on
-      #   the Namespace profile, unless the repository variable CI_RUNNER names another runner:
-      #   set it to `ubuntu-latest` (Settings → Secrets and variables → Actions → Variables) to
-      #   move CI back to GitHub's runners without a commit, for instance when Namespace is down.
+      # The one place the runners are chosen.
+      # - A pull request from a fork runs on GitHub's runners, always, whatever the variables say:
+      #   a stranger's change must not spend this repository's Namespace minutes or reach its cache
+      #   volume. (A pull request whose head repository is gone counts as a fork.)
+      # - Everything else (pushes to main, pull requests from this repository's branches) uses the
+      #   lanes above. The repository variables CI_FAST_RUNNER and CI_STANDARD_RUNNER replace them
+      #   (Settings → Secrets and variables → Actions → Variables), with no commit: set
+      #   CI_FAST_RUNNER to `ubuntu-latest` when Namespace is down, or CI_STANDARD_RUNNER to
+      #   `namespace-profile-composable-os` if the profile can run more at once.
       - id: runner
         env:
           FORK: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
-          OVERRIDE: ${{ vars.CI_RUNNER }}
+          FAST: ${{ vars.CI_FAST_RUNNER }}
+          STANDARD: ${{ vars.CI_STANDARD_RUNNER }}
         run: |
           if [ "$FORK" = true ]; then
-            runner=ubuntu-latest
+            fast=ubuntu-latest standard=ubuntu-latest
           else
-            runner=${OVERRIDE:-namespace-profile-composable-os}
+            fast=${FAST:-namespace-profile-composable-os} standard=${STANDARD:-ubuntu-latest}
           fi
-          echo "runner=$runner" >> "$GITHUB_OUTPUT"
-          echo "Jobs run on: $runner"
+          echo "fast=$fast" >> "$GITHUB_OUTPUT"
+          echo "standard=$standard" >> "$GITHUB_OUTPUT"
+          echo "fork: $FORK; fast lane: $fast; standard lane: $standard"
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
@@ -95,7 +104,7 @@ jobs:
     name: Lint
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
-    runs-on: ${{ needs.changes.outputs.runner }}
+    runs-on: ${{ needs.changes.outputs.standard }}
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
@@ -105,7 +114,7 @@ jobs:
     name: Typecheck
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
-    runs-on: ${{ needs.changes.outputs.runner }}
+    runs-on: ${{ needs.changes.outputs.fast }}
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
@@ -117,12 +126,13 @@ jobs:
   # packages each shard runs, and `pnpm lint` checks that every package's tests run exactly once).
   # Each shard is `turbo run test` over its packages, so tests still get their `^typecheck` first;
   # nothing is cached between runs. The gatekeepers and the rest keep `--concurrency=2`, and the
-  # gatekeepers' shard then runs gatekeeper-microsoft's timing tests alone.
+  # gatekeepers' shard then runs gatekeeper-microsoft's timing tests alone. The shards marked
+  # `critical` there run on the fast lane, the others on the standard one.
   unit:
     name: Unit ${{ matrix.shard }}
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
-    runs-on: ${{ needs.changes.outputs.runner }}
+    runs-on: ${{ matrix.critical && needs.changes.outputs.fast || needs.changes.outputs.standard }}
     strategy:
       # Let every shard finish, so one failure shows all the others too.
       fail-fast: false
@@ -144,7 +154,7 @@ jobs:
     name: npm packages
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
-    runs-on: ${{ needs.changes.outputs.runner }}
+    runs-on: ${{ needs.changes.outputs.standard }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -184,7 +194,7 @@ jobs:
     name: Landing page (Playwright)
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
-    runs-on: ${{ needs.changes.outputs.runner }}
+    runs-on: ${{ needs.changes.outputs.standard }}
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
@@ -209,7 +219,7 @@ jobs:
     name: E2E shard ${{ matrix.shard }}/4
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
-    runs-on: ${{ needs.changes.outputs.runner }}
+    runs-on: ${{ needs.changes.outputs.fast }}
     strategy:
       # Let every shard finish, so one failure shows all the others too.
       fail-fast: false
@@ -235,7 +245,7 @@ jobs:
     name: E2E control plane
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
-    runs-on: ${{ needs.changes.outputs.runner }}
+    runs-on: ${{ needs.changes.outputs.standard }}
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup

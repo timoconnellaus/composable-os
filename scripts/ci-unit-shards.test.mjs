@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { coverageProblems, restShard, SHARDS, turboArgs } from "./ci-unit-shards.mjs";
+import { coverageProblems, matrix, restShard, SHARDS, turboArgs } from "./ci-unit-shards.mjs";
 
 const core = (i, n) => ({ name: `core ${i}/${n}`, group: "core", args: [`--shard=${i}/${n}`] });
 
@@ -65,4 +65,14 @@ test("a shard that runs nothing fails", () => {
     { shard: { name: "empty" }, packages: [] },
   ];
   assert.deepEqual(coverageProblems(["a"], runs), ['shard "empty" runs no tests']);
+});
+
+test("the matrix names every shard once and marks the critical ones", () => {
+  assert.deepEqual(matrix([{ name: "a", critical: true }, { name: "b" }]), {
+    include: [
+      { shard: "a", critical: true },
+      { shard: "b", critical: false },
+    ],
+  });
+  assert.equal(matrix().include.length, SHARDS.length);
 });
