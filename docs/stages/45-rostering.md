@@ -34,7 +34,10 @@ and the Rostering pack's spine, is built ([ADR 0625](../adr/0625-restricted-pack
 step 4" below). Build step 6, pay periods (who is counted, totals with evidence, the not-worked
 mark, the lock, reopening and the export), is built ([ADR
 0627](../adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md), migration 0813; see
-"Built in step 6" below). Builds on stage
+"Built in step 6" below). Build step 7, the screens as blocks (web and native), role clients with
+grants and `cos rostering import`, is built ([ADR
+0629](../adr/0629-the-rosters-screens-role-clients-with-grants-and-the-roster-import.md), no
+migration; see "Built in step 7" below). Builds on stage
 31a (built) and ADR 0600 (merged). Replaces the roadmap's placeholder stage 40 (Rosters), which was
 never specced. Where this spec guesses, it says **(guess)**.
 
@@ -961,6 +964,64 @@ triggers). No `core_write_guard` remake (0852 stays free). All new operations ar
   minutes and the times of a shift that has started are a rosterer's to change; a redacted input
   in the approval queue is read only by someone who could approve it; every CSV text cell quoted.
 - **Not in this step**: the screens (7), `staffing.forget`, overtime or any pay rule.
+
+### Built in step 7 (2026-11-24)
+[ADR 0629](../adr/0629-the-rosters-screens-role-clients-with-grants-and-the-roster-import.md)
+(amends ADR 0451). No migration. ADR 0628 is left to the calendar feed (step 5).
+- **The blocks** (`packs/rostering/blocks`), over the pack's headless entry
+  (`@composable-os/pack-rostering/client`, as every pack's: Bookings' and Ticketing's are the same
+  shape): on the web, `rostering-week` (the week grid, days across from 768 px and one under another
+  on a phone; each shift's kind colour, place and person; uncovered and my own marked; an open
+  offer shown; read only for the team, and for a rosterer each shift opens its assign panel:
+  eligible people first and the rest with the host's warnings or the shift they would clash with,
+  "back to the pattern", nobody on it, offer to everyone, and mark not worked once its day has
+  come), `rostering-patterns` (the regular week, a pattern's person from a date),
+  `rostering-qualifications` (people down, kinds across, a tick each), `rostering-away` (everyone's
+  time off by week, adding or ending someone's) and `rostering-pay` (periods, who is counted, a
+  period's totals with its evidence and flags, lock, reopen, the CSV); on the web and in the app,
+  `rostering-my-shifts` (offer, withdraw, my open offers), `rostering-offers` (take, with the
+  unavailable confirmation), `rostering-my-availability` (leave and regular time off; the shifts it
+  covers offered in one step) and, in the app, `rostering-native-roster` (the week day by day).
+  The native blocks use the native base only: dates and times are typed (no date picker module).
+- **Where the next steps go**: the calendar feed's block (step 5) is `my-shifts`' `calendar` slot;
+  a duty shift's checklist (step 4b) is the `shiftExtra` slot of `my-shifts` and the week grid.
+- **Decided here: what a screen needed is the host's** (no rule in a block, ADR 0405). New
+  tool-only operations, each behind one Rostering tool: `staffing.me` (`me`, team: whether the
+  reader rosters and handles pay, the zone, today there, the cut-off), `staffing.candidates`
+  (`candidates`, manage: who could be put on a shift, from the write's own dry run),
+  `staffing.people` (`people`, manage: the staff and the kinds of work), `staffing.patterns` and
+  `staffing.setPattern` (`patterns`, `setPattern` with `personApproves`: the regular week and a
+  pattern's person from a date, refused whole on a clash), `staffing.follow` (`follow`,
+  `personApproves`: back to the pattern) and `staffing.planCheck` (`planCheck`, `humanOnly`: the
+  import's dry run). `staffing.week` answers `days` (each local date's hours in the zone: a clock
+  change is 23 or 25), and `staffing.payBases { everyone }` lists every active account. A coach
+  granted `rostering:manage` rosters through these, as an admin does (they hold no core
+  permission, so `recurring.change` and `recurring.follow` were out of their reach).
+- **Who sees what**: every screen asks `me` first, so no block fetches what its reader may not
+  see: a team member's week is read only and carries no warnings; the patterns, qualifications and
+  everyone's time off show only to a rosterer, pay only to a person who handles pay. Notes, reasons
+  and pay figures are kept in the app's cache no longer than they are shown (`gcTime: 0`), what was
+  sent is forgotten after the call (`forgetAfter`) and the web screens hide them on leaving the
+  page and read them again when the browser brings it back. The CSV is fetched when asked and
+  handed over as a file.
+- **Refusals**: `rosterRefusal` gives each rule its own state (`double_booked` with the dates and
+  the other shift, `nobody_qualified`, `offer_stale`, `offer_taken` naming who, `offer_closed`,
+  `offer_cutoff`, `unavailable_confirm`, `rostering`, `pay_period_locked`, `pay_period_held`,
+  `roster_changed`, `deactivate_confirm` and the rest), keeping the host's words.
+- **Role clients with grants**: the release's `roles.json` lists each grantable permission with
+  the tools it opens; `mobile.roles` takes `{ role: "bookings.coach", grants: ["rostering:roster"] }`,
+  and that role's client holds the granted tools too (`rostering.team`'s needs none).
+- **`cos rostering import <roster.csv>`** (the spec's guess, built): duties as weekly patterns or
+  one-off shifts with their person; a dry run unless `--apply`; staff never made; every row checked
+  in one call by the host's own clash check (`planCheck`), clashes named by title and start (both
+  ended: reported only), away and not-qualified dates as warnings; a clashing one-off shift made
+  with nobody on it, a pattern made with its person and each clashing date left uncovered by the
+  host; through `record.create` as the person who signed in; nothing made twice on a re-run.
+  `docs/importing.md` says how.
+- **Not in this step**: the checklist blocks (4b, not built), the calendar block (step 5, in
+  progress), Settings → Rostering and Users (the host admin's existing screens serve), a native
+  rosterer's screen (rostering is on the web), and a device test: the app's screens are typed and
+  linted against the role clients but not yet tried on a phone.
 
 **The spine is steps 2 to 4**: without the claim, the rules and the permissions, nothing can be
 rostered safely. Step 1 is built; step 2 can start now and is the riskiest (every write that covers

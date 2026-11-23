@@ -6,7 +6,8 @@ host, as the person who runs it. It is the platform's door for writing content f
 checked and audited as theirs. `cos courses import` is the same door for a course platform's
 courses, videos and students' access ([below](#courses-cos-courses-import), ADR 0495), and `cos
 subscriptions offers import` for subscribers moving from another platform
-([below](#subscribers-cos-subscriptions-offers-import), ADR 0491).
+([below](#subscribers-cos-subscriptions-offers-import), ADR 0491), and `cos rostering import` for
+duties and who works them ([below](#the-roster-cos-rostering-import), ADR 0629).
 
 ```bash
 cos content import ./export --host https://admin.example.com              # by the browser
@@ -405,3 +406,65 @@ period's end**, and chase the rest before their date. Withdraw an offer made in 
 - You are staff with `subscriptions:manage` (admins have it), and `users:manage` for `--invite`.
 - Payments with the company's own provider account, set up and tried in test mode first
   ([docs/subscriptions-stripe-runbook.md](subscriptions-stripe-runbook.md)).
+
+## The roster: `cos rostering import`
+
+Duties that are not classes (cleaning, opening up) are rarely in a booking system, so they move in
+with this command (stage 45, [ADR 0629](adr/0629-the-rosters-screens-role-clients-with-grants-and-the-roster-import.md)):
+each as a **weekly pattern** (a duty series and its regular person) or a **one-off shift**. Classes,
+their series and coaches come in through the booking import (stage 31's door). The same door as
+the others: the file is checked before anyone signs in, the sign-in lasts for the run, and every
+write is an operation your session calls.
+
+```bash
+cos rostering import roster.csv --host https://admin.example.com              # a dry run
+cos rostering import roster.csv --host https://admin.example.com --apply      # writes
+```
+
+**It is a dry run unless `--apply`**: it reports what it would make and every clash, and writes
+nothing. `--email` works as for content. It exits 0 when the file went through (clashes are
+reported, not failures), 1 on a problem (nothing written), and 2 on a wrong command line.
+
+### The file
+
+A CSV with a header row; columns in any order, extra ones ignored. Each row is a weekly pattern
+(`weekdays` and `first_date`) or one shift (`date`), never both.
+
+| Column | | What |
+| --- | --- | --- |
+| `duty` | required | The duty's name (`Close-down clean`). A duty of that name is used; otherwise one is added. |
+| `time` | required | The local start time, `HH:MM` (`18:00`). |
+| `length` | required | Whole minutes, 1 to 1440. |
+| `weekdays` | a pattern | The days it repeats (`Mon Wed Fri`, `mon;wed`, `Monday, Friday`). |
+| `first_date`, `last_date` | a pattern | Its first date (`YYYY-MM-DD`), and its last (empty: ongoing). |
+| `date` | one shift | Its date (`YYYY-MM-DD`). |
+| `staff_email` | optional | Who works it (empty: nobody, an uncovered shift). |
+| `zone` | optional | An IANA time zone (`Australia/Sydney`); the organisation's when empty. |
+| `place` | optional | A new duty's place. |
+
+### What it does
+
+- **Staff come first.** Accounts are never made by an import (ADR 0455): invite each person on
+  Settings → Users first, with the role they should hold (a cleaner the rostered team role; a coach
+  the coach role and the Rostering grant). A row naming an address with no staff account stops the
+  run, listed with its line, before anything is written.
+- **The host checks every row** in one call, against the roster as it stands and against the other
+  rows: the same check every write and an upgrade make, so one person is never on two shifts at
+  once. Each date that would clash is named with the other shift's title and start. A one-off shift
+  that clashes is made with nobody on it; a pattern is made with its person, and the host makes each
+  clashing date with nobody on it and tells whoever rosters. A clash between shifts that have both
+  ended is reported only. Dates the person said they are away, and a duty they are not marked as
+  qualified for, are listed as warnings: they are imported, as a rosterer's own write would be.
+- **A pattern's shifts** are made by the host over the next minutes, as far ahead as the duty
+  horizon (8 weeks by default), each with its person; the clash check covers the same dates.
+- **A re-run makes nothing twice**: a duty by its name, a pattern by its duty, days, time and first
+  date, a shift by its duty and start.
+- **Not imported**: time off (staff enter it), who is counted for pay (the owner sets it), past pay.
+  Who may do which duty is set on the qualifications screen.
+
+### What the host needs
+
+- The Rostering pack installed, and the staff invited.
+- You roster: an admin, or granted Rostering's "rosters others" permission, signed in as yourself
+  (the check reads people's time off, so it is a person's own call, never an assistant's).
+

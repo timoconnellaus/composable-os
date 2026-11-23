@@ -80493,6 +80493,33 @@
                 },
                 "notQualified": {
                   "type": "boolean"
+                },
+                "first": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "date": {
+                          "type": "string"
+                        },
+                        "startsAt": {
+                          "type": "string"
+                        },
+                        "endsAt": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "date",
+                        "startsAt",
+                        "endsAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               },
               "required": [
@@ -80500,7 +80527,8 @@
                 "dates",
                 "clashes",
                 "away",
-                "notQualified"
+                "notQualified",
+                "first"
               ],
               "additionalProperties": false
             }

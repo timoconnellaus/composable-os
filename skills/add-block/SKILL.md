@@ -60,7 +60,15 @@ buttons, fields, lists, sheets, or a pack's screens. Blocks ship inside the plat
    `@composable-os/client` itself. Pass the same `agreements` to Bookings' and Memberships'
    blocks that buy or book, so what must be agreed to first shows inline; in the web app allow
    the operations their block.json lists (`agreement.guestVersions` among them, for a visitor),
-   and the template's `agreementPdfRoute` serves a person's signed PDF on the app's hostname. Content's
+   and the template's `agreementPdfRoute` serves a person's signed PDF on the app's hostname.
+   Rostering's blocks (`rostering-*`) take `rostering`: `createRosteringHooks({ useQuery,
+   useMutation }, api)` from `@composable-os/pack-rostering/client`. They are staff screens: in
+   the app, `api` is a role client, `rostering.team`'s for someone rostered with no other access,
+   or a coach's generated with the grant (`mobile.roles: [{ role: "bookings.coach", grants:
+   ["rostering:roster"] }]` in `product.ts`, then `cos client generate`); on the web they need a
+   staff client, which a client web app does not have (its binding never serves staff). Each asks
+   the host who is reading first and shows the rosterers' and pay screens only to who may see
+   them. Content's
    rich text blocks (`content-rich-text`, `content-native-rich-text`) take the document itself
    and find pictures by themselves on the web: the template's `src/host.ts` has `mediaRoute`, which
    `src/server.ts` calls, forwarding `GET /api/media/<id>?w=` to the host over the binding (in an
