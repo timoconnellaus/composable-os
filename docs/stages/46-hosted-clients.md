@@ -378,12 +378,11 @@ control plane's.
 
 Step 9 can run beside steps 3 to 8 after step 2.
 
-## Step 1: results so far (2026-11-23)
+## Step 1: results (2026-11-23)
 
-Run on the fleet's account with throwaway Workers in a throwaway namespace, uploaded with
-`wrangler deploy --dispatch-namespace` (wrangler 4.93.0). Everything made for it was deleted
-afterwards. Three checks are not finished: they need calls to the Cloudflare API that wrangler
-does not make for a namespace, so they wait for an API token.
+Run on the fleet's account with throwaway Workers in a throwaway namespace, first with
+`wrangler deploy --dispatch-namespace` (wrangler 4.93.0), then with the Cloudflare API directly,
+the way the deploy engine uploads. Everything made for it was deleted afterwards.
 
 | Check | Result |
 | --- | --- |
@@ -391,27 +390,38 @@ does not make for a namespace, so they wait for an API token.
 | `scheduled()` called from the dispatch Worker on a namespace Worker | **Works**: the handler ran and received the cron expression |
 | A namespace Worker reaching an ordinary Worker in the account by service binding, plain and to a named entrypoint | **Works**, both |
 | A queue producer in a namespace Worker | **Works** |
-| A service binding from one namespace Worker to another, by name | **Refused at upload**: "references Worker … which was not found" (code 10143). A binding's name is looked up among the account's ordinary Workers. Not yet tried: the upload API called directly, in case its service binding takes a namespace |
-| One namespace Worker reaching another through a `dispatch_namespace` binding of its own | **Works for `fetch` and for calls on the default export.** A named entrypoint cannot be chosen this way |
-| A queue consumer on a namespace Worker | **Not finished.** `wrangler deploy` did not attach it and `wrangler queues consumer add` refuses the script (code 10007, not on the account). The deploy engine's own call (`putQueueConsumer`) is not yet tried |
-| Workflows in a namespace Worker | **Not finished.** `wrangler deploy` did not create the Workflow, so starting one failed with "Workflow does not exist". Creating it through the API is not yet tried |
+| One namespace Worker reaching another through a `dispatch_namespace` binding of its own | **Works for `fetch` and for calls on the default export.** A named entrypoint cannot be chosen, and the binding reaches every Worker in the namespace |
+| A service binding from one namespace Worker to another | **Refused at upload** (code 10143, "references Worker … which was not found"), by wrangler and by the API, with the binding as it is, with a `namespace` field and with a `dispatch_namespace` field. A binding's target is looked up among the account's ordinary Workers only |
+| A queue consumer on a namespace Worker | **Refused** (code 10007, "This Worker does not exist on your account"), by `wrangler queues consumer add` and by the API call the deploy engine makes (`putQueueConsumer`), with and without a namespace field |
+| Workflows in a namespace Worker | **Do not work.** Uploading the Worker with a `workflow` binding succeeds, but starting one fails with "Workflow does not exist". Creating the Workflow for a namespace Worker through the API fails (500, `workflows.api.error.internal_server`) |
 
-What this means for the design:
+What this means:
 
-- **The namespace can hold a client's host.** The check that would have ruled it out, Worker
-  Loader, passed.
-- **The host's bindings to named entrypoints need a decision in step 2.** The web app's `HOST`
-  binding (`ClientApp`) and the runner's gatekeeper bindings (`GatekeeperVendor`) are named
-  entrypoints on another namespace Worker. Unless the upload API allows it directly, the choices
-  are:
-  - **Through a platform Worker.** Each host Worker binds to an entrypoint on `cos-fleet` (which
-    works), and `cos-fleet` passes the call to the one sibling that host is allowed to reach.
-    No host can name another client's Worker. Preferred.
-  - **A `dispatch_namespace` binding on the host's Workers,** with the entrypoints reached through
-    the default export. Simpler, but that binding can reach every Worker in the namespace, so one
-    client's host could call another's. Refused unless nothing else works.
-- **Crons need no fallback:** `cos-dispatch` calls `scheduled()` as designed.
-- **The Stream broker can be an ordinary service binding** to `cos-fleet`.
+- **Worker Loader, the check that would have ruled the namespace out, passed.** Crons and the
+  Stream broker work as designed.
+- **Three things a host uses do not work in a namespace:** service bindings between a host's own
+  Workers (app to runner, runner to gatekeepers, web app to app), queue consumers (the app and the
+  runner each consume a queue) and Workflows (the runner's automations).
+- **By this spec's own fallback table,** the Workers that consume queues or run Workflows must be
+  ordinary Workers, and those are the app and the runner: the whole host. That is ADR 0210's
+  `account` placement: every hosted client's Workers as ordinary Workers in our account.
+
+The two ways forward, for the owner to choose between (decision 1 named the namespace):
+
+| | Ordinary Workers in our account | Change the host to fit the namespace |
+| --- | --- | --- |
+| What changes | Nothing in the host. The deploy engine deploys this way today: versions, crons, queues, Workflows, bindings and Custom Domains all as they are | Calls between a host's Workers go through `cos-fleet`; `cos-fleet` consumes every client's queues and passes each batch on; Workflows run in an ordinary Worker per client or are replaced |
+| Limit | 500 Workers in the account unless Cloudflare raises it: about 30 clients with a staging and a live host each | 1,000 Workers included, then US$0.02 each |
+| Lost | Per-client CPU limits at the dispatch Worker; one tag to delete a client by | Versions and gradual deploys; simple bindings |
+| Still needed either way | The registry, the fleet update and holds, the Stream broker, usage, the move, custom hostnames for a client's own domain | The same |
+| Workers for Platforms | Not needed until the standard tier or the limit | Needed now |
+
+**Proposed: ordinary Workers in our account now.** It needs no change to the host and none of the
+three failures applies. Everything else in this spec stays, with `cos-dispatch` needed only for a
+client's own domain when its DNS is elsewhere. The namespace is looked at again for the standard
+tier, or when the fleet nears the limit, or when Cloudflare supports these in a namespace. The
+`hosting: "fleet"` field and the registry do not say which of the two a host is on, so a host can
+be moved from one to the other later without the client noticing.
 
 ## Decided by this spec, open to override
 
