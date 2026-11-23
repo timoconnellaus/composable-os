@@ -1652,6 +1652,45 @@ ScrollView takes a stroke away on iOS or Android inside the timetable (which can
 still), and how smooth the View-drawn line is, need a device. The web pad was driven by mouse
 events in desktop Chromium and at phone width; touch and pen input on a real device were not.
 
+### Step 5: after the review of PR #291 (2026-11-24)
+
+Fixed in the same PR (ADR 0644's amendment corrected):
+
+- **Nothing a person gave stays in the app's cache.** `gcTime: 0` removes a mutation only once no
+  screen uses it, so every call that carries a name typed, a signature or answers
+  (`me.agreements.accept`, a visitor's buying call) goes through `forgetAfter`, which resets the
+  mutation whether it succeeded or failed (tested against TanStack Query's own observer). A
+  visitor's agreements are held in the buying block's state only: kept when the purchase fails for
+  another reason (network, card) so nothing is typed twice, forgotten once it starts, on Back, and
+  when the page is left or brought back from the back-forward cache (`useForgetOnLeave`).
+- **`agreement.guestVersions` returns only the version in effect**, never one scheduled for later.
+- **The native step is on a screen of its own** (`AgreementStepModal`, a modal over the list),
+  whose scroll holds still while a signature is drawn; the native pad redraws at most once a frame
+  and only the run of lines being drawn, and a second finger draws nothing.
+- **One pointer draws on the web pad** (`isPrimary`, and `StrokeRecorder` follows one pointer id).
+- **Purchases**: a second refusal on the retry, and a network failure, each have their words
+  (`purchaseErrorWords`); the "copy is on its way" line is shown in the drop-in, plans, passes and
+  both timetables; a visitor is told the copy follows the payment.
+- **A point declares whether its pack's screens let a person agree** (`inlineStep` on the
+  `agreements` declaration; Memberships and Bookings set it). The document page warns when a
+  document is attached to a point without it (Ticketing's `event`, Courses' `course`), and those
+  packs' checkouts say "This needs an agreement that can't be given here yet" for the host's
+  refusal. The real steps there are an issue.
+- **The template's routes** answer a bad percent-encoding with 400, and the PDF route keeps the
+  session; the mobile Account names whose document is due.
+- **The e2e spec** is skipped against a reused server unless `E2E_AGREEMENTS_REUSED=1`, puts the
+  customer and order settings back after each test, and draws the `@phone` signature with touch
+  events. Its retiring of every live document happens at the start and end of its own tests only;
+  specs run one at a time, and the step 8 spec (`agreements-kept.spec.ts`) makes its own document
+  inside its test, so nothing of it is retired while it runs.
+
+What a device test must check (not verified here): on an iPhone and an Android phone, in the
+native timetable's agreement step (the modal) and on Before you go on and My agreements: a
+signature drawn top to bottom and fast is not cut off or turned into a scroll; the line follows the
+finger without lag; a second finger on the pad draws nothing; Clear empties it; the keyboard does
+not cover the name field; VoiceOver and TalkBack read the tick label, the questions and the pad's
+state; the modal closes with the system back gesture; and a booking goes through after agreeing.
+
 ## Step 8: build notes (`feat/stage-44-erase`, 2026-11-23)
 
 Built: migration 0855 (`core_agreement_hold`; the acceptance's update trigger made again with one
