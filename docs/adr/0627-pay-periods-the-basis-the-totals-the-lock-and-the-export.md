@@ -130,3 +130,43 @@ figure. Tool runs store no output. The pay tables are core tables in no `rec_*` 
 - `staffing.forget` (not built) must keep locked lines, as the spec says.
 - Overtime, penalty rates and minimum engagements are payroll's (out of scope); the export is the
   input it needs.
+
+## Amended 2026-11-23 (review of PR #287, before merge)
+Migration 0813 was edited in place (unmerged); a local or preview database that applied the
+earlier version must be rebuilt.
+- **A redacted input in the approval queue** (a not-worked reason, a leave note, how someone is
+  counted) is shown by `approval.get` and `approval.status` only to a reader who could approve the
+  action themselves: for a restricted tool, someone holding it (`staffAuthority`); for a write of
+  who works a shift or of what pay is totalled from, a rosterer; otherwise someone who may approve
+  at all. Anyone else reads `[redacted]` in the input, the preview and the simulated output
+  (`packages/core/src/approvals/redact.ts`). The queue's list and its notices carry no input.
+- **A change of the pay period after a lock** (a coordinator's decision, the owner being asked):
+  locked and reopened periods keep their dates and instants; any other date is in the setting's
+  period for it, cut short where it would reach into a stored period (`periodFor`). So a change of
+  length, start date, monthly day or zone takes effect from the day after the last stored period,
+  a gap left between locks is its own period, and next to a stored period a period starts or ends
+  at its very instant: periods never overlap or leave a gap, and every shift is in exactly one.
+  Every rule can be lined up this way, so none is refused; totals, exports and locks of a range
+  overlapping a locked period are refused all the same (`pay_period_held`).
+- **The lock's index** is `(state, ends, starts)` and the triggers test the end first, so a
+  shift's write reads only the periods ending after its start, however many are locked.
+- **Two locks at once**: the losers are answered `pay_period_held` (`core_pay_period_held`).
+- **A not-worked mark follows its shift**: a trigger keeps the mark's start (and id) current when
+  the shift moves, so its lock and the lock's fingerprint read where the shift is now.
+- **The CSV** quotes every text cell, and neutralises a cell whose first non-space character is a
+  formula character (full-width forms too), that starts with a tab, carriage return or line break,
+  or that has a formula character after a separator (`a;=1+1`). A line across a clock change
+  carries a note saying its local times and its minutes worked differ.
+- **What pay is totalled from is a rosterer's** where a pack declares who rosters (a coordinator's
+  decision, the owner being asked), in ADR 0626's host check (`assertRosterWrite`,
+  `touchesRoster`): a kind's set-up and pack-down minutes (an AI's change approved only by a
+  rosterer), and the times of a shift that has started, or a move of one to before now. A future
+  shift's times stay whoever may write it. With Bookings alone, unchanged. (Cancelling a started
+  class is still a member's, as before: it counts for nothing, which the totals show.)
+- **`staffing.payBases`** answers `truncated` past 2,000 rows.
+- **Correcting who is counted inside a reopened period**: the basis trigger refuses a date on or
+  before the last day of any locked period, so correcting a basis in an early reopened period means
+  reopening every later locked period too, then locking each again.
+- **A purged coach profile's classes drop from a re-lock**: a profile in the Trash may be purged
+  after a lock (the purge must not fail); its locked lines keep it, but locking that period again
+  after a reopen no longer counts those classes.

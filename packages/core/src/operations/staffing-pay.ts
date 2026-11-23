@@ -30,11 +30,11 @@ import {
   type PeriodRange,
   payConfig,
   payCsv,
-  periodContaining,
   periodFingerprint,
+  periodFor,
   periodLines,
-  periodRange,
   readFingerprint,
+  type StoredPeriod,
   totalsOf,
 } from "../staffing/pay.ts";
 import { actingAccount, isPayer, staffName } from "../staffing/rosterers.ts";
@@ -77,9 +77,38 @@ async function requireConfig(ctx: HandlerContext): Promise<PayConfig> {
   return config;
 }
 
+/**
+ * The locked and reopened periods (each start's latest version), whose dates and instants hold
+ * whatever the setting or the zone says since.
+ */
+async function storedPeriods(ctx: HandlerContext): Promise<StoredPeriod[]> {
+  const rows = await ctx.db
+    .selectFrom("core_pay_period")
+    .select(["start_date", "end_date", "zone", "starts", "ends", "version"])
+    .where("state", "in", ["locked", "reopened"])
+    .orderBy("start_date")
+    .orderBy("version")
+    .execute();
+  const latest = new Map<string, StoredPeriod>();
+  for (const r of rows) {
+    latest.set(r.start_date, {
+      start: r.start_date,
+      end: r.end_date,
+      zone: r.zone,
+      starts: r.starts,
+      ends: r.ends,
+    });
+  }
+  return [...latest.values()];
+}
+
 /** The period starting on `start`, from the setting, or the refusal naming the right start. */
-function periodStarting(config: PayConfig, start: string): PeriodRange {
-  const range = periodContaining(config, start);
+function periodStarting(
+  config: PayConfig,
+  stored: readonly StoredPeriod[],
+  start: string,
+): PeriodRange {
+  const range = periodFor(config, stored, start);
   if (!range) {
     throw new ConflictError(
       "Set the date a pay period starts (Settings, Rostering) first: until then nothing is totalled.",
@@ -108,6 +137,9 @@ async function versionsOf(ctx: HandlerContext, starts: readonly string[]): Promi
     .orderBy("version")
     .execute()) as PeriodRow[];
 }
+
+const dayBefore = (date: string) =>
+  new Date(Date.parse(`${date}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
 
 const nowSeconds = (ctx: HandlerContext) => Math.floor(Date.parse(ctx.now) / 1000);
 
@@ -236,9 +268,33 @@ async function linesFor(
 
 /** The period asked for: a stored version's dates when one starts then, else the setting's. */
 async function rangeFor(ctx: HandlerContext, start: string): Promise<PeriodRange> {
-  const stored = (await versionsOf(ctx, [start])).at(-1);
-  if (stored) return periodRange(stored.start_date, stored.end_date, stored.zone);
-  return periodStarting(await requireConfig(ctx), start);
+  const stored = await storedPeriods(ctx);
+  const held = stored.find((p) => p.start === start);
+  if (held) return { ...held };
+  const range = periodStarting(await requireConfig(ctx), stored, start);
+  await assertNoLockedOverlap(ctx, range);
+  return range;
+}
+
+/**
+ * Refuses a range reaching into a locked period (its shifts would be counted twice). The periods
+ * periodFor works out never do; this holds whatever a later change of rule could make.
+ */
+async function assertNoLockedOverlap(ctx: HandlerContext, range: PeriodRange): Promise<void> {
+  const overlap = await ctx.db
+    .selectFrom("core_pay_period")
+    .select("start_date")
+    .where("state", "=", "locked")
+    .where("ends", ">", range.starts)
+    .where("starts", "<", range.ends)
+    .where("start_date", "!=", range.start)
+    .executeTakeFirst();
+  if (overlap) {
+    throw new ConflictError(
+      `The locked pay period starting ${overlap.start_date} overlaps this one, so its shifts would count twice.`,
+      { rule: "pay_period_held" },
+    );
+  }
 }
 
 // --- Who is counted ---------------------------------------------------------------------------------
@@ -334,6 +390,7 @@ export const staffingPayBases = defineOperation({
         ),
       }),
     ),
+    truncated: z.boolean().describe("More than 2,000 rows: ask for one person's (account)"),
   }),
   permission: "records:read",
   risk: "read",
@@ -347,7 +404,13 @@ export const staffingPayBases = defineOperation({
     const today = localDateOf(nowSeconds(ctx), timezone);
     let query = ctx.db.selectFrom("core_staff_pay_basis").selectAll();
     if (input.account) query = query.where("account_id", "=", input.account);
-    const rows = await query.orderBy("account_id").orderBy("from_date").limit(2000).execute();
+    const rows = await query.orderBy("account_id").orderBy("from_date").limit(2001).execute();
+    const truncated = rows.length > 2000;
+    // Never a person cut in half: drop the last account's rows when the answer is cut short.
+    if (truncated) {
+      const last = rows[2000]?.account_id;
+      while (rows.length && rows[rows.length - 1]?.account_id === last) rows.pop();
+    }
     const accounts = [...new Set(rows.map((r) => r.account_id))];
     const users = accounts.length
       ? await ctx.db
@@ -359,6 +422,7 @@ export const staffingPayBases = defineOperation({
     const names = new Map(users.map((u) => [u.id, u.name || u.email]));
     return {
       today,
+      truncated,
       items: accounts.map((account) => {
         const history = rows.filter((r) => r.account_id === account);
         let basis: (typeof PAY_BASES)[number] = "not_counted";
@@ -409,7 +473,8 @@ export const staffingPayPeriodList = defineOperation({
     const config = await requireConfig(ctx);
     const now = nowSeconds(ctx);
     const today = localDateOf(now, config.zone);
-    const current = periodContaining(config, today);
+    const stored = await storedPeriods(ctx);
+    const current = periodFor(config, stored, today);
     const setting = {
       period: config.period,
       start: config.start,
@@ -420,13 +485,13 @@ export const staffingPayPeriodList = defineOperation({
     const ranges: PeriodRange[] = [current];
     for (let i = 0; i < (input.count ?? 6); i++) {
       const first = ranges[0] as PeriodRange;
-      const prev = periodContaining(config, localDateOf(first.starts - 43_200, config.zone));
+      const prev = periodFor(config, stored, dayBefore(first.start));
       if (!prev || prev.start === first.start) break;
       ranges.unshift(prev);
     }
-    // Versions locked under another setting, inside this window, are shown too.
+    // Every version of the periods in this window.
     const first = ranges[0] as PeriodRange;
-    const stored = (await ctx.db
+    const versions = (await ctx.db
       .selectFrom("core_pay_period")
       .selectAll()
       .where("state", "!=", "locking")
@@ -435,22 +500,17 @@ export const staffingPayPeriodList = defineOperation({
       .orderBy("start_date")
       .orderBy("version")
       .execute()) as PeriodRow[];
-    for (const row of stored) {
-      if (!ranges.some((r) => r.start === row.start_date)) {
-        ranges.push(periodRange(row.start_date, row.end_date, row.zone));
-      }
-    }
     ranges.sort((a, b) => b.start.localeCompare(a.start));
     const periods = [];
     for (const r of ranges) {
-      const versions = stored.filter((v) => v.start_date === r.start);
+      const mine = versions.filter((v) => v.start_date === r.start);
       periods.push({
         start: r.start,
         end: r.end,
         zone: r.zone,
-        state: versions.some((v) => v.state === "locked") ? ("locked" as const) : ("open" as const),
+        state: mine.some((v) => v.state === "locked") ? ("locked" as const) : ("open" as const),
         ended: r.ends <= now,
-        versions: await Promise.all(versions.map((v) => versionOut(ctx, v))),
+        versions: await Promise.all(mine.map((v) => versionOut(ctx, v))),
       });
     }
     return { setting, set: true, periods };
@@ -549,11 +609,18 @@ export const staffingPayPeriodLock = defineOperation({
     if (versions.some((v) => v.state === "locked")) {
       throw new ConflictError("This pay period is already locked.", { rule: "pay_period_held" });
     }
-    // A reopened period keeps its dates; a new one takes the setting's.
+    // A reopened period keeps its dates and instants; a new one takes the setting's, next to
+    // the periods already locked.
     const last = versions.at(-1);
-    const range = last
-      ? periodRange(last.start_date, last.end_date, last.zone)
-      : periodStarting(config, input.start);
+    const range: PeriodRange = last
+      ? {
+          start: last.start_date,
+          end: last.end_date,
+          zone: last.zone,
+          starts: last.starts,
+          ends: last.ends,
+        }
+      : periodStarting(config, await storedPeriods(ctx), input.start);
     if (range.ends > nowSeconds(ctx)) {
       throw new ConflictError(
         `This pay period ends ${range.end}; it can be locked once it has ended.`,

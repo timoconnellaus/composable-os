@@ -274,6 +274,7 @@ describe("the declaration", () => {
         `${table(COACH)}__paylock_${table(KLASS)}_ins`,
         `${table(COACH)}__paylock_${table(KLASS)}_upd`,
         `${table(KLASS)}__paylock_del`,
+        `${table(KLASS)}__paylock_mark`,
         `${table(KLASS)}__paylock_ins`,
         `${table(KLASS)}__paylock_upd`,
       ].sort(),

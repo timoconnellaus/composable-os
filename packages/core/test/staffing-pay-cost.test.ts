@@ -229,12 +229,59 @@ describe("a pay period's cost with years of shifts", () => {
     expect(lines?.n).toBe(42);
   });
 
+  it("a shift's write reads a few periods however many are locked (the review of PR #287)", async () => {
+    const object = getObject(DUTY);
+    const col = (f: string) => object?.fields.find((x) => x.name === f)?.column as string;
+    const table = objectTableOf(DUTY) as string;
+    const move = async (hour: number) =>
+      (
+        await env.DB.prepare(
+          `UPDATE ${table} SET ${col("startsAt")} = ?, ${col("endsAt")} = ? WHERE id = 'future1'`,
+        )
+          .bind(
+            `2026-12-01T${String(hour).padStart(2, "0")}:00:00.000Z`,
+            `2026-12-01T${String(hour + 1).padStart(2, "0")}:00:00.000Z`,
+          )
+          .run()
+      ).meta.rows_read;
+    await env.DB.prepare(
+      `INSERT INTO ${table} (id, created_at, updated_at, name, ${col("startsAt")}, ${col("endsAt")}, ${col("state")}) VALUES ('future1', ?, ?, 'Later', '2026-12-01T00:00:00.000Z', '2026-12-01T01:00:00.000Z', 'scheduled')`,
+    )
+      .bind(NOW, NOW)
+      .run();
+    // 300 fortnights locked in 2000 to 2011, years of payroll.
+    const base = Date.UTC(2000, 0, 3) / 1000;
+    for (let i = 0; i < 300; i += 50) {
+      const batch: D1PreparedStatement[] = [];
+      for (let j = i; j < i + 50; j++) {
+        const s = base + j * 14 * 86_400;
+        const e = s + 14 * 86_400;
+        const sd = new Date(s * 1000).toISOString().slice(0, 10);
+        const ed = new Date((e - 86_400) * 1000).toISOString().slice(0, 10);
+        batch.push(
+          env.DB.prepare(
+            "INSERT INTO core_pay_period (id, start_date, end_date, zone, starts, ends, version, state, locked_by, locked_at) VALUES (?, ?, ?, 'UTC', ?, ?, 1, 'locking', 'x', 'x')",
+          ).bind(`ppcost${j}`, sd, ed, s, e),
+          env.DB.prepare("UPDATE core_pay_period SET state = 'locked' WHERE id = ?").bind(
+            `ppcost${j}`,
+          ),
+        );
+      }
+      await env.DB.batch(batch);
+    }
+    // A future shift moved: the lock's check reads the periods ending after it starts, none.
+    const rows = await move(2);
+    expect(rows).toBeLessThan(60);
+  });
+
   it("a shift's write finds the locked periods through their index", async () => {
     const plan = await env.DB.prepare(
       "EXPLAIN QUERY PLAN SELECT 1 FROM core_pay_period pp WHERE pp.state IN ('locking', 'locked') AND pp.starts <= ? AND pp.ends > ?",
     )
       .bind(1, 1)
       .all<{ detail: string }>();
-    expect(plan.results.map((r) => r.detail).join(" ")).toContain("core_pay_period_state");
+    expect(plan.results.map((r) => r.detail).join(" ")).toMatch(
+      /core_pay_period_state \(state=\? AND ends>\?\)/,
+    );
   });
 });

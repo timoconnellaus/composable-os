@@ -106,7 +106,7 @@ function hostWith(): TestHost {
         from: "2026-06-01",
         changed: true,
       }),
-      "staffing.payBases": () => ({ today: "2026-06-01", items: [] }),
+      "staffing.payBases": () => ({ today: "2026-06-01", items: [], truncated: false }),
       "staffing.payPeriod.list": () => ({
         setting: { period: "fortnightly", start: "2026-06-01", day: 1, zone: "Australia/Sydney" },
         set: true,

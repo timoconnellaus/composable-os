@@ -12,7 +12,7 @@ import { resolveExtensionOperation } from "../extensions/tools.ts";
 import { getObject } from "../fields/index.ts";
 import type { HandlerContext } from "../operation.ts";
 import { loadStaffRights, staffAuthority } from "../pack-roles.ts";
-import { setsRosterFields } from "./index.ts";
+import { movesStartedShiftById, setsRosterFields } from "./index.ts";
 import { isRosterer, rosteringDeclared } from "./rosterers.ts";
 
 type Values = Record<string, unknown>;
@@ -49,6 +49,24 @@ export function touchesRoster(operation: string, input: unknown): boolean {
   }
 }
 
+/**
+ * Whether a call moves a shift that has started (a rosterer's, ADR 0627): `record.update` of a
+ * staffed object's times, read against the record as it is.
+ */
+export async function movesStartedShiftCall(
+  db: Kysely<CoreDatabase>,
+  operation: string,
+  input: unknown,
+  now: string,
+): Promise<boolean> {
+  if (operation !== "record.update" || !isValues(input) || typeof input.object !== "string") {
+    return false;
+  }
+  const object = getObject(input.object);
+  if (!object?.staffed || typeof input.id !== "string" || !isValues(input.values)) return false;
+  return movesStartedShiftById(db as never, object, input.id, input.values, now);
+}
+
 /** Refuses an approval of a roster change by anyone who could not make it themselves. */
 export async function assertRosterApprover(
   ctx: HandlerContext,
@@ -61,7 +79,10 @@ export async function assertRosterApprover(
       ? await resolveExtensionOperation(db, target.operation)
       : undefined;
     const restricted = op?.packRestricted === true;
-    const roster = touchesRoster(target.operation, input) && (await rosteringDeclared(db));
+    const roster =
+      (touchesRoster(target.operation, input) ||
+        (await movesStartedShiftCall(db, target.operation, input, ctx.now))) &&
+      (await rosteringDeclared(db));
     if (!restricted && !roster) continue;
     if (ctx.actor !== "human") {
       throw new ForbiddenError("A roster change is approved by a person, never by an AI actor", {

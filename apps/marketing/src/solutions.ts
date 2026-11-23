@@ -133,7 +133,7 @@ export const SOLUTIONS: readonly Solution[] = [
         },
         {
           title: "Rostering",
-          body: "Which coach takes each class, and who does each shift that is not a class, like the clean after the last class. A weekly pattern makes the shifts eight weeks ahead and you change single dates; nobody is ever on two shifts at once. Staff say when they are away and offer a shift they cannot work: a colleague who may coach that class type takes it with nobody approving, and you are told. Members still see only the coach's public profile: name, photo and bio. For staff paid by the hour or by the class, each pay period's hours and classes are totalled from the roster, locked and exported as a file for payroll; no pay rates are kept. Still to come: the screens on the web and in your app, and a calendar feed for staff's phones.",
+          body: "Which coach takes each class, and who does each shift that is not a class, like the clean after the last class. A weekly pattern makes the shifts eight weeks ahead and you change single dates; nobody is ever on two shifts at once. Staff say when they are away and offer a shift they cannot work: a colleague who may coach that class type takes it with nobody approving, and you are told. Members still see only the coach's public profile: name, photo and bio. For staff paid by the hour or by the class, each pay period's hours and classes are totalled from the roster and locked, with a file for payroll; no pay rates are kept. Still to come: the screens on the web and in your app, and a calendar feed for staff's phones.",
           status: "building",
         },
         {

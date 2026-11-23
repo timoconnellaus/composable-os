@@ -955,6 +955,11 @@ triggers). No `core_write_guard` remake (0852 stays free). All new operations ar
   are audited (`auditReads`) as which period and who; no figure, basis or reason reaches the audit
   log, a notice, a tool run or an error. Rostering adds `payBases` (a read of who is counted, not in
   this spec's tool list) beside `payBasis`.
+- **Decided in review** (PR #287, coordinator's decisions the owner is asked about; ADR 0627's
+  amendment): a change of the pay period or the zone after a lock takes effect from the day after
+  the last locked period (periods never overlap or leave a gap); a kind's set-up and pack-down
+  minutes and the times of a shift that has started are a rosterer's to change; a redacted input
+  in the approval queue is read only by someone who could approve it; every CSV text cell quoted.
 - **Not in this step**: the screens (7), `staffing.forget`, overtime or any pay rule.
 
 **The spine is steps 2 to 4**: without the claim, the rules and the permissions, nothing can be

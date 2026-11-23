@@ -99,6 +99,7 @@ function payLockTriggerNames(t: Pick<StaffedTables, "table" | "account">): strin
     `${t.table}__paylock_ins`,
     `${t.table}__paylock_upd`,
     `${t.table}__paylock_del`,
+    `${t.table}__paylock_mark`,
     ...(t.account
       ? [
           `${t.account.table}__paylock_${t.table}_ins`,
@@ -112,8 +113,8 @@ function payLockTriggerNames(t: Pick<StaffedTables, "table" | "account">): strin
 /** Whether the datetime `expr` falls in a locked pay period (by its start, half-open). */
 const inLockedPeriod = (expr: string) =>
   `EXISTS (SELECT 1 FROM core_pay_period pp WHERE pp.state IN ('locking', 'locked') ` +
-  `AND pp.starts <= CAST(strftime('%s', ${expr}) AS INTEGER) ` +
-  `AND pp.ends > CAST(strftime('%s', ${expr}) AS INTEGER))`;
+  `AND pp.ends > CAST(strftime('%s', ${expr}) AS INTEGER) ` +
+  `AND pp.starts <= CAST(strftime('%s', ${expr}) AS INTEGER))`;
 
 /**
  * The pay lock (stage 45 step 6, ADR 0627): a shift whose start is inside a locked pay period
@@ -125,7 +126,7 @@ const inLockedPeriod = (expr: string) =>
  * profile that is not in the Trash is not deleted (one in the Trash may be purged).
  */
 function createPayLockTriggers(t: StaffedTables): string[] {
-  const [ins, upd, del, holderIns, holderUpd, holderDel] = payLockTriggerNames(t).map(ident);
+  const [ins, upd, del, mark, holderIns, holderUpd, holderDel] = payLockTriggerNames(t).map(ident);
   const table = ident(t.table);
   const col = (alias: string, c: string) => `${alias}.${ident(c)}`;
   const states = t.live.map(literal).join(", ");
@@ -148,6 +149,9 @@ function createPayLockTriggers(t: StaffedTables): string[] {
     `CREATE TRIGGER ${ins} BEFORE INSERT ON ${table} BEGIN SELECT ${raise} WHERE (${lockedRow("NEW")}) OR ${replaced("NEW.id")}; END`,
     `CREATE TRIGGER ${upd} BEFORE UPDATE ON ${table} BEGIN SELECT ${raise} WHERE ((${live("OLD")} OR ${live("NEW")}) AND (${changed}) AND (${inLockedPeriod(col("OLD", t.starts))} OR ${inLockedPeriod(col("NEW", t.starts))})) OR (OLD.id IS NOT NEW.id AND ${replaced("NEW.id")}); END`,
     `CREATE TRIGGER ${del} BEFORE DELETE ON ${table} BEGIN SELECT ${raise} WHERE ${lockedRow("OLD")}; END`,
+    // A not-worked mark follows its shift: its start (and id) kept current when the shift moves,
+    // so the mark's own lock and a lock's fingerprint read where the shift is now.
+    `CREATE TRIGGER ${mark} AFTER UPDATE OF id, ${ident(t.starts)} ON ${table} BEGIN UPDATE core_staff_not_worked SET record_id = NEW.id, starts = coalesce(CAST(strftime('%s', ${col("NEW", t.starts)}) AS INTEGER), starts) WHERE object_type = ${literal(t.object)} AND record_id = OLD.id; END`,
   ];
   if (t.account && holderIns && holderUpd && holderDel) {
     const holder = ident(t.account.table);

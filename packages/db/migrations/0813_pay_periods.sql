@@ -67,8 +67,9 @@ CREATE TABLE core_pay_period (
 -- At most one version of a period is locked (or being locked) at a time.
 CREATE UNIQUE INDEX core_pay_period_held ON core_pay_period (start_date)
   WHERE state IN ('locking', 'locked');
--- What a shift's lock reads: the locked periods by start.
-CREATE INDEX core_pay_period_state ON core_pay_period (state, starts);
+-- What a shift's lock reads: the locked periods by end, so a write reads only the periods that
+-- end after its shift starts (never every past period: the review of PR #287).
+CREATE INDEX core_pay_period_state ON core_pay_period (state, ends, starts);
 
 -- One line per shift counted in a locked period (ADR 0627): who, on what basis, the shift as it
 -- was, the minutes counted (its own minutes plus the kind's before and after minutes, or none
@@ -119,8 +120,11 @@ BEFORE INSERT ON core_pay_period
 BEGIN
   SELECT RAISE(ABORT, 'core_pay_period_fixed')
   WHERE NEW.state != 'locking'
-    OR EXISTS (SELECT 1 FROM core_pay_period p WHERE p.id = NEW.id
-      OR (p.start_date = NEW.start_date AND p.version = NEW.version));
+    OR EXISTS (SELECT 1 FROM core_pay_period p WHERE p.id = NEW.id);
+  -- Two locks of one period at once: the second finds the first's version (it is held).
+  SELECT RAISE(ABORT, 'core_pay_period_held')
+  WHERE EXISTS (SELECT 1 FROM core_pay_period p
+    WHERE p.start_date = NEW.start_date AND p.version = NEW.version);
   SELECT RAISE(ABORT, 'core_pay_period_overlap')
   WHERE EXISTS (SELECT 1 FROM core_pay_period p WHERE p.state IN ('locking', 'locked')
     AND p.starts < NEW.ends AND p.ends > NEW.starts);
@@ -204,9 +208,9 @@ BEGIN
   SELECT RAISE(ABORT, 'core_pay_period_locked')
   WHERE EXISTS (SELECT 1 FROM core_pay_period p WHERE p.state IN ('locking', 'locked')
     AND (
-      (p.starts <= NEW.starts AND p.ends > NEW.starts)
+      (p.ends > NEW.starts AND p.starts <= NEW.starts)
       OR EXISTS (SELECT 1 FROM core_staff_not_worked m WHERE m.object_type = NEW.object_type
-        AND m.record_id = NEW.record_id AND p.starts <= m.starts AND p.ends > m.starts)
+        AND m.record_id = NEW.record_id AND p.ends > m.starts AND p.starts <= m.starts)
     ));
 END;
 
@@ -215,10 +219,10 @@ BEFORE UPDATE ON core_staff_not_worked
 BEGIN
   SELECT RAISE(ABORT, 'core_pay_period_locked')
   WHERE EXISTS (SELECT 1 FROM core_pay_period p WHERE p.state IN ('locking', 'locked')
-    AND ((p.starts <= NEW.starts AND p.ends > NEW.starts)
-      OR (p.starts <= OLD.starts AND p.ends > OLD.starts)
+    AND ((p.ends > NEW.starts AND p.starts <= NEW.starts)
+      OR (p.ends > OLD.starts AND p.starts <= OLD.starts)
       OR EXISTS (SELECT 1 FROM core_staff_not_worked m WHERE m.object_type = NEW.object_type
-        AND m.record_id = NEW.record_id AND p.starts <= m.starts AND p.ends > m.starts)));
+        AND m.record_id = NEW.record_id AND p.ends > m.starts AND p.starts <= m.starts)));
 END;
 
 CREATE TRIGGER core_staff_not_worked_delete
@@ -226,7 +230,7 @@ BEFORE DELETE ON core_staff_not_worked
 BEGIN
   SELECT RAISE(ABORT, 'core_pay_period_locked')
   WHERE EXISTS (SELECT 1 FROM core_pay_period p WHERE p.state IN ('locking', 'locked')
-    AND p.starts <= OLD.starts AND p.ends > OLD.starts);
+    AND p.ends > OLD.starts AND p.starts <= OLD.starts);
 END;
 
 -- A period's marks, read by their shifts' start (a period's totals and the lock's guard).

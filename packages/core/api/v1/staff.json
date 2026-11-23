@@ -78420,11 +78420,16 @@
               ],
               "additionalProperties": false
             }
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "Cut short: ask for one person's (account)"
           }
         },
         "required": [
           "today",
-          "items"
+          "items",
+          "truncated"
         ],
         "additionalProperties": false
       },

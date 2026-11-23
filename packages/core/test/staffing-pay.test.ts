@@ -12,6 +12,7 @@
 // would call it (the extension's account as `ctx.user`, the person as the verified caller).
 // Every clock is injected.
 import { env } from "cloudflare:workers";
+import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
 import { type ActingUser, getObject, invokeByName, objectTableOf } from "../src/index.ts";
 import {
@@ -20,7 +21,9 @@ import {
   hoursOf,
   periodContaining,
   periodFingerprint,
+  periodFor,
   readFingerprint,
+  type StoredPeriod,
 } from "../src/staffing/pay.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
 import { context, createUser, db } from "./helpers.ts";
@@ -575,32 +578,180 @@ describe("a pay period's totals (criterion 10)", () => {
     expect(out.filename).toBe("pay-2026-03-30-to-2026-04-12-preview.csv");
     const rows = out.csv.trimEnd().split("\r\n");
     expect(rows[0]).toContain("PREVIEW");
+    // Every text cell quoted; numbers as they are.
+    const csv = (...cells: (string | number | { n: string })[]) =>
+      cells
+        .map((c) =>
+          typeof c === "object"
+            ? c.n
+            : typeof c === "number"
+              ? String(c)
+              : `"${c.replaceAll('"', '""')}"`,
+        )
+        .join(",");
     expect(rows[1]).toBe(
-      "period start,period end,name,staff email,basis,kind,shifts,hours,minutes",
+      csv(
+        "period start",
+        "period end",
+        "name",
+        "staff email",
+        "basis",
+        "kind",
+        "shifts",
+        "hours",
+        "minutes",
+      ),
     );
     const summary = rows.slice(2, 2 + EXPECTED_TOTALS.length);
-    const email = (key: string) => people[key]?.email;
+    const email = (key: string) => people[key]?.email as string;
+    const P = ["2026-03-30", "2026-04-12"] as const;
     expect(summary).toEqual([
-      `2026-03-30,2026-04-12,Class Bo,${email("Bo")},by class,Yoga,1,1.50,90`,
-      `2026-03-30,2026-04-12,Class Bo,${email("Bo")},by class,Strength,1,3.25,195`,
-      `2026-03-30,2026-04-12,Cleaner Di,${email("Di")},by time,Cleaning,1,3.17,190`,
-      `2026-03-30,2026-04-12,Hourly Ari,${email("Ari")},by time,Strength,1,1.25,75`,
-      `2026-03-30,2026-04-12,Hourly Ari,${email("Ari")},by time,Yoga,1,1.00,60`,
+      csv(...P, "Class Bo", email("Bo"), "by class", "Yoga", 1, { n: "1.50" }, 90),
+      csv(...P, "Class Bo", email("Bo"), "by class", "Strength", 1, { n: "3.25" }, 195),
+      csv(...P, "Cleaner Di", email("Di"), "by time", "Cleaning", 1, { n: "3.17" }, 190),
+      csv(...P, "Hourly Ari", email("Ari"), "by time", "Strength", 1, { n: "1.25" }, 75),
+      csv(...P, "Hourly Ari", email("Ari"), "by time", "Yoga", 1, { n: "1.00" }, 60),
     ]);
     expect(rows[2 + EXPECTED_TOTALS.length]).toBe("");
+    expect(rows[3 + EXPECTED_TOTALS.length]).toBe(
+      csv(
+        "name",
+        "staff email",
+        "date",
+        "start",
+        "end",
+        "kind",
+        "title",
+        "place",
+        "minutes counted",
+        "not worked",
+        "list taken",
+        "taken by",
+        "for review",
+        "note",
+      ),
+    );
     const lines = rows.slice(4 + EXPECTED_TOTALS.length);
     expect(lines).toEqual([
-      `Class Bo,${email("Bo")},2026-04-04,2026-04-04 09:00,2026-04-04 10:30,Yoga,K4,,90,,no,,`,
-      `Class Bo,${email("Bo")},2026-04-05,2026-04-05 01:30,2026-04-05 03:30,Strength,K5,,195,,yes,Hourly Ari,yes`,
-      `Cleaner Di,${email("Di")},2026-04-10,2026-04-10 22:00,2026-04-11 01:10,Cleaning,Close-down clean,"'=HYPERLINK(""x"")",190,,,,`,
-      `Hourly Ari,${email("Ari")},2026-03-30,2026-03-30 06:00,2026-03-30 07:00,Strength,K1,,75,,yes,Hourly Ari,`,
-      `Hourly Ari,${email("Ari")},2026-04-02,2026-04-02 07:00,2026-04-02 08:00,Yoga,K3,,0,Nobody ran it,no,,`,
-      `Hourly Ari,${email("Ari")},2026-04-12,2026-04-12 23:30,2026-04-13 00:30,Yoga,K7,,60,,no,,`,
+      csv(
+        "Class Bo",
+        email("Bo"),
+        "2026-04-04",
+        "2026-04-04 09:00",
+        "2026-04-04 10:30",
+        "Yoga",
+        "K4",
+        "",
+        90,
+        "",
+        "no",
+        "",
+        "",
+        "",
+      ),
+      // Across the clock change: two hours on the clock, three worked, and the line says so.
+      csv(
+        "Class Bo",
+        email("Bo"),
+        "2026-04-05",
+        "2026-04-05 01:30",
+        "2026-04-05 03:30",
+        "Strength",
+        "K5",
+        "",
+        195,
+        "",
+        "yes",
+        "Hourly Ari",
+        "yes",
+        "Crosses a clock change: 2026-04-05 01:30 to 2026-04-05 03:30 on the clock is 120 minutes, 180 minutes were worked.",
+      ),
+      csv(
+        "Cleaner Di",
+        email("Di"),
+        "2026-04-10",
+        "2026-04-10 22:00",
+        "2026-04-11 01:10",
+        "Cleaning",
+        "Close-down clean",
+        '\'=HYPERLINK("x")',
+        190,
+        "",
+        "",
+        "",
+        "",
+        "",
+      ),
+      csv(
+        "Hourly Ari",
+        email("Ari"),
+        "2026-03-30",
+        "2026-03-30 06:00",
+        "2026-03-30 07:00",
+        "Strength",
+        "K1",
+        "",
+        75,
+        "",
+        "yes",
+        "Hourly Ari",
+        "",
+        "",
+      ),
+      csv(
+        "Hourly Ari",
+        email("Ari"),
+        "2026-04-02",
+        "2026-04-02 07:00",
+        "2026-04-02 08:00",
+        "Yoga",
+        "K3",
+        "",
+        0,
+        "Nobody ran it",
+        "no",
+        "",
+        "",
+        "",
+      ),
+      csv(
+        "Hourly Ari",
+        email("Ari"),
+        "2026-04-12",
+        "2026-04-12 23:30",
+        "2026-04-13 00:30",
+        "Yoga",
+        "K7",
+        "",
+        60,
+        "",
+        "no",
+        "",
+        "",
+        "",
+      ),
     ]);
-    expect(csvText("+1")).toBe("'+1");
-    expect(csvText("-2")).toBe("'-2");
-    expect(csvText("@x")).toBe("'@x");
-    expect(csvText("a,b")).toBe('"a,b"');
+  });
+
+  it("a text cell a spreadsheet would run is neutralised, and every text cell is quoted", () => {
+    const cases: [string, string][] = [
+      ["+1", `"'+1"`],
+      ["-2", `"'-2"`],
+      ["@x", `"'@x"`],
+      ["=1", `"'=1"`],
+      [" =1", `"' =1"`],
+      ["\uFF1D1+1", `"'\uFF1D1+1"`],
+      ["a;=1+1", `"'a;=1+1"`],
+      ["\t=1", `"'\t=1"`],
+      ["\r=1", `"'\r=1"`],
+      ["\tplain", `"'\tplain"`],
+      ["x\r=1", `"'x\r=1"`],
+      ["a,b", `"a,b"`],
+      ['say "hi"', `"say ""hi"""`],
+      ["plain", `"plain"`],
+      ["", `""`],
+    ];
+    for (const [value, cell] of cases) expect(csvText(value), JSON.stringify(value)).toBe(cell);
   });
 });
 
@@ -907,6 +1058,319 @@ describe("nothing of pay reaches anyone else (criterion 10)", () => {
     for (const r of results) {
       const text = `${r.input ?? ""} ${r.result ?? ""}`;
       expect(text, r.operation).not.toMatch(/minutes|hours|by_time|by_class|Nobody ran it|"csv"/);
+    }
+  });
+});
+
+// --- The review of PR #287 ---------------------------------------------------------------------
+
+const setPaySettings = (values: Record<string, unknown>) =>
+  env.DB.prepare("UPDATE core_extension_settings SET value = ? WHERE extension_id = ?")
+    .bind(JSON.stringify(values), ext)
+    .run();
+const setZone = (zone: string) =>
+  env.DB.prepare("UPDATE core_settings SET value = ? WHERE key = 'org_timezone'")
+    .bind(JSON.stringify(zone))
+    .run();
+
+describe("two locks of one period at once (the review of PR #287)", () => {
+  it("exactly one wins; the others are told it is held", async () => {
+    // 13 to 26 April, on 28 April.
+    const now = "2026-04-28T00:00:00.000Z";
+    const outcomes = await Promise.all(
+      [1, 2, 3].map(() =>
+        pay("staffing.payPeriod.lock", { start: "2026-04-13" }, admin, now).then(
+          () => "locked",
+          (e: { details?: { rule?: string } }) => e.details?.rule ?? "error",
+        ),
+      ),
+    );
+    expect(outcomes.filter((o) => o === "locked")).toHaveLength(1);
+    expect(outcomes.filter((o) => o !== "locked")).toEqual(["pay_period_held", "pay_period_held"]);
+    const rows = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_pay_period WHERE start_date = '2026-04-13'",
+    ).first<{ n: number }>();
+    expect(rows?.n).toBe(1);
+  });
+});
+
+describe("a not-worked mark follows its shift (the review of PR #287)", () => {
+  it("marked, moved to the next period, locked there: the mark is kept, by every path", async () => {
+    // Marked in the period 27 April to 10 May, then moved into 11 to 24 May.
+    shifts.S1 = await create(KLASS, {
+      name: "S1",
+      kind: yoga,
+      coach: profile.Ari,
+      startsAt: sydney("2026-04-28T06:00"),
+      endsAt: sydney("2026-04-28T07:00"),
+      timezone: ZONE,
+    });
+    await invokeByName(
+      "staffing.markNotWorked",
+      { object: KLASS, id: shifts.S1, reason: "Off sick" },
+      tool(admin, { personApproves: true }, "2026-05-01T00:00:00.000Z"),
+    );
+    await update(
+      KLASS,
+      shifts.S1,
+      { startsAt: sydney("2026-05-12T06:00"), endsAt: sydney("2026-05-12T07:00") },
+      "2026-05-02T00:00:00.000Z",
+    );
+    const mark = await env.DB.prepare(
+      "SELECT starts FROM core_staff_not_worked WHERE record_id = ?",
+    )
+      .bind(shifts.S1)
+      .first<{ starts: number }>();
+    expect(mark?.starts).toBe(Date.parse(sydney("2026-05-12T06:00")) / 1000);
+    const now = "2026-05-26T00:00:00.000Z";
+    await pay("staffing.payPeriod.lock", { start: "2026-05-11" }, admin, now);
+    const locked = await pay<Totals>(
+      "staffing.payPeriod.totals",
+      { start: "2026-05-11" },
+      admin,
+      now,
+    );
+    expect(locked.lines.find((l) => l.title === "S1")).toMatchObject({
+      counted: false,
+      notWorkedReason: "Off sick",
+    });
+    const e = await refusal(
+      invokeByName(
+        "staffing.markNotWorked",
+        { object: KLASS, id: shifts.S1, notWorked: false },
+        tool(admin, { personApproves: true }, now),
+      ),
+    );
+    expect(e.details?.rule).toBe("pay_period_locked");
+    await expect(
+      env.DB.prepare("DELETE FROM core_staff_not_worked WHERE record_id = ?").bind(shifts.S1).run(),
+    ).rejects.toThrow(/core_pay_period_locked/);
+  });
+});
+
+describe("the lock's guard, through the lock (the review of PR #287)", () => {
+  it("a shift changed between the lock's read and its batch fails the lock whole", async () => {
+    // 25 May to 7 June, locked on 10 June.
+    shifts.T1 = await create(KLASS, {
+      name: "T1",
+      kind: strength,
+      coach: profile.Ari,
+      startsAt: sydney("2026-05-26T06:00"),
+      endsAt: sydney("2026-05-26T07:00"),
+      timezone: ZONE,
+    });
+    const table = objectTableOf(KLASS) as string;
+    let fired = false;
+    // The lock reads its fingerprint, then the period's lines; while it reads the lines' marks,
+    // another writer changes the shift (a commit between the read and the batch).
+    const racing = new Proxy(env.DB, {
+      get(target, prop) {
+        if (prop === "prepare") {
+          return (query: string) => {
+            if (!fired && query.includes("core_staff_not_worked") && query.includes("record_id")) {
+              fired = true;
+              return {
+                bind: (...args: unknown[]) => ({
+                  all: async () => {
+                    await target
+                      .prepare(`UPDATE ${table} SET updated_at = ? WHERE id = ?`)
+                      .bind("2026-06-10T00:00:01.000Z", shifts.T1)
+                      .run();
+                    return target
+                      .prepare(query)
+                      .bind(...args)
+                      .all();
+                  },
+                }),
+              };
+            }
+            return target.prepare(query);
+          };
+        }
+        const value = Reflect.get(target, prop);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const now = "2026-06-10T00:00:00.000Z";
+    const ctx = { ...tool(admin, { humanOnly: true }, now), db: createCrmDb(racing as D1Database) };
+    const e = await refusal(invokeByName("staffing.payPeriod.lock", { start: "2026-05-25" }, ctx));
+    expect(fired).toBe(true);
+    expect(e.details?.rule).toBe("roster_changed");
+    expect(
+      await env.DB.prepare(
+        "SELECT count(*) AS n FROM core_pay_period WHERE start_date = '2026-05-25'",
+      ).first(),
+    ).toEqual({ n: 0 });
+    // Read again, it locks.
+    await pay("staffing.payPeriod.lock", { start: "2026-05-25" }, admin, now);
+  });
+});
+
+describe("a change of the pay period after a lock (the review of PR #287)", () => {
+  /** Every local date from `from` for `days` days, and the period each falls in. */
+  function walk(
+    config: Parameters<typeof periodFor>[0],
+    stored: StoredPeriod[],
+    from: string,
+    days: number,
+  ) {
+    const seen = new Map<string, { start: string; end: string; starts: number; ends: number }>();
+    for (let i = 0; i < days; i++) {
+      const date = new Date(Date.parse(`${from}T00:00:00Z`) + i * 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+      const p = periodFor(config, stored, date);
+      if (!p) throw new Error(`no period for ${date}`);
+      expect(p.start <= date && date <= p.end, `${date} in ${p.start}..${p.end}`).toBe(true);
+      seen.set(p.start, p);
+    }
+    const list = [...seen.values()].sort((a, b) => a.starts - b.starts);
+    // No overlap and no gap, in dates and in instants: every shift is in exactly one period.
+    for (let i = 1; i < list.length; i++) {
+      const a = list[i - 1] as (typeof list)[number];
+      const b = list[i] as (typeof list)[number];
+      expect(b.starts, `${a.start}..${a.end} then ${b.start}`).toBe(a.ends);
+      const next = new Date(Date.parse(`${a.end}T00:00:00Z`) + 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+      expect(b.start).toBe(next);
+    }
+    return list;
+  }
+  const lockedTwo = (zone: string): StoredPeriod[] => {
+    const a = periodContaining({ period: "fortnightly", start: START, day: 1, zone }, START);
+    const b = periodContaining({ period: "fortnightly", start: START, day: 1, zone }, "2026-04-13");
+    return [a, b].map((p) => ({ ...(p as StoredPeriod) }));
+  };
+
+  it("fortnightly to monthly: the new rule starts the day after the last locked period", () => {
+    const stored = lockedTwo(ZONE);
+    const list = walk(
+      { period: "monthly", start: START, day: 1, zone: ZONE },
+      stored,
+      "2026-03-01",
+      150,
+    );
+    expect(list.map((p) => `${p.start}..${p.end}`)).toContain("2026-04-27..2026-04-30");
+    expect(list.map((p) => `${p.start}..${p.end}`)).toContain("2026-05-01..2026-05-31");
+    expect(list.map((p) => `${p.start}..${p.end}`)).toContain("2026-03-30..2026-04-12");
+  });
+
+  it("the start date moved a week: from the day after the last locked period, then the new grid", () => {
+    const stored = lockedTwo(ZONE);
+    const list = walk(
+      { period: "fortnightly", start: "2026-05-04", day: 1, zone: ZONE },
+      stored,
+      "2026-03-20",
+      120,
+    );
+    expect(list.map((p) => `${p.start}..${p.end}`)).toContain("2026-04-27..2026-05-03");
+    expect(list.map((p) => `${p.start}..${p.end}`)).toContain("2026-05-04..2026-05-17");
+  });
+
+  it("the zone changed: the next period starts at the last locked one's very instant", () => {
+    const stored = lockedTwo(ZONE);
+    const list = walk(
+      { period: "fortnightly", start: START, day: 1, zone: "UTC" },
+      stored,
+      "2026-03-25",
+      90,
+    );
+    const after = list.find((p) => p.start === "2026-04-27");
+    expect(after?.starts).toBe(stored[1]?.ends);
+  });
+
+  it("on the host: a gap left between locks and the periods after them, each shift in one", async () => {
+    await setPaySettings({ payPeriodStart: START, payPeriod: "monthly", payPeriodDay: 1 });
+    try {
+      const now = "2026-07-05T00:00:00.000Z";
+      // Locked: 30 Mar-12 Apr, 13-26 Apr, 11-24 May, 25 May-7 Jun. The gap 27 Apr-10 May splits at
+      // the month; after 7 June the month runs from 8 June.
+      shifts.G1 = await create(KLASS, {
+        name: "G1",
+        kind: yoga,
+        coach: profile.Ari,
+        startsAt: sydney("2026-04-28T09:00"),
+        endsAt: sydney("2026-04-28T10:00"),
+        timezone: ZONE,
+      });
+      const list = await pay<{ periods: { start: string; end: string; state: string }[] }>(
+        "staffing.payPeriod.list",
+        { count: 8 },
+        admin,
+        now,
+      );
+      expect(list.periods.map((p) => `${p.start}..${p.end}:${p.state}`)).toEqual([
+        "2026-07-01..2026-07-31:open",
+        "2026-06-08..2026-06-30:open",
+        "2026-05-25..2026-06-07:locked",
+        "2026-05-11..2026-05-24:locked",
+        "2026-05-01..2026-05-10:open",
+        "2026-04-27..2026-04-30:open",
+        "2026-04-13..2026-04-26:locked",
+        "2026-03-30..2026-04-12:locked",
+        "2026-03-01..2026-03-29:open",
+      ]);
+      const gap = await pay<Totals>(
+        "staffing.payPeriod.totals",
+        { start: "2026-04-27" },
+        admin,
+        now,
+      );
+      expect(gap.lines.map((l) => l.title)).toEqual(["G1"]);
+      const after = await pay<Totals>(
+        "staffing.payPeriod.totals",
+        { start: "2026-05-01" },
+        admin,
+        now,
+      );
+      expect(after.lines.map((l) => l.title)).not.toContain("G1");
+      // Not a period's first day: refused, naming the period that holds it.
+      const e = await refusal(
+        pay("staffing.payPeriod.totals", { start: "2026-06-01" }, admin, now),
+      );
+      expect(e.details?.periodStart).toBe("2026-05-25");
+      await pay("staffing.payPeriod.lock", { start: "2026-04-27" }, admin, now);
+      // A zone changed after the locks: the period after them starts at their last instant.
+      await setZone("UTC");
+      const utc = await pay<Totals>(
+        "staffing.payPeriod.totals",
+        { start: "2026-06-08" },
+        admin,
+        now,
+      );
+      expect(utc.period.start).toBe("2026-06-08");
+    } finally {
+      await setZone(ZONE);
+      await setPaySettings({ payPeriodStart: START });
+    }
+  });
+});
+
+describe("who is counted, read in full or said to be cut short (the review of PR #287)", () => {
+  it("answers truncated past 2,000 rows", async () => {
+    const statements = [];
+    for (let i = 0; i < 2001; i++) {
+      statements.push(
+        env.DB.prepare(
+          "INSERT INTO core_staff_pay_basis (account_id, from_date, basis, set_by, set_at) VALUES (?, '2030-01-01', 'by_time', 'x', 'x')",
+        ).bind(`usr_bulk${String(i).padStart(5, "0")}`),
+      );
+    }
+    for (let i = 0; i < statements.length; i += 200)
+      await env.DB.batch(statements.slice(i, i + 200));
+    try {
+      const out = await pay<{ truncated: boolean; items: unknown[] }>("staffing.payBases", {});
+      expect(out.truncated).toBe(true);
+      expect(out.items.length).toBeLessThanOrEqual(2000);
+      const one = await pay<{ truncated: boolean; items: unknown[] }>("staffing.payBases", {
+        account: people.Ari?.id,
+      });
+      expect(one.truncated).toBe(false);
+    } finally {
+      await env.DB.prepare(
+        "DELETE FROM core_staff_pay_basis WHERE account_id LIKE 'usr_bulk%'",
+      ).run();
     }
   });
 });

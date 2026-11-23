@@ -343,6 +343,7 @@ export function toOperationError(error: unknown): OperationError {
   }
   if (
     message.includes("core_pay_period_overlap") ||
+    message.includes("core_pay_period_held") ||
     message.includes("UNIQUE constraint failed: core_pay_period")
   ) {
     return new ConflictError(

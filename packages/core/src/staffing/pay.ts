@@ -126,6 +126,59 @@ export function periodContaining(config: PayConfig, date: string): PeriodRange |
   return periodRange(fmt(first), fmt(addLocalDays(first, length - 1)), config.zone);
 }
 
+/** A stored (locked or reopened) period: its dates, zone and instants, which never change. */
+export interface StoredPeriod {
+  start: string;
+  end: string;
+  zone: string;
+  starts: number;
+  ends: number;
+}
+
+const shiftDate = (date: string, days: number) => {
+  const d = parseLocalDate(date);
+  if (!d) throw new ValidationError(`${date} is not a date`, { field: "start" });
+  return fmt(addLocalDays(d, days));
+};
+
+/**
+ * The period containing the local date `date`, given the setting and the periods already locked
+ * (or locked and reopened), which keep their dates and instants whatever the setting says since
+ * (the review of PR #287, ADR 0627). A date inside a stored period is in it. Any other date is in
+ * the setting's period for it, cut short where it would reach into a stored period: so after the
+ * last stored period the setting's rule starts the day after it ends (a change of length, start
+ * date, monthly day or zone takes effect from there), and a gap left between stored periods is
+ * its own period. Next to a stored period a period starts or ends at its very instant, so a zone
+ * changed since leaves no hour in two periods or in none. Periods never overlap and never leave a
+ * gap; every shift is in exactly one. Null until a weekly or fortnightly start date is set.
+ */
+export function periodFor(
+  config: PayConfig,
+  stored: readonly StoredPeriod[],
+  date: string,
+): PeriodRange | null {
+  const held = stored.find((p) => p.start <= date && date <= p.end);
+  if (held) return { ...held };
+  const grid = periodContaining(config, date);
+  if (!grid) return null;
+  let { start, end, starts, ends } = grid;
+  const prev = stored
+    .filter((p) => p.end < date)
+    .reduce<StoredPeriod | null>((a, p) => (!a || p.end > a.end ? p : a), null);
+  const next = stored
+    .filter((p) => p.start > date)
+    .reduce<StoredPeriod | null>((a, p) => (!a || p.start < a.start ? p : a), null);
+  if (prev && prev.end >= shiftDate(start, -1)) {
+    if (prev.end >= start) start = shiftDate(prev.end, 1);
+    starts = prev.ends;
+  }
+  if (next && next.start <= shiftDate(end, 1)) {
+    if (next.start <= end) end = shiftDate(next.start, -1);
+    ends = next.starts;
+  }
+  return { start, end, zone: config.zone, starts, ends };
+}
+
 /** The local date `seconds` falls on in `zone`. */
 export const localDateOf = (seconds: number, zone: string) => localParts(seconds * 1000, zone).date;
 
@@ -751,15 +804,39 @@ export function fingerprintGuards(queries: readonly string[], values: readonly n
 
 // --- The export ----------------------------------------------------------------------------------
 
+/** A formula a spreadsheet would run: its first non-space character, the full-width ones too. */
+const FORMULA_START = /^\s*[=+\-@\uFF1D\uFF0B\uFF0D\uFF20]/u;
+/** The same after a separator some spreadsheets split on (`a;=1+1` read with `;`). */
+const FORMULA_AFTER_SEPARATOR = /[;,|\t\r\n]\s*[=+\-@\uFF1D\uFF0B\uFF0D\uFF20]/u;
+
 /**
- * A text cell a spreadsheet will not run: a value starting with `=`, `+`, `-`, `@`, a tab or a
- * carriage return is prefixed with an apostrophe (OWASP's CSV injection advice); every cell is
- * quoted when it holds a comma, a quote or a line break, with quotes doubled.
+ * A text cell a spreadsheet will not run (OWASP's CSV injection advice, widened in the review of
+ * PR #287): a value whose first non-space character is `=`, `+`, `-`, `@` (or their full-width
+ * forms), that starts with a tab, carriage return or line break, or that has one of them after a
+ * separator, is prefixed with an apostrophe. Every text cell is quoted, quotes doubled.
  */
 export function csvText(value: string | null | undefined): string {
   let v = value ?? "";
-  if (/^[=+\-@\t\r]/.test(v)) v = `'${v}`;
-  return /[",\r\n]/.test(v) ? `"${v.replaceAll('"', '""')}"` : v;
+  if (FORMULA_START.test(v) || /^[\t\r\n]/.test(v) || FORMULA_AFTER_SEPARATOR.test(v)) {
+    v = `'${v}`;
+  }
+  return `"${v.replaceAll('"', '""')}"`;
+}
+
+/** Minutes between two local "YYYY-MM-DD HH:MM" stamps, read as wall-clock times. */
+const wallMinutes = (from: string, to: string) =>
+  (Date.parse(`${to.replace(" ", "T")}:00Z`) - Date.parse(`${from.replace(" ", "T")}:00Z`)) /
+  60_000;
+
+/**
+ * A line's note for payroll: a shift across a clock change shows local times whose difference is
+ * not the time worked (its minutes are the time really worked).
+ */
+export function clockChangeNote(l: Pick<PayLine, "localStart" | "localEnd" | "shiftMinutes">) {
+  const wall = wallMinutes(l.localStart, l.localEnd);
+  return Number.isFinite(wall) && wall !== l.shiftMinutes
+    ? `Crosses a clock change: ${l.localStart} to ${l.localEnd} on the clock is ${wall} minutes, ${l.shiftMinutes} minutes were worked.`
+    : null;
 }
 const csvNumber = (n: number | string) => String(n);
 const row = (cells: string[]) => cells.join(",");
@@ -832,6 +909,7 @@ export function payCsv(
         "list taken",
         "taken by",
         "for review",
+        "note",
       ].map(csvText),
     ),
   );
@@ -851,6 +929,7 @@ export function payCsv(
         csvText(l.listTaken === null ? "" : l.listTaken ? "yes" : "no"),
         csvText(l.markedBy),
         csvText(l.flagged ? "yes" : ""),
+        csvText(clockChangeNote(l)),
       ]),
     );
   }

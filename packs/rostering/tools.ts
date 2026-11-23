@@ -475,6 +475,7 @@ export const payBases = defineTool({
         ),
       }),
     ),
+    truncated: z.boolean().describe("Cut short: ask for one person's (account)"),
   }),
   risk: "read",
   permission: PAY,

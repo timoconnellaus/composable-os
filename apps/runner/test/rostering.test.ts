@@ -1259,3 +1259,173 @@ describe("pay (step 6: criteria 8 and 10 on the shipped packs)", () => {
     await run("x.rostering.reopen", { start: start(), reason: "Checked again" }, staff());
   });
 });
+
+// --- The review of PR #287 -----------------------------------------------------------------------
+
+describe("a redacted input in the approval queue is read only by who could approve it", () => {
+  it("why a shift was not worked: a viewer and a member see it redacted; a rosterer and an admin see it", async () => {
+    const shift = await dutyShift(-3 * HOUR, admin.id);
+    const asked = await refusal(
+      run(
+        "x.rostering.markNotWorked",
+        { object: SHIFT, id: shift, reason: "A private reason" },
+        staff({ actor: "assistant", origin: { surface: "assistant" } }),
+      ),
+    );
+    expect(asked.code).toBe("pending_approval");
+    const actionId = (asked.details as { actionId: string }).actionId;
+    const row = await env.DB.prepare("SELECT change_set_id FROM core_pending_action WHERE id = ?")
+      .bind(actionId)
+      .first<{ change_set_id: string }>();
+    const changeSetId = row?.change_set_id as string;
+    const viewer = await account("Viewer Rex", "viewer");
+    const member = await account("Member Rex", "member");
+    const rosterer = await account("Rosterer Rex", "member");
+    await grant(rosterer, [MANAGE]);
+    const reads = async (user: ActingUser) => {
+      const got = JSON.stringify(await run("approval.get", { changeSetId }, asUser(user)));
+      const status = JSON.stringify(await run("approval.status", { actionId }, asUser(user)));
+      const list = JSON.stringify(await run("approval.list", { status: "all" }, asUser(user)));
+      expect(list).not.toContain("A private reason");
+      expect(got.includes("A private reason")).toBe(status.includes("A private reason"));
+      return got.includes("A private reason");
+    };
+    expect(await reads(viewer)).toBe(false);
+    expect(await reads(member)).toBe(false);
+    expect(await reads(rosterer)).toBe(true);
+    expect(await reads(admin)).toBe(true);
+    const redacted = await run<{ actions: { id: string; input: { reason?: unknown } }[] }>(
+      "approval.get",
+      { changeSetId },
+      asUser(member),
+    );
+    expect(redacted.actions.find((a) => a.id === actionId)?.input.reason).toBe("[redacted]");
+    // What the queue's notice says names nothing of it.
+    const notices = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_notifications WHERE title LIKE '%A private reason%' OR body LIKE '%A private reason%'",
+    ).first<{ n: number }>();
+    expect(notices?.n).toBe(0);
+  });
+});
+
+describe("what pay is totalled from is a rosterer's to change, with Rostering installed", () => {
+  const minutes = "bookings.rosterBeforeMinutes";
+  const ai = () => staff({ actor: "assistant", origin: { surface: "assistant" } });
+  async function people() {
+    const member = await account(unique("Member Min"), "member");
+    const rosterer = await account(unique("Rosterer Min"), "member");
+    await grant(rosterer, [MANAGE]);
+    return { member, rosterer };
+  }
+  const rostering = async (promise: Promise<unknown>) => {
+    const e = await refusal(promise);
+    expect([e.code, e.details?.rule]).toEqual(["forbidden", "rostering"]);
+  };
+
+  it("a class type's set-up and pack-down minutes, by update, create and createMany", async () => {
+    const { member, rosterer } = await people();
+    const kind = await create("programs.classtype", { name: unique("Pilates") });
+    await rostering(
+      run(
+        "record.update",
+        { object: "programs.classtype", id: kind, values: { [minutes]: 30 } },
+        asUser(member),
+      ),
+    );
+    await rostering(
+      run(
+        "record.update",
+        { object: "programs.classtype", id: kind, values: { "bookings.rosterAfterMinutes": 30 } },
+        asUser(member),
+      ),
+    );
+    await rostering(
+      run(
+        "record.create",
+        { object: "programs.classtype", values: { name: unique("Barre"), [minutes]: 30 } },
+        asUser(member),
+      ),
+    );
+    await rostering(
+      run(
+        "record.createMany",
+        { object: "programs.classtype", records: [{ name: unique("Barre"), [minutes]: 30 }] },
+        asUser(member),
+      ),
+    );
+    // The rest of a class type is still a member's, and a rosterer sets the minutes.
+    await run(
+      "record.update",
+      { object: "programs.classtype", id: kind, values: { "bookings.colour": "#123456" } },
+      asUser(member),
+    );
+    await run(
+      "record.update",
+      { object: "programs.classtype", id: kind, values: { [minutes]: 15 } },
+      asUser(rosterer),
+    );
+    expect((await get("programs.classtype", kind))[minutes]).toBe(15);
+  });
+
+  it("an assistant's change of them waits, and only a rosterer's approval applies it", async () => {
+    const { member, rosterer } = await people();
+    const kind = await create("programs.classtype", { name: unique("Spin") });
+    const asked = await refusal(
+      run(
+        "record.update",
+        { object: "programs.classtype", id: kind, values: { [minutes]: 45 } },
+        ai(),
+      ),
+    );
+    expect(asked.code).toBe("pending_approval");
+    const id = (asked.details as { actionId: string }).actionId;
+    expect((await refusal(run("approval.approve", { actionIds: [id] }, asUser(member)))).code).toBe(
+      "forbidden",
+    );
+    await run("approval.approve", { actionIds: [id] }, asUser(rosterer));
+    expect((await get("programs.classtype", kind))[minutes]).toBe(45);
+  });
+
+  it("the times of a class that has started: a rosterer's; a future class still a member's", async () => {
+    const { member, rosterer } = await people();
+    const c = await coach(unique("Coach Min"));
+    const started = await klass(-2 * DAY, c.profile);
+    const future = await klass(20 * DAY, c.profile);
+    const later = (id: string, hours: number) =>
+      get(CLASS, id).then((v) => ({
+        endsAt: new Date(Date.parse(String(v.startsAt)) + hours * HOUR).toISOString(),
+      }));
+    await rostering(
+      run(
+        "record.update",
+        { object: CLASS, id: started, values: await later(started, 5) },
+        asUser(member),
+      ),
+    );
+    // Nor moved into the past by a member.
+    await rostering(
+      run(
+        "record.update",
+        {
+          object: CLASS,
+          id: future,
+          values: {
+            startsAt: new Date(Date.now() - 3 * DAY).toISOString(),
+            endsAt: new Date(Date.now() - 3 * DAY + HOUR).toISOString(),
+          },
+        },
+        asUser(member),
+      ),
+    );
+    await run(
+      "record.update",
+      { object: CLASS, id: future, values: await later(future, 2) },
+      asUser(member),
+    );
+    await run(
+      "record.update",
+      { object: CLASS, id: started, values: await later(started, 2) },
+      asUser(rosterer),
+    );
+  });
+});
