@@ -185,6 +185,7 @@ export type UseQuery = <T>(options: {
 export type UseMutation = <I, O>(options: {
   mutationKey: readonly unknown[];
   mutationFn: (input: I) => Promise<O>;
+  gcTime?: number;
 }) => {
   mutate(input: I): void;
   mutateAsync(input: I): Promise<O>;
@@ -297,7 +298,9 @@ function allBookingsHooks(
      */
     useBuy() {
       return {
-        start: useMutation(api.mutation("x.bookings.buy")),
+        // A visitor's agreements (a name typed, a signature, health answers) go in this call:
+        // not kept in the app's cache once it is over (stage 44).
+        start: useMutation({ ...api.mutation("x.bookings.buy"), gcTime: 0 }),
         checkout: useMutation(api.mutation("order.checkout")),
       };
     },

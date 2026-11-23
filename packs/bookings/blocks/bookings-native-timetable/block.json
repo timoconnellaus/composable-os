@@ -7,11 +7,14 @@
     "x.bookings.mine",
     "x.bookings.family",
     "x.bookings.book",
-    "x.bookings.cancel"
+    "x.bookings.cancel",
+    "me.agreements.due",
+    "me.agreements.accept"
   ],
   "files": ["timetable-screen.tsx", "LICENSE"],
-  "dependsOn": ["native-base"],
+  "dependsOn": ["native-base", "native-agree"],
   "packages": {
+    "@composable-os/client": "*",
     "@composable-os/pack-bookings": "*"
   },
   "noPurchase": true

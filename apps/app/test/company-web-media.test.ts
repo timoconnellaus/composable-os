@@ -153,3 +153,20 @@ describe("a company's site shows a post's pictures through the template's media 
     expect(head.headers.get("content-type")).toBe("image/png");
   });
 });
+
+// Stage 44 step 5: the template's route for a signed agreement's PDF forwards GET only, an
+// acceptance's id only, with the customer's cookie; whose it may be is the host's answer.
+describe("a company's site forwards a signed agreement's PDF to the host", () => {
+  it("passes GET for an acceptance's id, and refuses anything else before the host", async () => {
+    const pdf = "/api/v1/agreements/acceptances";
+    // The public, or an acceptance that is not theirs: the host's not found.
+    const unknown = await browse(`${pdf}/aga_01NOSUCHACCEPTANCE000000.pdf`);
+    expect(unknown.status).toBe(404);
+    expect(unknown.headers.get("cache-control")).toBe("no-store");
+    await unknown.arrayBuffer();
+    expect((await browse(`${pdf}/aga_01X.pdf`, { method: "POST", body: "x" })).status).toBe(405);
+    expect((await browse(`${pdf}/not-an-id.pdf`)).status).toBe(404);
+    expect((await browse(`${pdf}/aga_01X`)).status).toBe(404);
+    expect((await browse(`${pdf}/..%2F..%2Fop%2Fme.get.pdf`)).status).toBe(404);
+  });
+});

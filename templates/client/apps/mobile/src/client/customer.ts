@@ -5,6 +5,14 @@ import { type ClientOptions, createClient } from "@composable-os/client";
 /** Every operation's input, output and kind. */
 export type Operations = {
   /**
+   * The words a visitor buying without an account is asked to agree to: each version named (by the versionId of an agreements_due refusal from a buying call), as it will be recorded: its title, body, tick label, health questions and how it is agreed to. Only a version in effect, or scheduled, of a live document attached somewhere and asked of everyone; any other id is left out. The business's text, never anyone's personal data. Read-only.
+   */
+  "agreement.guestVersions": {
+    kind: "query";
+    input: { versionIds: string[] };
+    output: { versions: ({ id: string; documentId: string; number: number; kind: string; title: string; body: unknown; tickLabel: string; questions: ({ key: string; text: string; noteOnYes: boolean }[]) | (null); how: ("typed") | ("drawn"); effectiveFrom: string; hash: string })[] };
+  };
+  /**
    * How many uses a pass, membership or other allowance holder has spent and has left, in the period containing `at` (default now): this week or month (from Monday, or the 1st, in its time zone), or in all for a pass of N. Staff also get its uses per period (null is unlimited), whether it can be spent (live), and the dates it is valid between; a signed-in customer reads their own only, with the terms their own record shows them. Anyone else's is not found. Read-only: uses are spent by booking.
    */
   "allowance.get": {
@@ -58,7 +66,7 @@ export type Operations = {
   "me.agreements.accept": {
     kind: "mutation";
     input: { versionId: string; forPersonId?: string; typedName: string; signature?: { width: 1000; height: 400; strokes: [number, number][][] }; answers?: { key: string; yes: boolean; note?: string }[] };
-    output: { id: string; documentId: string; versionNumber: number; acceptedAt: string };
+    output: { id: string; documentId: string; versionNumber: number; acceptedAt: string; copyTo: (string) | (null) };
   };
   /**
    * What you, as a signed-in customer, and each child linked to you still have to agree to: each due document's version in effect, to read and agree to with me.agreements.accept. canAgree is false for someone a parent or guardian agrees for. Read-only.
@@ -296,6 +304,7 @@ export type Operations = {
 
 /** What the runtime needs: each operation's kind, and what a mutation makes stale. */
 export const operations = {
+  "agreement.guestVersions": { kind: "query", invalidates: [] },
   "allowance.get": { kind: "query", invalidates: [] },
   "allowance.list": { kind: "query", invalidates: [] },
   "capacity.get": { kind: "query", invalidates: [] },

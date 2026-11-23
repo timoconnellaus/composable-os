@@ -9,6 +9,12 @@
       "toolOnly": true
     },
     {
+      "name": "agreement.guestVersions",
+      "audiences": ["customer", "public"],
+      "risk": "read",
+      "hostInternal": true
+    },
+    {
       "name": "allowance.get",
       "audiences": ["staff", "customer"],
       "risk": "read",

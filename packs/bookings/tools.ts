@@ -185,6 +185,11 @@ function refusalOf(
   if (!(error instanceof OpsCallError)) throw error;
   const details = (error.details ?? {}) as Record<string, unknown>;
   const rule = typeof details.rule === "string" ? details.rule : "";
+  // Something must be agreed to first, or what is due changed while booking (stage 44, ADR
+  // 0644): the host's own refusal goes back as it is, with its documents, so the block shows
+  // what is due inline (the agreements entry in @composable-os/client reads it) and, for a
+  // change, asks again and tries once more. Never dressed up as "changed".
+  if (rule === "agreements_due" || rule === "agreements_changed") throw error;
   const times = {
     opensAt: text(details.opensAt),
     closesAt: text(details.closesAt),

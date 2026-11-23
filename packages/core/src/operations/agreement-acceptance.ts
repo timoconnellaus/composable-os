@@ -5,6 +5,7 @@
 //
 //   me.agreements.due / list / get     a signed-in customer: their own and their live dependants'
 //   me.agreements.accept               a signed-in customer, for themselves or a live dependant
+//   agreement.guestVersions            the public: the words of what a visitor is asked (step 5)
 //   agreement.person                   staff (records:read): a Person's documents and history
 //   agreement.acceptances, due.list    staff (records:read): lists, with no name typed or drawn
 //   agreement.healthNotes              staff and pack code a person started: a yes or no per Person
@@ -518,13 +519,18 @@ export const meAgreementsAccept = defineOperation({
     documentId: z.string(),
     versionNumber: z.number(),
     acceptedAt: z.string(),
+    copyTo: z
+      .string()
+      .nullable()
+      .describe("The address the copy is emailed to (your sign-in address), or null for none"),
   }),
   permission: "records:write",
   risk: "write",
   audiences: ["customer"],
   hostInternal: true,
   mcp: { expose: false },
-  // What a person typed, drew and answered never reaches the audit log.
+  // What a person typed, drew and answered never reaches the audit log (nor the copy's address:
+  // the summary below names ids only).
   redact: ["typedName", "signature", "answers"],
   auditSummary: (output) => ({
     acceptanceId: output.id,
@@ -575,6 +581,10 @@ export const meAgreementsAccept = defineOperation({
       documentId: planned.documentId,
       versionNumber: planned.versionNumber,
       acceptedAt: planned.acceptedAt,
+      // The Agree block says "a copy is on its way to [address]" (stage 44 step 5): the caller's
+      // own sign-in address, which the copy goes to (migration 0854). A repeat records and sends
+      // nothing, so it names none.
+      copyTo: planned.existing || !planned.statements.length ? null : (signIn?.email ?? null),
     };
     if (!planned.statements.length || planned.existing) return output;
     ctx.write(...planned.statements);
@@ -585,6 +595,46 @@ export const meAgreementsAccept = defineOperation({
       await sendCopiesNow({ db: ctx.db, integrations }, [planned.id]);
       return output;
     });
+  },
+});
+
+// --- A visitor buying without an account -------------------------------------------------------
+
+export const agreementGuestVersions = defineOperation({
+  name: "agreement.guestVersions",
+  description:
+    "The words a visitor buying without an account is asked to agree to: each version named " +
+    "(by the versionId of an agreements_due refusal from a buying call), as it will be " +
+    "recorded: its title, body, tick label, health questions and how it is agreed to. Only a " +
+    "version in effect, or scheduled, of a live document attached somewhere and asked of " +
+    "everyone; any other id is left out. The business's text, never anyone's personal data. " +
+    "Read-only.",
+  input: z
+    .object({
+      versionIds: z
+        .array(id("A version's id (agv_…), as an agreements_due refusal named it"))
+        .min(1)
+        .max(20),
+    })
+    .strict(),
+  output: z.object({ versions: z.array(versionOut) }),
+  permission: "records:read",
+  risk: "read",
+  audiences: ["customer", "public"],
+  hostInternal: true,
+  mcp: { expose: false },
+  async handler(input, ctx) {
+    // What a guest may be asked (`guestDue`): a live document attached somewhere, for everyone,
+    // its version in effect or the one scheduled next. Nothing here reads a Person.
+    const askable = new Set<string>();
+    for (const doc of await attachedDocuments(ctx.db, null)) {
+      if (doc.forWhom !== "everyone") continue;
+      askable.add(doc.current.id);
+      if (doc.scheduled) askable.add(doc.scheduled.id);
+    }
+    const wanted = [...new Set(input.versionIds)].filter((v) => askable.has(v));
+    const found = await versionsById(ctx, wanted);
+    return { versions: wanted.flatMap((v) => found.get(v) ?? []) };
   },
 });
 
@@ -1213,6 +1263,7 @@ export const agreementAcceptanceOperations = [
   meAgreementsList,
   meAgreementsGet,
   meAgreementsAccept,
+  agreementGuestVersions,
   agreementPerson,
   agreementAcceptances,
   agreementDueList,
