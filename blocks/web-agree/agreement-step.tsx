@@ -40,10 +40,12 @@ export function MemberAgreementStep({
   const accept = agreements.useAccept();
   const [said, setSaid] = useState<string | null>(null);
   const steps = due.data ? dueForRefusal(due.data.people, documents) : null;
+  // Agreed to here: once nothing named is due, the caller tries again, once. When nothing was
+  // due to begin with (agreed elsewhere meanwhile), the person says when: never a loop of calls.
+  const agreedHere = useRef(false);
   const done = useRef(false);
   useEffect(() => {
-    // Nothing named is due any more (agreed here, or elsewhere meanwhile): try again, once.
-    if (steps && steps.length === 0 && !done.current) {
+    if (steps && steps.length === 0 && agreedHere.current && !done.current) {
       done.current = true;
       onAgreed(said);
     }
@@ -60,7 +62,22 @@ export function MemberAgreementStep({
     );
   }
   const step = steps[0];
-  if (!step) return <p aria-busy="true">Carrying on…</p>;
+  if (!step) {
+    if (agreedHere.current) return <p aria-busy="true">Carrying on…</p>;
+    return (
+      <div className="grid gap-2">
+        <p role="status">There is nothing left here for you to agree to.</p>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" onClick={() => onAgreed(null)}>
+            Try again
+          </Button>
+          <Button type="button" variant="outline" onClick={onCancel}>
+            Back
+          </Button>
+        </div>
+      </div>
+    );
+  }
   const { person, item } = step;
   return (
     <section className="grid gap-3" aria-label="Before you go on" data-agreement-step="member">
@@ -87,6 +104,7 @@ export function MemberAgreementStep({
               ...input,
               ...(person.self ? {} : { forPersonId: person.personId }),
             });
+            agreedHere.current = true;
             setSaid(copyWords(accepted));
             await due.refetch?.();
           }}

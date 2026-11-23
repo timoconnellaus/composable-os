@@ -34,14 +34,28 @@ export function MemberAgreementStep({
   const accept = agreements.useAccept();
   const [said, setSaid] = useState<string | null>(null);
   const steps = due.data ? dueForRefusal(due.data.people, documents) : null;
+  // Agreed to here: once nothing named is due, the caller tries again, once. When nothing was
+  // due to begin with, the person says when: never a loop of calls.
+  const agreedHere = useRef(false);
   const done = useRef(false);
   useEffect(() => {
-    if (steps && steps.length === 0 && !done.current) {
+    if (steps && steps.length === 0 && agreedHere.current && !done.current) {
       done.current = true;
       onAgreed(said);
     }
   });
-  if (due.isPending || (steps && !steps.length)) return <ActivityIndicator />;
+  if (due.isPending || (steps && !steps.length && agreedHere.current)) {
+    return <ActivityIndicator />;
+  }
+  if (steps && !steps.length) {
+    return (
+      <View style={styles.wrap}>
+        <Text style={styles.body}>There is nothing left here for you to agree to.</Text>
+        <Button label="Try again" onPress={() => onAgreed(null)} />
+        <Button quiet label="Back" onPress={onCancel} />
+      </View>
+    );
+  }
   if (due.error || !steps) {
     return (
       <View style={styles.wrap}>
@@ -77,6 +91,7 @@ export function MemberAgreementStep({
               ...input,
               ...(person.self ? {} : { forPersonId: person.personId }),
             });
+            agreedHere.current = true;
             setSaid(copyWords(accepted));
             await due.refetch?.();
           }}
