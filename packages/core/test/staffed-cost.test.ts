@@ -222,3 +222,126 @@ describe("the time claim's cost with a long history", () => {
     expect(Date.now() - started).toBeLessThan(1_500);
   });
 });
+
+// Stage 45 step 3 (ADRs 0623 and 0624): offering, taking, the uncovered read and leaving, for the
+// same long-serving coach, read only what is ahead of now, never the 2,000 past classes.
+describe("offers, takes, the uncovered read and leaving with a long history", () => {
+  const OPS = ["staffing.qualify", "staffing.offer", "staffing.take", "staffing.uncovered"];
+  const toolCtx = (user: ActingUser, personApproves = false): InvocationContext => ({
+    ...ctx(),
+    actor: "extension",
+    user,
+    extension: {
+      id: ext,
+      permissions: { operations: OPS, objects: {} } as never,
+      tool: {
+        name: "roster",
+        humanOnly: !personApproves,
+        ...(personApproves ? { personApproves: true } : {}),
+        permission: "rostering:team",
+      },
+    },
+  });
+  let long: ActingUser;
+
+  beforeAll(async () => {
+    await env.DB.prepare(
+      "INSERT INTO core_extensions (id, source, status, version, commit_oid, manifest, user_id, installed_at, updated_at) VALUES (?, 'shipped', 'active', '1.0.0', 'c1', '{}', ?, ?, ?)",
+    )
+      .bind(ext, admin.id, NOW, NOW)
+      .run();
+    const row = await env.DB.prepare(
+      "SELECT account_id FROM core_staff_time WHERE record_id = 'past1'",
+    ).first<{ account_id: string }>();
+    long = { ...coachUser, id: row?.account_id as string };
+  });
+
+  it("an offer, a take and the uncovered read stay bounded", async () => {
+    const kind = (await invokeByName(
+      "record.create",
+      { object: `${ext}.kind`, values: { name: "Long" } },
+      ctx(),
+    )) as { id: string };
+    const taker = await createUser("member");
+    await invokeByName(
+      "record.create",
+      { object: COACH, values: { name: "Taker", user: taker.id } },
+      ctx(),
+    );
+    for (const account of [long.id, taker.id]) {
+      await invokeByName(
+        "staffing.qualify",
+        { account, kind: { object: `${ext}.kind`, id: kind.id } },
+        toolCtx(admin, true),
+      );
+    }
+    const klass = (await invokeByName(
+      "record.create",
+      {
+        object: KLASS,
+        values: {
+          name: "Offered",
+          kind: kind.id,
+          coach: profile,
+          startsAt: "2026-06-03T06:00:00.000Z",
+          endsAt: "2026-06-03T07:00:00.000Z",
+        },
+      },
+      ctx(),
+    )) as { id: string };
+    rowsRead = 0;
+    queries = 0;
+    const made = (await invokeByName(
+      "staffing.offer",
+      { object: KLASS, id: klass.id },
+      toolCtx(long),
+    )) as { offer: { id: string } };
+    expect(queries).toBeLessThan(120);
+    expect(rowsRead).toBeLessThan(400);
+    rowsRead = 0;
+    queries = 0;
+    await invokeByName("staffing.take", { offer: made.offer.id }, toolCtx(taker));
+    expect(queries).toBeLessThan(150);
+    expect(rowsRead).toBeLessThan(600);
+    rowsRead = 0;
+    await invokeByName("staffing.uncovered", {}, toolCtx(admin));
+    expect(rowsRead).toBeLessThan(100);
+  });
+
+  it("deactivating the long-serving coach reads their future, not their past", async () => {
+    await invokeByName(
+      "record.create",
+      {
+        object: KLASS,
+        values: {
+          name: "Ahead",
+          coach: profile,
+          startsAt: "2026-06-05T06:00:00.000Z",
+          endsAt: "2026-06-05T07:00:00.000Z",
+        },
+      },
+      ctx(),
+    );
+    const future = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_staff_time WHERE account_id = ? AND starts > ?",
+    )
+      .bind(long.id, Date.parse(NOW) / 1000)
+      .first<{ n: number }>();
+    rowsRead = 0;
+    queries = 0;
+    const done = (await invokeByName(
+      "user.deactivate",
+      { id: long.id, confirm: future?.n },
+      ctx(),
+    )) as { roster: { shifts: number } };
+    expect(done.roster.shifts).toBe(future?.n);
+    expect(queries).toBeLessThan(120);
+    expect(rowsRead).toBeLessThan(600);
+    const past = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_staff_time WHERE account_id = ?",
+    )
+      .bind(long.id)
+      .first<{ n: number }>();
+    expect(past?.n).toBe(HISTORY);
+  });
+});

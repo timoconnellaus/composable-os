@@ -71,7 +71,12 @@ export function makeOfferStatement(
  * The statement that ends an open offer. By its id alone: the database refuses it, failing the
  * whole batch, if the offer left `open` meanwhile.
  */
-export function endOfferStatement(ctx: HandlerContext, offerId: string, end: OfferEnd, why: string) {
+export function endOfferStatement(
+  ctx: HandlerContext,
+  offerId: string,
+  end: OfferEnd,
+  why: string,
+) {
   return ctx.db
     .updateTable("core_staff_offer")
     .set({ state: end, ended_at: ctx.now, ended_by: ctx.user.id, why: why.slice(0, 200) })

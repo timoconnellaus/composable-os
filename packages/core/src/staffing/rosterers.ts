@@ -8,8 +8,9 @@
 // **The notices** are the host's own (in-app, delivered by email as each person's preferences
 // say), written in the batch of the write that causes them, so a take or a reassignment made by
 // any path tells the same people. Nothing here writes to a member.
-import type { Kysely } from "kysely";
+
 import type { CoreDatabase } from "@composable-os/db";
+import type { Kysely } from "kysely";
 import { notifyStatements } from "../notifications/send.ts";
 import type { NotificationLink } from "../notifications/types.ts";
 import type { HandlerContext } from "../operation.ts";

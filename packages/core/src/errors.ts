@@ -319,10 +319,7 @@ export function toOperationError(error: unknown): OperationError {
       rule: "offer_open",
     });
   }
-  if (
-    message.includes("core_staff_offer_fixed") ||
-    message.includes("core_staff_offer_replaced")
-  ) {
+  if (message.includes("core_staff_offer_fixed") || message.includes("core_staff_offer_replaced")) {
     return new ConflictError("An offer is never changed or replaced, so nothing was changed.", {
       rule: "offer_fixed",
     });

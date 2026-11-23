@@ -199,6 +199,8 @@ export async function leaveRoster(
       action: "update",
       before: { [p.field]: p.was },
       after: { [p.field]: null },
+      // The host cleared it (ADR 0590): its mark is the host's.
+      marks: { hostFilled: [p.field] },
     });
   }
   // Every future shift of theirs, object by object: the ids are taken from their claims at commit.
@@ -220,6 +222,7 @@ export async function leaveRoster(
         action: "update",
         before: { [def.staffed.who.field]: s.was },
         after: { [def.staffed.who.field]: null },
+        marks: { hostFilled: [def.staffed.who.field] },
       });
     }
   }

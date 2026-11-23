@@ -6,7 +6,8 @@
 //   longer live is cancelled. With nothing open it is one indexed read.
 // - **The daily uncovered notice**: once a local day, from 07:00 in the organisation's zone, the
 //   rosterers are told every live shift with nobody on it in the uncovered window, if any.
-import { sql } from "kysely";
+import type { CoreDatabase } from "@composable-os/db";
+import { type Kysely, sql } from "kysely";
 import { objectTableOf } from "../extensions/schema.ts";
 import { listObjects } from "../fields/index.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
@@ -164,6 +165,36 @@ async function dailyUncovered(ctx: HandlerContext): Promise<number> {
     dedupeKey: `staffing.uncovered.${local.date}`,
   });
   return shifts.length;
+}
+
+/**
+ * Whether the minute cron has roster work now (read outside any operation, so a quiet minute
+ * writes nothing, not even an audit row): an open offer past its cut-off or whose shift is gone,
+ * or the daily notice due.
+ */
+export async function staffingWorkDue(db: Kysely<CoreDatabase>, nowIso: string): Promise<boolean> {
+  if (!listObjects().some((o) => o.staffed)) return false;
+  const ctx = { db, now: nowIso } as unknown as HandlerContext;
+  const open = await db
+    .selectFrom("core_staff_offer")
+    .select(["object_type", "record_id"])
+    .where("state", "=", "open")
+    .orderBy("made_at")
+    .limit(OFFERS_PER_TICK)
+    .execute();
+  for (const offer of open) {
+    const s = await loadShift(ctx, offer.object_type, offer.record_id);
+    if (!s || s.deleted || !s.shift.live || pastCutoff(s.shift.starts, nowIso)) return true;
+  }
+  const { timezone } = await loadGeneralSettings(db);
+  const local = localParts(Date.parse(nowIso), timezone);
+  if (local.hour < DAILY_NOTICE_HOUR) return false;
+  const ran = await db
+    .selectFrom("core_staff_run")
+    .select("last_date")
+    .where("name", "=", "uncovered")
+    .executeTakeFirst();
+  return !ran || ran.last_date < local.date;
 }
 
 /** The minute cron's roster work, in the caller's batch. */

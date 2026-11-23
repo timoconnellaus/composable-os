@@ -50,3 +50,15 @@ by every member with `records:read`, by SQL, exports and the assistant.
 - A warning names that someone is away, never why: no note reaches the write's caller.
 - An assistant acting for an admin is answered as the admin is.
 - The approval card can show the warnings from the dry run's answer (stage 45 step 7 shows them).
+
+## Amended 2026-11-23 (stage 45 step 3)
+The writers and readers are built (ADRs [0623](0623-offers-and-takes-the-race-and-the-cut-off.md)
+and [0624](0624-the-rosters-notices-uncovered-shifts-and-leaving.md)), all tool-only:
+`staffing.qualify` (a rosterer; applied by a person) and `staffing.qualifications` (a rosterer's,
+or one's own); `staffing.away`, `staffing.back` (a person's own act, for themselves, or a rosterer
+for anyone) and `staffing.awayList` (one's own, or a rosterer's; with the note). Someone else's
+unavailability is answered as not there. Both rules above are kept. The unavailability read for a
+warning is now bounded: only one-off times ending after the shift starts and regular rules not
+ended before it are read, never a person's past leave. A take is held to the qualification
+strictly (a row must exist), unlike the warning. "Who may roster" is one function
+(`staffing/rosterers.ts`), the admins until step 4.

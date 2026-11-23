@@ -1346,7 +1346,9 @@ its **warnings** (away, not qualified, uncovered), which never refuse it (ADR 06
 _Avoid_: session, slot, booking
 
 **Roster** (stage 45, proposed)
-Every shift in a range, with who works each. The **pattern** is its regular week (a class series'
+Every shift in a range, with who works each. A **rosterer** is told what changes the roster
+(takes, lapses, leave over shifts, a shift just left uncovered, the daily list of uncovered shifts;
+step 3, ADR 0624); until stage 45 step 4 a rosterer is an admin. The **pattern** is its regular week (a class series'
 coach, a duty series' person); an **exception** is one date changed from it, and only that field
 leaves the series (a field exception, built: ADR 0620). A **rosterer** may roster others (`rostering:manage`). Not Bookings' tool
 `roster`, which is a class's list.
@@ -1357,17 +1359,22 @@ A kind of work that is not a class (Cleaning, Open up), done in **duty shifts** 
 series** (`recurring`) with its regular person.
 _Avoid_: task (a base record), job
 
-**Qualified** and **Unavailable** (stage 45, proposed)
+**Qualified** and **Unavailable** (stage 45, built in step 3: ADRs 0622 and 0623)
 A staff member is **qualified** for a kind of shift (a class type, a duty) when a rosterer says they
-may do it; only the qualified may take an offered shift, and rostering anyone else is a warning.
-**Unavailable** (away) is a time they said they cannot work: one-off (leave) or **regular** (every
-Wednesday afternoon). Both are host tables keyed by the staff account, in no `rec_*` view.
+may do it (`staffing.qualify`); only the qualified may take an offered shift, and rostering anyone
+else is a warning. **Unavailable** (away) is a time they said they cannot work (`staffing.away`,
+`staffing.back`): one-off (leave) or **regular** (every Wednesday afternoon). Both are host tables
+keyed by the staff account, in no `rec_*` view; whether someone is away is known only to them and
+to rosterers. A person is **eligible** for a shift when they are qualified, free and not away.
 _Avoid_: skill, certification, availability (say when they are away)
 
-**Offer** and **Take** (stage 45, proposed)
-A shift's person **offers** it; a qualified, free person **takes** it, with nobody approving, and
-rosterers are told. Exactly one take succeeds. Until it is taken the shift is the offerer's; at the
-cut-off (1 hour before, a setting) the offer **lapses**.
+**Offer** and **Take** (stage 45, built in step 3: ADR 0623)
+A shift's person **offers** it (or a rosterer offers an uncovered one), to everyone eligible or to
+one named person; a qualified, free person **takes** it, with nobody approving, and rosterers are
+told. Exactly one take succeeds, decided by the database. Until it is taken the shift is the
+offerer's; at the **cut-off** (1 hour before, a setting from step 4) the offer **lapses**. An offer
+is **withdrawn** by its offerer or a rosterer, and **cancelled** by the host when the shift goes to
+someone else, is cancelled, removed, or its person leaves. A person's own act: never an assistant's.
 _Avoid_: swap request, trade, bid
 
 **Calendar feed** (stage 45, proposed)

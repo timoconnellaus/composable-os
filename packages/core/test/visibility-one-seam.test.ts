@@ -169,6 +169,13 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   // Routine mail (ADR 0590): the host reads the record it is about, its order, its person and
   // the orders an address paid itself, for a shipped pack's automation run with no caller.
   "routine-mail/index.ts": [4, WHY.org],
+  // The roster (stage 45 step 3, ADRs 0623 and 0624): the host reads the shifts' titles, times and
+  // person fields (never a booking or a Person) to answer an offer, list uncovered shifts and take
+  // a leaver off their future shifts and patterns (writes are staff's, in the operation's batch).
+  "staffing/due.ts": [1, WHY.host],
+  "staffing/eligibility.ts": [1, WHY.host],
+  "staffing/leaving.ts": [3, WHY.write],
+  "operations/staffing.ts": [2, WHY.host],
   // The host's read of a period's order by its invoice (stage 32a, ADR 0486).
   "subscriptions/periods.ts": [1, WHY.host],
   // Whether a paid invoice is the first period after a pause the host asked for (stage 32b, ADR 0531).

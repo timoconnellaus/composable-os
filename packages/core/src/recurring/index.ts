@@ -391,7 +391,10 @@ export async function generateSeries(
     // already on an overlapping shift is made with nobody on it, and keeps that as its own (a
     // field exception), so the series does not write the clash back; a rosterer settles it.
     const who = staffed?.who.field;
-    const planned = { ...(stateField ? { [stateField]: generated.states?.initial } : {}), ...values };
+    const planned = {
+      ...(stateField ? { [stateField]: generated.states?.initial } : {}),
+      ...values,
+    };
     const clash =
       who !== undefined && values[who] !== null && values[who] !== undefined
         ? await generationClash(ctx, generated, planned)

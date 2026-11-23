@@ -19,6 +19,7 @@ import { objectTableOf } from "../extensions/schema.ts";
 import { getObject, listObjects } from "../fields/index.ts";
 import type { ObjectDefinition, StaffedDefinition } from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
+import type { Mover } from "../records/transitions.ts";
 import {
   isoWeekday,
   localParts,
@@ -26,7 +27,6 @@ import {
   wallClockOf,
   wallClockToInstant,
 } from "../time/local.ts";
-import type { Mover } from "../records/transitions.ts";
 import { orgReader, visibleSource } from "../visibility/index.ts";
 import { shiftRemoved, shiftWritten } from "./changes.ts";
 import { mayRoster, queueNotice, rosterers, shiftLink } from "./rosterers.ts";

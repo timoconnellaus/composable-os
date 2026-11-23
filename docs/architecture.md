@@ -1154,8 +1154,30 @@ series change that would double-book on any date is refused naming the dates; a 
 shifts that clash and have not ended is refused (`staffed_conflict`; past clashes are skipped and reported, and admins are told of a refused shipped upgrade). A live shift must end after it starts, and a coach profile on shifts not yet ended cannot go to the Trash. Writes answer **warnings** they are
 made with (`unavailable`, `not_qualified`, `uncovered` within 14 days), which the audit row
 records; `staffing.check` (tool-only) is the same answer first. Qualifications and unavailability
-are core tables in no `rec_*` view (`core_staff_qualification`, `core_staff_away`; their writers
-are stage 45 step 3). Bookings' class declares it.
+are core tables in no `rec_*` view (`core_staff_qualification`, `core_staff_away`). Bookings' class
+declares it.
+
+**Offers, takes and the roster's notices** ([ADR 0623](adr/0623-offers-and-takes-the-race-and-the-cut-off.md),
+[ADR 0624](adr/0624-the-rosters-notices-uncovered-shifts-and-leaving.md), stage 45 step 3). The
+host's tool-only staffing operations (`packages/core/src/operations/staffing.ts`) write who may do
+which kind of work (`staffing.qualify`), unavailability (`staffing.away`, `staffing.back`,
+`staffing.awayList`: the person's own and rosterers'), and offers (`core_staff_offer`, migration
+0812): `staffing.offer` (the shift's person, or a rosterer for anyone's and an uncovered one; the
+eligible are told: qualified, free, not away), `staffing.take`, `staffing.withdraw`,
+`staffing.offers`; and a rosterer's `staffing.assign` and `staffing.uncovered`. An offer leaves
+`open` once: a trigger refuses every later move, so of twenty takes at once one commits and the
+rest are told who took it (an operation's `explainFailure` reads again after a failed batch). A
+take writes the person through the record operations, so it is a field exception of its series
+and its time claim moves, in the take's batch. Offers close an hour before the shift (the cut-off)
+and lapse there (the minute cron's `staffing.due`, which also sends the rosterers the daily list of
+uncovered shifts). Every write of a shift, by any path, cancels its open offer when it goes to
+someone else or ends, and tells the people put on or taken off it, the person whose shift moved or
+was cancelled, and the rosterers when it is left uncovered (`staffing/changes.ts`); the host's own
+writes tell nobody per shift. A take, an offer, a withdrawal and saying someone is away are a
+person's own act (the calling tool must be `humanOnly`); `assign` and `qualify` are applied by a
+person (`personApproves`). `user.deactivate` takes a leaver off every future shift and pattern,
+confirmed by count, cancels their offers and tells the rosterers (`staffing/leaving.ts`). Who may
+roster is the admins until step 4's `rostering:manage` (`staffing/rosterers.ts`, one place).
 
 `sellable.moves` ([ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md),
 `packages/core/src/orders/moves.ts` and `refund-due.ts`) is a paid line that moves a record that
