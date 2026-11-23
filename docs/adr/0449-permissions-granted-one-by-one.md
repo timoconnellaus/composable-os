@@ -79,3 +79,8 @@ same one statement, through the same `staffMayCall`.
 Grants are on screen in Settings > Users (the permissions dialog that came with staff invites,
 ADR 0455). `user.me` gives a signed-in staff account its own role, grants and permissions, so a screen
 offers an action only to an account that holds it. The host still decides every call.
+
+## Amendment, 2026-11-23 (stage 44, step 1, ADR 0610)
+`agreements:manage` (write agreement documents; publish, attach, detach and retire them) joins the
+core permissions an admin may grant one by one. Publishing, attaching, detaching and retiring stay a
+person's whatever is granted (`actors: ["human"]`).

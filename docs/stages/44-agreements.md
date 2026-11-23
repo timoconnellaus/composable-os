@@ -199,6 +199,8 @@ kept as a file.
 | Acceptances: customer, guardian, guest with an order, staff from paper; immutability | **Platform** | Identity and evidence |
 | Signatures, health answers and their isolation; AI exclusion | **Platform** (`agreements/`, `visibility/`) | Health information; policy is not AI-configurable |
 | The copy email and the PDF | **Platform** (host mail, the email gatekeeper, a PDF writer) | The attachment rule (ADR 0571) |
+| Signing at the desk: the session, its code and token, the `/desk` page | **Platform** (`agreements/`, the host app's public path) | Identity: who is signing, and on whose say-so |
+| The minor mark | **Platform** (`agreements/`) | Who may agree for whom is identity |
 | Erase, merge, the Trash and keeping records for a period | **Platform** | ADR 0320: erase reaches every store |
 | Cooling off: the setting, the cancel and the refund owed | **Platform** (subscriptions) with the **Memberships pack**'s setting | Refunds and subscriptions are core; the period is the gym's setting |
 | Points declared on `memberships.plan`, `memberships.passtype`, `bookings.booking`; Ticketing's and Courses' sellables | **Packs** (one declaration each) | Composition |

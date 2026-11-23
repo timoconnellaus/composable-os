@@ -5494,6 +5494,1950 @@
       "invalidates": []
     },
     {
+      "name": "agreement.attach",
+      "description": "Attach a published agreement document to agreement points (agreement.points lists them), so it is needed there: from step 3 of stage 44, nobody buys or books there without a current acceptance of it. Nothing already bought or booked is touched. Only a person on the staff with agreements:manage can do this. Audited.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The document's id (agd_…)"
+          },
+          "points": {
+            "minItems": 1,
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40
+            }
+          }
+        },
+        "required": [
+          "documentId",
+          "points"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "terms",
+              "waiver",
+              "health",
+              "guardian",
+              "other"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "live",
+              "retired"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "description": "The current version's title, or the working copy's before one"
+          },
+          "current": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "number": {
+                    "type": "number"
+                  },
+                  "effectiveFrom": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "number",
+                  "effectiveFrom"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The version in effect now"
+          },
+          "scheduled": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "number": {
+                    "type": "number"
+                  },
+                  "effectiveFrom": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "number",
+                  "effectiveFrom"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A published version that takes effect later"
+          },
+          "agreeFrom": {
+            "type": "number",
+            "description": "Acceptances of versions numbered below this stop counting"
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The agreement points it is attached to"
+          },
+          "draftUpdatedAt": {
+            "type": "string"
+          },
+          "retiredAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "state",
+          "title",
+          "current",
+          "scheduled",
+          "agreeFrom",
+          "points",
+          "draftUpdatedAt",
+          "retiredAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "agreement.get",
+        "agreement.list",
+        "agreement.points",
+        "agreement.publishPreview",
+        "agreement.version.get"
+      ]
+    },
+    {
+      "name": "agreement.create",
+      "description": "Start a new agreement document as a draft: its title and kind (terms, waiver, health for a health questions form, guardian for a parent's consent, other). The kind never changes. Its working copy is then written with agreement.draft.save; nothing is asked of anyone until a person publishes it and attaches it to an agreement point. The platform ships no wording: the business writes its own.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "terms",
+              "waiver",
+              "health",
+              "guardian",
+              "other"
+            ]
+          }
+        },
+        "required": [
+          "title",
+          "kind"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "agreement.get",
+        "agreement.list",
+        "agreement.points",
+        "agreement.publishPreview",
+        "agreement.version.get"
+      ]
+    },
+    {
+      "name": "agreement.detach",
+      "description": "Detach an agreement document from agreement points: it is no longer needed there. Acceptances people made are kept. Only a person on the staff with agreements:manage can do this. Audited.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The document's id (agd_…)"
+          },
+          "points": {
+            "minItems": 1,
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40
+            }
+          }
+        },
+        "required": [
+          "documentId",
+          "points"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "terms",
+              "waiver",
+              "health",
+              "guardian",
+              "other"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "live",
+              "retired"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "description": "The current version's title, or the working copy's before one"
+          },
+          "current": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "number": {
+                    "type": "number"
+                  },
+                  "effectiveFrom": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "number",
+                  "effectiveFrom"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The version in effect now"
+          },
+          "scheduled": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "number": {
+                    "type": "number"
+                  },
+                  "effectiveFrom": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "number",
+                  "effectiveFrom"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A published version that takes effect later"
+          },
+          "agreeFrom": {
+            "type": "number",
+            "description": "Acceptances of versions numbered below this stop counting"
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The agreement points it is attached to"
+          },
+          "draftUpdatedAt": {
+            "type": "string"
+          },
+          "retiredAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "state",
+          "title",
+          "current",
+          "scheduled",
+          "agreeFrom",
+          "points",
+          "draftUpdatedAt",
+          "retiredAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "agreement.get",
+        "agreement.list",
+        "agreement.points",
+        "agreement.publishPreview",
+        "agreement.version.get"
+      ]
+    },
+    {
+      "name": "agreement.draft.save",
+      "description": "Write an agreement document's working copy: any of its title, body (rich text), tick label (the words beside the box), how a person agrees (typed name, or a drawn signature), who agrees (the participant or the payer), for whom (everyone, or only a dependant), and for a health form its questions and after how many months it is asked again. Only what is given changes. It changes no published version and nothing anyone is asked: a person publishes. The assistant may write it for someone who holds agreements:manage.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The document's id (agd_…)"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "body": {},
+          "tickLabel": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "how": {
+            "type": "string",
+            "enum": [
+              "typed",
+              "drawn"
+            ]
+          },
+          "who": {
+            "type": "string",
+            "enum": [
+              "participant",
+              "payer"
+            ]
+          },
+          "forWhom": {
+            "type": "string",
+            "enum": [
+              "everyone",
+              "dependants"
+            ]
+          },
+          "questions": {
+            "description": "A health form's questions only",
+            "anyOf": [
+              {
+                "minItems": 1,
+                "maxItems": 40,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9_]{0,39}$",
+                      "description": "Stable key of the question within the form"
+                    },
+                    "text": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 500
+                    },
+                    "noteOnYes": {
+                      "default": false,
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "text"
+                  ]
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "askAgainMonths": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 120
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tickLabel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "questions": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "noteOnYes": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "text",
+                    "noteOnYes"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "how": {
+            "type": "string",
+            "enum": [
+              "typed",
+              "drawn"
+            ]
+          },
+          "who": {
+            "type": "string",
+            "enum": [
+              "participant",
+              "payer"
+            ]
+          },
+          "forWhom": {
+            "type": "string",
+            "enum": [
+              "everyone",
+              "dependants"
+            ]
+          },
+          "askAgainMonths": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "rev": {
+            "type": "number"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "updatedBy": {
+            "type": "string"
+          },
+          "hash": {
+            "type": "string",
+            "description": "Hash of what a person would be shown; publish names it"
+          }
+        },
+        "required": [
+          "title",
+          "body",
+          "tickLabel",
+          "questions",
+          "how",
+          "who",
+          "forWhom",
+          "askAgainMonths",
+          "rev",
+          "updatedAt",
+          "updatedBy",
+          "hash"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "agreement.get",
+        "agreement.list",
+        "agreement.points",
+        "agreement.publishPreview",
+        "agreement.version.get"
+      ]
+    },
+    {
+      "name": "agreement.get",
+      "description": "One agreement document: its summary, the working copy (the draft the editor changes, with its hash) and its versions, newest first, without their bodies (agreement.version.get reads one). Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The document's id (agd_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "terms",
+              "waiver",
+              "health",
+              "guardian",
+              "other"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "live",
+              "retired"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "description": "The current version's title, or the working copy's before one"
+          },
+          "current": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "number": {
+                    "type": "number"
+                  },
+                  "effectiveFrom": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "number",
+                  "effectiveFrom"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The version in effect now"
+          },
+          "scheduled": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "number": {
+                    "type": "number"
+                  },
+                  "effectiveFrom": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "number",
+                  "effectiveFrom"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A published version that takes effect later"
+          },
+          "agreeFrom": {
+            "type": "number",
+            "description": "Acceptances of versions numbered below this stop counting"
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The agreement points it is attached to"
+          },
+          "draftUpdatedAt": {
+            "type": "string"
+          },
+          "retiredAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "draft": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "body": {
+                "anyOf": [
+                  {},
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "tickLabel": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "questions": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "noteOnYes": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "text",
+                        "noteOnYes"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "how": {
+                "type": "string",
+                "enum": [
+                  "typed",
+                  "drawn"
+                ]
+              },
+              "who": {
+                "type": "string",
+                "enum": [
+                  "participant",
+                  "payer"
+                ]
+              },
+              "forWhom": {
+                "type": "string",
+                "enum": [
+                  "everyone",
+                  "dependants"
+                ]
+              },
+              "askAgainMonths": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "rev": {
+                "type": "number"
+              },
+              "updatedAt": {
+                "type": "string"
+              },
+              "updatedBy": {
+                "type": "string"
+              },
+              "hash": {
+                "type": "string",
+                "description": "Hash of what a person would be shown; publish names it"
+              }
+            },
+            "required": [
+              "title",
+              "body",
+              "tickLabel",
+              "questions",
+              "how",
+              "who",
+              "forWhom",
+              "askAgainMonths",
+              "rev",
+              "updatedAt",
+              "updatedBy",
+              "hash"
+            ],
+            "additionalProperties": false
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "documentId": {
+                  "type": "string"
+                },
+                "number": {
+                  "type": "number"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "tickLabel": {
+                  "type": "string"
+                },
+                "how": {
+                  "type": "string",
+                  "enum": [
+                    "typed",
+                    "drawn"
+                  ]
+                },
+                "who": {
+                  "type": "string",
+                  "enum": [
+                    "participant",
+                    "payer"
+                  ]
+                },
+                "forWhom": {
+                  "type": "string",
+                  "enum": [
+                    "everyone",
+                    "dependants"
+                  ]
+                },
+                "askAgainMonths": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "change": {
+                  "type": "string",
+                  "enum": [
+                    "first",
+                    "small",
+                    "agree_again"
+                  ]
+                },
+                "effectiveFrom": {
+                  "type": "string"
+                },
+                "publishedAt": {
+                  "type": "string"
+                },
+                "publishedBy": {
+                  "type": "string"
+                },
+                "hash": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "documentId",
+                "number",
+                "title",
+                "tickLabel",
+                "how",
+                "who",
+                "forWhom",
+                "askAgainMonths",
+                "change",
+                "effectiveFrom",
+                "publishedAt",
+                "publishedBy",
+                "hash"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "state",
+          "title",
+          "current",
+          "scheduled",
+          "agreeFrom",
+          "points",
+          "draftUpdatedAt",
+          "retiredAt",
+          "draft",
+          "versions"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "agreement.list",
+      "description": "List the business's agreement documents (terms, waivers, health forms, a parent's consent): each with its kind, state (draft, live or retired), the version in effect now and any scheduled one, and the agreement points it is attached to. Titles and the business's own text only: nothing here names a member. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "retired": {
+            "default": false,
+            "description": "Include retired documents",
+            "type": "boolean"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "terms",
+                    "waiver",
+                    "health",
+                    "guardian",
+                    "other"
+                  ]
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "draft",
+                    "live",
+                    "retired"
+                  ]
+                },
+                "title": {
+                  "type": "string",
+                  "description": "The current version's title, or the working copy's before one"
+                },
+                "current": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "number": {
+                          "type": "number"
+                        },
+                        "effectiveFrom": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "number",
+                        "effectiveFrom"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The version in effect now"
+                },
+                "scheduled": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "number": {
+                          "type": "number"
+                        },
+                        "effectiveFrom": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "number",
+                        "effectiveFrom"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "A published version that takes effect later"
+                },
+                "agreeFrom": {
+                  "type": "number",
+                  "description": "Acceptances of versions numbered below this stop counting"
+                },
+                "points": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "The agreement points it is attached to"
+                },
+                "draftUpdatedAt": {
+                  "type": "string"
+                },
+                "retiredAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "state",
+                "title",
+                "current",
+                "scheduled",
+                "agreeFrom",
+                "points",
+                "draftUpdatedAt",
+                "retiredAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "agreement.points",
+      "description": "The agreement points installed packs declare (buying a membership, making a booking): the places a business may attach its documents, each with its label, the kinds of document it suggests and the objects that declare it. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "point": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "suggests": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "objects": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "point",
+                "label",
+                "suggests",
+                "objects"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "agreement.publish",
+      "description": "Publish an agreement document's working copy as its next version, which nobody can change afterwards. change: small (earlier acceptances still count) or agree_again (everyone must agree to this version before their next booking or purchase); a first version is first. effectiveFrom (left out: now) schedules it; it cannot be in the past or before the newest version's, and a published version cannot be withdrawn. draftHash is the working copy's hash the person reviewed (agreement.publishPreview): a copy changed since is refused. Only a person on the staff with agreements:manage can do this: never the assistant, an MCP client or code. Audited.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The document's id (agd_…)"
+          },
+          "change": {
+            "type": "string",
+            "enum": [
+              "small",
+              "agree_again"
+            ]
+          },
+          "effectiveFrom": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "draftHash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "documentId",
+          "change",
+          "draftHash"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "terms",
+                  "waiver",
+                  "health",
+                  "guardian",
+                  "other"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "live",
+                  "retired"
+                ]
+              },
+              "title": {
+                "type": "string",
+                "description": "The current version's title, or the working copy's before one"
+              },
+              "current": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "number": {
+                        "type": "number"
+                      },
+                      "effectiveFrom": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "number",
+                      "effectiveFrom"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The version in effect now"
+              },
+              "scheduled": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "number": {
+                        "type": "number"
+                      },
+                      "effectiveFrom": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "number",
+                      "effectiveFrom"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "A published version that takes effect later"
+              },
+              "agreeFrom": {
+                "type": "number",
+                "description": "Acceptances of versions numbered below this stop counting"
+              },
+              "points": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "The agreement points it is attached to"
+              },
+              "draftUpdatedAt": {
+                "type": "string"
+              },
+              "retiredAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "state",
+              "title",
+              "current",
+              "scheduled",
+              "agreeFrom",
+              "points",
+              "draftUpdatedAt",
+              "retiredAt"
+            ],
+            "additionalProperties": false
+          },
+          "version": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "documentId": {
+                "type": "string"
+              },
+              "number": {
+                "type": "number"
+              },
+              "title": {
+                "type": "string"
+              },
+              "body": {},
+              "tickLabel": {
+                "type": "string"
+              },
+              "questions": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "noteOnYes": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "text",
+                        "noteOnYes"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "how": {
+                "type": "string",
+                "enum": [
+                  "typed",
+                  "drawn"
+                ]
+              },
+              "who": {
+                "type": "string",
+                "enum": [
+                  "participant",
+                  "payer"
+                ]
+              },
+              "forWhom": {
+                "type": "string",
+                "enum": [
+                  "everyone",
+                  "dependants"
+                ]
+              },
+              "askAgainMonths": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "change": {
+                "type": "string",
+                "enum": [
+                  "first",
+                  "small",
+                  "agree_again"
+                ]
+              },
+              "effectiveFrom": {
+                "type": "string"
+              },
+              "publishedAt": {
+                "type": "string"
+              },
+              "publishedBy": {
+                "type": "string"
+              },
+              "hash": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "documentId",
+              "number",
+              "title",
+              "body",
+              "tickLabel",
+              "questions",
+              "how",
+              "who",
+              "forWhom",
+              "askAgainMonths",
+              "change",
+              "effectiveFrom",
+              "publishedAt",
+              "publishedBy",
+              "hash"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "document",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "agreement.get",
+        "agreement.list",
+        "agreement.points",
+        "agreement.publishPreview",
+        "agreement.version.get"
+      ]
+    },
+    {
+      "name": "agreement.publishPreview",
+      "description": "What publishing an agreement document's working copy would make: the version number, whether it is the first, what changed against the newest version (title, body, tick label, questions, how, who, for whom), the working copy's hash to pass to agreement.publish, and why it cannot be published yet if it cannot. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The document's id (agd_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "number": {
+            "type": "number"
+          },
+          "first": {
+            "type": "boolean"
+          },
+          "changed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "draftHash": {
+            "type": "string"
+          },
+          "latest": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "documentId": {
+                    "type": "string"
+                  },
+                  "number": {
+                    "type": "number"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "body": {},
+                  "tickLabel": {
+                    "type": "string"
+                  },
+                  "questions": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "key": {
+                              "type": "string"
+                            },
+                            "text": {
+                              "type": "string"
+                            },
+                            "noteOnYes": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "key",
+                            "text",
+                            "noteOnYes"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "how": {
+                    "type": "string",
+                    "enum": [
+                      "typed",
+                      "drawn"
+                    ]
+                  },
+                  "who": {
+                    "type": "string",
+                    "enum": [
+                      "participant",
+                      "payer"
+                    ]
+                  },
+                  "forWhom": {
+                    "type": "string",
+                    "enum": [
+                      "everyone",
+                      "dependants"
+                    ]
+                  },
+                  "askAgainMonths": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "change": {
+                    "type": "string",
+                    "enum": [
+                      "first",
+                      "small",
+                      "agree_again"
+                    ]
+                  },
+                  "effectiveFrom": {
+                    "type": "string"
+                  },
+                  "publishedAt": {
+                    "type": "string"
+                  },
+                  "publishedBy": {
+                    "type": "string"
+                  },
+                  "hash": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "documentId",
+                  "number",
+                  "title",
+                  "body",
+                  "tickLabel",
+                  "questions",
+                  "how",
+                  "who",
+                  "forWhom",
+                  "askAgainMonths",
+                  "change",
+                  "effectiveFrom",
+                  "publishedAt",
+                  "publishedBy",
+                  "hash"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "number",
+          "first",
+          "changed",
+          "draftHash",
+          "latest",
+          "problems"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "agreement.retire",
+      "description": "Retire an agreement document: it is detached everywhere and needed nowhere, its working copy is frozen, and it cannot be published again (write a new document instead). Its versions and the acceptances people made are kept for good. Only a person on the staff with agreements:manage can do this. Audited.",
+      "risk": "destructive",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The document's id (agd_…)"
+          }
+        },
+        "required": [
+          "documentId"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "terms",
+              "waiver",
+              "health",
+              "guardian",
+              "other"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "live",
+              "retired"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "description": "The current version's title, or the working copy's before one"
+          },
+          "current": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "number": {
+                    "type": "number"
+                  },
+                  "effectiveFrom": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "number",
+                  "effectiveFrom"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The version in effect now"
+          },
+          "scheduled": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "number": {
+                    "type": "number"
+                  },
+                  "effectiveFrom": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "number",
+                  "effectiveFrom"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A published version that takes effect later"
+          },
+          "agreeFrom": {
+            "type": "number",
+            "description": "Acceptances of versions numbered below this stop counting"
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The agreement points it is attached to"
+          },
+          "draftUpdatedAt": {
+            "type": "string"
+          },
+          "retiredAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "state",
+          "title",
+          "current",
+          "scheduled",
+          "agreeFrom",
+          "points",
+          "draftUpdatedAt",
+          "retiredAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "agreement.get",
+        "agreement.list",
+        "agreement.points",
+        "agreement.publishPreview",
+        "agreement.version.get"
+      ]
+    },
+    {
+      "name": "agreement.takeEffect",
+      "description": "Platform use only: make current the scheduled agreement versions whose time has come (the minute cron), as a person published them. No input names a document or a version.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "documents": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "documents"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "agreement.get",
+        "agreement.list",
+        "agreement.points",
+        "agreement.publishPreview",
+        "agreement.version.get"
+      ]
+    },
+    {
+      "name": "agreement.version.get",
+      "description": "One published version of an agreement document, exactly as people are shown it: title, body, tick label, questions, how a person agrees, and when it took or takes effect. A version never changes. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The version's id (agv_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "number": {
+            "type": "number"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {},
+          "tickLabel": {
+            "type": "string"
+          },
+          "questions": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "noteOnYes": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "text",
+                    "noteOnYes"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "how": {
+            "type": "string",
+            "enum": [
+              "typed",
+              "drawn"
+            ]
+          },
+          "who": {
+            "type": "string",
+            "enum": [
+              "participant",
+              "payer"
+            ]
+          },
+          "forWhom": {
+            "type": "string",
+            "enum": [
+              "everyone",
+              "dependants"
+            ]
+          },
+          "askAgainMonths": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "change": {
+            "type": "string",
+            "enum": [
+              "first",
+              "small",
+              "agree_again"
+            ]
+          },
+          "effectiveFrom": {
+            "type": "string"
+          },
+          "publishedAt": {
+            "type": "string"
+          },
+          "publishedBy": {
+            "type": "string"
+          },
+          "hash": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "documentId",
+          "number",
+          "title",
+          "body",
+          "tickLabel",
+          "questions",
+          "how",
+          "who",
+          "forWhom",
+          "askAgainMonths",
+          "change",
+          "effectiveFrom",
+          "publishedAt",
+          "publishedBy",
+          "hash"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "ai.cacheReport",
       "description": "Export the prompt cache review data (admins): cache observations, compaction decisions with what the following turns really cost, and each change of a learned lifetime. Sizes, prices and times only, never message content. The JSON is what `pnpm ai:replay-cache` reads; the CSV is one table for a spreadsheet. Read-only.",
       "risk": "read",

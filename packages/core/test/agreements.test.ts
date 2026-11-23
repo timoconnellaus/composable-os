@@ -66,7 +66,10 @@ const pendingCount = async () =>
     ?.n ?? 0;
 
 /** A draft document with a publishable working copy. */
-async function draftDocument(kind = "waiver", by = admin) {
+async function draftDocument(
+  kind: "terms" | "waiver" | "health" | "guardian" | "other" = "waiver",
+  by = admin,
+) {
   const { id } = await invoke("agreement.create", { title: unique("Waiver"), kind }, context(by));
   const saved = await invoke(
     "agreement.draft.save",
@@ -207,7 +210,7 @@ describe("publishing is a person's", () => {
           ["agreement.detach", { documentId: id, points: [POINT] }],
           ["agreement.retire", { documentId: id }],
         ] as const) {
-          const refused = await refusal(invoke(name, input, ctx));
+          const refused = await refusal(invoke(name, input as never, ctx));
           expect(refused.code, `${name} by ${extra.actor}`).toBe("forbidden");
           expect(refused).not.toBeInstanceOf(PendingApprovalError);
         }
@@ -408,7 +411,7 @@ describe("effective dates, attaching and the counter", () => {
     // Before its time the cron changes nothing; at its time it makes it current, once.
     expect((await runAgreementsDue(db)).documents).toBeGreaterThanOrEqual(0);
     doc = await invoke("agreement.get", { id }, context(admin));
-    expect(doc.current.id).toBe(first.id);
+    expect(doc.current?.id).toBe(first.id);
     const r1 = await rev();
     const at = new Date(Date.now() + 2 * 3_600_000);
     expect((await runAgreementsDue(db, { clock: () => at })).documents).toBeGreaterThanOrEqual(1);

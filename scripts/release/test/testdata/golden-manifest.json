@@ -28,7 +28,7 @@
   },
   "channel": "stable",
   "commit": "0123456789abcdef0123456789abcdef01234567",
-  "coreSchemaVersion": 690,
+  "coreSchemaVersion": 790,
   "extensionContract": {
     "supported": [
       1
@@ -558,6 +558,10 @@
     {
       "name": "0690_sellable_refund_due.sql",
       "sha256": "9a4a447b20d94873349726ba157412acc88909cf622ce67789ba840beb4b3f59"
+    },
+    {
+      "name": "0790_agreements.sql",
+      "sha256": "088b76017383b406bab8dc0910da41a90a43639362764af6a9dcd7527ce55f0b"
     }
   ],
   "product": "crm",

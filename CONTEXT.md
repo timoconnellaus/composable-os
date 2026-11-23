@@ -1208,26 +1208,32 @@ by staff.
 A practitioner's own working note about a client. Read by its author only: not the client's screen,
 not shared, never staff.
 
-**Agreement document** (a **document**; stage 44, proposed)
+**Agreement document** (a **document**; stage 44, built in step 1)
 Something a business asks people to agree to: its terms, a waiver, health questions, a parent's
-consent. Its **kind** is a label (`terms`, `waiver`, `health`, `guardian`, `other`, and the
-platform's `care`); only `health` changes how it works. It says how a person agrees (tick and type
-their name, or draw a signature), who agrees (the participant or the payer) and for whom (everyone,
-or dependants only). The business writes every word; the platform ships no legal wording. Core
-tables, not records: in no `rec_*` view.
+consent. Its **kind** is a label fixed when it is made (`terms`, `waiver`, `health`, `guardian`,
+`other`, and later the platform's `care`); only `health` changes how it works. Its **working copy**
+(the draft the editor changes) holds the title, body, tick label, how a person agrees (tick and type
+their name, or draw a signature), who agrees (the participant or the payer), for whom (everyone, or
+dependants only) and a health form's questions, so none of them change until a person publishes. It
+is a draft until first published, then live; **retired** is final. The business writes every word;
+the platform ships no legal wording. Core tables, not records: in no `rec_*` view (ADR 0610).
 _Avoid_: form (stage 29's), contract (what the law may make of it), template
 
-**Version** (of an agreement document; stage 44, proposed)
-One published wording of a document, kept for good: the database refuses any change to it or its
-deletion. Published only by a person with `agreements:manage`, as a **small change** (earlier
-acceptances still count) or **agree again** (they stop counting, so the next booking or purchase
-asks), now or from a date. An AI may draft the working copy and can never publish, not even by
-asking. Not a record's version (`core_publish_version`).
+**Version** (of an agreement document; stage 44, built in step 1)
+One published wording of a document, numbered and kept for good: the database refuses any update or
+deletion of it, by anyone. Published only by a person with `agreements:manage`, from the working
+copy they reviewed (its hash), as a **small change** (earlier acceptances still count) or **agree
+again** (they stop counting, so the next booking or purchase asks), now or from a date; the newest
+one in effect is **current**. A published version is never withdrawn. An AI may draft the working
+copy and can never publish, attach or retire, not even by asking. Every publish, attach, detach and
+retire bumps one counter (`core_agreement_rev`) that the guard at commit reads. Not a record's
+version (`core_publish_version`).
 
-**Agreement point** (the `agreements` behaviour; stage 44, proposed)
+**Agreement point** (the `agreements` behaviour; stage 44: declared and attached in step 1, asked
+from step 3)
 A place a pack says agreement may be needed: buying a membership or a pass, making a booking,
-buying a ticket or a course, a care link. The business **attaches** documents to points; nothing is
-needed anywhere by default. The host asks one question, `agreementsDue`, when an order or a
+buying a ticket or a course, a care link. A person with `agreements:manage` **attaches** published
+documents to points; nothing is needed anywhere by default (ADR 0611). The host asks one question, `agreementsDue`, when an order or a
 subscription starts and when a record enters a declared state, and the write's batch carries a guard
 that fails if any document changed since. The host's own moves (a promotion, a paid drop-in booked)
 are never checked.
@@ -1236,9 +1242,10 @@ _Avoid_: requirement (alone), gate (the approval gate)
 **Acceptance** (stage 44, proposed)
 One record that a person agreed to one version of a document: by themselves, by a **guardian** for
 a dependant, by a **guest** with their order (the Person's from the verified payment), or **recorded
-from paper** by a person on the staff (shown as that, never as the member's own). It holds the
-version and the hash of what was shown, who, how (typed, drawn, paper) and when; never the device or
-internet address. Nobody can change it. A drawn **signature** is kept as its strokes. It is
+from paper** by a person on the staff (shown as that, never as the member's own), or **at the desk**
+on the business's tablet in a session a person on the staff started (the member's own, shown as
+"agreed in person on the business's device"). It holds the version and the hash of what was shown,
+who, how (typed, drawn, paper) and when; never the device or internet address. Nobody can change it. A drawn **signature** is kept as its strokes. It is
 **current** while its version is at or after the document's last "agree again" (and, for health,
 within its ask-again months); a document is **due** for a Person at a point where it is attached and
 they have no current acceptance of it. The person is emailed a **copy** with the **signed PDF**,
@@ -1250,6 +1257,17 @@ accept), sign-off
 A `health` document's yes or no questions, a note if yes, and a person's answers. Health
 information: kept apart from every staff bulk path and every AI actor, read on screen only by
 staff with `agreements:health` (each read audited), by the person and by their guardian.
+
+**Minor** (for agreements; stage 44, proposed)
+A Person who is a dependant of a live family link, or whom staff have marked as a minor (the host
+holds no date of birth). Only a guardian's acceptance or a paper form counts for them, never their
+own.
+
+**Desk signing session** (stage 44, proposed)
+A short session a person on the staff starts, from their own signed-in account, for one named Person
+(and the children they will sign for): a one-time code opens it on the business's tablet, which is
+signed in as nobody and shows only that Person's due documents, then locks.
+_Avoid_: kiosk (a standing sign-in on a shared device, which this is not)
 
 **Cooling off** (stage 44, proposed)
 The days (a Memberships setting; 0, the default, turns it off) in which a new member may cancel a
