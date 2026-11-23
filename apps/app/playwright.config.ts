@@ -53,7 +53,10 @@ export default defineConfig({
     command: "node e2e/dev-server.mjs",
     env: { PORT: String(PORT) },
     url: `${baseURL}/api/health`,
-    reuseExistingServer: !process.env.CI,
+    // A server already on the port is reused only when asked (E2E_REUSE_SERVER=1, for your own
+    // `pnpm dev`): otherwise the run refuses to start, rather than write into another checkout's
+    // database when several sessions run e2e on one machine. Pick a free port with E2E_PORT.
+    reuseExistingServer: !process.env.CI && process.env.E2E_REUSE_SERVER === "1",
     timeout: 120_000,
   },
 });

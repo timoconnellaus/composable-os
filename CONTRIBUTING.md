@@ -45,6 +45,12 @@ pnpm --filter @composable-os/app exec playwright test people.spec.ts       # one
 pnpm --filter @composable-os/app exec playwright test deals --project=desktop
 ```
 
+- **The run starts its own dev server** (`e2e/dev-server.mjs`, on `E2E_PORT`, 5179 by default) and
+  refuses to start if that port is taken, so two checkouts never share a database. Set
+  `E2E_REUSE_SERVER=1` to run against your own `pnpm dev` instead. The shipped packs the specs use
+  are installed once in global setup. If workerd crashes under the run, the output says
+  `THE DEV SERVER BROKE`, and a failure at that moment is named as the dev server's, not the
+  product's.
 - **Desktop runs every spec; the phone project runs only tests tagged `@phone`**:
   `test("…", { tag: "@phone" }, async ({ page }) => …)`, on each test (Biome's Playwright rule
   refuses the option on a `test.describe`). Tag a test when its layout really differs at phone width: the nav drawer, a sheet in place of

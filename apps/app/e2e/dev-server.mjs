@@ -40,7 +40,8 @@ function main() {
   writeFileSync(CRASH_LOG, "");
   const vite = spawn("pnpm", ["exec", "vite", "dev"], {
     stdio: ["ignore", "pipe", "pipe"],
-    env: process.env,
+    // No inspector for the e2e server (vite.config.ts says why).
+    env: { ...process.env, COS_E2E_DEV_SERVER: "1" },
   });
   let last = 0;
   for (const [stream, out] of [
