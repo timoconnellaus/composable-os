@@ -1222,7 +1222,7 @@ _Avoid_: form (stage 29's), contract (what the law may make of it), template
 **Version** (of an agreement document; stage 44, built in step 1)
 One published wording of a document, numbered and kept for good: the database refuses any update or
 deletion of it, by anyone. Published only by a person with `agreements:manage`, from the working
-copy they reviewed (its hash), as a **small change** (earlier acceptances still count) or **agree
+copy they reviewed (the hash of every term, and its rev), as a **small change** (earlier acceptances still count) or **agree
 again** (they stop counting, so the next booking or purchase asks), now or from a date; the newest
 one in effect is **current**. A published version is never withdrawn. An AI may draft the working
 copy and can never publish, attach or retire, not even by asking. Every publish, attach, detach and
@@ -1265,8 +1265,10 @@ own.
 
 **Desk signing session** (stage 44, proposed)
 A short session a person on the staff starts, from their own signed-in account, for one named Person
-(and the children they will sign for): a one-time code opens it on the business's tablet, which is
-signed in as nobody and shows only that Person's due documents, then locks.
+(and the children they will sign for): a one-time code opens it only on an **enrolled** tablet (a
+device an admin enrolled as the business's, holding a revocable device credential that alone opens
+nothing), which is signed in as nobody and shows only that Person's due documents, then locks on
+limits the host keeps.
 _Avoid_: kiosk (a standing sign-in on a shared device, which this is not)
 
 **Cooling off** (stage 44, proposed)

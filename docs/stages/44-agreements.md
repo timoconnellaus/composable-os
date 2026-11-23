@@ -247,20 +247,36 @@ which a new member may cancel for a full refund.
 - **`core_agreement_version`**: id (`agv_…`), document, number (1, 2, 3), title, body, tick label,
   questions, how, who, for whom, ask again after, **change** (`first`, `small`, `agree_again`),
   **effective from** (an instant), published at and by (a staff user, a person), the working copy's
-  `draft_rev` it was made from, and **hash**: SHA-256 of the canonical JSON (keys sorted) of what a
-  person is shown (title, body, tick label, questions). The database refuses any update and any
-  delete of a version, by anyone, host code included (two triggers), and acceptances will reference
-  it. Versions are the business's text, not personal data, so nothing ever needs to delete one.
+  `draft_rev` it was made from, and **hash**: SHA-256 of the canonical JSON (keys sorted) of
+  **everything the version holds**: the document's kind, title, body, tick label, questions, how,
+  who, for whom and ask again after (corrected after the review of PR #266: a hash of the words
+  alone let an AI change who agrees or for whom after the person's preview). The database refuses
+  any update and any delete of a version, by anyone, host code included, and any insert over an
+  existing id (D1 runs without recursive triggers, so `INSERT OR REPLACE` would otherwise get past
+  the delete trigger); an insert must match the working copy field by field at commit. SQLite cannot
+  hash, so a raw writer could still give a matching row a made-up hash: every read that matters
+  recomputes it (`intact`), and step 2's acceptance refuses a version that is not intact. Versions
+  are the business's text, not personal data, so nothing ever needs to delete one.
+- **What a body may hold**: rich text without `image`, `embed` or `button` blocks (a picture can be
+  deleted from the media library later and the hash covers only its id; the copy cannot show the
+  others). A link is allowed only when its text is its own address, every rendering shows the
+  address in full, and the editor says that a linked page is not part of what a person agrees to.
+  Titles, tick labels, questions and body text refuse bidirectional controls (U+202A to U+202E,
+  U+2066 to U+2069) and text made only of zero-width characters.
 - **Publishing**: `agreement.publish { documentId, change: "small" | "agree_again", effectiveFrom?,
-  draftHash }` (staff, `agreements:manage`, risk `write`, **`actors: ["human"]`**: the assistant, MCP
-  and Code Mode, automations and extension code are refused, not queued). It snapshots the working
-  copy into a new version. A first version is `first` whatever `change` says. **`draftHash`** is the
-  hash of the working copy the person was shown (`agreement.publishPreview`): if the working copy
-  changed since (the assistant drafting meanwhile), the publish is refused (`conflict`), and the
-  version row's own trigger refuses it in the batch if the copy changed between the read and the
-  commit (`core_agreement_draft_changed`). So what is published is what the person read. The
-  preview shows the change against the current version, and (from step 2) for "agree again" how many
-  people it will ask (those with a current acceptance of the document now).
+  draftHash, draftRev }` (staff, `agreements:manage`, risk `write`, **`actors: ["human"]`**: the
+  assistant, MCP and Code Mode, automations and extension code are refused, not queued). It
+  snapshots the working copy into a new version. A first version is `first` whatever `change` says.
+  `agreement.publishPreview` returns the exact snapshot (every field), its hash and its
+  `draftRev`, and which fields changed against the newest version (every field compared); the
+  editor's confirm step renders that snapshot, with the effective date and the kind of change, and
+  publishes that hash and rev. A copy changed since in any field, or saved again at all, is refused
+  (`conflict`), and the version trigger refuses it in the batch if it changed between the read and
+  the commit (`core_agreement_draft_changed`). A save is compare-and-set on `draft_rev` (two saves of
+  one rev never both apply), records its actor, and the editor never swaps in a copy someone else
+  saved: it says who changed it (the assistant, an MCP client) and offers to load it, and Publish
+  waits while the editor has unsaved edits. (From step 2) the preview says, for "agree again", how
+  many people it will ask (those with a current acceptance of the document now).
 - **Effective dates**: `effectiveFrom` left out is now. A date in the past is refused (it would make
   the evidence look older than it is), and it may not be earlier than the latest version's, so
   versions take effect in number order. A date in the future schedules it: the minute cron
@@ -274,10 +290,19 @@ which a new member may cancel for a full refund.
 - **Attaching and retiring**: `agreement.attach { documentId, points }`, `agreement.detach
   { documentId, points }` and `agreement.retire { documentId }` (staff, `agreements:manage`,
   `actors: ["human"]`; attach and detach risk `write`, retire `destructive`): what is needed where
-  is policy, and loosening it (detaching, retiring) is a person's act. Only a published document
-  (`live`) is attached, and only to a point an installed object declares. Retiring detaches it
-  everywhere and freezes its working copy. Attaching a document makes it due at once for anyone
-  without a current acceptance (it is not retroactive: nothing already bought or booked is touched).
+  is policy, and loosening it (detaching, retiring) is a person's act. Only a document with a
+  version in force is attached (one whose only version is still scheduled is refused,
+  `agreement_not_in_force`), and only to a point an installed object declares. Retiring detaches it
+  everywhere and freezes its working copy; a version still scheduled is cancelled (it never takes
+  effect, the summary no longer shows it as scheduled, and it reads "never in force"). Attaching a
+  document makes it due at once for anyone without a current acceptance (it is not retroactive:
+  nothing already bought or booked is touched).
+- **A point that goes away (for step 3)**: a pack upgrade that renames or drops an agreement point
+  must not make a requirement disappear silently. The reconciler's plan names every attached
+  document whose point would no longer be declared; the upgrade's review shows it to the admin; and
+  when it applies, the attachment is kept (inert, marked "point no longer declared" on the
+  document's page and the list) and the counter is bumped in the upgrade's batch, so an admin
+  re-attaches it where it now belongs.
 - **The counter** `core_agreement_rev` (one row) is step 1's: the host bumps it in the batch of
   every publish, every version the cron makes current, and every attach, detach and retire. That is
   a little more often than strictly needed (a small change asks nobody), on purpose: it also covers
@@ -612,56 +637,123 @@ it).
 The member signs on the business's own tablet at the front desk, as their own acceptance: not a
 paper form staff type in, and not staff agreeing for them.
 
-**Whose sign-in the device runs under: none.** A person on the staff, signed in on their own account
-(the desk computer, their phone), starts a **desk signing session** for one named Person. The host
-answers with a short one-time **code**. The tablet is a plain browser at the host's `/desk` page,
-**never signed in as staff or as anyone**; the code is typed (or its QR shown on the staff screen
-is scanned by the tablet) and the tablet then holds only that session. Weighed and rejected:
+**Whose sign-in the device runs under: none, on an enrolled device.** Two things together open a
+session, and neither does anything alone:
+
+1. **The device is enrolled** once, as the business's own. The tablet holds a device credential and
+   nothing else: no staff sign-in, no member's sign-in.
+2. **A person on the staff**, signed in on their own account (the desk computer, their phone),
+   starts a **desk signing session** for one named Person. The host answers with a short one-time
+   **code**, which is typed on the enrolled tablet (or the tablet scans the QR the staff screen
+   shows).
+
+Weighed and rejected:
 
 | Option | Why not |
 | --- | --- |
 | **A kiosk account** (a standing "front desk" sign-in on the tablet that can open anyone's documents) | Standing authority on a shared device: signed in all day, it reaches every member's documents, and whoever picks it up holds it. Nobody is accountable for a given session |
 | **Staff hand over their own signed-in device** with a locked screen | The browser still holds a staff credential: a screen lock is the client deciding, and a member with the URL bar (or a reload) reaches staff screens. A lock enforced in the host would need sign-in to be undone on the device, which most desks would turn off |
+| **A code alone on a public page** (the first draft of this design) | Nothing bound the session to the business's device: anyone who saw the code or the QR could claim it on their own phone, see the names and the due documents and sign as the member, while the record said "on the business's device" (the review of PR #266) |
 | **The member's own phone only** (the spec's first recommendation) | Kept (staff still send a link), but the owner wants the desk too: a visitor without their phone, or a parent with a child |
+
+**Enrolling a tablet** (`core_agreement_desk_device`, `adv_…`):
+
+- **Enrolment** is a person's act with `agreements:desk` (`agreement.desk.enrol { name }`,
+  `actors: ["human"]`). On their own signed-in device the admin names the tablet ("Front desk
+  iPad"); the host answers an enrolment code (10 characters, single use, valid 10 minutes, stored
+  only as an HMAC with a server-side secret). On the tablet, in a browser **with no staff
+  sign-in**, the code is typed at `/desk/enrol`. The host then sets the **device credential**: 256
+  random bits in a cookie (below), stored only as its HMAC. The device row records its name, who
+  enrolled it, when, when it was last seen, and when and by whom it was revoked.
+- **What the credential can do alone: nothing.** It shows the "Enter code" screen and lets the
+  tablet make `desk.claim`. It reads no Person, no document and no session.
+- **Rotation**: every claim replaces the credential with a new one in the same response, and the
+  old one stops working. A credential not used for 30 days lapses, and the tablet is enrolled
+  again.
+- **Loss or theft**: Settings → Agreements → Desk tablets lists each device with when it was last
+  seen. `agreement.desk.revoke { deviceId }` (a person, `agreements:desk`) revokes it at once and
+  ends any open session on it in the same batch. A lost tablet holds no member's data, and once
+  revoked it opens nothing.
 
 **The desk session** (`core_agreement_desk_session`, `ads_…`):
 
-- `agreement.desk.start { personId, dependantIds? }` (staff, a new permission `agreements:desk`,
-  admins by default and grantable, `actors: ["human"]`, risk `write`): the Person who will sign, and
-  for a parent, which of their live dependants they will sign for (each must be a live link now).
-  It records the session (the Person, the dependants, the staff user who started it, when, the
-  address the copies will go to) and answers the code: 8 characters from an unambiguous alphabet,
-  single use, valid for 2 minutes until claimed, stored only as its hash. Refused: a Person in the
-  Trash; a Person marked minor signing for themselves (decision 20: start it for their guardian);
-  a signer with no email address (below).
-- `desk.claim { code }` (public, through the host's `/desk` route only): the tablet trades the code
-  for a session token (256 random bits) the route keeps in an HttpOnly cookie scoped to `/desk`. A
-  code claims once; five wrong codes from one address in a minute are rate-limited. Claiming is
-  recorded (when). The token is never in a URL, and never shown.
-- `desk.documents` and `desk.accept { versionId, forPersonId?, typedName, signature?, answers? }`
-  (public audience, the token from the cookie, through `accept.ts` as every acceptance): only the
-  documents **due** for the session's Person (and its listed dependants) at that moment, their
-  current versions, and nothing else. Both are reviewed additions to open-operations.json.
-- `agreement.desk.end { sessionId }` (staff): ends it at once from the staff side.
+- **Starting it**: `agreement.desk.start { personId, dependantIds? }` (staff, `agreements:desk`,
+  admins by default and grantable, `actors: ["human"]`, risk `write`).
+  - It names the Person who will sign, and for a parent, which of their live dependants they will
+    sign for (each must be a live link now).
+  - It records the session: the Person, the dependants, the staff user who started it, when, and
+    the address the copies will go to.
+  - It answers the code: 8 characters from an unambiguous alphabet, single use, valid for 2 minutes
+    until claimed, stored only as an HMAC-SHA-256 under a server-side secret (an env secret, like
+    every auth secret).
+  - Refused: a Person in the Trash; a Person marked minor signing for themselves (decision 20:
+    start it for their guardian); a signer with no email address (below).
+- **Claiming it**: `desk.claim { code }` (public audience, through the host's `/desk` route only),
+  which needs both:
+  - an enrolled, unrevoked device credential;
+  - a code of a session not yet claimed.
 
-**What the tablet can and cannot show or do.** It shows the business's name, "Documents for [given
-name]" (and each listed child's given name), each due document's text, the health form, the tick
-label and box, the typed name and the signature pad; then "All done: please hand the device back",
-which shows nothing more. It shows **no other member's data, and none of this member's other data**:
-no membership, bookings, history, earlier answers, address (the copy line says "a copy goes to
-s•••@e•••.com"). It has no navigation: the `/desk` page is the whole app there, and the host's staff
-screens need a staff sign-in the tablet does not have. After a health form is submitted nothing of
-its answers is shown again. **It locks**: 3 minutes without a touch clears the screen back to "Enter
-code" and ends the session; a session lasts at most 20 minutes; it ends when every document is done,
-when staff end it, or when another code is claimed on the tablet. An ended or expired token answers
-nothing.
+  It binds the session to that device (`device_id`) and answers a session token (256 random bits,
+  stored as its HMAC) in its own cookie. Five wrong codes from one device in a minute lock that
+  device out for five minutes, and repeated lock-outs are shown on the devices list. A claim on a
+  device ends any session already open on it, on the server, in the claim's batch. Claiming is
+  recorded (when).
+- **Signing**: `desk.documents` and `desk.accept { versionId, forPersonId?, typedName, signature?,
+  answers? }` (public audience, through `accept.ts` as every acceptance). They need the session
+  token **and** the device credential it was bound to. They serve only the documents **due** for the
+  session's Person (and its listed dependants) at that moment, their current versions, and nothing
+  else. Both are reviewed additions to open-operations.json, as are `desk.claim` and `desk.finish`.
+- **Ending it**: `desk.finish` (the tablet, "All done") and `agreement.desk.end { sessionId }`
+  (staff) end it at once.
 
-**How the acceptance is recorded, as honest evidence.** `by: "self"` (or `"guardian"` for a child),
-`channel: "desk"`, `how` typed or drawn as the document says, `desk_session_id`; the session names
-the staff account that started it and when, and when the tablet claimed it. It is the member's own
-acceptance, distinct from paper ("staff recorded a paper form") on every screen and in the PDF:
-"Agreed in person on [business]'s device; session started by [staff] at [time]". No customer
-account is involved, so `account_id` is null.
+**Cookies, origins and what the token may do.**
+
+- **Both cookies** are `HttpOnly`, `Secure` and `SameSite=Strict`, scoped to `/desk`, and never
+  in a URL or shown.
+- **The path is not a security boundary.** Any page of the same origin can load `/desk` in a frame
+  or send requests that carry those cookies, so a cookie path keeps nothing apart. What keeps the
+  token apart is its server-side scope: a desk token is read by exactly four calls (`desk.claim`,
+  `desk.documents`, `desk.accept` and `desk.finish`), each on that one session and device. Every
+  other operation, route and the HTTP surface ignore the desk cookies, so the token reaches no
+  other operation. A staff call never accepts a desk token, and a desk call never accepts a staff
+  session in its place.
+- **Every desk write** (`desk.claim`, `desk.accept`, `desk.finish`, `/desk/enrol`) checks that
+  `Origin` is the host's own, and refuses otherwise.
+- **No staff machine as the tablet.** The host refuses every `/desk` call, enrolment included, that
+  arrives with a staff session or a Cloudflare Access identity ("sign out of the staff app in this
+  browser first"). A staff member's own signed-in machine cannot be used as the tablet.
+
+**Limits the host enforces, not the page.** The session row holds `claimed_at` and
+`last_activity_at`, which every desk call updates. Each desk call is refused, and the session ended
+on the server, when either limit has passed:
+
+- **Idle**: 3 minutes since the last call.
+- **Total**: 20 minutes since the claim.
+
+A new claim on the device ends the old session on the server. An ended or expired token answers
+nothing. The page's own timers only clear the screen sooner.
+
+**What the tablet can and cannot show or do.**
+
+- **What it shows**: the business's name, "Documents for [given name]" (and each listed child's
+  given name), each due document's text, the health form, the tick label and box, the typed name
+  and the signature pad. Then "All done: please hand the device back", which shows nothing more.
+- **What it never shows**: no other member's data, and none of this member's other data. No
+  membership, bookings, history, earlier answers, or address (the copy line says "a copy goes to
+  s•••@e•••.com").
+- **No navigation**: the `/desk` page is the whole app there, and the host's staff screens need a
+  staff sign-in the tablet does not have.
+- **After a health form is submitted** nothing of its answers is shown again.
+
+**How the acceptance is recorded, as honest evidence.**
+
+- **The record**: `by: "self"` (or `"guardian"` for a child), `channel: "desk"`, `how` typed or drawn
+  as the document says, and `desk_session_id`. The session names the staff account that started it
+  and when, the **enrolled device** it was claimed on (its id and name), and when it was claimed.
+- **How it is shown**: it is the member's own acceptance, distinct from paper ("staff recorded a
+  paper form") on every screen and in the PDF: "Agreed in person on [business]'s device [device
+  name]; session started by [staff] at [time]".
+- **No account**: no customer account is involved, so `account_id` is null.
 
 **A parent for a child at the desk.** Staff start the session for the parent, listing the children;
 the parent agrees for each (`forPersonId`), recorded `by: "guardian"` with the parent as
@@ -674,17 +766,28 @@ finger or stylus), the same strokes format and limits; nothing native.
 **A visitor with no account yet.** Staff create the Person first (`person.create`, as the desk does
 today) with an email address, then start the session. Desk signing makes no customer account.
 
-**Abuse: staff signing for a member.** What deters and reveals it:
+**Abuse: staff signing for a member.** Said plainly: **the emailed copy is the deterrent against
+staff signing for a member, not proof that the member was there.** The design makes misuse costly
+and visible. It cannot prove presence.
 
-- **The copy is emailed every time**, to the signer's own address: the customer account's sign-in
-  address when they have one (the address a code verified), otherwise the Person's primary email.
-  So the member hears of every desk acceptance made in their name. A signer with no address cannot
-  sign at the desk (they sign on paper or on their own phone).
-- **The address is pinned at start** and kept on the session; if the Person's email changed in the
-  24 hours before, the acceptance is flagged "address changed shortly before" on the staff lists,
-  and the audit shows who changed it.
-- **Every session names its staff account**, and the Acceptances list filters by "at the desk" and by
-  who started them, so one account's pattern is visible to an admin.
+- **The copy is emailed every time**, to the signer's own address. The copy goes to the customer
+  account's verified sign-in address when the Person has an account, otherwise to the Person's
+  primary email. So the member hears of every desk acceptance made in their name. A signer with
+  no address cannot sign at the desk (they sign on paper or on their own phone).
+- **The address is pinned at start** and kept on the session. The flags look on both sides of the
+  signing:
+  - **Changed recently**: the Person's email changed in the 30 days before the signing, or changes
+    in the 30 days after (the list works this out when it is read, from the audit, so a change
+    made, signed under and changed back is still caught). The flag shows who changed the address
+    and when.
+  - **New Person**: a Person created within 24 hours of the signing counts as an address just
+    changed.
+  - **Staff's own address**: the address is also a staff account's.
+
+  When the address changed in the 30 days before, **the copy also goes to the previous address**.
+- **Every session names its staff account and device**, and the Acceptances list shows desk
+  acceptances with these flags, filters by "at the desk", by flag and by who started them, so one
+  account's pattern is visible to an admin.
 - **It is weaker evidence than a signed-in acceptance**, and the PDF says how it was made. Whether
   that is enough is on the list for the lawyer.
 
@@ -692,8 +795,8 @@ today) with an email address, then start the session. Desk signing makes no cust
 base-layer web block). The business may also pin the browser with the tablet's own guided-access
 mode; the design does not rely on it.
 
-**The AI**: never. `agreement.desk.start` and `end` are a person's; the desk operations are public
-with a token only a claimed tablet holds.
+**The AI**: never. Enrolling, revoking, starting and ending are a person's (`actors: ["human"]`),
+and the desk calls are public, open only to an enrolled device holding a claimed token.
 
 ### Stage 43: the care link's consent becomes an acceptance
 
@@ -768,7 +871,8 @@ data a person may ask to have erased. Decided (decision 15):
 | Host admin: **Person page → Agreements tab** | Staff | Each document attached anywhere: current, due or agree again; history; the PDF; **Record paper**; **Send a link**; health answers behind "Show answers" (`agreements:health`, audited) |
 | Host admin: **Memberships settings** | Staff (a person) | Cooling-off days |
 | Coach's class list (Bookings) | Coach | "Health note" beside a name with a health "yes", no content (decision 18) |
-| Host admin: **Person page → Sign at the desk** | Staff with `agreements:desk` | Choose the children (for a parent), start: the code and its QR, the session's state (waiting, claimed, done), End |
+| Host admin: **Person page → Sign at the desk** | Staff with `agreements:desk` | Choose the children (for a parent), start: the code and its QR, the session's state (waiting, claimed on which device, done), End |
+| Host admin: **Settings → Agreements → Desk tablets** | Staff with `agreements:desk` (a person) | Enrol a tablet (its name, the enrolment code), each device with when it was last seen and its lock-outs, Revoke |
 | Web, tablet width: **`/desk`** | The member at the desk (no sign-in) | Enter code; the due documents in turn (the Agree block's web skin); "All done: please hand the device back" |
 | Host admin: **Person page → Minor** | Staff with `people:link` | Mark or clear "a minor: a parent or guardian agrees for them" |
 
@@ -814,15 +918,30 @@ No block decides anything: the block lint passes, and every refusal comes from t
    survivor) and the identity columns (to null only) is refused by the database for every writer,
    host code included; no operation updates or deletes one; a version is refused any update or
    delete (step 1: proved with raw SQL as well as through every operation).
-5. **Publishing is a person's** (step 1): `agreement.publish`, `attach`, `detach` and `retire` are
-   refused (not queued: no pending action exists afterwards) to the assistant, MCP and Code Mode,
-   automations and extension code with every grant; a person without `agreements:manage` is
-   refused; a granted member publishes; the assistant can make a draft and write the working copy
-   for a person who holds it, and under a cautious policy that write waits for approval and its dry
-   run changes nothing. A publish whose `draftHash` is not the working copy's is refused. Every
-   publish, attach, detach, retire and scheduled version taking effect bumps `core_agreement_rev`
-   once; each is audited. No `core_agreement_*` table is reachable by `query.sql`, a dashboard, an
-   export, search or a `rec_*` view.
+5. **Publishing is a person's** (step 1):
+   - **Who is refused**: `agreement.publish`, `attach`, `detach` and `retire` are refused, not
+     queued (no pending action exists afterwards), to the assistant, MCP and Code Mode, automations
+     and extension code, with every grant. A person without `agreements:manage` is refused; a
+     granted member publishes.
+   - **Drafting**: the assistant can make a draft and write the working copy for a person who
+     holds it. Under a cautious policy that write waits for approval, and its dry run changes
+     nothing.
+   - **What a publish must match**: the hash and rev of the preview the person saw. It is refused
+     when any field changed since (who, for whom, how, ask again after included), or when the copy
+     was saved again. Two saves of one rev never both apply.
+   - **What the database refuses**, by raw SQL as well: an `INSERT OR REPLACE` over a version, a
+     document or the counter; a forged version; a current version set back or cleared; a state set
+     back; a kind changed. A version whose hash does not match its content reads as not intact.
+   - **Content**: pictures, link text other than its address, bidi controls and zero-width-only text
+     are refused.
+   - **Retiring and attaching**: retiring cancels a scheduled version, which never takes effect. A
+     document not yet in force is not attached.
+   - **The counter**: every publish, attach, detach, retire and scheduled version taking effect
+     bumps `core_agreement_rev` once.
+   - **Audit and reach**: each act is audited. No `core_agreement_*` table is reachable by
+     `query.sql`, a dashboard, an export, search or a `rec_*` view.
+   - **The editor**: its confirm shows the exact snapshot. A change by an AI after the person opens
+     it is refused with a clear message, and the page says who changed the copy.
 6. **Guests**: a guest's acceptances carry the version, hash, typed name and the order's address; they
    become the matched Person's in the verified payment's batch, or at `order.setPerson`; an order
    that expires unpaid deletes them; the answer to a guest is the same whatever the address matches.
@@ -855,20 +974,45 @@ No block decides anything: the block lint passes, and every refusal comes from t
     rest detached for the retention period, after which the purge deletes it; merge re-points
     acceptances and changes nothing in them.
 15. **Signing at the desk** (the core suite, over `invoke` and over the `/desk` route):
-    - `agreement.desk.start` and `end` are refused to every AI actor and to staff without
-      `agreements:desk`; start is refused for a Person in the Trash, a marked minor for themselves, a
-      signer with no address, and a dependant whose link is not live;
-    - a code claims once, expires unclaimed after 2 minutes, is stored only hashed, and wrong codes
-      are rate-limited; the token is in an HttpOnly cookie scoped to `/desk` and in no URL;
-    - **isolation**: a session's token reads only its Person's (and listed dependants') due
-      documents: a version of a document not due for them, another Person's `forPersonId`, and any
-      record, booking, membership, answer or address are refused or absent; a staff cookie is
-      neither needed nor accepted in its place; the token reaches no other operation; after the
-      session ends, expires (20 minutes) or idles (3 minutes) the token answers nothing;
-    - an acceptance made there is `channel: "desk"` with its session, which names the staff user
-      and the times; it is shown as "agreed in person on the business's device", never as paper;
-      the copy goes to the pinned address every time; a parent's acceptance for a child needs a
-      live link at commit; an address changed in the 24 hours before is flagged.
+    - **Who may act**:
+      - `agreement.desk.enrol`, `revoke`, `start` and `end` are refused to every AI actor and to
+        staff without `agreements:desk`.
+      - Start is refused for a Person in the Trash, a marked minor for themselves, a signer with no
+        address, and a dependant whose link is not live.
+    - **The device**:
+      - `desk.claim` is refused without an enrolled, unrevoked device credential, whatever the
+        code. A claim from a phone that saw the code is refused.
+      - The device credential alone reads nothing.
+      - A claim rotates the credential, and the old one is refused.
+      - Revoking ends the device's open session at once.
+      - Every `/desk` call, enrolment included, is refused when the request carries a staff session
+        or an Access identity.
+    - **Codes and cookies**:
+      - A code claims once, expires unclaimed after 2 minutes, is stored only as an HMAC under a
+        server-side secret, and wrong codes lock the device out.
+      - Both cookies are `HttpOnly`, `Secure` and `SameSite=Strict` and appear in no URL.
+      - A desk write without the host's own `Origin` is refused.
+    - **Isolation**:
+      - A session's token, with its own device's credential, reads only its Person's (and listed
+        dependants') due documents.
+      - A version of a document not due for them, another Person's `forPersonId`, and any record,
+        booking, membership, answer or address are refused or absent.
+      - The same token with another device's credential is refused.
+      - A staff cookie is neither needed nor accepted in its place.
+      - The token reaches no operation but the four desk calls.
+    - **Limits from server-side state**: the 3-minute idle limit, the 20-minute limit and "a new
+      claim ends the old one" are enforced by the host from the session row. A call after either
+      limit is refused and ends the session, whatever the page does.
+    - **The record**:
+      - An acceptance made there is `channel: "desk"` with its session, which names the staff user,
+        the device and the times.
+      - It is shown as "agreed in person on the business's device [name]", never as paper.
+      - A parent's acceptance for a child needs a live link at commit.
+    - **The copy and its flags**:
+      - The copy goes every time to the verified sign-in address, or to the record's.
+      - It also goes to the previous address when the address changed in the 30 days before.
+      - An address changed in the 30 days before or after, a Person created that day, and a staff
+        account's own address are each flagged on the admin list.
 16. `pnpm lint typecheck test`, `cos ext check` and `cos ext test` on the packs that declare points,
     the block lint, and one e2e test per journey (staff publish a document, then a changed version as
     "agree again" (step 1); a member agrees on first sign-in and books; a visitor agrees and pays for a
@@ -891,7 +1035,8 @@ Step 1 used migration 0790 (`core_agreement_document`, `core_agreement_version` 
 no-delete and draft triggers, `core_agreement_point`, `core_agreement_rev`) and the permission
 `agreements:manage`. Later steps: `core_agreement_acceptance` (its update trigger),
 `core_agreement_signature`, `core_agreement_answer`, `core_agreement_copy`,
-`core_agreement_minor`, `core_agreement_desk_session`; `core_write_guard` made again with the kind
+`core_agreement_minor`, `core_agreement_desk_device`, `core_agreement_desk_session`;
+`core_write_guard` made again with the kind
 `agreements` (as migrations 0610 and 0670 did); the permissions `agreements:paper`,
 `agreements:health`, `agreements:desk`; the retention setting. No `x_*` table is touched. ADRs:
 
@@ -921,7 +1066,7 @@ with dated notes.
 | 3 | **Enforcement**: `createOrder` and `order.startHeld` (guest acceptances in the batch, settlement in the verified payment's batch and `order.setPerson`, deletion on expiry); `startSubscription`; the transition engine's create and move checks; the points on Memberships and Bookings, then Ticketing and Courses | `orders/orders.ts`, `orders/events.ts`, `orders/guests.ts`, `subscriptions/subscriptions.ts`, `records/states.ts` (create checks), `packs/memberships`, `packs/bookings` (index and `buy`), `packs/ticketing`, `packs/courses` | **Not beside other work in `orders/` or the engine's create checks** (31a step 10, 31b, 32b step 8 if it touches `startSubscription`). Its own window; reviewed as stage 25 was |
 | 4 | **The copy and the PDF**: the PDF writer module (vendored or our own, noted in `UPSTREAMS.md` if vendored), the gatekeeper's `agreement` part, `callAsHost` purpose `agreements` with the copy's idempotency key, the download routes, the blank PDF | `packages/gatekeeper-email-send` (`validate.ts`, `worker.ts`, a new `agreement.ts`), the fake outbox, `integrations/runtime.ts` (the purpose), `apps/app/src/server/http/` (downloads) | Yes, after step 2 (PR #256 is merged); beside anything but other email-gatekeeper work (issue #259, and `feat/routine-mail` while it is open) |
 | 5 | **Blocks and hooks**: Agree, Before you go on, My agreements, a child's, the checkout and booking steps; the web signature pad (pointer events) and the native one | base-layer blocks, a headless `agreements` entry in `packages/client`, the client template's routes, the Bookings and Memberships web blocks (the inline step) | Yes, once step 2's operations are merged; coordinate with whoever owns the drop-in and timetable blocks |
-| 6 | **Signing at the desk** (decision 22): `core_agreement_desk_session`, `agreement.desk.start` and `end` (human only, `agreements:desk`), `desk.claim`, `desk.documents`, `desk.accept` (public, the session token), the `/desk` route and its cookie, the rate limit, the staff side's Sign at the desk; the desk page at tablet width from the Agree block's web skin. No native work | `agreements/` (a new `desk.ts`), `operations/agreement-desk.ts`, `open-operations.json`, `apps/app/src/server/identity.ts` (the public path `/desk`), a new desk route, the admin Person page | After step 2 (it records acceptances) and step 4 (every desk acceptance sends its copy); its page after step 5's Agree block. Beside anything but other work on public paths in `identity.ts` |
+| 6 | **Signing at the desk** (decision 22): `core_agreement_desk_device` (enrolment, rotation, revocation) and `core_agreement_desk_session` (bound to the device, idle and total limits held on the server); `agreement.desk.enrol`, `revoke`, `start` and `end` (human only, `agreements:desk`); `desk.claim`, `desk.documents`, `desk.accept`, `desk.finish` (public, needing the device credential and the session token); the `/desk` and `/desk/enrol` routes, their cookies (`HttpOnly`, `Secure`, `SameSite=Strict`), the `Origin` check, the refusal of a request carrying a staff session; HMAC of codes and tokens under an env secret; the lock-out; the staff side's Sign at the desk and Desk tablets; the address flags on the Acceptances list; the desk page at tablet width from the Agree block's web skin. No native work | `agreements/` (a new `desk.ts`), `operations/agreement-desk.ts`, `open-operations.json`, `apps/app/src/server/identity.ts` (the public path `/desk`), a new desk route, the admin Person page | After step 2 (it records acceptances) and step 4 (every desk acceptance sends its copy); its page after step 5's Agree block. Beside anything but other work on public paths in `identity.ts` |
 | 7 | **Cooling off**: the setting, `subscription.coolOff`, refunds owed per period | `subscriptions/` (a new `cooling-off.ts`), `orders/refund-due.ts`, `packs/memberships` (the setting, the member's button) | Yes, beside 31 work; **not beside other `subscriptions/` work** (issue #254's hardening) |
 | 8 | **Erase, merge, the Trash and retention**: erase keeps acceptances detached, deletes answers, the minor mark and open desk sessions; merge re-points; the purge after the retention period | `records/erase.ts`, `records/erase-stores.ts`, `person.merge`, `purge.ts` | **Not beside other erase or merge work** (the "erase completeness" reserved area, stage 43 step 4) |
 | 9 | **Stage 43's consent** as a `care` acceptance (when stage 43 step 4 is built) | `agreements/`, stage 43's `care.ts` | With stage 43 step 4 |
@@ -1045,9 +1190,10 @@ The platform takes no view on these. Each has a default in this spec.
 11. Whether keeping health information with a provider whose storage may be overseas is covered by
     the business's privacy policy (stage 43's location hint applies to new installs only).
 12. Whether an acceptance made at the desk (the member's typed name or drawn signature on the
-    business's tablet, in a session a named staff member started, with the copy emailed to the
-    member) is enough evidence for each document, and whether the business wants a second staff
-    member present.
+    business's enrolled tablet, in a session a named staff member started, with the copy emailed to
+    the member) is enough evidence for each document, and whether the business wants a second staff
+    member present. Note plainly: the emailed copy is the deterrent against staff signing for a
+    member; it is not proof that the member was there.
 13. When a person marked as a minor should be treated as an adult (the host never works out an age:
     staff clear the mark).
 

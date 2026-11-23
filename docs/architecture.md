@@ -1565,8 +1565,9 @@ and [0611](adr/0611-agreement-points-a-pack-declares-documents-a-person-attaches
 `packages/core/src/agreements/`, `operations/agreement.ts`, `packages/sdk/src/agreements.ts`;
 step 1 built). The documents a business asks people to agree to are core tables, not records
 (migration 0790), in no `rec_*` view: `core_agreement_document` (its kind, state and working copy),
-`core_agreement_version` (each published wording, with the SHA-256 of what a person is shown;
-triggers refuse every update and delete, and an insert from a working copy that moved on),
+`core_agreement_version` (each published wording and its terms, with the SHA-256 of everything it
+holds, recomputed on read; triggers refuse every update and delete, an insert over an existing id
+(so `INSERT OR REPLACE`) and an insert that does not match the working copy at its rev),
 `core_agreement_point` and `core_agreement_rev`. Staff with `agreements:manage` (and the assistant
 for them, through the gate) write the working copy; publishing it (small change or agree again, now
 or from a date the minute cron honours), attaching it to points and retiring it are
