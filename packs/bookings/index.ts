@@ -744,6 +744,9 @@ export default defineExtension({
           },
         ],
       },
+      // A class's bookings are the list its coach reads (stage 44, ADR 0643): the host may mark a
+      // health note beside each Person on it, asked for by the class's id only.
+      healthNotes: { list: "class", person: "person" },
       // A place on the class while held, booked, attended or a no-show (ADR 0501).
       // Its waitlist (ADR 0520): a place given back before the class type's "waitlist stops"
       // time (else the organisation's) goes to the first waiter, whom the host moves in.

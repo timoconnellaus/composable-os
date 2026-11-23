@@ -1639,7 +1639,7 @@ async function healthNotesOf(ctx: Ctx, classId: string, names: Map<string, strin
   try {
     const { notes } = await ctx.ops.call<{ notes: { personId: string; healthNote: boolean }[] }>(
       "agreement.listHealthNotes",
-      { records: BOOKING, field: "class", value: classId, person: "person" },
+      { records: BOOKING, value: classId },
     );
     return new Set(notes.filter((n) => n.healthNote).map((n) => n.personId));
   } catch (error) {

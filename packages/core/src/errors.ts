@@ -371,6 +371,11 @@ export function toOperationError(error: unknown): OperationError {
       { rule: "agreement_version_replaced" },
     );
   }
+  if (message.includes("core_agreement_minor_fixed") || message.includes("core_person_exists")) {
+    return new ConflictError("That record already exists; it is changed in place, not replaced.", {
+      rule: "no_replace",
+    });
+  }
   if (message.includes("core_agreement_minor_self")) {
     return new ForbiddenError("A parent or guardian agrees for you.", { rule: "agreement_minor" });
   }

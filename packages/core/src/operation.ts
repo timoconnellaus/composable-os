@@ -524,6 +524,12 @@ export function isHostTool(op: AnyOperation): boolean {
 
 export const OPERATION_NAME_RE = /^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/;
 
+/**
+ * The operations whose every read is audited (`auditReads`): their audit rows say who read
+ * whose health information, so no AI actor lists them (audit.list).
+ */
+export const AUDITED_READS = new Set<string>();
+
 /** Defines an operation. Checks the definition is complete; the registry test checks them all. */
 export function defineOperation<
   const Name extends string,
@@ -534,6 +540,7 @@ export function defineOperation<
   if (problems.length) {
     throw new Error(`Operation ${definition.name}: ${problems.join("; ")}`);
   }
+  if (definition.auditReads) AUDITED_READS.add(definition.name);
   return Object.freeze({ ...definition });
 }
 

@@ -38,11 +38,10 @@ import {
   type PersonFacts,
   personFacts,
 } from "../agreements/due.ts";
+import { healthListOf } from "../agreements/health-list.ts";
 import { ForbiddenError, NotFoundError, OperationError, ValidationError } from "../errors.ts";
-import { getObject } from "../fields/index.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { type CustomerPrincipal, holdsPermission } from "../principals.ts";
-import { viewColumnOf } from "../records/columns.ts";
 import { isLiveDependant } from "../visibility/guardians.ts";
 
 const id = (what: string) => z.string().min(1).max(64).describe(what);
@@ -416,7 +415,17 @@ export const meAgreementsList = defineOperation({
       .orderBy("a.accepted_at", "desc")
       .limit(500)
       .execute()) as AcceptanceRow[];
-    return { items: rows.map((row) => summary(row, counting)) };
+    const me = customerOf(ctx).personId;
+    // Which guardian agreed is that guardian's: another guardian, or the child, sees only that a
+    // parent or guardian agreed (the second review of PR #274).
+    return {
+      items: rows.map((row) => {
+        const one = summary(row, counting);
+        return one.agentPersonId && one.agentPersonId !== me
+          ? { ...one, agentPersonId: null }
+          : one;
+      }),
+    };
   },
 });
 
@@ -431,7 +440,8 @@ export const meAgreementsGet = defineOperation({
   name: "me.agreements.get",
   description:
     "One of your acceptances, or a linked child's, as a signed-in customer: the version as you " +
-    "were shown it, the name typed, the signature drawn, and a health form's answers. Read-only.",
+    "were shown it, a health form's answers, and the name typed and the signature drawn when " +
+    "you are the one who agreed (another guardian's are not shown). Read-only.",
   input: z.object({ id: id("The acceptance's id (aga_…)") }),
   output: acceptanceSummary.extend({
     version: versionOut,
@@ -470,11 +480,17 @@ export const meAgreementsGet = defineOperation({
         .where("acceptance_id", "=", row.id)
         .executeTakeFirst(),
     ]);
+    // The name and the signature are whoever agreed's: shown to them (a guardian, or the person
+    // for their own), never to another guardian or to the child a guardian agreed for.
+    const me = customerOf(ctx).personId;
+    const mine = row.by === "guardian" ? row.agent_person_id === me : row.person_id === me;
+    const one = summary(row, counting);
     return {
-      ...summary(row, counting),
+      ...one,
+      agentPersonId: one.agentPersonId === me ? me : null,
       version,
-      typedName: row.typed_name,
-      signature: signature ? (JSON.parse(signature.strokes) as Signature) : null,
+      typedName: mine ? row.typed_name : null,
+      signature: mine && signature ? (JSON.parse(signature.strokes) as Signature) : null,
       answers: answers ? JSON.parse(answers.answers) : null,
     };
   },
@@ -821,26 +837,32 @@ export const agreementHealthNotes = defineOperation({
 export const agreementListHealthNotes = defineOperation({
   name: "agreement.listHealthNotes",
   description:
-    "For a pack's own list (a class's bookings): the host reads the People on the records of " +
-    "the calling pack's own object whose field equals the value, and says which answered yes " +
-    "on their current health form (a mark only). Pack code inside a tool a person called " +
-    "themselves only. Read-only.",
+    "For a list a pack declares (healthNotes on its object: a class's bookings): the host reads " +
+    "the People on the records of that list's own record (value, the class) and says which " +
+    "answered yes on their current health form (a mark only). Pack code inside a tool a person " +
+    "called themselves only; every call is audited. Read-only.",
   input: z.object({
-    // Not `object`: a pack role's today limits read that key as a record operation's (ADR 0553).
+    // Not `object`: a pack role's today limits read that key as a record operation's (ADR 0553);
+    // `value` is held to them as a record of the list's own object (pack-role-today.ts).
     records: z
       .string()
       .min(1)
       .max(80)
-      .describe("The calling pack's own object whose records make the list (bookings.booking)"),
-    field: z.string().min(1).max(64).describe("The field that ties a record to the list (class)"),
-    value: z.string().min(1).max(64).describe("The list's record id (the class)"),
-    person: z.string().min(1).max(64).describe("The relation to the Person (person)"),
+      .describe("The calling pack's object that declares healthNotes (bookings.booking)"),
+    value: z.string().min(1).max(64).describe("The list's own record (the class's id)"),
   }),
   output: notesOut,
   permission: "records:read",
   risk: "read",
   actors: ["extension"],
   mcp: { expose: false },
+  auditReads: true,
+  auditSummary: (output, input) => ({
+    records: input.records,
+    value: input.value,
+    count: output.notes.length,
+  }),
+  redactResult: ["notes"],
   async handler(input, ctx) {
     // A person called the tool themselves (the runner sets startedBy, from the installed tool
     // and the caller, never from input); not the assistant, and not an approval of an AI's call.
@@ -848,26 +870,22 @@ export const agreementListHealthNotes = defineOperation({
     if (!caller?.tool?.startedBy || caller.tool.startedByApproval) {
       throw new ForbiddenError("A health note is for a person on the staff to see");
     }
-    // The pack's own object only, and the People the host itself reads from its records.
-    const object = getObject(input.records);
-    if (!object || object.extension !== caller.id) {
-      throw new ForbiddenError("A health note is read for the calling pack's own records only");
+    // The pack's own object, which declares the list (checked at install: a relation to the
+    // list's own object, and one to the Person).
+    const target = healthListOf(input.records);
+    if (!target || target.object.extension !== caller.id) {
+      throw new ForbiddenError("A health note is read for a list the calling pack declares only");
     }
-    const tie = object.fields.find((f) => f.name === input.field);
-    const who = object.fields.find((f) => f.name === input.person);
-    const tieColumn = tie ? viewColumnOf(tie) : null;
-    const whoColumn =
-      who && who.fieldType === "relation" && who.options?.to === "person" && !who.options.many
-        ? viewColumnOf(who)
-        : null;
-    if (!tieColumn || !whoColumn) {
-      throw new ValidationError("field and person must be fields of the object", {
-        rule: "health_notes_list",
-      });
-    }
+    // The list's own record must exist and be out of the Trash (views hold live records only).
+    const parent = await sql<{
+      one: number;
+    }>`SELECT 1 AS one FROM ${sql.table(target.parent.source)} WHERE id = ${input.value}`.execute(
+      ctx.db,
+    );
+    if (!parent.rows.length) throw new NotFoundError(target.parent.name, input.value);
     const { rows } = await sql<{
       p: string | null;
-    }>`SELECT DISTINCT ${sql.ref(whoColumn)} AS p FROM ${sql.table(object.source)} WHERE ${sql.ref(tieColumn)} = ${input.value} LIMIT 200`.execute(
+    }>`SELECT DISTINCT ${sql.ref(target.personColumn)} AS p FROM ${sql.table(target.object.source)} WHERE ${sql.ref(target.listColumn)} = ${input.value} LIMIT 200`.execute(
       ctx.db,
     );
     const ids = rows.map((r) => r.p).filter((p): p is string => typeof p === "string" && !!p);

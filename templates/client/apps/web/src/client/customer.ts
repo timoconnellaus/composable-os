@@ -69,7 +69,7 @@ export type Operations = {
     output: { people: ({ personId: string; name: string; self: boolean; canAgree: boolean; due: ({ documentId: string; kind: string; title: string; reason: ("never") | ("agree_again") | ("ask_again") | ("guardian"); version: { id: string; documentId: string; number: number; kind: string; title: string; body: unknown; tickLabel: string; questions: ({ key: string; text: string; noteOnYes: boolean }[]) | (null); how: ("typed") | ("drawn"); effectiveFrom: string; hash: string } })[] })[] };
   };
   /**
-   * One of your acceptances, or a linked child's, as a signed-in customer: the version as you were shown it, the name typed, the signature drawn, and a health form's answers. Read-only.
+   * One of your acceptances, or a linked child's, as a signed-in customer: the version as you were shown it, a health form's answers, and the name typed and the signature drawn when you are the one who agreed (another guardian's are not shown). Read-only.
    */
   "me.agreements.get": {
     kind: "query";

@@ -7436,7 +7436,7 @@
     },
     {
       "name": "agreement.listHealthNotes",
-      "description": "For a pack's own list (a class's bookings): the host reads the People on the records of the calling pack's own object whose field equals the value, and says which answered yes on their current health form (a mark only). Pack code inside a tool a person called themselves only. Read-only.",
+      "description": "For a list a pack declares (healthNotes on its object: a class's bookings): the host reads the People on the records of that list's own record (value, the class) and says which answered yes on their current health form (a mark only). Pack code inside a tool a person called themselves only; every call is audited. Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -7449,32 +7449,18 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 80,
-            "description": "The calling pack's own object whose records make the list (bookings.booking)"
-          },
-          "field": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 64,
-            "description": "The field that ties a record to the list (class)"
+            "description": "The calling pack's object that declares healthNotes (bookings.booking)"
           },
           "value": {
             "type": "string",
             "minLength": 1,
             "maxLength": 64,
-            "description": "The list's record id (the class)"
-          },
-          "person": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 64,
-            "description": "The relation to the Person (person)"
+            "description": "The list's own record (the class's id)"
           }
         },
         "required": [
           "records",
-          "field",
-          "value",
-          "person"
+          "value"
         ]
       },
       "output": {

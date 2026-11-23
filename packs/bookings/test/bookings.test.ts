@@ -77,12 +77,7 @@ function host(operations: Record<string, (input: Record<string, unknown>) => unk
       // A list's health notes (stage 44): the host's yes or no per Person, nothing of the form.
       // The host reads the class's bookings' People itself; the pack names only the list.
       "agreement.listHealthNotes": (input) => {
-        expect(input).toEqual({
-          records: "bookings.booking",
-          field: "class",
-          value: "cls_1",
-          person: "person",
-        });
+        expect(input).toEqual({ records: "bookings.booking", value: "cls_1" });
         return { notes: [{ personId: "per_ann", healthNote: true }] };
       },
       // The member and the child staff linked to them (ADR 0540), as the host says.

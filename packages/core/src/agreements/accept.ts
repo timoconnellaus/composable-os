@@ -97,6 +97,8 @@ export async function healthYesNotice(
       link: null,
       // Not shown by notification.list; one notice per acceptance.
       dedupeKey: `agreement-health:${acceptanceId}`,
+      // Its time matches the acceptance's: an AI acting for the reader never sees it at all.
+      humanOnly: true,
       source: { actor: "system" },
     },
     now,

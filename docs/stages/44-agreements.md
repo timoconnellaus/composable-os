@@ -1310,7 +1310,7 @@ Operations (every one with its audience, actors, permission and risk class):
 | `agreement.acceptances` | staff | every actor | records:read | read |
 | `agreement.due.list` | staff | every actor | records:read | read |
 | `agreement.healthNotes` | staff | human | agreements:health | read, every read audited |
-| `agreement.listHealthNotes` | staff | extension, inside a tool a person called themselves | records:read | read |
+| `agreement.listHealthNotes` | staff | extension, inside a tool a person called themselves, for a declared list | records:read | read, every call audited |
 | `agreement.healthReviews` | staff | human | agreements:health | read, every read audited |
 | `agreement.acceptance.get` | staff | human | records:read | read |
 | `agreement.answers.get` | staff | human | agreements:health | read, every read audited |
@@ -1380,3 +1380,13 @@ the version and the time stay for the retention period; the guardian's typed nam
 signature are cleared, the address stays (as decision 15 keeps it), `erased_at` is set so step 8's
 purge covers the row, and it no longer counts for the child. Migration 0851 was edited in place
 (it was not on `main`).
+
+### Step 2: after the second review of PR #274 (2026-11-23)
+
+Fixed in the same PR (ADRs 0642 and 0643 amended): health notices are for the person only
+(`human_only`: no AI actor lists, counts or marks them); `audit.list` shows no audited-read row to
+an AI; `me.agreements.get` shows a guardian's typed name and signature only to that guardian; the
+health-note list is declared in the manifest (`healthNotes: { list, person }`), its `value` must
+be a live record of the list's object, every call is audited, and a coach's today-only limit holds
+on it; a minor mark is never rewritten and a Person is never inserted over one. Migration 0851
+was edited in place again.

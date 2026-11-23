@@ -662,6 +662,8 @@ export interface CoreNotificationsTable {
   dedupe_key: string | null;
   read_at: string | null;
   created_at: string;
+  /** Migration 0851 (stage 44): shown to the person only, never to an AI acting for them. */
+  human_only: ColumnType<number, number | undefined, number>;
 }
 
 /** Migration 0170 (ADR 0170): a person's consent that an automation uses a connection. */

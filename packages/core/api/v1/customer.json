@@ -864,7 +864,7 @@
     },
     {
       "name": "me.agreements.get",
-      "description": "One of your acceptances, or a linked child's, as a signed-in customer: the version as you were shown it, the name typed, the signature drawn, and a health form's answers. Read-only.",
+      "description": "One of your acceptances, or a linked child's, as a signed-in customer: the version as you were shown it, a health form's answers, and the name typed and the signature drawn when you are the one who agreed (another guardian's are not shown). Read-only.",
       "risk": "read",
       "audiences": ["customer"],
       "kind": "query",

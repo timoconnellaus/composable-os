@@ -312,6 +312,21 @@ BEGIN
   UPDATE core_agreement_rev SET rev = rev + 1 WHERE id = 1;
 END;
 
+-- Shapes that would change what is due without a bump (the second review of PR #274): a minor mark
+-- is set or cleared, never rewritten to another Person; and a Person is never inserted over one
+-- that exists (D1 runs without recursive triggers, so an INSERT OR REPLACE would delete the old
+-- row, Trash and all, without the delete trigger above). The host only ever inserts a new Person
+-- (person.create, with a new id) and updates one in place.
+CREATE TRIGGER core_agreement_minor_no_update BEFORE UPDATE ON core_agreement_minor
+BEGIN
+  SELECT RAISE(ABORT, 'core_agreement_minor_fixed');
+END;
+CREATE TRIGGER core_person_no_replace BEFORE INSERT ON core_person
+WHEN EXISTS (SELECT 1 FROM core_person p WHERE p.id = NEW.id)
+BEGIN
+  SELECT RAISE(ABORT, 'core_person_exists');
+END;
+
 -- The write guard's `agreements` kind (stage 44, ADR 0641 as amended): a batch planned from a read
 -- of what is due carries the counter it read (core_agreement_rev); a publish, a version taking
 -- effect, an attach, a detach or a retire committed in between bumps it, and the batch fails
@@ -360,6 +375,12 @@ BEGIN
     ELSE RAISE(IGNORE)
   END;
 END;
+
+-- A notice for the person only (stage 44, ADR 0643): no AI actor acting for its recipient lists it,
+-- counts it or marks it read. A health "yes" notice is written in the acceptance's batch, so its
+-- time alone would say who answered yes.
+ALTER TABLE core_notifications ADD COLUMN human_only INTEGER NOT NULL DEFAULT 0
+  CHECK (human_only IN (0, 1));
 
 -- Guarded: migrations land out of order (docs/parallel-work.md).
 UPDATE core_meta SET value = '851'

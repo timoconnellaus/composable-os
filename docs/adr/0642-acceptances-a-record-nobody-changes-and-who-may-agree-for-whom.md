@@ -122,3 +122,12 @@ permission; erase and merge.
   from a Person who exists, delete one (other than an unsettled guest's), insert one for a minor
   themselves or by a minor guardian, insert a guardian's without a live link, a guest's with a
   Person or without a real order, or one of a version not open or with another hash.
+
+## Amended 2026-11-23: the second review of PR #274
+
+- **Two more shapes that would change what is due without a bump are refused**: an update of
+  `core_agreement_minor` (a mark is set or cleared, never moved to another Person), and an insert
+  into `core_person` over an existing id (`INSERT OR REPLACE` would delete the old row without its
+  delete trigger, so a Person could leave or enter the Trash unseen). Refusing was chosen over
+  bumping: the host only ever inserts a new Person (`person.create`, a new id) and changes one in
+  place, so no host path needs it. `INSERT OR IGNORE` over an existing Person is refused too.

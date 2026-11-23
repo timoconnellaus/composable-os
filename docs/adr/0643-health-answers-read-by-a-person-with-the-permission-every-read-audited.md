@@ -60,8 +60,32 @@ summary (the model's input) hold none of it, and no audit row of any operation d
 - **Marks for staff need the permission**: `agreement.healthNotes { personIds }` is now
   `agreements:health`, `actors: ["human"]`, every read audited; the Person tab shows the mark only
   to a caller who holds it.
-- **Pack code names a list, not people**: `agreement.listHealthNotes { records, field, value,
-  person }` (actors `extension` only) reads the People itself from the calling pack's own object
-  (`bookings.booking` where `class` is the class), and is refused unless a person called the tool
-  themselves: a run started by a person's approval of another actor's call
+- **Pack code names a list, not people**: `agreement.listHealthNotes` (actors `extension` only)
+  reads the People itself from the calling pack's own object, and is refused unless a person
+  called the tool themselves: a run started by a person's approval of another actor's call
   (`startedByApproval`, set by the runner) gets no mark. A runtime extension may not declare it.
+  (As amended the same day, below: the list is declared in the manifest.)
+
+## Amended 2026-11-23: the second review of PR #274
+
+- **A notice for the person only.** `core_notifications.human_only` (migration 0851): a health
+  "yes" notice sets it, and `notification.list`, `notification.unreadCount` and
+  `notification.markRead` never list, count or mark it for a non-human actor. Its time matched the
+  acceptance's, which an AI could read from `agreement.acceptances`. No other read of
+  notifications exists (the digest and search do not read them; delivery to email or Slack is the
+  person's own channel).
+- **Audited reads are for people.** Every operation with `auditReads` is listed in
+  `AUDITED_READS` (`operation.ts`), and `audit.list` returns none of their rows to a non-human
+  actor: together they would list who answered yes.
+- **What one guardian typed and drew is theirs.** `me.agreements.get` returns the name typed, the
+  signature and which guardian agreed only to the one who agreed (a guardian, or the person for
+  their own); another guardian, or the child, sees only that a parent or guardian agreed.
+  `me.agreements.list` names the agent only to that agent. Health answers stay as above (a second
+  live guardian reads them).
+- **The list is declared.** An object declares `healthNotes: { list, person }` (the SDK; checked
+  at install: `list` is a relation to one record of another object, `person` one to a Person).
+  `agreement.listHealthNotes { records, value }` needs `value` to be a live record of the list's
+  own object, reads only live records of the declaring object, and is audited on every call.
+  Bookings declares `booking.healthNotes: { list: "class", person: "person" }`. A pack role's
+  today-only limit holds on `value` as a record of the list's object (`pack-role-today.ts`), so a
+  coach gets no marks for another day's class.

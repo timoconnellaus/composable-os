@@ -1064,6 +1064,69 @@ async function newPoint(tag: string): Promise<string> {
   return point;
 }
 
+/** A pack declaring a health-note list: seats on a slot, each for a Person. */
+async function healthListPack(): Promise<string> {
+  const ext = extId("hn");
+  await reconcile(
+    manifest(ext, {
+      permissions: { read: [], write: [], operations: ["agreement.listHealthNotes"], modules: [] },
+      objects: {
+        slot: {
+          label: "Slot",
+          plural: "Slots",
+          titleField: "name",
+          fields: {
+            name: { type: "text", label: "Name" },
+            startsAt: { type: "datetime", label: "Starts" },
+          },
+        },
+        seat: {
+          label: "Seat",
+          plural: "Seats",
+          titleField: "name",
+          fields: {
+            name: { type: "text", label: "Name" },
+            slot: { type: "relation", label: "Slot", to: `${ext}.slot` },
+            person: { type: "relation", label: "Person", to: "person" },
+          },
+          healthNotes: { list: "slot", person: "person" },
+        },
+      },
+    }),
+  );
+  return ext;
+}
+
+const slotRecord = async (ext: string, startsAt: string) =>
+  (
+    await invoke(
+      "record.create",
+      { object: `${ext}.slot`, values: { name: unique("Slot"), startsAt } },
+      context(admin),
+    )
+  ).id as string;
+
+const seat = async (ext: string, slot: string, personId: string) =>
+  (
+    await invoke(
+      "record.create",
+      { object: `${ext}.seat`, values: { name: unique("Seat"), slot, person: personId } },
+      context(admin),
+    )
+  ).id as string;
+
+/** Pack code of `id`, inside the run of `tool` (or none). */
+const asPack = (id: string, tool: Record<string, unknown> | undefined) =>
+  context(admin, {
+    actor: "extension",
+    origin: { surface: "extension", extensionId: id },
+    extension: {
+      id,
+      permissions: { operations: ["agreement.listHealthNotes"], modules: [] } as never,
+      ...(tool ? { tool: tool as never } : {}),
+    },
+  });
+
 // The security review of PR #274: each of these failed before its fix.
 describe("the review of PR #274", () => {
   const yesAnswers = [
@@ -1082,17 +1145,20 @@ describe("the review of PR #274", () => {
       const seen = JSON.stringify(
         await invoke("notification.list", { limit: 100 }, context(admin, extra)),
       );
-      expect(seen).toContain("health form needs a look");
+      // Not listed to an AI at all (the second review): its time would match the acceptance.
+      expect(seen).not.toContain("health form needs a look");
       expect(seen).not.toContain(subject);
       expect(seen).not.toContain(name);
       expect(seen).not.toContain(done.id);
     }
   });
 
-  it("2: health notes need agreements:health for staff, and pack code gets them only for its own list from a person", async () => {
+  it("2: health notes need agreements:health for staff, and pack code gets them only for a list it declares, from a person", async () => {
     const health = await liveDocument("health", { points: [OTHER] });
     const subject = await person("Mark");
+    const other = await person("Other");
     await accept(subject, { versionId: health.versionId, answers: yesAnswers });
+    await accept(other, { versionId: health.versionId, answers: yesAnswers });
     // Plain staff are refused; a person with the permission reads it, audited.
     expect(
       await refusal(invoke("agreement.healthNotes", { personIds: [subject] }, context(member))),
@@ -1106,65 +1172,80 @@ describe("the review of PR #274", () => {
       .all<{ result: string }>();
     expect(audit.results.length).toBeGreaterThan(0);
     expect(JSON.stringify(audit.results)).not.toContain('"healthNote"');
-    // The pack's own list: an extension whose object holds the Person.
-    const ext = extId("hn");
-    await reconcile(
-      manifest(ext, {
-        permissions: {
-          read: [],
-          write: [],
-          operations: ["agreement.listHealthNotes"],
-          modules: [],
-        },
-        objects: {
-          seat: {
-            label: "Seat",
-            plural: "Seats",
-            titleField: "name",
-            fields: {
-              name: { type: "text", label: "Name" },
-              slot: { type: "text", label: "Slot" },
-              person: { type: "relation", label: "Person", to: "person" },
-            },
-          },
-        },
-      }),
-    );
-    await invoke(
-      "record.create",
-      { object: `${ext}.seat`, values: { name: "A", slot: "s1", person: subject } },
-      context(admin),
-    );
-    const asPack = (tool: Record<string, unknown> | undefined, id = ext) =>
-      context(admin, {
-        actor: "extension",
-        origin: { surface: "extension", extensionId: id },
-        extension: {
-          id,
-          permissions: { operations: ["agreement.listHealthNotes"], modules: [] } as never,
-          ...(tool ? { tool: tool as never } : {}),
-        },
-      });
-    const input = { records: `${ext}.seat`, field: "slot", value: "s1", person: "person" };
+    // A pack that declares its list: seats on a slot, each for a Person.
+    const ext = await healthListPack();
+    const slot = await slotRecord(ext, new Date().toISOString());
+    await seat(ext, slot, subject);
     const tool = { name: "list", humanOnly: false, permission: null, startedBy: admin.id };
-    expect((await invoke("agreement.listHealthNotes", input, asPack(tool))).notes).toEqual([
+    const input = { records: `${ext}.seat`, value: slot };
+    expect((await invoke("agreement.listHealthNotes", input, asPack(ext, tool))).notes).toEqual([
       { personId: subject, healthNote: true },
     ]);
+    // Every call is audited, with what was asked and not who is marked.
+    const rows = await env.DB.prepare(
+      "SELECT result FROM core_audit WHERE operation = 'agreement.listHealthNotes' AND outcome = 'ok'",
+    ).all<{ result: string }>();
+    expect(rows.results.length).toBeGreaterThan(0);
+    expect(JSON.stringify(rows.results)).not.toContain(subject);
     // No person started the tool, or a person approved an AI's call: refused.
     for (const t of [
       { ...tool, startedBy: undefined },
       { ...tool, startedByApproval: true },
       undefined,
     ]) {
-      expect((await refusal(invoke("agreement.listHealthNotes", input, asPack(t)))).code).toBe(
+      expect((await refusal(invoke("agreement.listHealthNotes", input, asPack(ext, t)))).code).toBe(
         "forbidden",
       );
     }
-    // Another extension's object is refused.
+    // Another pack, or an object that declares no list, is refused; extra keys pick nothing.
     expect(
-      (await refusal(invoke("agreement.listHealthNotes", input, asPack(tool, "bookings")))).code,
+      (await refusal(invoke("agreement.listHealthNotes", input, asPack("bookings", tool)))).code,
     ).toBe("forbidden");
-    // A runtime extension may not declare it.
+    expect(
+      (
+        await refusal(
+          invoke(
+            "agreement.listHealthNotes",
+            { records: `${ext}.slot`, value: slot },
+            asPack(ext, tool),
+          ),
+        )
+      ).code,
+    ).toBe("forbidden");
+    const picked = await invoke(
+      "agreement.listHealthNotes",
+      { ...input, field: "person", value: slot, person: "person" } as never,
+      asPack(ext, tool),
+    );
+    expect(picked.notes.map((n: { personId: string }) => n.personId)).toEqual([subject]);
+    // The value must be a live record of the list's own object: a Person's id, or a slot in the
+    // Trash, finds nothing.
+    expect(
+      (
+        await refusal(
+          invoke("agreement.listHealthNotes", { ...input, value: other }, asPack(ext, tool)),
+        )
+      ).code,
+    ).toBe("not_found");
+    const trashed = await slotRecord(ext, new Date().toISOString());
+    await seat(ext, trashed, other);
+    await invoke("record.delete", { object: `${ext}.slot`, id: trashed }, context(admin));
+    expect(
+      (
+        await refusal(
+          invoke("agreement.listHealthNotes", { ...input, value: trashed }, asPack(ext, tool)),
+        )
+      ).code,
+    ).toBe("not_found");
+    // A seat in the Trash is not on the list.
+    const seatId = await seat(ext, slot, other);
+    await invoke("record.delete", { object: `${ext}.seat`, id: seatId }, context(admin));
+    expect(
+      (await invoke("agreement.listHealthNotes", input, asPack(ext, tool))).notes.map(
+        (n: { personId: string }) => n.personId,
+      ),
+    ).toEqual([subject]);
+    // A runtime extension may not declare the operation.
     const checked = await checkManifest(
       db.query,
       extId("rt"),
@@ -1180,9 +1261,153 @@ describe("the review of PR #274", () => {
       { source: "runtime" },
     );
     expect(JSON.stringify(checked.issues)).toContain("cannot read health notes");
+    // The declaration is checked: the list must be a relation to another object.
+    const bad = await checkManifest(
+      db.query,
+      extId("bad"),
+      manifest(extId("bad"), {
+        objects: {
+          seat: {
+            label: "Seat",
+            plural: "Seats",
+            titleField: "name",
+            fields: {
+              name: { type: "text", label: "Name" },
+              person: { type: "relation", label: "Person", to: "person" },
+            },
+            healthNotes: { list: "name", person: "person" },
+          },
+        },
+      }),
+      nowIso(),
+    );
+    expect(JSON.stringify(bad.issues)).toContain("list must be a relation field");
     // The Person tab shows the mark only to staff who may read answers.
     const tab = await invoke("agreement.person", { personId: subject }, context(member));
     expect(tab.healthNote).toBeNull();
+  });
+
+  it("2b: a coach's today-only limit holds on the list's own record", async () => {
+    const ext = await healthListPack();
+    const health = await liveDocument("health", { points: [OTHER] });
+    const subject = await person("Today");
+    await accept(subject, { versionId: health.versionId, answers: yesAnswers });
+    const today = await slotRecord(ext, new Date().toISOString());
+    const lastWeek = await slotRecord(ext, new Date(Date.now() - 6 * 86_400_000).toISOString());
+    await seat(ext, today, subject);
+    await seat(ext, lastWeek, subject);
+    const tool = { name: "list", humanOnly: false, permission: null, startedBy: admin.id };
+    const limited = (value: string) =>
+      invoke(
+        "agreement.listHealthNotes",
+        { records: `${ext}.seat`, value },
+        {
+          ...asPack(ext, tool),
+          roleToday: { [`${ext}.slot`]: "startsAt", [`${ext}.seat`]: "slot.startsAt" },
+        },
+      );
+    expect((await limited(today)).notes).toHaveLength(1);
+    expect((await refusal(limited(lastWeek))).code).toBe("not_found");
+  });
+
+  it("1b, 3: an AI acting for a recipient sees no health notice at all, and no audited health read", async () => {
+    const health = await liveDocument("health", { points: [OTHER] });
+    const subject = await person("Quiet");
+    await accept(subject, { versionId: health.versionId, answers: yesAnswers });
+    await invoke("agreement.healthNotes", { personIds: [subject] }, context(admin));
+    const asHuman = await invoke("notification.list", { limit: 100 }, context(admin));
+    expect(JSON.stringify(asHuman)).toContain("health form needs a look");
+    for (const extra of AI_ACTORS.slice(0, 2)) {
+      const ctx = context(admin, {
+        ...extra,
+        ...(extra.actor === "mcp" ? { grantedPermissions: ["records:read", "audit:read"] } : {}),
+      });
+      const listed = await invoke("notification.list", { limit: 100 }, ctx);
+      expect(JSON.stringify(listed)).not.toContain("health form needs a look");
+      const unread = await invoke("notification.unreadCount", {}, ctx);
+      expect(unread.unread).toBeLessThan(
+        (await invoke("notification.unreadCount", {}, context(admin))).unread,
+      );
+      const audit = await invoke("audit.list", { limit: 200 }, ctx);
+      const ops = JSON.stringify(audit);
+      expect(ops).not.toContain("agreement.healthNotes");
+      expect(ops).not.toContain("agreement.answers.get");
+      expect(ops).not.toContain("agreement.healthReviews");
+    }
+    // A person reads them.
+    const audit = await invoke(
+      "audit.list",
+      { operation: "agreement.healthNotes" },
+      context(admin),
+    );
+    expect(audit.items.length).toBeGreaterThan(0);
+  });
+
+  it("2c: a second guardian, or the child, sees that a guardian agreed and nothing they typed or drew", async () => {
+    const drawn = await liveDocument("waiver", { points: [OTHER], how: "drawn" });
+    const first = await person("First");
+    const second = await person("Second");
+    const child = await person("Child");
+    await invoke("person.link.add", { guardianId: first, dependantId: child }, context(admin));
+    await invoke("person.link.add", { guardianId: second, dependantId: child }, context(admin));
+    const done = (await accept(
+      first,
+      {
+        versionId: drawn.versionId,
+        forPersonId: child,
+        signature: SIGNATURE,
+        typedName: "Fixture First",
+      },
+      { kind: "customer", customerId: "cus_first", personId: first },
+    )) as { id: string };
+    const read = (who: string) =>
+      invokeByName("me.agreements.get", { id: done.id }, asCustomer(who)) as Promise<{
+        typedName: string | null;
+        signature: unknown;
+        agentPersonId: string | null;
+        by: string;
+      }>;
+    expect(await read(first)).toMatchObject({
+      by: "guardian",
+      typedName: "Fixture First",
+      signature: SIGNATURE,
+      agentPersonId: first,
+    });
+    for (const other of [second, child]) {
+      expect(await read(other)).toMatchObject({
+        by: "guardian",
+        typedName: null,
+        signature: null,
+        agentPersonId: null,
+      });
+    }
+    const list = (await invokeByName("me.agreements.list", {}, asCustomer(second))) as {
+      items: { id: string; agentPersonId: string | null }[];
+    };
+    expect(list.items.find((i) => i.id === done.id)?.agentPersonId).toBeNull();
+  });
+
+  it("6: a minor mark is never rewritten, and a Person is never inserted over one", async () => {
+    const a = await person();
+    const b = await person();
+    await invoke("agreement.setMinor", { personId: a, minor: true }, context(admin));
+    await expect(
+      env.DB.prepare("UPDATE core_agreement_minor SET person_id = ? WHERE person_id = ?")
+        .bind(b, a)
+        .run(),
+    ).rejects.toThrow(/core_agreement_minor_fixed/);
+    for (const statement of [
+      "INSERT OR REPLACE INTO core_person (id, display_name, created_at, updated_at, deleted_at) VALUES (?, 'X', 'now', 'now', 'now')",
+      "INSERT OR IGNORE INTO core_person (id, display_name, created_at, updated_at) VALUES (?, 'X', 'now', 'now')",
+    ]) {
+      await expect(env.DB.prepare(statement).bind(b).run(), statement).rejects.toThrow(
+        /core_person_exists/,
+      );
+    }
+    expect(
+      (await env.DB.prepare("SELECT deleted_at FROM core_person WHERE id = ?").bind(b).first())
+        ?.deleted_at,
+    ).toBeNull();
   });
 
   it("3: becoming a minor, a link starting or ending, the Trash and a merge each fail a guard taken before", async () => {

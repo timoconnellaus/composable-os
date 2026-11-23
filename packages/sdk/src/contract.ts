@@ -2,7 +2,7 @@
 // `defineExtension({...})`. Everything here is plain data plus tool/automation handlers, so the host
 // can turn it into a JSON manifest, validate it, diff it and reconcile it to tables.
 import type { z } from "zod";
-import type { AgreementsSpec } from "./agreements.ts";
+import type { AgreementsSpec, HealthNotesSpec } from "./agreements.ts";
 import type { AllowanceSpec } from "./allowance.ts";
 import type { AutomationSpec } from "./automation.ts";
 import type { CapacitySpec, ClaimsSpec } from "./capacity.ts";
@@ -257,6 +257,11 @@ export interface ObjectSpec {
    * agreed to its documents first. The business attaches the documents; the pack names the place.
    */
   agreements?: AgreementsSpec;
+  /**
+   * A health-note list (see HealthNotesSpec, ADR 0643): this object's records make a list staff
+   * read (a class's bookings), on which the host may mark a yes on someone's health form.
+   */
+  healthNotes?: HealthNotesSpec;
   /** A fixed state machine (see StatesSpec, ADR 0425). An object has stages or states, not both. */
   states?: StatesSpec;
   /**

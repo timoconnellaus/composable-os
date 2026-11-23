@@ -133,8 +133,8 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "notifications/send.ts": [2, WHY.org],
   "operations/activity.ts": [1, WHY.part],
   "operations/affiliation.ts": [5, WHY.part],
-  // and agreement.listHealthNotes: the People on the calling pack's own list, read by the host.
-  "operations/agreement-acceptance.ts": [4, WHY.agreements],
+  // and agreement.listHealthNotes: the list's own record and the People on the declared list.
+  "operations/agreement-acceptance.ts": [6, WHY.agreements],
   "operations/agreement.ts": [1, WHY.agreements],
   "operations/duplicate.ts": [3, WHY.later],
   "operations/enrichment.ts": [8, WHY.write],
