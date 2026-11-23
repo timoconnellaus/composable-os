@@ -29,12 +29,13 @@ is the credential: a bearer secret. The only iCalendar writer was the email gate
   every path under `/api/v1/staffing/feed/` is answered there, so nothing else is reachable through
   it, and the client-app binding never serves it. It shows `readStaffFeed`
   (`packages/core/src/staffing/feed.ts`): the account's own live shifts from 14 days back to 120
-  days ahead (the longest horizon a setting may make shifts for), at most 500, read from the time
+  days ahead (the longest horizon a setting may make shifts for), at most 500, soonest first (past
+  the cap, the furthest shifts drop off), read from the time
   claims (`core_staff_time`, by account and end), so a cancelled shift, one in the Trash and one now
   someone else's drop out. One event per shift: `UID` the shift's id at the host's name (stable, so a
   calendar replaces rather than duplicates), `SUMMARY` its kind of work (a class type's or duty's
-  name, else the object's label), `LOCATION` its place, `DTSTART`/`DTEND` in UTC, `DTSTAMP` and
-  `LAST-MODIFIED` the record's last change (so an unchanged roster gives the same bytes),
+  name, else the object's label), `LOCATION` its place, `DTSTART`/`DTEND` in UTC, `DTSTAMP` the shift's own
+  start (amended below: never the record's last change), no `LAST-MODIFIED`,
   `SEQUENCE:0`, `STATUS:CONFIRMED`; the calendar is named "Shifts" with a one-hour refresh hint.
   Nothing else: never a class's own title (a business may type a member's name there), notes,
   another person's name, a class list, bookings or places, unavailability, offers or pay.
@@ -57,7 +58,8 @@ is the credential: a bearer secret. The only iCalendar writer was the email gate
   deactivation always comes first.
 - **One answer for every failure**: a made-up, malformed, rotated or revoked token, a deactivated
   person's and one without the permission all get the HTTP surface's own 404 for a missing route,
-  byte for byte. Any other method gets 405.
+  with the same body (other headers differ: the feed's are private and never cached). Any other
+  method gets 405.
 - **Limits**: per client address (hashed with the auth secret, before any lookup) and per token
   (keyed by its hash), Workers Rate Limiting bindings `STAFF_FEED_ADDRESS_RATE_LIMIT` (120 a minute:
   a calendar provider fetches many people's feeds from few addresses) and `STAFF_FEED_RATE_LIMIT`
@@ -71,8 +73,7 @@ is the credential: a bearer secret. The only iCalendar writer was the email gate
   outcomes only) or an error, and the route's one log line names the kind of failure only. A tool
   may now declare `redactResult` (keys of its answer the host never keeps, like an operation's,
   ADR 0626's `redact` for input): Rostering's `feedRotate` declares `path`, so an approval's
-  stored result and the HTTP surface's stored idempotent reply hold `[redacted]` (a retry with the
-  same key gets the redacted answer; the person rotates again).
+  stored result never hold it, and the HTTP surface stores no response for it (amended below).
 - **Access**: the path is under `/api/v1/*`, which Access bypasses already; it is listed on its own in
   `access-layout.ts` and `docs/deploying.md`, saying how it authenticates.
 
@@ -105,3 +106,33 @@ permission); `packages/core/test/staffing-feed-cost.test.ts` (3,000 past shifts 
 `packages/sdk/test/tool-redact-result.test.ts`; `apps/app/test/staffing-feed.test.ts` (the route:
 the file, the one 404, headers, limits, no log, not through the binding);
 `apps/runner/test/rostering.test.ts` (the shipped pack's tools in the real sandbox).
+
+## Amended 2026-11-24, after the security review of PR #295
+- **A rotate never outlives a revocation.** The rotate checks the account may have a feed and writes,
+  before its row, a guard (`core_staff_guard`) that the account is as it read it (active, its role,
+  pack role, grants and support grant): a rotate racing a deactivation or a change of what the
+  account holds fails whole. A change of role, pack role or grants writes a guard that the feed it
+  read is still the one there (none, or the same tool's), so a rotate committed between its read and
+  its batch fails the change, which is made again. `user.reactivate` deletes the account's feed in
+  its batch, so reactivating never brings one back.
+- **A secret is never replayed.** An operation's answer with `redactResult` keys is sent to its call
+  only: the HTTP surface stores the idempotency key without a response, so a retry with the same key
+  is answered 409 `idempotency_response_lost` ("applied, but its response was not kept"), never a 200
+  with a placeholder. This holds for every such operation (`media.videoUpload`'s one-time address
+  too).
+- **The pack that made a feed.** Disabled or quarantined, its feeds are paused (rows kept, nothing
+  answers) and resume when it is enabled. Upgraded to a manifest without the tool that made a feed,
+  or removed, its feeds are deleted, by triggers on `core_extensions` (migration 0814), so the tool
+  coming back never brings an old address back. (There is no uninstall operation today; the trigger
+  covers any removal of the row.)
+- **`redactResult` is a shipped pack's.** A runtime extension declaring it fails `cos ext check` and
+  install (`outside_audience`) and has it ignored at run time; and it never names the audit
+  summary's own keys (`id`, `count`, `records`): the SDK's check refuses them and the host drops them.
+- **A support user** (ADR 0212) has a feed only while its support grant is approved and unexpired,
+  checked on every fetch as on every signed-in request.
+- **DTSTAMP is the shift's own start**, and there is no LAST-MODIFIED. A record's `updated_at` can be
+  moved by writes that are not the shift's (from the code a booking writes `core_capacity`, not the
+  class row, but not every path was proven), and it would have told the feed's holder when; the
+  shift's start says nothing else, and the bytes stay the same while the shift does.
+- **The UID is `<record id>@<hostname>`**, the hostname the feed was fetched through: subscribing to
+  the same feed through a second hostname gives the same shifts a second time in a calendar app.

@@ -11,8 +11,9 @@
 //
 // What holds here:
 // - A made-up, malformed, rotated or revoked token, another person's revoked one, and a token of
-//   a deactivated account or one no longer holding the pack's permission all get the same 404 as
-//   a missing route: nobody learns which tokens exist or whose they are.
+//   a deactivated account or one no longer holding the pack's permission all get one 404, with
+//   the body of the surface's own for a missing route: nobody learns which tokens exist or whose
+//   they are.
 // - Limited per client address (hashed, before anything is looked up) and per token
 //   (`STAFF_FEED_ADDRESS_RATE_LIMIT`, `STAFF_FEED_RATE_LIMIT`): over either, 429 with Retry-After.
 // - The token is never logged, audited, stored or put in an error by this code: the only log line
@@ -58,7 +59,7 @@ const PRIVATE: Record<string, string> = {
   "content-security-policy": "default-src 'none'; sandbox",
 };
 
-/** The surface's own answer to a missing route, byte for byte. */
+/** The surface's own answer to a missing route: its body; the headers are the feed's. */
 function notFound(): Response {
   return new Response(JSON.stringify({ error: { code: "not_found", message: "No such route" } }), {
     status: 404,
@@ -131,8 +132,10 @@ export async function handleStaffFeed(
       events: feed.shifts.map((s) => ({
         // Stable across every change of the shift, so a calendar app replaces, never duplicates.
         uid: `${s.id}@${url.hostname}`,
-        stamp: s.updatedAt,
-        lastModified: s.updatedAt,
+        // Never the record's last change, which other writes can move (ADR 0628): the shift's own
+        // start, so DTSTAMP says nothing of anything but the shift and the bytes stay the same
+        // while the shift does.
+        stamp: s.startsAt,
         start: s.startsAt,
         end: s.endsAt,
         title: s.title,

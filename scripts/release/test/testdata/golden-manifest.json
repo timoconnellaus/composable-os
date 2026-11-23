@@ -585,7 +585,7 @@
     },
     {
       "name": "0814_staff_feed.sql",
-      "sha256": "f9e350a260eea30805d229803fb7b26419df54eabf660441a09f4c26aa77134e"
+      "sha256": "0c4079597b185106ebb6c34440205a724cee52fb2af8fd6ca056ff040b3ba3fd"
     },
     {
       "name": "0850_agreements.sql",

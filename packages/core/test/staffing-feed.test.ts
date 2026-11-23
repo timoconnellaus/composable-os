@@ -10,9 +10,18 @@
 // `ctx.user`, the person as the verified caller. Every clock is injected. All names are fixture
 // names.
 import { env } from "cloudflare:workers";
+import type { ToolManifest } from "@composable-os/sdk";
+import type { CompiledQuery } from "kysely";
 import { beforeAll, describe, expect, it } from "vitest";
-import { type ActingUser, invokeByName } from "../src/index.ts";
-import { FEED_TOKEN_RE, feedTokenHash, newFeedToken, readStaffFeed } from "../src/staffing/feed.ts";
+import { type ActingUser, checkManifest, invokeByName, toolOperation } from "../src/index.ts";
+import {
+  FEED_TOKEN_RE,
+  feedAccessGuard,
+  feedRevocations,
+  feedTokenHash,
+  newFeedToken,
+  readStaffFeed,
+} from "../src/staffing/feed.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
 import { context, createUser, db } from "./helpers.ts";
 
@@ -399,7 +408,6 @@ describe("what the feed shows (criterion 9)", () => {
       place: "Studio A",
       startsAt: at(2),
       endsAt: plus(at(2)),
-      updatedAt: expect.any(String),
     });
     expect(feed?.shifts[2]).toMatchObject({
       object: DUTY,
@@ -557,5 +565,160 @@ describe("leaving, and losing the pack's permission, kill the feed at once", () 
         .run();
     }
     expect(await read(token)).not.toBeNull();
+  });
+});
+
+// --- The review of PR #295 ------------------------------------------------------------------------
+
+const compiled = (statements: unknown[]) =>
+  statements.map((s) =>
+    typeof (s as { compile?: unknown }).compile === "function"
+      ? (s as { compile(): CompiledQuery }).compile()
+      : (s as CompiledQuery),
+  );
+const feedRow = (account: string) =>
+  env.DB.prepare("SELECT tool FROM core_staff_feed WHERE account_id = ?").bind(account).first();
+const plantFeed = async (account: string, tool: string) =>
+  env.DB.prepare(
+    "INSERT INTO core_staff_feed (account_id, token_hash, tool, created_at) VALUES (?, ?, ?, ?)",
+  )
+    .bind(account, await feedTokenHash(newFeedToken()), tool, NOW)
+    .run();
+
+describe("a rotate racing a deactivation or a change of access (the review of PR #295)", () => {
+  it("is refused once the account is deactivated, and reactivating deletes any feed left", async () => {
+    const r = await newPerson("Ray");
+    await env.DB.prepare("UPDATE core_user SET deactivated_at = ? WHERE id = ?")
+      .bind(NOW, r.id)
+      .run();
+    const error = await refusal(call("staffing.feed.rotate", r));
+    expect(error.details?.rule).toBe("feed");
+    expect(await feedRow(r.id)).toBeNull();
+    // A row a rotate committed between the deactivation's read and its batch: gone on
+    // reactivation, which brings nothing back.
+    await plantFeed(r.id, `x.${ext}.feedRotate`);
+    await invokeByName("user.reactivate", { id: r.id }, as(admin));
+    expect(await feedRow(r.id)).toBeNull();
+  });
+
+  it("a rotate's batch fails whole when the account changed after it was read", async () => {
+    for (const change of [
+      "UPDATE core_user SET deactivated_at = '2026-06-15' WHERE id = ?",
+      "UPDATE core_user SET role = 'viewer' WHERE id = ?",
+      `UPDATE core_user SET granted_permissions = '["${ext}:manage"]' WHERE id = ?`,
+    ]) {
+      const p = await newPerson("Guard");
+      const guard = await feedAccessGuard(db.query, p.id);
+      await env.DB.prepare(change).bind(p.id).run();
+      const insert = db.query
+        .insertInto("core_staff_feed")
+        .values({
+          account_id: p.id,
+          token_hash: await feedTokenHash(newFeedToken()),
+          tool: `x.${ext}.feedRotate`,
+          created_at: NOW,
+        })
+        .compile();
+      await expect(db.batch([guard, insert])).rejects.toThrow(/core_staff_changed/);
+      expect(await feedRow(p.id)).toBeNull();
+    }
+  });
+
+  it("a change of access fails whole when a feed was made after it was read", async () => {
+    const p = await newPerson("Late");
+    // Read with no feed; then a rotate commits; then the change's batch.
+    const statements = await feedRevocations(db.query, p.id, { role: "viewer" });
+    await rotate(p);
+    const change = db.query
+      .updateTable("core_user")
+      .set({ role: "viewer" })
+      .where("id", "=", p.id)
+      .compile();
+    await expect(db.batch([change, ...compiled(statements)])).rejects.toThrow(/core_staff_changed/);
+    // Neither applied; the change made again revokes the feed.
+    await invokeByName("user.updateRole", { id: p.id, role: "viewer" }, as(admin));
+    expect(await feedRow(p.id)).toBeNull();
+  });
+});
+
+describe("the pack that made feeds (the review of PR #295)", () => {
+  const installOther = (other: string) =>
+    env.DB.prepare(
+      "INSERT INTO core_extensions (id, source, status, version, commit_oid, manifest, user_id, installed_at, updated_at) VALUES (?, 'shipped', 'active', '1.0.0', 'c1', ?, ?, ?, ?)",
+    )
+      .bind(other, JSON.stringify({ ...installed, id: other }), admin.id, NOW, NOW)
+      .run();
+
+  it("disabled pauses them; an upgrade without the tool deletes them", async () => {
+    const other = `${ext}up`;
+    await installOther(other);
+    const p = await newPerson("Upg");
+    await plantFeed(p.id, `x.${other}.feedRotate`);
+    const upgrade = (manifest: unknown) =>
+      env.DB.prepare("UPDATE core_extensions SET manifest = ? WHERE id = ?")
+        .bind(JSON.stringify(manifest), other)
+        .run();
+    await upgrade({ ...installed, id: other, version: "1.1.0" });
+    expect(await feedRow(p.id)).not.toBeNull();
+    await env.DB.prepare("UPDATE core_extensions SET status = 'disabled' WHERE id = ?")
+      .bind(other)
+      .run();
+    expect(await feedRow(p.id)).not.toBeNull();
+    await upgrade({ ...installed, id: other, tools: { other: installed.tools.other } });
+    expect(await feedRow(p.id)).toBeNull();
+  });
+
+  it("removing the pack deletes its feeds", async () => {
+    const other = `${ext}rm`;
+    await installOther(other);
+    const p = await newPerson("Rem");
+    await plantFeed(p.id, `x.${other}.feedRotate`);
+    await env.DB.prepare("DELETE FROM core_extensions WHERE id = ?").bind(other).run();
+    expect(await feedRow(p.id)).toBeNull();
+  });
+});
+
+describe("a support user's feed (the review of PR #295)", () => {
+  it("answers only while the support grant is approved and unexpired", async () => {
+    const s = await newPerson("Sup");
+    const grant = `sgr_${ext}`;
+    await env.DB.prepare(
+      "INSERT INTO core_support_grants (id, staff_email, reason, role, requested_minutes, status, requested_at, expires_at) VALUES (?, 'support@example.com', 'A ticket', 'member', 60, 'approved', ?, ?)",
+    )
+      .bind(grant, NOW, new Date(Date.now() + 3_600_000).toISOString())
+      .run();
+    await env.DB.prepare("UPDATE core_user SET support_grant_id = ? WHERE id = ?")
+      .bind(grant, s.id)
+      .run();
+    const token = await rotate(s);
+    expect(await read(token)).not.toBeNull();
+    await env.DB.prepare("UPDATE core_support_grants SET expires_at = ? WHERE id = ?")
+      .bind(new Date(Date.now() - 60_000).toISOString(), grant)
+      .run();
+    expect(await read(token)).toBeNull();
+  });
+});
+
+describe("redactResult is a shipped pack's, never the audit summary's keys (the review of PR #295)", () => {
+  it("a runtime extension's is refused by the check and ignored at run time", async () => {
+    const tool = {
+      description: "A secret, shown once and never kept.",
+      risk: "write",
+      redactResult: ["path"],
+      inputSchema: { type: "object", properties: {} },
+      outputSchema: {
+        type: "object",
+        properties: { id: { type: "string" }, path: { type: "string" } },
+      },
+    };
+    const runtime = manifest(`${ext}rr`, { tools: { rotate: tool } } as never);
+    const checked = await checkManifest(db.query, runtime.id, runtime, NOW, { source: "runtime" });
+    expect(checked.issues.map((i) => i.path)).toContain("tools.rotate.redactResult");
+    const spec = runtime.tools.rotate as ToolManifest;
+    expect(toolOperation(runtime, "rotate", spec, "runtime").redactResult).toBeUndefined();
+    expect(toolOperation(runtime, "rotate", spec, "shipped").redactResult).toEqual(["path"]);
+    // A shipped tool's redactResult never reaches the audit summary's own keys.
+    const sneaky = { ...spec, redactResult: ["id", "path"] };
+    expect(toolOperation(runtime, "rotate", sneaky, "shipped").redactResult).toEqual(["path"]);
   });
 });

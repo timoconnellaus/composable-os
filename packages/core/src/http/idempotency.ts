@@ -62,11 +62,12 @@ export interface IdempotentCall {
   hash: string;
   now: () => Date;
   /**
-   * What of a reply is kept for a replay (stage 45 step 5, ADR 0628): an operation's answer keys
-   * it never stores (`redactResult`, a calendar feed's address shown once) are redacted in the
-   * stored row. The caller of this call still gets the whole reply; a replay gets the kept one.
+   * Whether a reply holds what the host never keeps (stage 45 step 5, ADR 0628): an operation's
+   * `redactResult` keys, such as a calendar feed's address shown once or a one-time upload
+   * address. Such a reply is sent to this call only; its row keeps no response, so a replay is
+   * told the call was applied but its response not kept (`idempotency_response_lost`).
    */
-  keep?: (reply: HttpReply) => HttpReply;
+  secret?: (reply: HttpReply) => boolean;
   /** The reply a committed outcome would send, built the way the surface builds it. */
   replyFor: (outcome: BatchOutcome) => HttpReply | null;
   /** How long a second call waits for the first. Default 10 seconds. */
@@ -169,10 +170,12 @@ async function release(call: IdempotentCall, claimId: string): Promise<void> {
 
 /** Fills in the response of a key this call committed, when it was not known in the batch. */
 async function fillIn(call: IdempotentCall, claimId: string, reply: HttpReply): Promise<void> {
+  // A secret is never stored: the row stays without a response (a replay: response lost).
+  if (call.secret?.(reply)) return;
   await call.db.batch([
     call.db.query
       .updateTable("core_idempotency_key")
-      .set({ status: reply.status, response: (call.keep ? call.keep(reply) : reply).body })
+      .set({ status: reply.status, response: reply.body })
       .where("scope", "=", call.scope)
       .where("idempotency_key", "=", call.key)
       .where("claim", "=", claimId)
@@ -273,7 +276,8 @@ async function runClaimed(
 }
 
 function keyInsert(call: IdempotentCall, claimId: string, given: HttpReply | null): Compilable {
-  const reply = given && call.keep ? call.keep(given) : given;
+  // A secret is never stored: the key is kept, its response is not (a replay: response lost).
+  const reply = given && call.secret?.(given) ? null : given;
   return call.db.query.insertInto("core_idempotency_key").values({
     scope: call.scope,
     idempotency_key: call.key,

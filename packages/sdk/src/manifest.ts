@@ -1679,6 +1679,12 @@ export function validateManifest(
       const properties = (tool.outputSchema.properties ?? {}) as Record<string, unknown>;
       if (!Object.hasOwn(properties, field)) {
         contract(`tools.${name}.redactResult`, `"${field}" is not a key of the tool's answer`);
+      } else if (["id", "count", "records"].includes(field)) {
+        // What the audit log keeps of every write (its record id, a count, the records changed).
+        contract(
+          `tools.${name}.redactResult`,
+          `"${field}" is what the audit log keeps of every call: it cannot be redacted`,
+        );
       }
     }
     if (tool.recordAction) {

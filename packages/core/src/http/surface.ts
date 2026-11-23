@@ -16,7 +16,7 @@
 //   Origin (a phone, a server) is not a browser's and is let through to authenticate.
 import { PendingApprovalError, UnknownOperationError, ValidationError } from "../errors.ts";
 import type { Invoker } from "../invoke.ts";
-import { type AnyInvocationContext, type BatchOutcome, redactInput } from "../pipeline.ts";
+import type { AnyInvocationContext, BatchOutcome } from "../pipeline.ts";
 import { buildContract, contractFor, SERVED_API_VERSIONS } from "./contract.ts";
 import { dataReply, errorReply, type HttpReply, retryAfter } from "./envelope.ts";
 import {
@@ -119,19 +119,6 @@ function replyFor(outcome: BatchOutcome, outside: boolean): HttpReply | null {
   return outcome.deferred ? null : dataReply(outcome.output);
 }
 
-/** A successful reply as a replay keeps it: the answer's `keys` redacted. */
-function keepOnly(keys: readonly string[]): (reply: HttpReply) => HttpReply {
-  return (reply) => {
-    if (reply.status >= 300) return reply;
-    try {
-      const body = JSON.parse(reply.body) as { data?: unknown };
-      return { ...reply, body: JSON.stringify({ data: redactInput(body.data ?? null, keys) }) };
-    } catch {
-      return { status: reply.status, body: JSON.stringify({ data: null }) };
-    }
-  };
-}
-
 const tooLarge = () => new ValidationError("The request body is too large", { httpStatus: 413 });
 
 /**
@@ -210,8 +197,9 @@ async function callOperation(
         hash: await inputHash(op.name, input),
         now,
         replyFor: (outcome) => replyFor(outcome, outside),
-        // An answer's keys never stored (a calendar feed's address, ADR 0628): not in the replay.
-        ...(op.redactResult?.length ? { keep: keepOnly(op.redactResult) } : {}),
+        // An answer holding keys never stored (a calendar feed's address, ADR 0628): the key is
+        // kept, its response is not; a replay is told the call was applied.
+        ...(op.redactResult?.length ? { secret: (reply: HttpReply) => reply.status < 300 } : {}),
       },
       async (inBatch) => {
         try {

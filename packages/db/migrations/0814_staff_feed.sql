@@ -23,3 +23,25 @@ CREATE TABLE core_staff_feed (
   tool TEXT NOT NULL CHECK (length(tool) BETWEEN 1 AND 120),
   created_at TEXT NOT NULL
 ) WITHOUT ROWID;
+
+-- A pack that made feeds (the review of PR #295, ADR 0628). Disabled or quarantined, its feeds are
+-- paused: the rows stay and nothing answers (the fetch needs the pack active), and re-enabling
+-- resumes them. Upgraded to a manifest without the tool that made a feed, or removed, its feeds
+-- are deleted, so bringing the tool back never brings an old address back. Extension ids are
+-- lowercase letters and digits (EXTENSION_ID_RE), so LIKE's wildcards cannot appear in one.
+CREATE TRIGGER core_staff_feed_tool_removed
+AFTER UPDATE OF manifest ON core_extensions
+BEGIN
+  DELETE FROM core_staff_feed
+  WHERE tool LIKE 'x.' || NEW.id || '.%'
+    AND NOT EXISTS (
+      SELECT 1 FROM json_each(NEW.manifest, '$.tools') t
+      WHERE core_staff_feed.tool = 'x.' || NEW.id || '.' || t.key
+    );
+END;
+
+CREATE TRIGGER core_staff_feed_extension_removed
+AFTER DELETE ON core_extensions
+BEGIN
+  DELETE FROM core_staff_feed WHERE tool LIKE 'x.' || OLD.id || '.%';
+END;

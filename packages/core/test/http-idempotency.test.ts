@@ -306,7 +306,7 @@ describe("a write with a key", () => {
 });
 
 describe("an answer's keys the host never keeps (ADR 0628)", () => {
-  it("are sent to the caller once, and redacted in the stored reply a retry replays", async () => {
+  it("are sent to the caller once; a replay is told it was applied, never given a placeholder", async () => {
     const text = unique("secret");
     const key = crypto.randomUUID();
     const staff = context(admin, { origin: { surface: "client" } });
@@ -316,13 +316,22 @@ describe("an answer's keys the host never keeps (ADR 0628)", () => {
     });
     const stored = await db.query
       .selectFrom("core_idempotency_key")
-      .select("response")
+      .select(["status", "response"])
       .where("idempotency_key", "=", key)
       .executeTakeFirst();
-    expect(stored?.response).not.toContain("s3cret");
+    expect(stored).toEqual({ status: null, response: null });
     const two = await send("fixture.secretOnce", { text }, staff, key);
-    expect(two.replayed).toBe(true);
-    expect(JSON.parse(two.text)).toEqual({ data: { secret: "[redacted]", note: "shown once" } });
+    expect(two.status).toBe(409);
+    expect(two.text).not.toContain("s3cret");
+    expect(two.text).not.toContain("[redacted]");
+    expect(JSON.parse(two.text).error.details.reason).toBe("idempotency_response_lost");
+    // Applied once.
+    const rows = await db.query
+      .selectFrom("core_meta")
+      .select("key")
+      .where("key", "=", `secret:${text}`)
+      .execute();
+    expect(rows).toHaveLength(1);
   });
 });
 

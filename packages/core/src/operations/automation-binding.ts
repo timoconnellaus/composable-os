@@ -480,6 +480,9 @@ export const userReactivate = defineOperation({
           .updateTable("core_user")
           .set({ deactivated_at: null, updated_at: ctx.now })
           .where("id", "=", user.id),
+        // Reactivating brings no calendar feed back (ADR 0628): one made while they were
+        // deactivated, by a rotate that raced the deactivation, goes too.
+        revokeFeed(ctx.db, user.id),
       );
       ctx.recordChange({
         object: "user",

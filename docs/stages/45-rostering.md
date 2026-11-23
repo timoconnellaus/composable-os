@@ -927,12 +927,13 @@ migration 0814 (`core_staff_feed`). All new operations are tool-only.
 - **The feed** as this spec says: `GET /api/v1/staffing/feed/<token>.ics`, served by cos-app before
   the HTTP surface; the token 32 random bytes (base64url), shown once, kept as its SHA-256. Decided
   here: **"to the horizon" is 120 days** (the longest a duty horizon setting may reach, so one-off
-  shifts made beyond the weekly pattern show too), at most 500 shifts, read from the time claims;
+  shifts made beyond the weekly pattern show too), at most 500 shifts, soonest first (the furthest drop off past the cap), read from the time claims;
   **the event's title is the kind of work and its location the place** (never a class's own title,
-  which a business may write a member's name into); `DTSTAMP` and `LAST-MODIFIED` are the record's
+  which a business may write a member's name into); `DTSTAMP` is the shift's own start, never the record's
   last change, so an unchanged roster gives the same bytes; `SEQUENCE:0` (a subscribed calendar
   replaces by `UID`). An unknown, malformed, rotated or revoked token, a deactivated person's and one
-  without the pack's permission get the surface's own 404, byte for byte; limited per address and
+  without the pack's permission get one 404 with the surface's own body (the feed's headers
+  differ: private, never cached); limited per address and
   per token (`STAFF_FEED_ADDRESS_RATE_LIMIT`, `STAFF_FEED_RATE_LIMIT`).
 - **Who** (decided here, conservatively): the person makes, rotates and revokes their own
   (`feedRotate`, `feedRevoke`, `humanOnly`, the verified caller a person); **an admin may revoke
@@ -949,6 +950,14 @@ migration 0814 (`core_staff_feed`). All new operations are tool-only.
 - **Not an operation anyone can name**: the fetch authenticates by the token as a device token's
   lookup does; `open-operations.json` is unchanged. Under Access the path is in `/api/v1/*`'s bypass
   and listed on its own in `access-layout.ts` and `docs/deploying.md`.
+- **Decided in review** (the security review of PR #295, coordinator's decisions; ADR 0628's
+  amendment): a rotate holds the account as read to its commit and a change of access holds the
+  feed as read to its, so neither leaves a feed the other would refuse; reactivating deletes any
+  feed; a reply with `redactResult` keys is never stored for a replay (409
+  `idempotency_response_lost`); a disabled pack pauses its feeds and an upgrade without the tool, or
+  removal, deletes them (triggers on `core_extensions`); `redactResult` is a shipped pack's only and
+  never names the audit summary's keys; a support user's feed lives only with its grant; `DTSTAMP`
+  is the shift's start and there is no `LAST-MODIFIED`; the UID is `<record id>@<hostname>`.
 - **Not in this step**: the "my calendar" screens (step 7), `staffing.forget` (which will delete the
   feed with the rest), trying the feed in real calendar apps.
 

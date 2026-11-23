@@ -13,8 +13,9 @@
 //   it; otherwise, and for a made-up, rotated or revoked token, exactly as a missing path does.
 //
 // What it shows (`readStaffFeed`): that account's own live shifts from 14 days back to 120 days
-// ahead, each its kind of work (a class type's name, a duty's) and its place, its start and end,
-// and when it last changed. Nothing else: no title a business typed on a class (which could name
+// ahead (soonest first: past the cap, the furthest drop off), each its kind of work (a class
+// type's name, a duty's), its place, its start and end. Never when its record last changed, which
+// other writes (a member's booking) could move. Nothing else: no title a business typed on a class (which could name
 // a member), no notes, no other person's name, no class list, bookings or places, nothing of
 // unavailability, offers or pay. A cancelled shift, one in the Trash and one now someone else's
 // hold no time claim, so they drop out.
@@ -23,7 +24,7 @@
 // reads the account's claims that end after the window opens (never its history), at most
 // `FEED_MAX_SHIFTS` shifts, then each object's rows by id, their kinds' and places' names.
 import type { CoreDatabase } from "@composable-os/db";
-import { type Compilable, type Kysely, sql } from "kysely";
+import { type Compilable, CompiledQuery, type Kysely, sql } from "kysely";
 import { objectTableOf, refreshSchemaRegistry } from "../extensions/schema.ts";
 import { resolveExtensionOperation } from "../extensions/tools.ts";
 import { getObject } from "../fields/index.ts";
@@ -37,6 +38,7 @@ import {
 } from "../pack-roles.ts";
 import type { Role } from "../principals.ts";
 import { jsonList } from "../records/common.ts";
+import { isGrantActive, loadSupportGrant } from "../support.ts";
 import { kindObjectOf } from "./kinds.ts";
 import { titles } from "./week.ts";
 
@@ -102,10 +104,15 @@ export async function mayHoldFeed(
 ): Promise<boolean> {
   const user = await db
     .selectFrom("core_user")
-    .select(["role", "kind", "deactivated_at"])
+    .select(["role", "kind", "deactivated_at", "support_grant_id"])
     .where("id", "=", account)
     .executeTakeFirst();
   if (!user || user.kind !== "human" || user.deactivated_at) return false;
+  // A support user (ADR 0212) holds what it holds only while its grant is approved and unexpired,
+  // as at sign-in on every request.
+  if (user.support_grant_id) {
+    if (!isGrantActive(await loadSupportGrant(db, user.support_grant_id))) return false;
+  }
   const extension = /^x\.([a-z][a-z0-9]*)\./.exec(tool)?.[1];
   if (!extension) return false;
   const installed = await db
@@ -142,15 +149,58 @@ export async function feedRevocations(
   db: Kysely<CoreDatabase>,
   account: string,
   after: AccessAfter,
-): Promise<Compilable[]> {
+): Promise<(Compilable | CompiledQuery)[]> {
   const row = await db
     .selectFrom("core_staff_feed")
     .select(["tool"])
     .where("account_id", "=", account)
     .executeTakeFirst();
-  if (!row) return [];
-  if (await mayHoldFeed(db, account, row.tool, after)) return [];
-  return [revokeFeed(db, account)];
+  // A feed made (or rotated by another tool) after this read fails the change whole, so a rotate
+  // racing it never leaves a feed the change would have revoked (the review of PR #295).
+  const guard = CompiledQuery.raw(
+    "INSERT INTO core_staff_guard (expected, actual) SELECT ?, count(*) FROM core_staff_feed WHERE account_id = ? AND tool IS ?",
+    [row ? 1 : 0, account, row?.tool ?? null],
+  );
+  if (!row) {
+    // No feed now: one made meanwhile is refused by the guard (the tool is null, so count 0 only
+    // while there is none).
+    return [
+      CompiledQuery.raw(
+        "INSERT INTO core_staff_guard (expected, actual) SELECT 0, count(*) FROM core_staff_feed WHERE account_id = ?",
+        [account],
+      ),
+    ];
+  }
+  if (await mayHoldFeed(db, account, row.tool, after)) return [guard];
+  return [guard, revokeFeed(db, account)];
+}
+
+/**
+ * A guard the rotate writes before its row (the review of PR #295): the account as read
+ * (active, its role, pack role and grants) must be what it is when the batch commits, so a rotate
+ * racing a deactivation or a change of what the account holds fails whole rather than leaving a
+ * feed the change would have revoked.
+ */
+export async function feedAccessGuard(
+  db: Kysely<CoreDatabase>,
+  account: string,
+): Promise<CompiledQuery> {
+  const user = await db
+    .selectFrom("core_user")
+    .select(["role", "pack_role", "granted_permissions", "support_grant_id"])
+    .where("id", "=", account)
+    .where("deactivated_at", "is", null)
+    .executeTakeFirst();
+  return CompiledQuery.raw(
+    "INSERT INTO core_staff_guard (expected, actual) SELECT 1, count(*) FROM core_user WHERE id = ? AND deactivated_at IS NULL AND role IS ? AND pack_role IS ? AND granted_permissions IS ? AND support_grant_id IS ?",
+    [
+      account,
+      user?.role ?? "__gone__",
+      user?.pack_role ?? null,
+      user?.granted_permissions ?? null,
+      user?.support_grant_id ?? null,
+    ],
+  );
 }
 
 /** The statement deleting `account`'s feed (its address then answers as a missing path). */
@@ -168,8 +218,6 @@ export interface FeedShift {
   place: string | null;
   startsAt: string;
   endsAt: string;
-  /** When the record last changed: the event's DTSTAMP and LAST-MODIFIED. */
-  updatedAt: string;
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: x_* tables are not in CoreDatabase; names come from the registry.
@@ -178,10 +226,6 @@ type AnyDb = Kysely<any>;
 const column = (object: ObjectDefinition, field: string | undefined) =>
   (field && object.fields.find((f) => f.name === field)?.column) || null;
 const text = (value: unknown) => (typeof value === "string" && value !== "" ? value : null);
-const iso = (value: unknown): string | null => {
-  const ms = typeof value === "string" ? Date.parse(value) : Number.NaN;
-  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
-};
 
 /**
  * The shifts the feed of `token` shows at `now`, or null when the token opens nothing (unknown,
@@ -241,10 +285,9 @@ export async function feedShifts(
     const placeCol = def.place ? column(object, placeField) : null;
     const records = await sql<{
       id: string;
-      updated_at: string;
       kind: string | null;
       place: string | null;
-    }>`SELECT id, updated_at, ${kindCol ? sql.ref(kindCol) : sql`NULL`} AS kind,
+    }>`SELECT id, ${kindCol ? sql.ref(kindCol) : sql`NULL`} AS kind,
         ${placeCol ? sql.ref(placeCol) : sql`NULL`} AS place
       FROM ${sql.table(table)}
       WHERE id IN ${jsonList(rows.map((r) => r.record_id))}
@@ -284,7 +327,6 @@ export async function feedShifts(
         // The claim's instants are the shift's own (the claim is written from the row).
         startsAt: new Date(claim.starts * 1000).toISOString(),
         endsAt: new Date(claim.ends * 1000).toISOString(),
-        updatedAt: iso(r.updated_at) ?? new Date(claim.starts * 1000).toISOString(),
       });
     }
   }

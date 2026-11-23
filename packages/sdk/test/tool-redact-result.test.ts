@@ -36,4 +36,12 @@ describe("a tool's redactResult", () => {
       `tools.rotate.redactResult: "token" is not a key of the tool's answer`,
     ]);
   });
+
+  it("never names what the audit log keeps of every call", () => {
+    const m = withTool(["id"]);
+    (m.tools.rotate.outputSchema.properties as Record<string, unknown>).id = { type: "string" };
+    expect(validateManifest(m).issues.map((i) => `${i.path}: ${i.message}`)).toEqual([
+      `tools.rotate.redactResult: "id" is what the audit log keeps of every call: it cannot be redacted`,
+    ]);
+  });
 });

@@ -15,7 +15,14 @@
 import { z } from "zod";
 import { ForbiddenError, NotFoundError } from "../errors.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
-import { feedPath, feedTokenHash, newFeedToken, revokeFeed } from "../staffing/feed.ts";
+import {
+  feedAccessGuard,
+  feedPath,
+  feedTokenHash,
+  mayHoldFeed,
+  newFeedToken,
+  revokeFeed,
+} from "../staffing/feed.ts";
 import { toolCaller } from "../staffing/rosterers.ts";
 import { assertShippedToolRun } from "./staffing.ts";
 
@@ -89,22 +96,30 @@ export const staffingFeedRotate = defineOperation({
   async handler(_input, ctx) {
     const account = await feedCaller(ctx, "staffing.feed.rotate");
     const tool = ctx.extension?.tool;
+    const name = `x.${ctx.extension?.id}.${tool?.name}`;
+    // The account as it is now, held to the commit: a rotate racing a deactivation or a change of
+    // role, pack role or grants fails whole (the review of PR #295).
+    const guard = await feedAccessGuard(ctx.db, account);
+    if (!(await mayHoldFeed(ctx.db, account, name))) {
+      throw new ForbiddenError("This account cannot have a calendar feed.", { rule: "feed" });
+    }
     const token = newFeedToken();
     const hash = await feedTokenHash(token);
     ctx.write(
+      guard,
       ctx.db
         .insertInto("core_staff_feed")
         .values({
           account_id: account,
           token_hash: hash,
           // The tool that made it: the feed answers only while the account may still call it.
-          tool: `x.${ctx.extension?.id}.${tool?.name}`,
+          tool: name,
           created_at: ctx.now,
         })
         .onConflict((oc) =>
           oc.column("account_id").doUpdateSet({
             token_hash: hash,
-            tool: `x.${ctx.extension?.id}.${tool?.name}`,
+            tool: name,
             created_at: ctx.now,
           }),
         ),

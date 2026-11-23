@@ -17,6 +17,7 @@ import {
   invokeByName,
   memoryRateLimit,
   newId,
+  objectTableOf,
   planReconcile,
   refreshSchemaRegistry,
 } from "@composable-os/core";
@@ -264,6 +265,19 @@ describe("the feed (criterion 9)", () => {
     }
     // The same bytes on the next poll.
     expect(await (await get(path(sam.token))).text()).toBe(ics);
+  });
+
+  it("says nothing of when the record last changed: a write that moves updated_at changes no byte", async () => {
+    const before = await (await get(path(sam.token))).text();
+    const lines = parse(before);
+    // DTSTAMP is the shift's own start (the review of PR #295), never its record's last change.
+    expect(lines).toContain("DTSTAMP:20260617T090000Z");
+    expect(lines.some((l) => l.startsWith("LAST-MODIFIED"))).toBe(false);
+    const table = objectTableOf(DUTY) as string;
+    await env.DB.prepare(`UPDATE ${table} SET updated_at = ? WHERE id = ?`)
+      .bind("2026-06-14T23:59:00.000Z", samDuty)
+      .run();
+    expect(await (await get(path(sam.token))).text()).toBe(before);
   });
 
   it("answers HEAD with the headers and no body", async () => {
