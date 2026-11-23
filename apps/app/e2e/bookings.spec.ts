@@ -363,6 +363,95 @@ test("staff link a parent to their child, and the parent books the child a class
 
 // Stage 31a step 8 (ADR 0560): a visitor pays for one class on the drop-in block, on the payments
 // gatekeeper's fake provider, and is booked once the payment is verified.
+// Issue #258 (ADR 0600): coaches and the front desk are the same people. An admin ticks the desk
+// permission for a coach on Settings → Users; the coach, signed in with their own account, books a
+// walk-in on the desk block into a class two days ahead (not today: the desk's reach, not the
+// coach role's).
+test("an admin gives a coach the desk, and the coach books a walk-in", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  test.setTimeout(120_000);
+  await setUp(page);
+  const klass = await oneOff(page, 48 * HOUR);
+  const origin = new URL(baseURL ?? "").origin;
+  const email = `${unique("deskcoach")}@example.com`;
+  const password = "coach-password-not-secret";
+  const signUp = await page.request.post("/api/auth/sign-up/email", {
+    data: { name: "Desk Coach", email, password },
+    headers: { origin },
+  });
+  expect(signUp.ok(), await signUp.text()).toBe(true);
+  const users = await op<{ items: { id: string }[] }>(page.request, "user.list", {
+    filter: { field: "email", op: "eq", value: email },
+  });
+  const coachId = users.items[0]?.id as string;
+  await op(page.request, "user.setPackRole", { id: coachId, role: "bookings.coach" });
+
+  const coach = await browser.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
+  const signedIn = await coach.request.post("/api/auth/sign-in/email", {
+    data: { email, password },
+    headers: { origin },
+  });
+  expect(signedIn.ok(), await signedIn.text()).toBe(true);
+  // Without the desk: the coach cannot book anyone.
+  const refused = await op<{ code: string }>(
+    coach.request,
+    "x.bookings.bookFor",
+    { classId: klass.id, newPerson: { givenName: "Not yet" }, paidAtDesk: true },
+    false,
+  );
+  expect(refused.code).toBe("forbidden");
+
+  // The admin's one tick, in plain words.
+  await open(page, "/settings/users");
+  const row = page.getByTestId("user-row").filter({ hasText: email });
+  const desk = row.getByLabel(/Front desk: find people, book anyone/);
+  await expect(desk).not.toBeChecked();
+  await desk.click();
+  await expect(desk).toBeChecked();
+  await expect
+    .poll(async () => {
+      const listed = await op<{ items: { permissions?: string[] }[] }>(page.request, "user.list", {
+        filter: { field: "email", op: "eq", value: email },
+      });
+      return listed.items[0]?.permissions;
+    })
+    .toEqual(["bookings:desk"]);
+
+  // The coach books a walk-in two days ahead on the desk.
+  const screen = await coach.newPage();
+  await screen.goto(
+    block("bookings-desk", "Desk", { date: klass.startsAt.slice(0, 10), timeZone: "UTC" }),
+  );
+  const front = screen.getByRole("region", { name: "Front desk" });
+  await expect(front.getByText(klass.name).first()).toBeVisible();
+  const form = front.getByRole("form", { name: "Book someone in" });
+  await form.getByLabel("Class").selectOption(klass.id);
+  await form.getByLabel(/Given name/).fill(unique("Walk"));
+  await expect(form.getByLabel(/Paid at the desk/)).toBeChecked();
+  await form.getByRole("button", { name: "Book walk-in" }).click();
+  await expect(form.getByRole("status")).toHaveText("Booked in.");
+  const bookings = await op<{ items: { values: Record<string, unknown> }[] }>(
+    page.request,
+    "record.list",
+    { object: "bookings.booking", filter: { field: "class", op: "eq", value: klass.id } },
+  );
+  expect(bookings.items.map((b) => b.values)).toEqual([
+    expect.objectContaining({ state: "booked", paidOtherwise: true, bookedBy: coachId }),
+  ]);
+  // Still a coach: another day's list is not theirs.
+  const roster = await op<unknown>(
+    coach.request,
+    "x.bookings.roster",
+    { classId: klass.id },
+    false,
+  );
+  expect(JSON.stringify(roster)).toContain("not_found");
+  await coach.close();
+});
+
 test("a visitor pays for a class on the website and is booked", async ({
   page,
   browser,

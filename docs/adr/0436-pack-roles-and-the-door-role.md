@@ -134,3 +134,13 @@ role. Roles that combine remain stage 14a's.
 A role may also declare `today: { <object>: <datetime path> }`: its holder reaches those objects'
 records only on the organisation's local today, on the role's reads and inside its tools
 ([ADR 0553](0553-attendance-the-coach-role-moves-and-cancelling-a-class.md)). The coach role does.
+
+## Amendment, 2026-11-23 (issue #258, ADR 0600)
+"While it is held, the role is all the account may do" now reads: the role, and the pack
+permissions a human admin granted the account, added up. Such an account may be granted only
+permissions a shipped pack declares grantable (never a core one, and never one a pack's role
+holds); each opens only the tools naming it. Each call is allowed by one authority
+(`staffAuthority`, `pack-roles.ts`): a grant that opens the tool, else the role; the role's limits
+travel only on calls the role allows. A tool may name several permissions, any one of which opens
+it (Bookings' `day`: the coach's and the desk's). The account still holds one pack role. See
+[ADR 0600](0600-a-pack-role-and-its-grants-add-up.md).

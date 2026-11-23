@@ -1420,13 +1420,20 @@ migration 0451). While it is held it is all the account may do: the pipeline rea
 every staff call and refuses any other operation before its input is parsed, and the account's
 own role grants nothing. Ticketing's door role checks tickets in and reads events, ticket types
 and tickets. Stage 14a's roles and teams extend this check rather than add another. Tools learn
-who started them from the host (`ctx.caller`), to record who checked a ticket in.
+who started them from the host (`ctx.caller`), to record who checked a ticket in. A role and the
+pack permissions granted to its account add up
+([ADR 0600](adr/0600-a-pack-role-and-its-grants-add-up.md)): `staffAuthority` decides per call
+whether a grant (a tool naming a granted, grantable permission; judged first) or the role allows
+it, and the role's limits (Bookings' coach: today only, ADR 0553) travel only on the role's calls
+and the runs they start. A tool may name several permissions, any one of which opens it.
 
 **Permission grants** ([ADR 0449](adr/0449-permissions-granted-one-by-one.md)). A human admin
 grants a staff account named permissions on top of its role (`user.setPermissions`,
 `core_user.granted_permissions`, migration 0471): `records:publish`, `orders:refund`, and pack
-tool permissions a pack declares `grantable`. Read in the pack role's statement on every call;
-additive to the role, replaced by a pack role, and judged beside an operation's `actors`, so a
+tool permissions a pack declares `grantable` (Bookings' `bookings:desk`, with plain words for the
+admin in `grantableLabels`). Read in the pack role's statement on every call; additive to the role,
+and to a pack role for pack permissions only (core ones are refused to such an account, and a
+permission a role holds cannot be grantable, ADR 0600); judged beside an operation's `actors`, so a
 grant never lets an AI actor publish.
 
 ### Orders

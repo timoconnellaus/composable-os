@@ -46,8 +46,8 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    `destructive` for deletes and anything that cannot be undone. The approval gate decides on
    it (`docs/adr/0018-invocation-pipeline-and-gate.md`), so never understate it.
    A tool that a pack role should be able to call (a door role checking tickets in, ADR 0436)
-   declares `permission: "<id>:<word>"`; the role lists it. Admins and members call it as they
-   call any tool. A tool that only a person on the staff may call (giving something free by hand)
+   declares `permission: "<id>:<word>"` (or a list, any one of which opens it, ADR 0600); the role
+   lists it. Admins and members call it as they call any tool. A tool that only a person on the staff may call (giving something free by hand)
    declares `humanOnly: true`: the host refuses the assistant, MCP clients, automations and other
    extensions' code (Memberships: `givePass`, ADR 0512). `ctx.caller` says who started a tool (`{ kind: "staff", userId, name }`, a
    customer or the public), from the host and never from the input: record who did something
