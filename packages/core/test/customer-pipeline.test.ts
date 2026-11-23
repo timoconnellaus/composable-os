@@ -62,6 +62,8 @@ describe("default closed (criterion 1)", () => {
     const openTo = (kind: string) =>
       new Set(listed.filter((e) => e.audiences.includes(kind) && !e.toolOnly).map((e) => e.name));
     expect([...openTo("customer")].sort()).toEqual([
+      // Stage 44 step 5 (ADR 0644 amended): the words of what a visitor is asked, no Person read.
+      "agreement.guestVersions",
       // Stage 32b (ADR 0493): a customer's own pass or membership, its uses spent and left.
       "allowance.get",
       // Stage 32b review (ADR 0513): up to 50 of their own holders at once, as allowance.get.
@@ -114,6 +116,8 @@ describe("default closed (criterion 1)", () => {
     ]);
     // Stage 25: a guest starts, opens and pays an order. Stage 26: places left (ADR 0433).
     expect([...openTo("public")].sort()).toEqual([
+      // Stage 44 step 5 (ADR 0644 amended): the words of what a visitor is asked to agree to.
+      "agreement.guestVersions",
       "capacity.get",
       // Stage 28 (ADR 0442): published content by slug, and a preview link's working copy.
       "content.get",
@@ -397,6 +401,8 @@ describe("the closed handler context (ADR 0413)", () => {
     expect(listed.filter((op) => op.hostInternal).map((op) => op.name)).toEqual([
       // Stage 42 (ADR 0478): it reads the sources of access (a student's enrolments).
       "access.check",
+      // Stage 44 step 5 (ADR 0644 amended): the versions a guest may be asked, from core tables.
+      "agreement.guestVersions",
       // Stage 32b (ADR 0493): it reads a holder's counters once the seam shows the holder.
       "allowance.get",
       // Stage 32b review (ADR 0513): allowance.get for up to 50 of a customer's own holders at once.

@@ -281,11 +281,14 @@ describe("publishing is a person's", () => {
     } finally {
       await invoke("user.setPermissions", { id: member.id, permissions: [] }, context(admin));
     }
-    // A customer or the public cannot reach any of it: staff audience only.
+    // A customer or the public cannot reach any of it: staff audience only. The one exception is
+    // the words of what a visitor is asked (stage 44 step 5), a read of published text.
     const { audiencesOf } = await import("../src/audiences.ts");
     const { coreOperations } = await import("../src/index.ts");
     for (const op of coreOperations.filter((o) => o.name.startsWith("agreement."))) {
-      expect(audiencesOf(op), op.name).toEqual(["staff"]);
+      expect(audiencesOf(op), op.name).toEqual(
+        op.name === "agreement.guestVersions" ? ["customer", "public"] : ["staff"],
+      );
     }
   });
 
