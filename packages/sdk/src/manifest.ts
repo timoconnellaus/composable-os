@@ -347,6 +347,8 @@ export const toolManifestSchema = z.object({
   grantLiftsRoleLimits: z.literal(true).optional(),
   /** Input fields the audit log never keeps (ADR 0626). */
   redact: z.array(z.string().max(40)).max(20).optional(),
+  /** Answer keys the host never keeps (ADR 0628). */
+  redactResult: z.array(z.string().max(40)).max(20).optional(),
   inputSchema: jsonSchemaObject,
   outputSchema: jsonSchemaObject,
 });
@@ -715,6 +717,7 @@ export function toManifest(extension: Extension): ExtensionManifest {
           ...(tool.personApproves ? { personApproves: true as const } : {}),
           ...(tool.grantLiftsRoleLimits ? { grantLiftsRoleLimits: true as const } : {}),
           ...(tool.redact?.length ? { redact: [...tool.redact] } : {}),
+          ...(tool.redactResult?.length ? { redactResult: [...tool.redactResult] } : {}),
           ...(tool.customerFields
             ? {
                 customerFields: Object.fromEntries(
@@ -1669,6 +1672,13 @@ export function validateManifest(
       const properties = (tool.inputSchema.properties ?? {}) as Record<string, unknown>;
       if (!Object.hasOwn(properties, field)) {
         contract(`tools.${name}.redact`, `"${field}" is not a field of the tool's input`);
+      }
+    }
+    // Answer keys the host never keeps (ADR 0628): each a key of the tool's answer.
+    for (const field of tool.redactResult ?? []) {
+      const properties = (tool.outputSchema.properties ?? {}) as Record<string, unknown>;
+      if (!Object.hasOwn(properties, field)) {
+        contract(`tools.${name}.redactResult`, `"${field}" is not a key of the tool's answer`);
       }
     }
     if (tool.recordAction) {

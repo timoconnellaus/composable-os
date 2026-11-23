@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@composable-os/agreement-pdf": "workspace:*",
+    "@composable-os/calendar-file": "workspace:*",
     "@composable-os/gatekeeper-configurator-ui": "workspace:*",
     "@composable-os/gatekeeper-interface": "workspace:*",
     "@composable-os/gatekeeper-kit": "workspace:*",

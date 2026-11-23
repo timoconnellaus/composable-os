@@ -10,6 +10,7 @@ import { listInputSchema, pageQuery, pageSchema, selectFields } from "../list.ts
 import { defineOperation } from "../operation.ts";
 import { availablePackRoles, PACK_ROLE_NAME_RE, parseGrants } from "../pack-roles.ts";
 import { GRANTABLE_PERMISSIONS, holdsPermission, PERMISSIONS, ROLES } from "../principals.ts";
+import { feedRevocations } from "../staffing/feed.ts";
 
 /** Users are not a record object (no tags, links or timeline); this only drives user.list. */
 export const userObject = defineObject({
@@ -169,6 +170,8 @@ export const userUpdateRole = defineOperation({
       : input.role;
     ctx.write(
       ctx.db.updateTable("core_user").set({ role, updated_at: ctx.now }).where("id", "=", input.id),
+      // A calendar feed the new role no longer lets them have is revoked with it (ADR 0628).
+      ...(await feedRevocations(ctx.db, input.id, { role: input.role })),
     );
     ctx.recordChange({
       object: "user",
@@ -322,7 +325,11 @@ export const userSetPackRole = defineOperation({
       .where("id", "=", input.id);
     // Never an admin row: an admin cannot hold a pack role, even if promoted meanwhile.
     if (input.role !== null) update = update.where("role", "<>", "admin");
-    ctx.write(update);
+    ctx.write(
+      update,
+      // A calendar feed the new pack role no longer lets them have is revoked with it (ADR 0628).
+      ...(await feedRevocations(ctx.db, input.id, { role, packRole: input.role })),
+    );
     ctx.recordChange({
       object: "user",
       id: input.id,
@@ -477,6 +484,8 @@ export const userSetPermissions = defineOperation({
           updated_at: ctx.now,
         })
         .where("id", "=", input.id),
+      // A calendar feed the grants no longer let them have is revoked with them (ADR 0628).
+      ...(await feedRevocations(ctx.db, input.id, { grants: permissions })),
     );
     ctx.recordChange({
       object: "user",

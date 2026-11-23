@@ -38,6 +38,9 @@ importers:
       '@composable-os/auth':
         specifier: workspace:*
         version: link:../../packages/auth
+      '@composable-os/calendar-file':
+        specifier: workspace:*
+        version: link:../../packages/calendar-file
       '@composable-os/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -620,6 +623,21 @@ importers:
         specifier: 5.1.0
         version: 5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.4)(yaml@2.9.1))
 
+  packages/calendar-file:
+    devDependencies:
+      '@composable-os/config':
+        specifier: workspace:*
+        version: link:../config
+      '@types/node':
+        specifier: 24.19.2
+        version: 24.19.2
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: 5.1.0
+        version: 5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.4)(yaml@2.9.1))
+
   packages/client:
     devDependencies:
       '@cloudflare/vitest-plugin':
@@ -942,6 +960,9 @@ importers:
       '@composable-os/agreement-pdf':
         specifier: workspace:*
         version: link:../agreement-pdf
+      '@composable-os/calendar-file':
+        specifier: workspace:*
+        version: link:../calendar-file
       '@composable-os/gatekeeper-configurator-ui':
         specifier: workspace:*
         version: link:../gatekeeper-configurator-ui

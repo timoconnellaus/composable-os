@@ -57,8 +57,8 @@ const seconds = (value: unknown): number | null => {
 };
 
 /** Each record's title (its object's title field) by id, read once for all of `ids`. */
-async function titles(
-  ctx: HandlerContext,
+export async function titles(
+  ctx: Pick<HandlerContext, "db">,
   objectName: string,
   ids: readonly string[],
   field?: string,

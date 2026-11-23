@@ -82,6 +82,8 @@ export function toolOperation(
     // any tool.
     // A tool's own (ADR 0626): what someone wrote about their leave never reaches the log either.
     redact: ["agreements", ...(tool.redact ?? [])],
+    // A secret its answer carries once (a calendar feed's address, ADR 0628): never kept.
+    ...(tool.redactResult?.length ? { redactResult: [...tool.redactResult] } : {}),
     async handler(input, ctx) {
       // The pipeline already never dry-runs a tool that may write (approvals/dry-run.ts: that is
       // the guarantee); this keeps the handler safe if it is ever called with a simulation.

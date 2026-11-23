@@ -323,6 +323,18 @@ export {
   loadGeneralSettings,
 } from "./settings.ts";
 export * from "./staffing/index.ts";
+// A staff member's private calendar feed (stage 45 step 5, ADR 0628): the route reads it here.
+export {
+  FEED_DAYS_AHEAD,
+  FEED_DAYS_BACK,
+  FEED_MAX_SHIFTS,
+  FEED_PATH_PREFIX,
+  FEED_TOKEN_RE,
+  type FeedShift,
+  feedPath,
+  feedTokenHash,
+  readStaffFeed,
+} from "./staffing/feed.ts";
 export * from "./subscriptions/index.ts";
 export * from "./support.ts";
 export * from "./sync/ingest.ts";

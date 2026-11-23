@@ -61,6 +61,12 @@ export interface IdempotentCall {
   operation: string;
   hash: string;
   now: () => Date;
+  /**
+   * What of a reply is kept for a replay (stage 45 step 5, ADR 0628): an operation's answer keys
+   * it never stores (`redactResult`, a calendar feed's address shown once) are redacted in the
+   * stored row. The caller of this call still gets the whole reply; a replay gets the kept one.
+   */
+  keep?: (reply: HttpReply) => HttpReply;
   /** The reply a committed outcome would send, built the way the surface builds it. */
   replyFor: (outcome: BatchOutcome) => HttpReply | null;
   /** How long a second call waits for the first. Default 10 seconds. */
@@ -166,7 +172,7 @@ async function fillIn(call: IdempotentCall, claimId: string, reply: HttpReply): 
   await call.db.batch([
     call.db.query
       .updateTable("core_idempotency_key")
-      .set({ status: reply.status, response: reply.body })
+      .set({ status: reply.status, response: (call.keep ? call.keep(reply) : reply).body })
       .where("scope", "=", call.scope)
       .where("idempotency_key", "=", call.key)
       .where("claim", "=", claimId)
@@ -266,7 +272,8 @@ async function runClaimed(
   return { ...reply, replayed: false };
 }
 
-function keyInsert(call: IdempotentCall, claimId: string, reply: HttpReply | null): Compilable {
+function keyInsert(call: IdempotentCall, claimId: string, given: HttpReply | null): Compilable {
+  const reply = given && call.keep ? call.keep(given) : given;
   return call.db.query.insertInto("core_idempotency_key").values({
     scope: call.scope,
     idempotency_key: call.key,

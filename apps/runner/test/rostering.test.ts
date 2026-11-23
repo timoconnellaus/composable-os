@@ -24,6 +24,7 @@ import {
   invokeByName,
   loadExtensionOperations,
   newId,
+  readStaffFeed,
   refreshSchemaRegistry,
 } from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -136,6 +137,9 @@ const TEAM_TOOLS = [
   "away",
   "back",
   "myAway",
+  "feed",
+  "feedRotate",
+  "feedRevoke",
 ].map((t) => `x.rostering.${t}`);
 /** The rosterers' tools: restricted. */
 const MANAGE_TOOLS = [
@@ -1427,5 +1431,90 @@ describe("what pay is totalled from is a rosterer's to change, with Rostering in
       { object: CLASS, id: started, values: await later(started, 2) },
       asUser(rosterer),
     );
+  });
+});
+
+// --- Step 5 (ADR 0628): each rostered person's private calendar feed ------------------------------
+
+describe("the calendar feed on the shipped pack (step 5, criterion 9)", () => {
+  const tokenOf = (path: string) =>
+    /^\/api\/v1\/staffing\/feed\/([A-Za-z0-9_-]{43})\.ics$/.exec(path)?.[1] as string;
+
+  it("a cleaner makes their own; it shows their duty shifts and the address is kept nowhere", async () => {
+    const cleaner = await fixedRole("Cleaner Feed", "rostering.team");
+    const shift = await dutyShift(3 * DAY, cleaner.id);
+    const other = await dutyShift(3 * DAY, null);
+    const made = await run<{ path: string }>("x.rostering.feedRotate", {}, asUser(cleaner));
+    const token = tokenOf(made.path);
+    expect(token).toBeTruthy();
+    expect(await run("x.rostering.feed", {}, asUser(cleaner))).toMatchObject({ active: true });
+    const feed = await readStaffFeed(db.query, token, new Date());
+    expect(feed?.shifts.map((s) => s.id)).toEqual([shift]);
+    expect(feed?.shifts[0]).toMatchObject({ object: SHIFT, place: "Main floor" });
+    expect(feed?.shifts.map((s) => s.id)).not.toContain(other);
+    // The tool that made it is what the account must still be able to call.
+    const row = await env.DB.prepare("SELECT tool FROM core_staff_feed WHERE account_id = ?")
+      .bind(cleaner.id)
+      .first<{ tool: string }>();
+    expect(row?.tool).toBe("x.rostering.feedRotate");
+    // Not in the audit log, a tool run's record or a notice.
+    for (const query of [
+      "SELECT input || coalesce(result, '') || coalesce(error, '') AS t FROM core_audit",
+      "SELECT coalesce(error, '') || logs || operations AS t FROM core_extension_runs",
+      "SELECT title || coalesce(body, '') AS t FROM core_notifications",
+    ]) {
+      const { results } = await env.DB.prepare(query).all<{ t: string }>();
+      expect(results.map((r) => r.t).join("\n"), query).not.toContain(token);
+    }
+    // A new address: the old one reads nothing.
+    const again = tokenOf(
+      (await run<{ path: string }>("x.rostering.feedRotate", {}, asUser(cleaner))).path,
+    );
+    expect(await readStaffFeed(db.query, token, new Date())).toBeNull();
+    expect(await readStaffFeed(db.query, again, new Date())).not.toBeNull();
+  });
+
+  it("an assistant or an MCP client never makes, changes or revokes one, and may say whether one exists", async () => {
+    const cleaner = await fixedRole("Cleaner Ai", "rostering.team");
+    for (const actor of ["assistant", "mcp"] as const) {
+      for (const name of ["x.rostering.feedRotate", "x.rostering.feedRevoke"]) {
+        const error = await refusal(run(name, {}, asUser(cleaner, { actor })));
+        expect(error.code, `${name} ${actor}`).toBe("forbidden");
+      }
+    }
+    expect(await run("x.rostering.feed", {}, asUser(cleaner, { actor: "assistant" }))).toEqual({
+      active: false,
+      createdAt: null,
+    });
+  });
+
+  it("a coach's feed by the grant: the grant taken away revokes it", async () => {
+    const { user, profile } = await coach("Coach Feed");
+    await grant(user, [ROSTER]);
+    const own = await klass(2 * DAY, profile);
+    const token = tokenOf(
+      (await run<{ path: string }>("x.rostering.feedRotate", {}, asUser(user))).path,
+    );
+    const feed = await readStaffFeed(db.query, token, new Date());
+    expect(feed?.shifts.map((s) => s.id)).toEqual([own]);
+    // A class's own title and the class type are the business's; the feed's title is the kind.
+    expect(feed?.shifts[0]?.object).toBe(CLASS);
+    await grant(user, []);
+    expect(await readStaffFeed(db.query, token, new Date())).toBeNull();
+  });
+
+  it("deactivating a cleaner revokes it with their shifts", async () => {
+    const cleaner = await fixedRole("Cleaner Leaves", "rostering.team");
+    await dutyShift(5 * DAY, cleaner.id);
+    const token = tokenOf(
+      (await run<{ path: string }>("x.rostering.feedRotate", {}, asUser(cleaner))).path,
+    );
+    const refused = await refusal(run("user.deactivate", { id: cleaner.id }, staff()));
+    await run(
+      "user.deactivate",
+      { id: cleaner.id, confirm: refused.details?.count as number },
+      staff(),
+    );
+    expect(await readStaffFeed(db.query, token, new Date())).toBeNull();
   });
 });

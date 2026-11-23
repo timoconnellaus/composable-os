@@ -80,6 +80,9 @@ describe("every route of cos-app is accounted for behind Access", () => {
       // Stage 44 step 4 (ADR 0645): staff download a signed PDF here; a customer at
       // /api/v1/agreements/… (the bypassed surface) or through the client-app binding.
       isAgreementPdfPath: "/api/agreements/acceptances/aga_1.pdf",
+      // Stage 45 step 5 (ADR 0628): a staff member's calendar feed, which a calendar app polls
+      // with no sign-in: bypassed, authenticated by the token in its address.
+      isStaffFeedPath: "/api/v1/staffing/feed/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA.ics",
     };
 
     expect([...dispatched].sort()).toEqual(Object.keys(known).sort());
@@ -91,7 +94,13 @@ describe("every route of cos-app is accounted for behind Access", () => {
       NATIVE_STAFF_SIGN_IN_PATH: "staff",
       isMediaPath: "staff",
       isAgreementPdfPath: "staff",
+      isStaffFeedPath: "bypass",
     });
+    // The feed's bypass is its own entry (it says how the feed authenticates), and nothing of the
+    // staff app is under it.
+    expect(bypassFor("/api/v1/staffing/feed/x.ics")?.path).toBe("/api/v1/staffing/feed/*");
+    expect(bypassFor("/api/v1/staffing/feed")?.path).toBe("/api/v1/staffing/feed/*");
+    expect(bypassFor("/api/v1/staffing/feeds")?.path).toBe("/api/v1/*");
     // Every version of the surface, and every native sign-in route, is the bypassed surface.
     for (const path of [
       "/api/v1/manifest",

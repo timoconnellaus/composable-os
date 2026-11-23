@@ -22,6 +22,18 @@ export interface StaffPath {
 
 export const ACCESS_BYPASS: readonly BypassedPath[] = [
   {
+    // Inside /api/v1/* (below), listed on its own so that it stays bypassed, and says how, if the
+    // surface's bypass ever narrows: a calendar app cannot sign in through Access.
+    path: "/api/v1/staffing/feed/*",
+    when: "always",
+    authenticates:
+      "A staff member's private calendar feed (ADR 0628), polled by a calendar app with no " +
+      "sign-in: the 32-byte random token in the address is the credential, looked up by its " +
+      "SHA-256 (the host keeps nothing else of it), answering only that person's own shifts " +
+      "while their account is active and holds the pack's permission. Any other token, and any " +
+      "other path under it, is a 404 like a missing route; limited per token and per address.",
+  },
+  {
     path: "/api/v1/*",
     when: "always",
     authenticates:

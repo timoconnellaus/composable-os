@@ -1397,6 +1397,17 @@ export interface CoreStaffOfferTable {
   why: string | null;
 }
 
+/**
+ * Migration 0814 (stage 45 step 5, ADR 0628): a staff account's private calendar feed, by the
+ * SHA-256 of its token (never the token), and the tool that made it.
+ */
+export interface CoreStaffFeedTable {
+  account_id: string;
+  token_hash: string;
+  tool: string;
+  created_at: string;
+}
+
 /** Migration 0812 (stage 45, ADR 0624): a batch's count guard; nothing is stored. */
 export interface CoreStaffGuardTable {
   expected: number;
@@ -2899,6 +2910,7 @@ export interface CoreDatabase {
   core_staff_time: CoreStaffTimeTable;
   core_staff_qualification: CoreStaffQualificationTable;
   core_staff_away: CoreStaffAwayTable;
+  core_staff_feed: CoreStaffFeedTable;
   core_staff_offer: CoreStaffOfferTable;
   core_staff_run: CoreStaffRunTable;
   core_staff_guard: CoreStaffGuardTable;
