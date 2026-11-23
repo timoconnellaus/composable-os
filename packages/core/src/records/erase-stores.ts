@@ -13,6 +13,7 @@ import { releaseAllClaimsOfStatements } from "../capacity/claimants.ts";
 import { erasedWaiter, handOnAfterRelease } from "../capacity/waitlist.ts";
 import { getObject } from "../fields/index.ts";
 import type { HandlerContext } from "../operation.ts";
+import { changeOrder } from "../orders/orders.ts";
 import { chunk, jsonList } from "./common.ts";
 import {
   aboutPattern,
@@ -977,9 +978,33 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
   );
   const orders = await ctx.db
     .selectFrom("core_order")
-    .select("id")
+    .selectAll()
     .where((eb) => eb.or([eb("person_id", "in", ids), eb("email", "in", addresses)]))
     .execute();
+  // Their purchases still open (stage 44 step 8, ADR 0646): an order nothing was paid on is
+  // cancelled by the host, so a payment that comes after the erase is a late one, never honoured
+  // without staff (orders/late.ts); a subscription checkout the provider has not confirmed is
+  // closed, so a later confirmation makes nothing (subscriptions/events.ts). Their guest
+  // acceptances go with them (agreements/people.ts).
+  for (const row of orders) {
+    if (row.state === "pending" && row.paid === 0) {
+      await changeOrder(ctx, row, "cancelled", { person_id: null }, "host");
+    }
+  }
+  ctx.write(
+    ctx.db
+      .updateTable("core_subscription_checkout")
+      .set({ email: null, erased_at: ctx.now })
+      .where("subscription_ref", "is", null)
+      .where("erased_at", "is", null)
+      .where((eb) =>
+        eb.or([
+          eb("payer_person_id", "in", ids),
+          eb("holder_person_id", "in", ids),
+          eb("email", "in", addresses),
+        ]),
+      ),
+  );
   for (const part of chunk(orders.map((o) => o.id))) {
     ctx.write(
       ctx.db

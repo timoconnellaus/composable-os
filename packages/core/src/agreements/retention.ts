@@ -31,18 +31,17 @@ export const keepYearsSchema = z
  * early; the database's triggers read it the same way).
  */
 export async function loadKeepYears(db: Kysely<CoreDatabase>): Promise<number | null> {
-  const row = await db
-    .selectFrom("core_settings")
-    .select("value")
-    .where("key", "=", KEEP_SETTING)
-    .executeTakeFirst();
+  // Read by SQLite's own JSON functions, exactly as migration 0855's triggers read it, so the
+  // host and the database never disagree (`7.0` is a real, not an integer, to both: the review
+  // of PR #288).
+  const { rows } = await sql<{ type: string | null; years: unknown }>`
+    SELECT json_type(value, '$.years') AS type, json_extract(value, '$.years') AS years
+    FROM core_settings WHERE key = ${KEEP_SETTING}`.execute(db);
+  const row = rows[0];
   if (!row) return DEFAULT_KEEP_YEARS;
-  try {
-    const parsed = keepYearsSchema.safeParse((JSON.parse(row.value) as { years?: unknown }).years);
-    return parsed.success ? parsed.data : null;
-  } catch {
-    return null;
-  }
+  if (row.type !== "integer") return null;
+  const parsed = keepYearsSchema.safeParse(Number(row.years));
+  return parsed.success ? parsed.data : null;
 }
 
 function shiftYears(iso: string, years: number): string {
@@ -64,23 +63,50 @@ export function purgeCutoff(now: string, years: number | null): string | null {
 /** The purge's bound per run. */
 export const PURGE_KEPT_MAX = 100;
 
+/**
+ * A scrub owed this long no longer holds a kept acceptance past its retention period: the purge
+ * goes ahead, and audits that the email gatekeeper may still hold the copy (the review of PR
+ * #288). Migration 0855's copy trigger uses the same 30 days.
+ */
+export const SCRUB_GIVE_UP_DAYS = 30;
+
 /** Acceptances the purge may take now, oldest first, at most `limit` (index-ordered). */
 export async function purgeableKept(
   db: Kysely<CoreDatabase>,
   now: string,
   limit: number,
-): Promise<string[]> {
+): Promise<{ id: string; unscrubbed: boolean }[]> {
   const cutoff = purgeCutoff(now, await loadKeepYears(db));
   if (!cutoff) return [];
-  const { rows } = await sql<{ id: string }>`
-    SELECT a.id FROM core_agreement_acceptance a
+  const giveUp = new Date(Date.parse(now) - SCRUB_GIVE_UP_DAYS * 86_400_000).toISOString();
+  const { rows } = await sql<{ id: string; unscrubbed: number }>`
+    SELECT a.id, EXISTS (SELECT 1 FROM core_agreement_copy c
+        WHERE c.acceptance_id = a.id AND c.scrub_due_at IS NOT NULL) AS unscrubbed
+    FROM core_agreement_acceptance a
     WHERE a.erased_at IS NOT NULL AND a.erased_at < ${cutoff}
       AND NOT EXISTS (SELECT 1 FROM core_agreement_hold h WHERE h.acceptance_id = a.id)
       AND NOT EXISTS (SELECT 1 FROM core_agreement_copy c
-        WHERE c.acceptance_id = a.id AND c.scrub_due_at IS NOT NULL)
+        WHERE c.acceptance_id = a.id AND c.scrub_due_at IS NOT NULL
+          AND (c.scrub_owed_since IS NULL OR c.scrub_owed_since >= ${giveUp}))
     ORDER BY a.erased_at
     LIMIT ${limit}`.execute(db);
-  return rows.map((r) => r.id);
+  return rows.map((r) => ({ id: r.id, unscrubbed: Boolean(r.unscrubbed) }));
+}
+
+/** How many kept acceptances would be past a period of `years` now (not on hold). */
+export async function keptPastPeriod(
+  db: Kysely<CoreDatabase>,
+  now: string,
+  years: number,
+): Promise<number> {
+  const cutoff = purgeCutoff(now, years) as string;
+  const { rows } = await sql<{ n: number }>`
+    SELECT count(*) AS n FROM core_agreement_acceptance a
+    WHERE a.erased_at IS NOT NULL AND a.erased_at < ${cutoff}
+      AND NOT EXISTS (SELECT 1 FROM core_agreement_hold h WHERE h.acceptance_id = a.id)`.execute(
+    db,
+  );
+  return Number(rows[0]?.n ?? 0);
 }
 
 /**

@@ -28,6 +28,7 @@
 // earlier in its batch); the minor mark is kept if either Person had it. Nothing in an
 // acceptance changes; a buyer's acceptances not yet settled are nobody's and are not touched.
 import { sql } from "kysely";
+import { OperationError } from "../errors.ts";
 import type { HandlerContext } from "../operation.ts";
 import { ERASED } from "../records/erase-subject.ts";
 import { keptUntil, loadKeepYears } from "./retention.ts";
@@ -35,10 +36,20 @@ import { keptUntil, loadKeepYears } from "./retention.ts";
 const list = (values: readonly string[]) =>
   sql`(SELECT value FROM json_each(${JSON.stringify(values.length ? values : [""])}))`;
 
+/** At most this many distinct addresses of a Person's own acceptances; more is refused. */
+export const MAX_AGREEMENT_ADDRESSES = 50;
+
 /**
- * The addresses the Person's acceptances and copies hold (their own, and those they made as a
- * guardian): erase redacts them wherever else they appear (the audit, approvals), as any address
- * of theirs.
+ * The addresses that are the erased Person's own and that their acceptances hold: the sign-in
+ * address they agreed with themselves (`self`), and the one they agreed with as a guardian for a
+ * child (`guardian`, they being the agent). Erase redacts them wherever else they appear (the
+ * audit, approvals, orders), as any address of theirs. Never the address of someone else's
+ * acceptance for them (a guardian's for a child, a parent's purchase settled to the child, a
+ * paper form's copy): that address is the other person's, and erasing the child must not touch
+ * them (the review of PR #288). A buyer's acceptance settled to them is left out too: its address
+ * is theirs only if it is already one of their addresses, which erase has from their record.
+ * Copies go to the acceptance's own address, so they add nothing. More distinct addresses than
+ * `MAX_AGREEMENT_ADDRESSES` is refused, never cut.
  */
 export async function agreementAddresses(
   ctx: HandlerContext,
@@ -46,17 +57,25 @@ export async function agreementAddresses(
 ): Promise<string[]> {
   if (!personIds.length) return [];
   const people = list(personIds);
-  const { rows } = await sql<{ address: string | null }>`
-    SELECT a.email AS address FROM core_agreement_acceptance a
-      WHERE (a.person_id IN ${people} OR a.agent_person_id IN ${people}) AND a.email IS NOT NULL
-    UNION
-    SELECT c.to_address AS address FROM core_agreement_copy c
-      JOIN core_agreement_acceptance a ON a.id = c.acceptance_id
-      WHERE (a.person_id IN ${people} OR a.agent_person_id IN ${people})
-        AND c.to_address IS NOT NULL
-    LIMIT 50`.execute(ctx.db);
-  return [...new Set(rows.map((r) => r.address?.trim().toLowerCase() ?? "").filter(Boolean))];
+  const { rows } = await sql<{ address: string }>`
+    SELECT DISTINCT lower(trim(a.email)) AS address FROM core_agreement_acceptance a
+    WHERE a.email IS NOT NULL AND (
+      (a.by = 'self' AND a.person_id IN ${people})
+      OR (a.by = 'guardian' AND a.agent_person_id IN ${people}))
+    LIMIT ${MAX_AGREEMENT_ADDRESSES + 1}`.execute(ctx.db);
+  if (rows.length > MAX_AGREEMENT_ADDRESSES) {
+    throw new OperationError(
+      "conflict",
+      `This person's agreements hold more than ${MAX_AGREEMENT_ADDRESSES} addresses of theirs; ` +
+        "erase cannot be sure to reach them all. Ask for help before erasing.",
+      { rule: "agreement_addresses_too_many" },
+    );
+  }
+  return rows.map((r) => r.address).filter(Boolean);
 }
+
+/** A buyer's acceptances read per batch. */
+const GUEST_BATCH = 200;
 
 /** What erase did to the Person's agreements: what is kept, until when, and what went. */
 export interface AgreementsErased {
@@ -85,7 +104,7 @@ export async function queueEraseAgreements(
   const people = list(personIds);
   const addrs = list(addresses.map((a) => a.trim().toLowerCase()));
 
-  const [own, approvals, guests] = await Promise.all([
+  const [own, approvals] = await Promise.all([
     sql<{ n: number }>`SELECT count(*) AS n FROM core_agreement_acceptance
       WHERE (person_id IN ${people} OR agent_person_id IN ${people}) AND erased_at IS NULL`.execute(
       ctx.db,
@@ -96,8 +115,12 @@ export async function queueEraseAgreements(
       JOIN core_agreement_acceptance a ON a.id = c.acceptance_id
       WHERE (a.person_id IN ${people} OR a.agent_person_id IN ${people})
         AND c.pending_action_id IS NOT NULL`.execute(ctx.db),
-    // A buyer's acceptances nobody settled, with their address or their Person on the purchase.
-    sql<{ id: string; unpaid: number; paidUnsettled: number }>`
+  ]);
+  // A buyer's acceptances nobody settled, with their address or their Person on the purchase,
+  // read in bounded batches until none is left (never cut short).
+  const guests: { id: string; unpaid: number; paidUnsettled: number }[] = [];
+  for (let after = ""; ; ) {
+    const page = await sql<{ id: string; unpaid: number; paidUnsettled: number }>`
       SELECT a.id,
         (o.id IS NOT NULL AND o.paid = 0) OR (c.id IS NOT NULL AND c.subscription_ref IS NULL)
           AS unpaid,
@@ -110,10 +133,30 @@ export async function queueEraseAgreements(
         AND (lower(a.email) IN ${addrs} OR o.email IN ${addrs} OR o.person_id IN ${people}
           OR c.email IN ${addrs} OR c.payer_person_id IN ${people}
           OR c.holder_person_id IN ${people})
-      LIMIT 500`.execute(ctx.db),
-  ]);
-  const unpaid = guests.rows.filter((g) => g.unpaid).map((g) => g.id);
-  const unsettled = guests.rows.filter((g) => !g.unpaid && g.paidUnsettled).map((g) => g.id);
+        AND a.id > ${after}
+      ORDER BY a.id
+      LIMIT ${GUEST_BATCH}`.execute(ctx.db);
+    guests.push(...page.rows);
+    if (page.rows.length < GUEST_BATCH) break;
+    after = page.rows[page.rows.length - 1]?.id ?? "";
+  }
+  // Their dependants (any family link of theirs, live or ended; read before erase deletes the
+  // links): a paper form for one of them may name them in who signed it or in staff's note.
+  const dependants = (
+    await sql<{ id: string }>`SELECT DISTINCT dependant_id AS id FROM core_person_link
+      WHERE guardian_id IN ${people} AND kind = 'guardian'`.execute(ctx.db)
+  ).rows.map((r) => r.id);
+  if (dependants.length) {
+    // Coordinator decision of 2026-11-23 (owner to confirm): the form, its version, its date and
+    // who recorded it stay; who signed it and the note go (migration 0855 allows only clearing).
+    ctx.write(
+      sql`UPDATE core_agreement_acceptance SET signed_by = NULL, note = NULL
+        WHERE by = 'paper' AND person_id IN ${list(dependants)}
+          AND (signed_by IS NOT NULL OR note IS NOT NULL)`.compile(ctx.db),
+    );
+  }
+  const unpaid = guests.filter((g) => g.unpaid).map((g) => g.id);
+  const unsettled = guests.filter((g) => !g.unpaid && g.paidUnsettled).map((g) => g.id);
   const turnedDown = approvals.rows.map((r) => r.id);
 
   if (turnedDown.length) {

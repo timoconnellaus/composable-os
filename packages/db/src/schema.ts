@@ -1181,8 +1181,14 @@ export interface CoreAgreementCopyTable {
    * erased acceptance's copy (a waiting send, its history line): the host asks it to scrub them.
    */
   scrub_due_at: Defaulted<string | null>;
+  /** When a scrub was first owed (never changes): after 30 days the purge may go ahead. */
+  scrub_owed_since: Defaulted<string | null>;
+  /** Why the last scrub was not done: its gatekeeper could not be reached, or it failed. */
+  scrub_error: Defaulted<"unreachable" | "failed" | null>;
   /** When the gatekeeper confirmed the scrub. */
   scrubbed_at: Defaulted<string | null>;
+  /** The gatekeepers a send reached, as a JSON list of `<connection id> <resource key>`. */
+  via: Defaulted<string | null>;
 }
 
 /**
@@ -2023,6 +2029,11 @@ export interface CoreSubscriptionCheckoutTable {
   created_at: Timestamp;
   /** Migration 0532: the continuation offer this checkout was opened from, if any. */
   offer_id: Defaulted<string | null>;
+  /**
+   * Migration 0855 (ADR 0646): its Person or address was erased before the provider confirmed
+   * it. A later confirmation makes no subscription.
+   */
+  erased_at: Defaulted<string | null>;
 }
 
 /** Migration 0530: a subscription the provider runs and the host mirrors. */

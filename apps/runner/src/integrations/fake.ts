@@ -958,7 +958,7 @@ export class FakeGatekeeper extends DurableObject<
   async scrubAgreementCopy(
     queue: QueueStub,
     input: { key?: unknown },
-  ): Promise<{ done: true; dropped: number; redacted: number }> {
+  ): Promise<{ done: true; found: boolean; dropped: number; redacted: number }> {
     this.#require("outbox");
     if ((await queueClassOf(queue)) !== "agreements") {
       throw new Error("Refused: only the host's own agreements mail scrubs a copy.");
@@ -987,7 +987,7 @@ export class FakeGatekeeper extends DurableObject<
       redacted += 1;
     }
     kv.put("journal", journal);
-    return { done: true, dropped, redacted };
+    return { done: true, found: redacted > 0, dropped, redacted };
   }
 
   async listSent(queue: QueueStub) {

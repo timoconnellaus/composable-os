@@ -38,12 +38,24 @@ function Retention() {
   const retention = useOp("agreement.retention", {});
   const save = useOpMutation("agreement.setRetention", { invalidates: ["agreement."] });
   const [years, setYears] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const wanted = Number(years);
+  const valid = Number.isInteger(wanted) && wanted >= 1 && wanted <= 50;
+  // How many kept records the new period makes due at the next daily run: a shorter period is
+  // confirmed by typing that number (the host checks it again).
+  const ask = useOp("agreement.retention", { years: wanted }, { enabled: valid });
+  const purgeable = ask.data?.purgeableAt ?? 0;
+  const current = retention.data?.years ?? null;
+  const needsConfirm = valid && purgeable > 0 && (current === null || wanted < current);
   const submit = (event: FormEvent) => {
     event.preventDefault();
     save.mutate(
-      { years: Number(years) },
+      { years: wanted, ...(needsConfirm ? { confirmPurgeable: Number(confirm) } : {}) },
       {
-        onSuccess: () => toast.success("Saved"),
+        onSuccess: () => {
+          toast.success("Saved");
+          setConfirm("");
+        },
         onError: (error) => toast.error(errorMessage(error)),
       },
     );
@@ -79,7 +91,26 @@ function Retention() {
               onChange={(e) => setYears(e.target.value)}
             />
           </div>
-          <Button type="submit" variant="outline" disabled={!years || save.isPending}>
+          {needsConfirm && (
+            <div className="grid gap-1">
+              <Label htmlFor="keep-confirm">
+                {purgeable} kept agreement{purgeable === 1 ? "" : "s"} will be deleted for good at
+                the next daily run. Type {purgeable} to confirm.
+              </Label>
+              <Input
+                id="keep-confirm"
+                inputMode="numeric"
+                className="w-28"
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+              />
+            </div>
+          )}
+          <Button
+            type="submit"
+            variant="outline"
+            disabled={!valid || save.isPending || (needsConfirm && Number(confirm) !== purgeable)}
+          >
             Save
           </Button>
         </form>
@@ -92,11 +123,32 @@ function Retention() {
   );
 }
 
+/** One kept acceptance, opened: what the record holds (each opening is audited by the host). */
+function Opened({ id }: { id: string }) {
+  const one = useOp("agreement.acceptance.get", { id });
+  if (one.isLoading) return <Skeleton className="h-10 w-full" />;
+  if (one.isError) return <p className="w-full text-destructive">{errorMessage(one.error)}</p>;
+  const data = one.data;
+  if (!data) return null;
+  return (
+    <div className="grid w-full gap-1 rounded-md border p-2" data-testid="kept-opened">
+      <span>
+        How: {data.how}, {data.channel}; by: {data.by}
+      </span>
+      <span>
+        Name typed: <strong>{data.typedName ?? "(not kept)"}</strong>
+      </span>
+      <span>{data.signature ? "A drawn signature is kept." : "No drawn signature."}</span>
+    </div>
+  );
+}
+
 function Find() {
   const [query, setQuery] = useState<{ email?: string; name?: string } | null>(null);
   const [text, setText] = useState("");
   const found = useOp("agreement.kept.find", query ?? { name: "--" }, { enabled: query !== null });
   const hold = useOpMutation("agreement.kept.hold", { invalidates: ["agreement."] });
+  const [opened, setOpened] = useState<string | null>(null);
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const value = text.trim();
@@ -148,6 +200,13 @@ function Find() {
                 <Button
                   size="sm"
                   variant="ghost"
+                  onClick={() => setOpened(opened === item.id ? null : item.id)}
+                >
+                  {opened === item.id ? "Close" : "Open"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
                   disabled={hold.isPending}
                   onClick={() =>
                     hold.mutate(
@@ -158,6 +217,7 @@ function Find() {
                 >
                   {item.held ? "Release" : "Hold"}
                 </Button>
+                {opened === item.id && <Opened id={item.id} />}
               </li>
             ))}
           </ul>

@@ -351,6 +351,27 @@ function RetentionCard({ form }: { form: ReturnType<typeof useRetentionForm> }) 
   );
 }
 
+/**
+ * What erasing this person keeps of their agreements, and until when (stage 44, ADR 0646): said
+ * before anyone erases them, as the spec asks of the erase screen.
+ */
+function KeptOnErase({ personId }: { personId: string }) {
+  const preview = useOp("agreement.erasePreview", { personId });
+  if (!preview.data) return null;
+  const { kept, until, healthAnswers } = preview.data;
+  if (!kept && !healthAnswers) return null;
+  return (
+    <span className="text-muted-foreground" data-testid="erase-agreements-kept">
+      {healthAnswers > 0 &&
+        `Erasing deletes ${healthAnswers} health form${healthAnswers === 1 ? "" : "s"}' answers at once. `}
+      {kept > 0 &&
+        `${kept} signed agreement${kept === 1 ? " is" : "s are"} kept, no longer theirs, ${
+          until ? `until ${formatDate(until)}` : "while the retention setting cannot be read"
+        }.`}
+    </span>
+  );
+}
+
 function EraseRequestsCard() {
   const requests = useOp("eraseRequest.list", {});
   const decline = useOpMutation("eraseRequest.decline");
@@ -414,6 +435,7 @@ function EraseRequestsCard() {
                   <span className="text-muted-foreground">
                     Asked {formatDate(item.requestedAt)} · due {formatDate(item.dueAt)}
                   </span>
+                  <KeptOnErase personId={item.personId} />
                 </span>
                 <span className="flex items-center gap-2">
                   {item.overdue && <Badge variant="destructive">Overdue</Badge>}

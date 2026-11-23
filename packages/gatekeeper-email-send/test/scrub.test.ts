@@ -96,6 +96,7 @@ describe("scrubAgreementCopy", () => {
     const other = await send(h, copyOf("aga_wait10"));
     expect(await scrub(h, "agreement-copy:aga_wait1")).toEqual({
       done: true,
+      found: true,
       dropped: 1,
       redacted: 0,
     });
@@ -135,7 +136,11 @@ describe("scrubAgreementCopy", () => {
 
   it("a scrub that arrives before the send: the send is refused and nothing is submitted", async () => {
     const h = await host(AGREEMENTS);
-    expect(await scrub(h, "agreement-copy:aga_early1")).toMatchObject({ done: true, dropped: 0 });
+    expect(await scrub(h, "agreement-copy:aga_early1")).toMatchObject({
+      done: true,
+      found: false,
+      dropped: 0,
+    });
     expect(await refusal(send(h, copyOf("aga_early1")))).toMatch(/^Refused:/);
     expect(submissions).toEqual([]);
     expect(sentEmails).toEqual([]);

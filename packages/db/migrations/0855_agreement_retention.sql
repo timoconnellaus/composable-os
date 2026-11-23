@@ -64,8 +64,7 @@ BEGIN
       OR NEW.how IS NOT OLD.how OR NEW.email IS NOT OLD.email
       OR NEW.channel IS NOT OLD.channel OR NEW.desk_session_id IS NOT OLD.desk_session_id
       OR NEW.accepted_at IS NOT OLD.accepted_at OR NEW.signed_on IS NOT OLD.signed_on
-      OR NEW.recorded_by IS NOT OLD.recorded_by OR NEW.signed_by IS NOT OLD.signed_by
-      OR NEW.note IS NOT OLD.note
+      OR NEW.recorded_by IS NOT OLD.recorded_by
       THEN RAISE(ABORT, 'core_agreement_acceptance_immutable')
     -- erased_at: set once, and only as part of one of the three erasures.
     WHEN NOT (NEW.erased_at IS OLD.erased_at
@@ -104,6 +103,12 @@ BEGIN
     WHEN NOT (NEW.typed_name IS OLD.typed_name
         OR (NEW.typed_name IS NULL AND OLD.by = 'guardian' AND NEW.agent_person_id IS NULL
           AND NEW.erased_at IS NOT NULL))
+      THEN RAISE(ABORT, 'core_agreement_acceptance_immutable')
+    -- A paper form's free text (who signed it, the note staff typed) may name a guardian: erase
+    -- of a guardian clears both on their dependants' paper forms (coordinator decision of
+    -- 2026-11-23, owner to confirm). Only ever to nothing, both together, and only on paper.
+    WHEN (NEW.signed_by IS NOT OLD.signed_by OR NEW.note IS NOT OLD.note) AND NOT (
+        OLD.by = 'paper' AND NEW.signed_by IS NULL AND NEW.note IS NULL)
       THEN RAISE(ABORT, 'core_agreement_acceptance_immutable')
   END;
 END;
@@ -169,12 +174,21 @@ BEGIN
   SELECT RAISE(ABORT, 'core_agreement_acceptance_immutable');
 END;
 
--- The copy: what the email gatekeeper still holds of an erased acceptance's copy. A copy that
--- reached it (any try) owes a scrub (`scrub_due_at`): the host asks the gatekeeper, as its own
--- agreements mail, to drop the waiting send and wipe the recipient and subject from its history,
--- and records `scrubbed_at`. A sender whose send was in flight during the erase marks it owed
--- again once its call returns, so a scrub always follows the last send.
+-- The copy: what the email gatekeeper still holds of an erased acceptance's copy. Each send is
+-- recorded with the gatekeeper it reached (`via`: a JSON list of `<connection> <resource>`), so
+-- the scrub goes to the gatekeeper that holds it, not whichever channel is current. A copy that
+-- reached one owes a scrub (`scrub_due_at`, owed since `scrub_owed_since`): the host asks each
+-- gatekeeper, as its own agreements mail, to drop the copy's sends and wipe their recipients and
+-- subject from its history, and records `scrubbed_at`. One it cannot reach (its connection gone)
+-- is recorded (`scrub_error`) and asked again; after 30 days owed, the purge may delete the row at
+-- the end of the retention period anyway (and audits that it did). A sender whose send was in
+-- flight during the erase marks it owed again once its call returns, so a scrub follows the last
+-- send.
+ALTER TABLE core_agreement_copy ADD COLUMN via TEXT CHECK (via IS NULL OR json_valid(via));
 ALTER TABLE core_agreement_copy ADD COLUMN scrub_due_at TEXT;
+ALTER TABLE core_agreement_copy ADD COLUMN scrub_owed_since TEXT;
+ALTER TABLE core_agreement_copy ADD COLUMN scrub_error TEXT
+  CHECK (scrub_error IS NULL OR scrub_error IN ('unreachable', 'failed'));
 ALTER TABLE core_agreement_copy ADD COLUMN scrubbed_at TEXT;
 CREATE INDEX core_agreement_copy_scrub_idx
   ON core_agreement_copy (scrub_due_at) WHERE scrub_due_at IS NOT NULL;
@@ -187,12 +201,15 @@ BEGIN
   UPDATE core_agreement_copy
   SET to_address = NULL, next_at = NULL, error = NULL, pending_action_id = NULL,
     state = CASE WHEN state IN ('sent', 'failed') THEN state ELSE 'cancelled' END,
-    scrub_due_at = CASE WHEN attempts > 0 THEN NEW.erased_at ELSE scrub_due_at END
+    scrub_due_at = CASE WHEN attempts > 0 THEN NEW.erased_at ELSE scrub_due_at END,
+    scrub_owed_since = CASE WHEN attempts > 0 THEN coalesce(scrub_owed_since, NEW.erased_at)
+      ELSE scrub_owed_since END
   WHERE acceptance_id = NEW.id;
 END;
 
--- Migration 0854's rules, plus: a scrub is owed only for an erased acceptance, and is cleared
--- only by recording that it was done.
+-- Migration 0854's rules, plus: a scrub is owed only for an erased acceptance, is cleared only by
+-- recording that it was done, and when it was first owed never changes; where a send went is only
+-- ever added to.
 DROP TRIGGER core_agreement_copy_no_update;
 CREATE TRIGGER core_agreement_copy_no_update
 BEFORE UPDATE ON core_agreement_copy
@@ -213,13 +230,25 @@ BEGIN
     WHEN OLD.scrub_due_at IS NOT NULL AND NEW.scrub_due_at IS NULL
       AND NEW.scrubbed_at IS OLD.scrubbed_at
       THEN RAISE(ABORT, 'core_agreement_copy_fixed')
+    WHEN OLD.scrub_owed_since IS NOT NULL AND NEW.scrub_owed_since IS NOT OLD.scrub_owed_since
+      THEN RAISE(ABORT, 'core_agreement_copy_fixed')
+    WHEN NEW.scrub_due_at IS NOT NULL AND NEW.scrub_owed_since IS NULL
+      THEN RAISE(ABORT, 'core_agreement_copy_fixed')
+    WHEN OLD.via IS NOT NULL AND (NEW.via IS NULL OR EXISTS (
+        SELECT 1 FROM json_each(OLD.via) o
+        WHERE NOT EXISTS (SELECT 1 FROM json_each(NEW.via) n WHERE n.value = o.value)))
+      THEN RAISE(ABORT, 'core_agreement_copy_fixed')
   END;
 END;
 
--- A copy row is deleted only by the purge, with its acceptance, and never while a scrub is owed.
+-- A copy row is deleted only by the purge, with its acceptance, and never while a scrub is owed,
+-- unless it has been owed for 30 days (a gatekeeper that cannot be reached must not keep a record
+-- past its retention period; the purge audits it).
 CREATE TRIGGER core_agreement_copy_no_delete
 BEFORE DELETE ON core_agreement_copy
-WHEN OLD.scrub_due_at IS NOT NULL OR NOT EXISTS (
+WHEN (OLD.scrub_due_at IS NOT NULL AND NOT coalesce(
+    OLD.scrub_owed_since < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-30 days'), 0))
+  OR NOT EXISTS (
   SELECT 1 FROM core_agreement_acceptance a WHERE a.id = OLD.acceptance_id
     AND a.erased_at IS NOT NULL
     AND coalesce(a.erased_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-' || coalesce((
@@ -231,6 +260,11 @@ WHEN OLD.scrub_due_at IS NOT NULL OR NOT EXISTS (
 BEGIN
   SELECT RAISE(ABORT, 'core_agreement_copy_fixed');
 END;
+
+-- A subscription checkout whose Person (payer or holder) or address was erased before the
+-- provider confirmed it: closed (`erased_at`), its address cleared. A confirmation that arrives
+-- later makes no subscription; staff are told to cancel it with the provider.
+ALTER TABLE core_subscription_checkout ADD COLUMN erased_at TEXT;
 
 -- Guarded: migrations land out of order (docs/parallel-work.md).
 UPDATE core_meta SET value = '855'

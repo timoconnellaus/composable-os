@@ -330,7 +330,7 @@ type SessionBackend = {
   /** Whether the host scrubbed this copy key (its acceptance was erased): never sent again. */
   isScrubbed(copy: string): boolean;
   /** Scrubs one copy (ADR 0646): see `scrubAgreementCopy`. */
-  scrub(copy: string): Promise<{ dropped: number; redacted: number }>;
+  scrub(copy: string): Promise<{ found: boolean; dropped: number; redacted: number }>;
   internalDomains(): string | undefined;
   allowedDomains(): string | undefined;
 };
@@ -465,7 +465,7 @@ class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
    */
   async scrubAgreementCopy(input: {
     key?: unknown;
-  }): Promise<{ done: true; dropped: number; redacted: number }> {
+  }): Promise<{ done: true; found: boolean; dropped: number; redacted: number }> {
     if ((await queueClassOf(this.#queue)) !== "agreements") {
       throw new Error("Refused: only the host's own agreements mail scrubs a copy.");
     }
@@ -473,8 +473,10 @@ class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
     if (typeof key !== "string" || !COPY_KEY.test(key)) {
       throw new TypeError("Invalid scrub: key must be agreement-copy:<acceptance id>.");
     }
-    const { dropped, redacted } = await this.#backend.scrub(key);
-    return { done: true, dropped, redacted };
+    // `found`: whether this sender held anything for the key (a send, a history line). `done`
+    // either way: the key is scrubbed, so nothing under it is sent from now on.
+    const { found, dropped, redacted } = await this.#backend.scrub(key);
+    return { done: true, found, dropped, redacted };
   }
 
   /** The sender address; resource configuration, not provider data, so no observation. */
@@ -625,7 +627,7 @@ export class EmailSendGatekeeper
    * every send of it the journal still holds (waiting, failed, or one whose submission is in
    * flight), and blanks the recipients and subject of its history lines.
    */
-  #scrub(copy: string): Promise<{ dropped: number; redacted: number }> {
+  #scrub(copy: string): Promise<{ found: boolean; dropped: number; redacted: number }> {
     return this.#actions().runExclusive(() => {
       const kv = this.ctx.storage.kv;
       if (!this.#isScrubbed(copy)) {
@@ -664,7 +666,7 @@ export class EmailSendGatekeeper
           redacted += 1;
         }
       }
-      return { dropped, redacted };
+      return { found: ids.size > 0, dropped, redacted };
     });
   }
 

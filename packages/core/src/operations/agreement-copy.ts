@@ -148,6 +148,9 @@ export const agreementAcceptancePdf = defineOperation({
     const document = await acceptanceDocument(ctx.db, facts.id, {
       kind: "staff",
       answers: holdsPermission(ctx.user, ctx.permissionGrants, "agreements:health"),
+      // Who signed a paper form and staff's note are free text that may name someone (the review
+      // of PR #288): shown to staff with agreements:manage only.
+      freeText: holdsPermission(ctx.user, ctx.permissionGrants, "agreements:manage"),
     });
     return { filename: filename(document.title, facts.id), document };
   },

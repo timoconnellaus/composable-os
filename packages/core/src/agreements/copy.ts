@@ -169,7 +169,11 @@ export async function blankDocument(db: Db, versionId: string): Promise<Agreemen
  */
 export type DocumentView =
   | { kind: "person"; me: string | null; answers: "include" | "in-app" }
-  | { kind: "staff"; answers: boolean };
+  | {
+      kind: "staff";
+      answers: boolean /** Paper free text (who signed, the note): agreements:manage only. */;
+      freeText?: boolean;
+    };
 
 export interface AcceptanceFacts {
   id: string;
@@ -269,7 +273,7 @@ export async function acceptanceDocument(
       label: "Agreed by",
       value: `Recorded from paper by ${staff?.name ?? "a member of staff"} on ${a.accepted_at.slice(0, 10)}; signed on ${a.signed_on ?? "an unknown date"}`,
     });
-    if (view.kind === "staff" && a.signed_by)
+    if (view.kind === "staff" && view.freeText && a.signed_by)
       record.push({ label: "Signed by", value: a.signed_by });
   } else if (a.by === "guardian") {
     const guardian = theirs ? nameOf(a.agent_person_id) : null;
@@ -308,7 +312,8 @@ export async function acceptanceDocument(
     label: a.by === "paper" ? "Recorded at" : "Agreed at",
     value: `${localTime(a.accepted_at, timezone)} (${timezone}); ${utcTime(a.accepted_at)}`,
   });
-  if (view.kind === "staff" && a.note) record.push({ label: "Note", value: a.note });
+  if (view.kind === "staff" && view.freeText && a.note)
+    record.push({ label: "Note", value: a.note });
   record.push({ label: "Acceptance", value: a.id });
 
   let signature: Signature | undefined;
@@ -495,6 +500,9 @@ export async function sendAgreementCopies(
     run.notSetUp = "the integration host is not reachable here";
     return run;
   }
+  // What the gatekeepers still hold of erased acceptances' copies, scrubbed first (a sweep
+  // only), each where it went: whatever channel is current, or none.
+  if (!options.acceptanceIds) await scrubErasedCopies(deps, { at, now });
   const settings = await loadDeliverySettings(db);
   const resolved = settings.email
     ? await resolveChannelTarget(db, "email", settings.email)
@@ -519,11 +527,6 @@ export async function sendAgreementCopies(
     return run;
   }
 
-  // What the gatekeeper still holds of erased acceptances' copies, scrubbed first (a sweep only).
-  if (!options.acceptanceIds) {
-    await scrubErasedCopies(deps, { target: resolved.target, at, now });
-  }
-
   const due: string[] = [];
   for (const state of OPEN_STATES) {
     if (due.length >= SWEEP) break;
@@ -545,7 +548,14 @@ export async function sendAgreementCopies(
     const { rows } = await sql<{ send_key: string; attempts: number; to_address: string | null }>`
       UPDATE core_agreement_copy
       SET state = 'sending', claimed_at = ${at}, next_at = ${later(now, STALE_MS)},
-        attempts = attempts + 1
+        attempts = attempts + 1,
+        -- The gatekeeper this try goes to: an erase scrubs it there, whatever channel is current
+        -- by then (the review of PR #288).
+        via = CASE
+          WHEN via IS NULL THEN json_array(${viaOf(resolved.target)})
+          WHEN EXISTS (SELECT 1 FROM json_each(via) WHERE value = ${viaOf(resolved.target)})
+            THEN via
+          ELSE json_insert(via, '$[#]', ${viaOf(resolved.target)}) END
       WHERE acceptance_id = ${id} AND state IN ('queued', 'sending', 'waiting')
         AND next_at <= ${at}
       RETURNING send_key, attempts, to_address`.execute(db);
@@ -693,14 +703,15 @@ export async function sendAgreementCopies(
   return run;
 }
 
+/** A gatekeeper a send reached, as `via` lists it: `<connection id> <resource key>`. */
+const viaOf = (target: { connectionId: string; resource: string }) =>
+  `${target.connectionId} ${target.resource}`;
+
 /** A scrub is owed again, from now: the sender's send outlived the erase. */
 async function owesScrub(db: Db, acceptanceId: string, at: string): Promise<void> {
-  await db
-    .updateTable("core_agreement_copy")
-    .set({ scrub_due_at: at })
-    .where("acceptance_id", "=", acceptanceId)
-    .where("to_address", "is", null)
-    .execute();
+  await sql`UPDATE core_agreement_copy
+    SET scrub_due_at = ${at}, scrub_owed_since = coalesce(scrub_owed_since, ${at})
+    WHERE acceptance_id = ${acceptanceId} AND to_address IS NULL`.execute(db);
 }
 
 /** How many owed scrubs one sweep asks for. */
@@ -708,33 +719,42 @@ const SCRUB_SWEEP = 25;
 /** A scrub the gatekeeper could not finish is asked again after this. */
 const SCRUB_RETRY_MS = 15 * 60_000;
 
+/** What one sweep of owed scrubs did. */
+export interface ScrubRun {
+  /** Scrubbed on every gatekeeper the copy reached. */
+  scrubbed: number;
+  /** Of those, every gatekeeper said it held nothing for the copy's key. */
+  nothingHeld: number;
+  /** Still owed: a gatekeeper could not be reached, or failed. */
+  owed: number;
+}
+
 /**
- * Asks the email gatekeeper to scrub what it still holds of erased acceptances' copies (stage 44
- * step 8, ADR 0646): a send still waiting is dropped (never sent), a later send under the copy's
- * key is refused, and the recipient and subject leave its sent history. Only the host's own
- * agreements mail can ask it (`callAsHost`, purpose `agreements`, method `scrubAgreementCopy`),
- * by the copy's key alone, and it reads nothing back. A scrub that fails, or that the gatekeeper
- * could not finish, stays owed and is asked again.
+ * Asks each email gatekeeper an erased acceptance's copy reached (`via`) to scrub what it still
+ * holds of it (stage 44 step 8, ADR 0646): a send still waiting is dropped (never sent), a later
+ * send under the copy's key is refused, and its recipients and subject leave the sent history.
+ * Only the host's own agreements mail can ask it (`callAsHost`, purpose `agreements`, method
+ * `scrubAgreementCopy`), by the copy's key alone; the gatekeeper answers whether it held anything,
+ * never what. The scrub goes where the copy went, not to whichever channel is current (the review
+ * of PR #288). A gatekeeper whose connection is gone is recorded `unreachable` (admins are told
+ * once, naming nobody) and asked again; after 30 days owed the retention purge may still delete
+ * the record (`retention.ts`). A copy row from before `via` was kept is asked on the current
+ * channel.
  */
 export async function scrubErasedCopies(
   deps: CopyDeps,
-  options: {
-    target?: { connectionId: string; resource: string };
-    acceptanceIds?: readonly string[];
-    at?: string;
-    now?: Date;
-  } = {},
-): Promise<{ scrubbed: number; owed: number }> {
+  options: { acceptanceIds?: readonly string[]; at?: string; now?: Date } = {},
+): Promise<ScrubRun> {
   const db = deps.db;
   const now = options.now ?? deps.clock?.() ?? new Date();
   const at = options.at ?? now.toISOString();
-  const run = { scrubbed: 0, owed: 0 };
+  const run: ScrubRun = { scrubbed: 0, nothingHeld: 0, owed: 0 };
   const call = deps.integrations?.callAsHost?.bind(deps.integrations);
   if (!call) return run;
   if (options.acceptanceIds && !options.acceptanceIds.length) return run;
   let query = db
     .selectFrom("core_agreement_copy")
-    .select("acceptance_id")
+    .select(["acceptance_id", "via"])
     .where("scrub_due_at", "is not", null)
     .where("scrub_due_at", "<=", at)
     .orderBy("scrub_due_at")
@@ -744,48 +764,96 @@ export async function scrubErasedCopies(
   }
   const owed = await query.execute();
   if (!owed.length) return run;
-  let target = options.target;
-  if (!target) {
-    const settings = await loadDeliverySettings(db);
-    const resolved = settings.email
-      ? await resolveChannelTarget(db, "email", settings.email)
-      : { problem: "no email channel" };
-    if ("problem" in resolved) return { scrubbed: 0, owed: owed.length };
-    target = resolved.target;
-  }
-  for (const { acceptance_id: id } of owed) {
-    let done = false;
-    try {
-      const result = await call({
-        connectionId: target.connectionId,
-        resource: target.resource,
-        method: "scrubAgreementCopy",
-        args: [{ key: copyKey(id) }],
-        purpose: "agreements",
-      });
-      done = (result.value as { done?: unknown } | null)?.done === true;
-    } catch (error) {
-      // The error's kind only: nothing of the copy.
-      console.error("agreement copy scrub not done; asked again later", errorKind(error));
+  let unreachable = false;
+  for (const { acceptance_id: id, via } of owed) {
+    const targets = await scrubTargets(db, via);
+    let outcome: "done" | "nothing" | "unreachable" | "failed" = "nothing";
+    for (const target of targets) {
+      if (!target) {
+        outcome = "unreachable";
+        break;
+      }
+      try {
+        const result = await call({
+          connectionId: target.connectionId,
+          resource: target.resource,
+          method: "scrubAgreementCopy",
+          args: [{ key: copyKey(id) }],
+          purpose: "agreements",
+        });
+        const value = result.value as { done?: unknown; found?: unknown } | null;
+        if (value?.done !== true) {
+          outcome = "failed";
+          break;
+        }
+        if (value.found !== false) outcome = "done";
+      } catch (error) {
+        // The error's kind only: nothing of the copy.
+        console.error("agreement copy scrub not done; asked again later", errorKind(error));
+        outcome = "failed";
+        break;
+      }
     }
-    if (done) {
+    if (outcome === "done" || outcome === "nothing") {
       await db
         .updateTable("core_agreement_copy")
-        .set({ scrub_due_at: null, scrubbed_at: at })
+        .set({ scrub_due_at: null, scrubbed_at: at, scrub_error: null })
         .where("acceptance_id", "=", id)
         .execute();
       run.scrubbed += 1;
+      if (outcome === "nothing") run.nothingHeld += 1;
     } else {
+      if (outcome === "unreachable") unreachable = true;
       await db
         .updateTable("core_agreement_copy")
-        .set({ scrub_due_at: later(now, SCRUB_RETRY_MS) })
+        .set({ scrub_due_at: later(now, SCRUB_RETRY_MS), scrub_error: outcome })
         .where("acceptance_id", "=", id)
         .where("scrub_due_at", "is not", null)
         .execute();
       run.owed += 1;
     }
   }
+  if (unreachable) {
+    await adminNotice(db, at, {
+      title: "Erased people's agreement copies could not be scrubbed",
+      body:
+        "An email connection that sent copies of signed agreements is gone, so what it holds of " +
+        "copies sent to people since erased cannot be scrubbed. Reconnect it, or remove its " +
+        "storage by disconnecting it for good. The retention purge deletes the records after 30 " +
+        "days either way.",
+      dedupeKey: "agreement-copy:scrub-unreachable",
+    });
+  }
   return run;
+}
+
+/**
+ * The gatekeepers to scrub: those the copy's sends reached, each null when its connection is gone
+ * or no longer has that sender bound. A row from before `via` was kept: the current channel.
+ */
+async function scrubTargets(
+  db: Db,
+  via: string | null,
+): Promise<({ connectionId: string; resource: string } | null)[]> {
+  let listed: string[] = [];
+  try {
+    listed = via ? (JSON.parse(via) as string[]) : [];
+  } catch {}
+  if (!listed.length) {
+    const settings = await loadDeliverySettings(db);
+    if (!settings.email) return [null];
+    const resolved = await resolveChannelTarget(db, "email", settings.email);
+    return ["problem" in resolved ? null : resolved.target];
+  }
+  const out: ({ connectionId: string; resource: string } | null)[] = [];
+  for (const entry of listed) {
+    const [connectionId = "", resource = ""] = String(entry).split(" ");
+    const resolved = await resolveChannelTarget(db, "email", connectionId);
+    out.push(
+      "problem" in resolved || resolved.target.resource !== resource ? null : resolved.target,
+    );
+  }
+  return out;
 }
 
 const errorKind = (error: unknown) => (error instanceof Error ? error.name : "error");
