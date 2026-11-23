@@ -173,6 +173,15 @@ extension declares it; it never implements it. Each behaviour the platform has i
   series change to the rest, and cancels what a closure covers. Never create the dated records
   in a tool or an automation. See `RecurringScheduleSpec` in `packages/sdk/src/recurring.ts` and
   ADR 0500.
+- **`staffed`** on an object whose records are shifts someone works (a class its coach teaches, a
+  duty shift): `staffed: { who: { field: "<user field>" } | { field: "<relation to another of
+  your objects>", account: "<its user field>" }, starts, ends, zone?, kind: "<relation: what
+  qualifications are for>", live: [<states in which it is a shift>], place?, pattern?: { link,
+  who } }`. The host refuses one staff account on two overlapping shifts in the database, across
+  every staffed object, for every writer (`conflict`, `rule: "double_booked"`), and answers each
+  write with its warnings (away, not qualified, nobody on it). Shipped packs and the org's own
+  extensions only. Never check for a clash, or work out who may take a shift, in a tool. See
+  `StaffedSpec` in `packages/sdk/src/staffed.ts` and ADRs 0621 and 0622.
 - **`sellable`** on an object: its records can be bought (ticket types, passes, products). Only
   an object that declares it can go on an order, and the host reads its price and rules from the
   record: `sellable: { price: "<currency field>", saleWindow?: { from?, until? }, maxPerOrder?,

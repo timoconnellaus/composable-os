@@ -40,7 +40,10 @@
 //     whole when the new class is full or the use cannot be spent (ADRs 0493 and 0551);
 //   - staff cancel a class (a person's act, or a person approves an AI's request, ADR 0552), and
 //     every booked, waiting and held booking of it is cancelled in the same batch (ADR 0507);
-//   - the coach role (`roles`, ADR 0436): the day's classes, their lists, and ticking names.
+//   - the coach role (`roles`, ADR 0436): the day's classes, their lists, and ticking names;
+//   - a class is its coach's shift (`staffed`, stage 45, ADR 0621): one staff account is never
+//     on two overlapping shifts, refused by the database for every writer, and a write of a
+//     class answers its warnings (the coach away or not qualified, a class with no coach).
 // The tools in tools.ts compose the host's operations and add no rules of their own. The messages
 // in automations.ts (step 9, ADR 0572) email members and their guardians through the email-send
 // gatekeeper on what the host did: booked, moved in, passed over, a place free after the cut-off,
@@ -284,6 +287,9 @@ export default defineExtension({
         },
         active: { type: "boolean", label: "Active", default: true },
       },
+      // One coach profile per staff account (stage 45, ADR 0621): the host writes the right
+      // profile when a shift changes hands, and an account's classes are its profile's.
+      unique: [{ fields: ["user"] }],
       public: { read: ["name", "photo", "bio"] },
     },
     series: {
@@ -462,6 +468,21 @@ export default defineExtension({
       },
       // Members see how many places are left (decision 13), never who has them.
       capacity: { places: "places", show: "exact" },
+      // A class is a shift its coach works (stage 45, ADR 0621): the host refuses one staff
+      // account on two overlapping shifts (two classes, a class and a duty), for every writer, and
+      // answers a write with its warnings (the coach away or not qualified, a class with no
+      // coach). A coach profile with no account (a visiting coach) covers the class for members
+      // and claims nobody's time. A class done still counts (pay reads it); a cancelled one not.
+      staffed: {
+        who: { field: "coach", account: "user" },
+        starts: "startsAt",
+        ends: "endsAt",
+        zone: "timezone",
+        kind: "classType",
+        live: ["scheduled", "done"],
+        place: "room.name",
+        pattern: { link: "series", who: "coach" },
+      },
       public: {
         read: [
           "title",

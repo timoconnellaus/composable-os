@@ -1,7 +1,7 @@
 // The core registry and typed entry points adapters call.
 import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
-import { allowsAudience, audiencesOf } from "./audiences.ts";
+import { allowsAudience, audiencesOf, isOpenOutside } from "./audiences.ts";
 import { UnknownOperationError } from "./errors.ts";
 import { loadExtensionOperations, resolveExtensionOperation } from "./extensions/tools.ts";
 import type { AnyOperation, OperationInput, OperationOutput } from "./operation.ts";
@@ -72,9 +72,16 @@ export function createInvoker<Ops extends readonly AnyOperation[]>(
   return { invoke, invokeByName, resolveFor, listFor };
 }
 
-/** Whether the caller's audience may call `op` directly (a `toolOnly` one only from a tool). */
+/**
+ * Whether the caller's audience may call `op` directly (a `toolOnly` one only from a tool): for
+ * staff, a staff-only tool-only operation (ADR 0621) only from an extension tool's run, as the
+ * pipeline refuses it otherwise.
+ */
 function callableBy(op: AnyOperation, ctx: AnyInvocationContext): boolean {
   if (ctx.principal) return allowsAudience(op, ctx.principal) && !(op.toolOnly && !ctx.tool);
+  if (op.toolOnly && !isOpenOutside(op) && !(ctx.actor === "extension" && ctx.extension?.tool)) {
+    return false;
+  }
   return allowsAudience(op, staffPrincipal(ctx.user));
 }
 

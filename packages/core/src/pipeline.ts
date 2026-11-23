@@ -36,7 +36,7 @@ import { isAssignmentConflict } from "./assignment/index.ts";
 import type { AgentJobHost } from "./assistant/agent-jobs.ts";
 import { type GrantGuard, outsideSession } from "./assistant/grants.ts";
 import type { AssistantThreadStore } from "./assistant/threads.ts";
-import { allowsAudience, OUTSIDE_RISK_CLASSES } from "./audiences.ts";
+import { allowsAudience, isOpenOutside, OUTSIDE_RISK_CLASSES } from "./audiences.ts";
 import { eventOriginOf, isBulkOperation, recordEventMessages } from "./automations/events.ts";
 import {
   deliverOutbox,
@@ -406,7 +406,15 @@ function defaultSummary(output: unknown, changes: RecordChange[]): unknown {
   if (changes.length) {
     return {
       count: changes.length,
-      records: changes.slice(0, 50).map(({ object, id, action }) => ({ object, id, action })),
+      // A shift's warnings are recorded with its write (stage 45, ADR 0622).
+      records: changes.slice(0, 50).map(({ object, id, action, warnings }) => ({
+        object,
+        id,
+        action,
+        ...(warnings?.length
+          ? { warnings: warnings.map(({ code, account }) => ({ code, account })) }
+          : {}),
+      })),
     };
   }
   if (output && typeof output === "object") {
@@ -681,6 +689,11 @@ async function invokeOnce<O extends AnyOperation>(
     throw new OperationError("internal", "Unknown actor");
   }
   if (!allowsAudience(op, staffPrincipal(ctx.user))) throw new UnknownOperationError(op.name);
+  // A staff-only tool-only operation (ADR 0621) is reached only from a tool's run. One open to
+  // customers too is tool-only for them alone (ADR 0414): staff call it directly.
+  if (op.toolOnly && !isOpenOutside(op) && !(ctx.actor === "extension" && ctx.extension?.tool)) {
+    throw new UnknownOperationError(op.name);
+  }
   const parsed = op.input.safeParse(rawInput);
   // A staff account with a pack role (ADR 0436) may call only what the role lists. Read from the
   // account on every call, not from what the adapter resolved (beside the registry's own read,
