@@ -28,7 +28,7 @@
   },
   "channel": "stable",
   "commit": "0123456789abcdef0123456789abcdef01234567",
-  "coreSchemaVersion": 770,
+  "coreSchemaVersion": 790,
   "extensionContract": {
     "supported": [
       1
@@ -562,6 +562,10 @@
     {
       "name": "0770_clear_fixed_role_grants.sql",
       "sha256": "3a259fde475685273a9b2311b68ea20093ef6aacb0aa0b3dc64d027e2e24d941"
+    },
+    {
+      "name": "0790_agreements.sql",
+      "sha256": "84e0cb493367bee710387616f1d82a800915c439afac767db2d2bfdb6a8e7f61"
     }
   ],
   "product": "crm",
