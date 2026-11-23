@@ -4,7 +4,7 @@
 import { toolPermissions } from "@composable-os/sdk";
 import { sql } from "kysely";
 import { z } from "zod";
-import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
 import { defineObject } from "../fields/types.ts";
 import { listInputSchema, pageQuery, pageSchema, selectFields } from "../list.ts";
 import { defineOperation } from "../operation.ts";
@@ -340,7 +340,9 @@ export const userSetPackRole = defineOperation({
 /** What an admin may grant now: the core list and the grantable permissions of installed packs. */
 export async function grantable(
   ctx: Pick<Parameters<typeof userPackRoles.handler>[1], "db">,
-): Promise<{ permission: string; label: string; from: string; forFixedRole: boolean }[]> {
+): Promise<
+  { permission: string; label: string; from: string; forFixedRole: boolean; restricted: boolean }[]
+> {
   const rows = await ctx.db
     .selectFrom("core_extensions")
     .select(["id", "manifest"])
@@ -353,6 +355,7 @@ export async function grantable(
       label?: string;
       grantable?: string[];
       grantableLabels?: Record<string, string>;
+      restricted?: string[];
       tools?: Record<string, { permission?: string | string[]; description?: string }>;
     };
     return (manifest.grantable ?? []).map((permission) => {
@@ -366,6 +369,8 @@ export async function grantable(
         from: row.id,
         // A pack permission opens that pack's named tools only (ADR 0600).
         forFixedRole: true,
+        // Held by admins and by grant only (ADR 0625): never self-granted.
+        restricted: (manifest.restricted ?? []).includes(permission),
       };
     });
   });
@@ -384,6 +389,7 @@ export async function grantable(
       label: labels[permission],
       from: "core",
       forFixedRole: false,
+      restricted: false,
     })),
     ...packs,
   ];
@@ -406,6 +412,11 @@ export const userGrantablePermissions = defineOperation({
         forFixedRole: z
           .boolean()
           .describe("Whether an account with a pack's fixed role may be granted it (ADR 0600)"),
+        restricted: z
+          .boolean()
+          .describe(
+            "Held by admins and by grant only: no member holds it otherwise, and nobody grants it to themselves (ADR 0625)",
+          ),
       }),
     ),
   }),
@@ -444,6 +455,20 @@ export const userSetPermissions = defineOperation({
     if (!before) throw new NotFoundError("user", input.id);
     const permissions = await checkGrants(ctx, input.permissions, "permissions", before.pack_role);
     const previous = parseGrants(before.granted_permissions);
+    // A restricted permission (ADR 0625) is never granted to oneself: an admin who granted it to
+    // their own account would keep it after being made a member.
+    if (input.id === ctx.user.id) {
+      const restricted = new Set(
+        (await grantable(ctx)).filter((g) => g.restricted).map((g) => g.permission),
+      );
+      const added = permissions.filter((p) => restricted.has(p) && !previous.includes(p));
+      if (added.length) {
+        throw new ForbiddenError(
+          `${added.join(", ")} cannot be granted to your own account: another admin grants it.`,
+          { field: "permissions", rule: "self_grant", permissions: added },
+        );
+      }
+    }
     ctx.write(
       ctx.db
         .updateTable("core_user")

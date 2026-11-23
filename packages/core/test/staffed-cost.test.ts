@@ -239,6 +239,7 @@ describe("offers, takes, the uncovered read and leaving with a long history", ()
         humanOnly: !personApproves,
         ...(personApproves ? { personApproves: true } : {}),
         permission: "rostering:team",
+        calledBy: { account: user.id, actor: "human" },
       },
     },
   });

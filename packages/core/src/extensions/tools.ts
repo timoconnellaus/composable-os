@@ -43,7 +43,13 @@ export function toolOperation(
   const packGrantable = lifts
     ? packPermissions.filter((p) => (manifest.grantable ?? []).includes(p))
     : [];
-  const key = `${opName}@${manifest.version}:${source}:${JSON.stringify(tool)}:${(manifest.grantable ?? []).join(",")}:${[...roleHeld].join(",")}`;
+  // Held by admins and by grant only (ADR 0625): every permission the tool names is restricted.
+  // Judged on the tool's declaration whatever the source, so a runtime extension's tool that names
+  // one (refused by check and install) is an admin's only, never a member's.
+  const restricted = toolPermissions(tool);
+  const packRestricted =
+    restricted.length > 0 && restricted.every((p) => (manifest.restricted ?? []).includes(p));
+  const key = `${opName}@${manifest.version}:${source}:${JSON.stringify(tool)}:${(manifest.grantable ?? []).join(",")}:${[...roleHeld].join(",")}:${(manifest.restricted ?? []).join(",")}`;
   const hit = cache.get(key);
   if (hit) return hit;
   const op = defineOperation({
@@ -55,7 +61,14 @@ export function toolOperation(
     risk: tool.risk,
     ...(audiences ? { audiences } : {}),
     // Only a person (ADR 0512): it narrows who may call, so it holds from any extension.
-    ...(tool.humanOnly ? { actors: ["human"] as const } : {}),
+    // A restricted tool (ADR 0625) is a person's, or an AI's acting for one who holds it: never an
+    // automation's or another extension's code, so no grant is reached through code written in
+    // the app, and no run lends its account's grant to another.
+    ...(tool.humanOnly
+      ? { actors: ["human"] as const }
+      : packRestricted
+        ? { actors: ["human", "assistant", "mcp"] as const }
+        : {}),
     // A person approves anyone else's call (ADR 0552): it only adds review, so it holds from any
     // extension. The gate queues it whatever the policy, preset or floor says (a deny applies).
     ...(tool.personApproves
@@ -63,10 +76,12 @@ export function toolOperation(
       : {}),
     ...(packPermissions.length ? { packPermissions } : {}),
     ...(packGrantable.length ? { packGrantable } : {}),
+    ...(packRestricted ? { packRestricted: true } : {}),
     // A visitor's acceptances passed on to the host in the buying call (stage 44 step 3, ADR
     // 0644): the name they typed, a signature and health answers never reach the audit log, from
     // any tool.
-    redact: ["agreements"],
+    // A tool's own (ADR 0626): what someone wrote about their leave never reaches the log either.
+    redact: ["agreements", ...(tool.redact ?? [])],
     async handler(input, ctx) {
       // The pipeline already never dry-runs a tool that may write (approvals/dry-run.ts: that is
       // the guarantee); this keeps the handler safe if it is ever called with a simulation.

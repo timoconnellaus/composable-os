@@ -32,6 +32,7 @@ import type { ObjectDefinition, RecurringDefinition } from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
 import { followersOn } from "../records/follows.ts";
 import type { Mover } from "../records/transitions.ts";
+import { extensionSettingValues } from "../records/windows.ts";
 import type { MarkSource } from "../routine-mail/marks.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import {
@@ -316,17 +317,35 @@ type AnyDb = import("kysely").Kysely<any>;
  * class exists by the time its booking opens.
  */
 export async function horizonOf(ctx: HandlerContext, def: RecurringDefinition): Promise<number> {
+  let days = def.horizonDays;
+  // A setting of the extension sets it when it holds a value (ADR 0626: Rostering's duty horizon).
+  if (def.horizonSetting) {
+    const value = (await extensionSettingValues(ctx.db, def.horizonSetting.extension))[
+      def.horizonSetting.name
+    ];
+    if (typeof value === "number" && Number.isFinite(value) && value >= 1) {
+      days = Math.min(Math.floor(value), 366);
+    }
+  }
+  return floorOf(ctx, def, days);
+}
+
+async function floorOf(
+  ctx: HandlerContext,
+  def: RecurringDefinition,
+  horizonDays: number,
+): Promise<number> {
   const floor = def.horizonAtLeast;
-  if (!floor) return def.horizonDays;
+  if (!floor) return horizonDays;
   const target = getObject(floor.object);
   const column = target?.fields.find((f) => f.name === floor.field)?.column;
-  if (!target || !column) return def.horizonDays;
+  if (!target || !column) return horizonDays;
   const row = (await (ctx.db as AnyDb)
     .selectFrom(visibleSource(ctx, target))
     .select((eb) => eb.fn.max(column).as("days"))
     .executeTakeFirst()) as { days: number | null } | undefined;
   const days = Math.ceil(Number(row?.days ?? 0));
-  return Math.min(Math.max(def.horizonDays, Number.isFinite(days) ? days + 1 : 0), 366);
+  return Math.min(Math.max(horizonDays, Number.isFinite(days) ? days + 1 : 0), 366);
 }
 
 /** What one run of a series did. */

@@ -13,6 +13,9 @@
 // (step 10) and one-to-one sessions (31b) are not yet. Memberships (stage 32b) is
 // being built: its plans, memberships and passes, spent by bookings (step 6), plan changes, staff
 // pauses and its dashboard (steps 6 and 7) are merged; the import of members (step 8) is not yet.
+// Rostering (stage 45) is being built: the host's rules for shifts (steps 1 to 3: one person never
+// on two shifts at once, warnings, offers and takes, time off) and the pack's duties, weekly
+// patterns and tools (step 4) are merged; the screens, the calendar feed and pay are not yet.
 // The last card is the piece built only for this business.
 import { STATUS } from "../status.ts";
 import Icon from "./Icon.astro";
@@ -55,6 +58,11 @@ const pieces = [
     soon: STATUS.building,
     title: "Memberships",
     body: "Monthly memberships, unlimited or a number of classes a week or month, and passes bought once: class packs that expire, drop-ins and an intro offer, one per person. Members see what they have left, used up as they book classes, and change plan on the web; staff pause a membership for a set time.",
+  },
+  {
+    soon: STATUS.building,
+    title: "Rostering",
+    body: "Who works each class and each shift that is not a class, like cleaning. A weekly pattern makes the shifts eight weeks ahead, nobody is ever put on two at once, and staff say when they are away and offer a shift they cannot work for a qualified colleague to take, with the manager told. Still to come: the screens, a calendar feed and hours per pay period.",
   },
 ];
 ---

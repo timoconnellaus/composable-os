@@ -1000,7 +1000,12 @@ describe("warnings", () => {
       extension: {
         id: ext,
         permissions: { operations: ["staffing.check"], objects: {} } as never,
-        tool: { name: "check", humanOnly: false, permission: null },
+        tool: {
+          name: "check",
+          humanOnly: false,
+          permission: null,
+          calledBy: { account: admin.id, actor: "human" },
+        },
       },
     });
     const checked = await invoke(

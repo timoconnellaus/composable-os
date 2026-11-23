@@ -63072,13 +63072,18 @@
                 "forFixedRole": {
                   "type": "boolean",
                   "description": "Whether an account with a pack's fixed role may be granted it (ADR 0600)"
+                },
+                "restricted": {
+                  "type": "boolean",
+                  "description": "Held by admins and by grant only: no member holds it otherwise, and nobody grants it to themselves (ADR 0625)"
                 }
               },
               "required": [
                 "permission",
                 "label",
                 "from",
-                "forFixedRole"
+                "forFixedRole",
+                "restricted"
               ],
               "additionalProperties": false
             }
@@ -76004,6 +76009,2266 @@
       },
       "invalidates": [],
       "pack": "programs"
+    },
+    {
+      "name": "x.rostering.assign",
+      "description": "Put a member of staff on a shift (a class or a duty shift), or nobody (account null). Made with its warnings (away, not qualified, nobody on it), which `check` shows first; refused if they are on another shift then. A shift of a weekly pattern keeps it as its own. The people on and off it are told; its open offer is cancelled. Whoever rosters; an assistant may ask, and a person applies it. (Extension tool from Rostering 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 81
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "account": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "account"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "shift": {
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "startsAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "endsAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "object",
+              "id",
+              "title",
+              "startsAt",
+              "endsAt"
+            ],
+            "additionalProperties": false
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "unavailable",
+                    "not_qualified",
+                    "uncovered"
+                  ]
+                },
+                "object": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "account": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "object",
+                "id",
+                "account",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "shift",
+          "warnings"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.rostering.awayList",
+        "x.rostering.check",
+        "x.rostering.mine",
+        "x.rostering.myAway",
+        "x.rostering.offers",
+        "x.rostering.qualifications",
+        "x.rostering.uncovered",
+        "x.rostering.week"
+      ],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.away",
+      "description": "Say when you cannot work: leave or another one-off time (startsAt and endsAt, local), or a regular time off (weekdays with a start and end time, from a date). Nobody approves it. Shifts you are already on stay yours: the answer lists them, to offer, and whoever rosters is told. Only you and whoever rosters ever see it. A person's own act. (Extension tool from Rostering 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "leave",
+              "other",
+              "regular"
+            ],
+            "description": "leave or other: a one-off time; regular: every week"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "startsAt": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$",
+            "description": "A one-off time's start, local"
+          },
+          "endsAt": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$",
+            "description": "A one-off time's end, local"
+          },
+          "weekdays": {
+            "minItems": 1,
+            "maxItems": 7,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "mon",
+                "tue",
+                "wed",
+                "thu",
+                "fri",
+                "sat",
+                "sun"
+              ]
+            },
+            "description": "A regular time's days"
+          },
+          "startTime": {
+            "type": "string",
+            "pattern": "^[0-2]\\d:[0-5]\\d$"
+          },
+          "endTime": {
+            "type": "string",
+            "pattern": "^[0-2]\\d:[0-5]\\d$"
+          },
+          "fromDate": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "A regular time's first date"
+          },
+          "untilDate": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "A regular time's last date; empty: ongoing"
+          },
+          "zone": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "IANA zone; the organisation's if left out"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "shifts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "startsAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endsAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "object",
+                "id",
+                "title",
+                "startsAt",
+                "endsAt"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Your shifts it covers, to offer"
+          },
+          "count": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "shifts",
+          "count"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.rostering.awayList",
+        "x.rostering.check",
+        "x.rostering.mine",
+        "x.rostering.myAway",
+        "x.rostering.offers",
+        "x.rostering.qualifications",
+        "x.rostering.uncovered",
+        "x.rostering.week"
+      ],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.awayFor",
+      "description": "Say when someone else cannot work (their leave, a regular time off), as they would themselves. Their shifts stay theirs, with a warning; the answer lists them. Whoever rosters, a person only. (Extension tool from Rostering 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "leave",
+              "other",
+              "regular"
+            ],
+            "description": "leave or other: a one-off time; regular: every week"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "startsAt": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$",
+            "description": "A one-off time's start, local"
+          },
+          "endsAt": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$",
+            "description": "A one-off time's end, local"
+          },
+          "weekdays": {
+            "minItems": 1,
+            "maxItems": 7,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "mon",
+                "tue",
+                "wed",
+                "thu",
+                "fri",
+                "sat",
+                "sun"
+              ]
+            },
+            "description": "A regular time's days"
+          },
+          "startTime": {
+            "type": "string",
+            "pattern": "^[0-2]\\d:[0-5]\\d$"
+          },
+          "endTime": {
+            "type": "string",
+            "pattern": "^[0-2]\\d:[0-5]\\d$"
+          },
+          "fromDate": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "A regular time's first date"
+          },
+          "untilDate": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "A regular time's last date; empty: ongoing"
+          },
+          "zone": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "IANA zone; the organisation's if left out"
+          }
+        },
+        "required": [
+          "account",
+          "kind"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "shifts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "startsAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endsAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "object",
+                "id",
+                "title",
+                "startsAt",
+                "endsAt"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Your shifts it covers, to offer"
+          },
+          "count": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "shifts",
+          "count"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.rostering.awayList",
+        "x.rostering.check",
+        "x.rostering.mine",
+        "x.rostering.myAway",
+        "x.rostering.offers",
+        "x.rostering.qualifications",
+        "x.rostering.uncovered",
+        "x.rostering.week"
+      ],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.awayList",
+      "description": "Everyone's times they cannot work (or one person's, account), with their notes, from `from` (today when left out) to `to`. Whoever rosters, a person only: never read by an assistant. (Extension tool from Rostering 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "account": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "leave",
+                    "regular",
+                    "other"
+                  ]
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "startsAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endsAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "weekdays": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "startTime": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endTime": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "fromDate": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "untilDate": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "zone": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "account",
+                "name",
+                "kind",
+                "note",
+                "startsAt",
+                "endsAt",
+                "weekdays",
+                "startTime",
+                "endTime",
+                "fromDate",
+                "untilDate",
+                "zone"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.back",
+      "description": "Remove a time you said you cannot work (you are back, or it was wrong). Whoever rosters may remove anyone's. A person's own act. (Extension tool from Rostering 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.rostering.awayList",
+        "x.rostering.check",
+        "x.rostering.mine",
+        "x.rostering.myAway",
+        "x.rostering.offers",
+        "x.rostering.qualifications",
+        "x.rostering.uncovered",
+        "x.rostering.week"
+      ],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.check",
+      "description": "What putting someone (account; null for nobody; left out for the shift as it is) on a shift would be made with: its warnings (away, not qualified, nobody on it) and the other shift it would clash with (refused). Changes nothing. Whoever rosters. (Extension tool from Rostering 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 81
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "account": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "object",
+          "id"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "unavailable",
+                    "not_qualified",
+                    "uncovered"
+                  ]
+                },
+                "object": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "account": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "object",
+                "id",
+                "account",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "clash": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "object": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "startsAt": {
+                    "type": "string"
+                  },
+                  "endsAt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "object",
+                  "id",
+                  "title",
+                  "startsAt",
+                  "endsAt"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "warnings",
+          "clash"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.mine",
+      "description": "Your own shifts from `from` to `to` (local dates, both included, at most 62 days; four weeks from today when left out), each with its time, place and open offer. (Extension tool from Rostering 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "shifts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string",
+                  "description": "The kind of record: a class (bookings.class) or a duty shift"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "kind": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "object": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "object",
+                        "id",
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "startsAt": {
+                  "type": "string",
+                  "description": "ISO 8601, UTC: show it in `zone`"
+                },
+                "endsAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "zone": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "place": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "uncovered": {
+                  "type": "boolean",
+                  "description": "Nobody is on it"
+                },
+                "noAccount": {
+                  "type": "boolean",
+                  "description": "Its person has no staff account (a visiting coach)"
+                },
+                "account": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "description": "Who is on it",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "mine": {
+                  "type": "boolean",
+                  "description": "It is the caller's"
+                },
+                "offer": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "to": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "from": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "to",
+                        "from"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "warnings": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string",
+                            "enum": [
+                              "unavailable",
+                              "not_qualified",
+                              "uncovered"
+                            ]
+                          },
+                          "object": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "type": "string"
+                          },
+                          "account": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "object",
+                          "id",
+                          "account",
+                          "message"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "For someone who rosters only"
+                }
+              },
+              "required": [
+                "object",
+                "id",
+                "title",
+                "kind",
+                "startsAt",
+                "endsAt",
+                "zone",
+                "place",
+                "uncovered",
+                "noAccount",
+                "account",
+                "name",
+                "mine",
+                "offer",
+                "warnings"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "zone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "shifts",
+          "zone"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.myAway",
+      "description": "The times you said you cannot work, from `from` (today when left out) to `to`, with your notes (shown to you only: an assistant reading them gets no notes). (Extension tool from Rostering 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "account": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "leave",
+                    "regular",
+                    "other"
+                  ]
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "startsAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endsAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "weekdays": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "startTime": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endTime": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "fromDate": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "untilDate": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "zone": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "account",
+                "name",
+                "kind",
+                "note",
+                "startsAt",
+                "endsAt",
+                "weekdays",
+                "startTime",
+                "endTime",
+                "fromDate",
+                "untilDate",
+                "zone"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.offer",
+      "description": "Offer one of your shifts for someone else to take: to everyone who could take it, or to one named person (`to`). It stays yours, in your list and your pay, until someone takes it. Offers close at the cut-off before the shift starts. Whoever rosters may offer any shift, and one with nobody on it. A person's own act. (Extension tool from Rostering 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 81
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "to": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A staff account: offer it to them only"
+          }
+        },
+        "required": [
+          "object",
+          "id"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "offer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "shift": {
+                "type": "object",
+                "properties": {
+                  "object": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "startsAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "endsAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "object",
+                  "id",
+                  "title",
+                  "startsAt",
+                  "endsAt"
+                ],
+                "additionalProperties": false
+              },
+              "from": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "fromName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "to": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "open",
+                  "taken",
+                  "withdrawn",
+                  "cancelled",
+                  "lapsed"
+                ]
+              },
+              "madeAt": {
+                "type": "string"
+              },
+              "takenBy": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "takenAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "closesAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "shift",
+              "from",
+              "fromName",
+              "to",
+              "state",
+              "madeAt",
+              "takenBy",
+              "takenAt",
+              "closesAt"
+            ],
+            "additionalProperties": false
+          },
+          "told": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "offer",
+          "told"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.rostering.awayList",
+        "x.rostering.check",
+        "x.rostering.mine",
+        "x.rostering.myAway",
+        "x.rostering.offers",
+        "x.rostering.qualifications",
+        "x.rostering.uncovered",
+        "x.rostering.week"
+      ],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.offers",
+      "description": "Shifts offered that you could take now (you are qualified for the kind of work, free then, and it is before the cut-off; `unavailable` says you said you are away then), and your own open offers. (Extension tool from Rostering 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "open": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "shift": {
+                  "type": "object",
+                  "properties": {
+                    "object": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "startsAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "endsAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "id",
+                    "title",
+                    "startsAt",
+                    "endsAt"
+                  ],
+                  "additionalProperties": false
+                },
+                "from": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "fromName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "to": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "open",
+                    "taken",
+                    "withdrawn",
+                    "cancelled",
+                    "lapsed"
+                  ]
+                },
+                "madeAt": {
+                  "type": "string"
+                },
+                "takenBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "takenAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "closesAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "unavailable": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "shift",
+                "from",
+                "fromName",
+                "to",
+                "state",
+                "madeAt",
+                "takenBy",
+                "takenAt",
+                "closesAt",
+                "unavailable"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "mine": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "shift": {
+                  "type": "object",
+                  "properties": {
+                    "object": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "startsAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "endsAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "id",
+                    "title",
+                    "startsAt",
+                    "endsAt"
+                  ],
+                  "additionalProperties": false
+                },
+                "from": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "fromName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "to": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "open",
+                    "taken",
+                    "withdrawn",
+                    "cancelled",
+                    "lapsed"
+                  ]
+                },
+                "madeAt": {
+                  "type": "string"
+                },
+                "takenBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "takenAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "closesAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "shift",
+                "from",
+                "fromName",
+                "to",
+                "state",
+                "madeAt",
+                "takenBy",
+                "takenAt",
+                "closesAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "open",
+          "mine"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.qualifications",
+      "description": "Who may do which kind of work: everyone's, or one person's (account), or one kind of work's (kindObject). Whoever rosters. (Extension tool from Rostering 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "kindObject": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 81
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "account": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "object",
+                  "properties": {
+                    "object": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "object",
+                    "id",
+                    "name"
+                  ],
+                  "additionalProperties": false
+                },
+                "setBy": {
+                  "type": "string"
+                },
+                "setAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "account",
+                "name",
+                "kind",
+                "setBy",
+                "setAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.qualify",
+      "description": "Say whether a member of staff may do a kind of work (a class type, a duty): qualified people may take an offered shift of it without anybody approving, and putting someone else on it is warned about. Whoever rosters; an assistant may ask, and a person applies it. (Extension tool from Rostering 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "kind": {
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 81,
+                "description": "programs.classtype or rostering.duty"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "object",
+              "id"
+            ],
+            "additionalProperties": {}
+          },
+          "qualified": {
+            "default": true,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "account",
+          "kind"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "object",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "qualified": {
+            "type": "boolean"
+          },
+          "changed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "account",
+          "kind",
+          "qualified",
+          "changed"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.rostering.awayList",
+        "x.rostering.check",
+        "x.rostering.mine",
+        "x.rostering.myAway",
+        "x.rostering.offers",
+        "x.rostering.qualifications",
+        "x.rostering.uncovered",
+        "x.rostering.week"
+      ],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.take",
+      "description": "Take an offered shift: it becomes yours at once and nobody approves it, because you must be qualified for it and free then (otherwise it is refused). If you said you are away then, confirm with confirmUnavailable. Of several people taking one shift at once, one gets it; the others are told who took it. The person who offered it and whoever rosters are told. A person's own act. (Extension tool from Rostering 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "offer": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "confirmUnavailable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "offer"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "offer": {
+            "type": "string"
+          },
+          "shift": {
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "startsAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "endsAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "object",
+              "id",
+              "title",
+              "startsAt",
+              "endsAt"
+            ],
+            "additionalProperties": false
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "unavailable",
+                    "not_qualified",
+                    "uncovered"
+                  ]
+                },
+                "object": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "account": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "object",
+                "id",
+                "account",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "offer",
+          "shift",
+          "warnings"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.rostering.awayList",
+        "x.rostering.check",
+        "x.rostering.mine",
+        "x.rostering.myAway",
+        "x.rostering.offers",
+        "x.rostering.qualifications",
+        "x.rostering.uncovered",
+        "x.rostering.week"
+      ],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.uncovered",
+      "description": "Shifts with nobody on them from now for `days` days (the uncovered window, a setting, when left out; at most 62), and whether each is offered. Whoever rosters. (Extension tool from Rostering 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 62
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "startsAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endsAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "offered": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "object",
+                "id",
+                "title",
+                "startsAt",
+                "endsAt",
+                "offered"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.week",
+      "description": "The roster: every shift from `from` to `to` (local dates, both included, at most 62 days; a week from today when left out), classes and duty shifts alike, each with its kind, time, place and who is on it (or nobody), and its open offer. Someone who rosters also sees each shift's warnings. Shows nothing of a class's bookings or members. (Extension tool from Rostering 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "shifts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string",
+                  "description": "The kind of record: a class (bookings.class) or a duty shift"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "kind": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "object": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "object",
+                        "id",
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "startsAt": {
+                  "type": "string",
+                  "description": "ISO 8601, UTC: show it in `zone`"
+                },
+                "endsAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "zone": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "place": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "uncovered": {
+                  "type": "boolean",
+                  "description": "Nobody is on it"
+                },
+                "noAccount": {
+                  "type": "boolean",
+                  "description": "Its person has no staff account (a visiting coach)"
+                },
+                "account": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "description": "Who is on it",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "mine": {
+                  "type": "boolean",
+                  "description": "It is the caller's"
+                },
+                "offer": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "to": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "from": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "to",
+                        "from"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "warnings": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string",
+                            "enum": [
+                              "unavailable",
+                              "not_qualified",
+                              "uncovered"
+                            ]
+                          },
+                          "object": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "type": "string"
+                          },
+                          "account": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "object",
+                          "id",
+                          "account",
+                          "message"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "For someone who rosters only"
+                }
+              },
+              "required": [
+                "object",
+                "id",
+                "title",
+                "kind",
+                "startsAt",
+                "endsAt",
+                "zone",
+                "place",
+                "uncovered",
+                "noAccount",
+                "account",
+                "name",
+                "mine",
+                "offer",
+                "warnings"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "zone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "shifts",
+          "zone"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.withdraw",
+      "description": "Withdraw an open offer you made. The shift stays yours. A person's own act. (Extension tool from Rostering 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "offer": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "offer"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "offer": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "shift": {
+                "type": "object",
+                "properties": {
+                  "object": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "startsAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "endsAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "object",
+                  "id",
+                  "title",
+                  "startsAt",
+                  "endsAt"
+                ],
+                "additionalProperties": false
+              },
+              "from": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "fromName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "to": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "open",
+                  "taken",
+                  "withdrawn",
+                  "cancelled",
+                  "lapsed"
+                ]
+              },
+              "madeAt": {
+                "type": "string"
+              },
+              "takenBy": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "takenAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "closesAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "shift",
+              "from",
+              "fromName",
+              "to",
+              "state",
+              "madeAt",
+              "takenBy",
+              "takenAt",
+              "closesAt"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "offer"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.rostering.awayList",
+        "x.rostering.check",
+        "x.rostering.mine",
+        "x.rostering.myAway",
+        "x.rostering.offers",
+        "x.rostering.qualifications",
+        "x.rostering.uncovered",
+        "x.rostering.week"
+      ],
+      "pack": "rostering"
     },
     {
       "name": "x.ticketing.checkIn",

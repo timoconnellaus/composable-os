@@ -149,3 +149,13 @@ Amended 2026-11-23 (stage 44 step 2, ADR 0643): the coach's class list gains one
 no per Person on it ("health note": a yes on their current health form), which Bookings' tools
 ask of the host (`agreement.healthNotes`) and the host gives only inside a tool a person called.
 Nothing of the form reaches the role.
+
+## Amendment, 2026-11-23 (stage 45 step 4, ADR 0625)
+"Declaring a permission never takes anything away from anyone" now has one exception: a pack may
+declare a tool permission **restricted**. A tool naming only restricted permissions is held by
+admins and by a grant of it, not by a member's or viewer's own role, and never by a pack role (the
+contract refuses a role holding one); it is never called by an automation or another extension's
+code. Stage 45's Rostering declares `rostering.team` (its team's tools, no record read) and the
+restricted `rostering:manage` (rostering other people). See
+[ADR 0625](0625-restricted-pack-permissions.md). Tools also learn the account they were called
+for on the run (`ctx.extension.tool.calledBy`), for the host's operations about "me".

@@ -658,6 +658,12 @@ export interface ToolSpec<In extends z.ZodType = z.ZodType, Out extends z.ZodTyp
    * grantable permission added to a role's own tool never lifts the role's limits by accident.
    */
   grantLiftsRoleLimits?: boolean;
+  /**
+   * Fields of the input the audit log never keeps (ADR 0626): a note about someone's leave. The
+   * call is still audited, with those fields shown as redacted. It only hides more, so any
+   * extension may declare it.
+   */
+  redact?: readonly string[];
   handler(input: z.output<In>, ctx: ExtensionContext): Promise<z.input<Out>> | z.input<Out>;
 }
 
@@ -947,6 +953,37 @@ export interface ExtensionSpec {
    * (`{ "bookings:desk": "Works the front desk: ..." }`). Absent: the tools it opens are listed.
    */
   grantableLabels?: Readonly<Record<string, string>>;
+  /**
+   * Permissions of this extension's tools (`<id>:<word>`) that are **restricted** (stage 45, ADR
+   * 0625): a tool naming one is held by admins, and by a staff account a human admin granted it
+   * (declare it `grantable` too), and by nobody else. Without it, every member holds every tool
+   * (a tool's own permission only adds a way in). For pay totals and rostering other people. A
+   * tool naming a restricted permission names only restricted ones; no role holds one; it is
+   * never called by an automation or another extension's code. Only shipped extensions and an
+   * org's own may declare them.
+   */
+  restricted?: readonly string[];
+  /**
+   * The roster's rules this extension sets for the host (stage 45, ADR 0626): `rosters`, the
+   * restricted permission whose holders roster other people's shifts (with admins: they are the
+   * rosterers the host tells and lets roster), and the number settings of this extension the
+   * host's rules read (the offer cut-off in minutes, the uncovered window in days). Only a
+   * shipped extension or an org's own may declare it.
+   */
+  staffing?: StaffingRulesSpec;
+}
+
+/** The roster's rules an extension sets for the host (ADR 0626): see `ExtensionSpec.staffing`. */
+export interface StaffingRulesSpec {
+  /** A restricted permission of this extension's tools: who holds it (and admins) roster. */
+  rosters: string;
+  /** Number settings of this extension the host reads; the host's defaults when left out. */
+  settings?: {
+    /** Minutes before a shift starts that offers close (default 60). */
+    offerCutoffMinutes?: string;
+    /** Days ahead a shift with nobody on it is warned about and told (default 14). */
+    uncoveredDays?: string;
+  };
 }
 
 const EXTENSION = Symbol.for("ops.extension");

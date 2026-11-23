@@ -21,7 +21,7 @@ import type { Mover } from "../records/transitions.ts";
 import type { Shift } from "./index.ts";
 import { kindObjectOf } from "./kinds.ts";
 import { cancelOpenOfferStatement, followShiftStatement, openOfferOn, whenOf } from "./offers.ts";
-import { queueNotice, rosterers, shiftLink, staffName } from "./rosterers.ts";
+import { actingAccount, queueNotice, rosterers, shiftLink, staffName } from "./rosterers.ts";
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 const text = (value: unknown) => (typeof value === "string" && value !== "" ? value : null);
@@ -72,7 +72,7 @@ const gatheredBy = new WeakMap<object, Gathered[]>();
 
 /** Notes a notice for the end of the call (or queues it now when the call cannot gather). */
 async function gather(ctx: HandlerContext, notice: Gathered): Promise<void> {
-  if (!notice.to || notice.to === ctx.user.id) return;
+  if (!notice.to || notice.to === actingAccount(ctx)) return;
   if (!ctx.beforeCommit) {
     await queueNotice(ctx, {
       to: [notice.to],
@@ -120,8 +120,8 @@ async function sendGathered(ctx: HandlerContext, list: readonly Gathered[]): Pro
       kinds.size === 1 ? SUMMARY[first.kind](mine.length) : `${mine.length} changes to your shifts`;
     const starts = mine.map((n) => n.starts).filter((s): s is number => s !== null);
     const range = starts.length
-      ? `From ${await whenOf(ctx, Math.min(...starts), null)} to ${await whenOf(ctx, Math.max(...starts), null)}, by ${await staffName(ctx.db, ctx.user.id)}.`
-      : `By ${await staffName(ctx.db, ctx.user.id)}.`;
+      ? `From ${await whenOf(ctx, Math.min(...starts), null)} to ${await whenOf(ctx, Math.max(...starts), null)}, by ${await staffName(ctx.db, actingAccount(ctx))}.`
+      : `By ${await staffName(ctx.db, actingAccount(ctx))}.`;
     const lines = [...mine]
       .sort((a, b) => (a.starts ?? 0) - (b.starts ?? 0))
       .slice(0, 15)
@@ -183,7 +183,7 @@ export async function shiftWritten(ctx: HandlerContext, w: ShiftWrite): Promise<
   if (w.taking || (w.by === "host" && w.before === null)) return;
   let actor: string | null = null;
   const actorName = async () => {
-    actor ??= await staffName(ctx.db, ctx.user.id);
+    actor ??= await staffName(ctx.db, actingAccount(ctx));
     return actor;
   };
   const was = w.beforeShift?.account ?? null;
@@ -291,7 +291,7 @@ export async function shiftRemoved(
         to: shift.account,
         kind: "cancelled",
         title: `Your shift was removed: ${title}`,
-        body: `${title}, ${when}, was removed by ${await staffName(ctx.db, ctx.user.id)}.`,
+        body: `${title}, ${when}, was removed by ${await staffName(ctx.db, actingAccount(ctx))}.`,
         line: `Removed: ${title}, ${when}`,
         starts,
         link,

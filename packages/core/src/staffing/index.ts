@@ -29,11 +29,15 @@ import {
 } from "../time/local.ts";
 import { orgReader, visibleSource } from "../visibility/index.ts";
 import { shiftRemoved, shiftWritten } from "./changes.ts";
-import { mayRoster, queueNotice, rosterers, shiftLink } from "./rosterers.ts";
+import {
+  actingAccount,
+  mayRoster,
+  queueNotice,
+  rosterers,
+  rosterNumbers,
+  shiftLink,
+} from "./rosterers.ts";
 import { literal, type StaffedTables, selectClaims } from "./sql.ts";
-
-/** How far ahead an uncovered live shift is warned about (days). Rostering's setting, step 4. */
-export const UNCOVERED_WINDOW_DAYS = 14;
 
 /** One account's claim on a span of time: unix seconds, half-open. */
 export interface Claim {
@@ -321,10 +325,12 @@ export async function staffedWritten(
       shift,
       by: options.by,
       taking: batchOf(ctx).taking,
+      // Only an uncovered shift asks (the window is the Rostering pack's setting, ADR 0626).
       inWindow:
+        !shift.covered &&
         shift.starts !== null &&
         shift.starts >= now &&
-        shift.starts < now + UNCOVERED_WINDOW_DAYS * 86_400,
+        shift.starts < now + (await rosterNumbers(ctx.db)).uncoveredDays * 86_400,
     });
   }
 }
@@ -564,7 +570,7 @@ async function holderOffersCancelled(
   ctx.write(
     CompiledQuery.raw(
       `UPDATE core_staff_offer SET state = 'cancelled', ended_at = ?, ended_by = ?, why = ? WHERE state = 'open' AND object_type = ? AND record_id IN (${shifts})`,
-      [ctx.now, ctx.user.id, why, staffed.name],
+      [ctx.now, actingAccount(ctx), why, staffed.name],
     ),
   );
   const open = await sql
@@ -876,7 +882,7 @@ export async function warningsFor(
   const out: StaffWarning[] = [];
   if (!shift.covered) {
     const now = Math.floor(Date.parse(ctx.now) / 1000);
-    const window = now + UNCOVERED_WINDOW_DAYS * 86_400;
+    const window = now + (await rosterNumbers(ctx.db)).uncoveredDays * 86_400;
     if (shift.starts !== null && shift.starts >= now && shift.starts < window) {
       out.push(warn("uncovered", `This ${label} has nobody on it.`));
     }
@@ -884,9 +890,10 @@ export async function warningsFor(
   }
   if (!shift.account) return out;
   const name = await nameOf(ctx, shift.account);
-  // Whether someone is away is told only to them and to whoever may roster (until stage 45 step
-  // 4's permission: admins). Other staff never learn it, not even from a write's answer.
-  const mayKnow = ctx.user.id === shift.account || mayRoster(ctx.user);
+  // Whether someone is away is told only to them and to whoever may roster (admins, and anyone
+  // granted the rosterers' permission, ADR 0625). Other staff never learn it, not even from a
+  // write's answer. In a pack tool's run, "who" is the account the tool was called for.
+  const mayKnow = actingAccount(ctx) === shift.account || (await mayRoster(ctx));
   if (mayKnow && shift.starts !== null && shift.ends !== null && shift.ends > shift.starts) {
     if (await awayOver(ctx, shift.account, shift.starts, shift.ends)) {
       out.push(warn("unavailable", `${name} said they are not available then.`));

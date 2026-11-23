@@ -200,7 +200,15 @@ export function staffAuthority(
 ): StaffAuthority | null {
   if (rights.packRole) {
     if (grantOpens(rights.grants, op)) return "grant";
+    // A role never holds a restricted permission (the contract refuses it); fail closed anyway.
+    if (op.packRestricted) return null;
     return packRoleAllows(rights.packRole, op, input) ? "packRole" : null;
+  }
+  // A restricted tool (ADR 0625): an admin holds it; anyone else only by a grant of it. The
+  // tool's own core permission (`records:write`, which every member holds) is not enough.
+  if (op.packRestricted) {
+    if (user.role === "admin") return "role";
+    return grantOpens(rights.grants, op) ? "grant" : null;
   }
   if (holdsPermission(user, rights.grants, op.permission)) return "role";
   return grantOpens(rights.grants, op) ? "grant" : null;

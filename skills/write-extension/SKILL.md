@@ -167,8 +167,11 @@ extension declares it; it never implements it. Each behaviour the platform has i
   it back to the series>", rule: { weekdays, time, length?, from, until?, zone? }, into: {
   starts, ends?, zone?, changed? }, copy?: { <generated field>: "<series field>" }, cancel:
   "<a state of the generated object with a host move into it>", ended?: { field, in },
-  closures?: { object, from, until }, horizonDays?, horizonAtLeast?: { object, field } }`
-  (`horizonAtLeast`: a number field in days, a booking window, the horizon never falls short of). The host makes the records from the minute
+  closures?: { object, from, until }, horizonDays?, horizonAtLeast?: { object, field },
+  horizonSetting? }`
+  (`horizonAtLeast`: a number field in days, a booking window, the horizon never falls short of;
+  `horizonSetting`: your number setting, in days, that sets the horizon when it holds a value,
+  Rostering's duty horizon). The host makes the records from the minute
   cron, keeps 06:00 at 06:00 across a clock change, never overwrites one staff edited, applies a
   series change to the rest, and cancels what a closure covers. Never create the dated records
   in a tool or an automation. See `RecurringScheduleSpec` in `packages/sdk/src/recurring.ts` and
@@ -181,7 +184,11 @@ extension declares it; it never implements it. Each behaviour the platform has i
   every staffed object, for every writer (`conflict`, `rule: "double_booked"`), and answers each
   write with its warnings (away, not qualified, nobody on it). Shipped packs and the org's own
   extensions only. Never check for a clash, or work out who may take a shift, in a tool. See
-  `StaffedSpec` in `packages/sdk/src/staffed.ts` and ADRs 0621 and 0622.
+  `StaffedSpec` in `packages/sdk/src/staffed.ts` and ADRs 0621 and 0622. The roster's tools are
+  Rostering's (`packs/rostering`): they call the host's tool-only `staffing.*` operations, which act
+  for the tool's verified caller; the pack declaring `staffing: { rosters, settings? }` (a
+  restricted permission, and its number settings for the offer cut-off and the uncovered window)
+  sets who rosters and the numbers (ADR 0626).
 - **`sellable`** on an object: its records can be bought (ticket types, passes, products). Only
   an object that declares it can go on an order, and the host reads its price and rules from the
   record: `sellable: { price: "<currency field>", saleWindow?: { from?, until? }, maxPerOrder?,
@@ -344,7 +351,13 @@ to an account with `user.setPermissions`, on top of its role, a pack role includ
 for the admin's tick (`grantableLabels: { "<id>:<word>": "..." }`). A permission a role holds cannot
 be grantable: name another permission on the tools a grant should open, and when one tool is both
 the role's and the grant's, give it both (`permission: ["<id>:coach", "<id>:desk"]`, any one opens
-it; Bookings' `day`). See Bookings: `grantable` and `bookings:desk`. The platform's own grantable
+it; Bookings' `day`). See Bookings: `grantable` and `bookings:desk`.
+
+Every member holds every tool unless its permission is **restricted** (`restricted: ["<id>:<word>"]`,
+ADR 0625): then admins hold it, and anyone a human admin grants it (declare it `grantable` too), and
+nobody else; no role may hold it, a tool naming it names only restricted ones, and it is never
+called by an automation or another extension's code. For what only some staff should do over
+other people (rostering others, pay). See Rostering: `restricted` and `rostering:manage`. The platform's own grantable
 permissions are `records:publish` (a coach who is a member publishing programs) and
 `orders:refund`; they are never granted to an account with a pack role.
 

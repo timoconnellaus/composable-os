@@ -178,8 +178,12 @@ const STAFFING = [
   "staffing.assign",
   "staffing.uncovered",
 ];
-type ToolFlags = { humanOnly?: boolean; personApproves?: boolean };
-/** A call from a shipped pack's tool run, as `user`, with the tool's flags. */
+type ToolFlags = { humanOnly?: boolean; personApproves?: boolean; actor?: string };
+/**
+ * A call from a shipped pack's tool run called for `user`, with the tool's flags. As in the
+ * runtime, the run's own calls act as the extension's account; the person is the tool's verified
+ * caller (`calledBy`, ADR 0625).
+ */
 const tool = (user: ActingUser, flags: ToolFlags = { humanOnly: true }, now = NOW) =>
   context(user, {
     actor: "extension",
@@ -192,11 +196,12 @@ const tool = (user: ActingUser, flags: ToolFlags = { humanOnly: true }, now = NO
         humanOnly: flags.humanOnly ?? false,
         ...(flags.personApproves ? { personApproves: true } : {}),
         permission: "rostering:team",
+        calledBy: { account: user.id, actor: flags.actor ?? "human" },
       },
     },
   });
 /** The same tool run by an assistant acting for `user` (the tool lets an AI call it). */
-const aiTool = (user: ActingUser, now = NOW) => tool(user, {}, now);
+const aiTool = (user: ActingUser, now = NOW) => tool(user, { actor: "assistant" }, now);
 
 beforeAll(async () => {
   admin = await createUser("admin");
@@ -1065,9 +1070,12 @@ describe("leave notes never reach an AI", () => {
     await expect(
       invoke("staffing.awayList", { account: sam.id }, aiTool(admin)),
     ).rejects.toMatchObject({ details: { rule: "human_only" } });
-    // A person's own list, through any tool, stays theirs.
-    const own = await invoke("staffing.awayList", {}, aiTool(sam));
+    // A person's own list stays theirs: at the screen with the note; read by an assistant acting
+    // for them, the times without it (step 4: a note never reaches an AI, ADR 0626).
+    const own = await invoke("staffing.awayList", {}, tool(sam));
     expect(own.items.map((i) => i.note)).toEqual(["A private reason"]);
+    const asAi = await invoke("staffing.awayList", {}, aiTool(sam));
+    expect(asAi.items.map((i) => i.note)).toEqual([null]);
   });
 });
 

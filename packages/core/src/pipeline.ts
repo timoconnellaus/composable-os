@@ -837,10 +837,20 @@ async function invokeOnce<O extends AnyOperation>(
   if (!staffMayCall(ctx.user, rights, op, input)) {
     const error = packRole
       ? packRoleRefusal(packRole, op)
-      : new ForbiddenError(`Your role (${ctx.user.role}) cannot ${op.name}`, {
-          role: ctx.user.role,
-          permission: op.permission,
-        });
+      : op.packRestricted
+        ? // A restricted tool (ADR 0625): admins hold it, anyone else by an admin's grant.
+          new ForbiddenError(
+            `${op.name} needs ${(op.packPermissions ?? []).join(" or ") || "an admin"}, which admins hold and an admin may grant`,
+            {
+              role: ctx.user.role,
+              permission: (op.packPermissions ?? []).join(" or ") || op.permission,
+              restricted: true,
+            },
+          )
+        : new ForbiddenError(`Your role (${ctx.user.role}) cannot ${op.name}`, {
+            role: ctx.user.role,
+            permission: op.permission,
+          });
     await auditAlone({ ...base, gate: decision, outcome: "forbidden", error });
     throw error;
   }

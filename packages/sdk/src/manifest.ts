@@ -345,6 +345,8 @@ export const toolManifestSchema = z.object({
   personApproves: z.literal(true).optional(),
   /** The grant opens it without the role's limits, on purpose (ADR 0600). */
   grantLiftsRoleLimits: z.literal(true).optional(),
+  /** Input fields the audit log never keeps (ADR 0626). */
+  redact: z.array(z.string().max(40)).max(20).optional(),
   inputSchema: jsonSchemaObject,
   outputSchema: jsonSchemaObject,
 });
@@ -507,6 +509,22 @@ export const manifestSchema = z.object({
   routineMail: routineMailManifestSchema.optional(),
   /** What each grantable permission gives, in plain words, for the admin (ADR 0600). */
   grantableLabels: z.record(z.string().max(80), z.string().min(10).max(300)).optional(),
+  /** Tool permissions held by admins and by grant only (ADR 0625). */
+  restricted: z.array(z.string().max(80)).max(20).optional(),
+  /** The roster's rules this extension sets for the host (ADR 0626). */
+  staffing: z
+    .object({
+      rosters: z.string().max(80),
+      settings: z
+        .object({
+          offerCutoffMinutes: z.string().max(64).optional(),
+          uncoveredDays: z.string().max(64).optional(),
+        })
+        .strict()
+        .optional(),
+    })
+    .strict()
+    .optional(),
 });
 export type ExtensionManifest = z.infer<typeof manifestSchema>;
 
@@ -691,6 +709,7 @@ export function toManifest(extension: Extension): ExtensionManifest {
           ...(tool.humanOnly ? { humanOnly: true as const } : {}),
           ...(tool.personApproves ? { personApproves: true as const } : {}),
           ...(tool.grantLiftsRoleLimits ? { grantLiftsRoleLimits: true as const } : {}),
+          ...(tool.redact?.length ? { redact: [...tool.redact] } : {}),
           ...(tool.customerFields
             ? {
                 customerFields: Object.fromEntries(
@@ -724,6 +743,17 @@ export function toManifest(extension: Extension): ExtensionManifest {
     ),
     ...(extension.grantable ? { grantable: [...extension.grantable] } : {}),
     ...(extension.grantableLabels ? { grantableLabels: { ...extension.grantableLabels } } : {}),
+    ...(extension.restricted ? { restricted: [...extension.restricted] } : {}),
+    ...(extension.staffing
+      ? {
+          staffing: {
+            rosters: extension.staffing.rosters,
+            ...(extension.staffing.settings
+              ? { settings: { ...extension.staffing.settings } }
+              : {}),
+          },
+        }
+      : {}),
     ...(extension.requires?.length ? { requires: [...extension.requires] } : {}),
     ...(extension.routineMail && Object.keys(extension.routineMail).length
       ? { routineMail: extension.routineMail }
@@ -1628,6 +1658,13 @@ export function validateManifest(
         );
       }
     }
+    // Input fields the audit log never keeps (ADR 0626): each a field of the tool's input.
+    for (const field of tool.redact ?? []) {
+      const properties = (tool.inputSchema.properties ?? {}) as Record<string, unknown>;
+      if (!Object.hasOwn(properties, field)) {
+        contract(`tools.${name}.redact`, `"${field}" is not a field of the tool's input`);
+      }
+    }
     if (tool.recordAction) {
       const action = tool.recordAction;
       if (!known.has(action.object)) {
@@ -1692,6 +1729,61 @@ export function validateManifest(
   for (const permission of Object.keys(m.grantableLabels ?? {})) {
     if (!(m.grantable ?? []).includes(permission)) {
       contract(`grantableLabels.${permission}`, `"${permission}" is not in grantable`);
+    }
+  }
+  // Restricted permissions (ADR 0625): held by admins and by grant only. Each is a permission of
+  // this extension's tools that no role holds; a tool naming one names only restricted ones (or a
+  // member would hold it through the other); and such a tool is staff-only (no audiences opening
+  // it, which its staff-only callers would not survive anyway).
+  const restricted = new Set(m.restricted ?? []);
+  (m.restricted ?? []).forEach((permission, i) => {
+    if (!Object.values(m.tools).some((t) => toolPermissions(t).includes(permission))) {
+      contract(
+        `restricted.${i}`,
+        `"${permission}" is not the permission of any of this extension's tools (tools.<name>.permission)`,
+      );
+    }
+    if (roleHeld.has(permission)) {
+      contract(
+        `restricted.${i}`,
+        `"${permission}" is held by a role of this extension: a restricted permission is held by admins and by grant only`,
+      );
+    }
+  });
+  if (restricted.size !== (m.restricted ?? []).length) {
+    contract("restricted", "A restricted permission is named once");
+  }
+  for (const [name, tool] of Object.entries(m.tools)) {
+    const permissions = toolPermissions(tool);
+    const some = permissions.filter((p) => restricted.has(p));
+    if (some.length && some.length !== permissions.length) {
+      contract(
+        `tools.${name}.permission`,
+        "A tool naming a restricted permission names only restricted ones: any other would open it to everyone holding the tool's own permission",
+      );
+    }
+    if (some.length && (tool.audiences ?? []).some((a) => a !== "staff")) {
+      contract(`tools.${name}.audiences`, "A tool with a restricted permission is for staff only");
+    }
+  }
+  // The roster's rules (ADR 0626): who rosters is a restricted permission of this extension, and
+  // the numbers the host reads are its number settings.
+  if (m.staffing) {
+    if (!restricted.has(m.staffing.rosters)) {
+      contract(
+        "staffing.rosters",
+        `"${m.staffing.rosters}" must be one of this extension's restricted permissions: who rosters is held by admins and by grant only`,
+      );
+    }
+    for (const [key, setting] of Object.entries(m.staffing.settings ?? {})) {
+      if (setting === undefined) continue;
+      const declared = Object.hasOwn(m.settings, setting) ? m.settings[setting] : undefined;
+      if (declared?.type !== "number") {
+        contract(
+          `staffing.settings.${key}`,
+          `"${setting}" must be a number setting of this extension`,
+        );
+      }
     }
   }
 
