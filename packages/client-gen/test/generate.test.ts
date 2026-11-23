@@ -52,6 +52,9 @@ function typecheck(dir: string, files: Record<string, string>): string[] {
         "@composable-os/pack-ticketing/client": [
           join(here, "..", "..", "..", "packs", "ticketing", "client", "index.ts"),
         ],
+        "@composable-os/pack-rostering/client": [
+          join(here, "..", "..", "..", "packs", "rostering", "client", "index.ts"),
+        ],
       },
     },
   );
@@ -309,5 +312,75 @@ describe("a pack role's client (ADR 0451)", () => {
     });
     // No error in the wiring: no cast, and each @ts-expect-error is used (an unused one is an error).
     expect(errors.filter((e) => e.startsWith("wire.ts"))).toEqual([]);
+  });
+});
+
+describe("a pack role's client with grants (stage 45 step 7, ADR 0600)", () => {
+  const api = join(here, "..", "..", "core", "api", "v1");
+  const staff = JSON.parse(readFileSync(join(api, "staff.json"), "utf8")) as ApiContract;
+  const roles = JSON.parse(readFileSync(join(api, "roles.json"), "utf8")) as PackRolesFile;
+  const coach = roles.roles.find((r) => r.name === "bookings.coach") as PackRolesFile["roles"][0];
+  const roster = roles.grants?.find((g) => g.permission === "rostering:roster");
+  const withGrant = {
+    ...coach,
+    operations: [...new Set([...coach.operations, ...(roster?.operations ?? [])])].sort(),
+  };
+
+  it("the release lists each grantable permission with the tools a grant of it opens", () => {
+    expect(roster?.operations).toEqual(
+      expect.arrayContaining(["x.rostering.week", "x.rostering.take", "x.rostering.me"]),
+    );
+    expect(roster?.operations).not.toContain("x.rostering.assign");
+    expect(roles.grants?.find((g) => g.permission === "rostering:pay")).toMatchObject({
+      restricted: true,
+    });
+  });
+
+  it("a coach's client with rostering:roster wires the native rostering blocks with no cast; the rosterers' hooks do not compile", () => {
+    const dir = scratch();
+    const repo = join(here, "..", "..", "..");
+    const host = join(repo, "templates", "client", "apps", "mobile", "src", "host.ts");
+    const blocks = join(repo, "packs", "rostering", "blocks");
+    const errors = typecheck(dir, {
+      "coach.ts": renderRoleClient(staff, withGrant, {
+        product: "gym",
+        grants: ["rostering:roster"],
+      }),
+      "plain.ts": renderRoleClient(staff, coach, { product: "gym" }).replaceAll(
+        "createBookingsCoachClient",
+        "createPlainCoachClient",
+      ),
+      "wire.ts": [
+        'import { createRosteringHooks, type UseMutation, type UseQuery } from "@composable-os/pack-rostering/client";',
+        `import type { MyShiftsScreen } from ${JSON.stringify(join(blocks, "rostering-native-my-shifts", "my-shifts-screen.tsx"))};`,
+        `import type { OffersScreen } from ${JSON.stringify(join(blocks, "rostering-native-offers", "offers-screen.tsx"))};`,
+        `import type { RosterScreen } from ${JSON.stringify(join(blocks, "rostering-native-roster", "roster-screen.tsx"))};`,
+        `import type { MyAvailabilityScreen } from ${JSON.stringify(join(blocks, "rostering-native-my-availability", "my-availability-screen.tsx"))};`,
+        `import type { MyCalendarScreen } from ${JSON.stringify(join(blocks, "rostering-native-my-calendar", "my-calendar-screen.tsx"))};`,
+        `import { staffSession } from ${JSON.stringify(host)};`,
+        'import { createBookingsCoachClient } from "./coach.ts";',
+        'import { createPlainCoachClient } from "./plain.ts";',
+        "declare const react: { useQuery: UseQuery; useMutation: UseMutation };",
+        "declare const staff: ReturnType<typeof staffSession>;",
+        "const rostering = createRosteringHooks(react, staff.client(createBookingsCoachClient));",
+        'export const mine: Parameters<typeof MyShiftsScreen>[0]["rostering"] = rostering;',
+        'export const offers: Parameters<typeof OffersScreen>[0]["rostering"] = rostering;',
+        'export const week: Parameters<typeof RosterScreen>[0]["rostering"] = rostering;',
+        'export const away: Parameters<typeof MyAvailabilityScreen>[0]["rostering"] = rostering;',
+        'export const calendar: Parameters<typeof MyCalendarScreen>[0]["rostering"] = rostering;',
+        "// @ts-expect-error: the grant opens the team's tools, never the rosterers'.",
+        "export const assign = rostering.useAssign();",
+        "// @ts-expect-error: nor pay.",
+        "export const pay = rostering.usePeriodTotals(null);",
+        "const plain = createRosteringHooks(react, staff.client(createPlainCoachClient));",
+        "// @ts-expect-error: without the grant, a coach's client holds no roster.",
+        "export const none = plain.useWeek({ from: '2026-06-01', to: '2026-06-07' });",
+      ].join("\n"),
+    });
+    expect(errors.filter((e) => e.startsWith("wire.ts"))).toEqual([]);
+    // The header says why it holds more than the role.
+    expect(
+      renderRoleClient(staff, withGrant, { product: "gym", grants: ["rostering:roster"] }),
+    ).toContain("With the grants rostering:roster");
   });
 });

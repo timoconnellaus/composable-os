@@ -236,7 +236,7 @@ async function nameOf(ctx: HandlerContext, account: string): Promise<string> {
 }
 
 /** The other shift, as an answer names it. */
-async function described(ctx: HandlerContext, clash: Clash) {
+export async function described(ctx: HandlerContext, clash: Clash) {
   const label = getObject(clash.object)?.label ?? "shift";
   const title = await titleOf(ctx, clash.object, clash.id);
   return {
@@ -430,7 +430,12 @@ export async function movesStartedShiftById(
 }
 
 /** Notes a claim written (or released, null) by this batch, for the batch's later reads. */
-function noteClaim(ctx: { write: object }, object: string, id: string, claim: Claim | null) {
+export function noteClaim(
+  ctx: { write: object },
+  object: string,
+  id: string,
+  claim: Claim | null,
+): void {
   batchOf(ctx).claims.set(key(object, id), claim);
 }
 

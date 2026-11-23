@@ -130,6 +130,11 @@ A client repo (stage 24)
   cos subscriptions offers report --host <url> [--status taken] [--out <file.csv>]
                                          who has taken their offer and when they are charged from,
                                          so you end exactly those old subscriptions
+  cos rostering import <roster.csv> --host <url> [--email <you>] [--apply]
+                                         duties and who works them (weekly patterns, one-off
+                                         shifts); the host checks every date for someone on two
+                                         shifts at once and names it; a dry run unless --apply;
+                                         staff are invited first, never made (docs/importing.md)
 
 Installing a product with no client repo
   cos install [options]                  install, or repair an existing install (idempotent)
@@ -235,6 +240,7 @@ export function parseArgs(argv: string[]): { command: string; flags: Flags } {
       "publish",
       "invite",
       "reissue",
+      "apply",
     ].includes(key);
     let value: string | boolean = true;
     if (takesValue) {
@@ -1465,6 +1471,41 @@ async function courses(argv: string[], deps: Deps): Promise<number> {
 }
 
 /**
+ * `cos rostering import <roster.csv>` (stage 45 step 7): duties and who works them, as weekly
+ * patterns and one-off shifts, checked by the host's own dry run; a dry run unless --apply.
+ */
+async function rostering(argv: string[], deps: Deps): Promise<number> {
+  const { ROSTER_USAGE, rosteringImport } = await import("./rostering-import/run.ts");
+  if (argv[0] !== "import") {
+    deps.io.err(ROSTER_USAGE);
+    return 2;
+  }
+  const rest = argv.slice(1);
+  const positional = rest[0] && !rest[0].startsWith("-") ? [rest[0]] : [];
+  let parsed: ReturnType<typeof parseArgs>;
+  try {
+    parsed = parseArgs(["import", ...rest.slice(positional.length)]);
+  } catch (error) {
+    deps.io.err((error as Error).message);
+    return 2;
+  }
+  try {
+    return await rosteringImport(
+      positional,
+      {
+        ...(str(parsed.flags, "host") ? { host: str(parsed.flags, "host") } : {}),
+        ...(str(parsed.flags, "email") ? { email: str(parsed.flags, "email") } : {}),
+        apply: Boolean(parsed.flags.apply),
+      },
+      deps.io,
+    );
+  } catch (error) {
+    deps.io.err(`Error: ${(error as Error).message}`);
+    return 1;
+  }
+}
+
+/**
  * `cos subscriptions offers import <offers.csv>` and `cos subscriptions offers report` (stage 32a,
  * ADRs 0491 and 0492): continuation offers for subscribers moving from another platform.
  */
@@ -1517,6 +1558,7 @@ export async function runCli(argv: string[], input: Deps): Promise<number> {
   if (argv[0] === "content") return content(argv.slice(1), deps);
   if (argv[0] === "courses") return courses(argv.slice(1), deps);
   if (argv[0] === "subscriptions") return subscriptions(argv.slice(1), deps);
+  if (argv[0] === "rostering") return rostering(argv.slice(1), deps);
   if (argv[0] === "ext") return ext(argv.slice(1), deps);
   if (argv[0] === "client") return client(argv.slice(1), deps);
   // Commands that take one argument before their flags (stage 24).

@@ -98,6 +98,21 @@ export function defineProduct(definition: ProductDefinition): ProductDefinition 
  * every surface that shows the product's name shows `label` (COS_PRODUCT_LABEL). A deployment that
  * exists keeps its names: nothing deployed is renamed.
  */
+/** A pack role the mobile app's staff sign in with, and the grants its client also types. */
+export interface MobileRole {
+  /** `<pack>.<role>`, as an account holds it. */
+  role: string;
+  /** Grantable pack permissions (`<pack>:<name>`) whose tools the role's client also holds. */
+  grants?: string[];
+}
+
+/** A `mobile.roles` entry as its role and grants (a bare string has none). */
+export function mobileRole(entry: string | MobileRole): { role: string; grants: string[] } {
+  return typeof entry === "string"
+    ? { role: entry, grants: [] }
+    : { role: entry.role, grants: [...(entry.grants ?? [])] };
+}
+
 export interface ClientProductDefinition {
   /** The company's product, lowercase: names its Workers (`<id>-web`) and the repo. */
   id: string;
@@ -139,11 +154,16 @@ export interface ClientProductDefinition {
    * roles (ADR 0436) its staff may sign in with: `cos client generate` writes a client for each
    * (`roles/<pack>.<role>.ts`) with only that role's operations, never the whole staff client
    * (ADR 0451). The web app has none: its binding never serves staff (ADR 0421).
+   *
+   * A role may name grantable pack permissions its staff are given one by one (ADR 0600), as
+   * `{ role: "bookings.coach", grants: ["rostering:roster"] }`: its client then also holds the
+   * tools those grants open (stage 45 step 7: a coach who is rostered). The host still decides
+   * every call: the client only types what such an account may ask.
    */
   mobile?: {
     dir: string;
     clientDir?: string;
-    roles?: string[];
+    roles?: (string | MobileRole)[];
     /** The app's URL scheme (app.json `expo.scheme`), default the product's id. */
     scheme?: string;
   };
@@ -387,13 +407,28 @@ export function defineClientProduct(definition: ClientProductDefinition): Client
   for (const pack of definition.packs) if (!NAME.test(pack)) fail(`pack ${pack} is not an id`);
   if (new Set(definition.packs).size !== definition.packs.length) fail("a pack is listed twice");
   if (definition.web && !NAME.test(definition.web.worker)) fail("web.worker must be a Worker name");
-  for (const role of definition.mobile?.roles ?? []) {
+  const seenRoles = new Set<string>();
+  for (const entry of definition.mobile?.roles ?? []) {
+    const { role, grants } = mobileRole(entry);
     const [pack, local] = role.split(".");
     if (!pack || !local || role.split(".").length !== 2) {
       fail(`mobile.roles: ${role} is not <pack>.<role>`);
     }
     if (!definition.packs.includes(pack as string)) {
       fail(`mobile.roles: ${role} is a role of ${pack}, which packs does not list`);
+    }
+    if (seenRoles.has(role)) fail(`mobile.roles: ${role} is listed twice`);
+    seenRoles.add(role);
+    for (const grant of grants) {
+      const [grantPack, name] = grant.split(":");
+      if (!grantPack || !name || grant.split(":").length !== 2) {
+        fail(`mobile.roles: ${role}'s grant ${grant} is not <pack>:<permission>`);
+      }
+      if (!definition.packs.includes(grantPack as string)) {
+        fail(
+          `mobile.roles: ${role}'s grant ${grant} is of ${grantPack}, which packs does not list`,
+        );
+      }
     }
   }
   const names = clientNames(definition);

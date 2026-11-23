@@ -61,6 +61,9 @@ const shift = z.object({
 const roster = z.object({
   shifts: z.array(shift),
   zone: z.string(),
+  days: z
+    .array(z.object({ date: z.string(), hours: z.number() }))
+    .describe("Each local date and its hours in the zone (23 or 25 on a clock change)"),
   truncated: z
     .boolean()
     .describe("Cut short: more shifts than one answer holds; ask for fewer days"),
@@ -274,6 +277,28 @@ export const myAway = defineTool({
   },
 });
 
+export const me = defineTool({
+  description:
+    "Who you are on the roster and what you may do here: your name, whether you roster others, " +
+    "whether you handle pay, the organisation's zone and today's date there, and how long before " +
+    "a shift offers close.",
+  input: z.object({}),
+  output: z.object({
+    account: z.string(),
+    name: z.string(),
+    rosters: z.boolean(),
+    pays: z.boolean(),
+    zone: z.string(),
+    today: z.string(),
+    cutoffMinutes: z.number(),
+    uncoveredDays: z.number(),
+  }),
+  risk: "read",
+  permission: [...TEAM],
+  grantLiftsRoleLimits: true,
+  handler: async (_input, ctx) => (await ctx.ops.call("staffing.me", {})) as never,
+});
+
 // --- My calendar (the feed, ADR 0628) ------------------------------------------------------------
 
 const feedState = z.object({
@@ -379,6 +404,181 @@ export const check = defineTool({
   risk: "read",
   permission: MANAGE,
   handler: async (input, ctx) => (await ctx.ops.call("staffing.check", input)) as never,
+});
+
+const candidate = z.object({
+  account: z.string(),
+  name: z.string(),
+  eligible: z.boolean().describe("Qualified, free and available: could take it"),
+  noProfile: z.boolean().describe("The shift cannot name them (a class needs a coach profile)"),
+  warnings: z.array(warning),
+  clash: z
+    .object({
+      object: z.string(),
+      id: z.string(),
+      title: z.string(),
+      startsAt: z.string(),
+      endsAt: z.string(),
+    })
+    .nullable(),
+});
+
+export const candidates = defineTool({
+  description:
+    "Who could be put on a shift: every member of staff with what putting them on it would be " +
+    "made with (warnings, or the shift it would clash with), the eligible first; who is on it; " +
+    "and, for a shift of a weekly pattern, the pattern's person and whether it keeps its own. " +
+    "Whoever rosters.",
+  input: z.object({ object: z.string().min(1).max(81), id: z.string().min(1).max(64) }),
+  output: z.object({
+    current: z.object({ account: z.string().nullable(), name: z.string().nullable() }),
+    pattern: z
+      .object({ account: z.string().nullable(), name: z.string().nullable(), own: z.boolean() })
+      .nullable(),
+    people: z.array(candidate),
+    truncated: z.boolean(),
+  }),
+  risk: "read",
+  permission: MANAGE,
+  handler: async (input, ctx) => (await ctx.ops.call("staffing.candidates", input)) as never,
+});
+
+export const follow = defineTool({
+  description:
+    "Put a shift of a weekly pattern back to its pattern's person: it drops its own person and " +
+    "follows the pattern again. Refused for a one-off shift, and if the pattern's person is on " +
+    "another shift then. Whoever rosters; an assistant may ask, and a person applies it.",
+  input: z.object({ object: z.string().min(1).max(81), id: z.string().min(1).max(64) }),
+  output: z.object({ object: z.string(), id: z.string(), warnings: z.array(warning) }),
+  risk: "write",
+  permission: MANAGE,
+  personApproves: true,
+  handler: async (input, ctx) => (await ctx.ops.call("staffing.follow", input)) as never,
+});
+
+export const people = defineTool({
+  description:
+    "The active members of staff and every kind of work a shift can be of (class types, duties), " +
+    "to say who may do which. Names only. Whoever rosters.",
+  input: z.object({}),
+  output: z.object({
+    people: z.array(z.object({ account: z.string(), name: z.string() })),
+    kinds: z.array(
+      z.object({ object: z.string(), objectLabel: z.string(), id: z.string(), name: z.string() }),
+    ),
+    truncated: z.boolean(),
+  }),
+  risk: "read",
+  permission: MANAGE,
+  handler: async (_input, ctx) => (await ctx.ops.call("staffing.people", {})) as never,
+});
+
+const patternShape = z.object({
+  object: z.string(),
+  id: z.string(),
+  title: z.string(),
+  objectLabel: z.string(),
+  kind: z.object({ object: z.string(), id: z.string(), name: z.string() }).nullable(),
+  weekdays: z.array(z.string()),
+  time: z.string().nullable(),
+  length: z.number().nullable(),
+  firstDate: z.string().nullable(),
+  lastDate: z.string().nullable(),
+  zone: z.string(),
+  account: z.string().nullable(),
+  name: z.string().nullable(),
+  noAccount: z.boolean(),
+});
+
+export const patterns = defineTool({
+  description:
+    "The regular week: every class series and duty series that has not ended, with its days, " +
+    "time, length, dates and its regular person (or nobody). Whoever rosters.",
+  input: z.object({}),
+  output: z.object({ patterns: z.array(patternShape), truncated: z.boolean() }),
+  risk: "read",
+  permission: MANAGE,
+  handler: async (_input, ctx) => (await ctx.ops.call("staffing.patterns", {})) as never,
+});
+
+export const setPattern = defineTool({
+  description:
+    "Change a regular pattern's person (a class series' coach, a duty series' person), or nobody " +
+    "(account null), from a date (today when left out): its shifts from then follow, except " +
+    "those that keep their own person. Refused whole if it would put them on two shifts at once " +
+    "on any date, naming the dates. Whoever rosters; an assistant may ask, and a person applies it.",
+  input: z.object({
+    object: z.string().min(1).max(81).describe("bookings.series or rostering.dutyseries"),
+    id: z.string().min(1).max(64),
+    account: z.string().min(1).max(64).nullable(),
+    from: localDate.optional(),
+  }),
+  output: z.object({
+    object: z.string(),
+    id: z.string(),
+    account: z.string().nullable(),
+    from: z.string(),
+  }),
+  risk: "write",
+  permission: MANAGE,
+  personApproves: true,
+  handler: async (input, ctx) => (await ctx.ops.call("staffing.setPattern", input)) as never,
+});
+
+export const planCheck = defineTool({
+  description:
+    "Before an import makes patterns or shifts: for each plan (a weekly pattern, or one dated " +
+    "shift, with its person), the dates it would make, the dates it would clash with a shift " +
+    "they are on or an earlier plan (title and start; `ended` when both are over), the dates " +
+    "they said they are away and whether they are not qualified. Changes nothing. Whoever " +
+    "rosters, a person only (it reads people's time off).",
+  input: z.object({
+    plans: z
+      .array(
+        z.object({
+          key: z.string().max(80).optional(),
+          kind: z
+            .object({ object: z.string().min(1).max(81), id: z.string().min(1).max(64) })
+            .nullable()
+            .optional(),
+          account: z.string().min(1).max(64).nullable(),
+          weekdays: z.array(z.enum(WEEKDAYS)).min(1).max(7).optional(),
+          date: localDate.optional(),
+          time: localTime,
+          length: z.number().int().min(1).max(1440),
+          firstDate: localDate.optional(),
+          lastDate: localDate.optional(),
+          zone: z.string().min(1).max(64).optional(),
+        }),
+      )
+      .min(1)
+      .max(1000),
+    horizonDays: z.number().int().min(1).max(366).optional(),
+  }),
+  output: z.object({
+    plans: z.array(
+      z.object({
+        key: z.string().nullable(),
+        dates: z.number(),
+        clashes: z.array(
+          z.object({
+            date: z.string(),
+            startsAt: z.string(),
+            other: z.object({ title: z.string(), startsAt: z.string(), endsAt: z.string() }),
+            ended: z.boolean(),
+          }),
+        ),
+        away: z.array(z.string()),
+        notQualified: z.boolean(),
+        first: z.object({ date: z.string(), startsAt: z.string(), endsAt: z.string() }).nullable(),
+      }),
+    ),
+    truncated: z.boolean(),
+  }),
+  risk: "read",
+  permission: MANAGE,
+  humanOnly: true,
+  handler: async (input, ctx) => (await ctx.ops.call("staffing.planCheck", input)) as never,
 });
 
 export const qualify = defineTool({
@@ -521,8 +721,14 @@ export const payBasis = defineTool({
 export const payBases = defineTool({
   description:
     "Who is counted for pay and how (by time, by class, not counted), today and from which " +
-    "dates. Whoever handles pay, a person only.",
-  input: z.object({ account: z.string().min(1).max(64).optional() }),
+    "dates; with everyone, every member of staff. Whoever handles pay, a person only.",
+  input: z.object({
+    account: z.string().min(1).max(64).optional(),
+    everyone: z
+      .boolean()
+      .optional()
+      .describe("Also every active member of staff with no basis set yet (not counted)"),
+  }),
   output: z.object({
     today: z.string(),
     items: z.array(

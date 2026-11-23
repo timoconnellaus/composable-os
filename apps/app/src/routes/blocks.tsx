@@ -39,6 +39,11 @@ import {
   type ProgramsClient,
 } from "@composable-os/pack-programs/client";
 import {
+  createRosteringHooks,
+  ROSTERING_HOOKS_CALL,
+  type RosteringClient,
+} from "@composable-os/pack-rostering/client";
+import {
   createTicketingHooks,
   TICKETING_HOOKS_CALL,
   type TicketingClient,
@@ -131,6 +136,8 @@ function browserClient<C>(calls: Record<string, readonly string[]>): C {
   );
   return {
     operations,
+    // The host this page calls: its own origin (the calls are same-origin), never the query.
+    baseUrl: window.location.origin,
     query: (name: string, input: unknown) => ({
       queryKey: [name, input],
       queryFn: () => call(name, input, false),
@@ -197,6 +204,12 @@ function usePackHooks(pack: string): AnyHooks {
       browserClient<FullClient<TicketingClient>>(TICKETING_HOOKS_CALL),
     );
   }
+  if (pack === "rostering") {
+    return createRosteringHooks(
+      react,
+      browserClient<FullClient<RosteringClient>>(ROSTERING_HOOKS_CALL),
+    );
+  }
   return null;
 }
 
@@ -214,16 +227,18 @@ function BlocksPage() {
   );
   useEffect(() => {
     if (!block || !component) return;
-    const key = Object.keys(files).find((path) =>
+    // A block may have several files (the roster week and its assign panel): the export is looked
+    // for in each.
+    const keys = Object.keys(files).filter((path) =>
       path.includes(base ? `/blocks/${block}/` : `/packs/${pack}/blocks/${block}/`),
     );
-    if (!key) {
+    if (!keys.length) {
       setFailed(`No web block ${block}`);
       return;
     }
-    files[key]?.()
-      .then((module) => {
-        const found = module[component];
+    Promise.all(keys.map((key) => files[key]?.()))
+      .then((modules) => {
+        const found = modules.map((module) => module?.[component]).find((f) => f !== undefined);
         if (typeof found !== "function") setFailed(`${block} has no export ${component}`);
         else setComponent(() => found as ComponentType<Record<string, unknown>>);
       })

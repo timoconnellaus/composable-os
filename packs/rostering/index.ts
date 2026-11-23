@@ -33,7 +33,9 @@
 //   - every rostered person's own private calendar feed (step 5, ADR 0628): `feed`, `feedRotate`
 //     and `feedRevoke`, the team's, a person's own acts; the host serves the feed and keeps only
 //     its token's hash.
-// Not in this step: the checklist on a duty (4b), the screens (7).
+// The screens (step 7, ADR 0629) are this pack's blocks (blocks/) over its headless entry
+// (client/): they show what the tools answer and decide nothing. Not yet: the checklist on a duty
+// (step 4b).
 import { defineExtension } from "@composable-os/sdk";
 import {
   assign,
@@ -41,24 +43,31 @@ import {
   awayFor,
   awayList,
   back,
+  candidates,
   check,
   exportPeriod,
   feed,
   feedRevoke,
   feedRotate,
+  follow,
   lock,
   markNotWorked,
+  me,
   mine,
   myAway,
   offer,
   offers,
+  patterns,
   payBases,
   payBasis,
+  people,
   periods,
   periodTotals,
+  planCheck,
   qualifications,
   qualify,
   reopen,
+  setPattern,
   take,
   uncovered,
   week,
@@ -110,6 +119,13 @@ export default defineExtension({
       "staffing.payPeriod.lock",
       "staffing.payPeriod.reopen",
       "staffing.payPeriod.export",
+      "staffing.me",
+      "staffing.candidates",
+      "staffing.people",
+      "staffing.patterns",
+      "staffing.setPattern",
+      "staffing.follow",
+      "staffing.planCheck",
       "staffing.feed.status",
       "staffing.feed.rotate",
       "staffing.feed.revoke",
@@ -410,6 +426,7 @@ export default defineExtension({
   // pay.
   restricted: ["rostering:manage", "rostering:pay"],
   tools: {
+    me,
     week,
     mine,
     offers,
@@ -430,6 +447,12 @@ export default defineExtension({
     awayList,
     uncovered,
     markNotWorked,
+    candidates,
+    follow,
+    people,
+    patterns,
+    setPattern,
+    planCheck,
     payBasis,
     payBases,
     periods,

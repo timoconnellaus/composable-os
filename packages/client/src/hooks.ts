@@ -30,6 +30,8 @@ export type OperationsOf<C> = C extends { readonly operations: infer O } ? keyof
  * hooks are written against. Every generated client that holds them fits it.
  */
 export interface PackClient<T extends OperationTypes> {
+  /** The host the client talks to (a generated client's `baseUrl`), when it has one. */
+  readonly baseUrl?: string;
   query<N extends QueryName<T>>(
     name: N,
     input: T[N]["input"],

@@ -5,25 +5,34 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./index.ts"
+    ".": "./index.ts",
+    "./client": "./client/index.ts"
   },
-  "description": "Rostering: duties that are not classes (cleaning, opening up), weekly duty series and the duty shifts they make, and the roster's tools over every shift on the host (classes too, when Bookings is installed): the roster, my shifts, offers and takes, unavailability, and for rosterers assigning, qualifications and uncovered shifts (stage 45 step 4). Requires nothing. Bundled as source into cos-runner.",
+  "description": "Rostering: duties that are not classes (cleaning, opening up), weekly duty series and the duty shifts they make, and the roster's tools over every shift on the host (classes too, when Bookings is installed): the roster, my shifts, offers and takes, unavailability, and for rosterers assigning, qualifications and uncovered shifts (stage 45 step 4), and its screens as blocks for the web and the app (step 7). Requires nothing. Bundled as source into cos-runner.",
   "composableOs": {
     "optional": true,
     "label": "Rostering",
     "description": "Who works when: duty shifts that repeat every week, the roster of every shift (classes too, with Bookings), staff offering and taking shifts, and saying when they are away."
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p blocks/tsconfig.web.json && tsc --noEmit -p blocks/tsconfig.native.json",
     "test": "vitest run"
   },
   "dependencies": {
+    "@composable-os/client": "workspace:*",
     "@composable-os/sdk": "workspace:*"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.5.1",
     "@cloudflare/workers-types": "5.20261104.1",
     "@composable-os/config": "workspace:*",
+    "@types/react": "19.3.0",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "radix-ui": "1.8.1",
+    "react": "19.3.1",
+    "react-native": "0.88.1",
+    "tailwind-merge": "3.7.0",
     "typescript": "6.0.3",
     "vitest": "5.1.0"
   }

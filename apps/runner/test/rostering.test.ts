@@ -128,6 +128,7 @@ const ROSTER = "rostering:roster";
 
 /** The team's tools: what the team role, or the grant `rostering:roster`, opens. */
 const TEAM_TOOLS = [
+  "me",
   "week",
   "mine",
   "offers",
@@ -151,6 +152,12 @@ const MANAGE_TOOLS = [
   "awayList",
   "uncovered",
   "markNotWorked",
+  "candidates",
+  "follow",
+  "people",
+  "patterns",
+  "setPattern",
+  "planCheck",
 ].map((t) => `x.rostering.${t}`);
 /** Pay (step 6): restricted, and a person's only. */
 const PAY = "rostering:pay";
@@ -557,6 +564,14 @@ describe("restricted permissions (criterion 8, ADR 0625)", () => {
       "x.rostering.awayList": {},
       "x.rostering.uncovered": {},
       "x.rostering.markNotWorked": { object: SHIFT, id: shift, reason: "Not here" },
+      "x.rostering.candidates": { object: SHIFT, id: shift },
+      "x.rostering.follow": { object: SHIFT, id: shift },
+      "x.rostering.people": {},
+      "x.rostering.patterns": {},
+      "x.rostering.setPattern": { object: SERIES, id: "missing", account: null },
+      "x.rostering.planCheck": {
+        plans: [{ account: member.id, date: localDate(30 * DAY), time: "06:00", length: 60 }],
+      },
     };
     for (const name of MANAGE_TOOLS) {
       for (const who of [member, viewer]) {

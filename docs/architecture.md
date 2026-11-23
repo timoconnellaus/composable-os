@@ -1209,6 +1209,16 @@ would alter the period, for every statement shape. Who handles pay is the pack's
 (Rostering's restricted `rostering:pay`): admins and by grant, a person only, never an AI; reads
 of totals and exports are audited without their figures.
 
+The roster's screens (step 7,
+[ADR 0629](adr/0629-the-rosters-screens-role-clients-with-grants-and-the-roster-import.md)) are
+Rostering's blocks over its headless entry, and ask the host what a screen needs through more
+tool-only operations: `staffing.me` (whether the reader rosters or handles pay, so no block decides
+it), `staffing.candidates` (who could be put on a shift, from the write's own dry run),
+`staffing.people`, `staffing.patterns` and `staffing.setPattern` (a pattern's person from a date),
+`staffing.follow` (back to the pattern) and `staffing.planCheck` (`cos rostering import`'s dry
+run, the same clash check the writes and the reconcile make). `staffing.week` answers each day's
+hours in the zone, so a clock-change week is drawn from the host's times.
+
 **The staff calendar feed** (stage 45 step 5, [ADR 0628](adr/0628-the-staff-calendar-feed-and-the-shared-calendar-writer.md),
 `packages/core/src/staffing/feed.ts`, `operations/staffing-feed.ts`,
 `apps/app/src/server/http/staffing-feed.ts`, migration 0814): `GET /api/v1/staffing/feed/<token>.ics`,
@@ -1811,7 +1821,7 @@ calculates a price, checks a capacity or checks a permission.
 | Content | `publishable`, rich text, slugs, media | stage 28: steps 1 to 6 built (rich text, `publishable` completed, public reads, media, the editor, the pack: posts and categories, hooks, web and native renderers); the first client's import and blog routes are its own repository's |
 | Courses | `publishable`, `sellable` (grants and a tax code), `access` and holders' parts, `states`, `customer` with `requireAccess`, `requires: ["programs"]`, video media and `media.play` | stage 42: steps 1 to 4, 6, 7 and the draft built ([ADR 0478](adr/0478-the-courses-pack.md)); the import and the first client to come |
 | Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `staffed` (a class is its coach's shift, stage 45), `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer` with `guardians`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 6 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md); parents booking for their children, [ADR 0540](adr/0540-the-family-link.md)); step 7, attendance, moves and cancelling a class; step 8, drop-ins with `sellable.moves`, [ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md)); step 9, messages, the reminder, the dashboard and the coach's app screen, [ADR 0572](adr/0572-bookings-messages-the-dashboard-and-the-coachs-app-screen.md); step 10 to come |
-| Rostering | `recurring` (duty series, a horizon from its setting), `staffed` (a duty shift is its person's shift), `states`, a pack role (`rostering.team`), grantable and restricted permissions, the roster's rules (`staffing`), the host's tool-only `staffing.*` operations | stage 45: step 4 built (duties, duty series and shifts, the team role, the roster's tools, settings, [ADR 0626](adr/0626-the-rostering-pack-and-bookings-additions.md)); step 6 built (pay periods: `rostering:pay`, restricted and a person's only, who is counted, totals, the not-worked mark, lock, reopen and export, [ADR 0627](adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md)); step 5 built (each person's private calendar feed: `feed`, `feedRotate`, `feedRevoke`, [ADR 0628](adr/0628-the-staff-calendar-feed-and-the-shared-calendar-writer.md)); checklists (4b) and the screens (7) to come |
+| Rostering | `recurring` (duty series, a horizon from its setting), `staffed` (a duty shift is its person's shift), `states`, a pack role (`rostering.team`), grantable and restricted permissions, the roster's rules (`staffing`), the host's tool-only `staffing.*` operations | stage 45: step 4 built (duties, duty series and shifts, the team role, the roster's tools, settings, [ADR 0626](adr/0626-the-rostering-pack-and-bookings-additions.md)); step 6 built (pay periods: `rostering:pay`, restricted and a person's only, who is counted, totals, the not-worked mark, lock, reopen and export, [ADR 0627](adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md)); step 5 built (each person's private calendar feed: `feed`, `feedRotate`, `feedRevoke`, [ADR 0628](adr/0628-the-staff-calendar-feed-and-the-shared-calendar-writer.md)); step 7 built (the screens as blocks over `@composable-os/pack-rostering/client`, my calendar among them, role clients with grants, `cos rostering import`, [ADR 0629](adr/0629-the-rosters-screens-role-clients-with-grants-and-the-roster-import.md)); checklists (4b) to come |
 | Memberships | `allowance` (holders), recurring billing with `recurring.grants` and `recurring.pause`, `sellable.onePerPerson`, `humanOnly` tools, `requires: ["programs"]` | stage 32b: steps 5 to 7 built (the behaviour, the pack, plan changes and pauses, the dashboard, views and blocks); the import (step 8) to come |
 
 ### Client repos
@@ -1844,7 +1854,10 @@ As built so far (stage 24; ADRs [0420](adr/0420-packs-as-packages-as-built.md),
   ([ADR 0452](adr/0452-gatekeeper-settings-in-product-ts.md)).
 - **Role clients and browser calls** ([ADR 0451](adr/0451-role-clients-staff-in-the-mobile-app-and-browser-calls.md)):
   a mobile app that lists a pack role gets a client with only that role's operations (from the
-  release's `api/v1/roles.json`); staff sign in in it apart from customers. A pack's hooks give
+  release's `api/v1/roles.json`); staff sign in in it apart from customers. A role listed with
+  grants (`{ role: "bookings.coach", grants: ["rostering:roster"] }`) gets the tools those grants
+  open too, from `roles.json`'s `grants`
+  ([ADR 0629](adr/0629-the-rosters-screens-role-clients-with-grants-and-the-roster-import.md)). A pack's hooks give
   any client the hooks it holds the operations of, and a block takes only the hooks it calls
   ([ADR 0453](adr/0453-pack-hooks-over-the-clients-operations.md)). A web app's
   `operationRoute` passes the browser's allowed calls to `HOST`, same origin only.

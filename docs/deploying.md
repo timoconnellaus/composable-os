@@ -1060,7 +1060,7 @@ bypassed path a staff member's browser may still send the `CF_Authorization` coo
 verified as anywhere else; a cross-site page cannot use it, because the surface refuses an origin
 it does not list.
 
-`cos content import` and `cos courses import` ([docs/importing.md](importing.md)) sign staff in through the system browser
+`cos content import`, `cos courses import` and the other import commands, `cos rostering import` among them ([docs/importing.md](importing.md)), sign staff in through the system browser
 under Access: add `http://127.0.0.1/cos-sign-in` (no port) to `NATIVE_REDIRECT_URIS`, and the
 command's one-time code comes back to whichever port it listens on.
 

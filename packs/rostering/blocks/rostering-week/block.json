@@ -1,0 +1,19 @@
+{
+  "name": "rostering-week",
+  "pack": "rostering",
+  "skin": "web",
+  "operations": [
+    "x.rostering.me",
+    "x.rostering.week",
+    "x.rostering.candidates",
+    "x.rostering.assign",
+    "x.rostering.follow",
+    "x.rostering.offer",
+    "x.rostering.markNotWorked"
+  ],
+  "files": ["week.tsx", "assign.tsx", "LICENSE"],
+  "dependsOn": ["ui-button"],
+  "packages": {
+    "@composable-os/pack-rostering": "*"
+  }
+}

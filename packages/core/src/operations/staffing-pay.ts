@@ -372,7 +372,13 @@ export const staffingPayBases = defineOperation({
     "Tool-only (a shipped pack's tool): who is counted for pay and how, by time, by class or not " +
     "counted, today and from which dates; everyone with a basis set (account: one person). " +
     "Someone who handles pay, a person only. Read-only.",
-  input: z.object({ account: accountId.optional() }),
+  input: z.object({
+    account: accountId.optional(),
+    everyone: z
+      .boolean()
+      .optional()
+      .describe("Also every active member of staff with no basis set (not counted)"),
+  }),
   output: z.object({
     today: z.string(),
     items: z.array(
@@ -412,6 +418,18 @@ export const staffingPayBases = defineOperation({
       while (rows.length && rows[rows.length - 1]?.account_id === last) rows.pop();
     }
     const accounts = [...new Set(rows.map((r) => r.account_id))];
+    // The pay screen lists everyone, so a basis can be set for someone who has none yet.
+    if (input.everyone && !input.account && !truncated) {
+      const others = await ctx.db
+        .selectFrom("core_user")
+        .select("id")
+        .where("kind", "=", "human")
+        .where("deactivated_at", "is", null)
+        .orderBy("id")
+        .limit(500)
+        .execute();
+      for (const o of others) if (!accounts.includes(o.id)) accounts.push(o.id);
+    }
     const users = accounts.length
       ? await ctx.db
           .selectFrom("core_user")

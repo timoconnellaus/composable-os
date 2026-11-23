@@ -1393,14 +1393,22 @@ shifts; ADR 0624) and sees each shift's warnings. With Rostering installed, only
 works a shift, by any path; anyone else offers their own. The **pattern** is its regular week (a class
 series' coach, a duty series' person); an **exception** is one date changed from it, and only that
 field leaves the series (a field exception, built: ADR 0620). Not Bookings' tool `roster`, which is
-a class's list.
+a class's list. Its screens (step 7, ADR 0629) are Rostering's blocks: the **week grid** (read only
+for the team; a rosterer's shift opens **assign**: who could take it first, from the host's
+`candidates`), the regular week (**patterns**), **qualifications**, everyone's time off and **pay**
+on the web; **my shifts**, **offered to me**, **my availability**, **my calendar** and the roster day by day on the
+web and in the app. A screen asks the host who is reading (`me`: whether they roster, whether they
+handle pay) and shows only what that allows. A **role client with grants** is a mobile app's
+client for a pack role that also holds the tools a grant opens (a coach with `rostering:roster`).
 _Avoid_: rota, schedule (an automation's trigger), timetable (the members' classes)
 
 **Duty** (Rostering; stage 45, built in step 4: ADR 0626)
 A kind of work that is not a class (Cleaning, Open up), done in **duty shifts** made by a **duty
 series** (`recurring`, as far ahead as the duty horizon setting) with its regular person. The
 **team role** (`rostering.team`) is for someone rostered with no other access, such as a cleaner:
-the roster, their own shifts, offers and takes, their time off, nothing else.
+the roster, their own shifts, offers and takes, their time off, nothing else. Duties and who works
+them move in with `cos rostering import` (a dry run unless `--apply`; the host's clash check names
+every date that would put someone on two shifts at once).
 _Avoid_: task (a base record), job
 
 **Qualified** and **Unavailable** (stage 45, built in step 3: ADRs 0622 and 0623)

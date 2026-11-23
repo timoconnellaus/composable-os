@@ -1,0 +1,16 @@
+{
+  "name": "rostering-qualifications",
+  "pack": "rostering",
+  "skin": "web",
+  "operations": [
+    "x.rostering.me",
+    "x.rostering.people",
+    "x.rostering.qualifications",
+    "x.rostering.qualify"
+  ],
+  "files": ["qualifications.tsx", "LICENSE"],
+  "dependsOn": ["ui-button"],
+  "packages": {
+    "@composable-os/pack-rostering": "*"
+  }
+}

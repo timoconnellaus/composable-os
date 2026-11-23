@@ -1,0 +1,12 @@
+{
+  "name": "rostering-native-my-calendar",
+  "pack": "rostering",
+  "skin": "native",
+  "operations": ["x.rostering.feed", "x.rostering.feedRotate", "x.rostering.feedRevoke"],
+  "files": ["my-calendar-screen.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/pack-rostering": "*"
+  },
+  "noPurchase": true
+}
