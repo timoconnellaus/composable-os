@@ -24,6 +24,9 @@ function schemaFrom(json: Record<string, unknown>, fallback: z.ZodType): z.ZodTy
 
 const cache = new Map<string, AnyOperation>();
 
+/** The audit summary's own keys (pipeline.ts): a tool's `redactResult` never hides them. */
+const AUDIT_SUMMARY_KEYS: readonly string[] = ["id", "count", "records"];
+
 /** The operation for one tool of an installed manifest. */
 export function toolOperation(
   manifest: ExtensionManifest,
@@ -82,6 +85,14 @@ export function toolOperation(
     // any tool.
     // A tool's own (ADR 0626): what someone wrote about their leave never reaches the log either.
     redact: ["agreements", ...(tool.redact ?? [])],
+    // A secret its answer carries once (a calendar feed's address, ADR 0628): never kept.
+    // A shipped pack's only (a runtime extension's is refused by check and install, and ignored
+    // here if one is in the database anyway), and never the audit summary's own keys.
+    ...(source === "shipped" && tool.redactResult?.length
+      ? {
+          redactResult: tool.redactResult.filter((k) => !AUDIT_SUMMARY_KEYS.includes(k)),
+        }
+      : {}),
     async handler(input, ctx) {
       // The pipeline already never dry-runs a tool that may write (approvals/dry-run.ts: that is
       // the guarantee); this keeps the handler safe if it is ever called with a simulation.

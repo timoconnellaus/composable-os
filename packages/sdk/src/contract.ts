@@ -664,6 +664,12 @@ export interface ToolSpec<In extends z.ZodType = z.ZodType, Out extends z.ZodTyp
    * extension may declare it.
    */
   redact?: readonly string[];
+  /**
+   * Keys of the tool's answer the host never keeps (ADR 0628): a secret shown once, such as a
+   * calendar feed's address. Never in the audit log, an approval's stored result or a stored
+   * reply an HTTP retry replays. It only hides more, so any extension may declare it.
+   */
+  redactResult?: readonly string[];
   handler(input: z.output<In>, ctx: ExtensionContext): Promise<z.input<Out>> | z.input<Out>;
 }
 

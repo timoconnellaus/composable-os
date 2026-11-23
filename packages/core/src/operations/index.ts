@@ -73,6 +73,7 @@ import { searchOperations } from "./search.ts";
 import { settingsOperations } from "./settings.ts";
 import { setupOperations } from "./setup.ts";
 import { staffingOperations } from "./staffing.ts";
+import { staffingFeedOperations } from "./staffing-feed.ts";
 import { staffingPayOperations } from "./staffing-pay.ts";
 import { stateResolveOperations } from "./state-resolve.ts";
 import { subscriptionOperations } from "./subscription.ts";
@@ -172,6 +173,7 @@ export const coreOperations = [
   ...capacityOperations,
   ...recurringOperations,
   ...staffingOperations,
+  ...staffingFeedOperations,
   ...staffingPayOperations,
   ...allowanceOperations,
   ...waitlistOperations,

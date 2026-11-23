@@ -104,6 +104,20 @@
       "name": "CUSTOMER_CODE_NEW_RATE_LIMIT",
       "namespace_id": "4107",
       "simple": { "limit": 20, "period": 60 }
+    },
+    // A staff member's calendar feed (stage 45 step 5, ADR 0628): fetches per feed, keyed by a
+    // hash of its token. A calendar app fetches every few minutes at most.
+    {
+      "name": "STAFF_FEED_RATE_LIMIT",
+      "namespace_id": "4108",
+      "simple": { "limit": 10, "period": 60 }
+    },
+    // Calendar feed fetches per client address, hashed, before any token is looked up. A
+    // calendar provider fetches many people's feeds from a few addresses: room for a team.
+    {
+      "name": "STAFF_FEED_ADDRESS_RATE_LIMIT",
+      "namespace_id": "4109",
+      "simple": { "limit": 120, "period": 60 }
     }
   ],
   "vars": {

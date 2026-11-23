@@ -10,7 +10,8 @@
 // - the team's tools (`rostering:team`, the team role's; `rostering:roster`, granted to an account
 //   with another pack role, such as a coach): reading the roster and one's own offers and time off
 //   is open to an assistant acting for them; offering, taking, withdrawing, saying one is away and
-//   back are a person's own acts (`humanOnly`);
+//   back are a person's own acts (`humanOnly`), and so are making, changing and turning off one's
+//   private calendar feed (whose address is a secret shown once);
 // - the rosterers' tools (`rostering:manage`, restricted: admins, and anyone an admin grants it):
 //   reading the roster's warnings, qualifications and the uncovered shifts is open to an assistant;
 //   putting someone on a shift and saying who is qualified wait for a person (`personApproves`);
@@ -271,6 +272,65 @@ export const myAway = defineTool({
     if (caller?.kind !== "staff") return { items: [] };
     return (await ctx.ops.call("staffing.awayList", { ...input, account: caller.userId })) as never;
   },
+});
+
+// --- My calendar (the feed, ADR 0628) ------------------------------------------------------------
+
+const feedState = z.object({
+  active: z
+    .boolean()
+    .describe("Whether you have a calendar feed (its address is never shown again)"),
+  createdAt: z.string().nullable(),
+});
+
+export const feed = defineTool({
+  description:
+    "Whether you have a private calendar feed of your own shifts (for your phone's calendar), " +
+    "and when its address was made. The address itself is shown only once, by feedRotate.",
+  input: z.object({}),
+  output: feedState,
+  risk: "read",
+  permission: [...TEAM],
+  grantLiftsRoleLimits: true,
+  handler: async (_input, ctx) => feedState.parse(await ctx.ops.call("staffing.feed.status", {})),
+});
+
+export const feedRotate = defineTool({
+  description:
+    "A new private address for your calendar feed: your own shifts, from two weeks back to four " +
+    "months ahead, for a calendar app to subscribe to. Any old address stops working at once. " +
+    "Shown this once: anyone with it sees your shifts, so do not share it. A person's own act.",
+  input: z.object({}),
+  output: z.object({
+    path: z
+      .string()
+      .describe(
+        "The address on this host: put its origin before it (https://, or webcal:// to open it in a calendar app)",
+      ),
+    createdAt: z.string(),
+  }),
+  risk: "write",
+  permission: [...TEAM],
+  grantLiftsRoleLimits: true,
+  humanOnly: true,
+  // The address is a secret: never in the audit log or a stored reply.
+  redactResult: ["path"],
+  handler: async (_input, ctx) => (await ctx.ops.call("staffing.feed.rotate", {})) as never,
+});
+
+export const feedRevoke = defineTool({
+  description:
+    "Turn your calendar feed off: its address stops working (a calendar app keeps the shifts it " +
+    "last fetched and gets no more). An admin may turn off anyone's (account). A person's own act.",
+  input: z.object({
+    account: z.string().min(1).max(64).optional().describe("Someone else's: an admin only"),
+  }),
+  output: z.object({ account: z.string(), revoked: z.boolean() }),
+  risk: "write",
+  permission: [...TEAM],
+  grantLiftsRoleLimits: true,
+  humanOnly: true,
+  handler: async (input, ctx) => (await ctx.ops.call("staffing.feed.revoke", input)) as never,
 });
 
 // --- The rosterers' tools --------------------------------------------------------------------------
