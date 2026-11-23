@@ -1281,10 +1281,11 @@ own.
 
 **Desk signing session** (stage 44, proposed)
 A short session a person on the staff starts, from their own signed-in account, for one named Person
-(and the children they will sign for): a one-time code opens it only on an **enrolled** tablet (a
-device an admin enrolled as the business's, holding a revocable device credential that alone opens
-nothing), which is signed in as nobody and shows only that Person's due documents, then locks on
-limits the host keeps.
+(and the children they will sign for) on the enrolled tablet they choose: a one-time code opens it
+only there (a device an admin enrolled as the business's, every admin told, holding a revocable
+device credential that alone opens nothing). The tablet is signed in as nobody, uses the desk's own
+origin, shows only that Person's due documents, and locks on limits the host keeps. The record says
+"on the device enrolled as [name] by [admin]", never "in person".
 _Avoid_: kiosk (a standing sign-in on a shared device, which this is not)
 
 **Cooling off** (stage 44, proposed)

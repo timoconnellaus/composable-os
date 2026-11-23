@@ -40,18 +40,35 @@ publish, a version can be unpublished and restored, and the permission is `recor
   from the media library later, and the hash covers only its id). A link is allowed only when its
   text is its own address, so every rendering shows where it goes; the editor says a linked page
   is not part of what a person agrees to. Titles, tick labels, questions and body text refuse
-  bidirectional override and isolate characters (U+202A to U+202E, U+2066 to U+2069), and a text
-  made only of zero-width characters is not text.
+  bidirectional override and isolate characters (U+202A to U+202E, U+2066 to U+2069), C0 and C1
+  control characters, and tag characters (U+E0000 to U+E007F) outside a subdivision-flag emoji. A
+  text made only of characters nobody sees (zero-width spaces and joiners, direction marks, soft
+  hyphen, U+034F, U+180E, the Hangul fillers U+3164, U+115F, U+1160 and U+FFA0, the blank Braille
+  pattern U+2800, variation selectors) is not text; those characters are allowed inside text,
+  which several languages and emoji need.
+- **Publishing spends the reviewed rev.** A publish names the version number its preview showed and
+  is refused on a mismatch (another publish landed between the preview and the click); it moves
+  `draft_rev` in its own batch, so the same hash and rev never publish twice; and a publish with
+  nothing changed since the newest version is refused (`agreement_unchanged`), so "agree again"
+  can never ask everyone to re-agree to unchanged text.
+- **Extension ids.** An extension cannot take the namespace of a core permission as its id
+  (`agreements`, `orders`, `people`, …, derived from the permission list), or it could declare a
+  core permission as its own grantable one.
 - **A version nobody changes.** `agreement.publish` snapshots the working copy into
   `core_agreement_version` with the next number, the change (`first`, `small`, `agree_again`), the
   effective moment, who published it and when, the `draft_rev` it came from, and the **hash**:
   SHA-256 of the canonical JSON (keys sorted) of **everything the version holds**: the kind, title,
   body, tick label, questions, how, who, for whom and ask-again months.
-- **What the database refuses, for every writer** (an operation, host code, a raw statement):
+- **What the database refuses, for every writer** (an operation, host code, a raw statement), as
+  long as the triggers exist:
   - any update or delete of a version, and any delete of a document;
   - an insert whose id already exists, on the version and the document. D1 runs with recursive
     triggers off, so the rows an `INSERT OR REPLACE` deletes fire no delete trigger; refusing the
     insert is what stops a REPLACE;
+  - any change of a document's id (so an `UPDATE OR REPLACE` cannot rewrite another document), and
+    any update of an attachment row (it is added or removed, never moved);
+  - any change to a working-copy column unless `draft_rev` moves by exactly one in the same
+    statement, so every change, raw ones included, shows as a new rev in the editor;
   - any insert into `core_agreement_rev` beyond its one row, so a REPLACE cannot reset it;
   - a version insert unless the working copy is still at its `draft_rev`, the number is the next,
     and every content column equals the working copy's at commit;
@@ -59,6 +76,12 @@ publish, a version can be unpublished and restored, and the permission is `recor
   - a change of kind, a document going from live back to draft, any change to a retired one;
   - the current version set to none, to an older version or to another document's; `agree_from`
     or the counter going back.
+- **What a raw writer can still do** (host code by mistake, an operator with the database): write
+  the working copy with the rev moved, recording any actor it likes; make a newer published version
+  current before its effective moment, or move `agree_from` forward; retire a document; attach a
+  live document or detach one; bump the counter; and give a version whose content matches the
+  working copy a made-up hash (below). Anyone who can change the schema can drop the triggers. The
+  guarantee is against changing or removing what was published, not against every write.
 - **The hash is the host's.** SQLite has no SHA-256, so the trigger compares the content and the
   host computes the hash. A writer with raw access could still insert a version whose content
   matches the working copy but whose hash is made up; every read that matters recomputes the hash
