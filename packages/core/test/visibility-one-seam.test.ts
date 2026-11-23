@@ -108,6 +108,9 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "ai/summaries.ts": [16, WHY.later],
   // Stage 32b (ADR 0493): a spend checks its Person is not in the Trash, in the write's own path.
   "agreements/due.ts": [2, WHY.agreements],
+  // Stage 44 step 4 (ADR 0645): the signed PDF names whom it is for, and a paper copy goes to
+  // the Person's own address; read only after the operation checked who may have it.
+  "agreements/copy.ts": [2, WHY.agreements],
   "allowance/records.ts": [1, WHY.write],
   "assistant/memory.ts": [2, WHY.later],
   "assistant/producers.ts": [5, WHY.sql],

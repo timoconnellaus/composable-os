@@ -60,11 +60,12 @@ describe("rows read on hot paths", () => {
   it("list pages in the default order walk the sort index", async () => {
     // Includes one read of sqlite_master, a row per table, index and trigger: routine mail's log
     // and marks (migration 0750) and stage 44's acceptances (migration 0851) took person.list
-    // from about 985 to about 1,030.
-    expect(await read("person.list", { limit: 50 })).toBeLessThan(1_050);
-    expect(await read("organisation.list", { limit: 50 })).toBeLessThan(1_050);
+    // from about 985 to about 1,030, and stage 44 step 4's copy (migration 0854, a table and its
+    // triggers) to about 1,053.
+    expect(await read("person.list", { limit: 50 })).toBeLessThan(1_100);
+    expect(await read("organisation.list", { limit: 50 })).toBeLessThan(1_100);
     expect(await read("activity.list", { limit: 50 })).toBeLessThan(1_500);
-    expect(await read("task.list", { limit: 50 })).toBeLessThan(1_050);
+    expect(await read("task.list", { limit: 50 })).toBeLessThan(1_100);
   });
 
   it("other sorts order ids first instead of computing every view column for every row", async () => {

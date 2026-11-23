@@ -76,6 +76,7 @@ describe("default closed (criterion 1)", () => {
       "me.agreements.due",
       "me.agreements.get",
       "me.agreements.list",
+      "me.agreements.pdf",
       "me.deleteAccount",
       // Stage 31a step 6 (ADR 0540): their own family, the children staff linked to them.
       "me.family",
@@ -411,6 +412,7 @@ describe("the closed handler context (ADR 0413)", () => {
       "me.agreements.due",
       "me.agreements.get",
       "me.agreements.list",
+      "me.agreements.pdf",
       "me.deleteAccount",
       "me.sessions.list",
       "me.sessions.revoke",
