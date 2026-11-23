@@ -140,7 +140,9 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "operations/enrichment.ts": [8, WHY.write],
   "operations/erasure.ts": [2, WHY.write],
   "operations/import.ts": [8, WHY.write],
-  "operations/order.ts": [1, WHY.host],
+  // Stage 44 (the review of PR #280): order.setPerson reads the People an order's address is
+  // theirs (and merges of them) and the order's lines for their agreement points.
+  "operations/order.ts": [4, WHY.host],
   "operations/organisation.ts": [9, WHY.write],
   "operations/person.ts": [7, WHY.write],
   "operations/setup.ts": [1, WHY.write],
