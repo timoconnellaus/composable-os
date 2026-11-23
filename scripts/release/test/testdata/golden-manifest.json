@@ -584,6 +584,10 @@
       "sha256": "f97c720b136d938170cf08932a37dd754cd8c0c9726ab4a3ab46062818f4933e"
     },
     {
+      "name": "0814_staff_feed.sql",
+      "sha256": "f9e350a260eea30805d229803fb7b26419df54eabf660441a09f4c26aa77134e"
+    },
+    {
       "name": "0850_agreements.sql",
       "sha256": "ac44a255fe73e8195da0f8ef6fed7572e561918517d138581094d9f46e2789e5"
     },
@@ -940,6 +944,24 @@
           "type": "ratelimit"
         },
         {
+          "name": "STAFF_FEED_RATE_LIMIT",
+          "namespace_id": "4108",
+          "simple": {
+            "limit": 10,
+            "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
+          "name": "STAFF_FEED_ADDRESS_RATE_LIMIT",
+          "namespace_id": "4109",
+          "simple": {
+            "limit": 120,
+            "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
           "name": "AI_FAKE_MODEL",
           "text": "",
           "type": "plain_text"
@@ -1266,7 +1288,7 @@
           "source": "user"
         }
       ],
-      "sha256": "75e422166839ba3966380d92c12e42a329c8b6bca5a22c5cef2b11aeba7f279a"
+      "sha256": "ad8615e69d63a4132d3f012afdb50e25e08baaf1c01a6c6d44cc1fa3ed66921c"
     },
     {
       "bindings": [

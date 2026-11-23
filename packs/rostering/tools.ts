@@ -277,7 +277,9 @@ export const myAway = defineTool({
 // --- My calendar (the feed, ADR 0628) ------------------------------------------------------------
 
 const feedState = z.object({
-  active: z.boolean().describe("Whether you have a calendar feed (its address is never shown again)"),
+  active: z
+    .boolean()
+    .describe("Whether you have a calendar feed (its address is never shown again)"),
   createdAt: z.string().nullable(),
 });
 

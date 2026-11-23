@@ -1209,6 +1209,20 @@ would alter the period, for every statement shape. Who handles pay is the pack's
 (Rostering's restricted `rostering:pay`): admins and by grant, a person only, never an AI; reads
 of totals and exports are audited without their figures.
 
+**The staff calendar feed** (stage 45 step 5, [ADR 0628](adr/0628-the-staff-calendar-feed-and-the-shared-calendar-writer.md),
+`packages/core/src/staffing/feed.ts`, `operations/staffing-feed.ts`,
+`apps/app/src/server/http/staffing-feed.ts`, migration 0814): `GET /api/v1/staffing/feed/<token>.ics`,
+served by cos-app before the HTTP surface and bypassing Access (a calendar app cannot sign in). The
+token (32 random bytes) is the credential: made by the person's own `staffing.feed.rotate` (Rostering's
+`feedRotate`, `humanOnly`), shown once, kept only as its SHA-256 in `core_staff_feed` with the tool that
+made it. A fetch answers while the account is active and may still call that tool, reading the
+account's time claims from 14 days back to 120 days ahead (bounded, never the history); every other
+token gets the surface's own 404. Deactivation and a role, pack role or grant change that takes the
+tool away delete the row in their batch. Limited per address and per token; private, unindexed,
+no Referer. The file is written by `packages/calendar-file`, the zero-dependency iCalendar writer the
+email gatekeeper's calendar file (ADR 0571) shares. A tool may declare `redactResult`: answer keys
+never kept in the audit log, an approval or a stored idempotent reply.
+
 `sellable.moves` ([ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md),
 `packages/core/src/orders/moves.ts` and `refund-due.ts`) is a paid line that moves a record that
 already exists: `order.startHeld` (a tool's only) makes the record in its `held` state (a drop-in
@@ -1797,7 +1811,7 @@ calculates a price, checks a capacity or checks a permission.
 | Content | `publishable`, rich text, slugs, media | stage 28: steps 1 to 6 built (rich text, `publishable` completed, public reads, media, the editor, the pack: posts and categories, hooks, web and native renderers); the first client's import and blog routes are its own repository's |
 | Courses | `publishable`, `sellable` (grants and a tax code), `access` and holders' parts, `states`, `customer` with `requireAccess`, `requires: ["programs"]`, video media and `media.play` | stage 42: steps 1 to 4, 6, 7 and the draft built ([ADR 0478](adr/0478-the-courses-pack.md)); the import and the first client to come |
 | Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `staffed` (a class is its coach's shift, stage 45), `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer` with `guardians`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 6 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md); parents booking for their children, [ADR 0540](adr/0540-the-family-link.md)); step 7, attendance, moves and cancelling a class; step 8, drop-ins with `sellable.moves`, [ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md)); step 9, messages, the reminder, the dashboard and the coach's app screen, [ADR 0572](adr/0572-bookings-messages-the-dashboard-and-the-coachs-app-screen.md); step 10 to come |
-| Rostering | `recurring` (duty series, a horizon from its setting), `staffed` (a duty shift is its person's shift), `states`, a pack role (`rostering.team`), grantable and restricted permissions, the roster's rules (`staffing`), the host's tool-only `staffing.*` operations | stage 45: step 4 built (duties, duty series and shifts, the team role, the roster's tools, settings, [ADR 0626](adr/0626-the-rostering-pack-and-bookings-additions.md)); step 6 built (pay periods: `rostering:pay`, restricted and a person's only, who is counted, totals, the not-worked mark, lock, reopen and export, [ADR 0627](adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md)); checklists (4b), the feed (5) and the screens (7) to come |
+| Rostering | `recurring` (duty series, a horizon from its setting), `staffed` (a duty shift is its person's shift), `states`, a pack role (`rostering.team`), grantable and restricted permissions, the roster's rules (`staffing`), the host's tool-only `staffing.*` operations | stage 45: step 4 built (duties, duty series and shifts, the team role, the roster's tools, settings, [ADR 0626](adr/0626-the-rostering-pack-and-bookings-additions.md)); step 6 built (pay periods: `rostering:pay`, restricted and a person's only, who is counted, totals, the not-worked mark, lock, reopen and export, [ADR 0627](adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md)); step 5 built (each person's private calendar feed: `feed`, `feedRotate`, `feedRevoke`, [ADR 0628](adr/0628-the-staff-calendar-feed-and-the-shared-calendar-writer.md)); checklists (4b) and the screens (7) to come |
 | Memberships | `allowance` (holders), recurring billing with `recurring.grants` and `recurring.pause`, `sellable.onePerPerson`, `humanOnly` tools, `requires: ["programs"]` | stage 32b: steps 5 to 7 built (the behaviour, the pack, plan changes and pauses, the dashboard, views and blocks); the import (step 8) to come |
 
 ### Client repos

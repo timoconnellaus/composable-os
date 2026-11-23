@@ -34,7 +34,9 @@ and the Rostering pack's spine, is built ([ADR 0625](../adr/0625-restricted-pack
 step 4" below). Build step 6, pay periods (who is counted, totals with evidence, the not-worked
 mark, the lock, reopening and the export), is built ([ADR
 0627](../adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md), migration 0813; see
-"Built in step 6" below). Builds on stage
+"Built in step 6" below). Build step 5, the staff calendar feed and the shared calendar writer, is
+built ([ADR 0628](../adr/0628-the-staff-calendar-feed-and-the-shared-calendar-writer.md), ADR 0571
+amended, migration 0814; see "Built in step 5" below). Builds on stage
 31a (built) and ADR 0600 (merged). Replaces the roadmap's placeholder stage 40 (Rosters), which was
 never specced. Where this spec guesses, it says **(guess)**.
 
@@ -914,6 +916,41 @@ migration; no `core_write_guard` remake (0852 stays free).
   is not declared yet: a permission must be a tool's), `feed`/`feedRotate` (step 5), the checklist
   (4b), the dashboards and screens (7), `staffName` with `staffing.forget`, the notices' words in
   the pack (they stay the host's), and the class type's preparation and pack-down minutes (pay).
+
+### Built in step 5 (2026-11-24)
+[ADR 0628](../adr/0628-the-staff-calendar-feed-and-the-shared-calendar-writer.md) (amends ADR 0571),
+migration 0814 (`core_staff_feed`). All new operations are tool-only.
+- **The shared writer** is its own zero-dependency package, `@composable-os/calendar-file`, which the
+  email gatekeeper and cos-app import (ADR 0645's layering); the booking email's file is unchanged
+  line for line. It removes control characters from text before escaping, so no value starts a
+  property or an event.
+- **The feed** as this spec says: `GET /api/v1/staffing/feed/<token>.ics`, served by cos-app before
+  the HTTP surface; the token 32 random bytes (base64url), shown once, kept as its SHA-256. Decided
+  here: **"to the horizon" is 120 days** (the longest a duty horizon setting may reach, so one-off
+  shifts made beyond the weekly pattern show too), at most 500 shifts, read from the time claims;
+  **the event's title is the kind of work and its location the place** (never a class's own title,
+  which a business may write a member's name into); `DTSTAMP` and `LAST-MODIFIED` are the record's
+  last change, so an unchanged roster gives the same bytes; `SEQUENCE:0` (a subscribed calendar
+  replaces by `UID`). An unknown, malformed, rotated or revoked token, a deactivated person's and one
+  without the pack's permission get the surface's own 404, byte for byte; limited per address and
+  per token (`STAFF_FEED_ADDRESS_RATE_LIMIT`, `STAFF_FEED_RATE_LIMIT`).
+- **Who** (decided here, conservatively): the person makes, rotates and revokes their own
+  (`feedRotate`, `feedRevoke`, `humanOnly`, the verified caller a person); **an admin may revoke
+  anyone's but never make or rotate one for them** (rotating would hand the admin someone else's
+  secret); `feed` (whether one exists) is open to an assistant and never holds the address. The
+  tools return the address's path; the screen (step 7) puts the host's origin before it.
+- **Revoked** when the account is deactivated (in `user.deactivate`'s batch), and when
+  `user.updateRole`, `user.setPackRole` or `user.setPermissions` leaves the account unable to call the
+  tool that made it; checked again on every fetch (active, a person, the tool callable, the pack
+  installed and active).
+- **Never kept**: a tool may declare `redactResult` (the SDK, new): Rostering's `feedRotate` declares
+  `path`, so the audit log, an approval's result and the HTTP surface's stored idempotent reply never
+  hold it. Cloudflare's own request logs record URLs when Workers Logs are on (ADR 0628).
+- **Not an operation anyone can name**: the fetch authenticates by the token as a device token's
+  lookup does; `open-operations.json` is unchanged. Under Access the path is in `/api/v1/*`'s bypass
+  and listed on its own in `access-layout.ts` and `docs/deploying.md`.
+- **Not in this step**: the "my calendar" screens (step 7), `staffing.forget` (which will delete the
+  feed with the rest), trying the feed in real calendar apps.
 
 ### Built in step 6 (2026-11-23)
 [ADR 0627](../adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md), migration 0813

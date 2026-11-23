@@ -72,11 +72,27 @@ const countedPerson = defineOperation({
   },
 });
 
+/** A staff write whose answer carries a secret shown once (a calendar feed's address, ADR 0628). */
+const secretOnce = defineOperation({
+  name: "fixture.secretOnce",
+  description: "Fixture: answers a fresh secret once; the host never keeps it.",
+  input: z.object({ text: z.string().min(1).max(200) }),
+  output: z.object({ secret: z.string(), note: z.string() }),
+  permission: "records:write",
+  risk: "write",
+  redactResult: ["secret"],
+  async handler(input, ctx) {
+    ctx.write(db.query.insertInto("core_meta").values({ key: `secret:${input.text}`, value: "x" }));
+    return { secret: `s3cret-${input.text}`, note: "shown once" };
+  },
+});
+
 const registry = createRegistry([
   ...coreRegistry.list(),
   ...fixtureOperations,
   countedCreate,
   countedPerson,
+  secretOnce,
 ]);
 const surface = surfaceOver(registry, outside(PUBLIC));
 
@@ -286,6 +302,27 @@ describe("a write with a key", () => {
       .where("input", "like", `%${queuedText}%`)
       .execute();
     expect(pending).toHaveLength(1);
+  });
+});
+
+describe("an answer's keys the host never keeps (ADR 0628)", () => {
+  it("are sent to the caller once, and redacted in the stored reply a retry replays", async () => {
+    const text = unique("secret");
+    const key = crypto.randomUUID();
+    const staff = context(admin, { origin: { surface: "client" } });
+    const one = await send("fixture.secretOnce", { text }, staff, key);
+    expect(JSON.parse(one.text)).toEqual({
+      data: { secret: `s3cret-${text}`, note: "shown once" },
+    });
+    const stored = await db.query
+      .selectFrom("core_idempotency_key")
+      .select("response")
+      .where("idempotency_key", "=", key)
+      .executeTakeFirst();
+    expect(stored?.response).not.toContain("s3cret");
+    const two = await send("fixture.secretOnce", { text }, staff, key);
+    expect(two.replayed).toBe(true);
+    expect(JSON.parse(two.text)).toEqual({ data: { secret: "[redacted]", note: "shown once" } });
   });
 });
 

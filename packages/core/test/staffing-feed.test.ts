@@ -12,12 +12,7 @@
 import { env } from "cloudflare:workers";
 import { beforeAll, describe, expect, it } from "vitest";
 import { type ActingUser, invokeByName } from "../src/index.ts";
-import {
-  FEED_TOKEN_RE,
-  feedTokenHash,
-  newFeedToken,
-  readStaffFeed,
-} from "../src/staffing/feed.ts";
+import { FEED_TOKEN_RE, feedTokenHash, newFeedToken, readStaffFeed } from "../src/staffing/feed.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
 import { context, createUser, db } from "./helpers.ts";
 
@@ -166,8 +161,18 @@ const installed = {
   grantable: [`${ext}:roster`, `${ext}:manage`],
   restricted: [`${ext}:manage`],
   roles: {
-    team: { label: "Team", description: "The roster and their own shifts only, nothing else.", permissions: [`${ext}:team`], read: [] },
-    coach: { label: "Coach", description: "Classes today only: nothing of the roster at all.", permissions: [`${ext}:coach`], read: [] },
+    team: {
+      label: "Team",
+      description: "The roster and their own shifts only, nothing else.",
+      permissions: [`${ext}:team`],
+      read: [],
+    },
+    coach: {
+      label: "Coach",
+      description: "Classes today only: nothing of the roster at all.",
+      permissions: [`${ext}:coach`],
+      read: [],
+    },
   },
   staffing: { rosters: `${ext}:manage` },
   tools: {
@@ -201,8 +206,12 @@ const feedTool = (user: ActingUser, caller: Caller = {}) =>
       },
     },
   });
-const call = <T = Record<string, unknown>>(name: string, user: ActingUser, input = {}, c?: Caller) =>
-  invokeByName(name, input, feedTool(user, c)) as Promise<T>;
+const call = <T = Record<string, unknown>>(
+  name: string,
+  user: ActingUser,
+  input = {},
+  c?: Caller,
+) => invokeByName(name, input, feedTool(user, c)) as Promise<T>;
 /** A new address for `user`: the token from the path the person is shown once. */
 async function rotate(user: ActingUser): Promise<string> {
   const { path } = await call<{ path: string }>("staffing.feed.rotate", user);

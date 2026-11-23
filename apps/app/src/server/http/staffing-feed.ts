@@ -95,7 +95,11 @@ export async function handleStaffFeed(
   if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response(JSON.stringify({ error: { code: "invalid_input", message: "Use GET" } }), {
       status: 405,
-      headers: { "content-type": "application/json; charset=utf-8", allow: "GET, HEAD", ...PRIVATE },
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        allow: "GET, HEAD",
+        ...PRIVATE,
+      },
     });
   }
   try {

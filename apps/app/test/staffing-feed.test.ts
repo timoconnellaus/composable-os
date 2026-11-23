@@ -167,7 +167,10 @@ function parse(ics: string): string[] {
   for (const line of ics.split("\r\n")) {
     expect(new TextEncoder().encode(line).byteLength).toBeLessThanOrEqual(75);
   }
-  const lines = ics.replace(/\r\n[ \t]/g, "").split("\r\n").filter(Boolean);
+  const lines = ics
+    .replace(/\r\n[ \t]/g, "")
+    .split("\r\n")
+    .filter(Boolean);
   const stack: string[] = [];
   for (const line of lines) {
     expect(line).toMatch(/^[A-Z][A-Z0-9-]*(;[A-Z0-9-]+=[^;:]+)*:/);
@@ -253,9 +256,7 @@ describe("the feed (criterion 9)", () => {
     expect(lines).toContain("DTSTART:20260617T090000Z");
     expect(lines).toContain("DTEND:20260617T094500Z");
     expect(lines).toContain("SUMMARY:Close-down clean\\, back\\; room\\\\");
-    expect(lines).toContain(
-      "LOCATION:Main floor\\nEND:VEVENT\\nBEGIN:VEVENT\\nX-EVIL:1",
-    );
+    expect(lines).toContain("LOCATION:Main floor\\nEND:VEVENT\\nBEGIN:VEVENT\\nX-EVIL:1");
     expect(lines.filter((l) => l.startsWith("X-EVIL"))).toEqual([]);
     // Nothing of anyone else, nothing a business typed about a member.
     for (const absent of ["Ann", "Zed", "Studio A", ann.id, "notes"]) {
@@ -287,7 +288,12 @@ describe("a token that opens nothing (criterion 9)", () => {
       { id: left.id, confirm: 0 },
       {
         actor: "human",
-        user: { id: (await person("Ad2 Fixture", "admin")).id, email: "b@example.com", name: "Ad2", role: "admin" },
+        user: {
+          id: (await person("Ad2 Fixture", "admin")).id,
+          email: "b@example.com",
+          name: "Ad2",
+          role: "admin",
+        },
         origin: { surface: "ui" },
         db,
       },
@@ -363,7 +369,9 @@ describe("the token is never logged", () => {
     const lines: string[] = [];
     for (const level of ["log", "info", "warn", "error", "debug"] as const) {
       vi.spyOn(console, level).mockImplementation((...args: unknown[]) => {
-        lines.push(args.map((a) => (a instanceof Error ? `${a.message} ${a.stack}` : String(a))).join(" "));
+        lines.push(
+          args.map((a) => (a instanceof Error ? `${a.message} ${a.stack}` : String(a))).join(" "),
+        );
       });
     }
     await get(path(sam.token));
