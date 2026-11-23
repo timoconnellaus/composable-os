@@ -568,6 +568,10 @@
       "sha256": "2d744aeb49e99bbaa2254189c3926304ab0c7964d7a8e419922073da58288fb1"
     },
     {
+      "name": "0811_staff_time.sql",
+      "sha256": "9346471a1be80bf58d02c22cd0e5e258e404d66f5be12900af6f8e17a5fbfcd6"
+    },
+    {
       "name": "0850_agreements.sql",
       "sha256": "ac44a255fe73e8195da0f8ef6fed7572e561918517d138581094d9f46e2789e5"
     },

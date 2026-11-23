@@ -22,7 +22,10 @@ step 1); stage [31](31-bookings.md) (all of 31a, and 31b's time-range claim); `p
 
 Status: **spec agreed** (owner interviewed 2026-11-23 and answered the open questions the same day:
 decisions 14 to 25). Build step 1, field-level exceptions in `recurring`, is built
-([ADR 0620](../adr/0620-field-level-exceptions-in-recurring.md), migration 0810). Builds on stage
+([ADR 0620](../adr/0620-field-level-exceptions-in-recurring.md), migration 0810). Build step 2,
+`staffed` and the time claim, is built ([ADR 0621](../adr/0621-the-staffed-behaviour-and-the-time-claim.md),
+[ADR 0622](../adr/0622-warnings-in-a-writes-answer.md), migration 0811; see "Built in step 2"
+below). Builds on stage
 31a (built) and ADR 0600 (merged). Replaces the roadmap's placeholder stage 40 (Rosters), which was
 never specced. Where this spec guesses, it says **(guess)**.
 
@@ -759,7 +762,7 @@ trigger keeping a completed run unchanged). No `x_*` table is touched by a migra
 | Step | What | Files it touches | Runs beside stages 31, 32, 43 and 44? |
 | --- | --- | --- | --- |
 | 1 | **Field-level exceptions** in `recurring` (**built**: ADR 0620, migration 0810, `recurring.follow`, `recurring.exceptions`) | `packages/core/src/recurring/`, `operations/recurring.ts`, a migration | Built. 31a step 10's import must write a coach that differs from its series as a field exception (ADR 0620, Consequences) |
-| 2 | **`staffed` and the time claim**: the declaration, `core_staff_time` and its trigger, warnings in the write's answer, `staffing.check`; Bookings' class declares it, `bookings.coach.user` unique | `packages/sdk` (the declaration, contract), `packages/core/src/staffing/` (new), `records/` writes (the claim in the batch), a migration, `packs/bookings/index.ts` | **Yes, now**, but **not beside 31b** (same piece: one session builds it) and agree with stage 44 step 2 on the order of `core_write_guard` migrations |
+| 2 | **`staffed` and the time claim** (**built**: ADRs 0621 and 0622, migration 0811): the declaration, `core_staff_time` and its trigger, warnings in the write's answer, `staffing.check`; Bookings' class declares it, `bookings.coach.user` unique | `packages/sdk` (the declaration, contract), `packages/core/src/staffing/` (new), `records/` writes (the claim in the batch), a migration, `packs/bookings/index.ts` | **Yes, now**, but **not beside 31b** (same piece: one session builds it) and agree with stage 44 step 2 on the order of `core_write_guard` migrations |
 | 3 | **Qualifications, unavailability, offers and takes, uncovered**, the host's notices, `user.deactivate`'s answer | `staffing/`, `operations/user.ts` (deactivate), notifications, a migration | After step 2. Beside 43 and 44, which do not touch these files |
 | 4 | **Permissions**: restricted pack permissions; the `rostering.team` role; the Rostering pack's spine (duties, duty series, duty shifts with a time and a person, tools, settings); `personApproves` on Bookings' coach fields | `pack-roles.ts`, `extensions/tools.ts`, `packages/sdk/src/manifest.ts`, `packs/rostering` (new), `packs/bookings/index.ts` | ADR 0600 has merged, so after steps 2 and 3. Not beside other pack-role work |
 | 4b | **Checklists**: the templates, steps, runs and ticks, the `checklists` declaration and the `checklist` field type, the immutability trigger, the read rule (the person and rosterers only), Settings → Checklists, the duty's `checklist`, ticking on "my shifts" | `packages/core/src/checklists/` (new), `packages/sdk` (the declaration, the field type), a migration, `packs/rostering` | After step 4, beside 5 to 7: the roster does not wait for it (decision 15) |
@@ -767,6 +770,33 @@ trigger keeping a completed run unchanged). No `x_*` table is touched by a migra
 | 6 | **Pay**: the basis, periods, totals with evidence, lock, export | `staffing/pay.ts` (new), `packs/rostering` tools, a migration | Yes, after step 3 |
 | 7 | **Blocks and hooks**: the week grid, assign, patterns, qualifications, pay (web); my shifts, offers, availability, calendar, the roster (web and native); role clients with grants; `cos rostering import`; the checklist blocks once 4b is merged | `packs/rostering/blocks`, `client/`, `packages/client` codegen (`mobile.roles`), `packages/create-composable-os` | Yes, once steps 3 and 4 are merged |
 | 8 | **The first client**: invites, qualifications, patterns from the moved timetable, a fortnight's pay export checked by the owner | The first client's own repository | After 7, with stage 33 |
+
+### Built in step 2 (2026-11-23)
+- **The claim is kept by triggers, not written by each operation.** The reconciler builds `AFTER`
+  triggers on the staffed object's own table and on the account holder's (the coach profile), which
+  derive each row's claim from the row as stored (`packages/core/src/staffing/sql.ts`); the claims'
+  own `BEFORE INSERT` and `BEFORE UPDATE` triggers refuse the overlap. So every write path (create,
+  update, move, cancel, Trash, restore, erase, merge, import, generation, series changes, field
+  exceptions, `recurring.follow`) writes its claim in the statement that writes the shift, and the
+  tests write `INSERT OR REPLACE`, upserts, `UPDATE OR REPLACE` and id changes to all three tables.
+  The TypeScript read before the write (`packages/core/src/staffing/index.ts`) only names the other
+  shift, keeps the batch's queued claims, uncovers a clashing generated date, and refuses a series
+  change naming its dates.
+- **Bookings' class is live in `scheduled` and `done`** (not `scheduled` alone, as this spec's
+  example has it): a class done still counts for pay, and its time was worked.
+- **The warnings' tables are made in this step** (`core_staff_qualification`, `core_staff_away`),
+  so the warnings and `staffing.check` are whole now; their writers (`staffing.qualify`,
+  `staffing.away`, `staffing.back`) are step 3's. Until then every covered class answers
+  `not_qualified`. A one-off unavailability is stored as instants with its zone.
+- **The uncovered window is 14 days, fixed** until the Rostering pack's setting (step 4). No
+  notices are sent in this step (step 3's): a date the generation leaves uncovered is kept as a
+  field exception on the person, so the series does not write the clash back.
+- **`staffing.check` is tool-only for staff**: ADR 0414's `toolOnly` now covers a staff-only
+  operation (the pipeline refuses a call that is not a tool's run, the contract leaves it out); the
+  handler also refuses a runtime extension's tool. Nothing calls it until Rostering's tools (step
+  4).
+- **Not in this step**: `staffName` (with `staffing.forget`), the `pay_period_locked` refusal and
+  the notices.
 
 **The spine is steps 2 to 4**: without the claim, the rules and the permissions, nothing can be
 rostered safely. Step 1 is built; step 2 can start now and is the riskiest (every write that covers

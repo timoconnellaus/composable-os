@@ -55,16 +55,17 @@ commit**, by editing this table. Use the next free block. Unused numbers in a bl
 | AQ | 0710–0729 | 0570–0579 | Stage 31a step 9, messages, the reminder, the calendar file and the dashboard (`feat/stage-31a-messages`) | in flight |
 | AT | 0770–0789 | 0600–0609 | A coach who also works the desk (`feat/coach-desk-permissions`, issue #258): `bookings:desk`, grants on a pack-role account adding up with its role; migration 0770, ADR 0600 | in flight |
 | AU | 0790–0809 | 0610–0619 | Stage 46, Hosted clients (spec and ADR 0610; no migrations yet) | specced |
-| AV | 0810–0829 | 0620–0629 | Stage 45, Rostering. Step 1, field-level exceptions in `recurring` (`feat/stage-45-recurring-exceptions`): migration 0810, ADR 0620; the later steps take theirs from here (AS is claimed on its branch) | in flight |
+| AV | 0810–0829 | 0620–0629 | Stage 45, Rostering. Step 1, field-level exceptions in `recurring` (`feat/stage-45-recurring-exceptions`): migration 0810, ADR 0620. Step 2, `staffed` and the time claim (`feat/stage-45-staffed`): migration 0811, ADRs 0621 and 0622 (no `core_write_guard` remake); the later steps take theirs from here (AS is claimed on its branch) | in flight |
 | AW | 0830–0849 | 0630–0639 | CI on Namespace runners (`ci/namespace-runners`): the runner choice, the fork rule, the cache volume; ADR 0630, no migrations | in flight |
 | AX | 0850–0869 | 0640–0649 | Stage 44, Agreements. Step 1, documents and versions (`feat/stage-44-documents`): migration 0850, ADRs 0640 and 0641. Step 2, acceptances and the one question (`feat/stage-44-acceptances`): migration 0851 (remakes `core_write_guard` with the `agreements` kind), ADRs 0642 and 0643; the later steps take theirs from here. First claimed as AU, which stage 46 took on `main` first; AV is claimed on its branch (`feat/stage-45-recurring-exceptions`) | in flight |
 
 **`core_write_guard` remakes come in order.** Each kind added drops and recreates the table and its
 trigger, carrying every earlier kind. Stage 44 step 2's remake (migration 0851, kind `agreements`)
-comes first; stage 45 step 2 (another kind, not started) rebases on it and carries `agreements`
-forward. Its remake must sort after 0851 (a fresh database applies migrations in number order, so
-a lower-numbered remake would be dropped by 0851's): take a number above 0851 for it, from block
-AX by agreement if block AV's are lower.
+comes first. Stage 45 step 2 needed no guard kind (its time claim is a table and triggers of its
+own, migration 0811). Stage 45's next remake (step 3's offers, a `staff_offer` kind) carries
+`agreements` and every earlier kind forward and must sort after 0851 (a fresh database applies
+migrations in number order, so a lower-numbered remake would be dropped by 0851's): it takes
+migration 0852 from block AX, as agreed, unless a later remake has landed, then the next above it.
 
 Migrations 0390–0399 and ADRs 0353–0399 are unclaimed. Add more blocks of ten as needed. `CORE_SCHEMA_VERSION` is the highest migration number on `main`;
 when you merge `main`, keep the larger value.

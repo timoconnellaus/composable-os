@@ -27,6 +27,14 @@ import { FIELD_TYPE_REGISTRY } from "../fields/field-types.ts";
 import { getObject } from "../fields/index.ts";
 import { dropRecurringStatements } from "../recurring/bookkeeping.ts";
 import { loadGeneralSettings, ORG_TIMEZONE_SETTING } from "../settings.ts";
+import {
+  clashQuery,
+  createStaffedTriggers,
+  dropClaims,
+  dropStaffedTriggers,
+  resyncClaims,
+  type StaffedTables,
+} from "../staffing/sql.ts";
 import { orgReader, visibleSource } from "../visibility/index.ts";
 import {
   columnName,
@@ -86,7 +94,8 @@ export interface ReconcileIssue {
     | "seed"
     | "unique_conflict"
     | "claims_conflict"
-    | "grants_conflict";
+    | "grants_conflict"
+    | "staffed_conflict";
   path: string;
   message: string;
   suggestion?: string;
@@ -238,6 +247,21 @@ async function dataIssues(
         });
       }
     }
+    // A shift declaration over records that already put one person on two overlapping shifts
+    // (imported data) is refused before its triggers are built, naming them (ADR 0621).
+    const staffed = staffedTables(next, object);
+    if (staffed && staffedColumnsExist(current, staffed)) {
+      const clash = await sql
+        .raw<{ record: string; other_object: string; other: string }>(clashQuery(staffed))
+        .execute(db);
+      if (clash.rows.length) {
+        issues.push({
+          code: "staffed_conflict",
+          path: `objects.${object.localName}.staffed`,
+          message: `${object.name}: these records would put one person on two overlapping shifts: ${clash.rows.map((r) => `${r.record} and ${r.other_object} ${r.other}`).join("; ")}. Change their person or time first.`,
+        });
+      }
+    }
     // What a plan's subscriptions grant (ADR 0510) cannot be dropped or changed while a
     // subscription still running holds a record of it: its records would stop following it and
     // keep what they give for good. End those first, or keep the declaration.
@@ -365,6 +389,7 @@ export function planFromState(
       ...(object.claims ? { claims: object.claims } : {}),
       ...(object.unique?.length ? { unique: object.unique } : {}),
       ...(object.recurring ? { recurring: object.recurring } : {}),
+      ...(object.staffed ? { staffed: object.staffed } : {}),
       ...(object.owner ? { owner: object.owner } : {}),
       ...(object.customer ? { customer: object.customer } : {}),
       ...(object.public ? { public: object.public } : {}),
@@ -734,6 +759,15 @@ export function planFromState(
         `CREATE UNIQUE INDEX IF NOT EXISTS ${index.name} ON ${ident(object.tableName)} (${index.columns.join(", ")}) WHERE ${index.where}`,
       );
     }
+    // A shift's person (ADR 0621): its holder's triggers find its shifts by it.
+    const staffed = staffedTables(next, object);
+    if (staffed) {
+      const name = ident(`${object.tableName}__${staffed.who}`);
+      wanted.set(
+        name,
+        `CREATE INDEX IF NOT EXISTS ${name} ON ${ident(object.tableName)} (${ident(staffed.who)}) WHERE deleted_at IS NULL`,
+      );
+    }
     const existing = (current.indexes ?? []).filter(
       (index) => index.table === object.tableName && index.name.startsWith(`${object.tableName}__`),
     );
@@ -749,14 +783,18 @@ export function planFromState(
     }
   }
 
+  // The time claim (ADR 0621): the triggers keeping each shift's claim are dropped before the
+  // table changes and built again after them, and every claim is derived again from the records.
+  const staffed = staffedPlan(current, next, ext);
   return finishPlan(
     db,
     ext,
     current,
     next,
-    tableDdl,
+    [...staffed.drops, ...tableDdl, ...staffed.creates],
     [
       ...dataStatements,
+      ...staffed.statements,
       ...seedWrites,
       ...capacityBackfill(next, ext, now),
       ...allowanceBackfill(next, ext, orgZone, now),
@@ -1094,6 +1132,86 @@ function allowanceBackfill(
     );
   }
   return statements;
+}
+
+/**
+ * The tables and columns a staffed object's claim is derived from (staffing/sql.ts), from a schema
+ * state, or null when the object declares no `staffed` or a field it names has no column.
+ */
+function staffedTables(state: SchemaState, object: ObjectState): StaffedTables | null {
+  const declared = object.definition.staffed;
+  const states = object.definition.states;
+  if (!declared || !states) return null;
+  const field = (o: ObjectState, local: string) =>
+    state.fields.find(
+      (f) =>
+        f.object === o.name &&
+        f.extensionId === o.extensionId &&
+        f.localName === local &&
+        f.tableName === o.tableName &&
+        f.status === "active",
+    );
+  const who = field(object, declared.who.field);
+  const starts = field(object, declared.starts)?.columnName;
+  const ends = field(object, declared.ends)?.columnName;
+  const stateColumn = field(object, states.field)?.columnName;
+  if (!who?.columnName || !starts || !ends || !stateColumn) return null;
+  let account: StaffedTables["account"];
+  if (declared.who.account) {
+    const holder = state.objects.find((o) => o.name === who.definition.to && o.status === "active");
+    const column = holder ? field(holder, declared.who.account)?.columnName : undefined;
+    if (!holder || !column) return null;
+    account = { table: holder.tableName, column };
+  }
+  return {
+    object: object.name,
+    table: object.tableName,
+    who: who.columnName,
+    ...(account ? { account } : {}),
+    starts,
+    ends,
+    state: stateColumn,
+    live: [...declared.live],
+  };
+}
+
+/** Whether every column `t` reads exists already (a field added in this plan has no records). */
+function staffedColumnsExist(current: SchemaState, t: StaffedTables): boolean {
+  const has = (table: string, column: string) =>
+    current.fields.some((f) => f.tableName === table && f.columnName === column);
+  return (
+    [t.who, t.starts, t.ends, t.state].every((c) => has(t.table, c)) &&
+    (!t.account || has(t.account.table, t.account.column))
+  );
+}
+
+/**
+ * What a reconcile of `ext` does to the time claim (ADR 0621): drop the triggers of every object
+ * that declared `staffed` (by the names they had), build them again for every active object that
+ * declares it, derive its claims again, and drop the claims of objects that no longer do.
+ */
+function staffedPlan(current: SchemaState, next: SchemaState, ext: string) {
+  const drops: string[] = [];
+  const creates: string[] = [];
+  const statements: CompiledQuery[] = [];
+  const was = current.objects.filter((o) => o.extensionId === ext && o.definition.staffed);
+  for (const object of was) {
+    const t = staffedTables(current, object);
+    if (t) drops.push(...dropStaffedTriggers(t));
+  }
+  const now = new Set<string>();
+  for (const object of next.objects) {
+    if (object.extensionId !== ext || object.status !== "active") continue;
+    const t = staffedTables(next, object);
+    if (!t) continue;
+    now.add(object.name);
+    creates.push(...createStaffedTriggers(t));
+    statements.push(...resyncClaims(t));
+  }
+  for (const object of was) {
+    if (!now.has(object.name)) statements.push(dropClaims(object.name));
+  }
+  return { drops, creates, statements };
 }
 
 /** Applies a plan atomically (one D1 batch). Refuses plans with issues. */
