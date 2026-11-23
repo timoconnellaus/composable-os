@@ -23,6 +23,7 @@ import { auditOperations } from "./audit.ts";
 import { automationOperations } from "./automation.ts";
 import { automationBindingOperations } from "./automation-binding.ts";
 import { capacityOperations } from "./capacity.ts";
+import { checklistOperations } from "./checklist.ts";
 import { codeOperations } from "./code.ts";
 import { connectedAppOperations } from "./connected-app.ts";
 import { contentOperations } from "./content.ts";
@@ -177,6 +178,7 @@ export const coreOperations = [
   ...staffingFeedOperations,
   ...staffingPayOperations,
   ...staffingScreenOperations,
+  ...checklistOperations,
   ...allowanceOperations,
   ...waitlistOperations,
   ...agreementOperations,

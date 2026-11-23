@@ -9,6 +9,7 @@
 // people, the kinds' names, the places and the open offers; the warnings from one read of the
 // qualifications and one of the unavailabilities of the people on it. A range is at most 62 days.
 import { sql } from "kysely";
+import { declaredOf, recordFacts, templateCopies, usable } from "../checklists/index.ts";
 import { objectTableOf } from "../extensions/schema.ts";
 import { getObject, listObjects } from "../fields/index.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
@@ -40,7 +41,16 @@ export interface RosterShift {
   offer: { id: string; to: string | null; from: string | null } | null;
   /** A rosterer's read only (null otherwise). */
   warnings: StaffWarning[] | null;
+  /**
+   * Its checklist (stage 45 step 4b, ADR 0650), or null when it has none. Everyone sees that it
+   * has one and its name; how it is going (`state`) only its person and those who roster, at the
+   * screen (null for anyone else, and for any AI).
+   */
+  checklist: { name: string; state: ChecklistState | null } | null;
 }
+
+/** How a shift's checklist is going, as the roster shows it. */
+export type ChecklistState = "not_started" | "in_progress" | "done" | "missed" | "cancelled";
 
 /** The most shifts one object gives one read; more, and the answer says it was cut short. */
 export const PER_OBJECT = 1000;
@@ -84,7 +94,12 @@ export async function rosterRange(
   ctx: HandlerContext,
   range: { from: number; to: number; account?: string | undefined },
   reader: string,
-  options: { warnings: boolean; uncoveredDays: number },
+  options: {
+    warnings: boolean;
+    uncoveredDays: number;
+    /** Whose checklists' states the reader sees: everyone's (a rosterer), their own, or none. */
+    checklists?: "all" | "own" | "none";
+  },
 ): Promise<{ shifts: RosterShift[]; truncated: boolean }> {
   const out: RosterShift[] = [];
   let truncated = false;
@@ -190,6 +205,7 @@ export async function rosterRange(
         mine: account !== null && account === reader,
         offer: null,
         warnings: null,
+        checklist: null,
       });
     }
   }
@@ -221,10 +237,67 @@ export async function rosterRange(
     }
   }
   if (options.warnings) await addWarnings(ctx, out, options.uncoveredDays);
+  await addChecklists(ctx, out, reader, options.checklists ?? "none");
   return {
     shifts: out.sort((a, b) => a.startsAt.localeCompare(b.startsAt) || a.id.localeCompare(b.id)),
     truncated,
   };
+}
+
+/**
+ * Each shift's checklist (ADR 0650), set-based: per object that declares `checklists`, one read of
+ * its shifts' templates, one of their runs (with how many steps are ticked), and one of the
+ * templates' names. The state only for whom `who` lets see it.
+ */
+async function addChecklists(
+  ctx: HandlerContext,
+  shifts: RosterShift[],
+  reader: string,
+  who: "all" | "own" | "none",
+): Promise<void> {
+  for (const objectName of new Set(shifts.map((s) => s.object))) {
+    const d = declaredOf(objectName);
+    if (!d) continue;
+    const mine = shifts.filter((s) => s.object === objectName);
+    const ids = mine.map((s) => s.id);
+    const facts = await recordFacts(ctx.db, d, ids);
+    const runs = await ctx.db
+      .selectFrom("core_checklist_run as r")
+      .select([
+        "r.record_id",
+        "r.name",
+        "r.state",
+        "r.account_id",
+        sql<number>`(SELECT count(*) FROM core_checklist_tick t WHERE t.run_id = r.id)`.as(
+          "ticked",
+        ),
+      ])
+      .where("r.object_type", "=", objectName)
+      .where("r.record_id", "in", jsonList(ids))
+      .execute();
+    const runOf = new Map(runs.map((r) => [r.record_id, r]));
+    const templates = await templateCopies(
+      ctx.db,
+      [...facts.values()]
+        .filter((f) => f.template && !runOf.has(f.id))
+        .map((f) => f.template as string),
+    );
+    for (const s of mine) {
+      const run = runOf.get(s.id);
+      const template = templates.get(facts.get(s.id)?.template ?? "");
+      if (!run && !usable(template)) continue;
+      const sees =
+        who === "all" || (who === "own" && (s.account === reader || run?.account_id === reader));
+      const state: ChecklistState = !run
+        ? "not_started"
+        : run.state === "open"
+          ? Number(run.ticked) > 0
+            ? "in_progress"
+            : "not_started"
+          : run.state;
+      s.checklist = { name: run?.name ?? template?.name ?? "", state: sees ? state : null };
+    }
+  }
 }
 
 /**

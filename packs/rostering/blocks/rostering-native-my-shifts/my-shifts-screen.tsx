@@ -7,7 +7,8 @@
 //
 // The host decides and this shows: an offered shift stays mine until taken; an offer nobody could
 // take, one past the cut-off, or one already made is refused with its own words. Room is left for
-// a duty shift's checklist (`shiftExtra`, step 4b) and my calendar's address (`calendar`, step 5).
+// a duty shift's checklist (`shiftExtra`: rostering-native-checklist's ShiftChecklistNative) and my
+// calendar's address (`calendar`, step 5).
 import {
   addDays,
   dateIn,

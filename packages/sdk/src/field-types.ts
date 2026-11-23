@@ -36,6 +36,9 @@ export const FIELD_TYPES = [
   // A video from the media library, held in Cloudflare Stream, played only with a token the host
   // signs (stage 42, ADR 0475).
   "video",
+  // One of the business's checklist templates, by id (stage 45 step 4b, ADR 0650): an active one
+  // is checked on write. Named by an object's `checklists` declaration.
+  "checklist",
 ] as const;
 export type FieldTypeName = (typeof FIELD_TYPES)[number];
 
@@ -54,6 +57,7 @@ export function formulaTypeOf(
     case "url":
     case "timezone":
     case "slug":
+    case "checklist":
       return "text";
     case "relation":
       return many ? null : "text";
@@ -104,6 +108,7 @@ export const LOSSLESS_TYPE_CHANGES: Readonly<Record<FieldTypeName, readonly Fiel
   slug: ["text", "longText"],
   image: [],
   video: [],
+  checklist: [],
 };
 
 export function isLosslessChange(from: FieldTypeName, to: FieldTypeName): boolean {

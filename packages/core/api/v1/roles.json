@@ -27,6 +27,8 @@
       "operations": [
         "x.rostering.away",
         "x.rostering.back",
+        "x.rostering.checklist",
+        "x.rostering.checklistDone",
         "x.rostering.feed",
         "x.rostering.feedRevoke",
         "x.rostering.feedRotate",
@@ -36,6 +38,7 @@
         "x.rostering.offer",
         "x.rostering.offers",
         "x.rostering.take",
+        "x.rostering.tick",
         "x.rostering.week",
         "x.rostering.withdraw"
       ]
@@ -82,7 +85,7 @@
     {
       "permission": "rostering:manage",
       "pack": "rostering",
-      "label": "Rostering, rosters others: put people on shifts, say who may do which work, record others' time off and see everyone's, see shifts with nobody on them, and mark a shift not worked. Admins hold it.",
+      "label": "Rostering, rosters others: put people on shifts, say who may do which work, record others' time off and see everyone's, see shifts with nobody on them, mark a shift not worked, and see how everyone's checklists went and tick one for someone. Admins hold it.",
       "restricted": true,
       "operations": [
         "x.rostering.assign",
@@ -90,6 +93,8 @@
         "x.rostering.awayList",
         "x.rostering.candidates",
         "x.rostering.check",
+        "x.rostering.checklistCorrect",
+        "x.rostering.checklistRuns",
         "x.rostering.follow",
         "x.rostering.markNotWorked",
         "x.rostering.patterns",
@@ -124,6 +129,8 @@
       "operations": [
         "x.rostering.away",
         "x.rostering.back",
+        "x.rostering.checklist",
+        "x.rostering.checklistDone",
         "x.rostering.feed",
         "x.rostering.feedRevoke",
         "x.rostering.feedRotate",
@@ -133,6 +140,7 @@
         "x.rostering.offer",
         "x.rostering.offers",
         "x.rostering.take",
+        "x.rostering.tick",
         "x.rostering.week",
         "x.rostering.withdraw"
       ]

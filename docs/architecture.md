@@ -1233,6 +1233,25 @@ no Referer. The file is written by `packages/calendar-file`, the zero-dependency
 email gatekeeper's calendar file (ADR 0571) shares. A tool may declare `redactResult`: answer keys
 never kept in the audit log, an approval or a stored idempotent reply.
 
+**Checklists** (stage 45 step 4b, [ADR 0650](adr/0650-checklists-templates-runs-ticks-and-a-done-run-kept-unchanged.md),
+`packages/core/src/checklists/`, `operations/checklist.ts`, migration 0815): a platform piece any
+pack composes. Templates (`core_checklist`, `core_checklist_step`) are read by every staff account
+and written with `checklists:write` (a grantable core permission; an AI's save waits for a person
+who holds it); Settings → Checklists is their admin screen. A `checklist` field names an active
+template; an object declares `checklists: { template, who, opens, closes, live }` (shipped packs and
+the org's own only), as Rostering's duty shift does through `duty.checklist`. Each live record with a
+template gets one **run** (`core_checklist_run`), its steps copied as they were, made by the minute
+cron's `checklist.due` a day before it opens (or by the first tick); the cron keeps an open run's
+person and times with its record and closes it after its end and 2 hours' grace, as missed (the
+rosterers told in one person-only notice) or cancelled. Ticks (`core_checklist_tick`) keep who
+ticked and for whom: the record's person, or someone who rosters on their behalf with why. A done
+run never changes: triggers refuse every change of it, its ticks and its corrections
+(`core_checklist_note`) for every statement shape, and no host step writes what they refuse. The
+tool-only operations (`checklist.forRecord`, `.tick`, `.complete`, `.correct`, `.runs`) answer only the
+run's person and people who roster, at the screen, never an AI; the tables are in no `rec_*` view.
+`staffing.week` gives everyone a shift's checklist name and its state only to its person and
+rosterers. Notes and reasons are redacted from the audit log and never answered by a write.
+
 `sellable.moves` ([ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md),
 `packages/core/src/orders/moves.ts` and `refund-due.ts`) is a paid line that moves a record that
 already exists: `order.startHeld` (a tool's only) makes the record in its `held` state (a drop-in

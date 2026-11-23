@@ -88,7 +88,9 @@
         "packs/rostering/blocks/rostering-qualifications/**",
         "packs/rostering/blocks/rostering-away/**",
         "packs/rostering/blocks/rostering-pay/**",
-        "packs/rostering/blocks/rostering-my-calendar/**"
+        "packs/rostering/blocks/rostering-my-calendar/**",
+        "packs/rostering/blocks/rostering-checklist/**",
+        "packs/rostering/blocks/rostering-checklists/**"
       ],
       "linter": { "rules": { "correctness": { "noReactNativeRawText": "off" } } }
     },

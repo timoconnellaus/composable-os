@@ -170,6 +170,7 @@ export * from "./operations/assignment.ts";
 export * from "./operations/assistant.ts";
 export * from "./operations/audit.ts";
 export * from "./operations/automation.ts";
+export { runChecklistDue } from "./operations/checklist.ts";
 export * from "./operations/code.ts";
 export * from "./operations/connected-app.ts";
 export * from "./operations/content.ts";

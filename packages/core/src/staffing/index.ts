@@ -14,6 +14,11 @@
 //   shift left with nobody on it within the uncovered window (`uncovered`). The write's answer and
 //   its audit row carry them; `staffing.check` gives the same answer before the write.
 import { CompiledQuery, type Kysely, sql } from "kysely";
+import {
+  checklistTemplateFields,
+  checklistViaFields,
+  holdersCarryChecklist,
+} from "../checklists/index.ts";
 import { ConflictError, ValidationError } from "../errors.ts";
 import { objectTableOf } from "../extensions/schema.ts";
 import { getObject, listObjects } from "../fields/index.ts";
@@ -363,6 +368,20 @@ export async function assertRosterWrite(
   if (changes(payMinuteFields(object)).length) {
     await assertMayRoster(ctx, "change the set-up and pack-down minutes pay counts");
   }
+  // Which checklist staff tick off on a kind of work (a duty's `checklist`, ADR 0650, the review of
+  // PR #298): a rosterer's, or a member could make a checklist disappear before it is missed.
+  if (changes(checklistTemplateFields(object)).length) {
+    await assertMayRoster(ctx, "change which checklist is ticked off");
+  }
+  // ...and so is moving a record to another holder of a checklist, or off one (a shift's duty).
+  if (before !== null) {
+    for (const via of checklistViaFields(object)) {
+      if (!changes([via.field]).length) continue;
+      if (await holdersCarryChecklist(ctx.db, via.holder, [before[via.field], after[via.field]])) {
+        await assertMayRoster(ctx, "change which checklist is ticked off");
+      }
+    }
+  }
   if (movesStartedShift(object, before, after, ctx.now)) {
     await assertMayRoster(
       ctx,
@@ -399,9 +418,12 @@ export async function assertRosterRestore(
 
 /** Whether `values` (a write of `object`) would set who works shifts: for an approval (ADR 0626). */
 export function setsRosterFields(object: ObjectDefinition, values: Record<string, unknown>) {
-  return [...rosterFields(object, false), ...payMinuteFields(object)].some((f) =>
-    Object.hasOwn(values, f),
-  );
+  return [
+    ...rosterFields(object, false),
+    ...payMinuteFields(object),
+    ...checklistTemplateFields(object),
+    ...checklistViaFields(object).map((v) => v.field),
+  ].some((f) => Object.hasOwn(values, f));
 }
 
 /**

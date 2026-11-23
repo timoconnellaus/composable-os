@@ -23,6 +23,7 @@ import {
   type RunToolResult,
   retryOutbox,
   runAgreementsDue,
+  runChecklistDue,
   runDuplicateCron,
   runPublishDue,
   runRecurringDue,
@@ -382,6 +383,15 @@ export async function minuteTick(env: Env, at: Date) {
   const staffing = await minuteStep("staffing", () =>
     runStaffingDue(createCrmDb(env.DB), { clock: () => at, floor: parseFloor(env.APPROVAL_FLOOR) }),
   );
+  // Checklists (stage 45 step 4b, ADR 0650): runs made a day ahead, kept with their shift, and
+  // closed as missed (the rosterers told) or cancelled after their grace. A quiet minute is a few
+  // reads and no write.
+  const checklists = await minuteStep("checklists", () =>
+    runChecklistDue(createCrmDb(env.DB), {
+      clock: () => at,
+      floor: parseFloor(env.APPROVAL_FLOOR),
+    }),
+  );
   // Agreements (stage 44, ADR 0640): scheduled versions whose time has come take effect.
   const agreements = await minuteStep("agreements", () =>
     runAgreementsDue(createCrmDb(env.DB), {
@@ -417,6 +427,7 @@ export async function minuteTick(env: Env, at: Date) {
     waitlist,
     timedMoves,
     staffing,
+    checklists,
     agreements,
     agreementCopies,
     customerSignup,

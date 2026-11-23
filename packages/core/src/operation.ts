@@ -525,6 +525,12 @@ export interface OperationDefinition<
    * output, so give one that names no value read.
    */
   auditReads?: true;
+  /**
+   * Its audit rows are for people only (stage 45 step 4b, ADR 0650): what they say (who ticked
+   * which step of whose checklist) is a person's to read, so no AI actor lists them (audit.list),
+   * as the audited reads' rows.
+   */
+  auditForPeople?: true;
   /** A small JSON summary of the result for the audit log. Default: touched records or id. */
   auditSummary?: (output: z.output<Out>, input: z.output<In>) => unknown;
   /**
@@ -581,6 +587,9 @@ export const OPERATION_NAME_RE = /^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/;
  */
 export const AUDITED_READS = new Set<string>();
 
+/** The operations whose audit rows no AI actor lists (`auditForPeople`). */
+export const PEOPLE_ONLY_AUDIT = new Set<string>();
+
 /** Defines an operation. Checks the definition is complete; the registry test checks them all. */
 export function defineOperation<
   const Name extends string,
@@ -592,6 +601,7 @@ export function defineOperation<
     throw new Error(`Operation ${definition.name}: ${problems.join("; ")}`);
   }
   if (definition.auditReads) AUDITED_READS.add(definition.name);
+  if (definition.auditForPeople) PEOPLE_ONLY_AUDIT.add(definition.name);
   return Object.freeze({ ...definition });
 }
 
