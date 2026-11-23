@@ -329,7 +329,9 @@ export default defineExtension({
           step: 1,
         },
         room: { type: "relation", label: "Room", to: "bookings.room" },
-        coach: { type: "relation", label: "Coach", to: "bookings.coach" },
+        // Who coaches is a person's to change (stage 45 step 4, ADR 0626): the assistant, an MCP
+        // client or code may ask, and a person applies it. It changes someone's working week.
+        coach: { type: "relation", label: "Coach", to: "bookings.coach", personApproves: true },
         places: { type: "number", label: "Places", required: true, min: 0, step: 1 },
         firstDate: { type: "date", label: "First date", required: true },
         lastDate: { type: "date", label: "Last date", description: "Empty: ongoing." },
@@ -411,7 +413,8 @@ export default defineExtension({
         // Left empty, the organisation's zone (ADR 0460): a class always has one.
         timezone: { type: "timezone", label: "Time zone", required: true },
         room: { type: "relation", label: "Room", to: "bookings.room" },
-        coach: { type: "relation", label: "Coach", to: "bookings.coach" },
+        // A person's to change (ADR 0626), as the series' coach: an AI's swap waits for a person.
+        coach: { type: "relation", label: "Coach", to: "bookings.coach", personApproves: true },
         // Required: a class is never unlimited by leaving its places empty.
         places: { type: "number", label: "Places", required: true, min: 0, step: 1 },
         notes: { type: "longText", label: "Notes for members" },

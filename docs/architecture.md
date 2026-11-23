@@ -1181,7 +1181,18 @@ record. A take, an offer, a withdrawal and saying someone is away are a
 person's own act (the calling tool must be `humanOnly`); `assign` and `qualify` are applied by a
 person (`personApproves`). `user.deactivate` takes a leaver off every future shift and pattern,
 confirmed by count, cancels their offers and tells the rosterers (`staffing/leaving.ts`). Who may
-roster is the admins until step 4's `rostering:manage` (`staffing/rosterers.ts`, one place).
+roster is decided in one place (`staffing/rosterers.ts`, stage 45 step 4,
+[ADR 0626](adr/0626-the-rostering-pack-and-bookings-additions.md)): admins, and accounts granted the
+restricted permission a shipped pack declares as its `staffing.rosters` (Rostering's
+`rostering:manage`). The same declaration names the pack's number settings the host reads (the
+offer cut-off, the uncovered window; 60 minutes and 14 days otherwise). The operations act for the
+tool's verified caller (`ctx.extension.tool.calledBy`, never the input or the extension's own
+account). `staffing.week` is the roster read across every staffed object: times, kinds, places,
+who is on each and its open offer, and for a rosterer its warnings; never a booking, a place count
+or a Person. A leave note reaches only a person, never an assistant or the audit log. Where a pack
+declares who rosters, a caller's write of who works a shift (a shift's person, a pattern's person,
+a coach profile's account), by any path, is a rosterer's (`assertRosterWrite`); an AI's such change,
+or its call of a restricted tool, is approved only by someone who could make it.
 
 `sellable.moves` ([ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md),
 `packages/core/src/orders/moves.ts` and `refund-due.ts`) is a paid line that moves a record that
@@ -1505,6 +1516,11 @@ pack permissions granted to its account add up
 whether a grant (a tool naming a granted, grantable permission; judged first) or the role allows
 it, and the role's limits (Bookings' coach: today only, ADR 0553) travel only on the role's calls
 and the runs they start. A tool may name several permissions, any one of which opens it.
+A pack may declare a tool permission **restricted**
+([ADR 0625](adr/0625-restricted-pack-permissions.md)): a tool naming only restricted permissions is
+held by admins and by a grant of it, never by a member's or viewer's own role or by a pack role,
+and is never called by an automation or another extension's code (Rostering's `rostering:manage`;
+pay in step 6). A human admin grants it, never to their own account.
 
 **Permission grants** ([ADR 0449](adr/0449-permissions-granted-one-by-one.md)). A human admin
 grants a staff account named permissions on top of its role (`user.setPermissions`,
@@ -1721,6 +1737,7 @@ calculates a price, checks a capacity or checks a permission.
 | Content | `publishable`, rich text, slugs, media | stage 28: steps 1 to 6 built (rich text, `publishable` completed, public reads, media, the editor, the pack: posts and categories, hooks, web and native renderers); the first client's import and blog routes are its own repository's |
 | Courses | `publishable`, `sellable` (grants and a tax code), `access` and holders' parts, `states`, `customer` with `requireAccess`, `requires: ["programs"]`, video media and `media.play` | stage 42: steps 1 to 4, 6, 7 and the draft built ([ADR 0478](adr/0478-the-courses-pack.md)); the import and the first client to come |
 | Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `staffed` (a class is its coach's shift, stage 45), `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer` with `guardians`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 6 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md); parents booking for their children, [ADR 0540](adr/0540-the-family-link.md)); step 7, attendance, moves and cancelling a class; step 8, drop-ins with `sellable.moves`, [ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md)); step 9, messages, the reminder, the dashboard and the coach's app screen, [ADR 0572](adr/0572-bookings-messages-the-dashboard-and-the-coachs-app-screen.md); step 10 to come |
+| Rostering | `recurring` (duty series, a horizon from its setting), `staffed` (a duty shift is its person's shift), `states`, a pack role (`rostering.team`), grantable and restricted permissions, the roster's rules (`staffing`), the host's tool-only `staffing.*` operations | stage 45: step 4 built (duties, duty series and shifts, the team role, the roster's tools, settings, [ADR 0626](adr/0626-the-rostering-pack-and-bookings-additions.md)); checklists (4b), the feed (5), pay (6) and the screens (7) to come |
 | Memberships | `allowance` (holders), recurring billing with `recurring.grants` and `recurring.pause`, `sellable.onePerPerson`, `humanOnly` tools, `requires: ["programs"]` | stage 32b: steps 5 to 7 built (the behaviour, the pack, plan changes and pauses, the dashboard, views and blocks); the import (step 8) to come |
 
 ### Client repos

@@ -1,8 +1,9 @@
-// The `staffed` behaviour's operations (stage 45, ADRs 0621 to 0624). The host's staffing
-// operations are tool-only: called from a shipped pack's tool run, with the caller the runtime
-// verified, never from a person, MCP or an assistant directly (Rostering's tools call them from
-// step 4, which also swaps who may roster from the admins to `rostering:manage`, in
-// staffing/rosterers.ts).
+// The `staffed` behaviour's operations (stage 45, ADRs 0621 to 0626). The host's staffing
+// operations are tool-only: called from a shipped pack's tool run (the Rostering pack's, step 4),
+// for the staff account the pipeline verified as the tool's caller (`ctx.extension.tool.calledBy`,
+// never the input), never from a person, MCP or an assistant directly. Who may roster is the
+// rosterers' permission (`rostering:manage`, held by admins and by grant, ADR 0625), decided in
+// staffing/rosterers.ts.
 //
 // What an AI may do (the spec's table): read the roster, a shift's warnings and who is qualified;
 // propose a roster change (`assign`, `qualify`), which a person applies (the calling tool is
@@ -39,21 +40,30 @@ import {
   noteTaking,
   regularOverlaps,
   type StoredShift,
-  UNCOVERED_WINDOW_DAYS,
   warningsOf,
 } from "../staffing/index.ts";
 import {
   endOfferStatement,
   makeOfferStatement,
-  OFFER_CUTOFF_MINUTES,
   offerById,
   openOfferOn,
   pastCutoff,
   takeOfferStatement,
   whenOf,
 } from "../staffing/offers.ts";
-import { mayRoster, queueNotice, rosterers, shiftLink, staffName } from "../staffing/rosterers.ts";
-import { parseLocalDate, parseLocalTime, wallClockToInstant } from "../time/local.ts";
+import {
+  actingAccount,
+  DEFAULT_UNCOVERED_DAYS,
+  mayRoster,
+  queueNotice,
+  rosterers,
+  rosterNumbers,
+  shiftLink,
+  staffName,
+  toolCaller,
+} from "../staffing/rosterers.ts";
+import { rosterRange } from "../staffing/week.ts";
+import { addLocalDays, parseLocalDate, parseLocalTime, wallClockToInstant } from "../time/local.ts";
 import { SYSTEM_USER } from "../users.ts";
 import { loadRecord, staffWarningSchema, updateRecord } from "./record.ts";
 
@@ -61,7 +71,9 @@ import { loadRecord, staffWarningSchema, updateRecord } from "./record.ts";
 
 /**
  * Refuses anyone but a shipped pack's tool run, as an operation that does not exist. The pipeline
- * refuses a call from outside a tool run (`toolOnly`); this also refuses a runtime extension's.
+ * refuses a call from outside a tool run (`toolOnly`); this also refuses a runtime extension's,
+ * and a run not called for a staff account (an automation's, another extension's code): the
+ * roster's operations are about the person who called the tool (ADR 0625).
  */
 async function assertShippedToolRun(ctx: HandlerContext, name: string): Promise<void> {
   const caller = ctx.extension;
@@ -72,6 +84,11 @@ async function assertShippedToolRun(ctx: HandlerContext, name: string): Promise<
     .where("id", "=", caller.id)
     .executeTakeFirst();
   if (row?.source !== "shipped" || row.status !== "active") throw new UnknownOperationError(name);
+  if (!toolCaller(ctx)) {
+    throw new ForbiddenError(`${name} is called from a tool a member of staff calls.`, {
+      rule: "staff_caller",
+    });
+  }
 }
 
 /** A person's own act (offer, take, withdraw, away): the calling tool lets only a person call it. */
@@ -94,8 +111,8 @@ function assertPersonApplies(ctx: HandlerContext, what: string): void {
   }
 }
 
-function assertRosterer(ctx: HandlerContext, what: string): void {
-  if (!mayRoster(ctx.user)) {
+async function assertRosterer(ctx: HandlerContext, what: string): Promise<void> {
+  if (!(await mayRoster(ctx))) {
     throw new ForbiddenError(`Only someone who rosters may ${what}.`, { rule: "rostering" });
   }
 }
@@ -161,6 +178,7 @@ function summary(s: StoredShift): ShiftSummary {
 type OfferRow = NonNullable<Awaited<ReturnType<typeof offerById>>>;
 
 async function offerOut(ctx: HandlerContext, offer: OfferRow, s: StoredShift | null) {
+  const { cutoffMinutes } = await rosterNumbers(ctx.db);
   return {
     id: offer.id,
     shift: s
@@ -173,7 +191,7 @@ async function offerOut(ctx: HandlerContext, offer: OfferRow, s: StoredShift | n
     madeAt: offer.made_at,
     takenBy: offer.taken_by,
     takenAt: offer.taken_at,
-    closesAt: s && s.shift.starts !== null ? iso(s.shift.starts - OFFER_CUTOFF_MINUTES * 60) : null,
+    closesAt: s && s.shift.starts !== null ? iso(s.shift.starts - cutoffMinutes * 60) : null,
   };
 }
 
@@ -224,11 +242,12 @@ function assertLive(s: StoredShift): void {
   }
 }
 
-function assertBeforeCutoff(ctx: HandlerContext, s: StoredShift): void {
-  if (pastCutoff(s.shift.starts, ctx.now)) {
+async function assertBeforeCutoff(ctx: HandlerContext, s: StoredShift): Promise<void> {
+  const { cutoffMinutes } = await rosterNumbers(ctx.db);
+  if (pastCutoff(s.shift.starts, ctx.now, cutoffMinutes)) {
     throw new ConflictError(
-      `Offers close ${OFFER_CUTOFF_MINUTES} minutes before a shift starts, so this one is closed. Whoever rosters reassigns it now.`,
-      { rule: "offer_cutoff", cutoffMinutes: OFFER_CUTOFF_MINUTES },
+      `Offers close ${cutoffMinutes} minutes before a shift starts, so this one is closed. Whoever rosters reassigns it now.`,
+      { rule: "offer_cutoff", cutoffMinutes },
     );
   }
 }
@@ -322,7 +341,7 @@ export const staffingQualify = defineOperation({
   auditSummary: (output) => output,
   async handler(input, ctx) {
     await assertShippedToolRun(ctx, "staffing.qualify");
-    assertRosterer(ctx, "say who is qualified");
+    await assertRosterer(ctx, "say who is qualified");
     assertPersonApplies(ctx, "Saying who is qualified");
     requireKindObject(input.kind.object);
     await requireAccount(ctx, input.account);
@@ -347,7 +366,7 @@ export const staffingQualify = defineOperation({
           account_id: input.account,
           kind_object: input.kind.object,
           kind_record: input.kind.id,
-          set_by: ctx.user.id,
+          set_by: actingAccount(ctx),
           set_at: ctx.now,
         }),
       );
@@ -390,9 +409,9 @@ export const staffingQualifications = defineOperation({
   mcp: { expose: false },
   async handler(input, ctx) {
     await assertShippedToolRun(ctx, "staffing.qualifications");
-    const account = input.account ?? (mayRoster(ctx.user) ? undefined : ctx.user.id);
-    if (account !== undefined && account !== ctx.user.id) {
-      assertRosterer(ctx, "read someone else's qualifications");
+    const account = input.account ?? ((await mayRoster(ctx)) ? undefined : actingAccount(ctx));
+    if (account !== undefined && account !== actingAccount(ctx)) {
+      await assertRosterer(ctx, "read someone else's qualifications");
     }
     let query = ctx.db.selectFrom("core_staff_qualification").selectAll();
     if (account !== undefined) query = query.where("account_id", "=", account);
@@ -465,9 +484,13 @@ function instantOf(local: string, zone: string): number {
 }
 
 /** Whose unavailability a call is about: the caller's own, or anyone's for a rosterer. */
-function awayAccount(ctx: HandlerContext, account: string | undefined, what: string): string {
-  const target = account ?? ctx.user.id;
-  if (target !== ctx.user.id) assertRosterer(ctx, what);
+async function awayAccount(
+  ctx: HandlerContext,
+  account: string | undefined,
+  what: string,
+): Promise<string> {
+  const target = account ?? actingAccount(ctx);
+  if (target !== actingAccount(ctx)) await assertRosterer(ctx, what);
   return target;
 }
 
@@ -515,7 +538,7 @@ export const staffingAway = defineOperation({
   async handler(input, ctx) {
     await assertShippedToolRun(ctx, "staffing.away");
     assertPersonsOwnAct(ctx, "Saying someone is away");
-    const account = awayAccount(ctx, input.account, "say someone else is away");
+    const account = await awayAccount(ctx, input.account, "say someone else is away");
     await requireAccount(ctx, account);
     const zone = input.zone ?? (await loadGeneralSettings(ctx.db)).timezone;
     if (!isTimezone(zone))
@@ -556,7 +579,7 @@ export const staffingAway = defineOperation({
           starts_at: null,
           ends_at: null,
           ...rule,
-          set_by: ctx.user.id,
+          set_by: actingAccount(ctx),
           set_at: ctx.now,
         }),
       );
@@ -585,7 +608,7 @@ export const staffingAway = defineOperation({
           from_date: input.fromDate ?? null,
           until_date: input.untilDate ?? null,
           zone,
-          set_by: ctx.user.id,
+          set_by: actingAccount(ctx),
           set_at: ctx.now,
         }),
       );
@@ -647,7 +670,7 @@ export const staffingBack = defineOperation({
       .where("id", "=", input.id)
       .executeTakeFirst();
     // Someone else's is as if it were not there: other staff never learn that someone is away.
-    if (!row || (row.account_id !== ctx.user.id && !mayRoster(ctx.user))) {
+    if (!row || (row.account_id !== actingAccount(ctx) && !(await mayRoster(ctx)))) {
       throw new NotFoundError("unavailability", input.id);
     }
     ctx.write(ctx.db.deleteFrom("core_staff_away").where("id", "=", input.id));
@@ -658,9 +681,10 @@ export const staffingBack = defineOperation({
 export const staffingAwayList = defineOperation({
   name: "staffing.awayList",
   description:
-    "Tool-only (a shipped pack's tool): times people said they cannot work, with their notes, " +
-    "overlapping from..to (local dates; default from today). Your own; someone who rosters " +
-    "reads anyone's, or everyone's when account is left out. Nobody else ever sees it. Read-only.",
+    "Tool-only (a shipped pack's tool): times people said they cannot work, with their notes (to " +
+    "a person only: an assistant reading its person's own gets no notes), overlapping from..to " +
+    "(local dates; default from today). Your own; someone who rosters reads anyone's, or " +
+    "everyone's when account is left out, as a person. Nobody else ever sees it. Read-only.",
   input: z.object({
     account: accountId.optional(),
     from: localDate.optional(),
@@ -673,9 +697,9 @@ export const staffingAwayList = defineOperation({
   mcp: { expose: false },
   async handler(input, ctx) {
     await assertShippedToolRun(ctx, "staffing.awayList");
-    const account = input.account ?? (mayRoster(ctx.user) ? undefined : ctx.user.id);
-    if (account !== ctx.user.id) {
-      assertRosterer(ctx, "read someone else's time off");
+    const account = input.account ?? ((await mayRoster(ctx)) ? undefined : actingAccount(ctx));
+    if (account !== actingAccount(ctx)) {
+      await assertRosterer(ctx, "read someone else's time off");
       // Other people's leave, with its notes, is read by a person, never by an assistant acting for
       // a rosterer (as the notice of leave over shifts is person-only).
       assertPersonsOwnAct(ctx, "Reading other people's time off");
@@ -710,13 +734,16 @@ export const staffingAwayList = defineOperation({
           .execute()
       : [];
     const names = new Map(users.map((u) => [u.id, u.name || u.email]));
+    // A note about someone's leave never reaches an AI, even one acting for that person: only a
+    // person at the screen reads it (ADR 0626).
+    const person = ctx.extension?.tool?.calledBy?.actor === "human";
     return {
       items: rows.map((r) => ({
         id: r.id,
         account: r.account_id,
         name: names.get(r.account_id) ?? "",
         kind: r.kind,
-        note: r.note,
+        note: person ? r.note : null,
         startsAt: r.starts_at,
         endsAt: r.ends_at,
         weekdays: r.weekdays ? r.weekdays.split(",") : [],
@@ -738,8 +765,9 @@ export const staffingOffer = defineOperation({
     "Tool-only (a shipped pack's tool): offer a shift for someone else to take, to everyone " +
     "eligible (qualified for its kind, free and available) or to one named person. The shift's " +
     "person offers their own; someone who rosters may offer anyone's, and an uncovered one. A " +
-    "person's own act. Until it is taken the shift stays its person's. Offers close " +
-    `${OFFER_CUTOFF_MINUTES} minutes before the shift starts. Eligible people are told.`,
+    "person's own act. Until it is taken the shift stays its person's. Offers close at the " +
+    "cut-off (the Rostering setting, 60 minutes before the shift starts by default). Eligible " +
+    "people are told.",
   input: z.object({
     object: objectName,
     id: recordId,
@@ -760,9 +788,9 @@ export const staffingOffer = defineOperation({
     assertPersonsOwnAct(ctx, "Offering a shift");
     const s = await requireLiveShift(ctx, input.object, input.id);
     assertLive(s);
-    assertBeforeCutoff(ctx, s);
-    const mine = s.shift.account !== null && s.shift.account === ctx.user.id;
-    if (!mine && !mayRoster(ctx.user)) {
+    await assertBeforeCutoff(ctx, s);
+    const mine = s.shift.account !== null && s.shift.account === actingAccount(ctx);
+    if (!mine && !(await mayRoster(ctx))) {
       throw new ForbiddenError("Only the shift's person, or someone who rosters, may offer it.", {
         rule: "not_yours",
       });
@@ -807,7 +835,7 @@ export const staffingOffer = defineOperation({
           { rule: "nobody_qualified" },
         );
       }
-      told = await eligibleAccounts(ctx, s, new Set([from ?? "", ctx.user.id]));
+      told = await eligibleAccounts(ctx, s, new Set([from ?? "", actingAccount(ctx)]));
     }
     const made = makeOfferStatement(ctx, {
       object: s.object.name,
@@ -824,7 +852,7 @@ export const staffingOffer = defineOperation({
     await queueNotice(ctx, {
       to: told,
       title: `Shift offered: ${title}, ${when}`,
-      body: `${by} offers ${title}, ${when}. Take it in the app until ${OFFER_CUTOFF_MINUTES} minutes before it starts.`,
+      body: `${by} offers ${title}, ${when}. Take it in the app until ${(await rosterNumbers(ctx.db)).cutoffMinutes} minutes before it starts.`,
       link: shiftLink(s.object.name, s.id),
     });
     const offer = {
@@ -832,7 +860,7 @@ export const staffingOffer = defineOperation({
       object_type: s.object.name,
       record_id: s.id,
       from_account: from,
-      made_by: ctx.user.id,
+      made_by: actingAccount(ctx),
       to_account: input.to ?? null,
       starts: s.shift.starts as number,
       kind_object: kindOf(s)?.object ?? null,
@@ -847,7 +875,7 @@ export const staffingOffer = defineOperation({
     };
     return {
       offer: await offerOut(ctx, offer, s),
-      told: mayRoster(ctx.user) ? told.length : null,
+      told: (await mayRoster(ctx)) ? told.length : null,
     };
   },
 });
@@ -868,8 +896,8 @@ export const staffingWithdraw = defineOperation({
     assertPersonsOwnAct(ctx, "Withdrawing an offer");
     const offer = await offerById(ctx.db, input.offer);
     if (!offer) throw new NotFoundError("offer", input.offer);
-    const own = offer.from_account === ctx.user.id || offer.made_by === ctx.user.id;
-    if (!own && !mayRoster(ctx.user)) {
+    const own = offer.from_account === actingAccount(ctx) || offer.made_by === actingAccount(ctx);
+    if (!own && !(await mayRoster(ctx))) {
       throw new ForbiddenError(
         "Only whoever offered it, or someone who rosters, may withdraw it.",
         {
@@ -878,10 +906,10 @@ export const staffingWithdraw = defineOperation({
       );
     }
     if (offer.state !== "open") throw await closedOffer(ctx, offer);
-    const by = await staffName(ctx.db, ctx.user.id);
+    const by = await staffName(ctx.db, actingAccount(ctx));
     ctx.write(endOfferStatement(ctx, offer.id, "withdrawn", `Withdrawn by ${by}.`));
     const s = await loadShift(ctx, offer.object_type, offer.record_id);
-    if (offer.from_account && offer.from_account !== ctx.user.id) {
+    if (offer.from_account && offer.from_account !== actingAccount(ctx)) {
       const title = s ? shiftTitle(s.object, s.values) : "your shift";
       await queueNotice(ctx, {
         to: [offer.from_account],
@@ -893,7 +921,7 @@ export const staffingWithdraw = defineOperation({
     return {
       offer: await offerOut(
         ctx,
-        { ...offer, state: "withdrawn", ended_at: ctx.now, ended_by: ctx.user.id },
+        { ...offer, state: "withdrawn", ended_at: ctx.now, ended_by: actingAccount(ctx) },
         s,
       ),
     };
@@ -903,7 +931,8 @@ export const staffingWithdraw = defineOperation({
 /** The answer to a move of an offer that is no longer open: who took it, or what became of it. */
 async function closedOffer(ctx: HandlerContext, offer: OfferRow): Promise<ConflictError> {
   if (offer.state === "taken" && offer.taken_by) {
-    const name = offer.taken_by === ctx.user.id ? "You" : await staffName(ctx.db, offer.taken_by);
+    const name =
+      offer.taken_by === actingAccount(ctx) ? "You" : await staffName(ctx.db, offer.taken_by);
     return new ConflictError(`${name} took this shift${name === "You" ? "" : " already"}.`, {
       rule: "offer_taken",
       takenBy: offer.taken_by,
@@ -954,12 +983,12 @@ export const staffingTake = defineOperation({
     const offer = await offerById(ctx.db, input.offer);
     if (!offer) throw new NotFoundError("offer", input.offer);
     if (offer.state !== "open") throw await closedOffer(ctx, offer);
-    if (offer.from_account === ctx.user.id) {
+    if (offer.from_account === actingAccount(ctx)) {
       throw new ConflictError("This is your own offer: withdraw it instead.", {
         rule: "own_offer",
       });
     }
-    if (offer.to_account && offer.to_account !== ctx.user.id) {
+    if (offer.to_account && offer.to_account !== actingAccount(ctx)) {
       throw new ForbiddenError("This shift is offered to someone else.", {
         rule: "offered_to_someone_else",
       });
@@ -975,8 +1004,8 @@ export const staffingTake = defineOperation({
       );
     }
     assertLive(s);
-    assertBeforeCutoff(ctx, s);
-    const e = await eligibilityOf(ctx, s, ctx.user.id);
+    await assertBeforeCutoff(ctx, s);
+    const e = await eligibilityOf(ctx, s, actingAccount(ctx));
     if (!e.active) throw new ForbiddenError("This account cannot take shifts.");
     // Decision 5: nobody approves a take *because* the taker is qualified, so it is held to that.
     if (!e.qualified) {
@@ -994,7 +1023,11 @@ export const staffingTake = defineOperation({
       );
     }
     if (e.clash) {
-      const claim = { account: ctx.user.id, starts: s.shift.starts ?? 0, ends: s.shift.ends ?? 0 };
+      const claim = {
+        account: actingAccount(ctx),
+        starts: s.shift.starts ?? 0,
+        ends: s.shift.ends ?? 0,
+      };
       throw await doubleBooked(ctx, s.object.name, s.id, claim, e.clash);
     }
     if (e.away && !input.confirmUnavailable) {
@@ -1012,7 +1045,7 @@ export const staffingTake = defineOperation({
     await updateRecord(ctx, s.object, s.id, { [field]: e.person }, { by: "staff" });
     const title = shiftTitle(s.object, s.values);
     const when = await whenOf(ctx, s.shift.starts, shiftZone(s.object, s.values));
-    const taker = await staffName(ctx.db, ctx.user.id);
+    const taker = await staffName(ctx.db, actingAccount(ctx));
     const link = shiftLink(s.object.name, s.id);
     const giver = offer.from_account ? await staffName(ctx.db, offer.from_account) : null;
     if (offer.from_account) {
@@ -1057,11 +1090,12 @@ export const staffingOffers = defineOperation({
   mcp: { expose: false },
   async handler(_input, ctx) {
     await assertShippedToolRun(ctx, "staffing.offers");
-    const me = ctx.user.id;
+    const me = actingAccount(ctx);
     // Filtered before the limit, by the offer's own columns: still before the cut-off, open to me,
     // not mine, of a kind I am qualified for; the soonest first. However many offers I cannot take
     // are open, the ones I can are not hidden behind them.
-    const closes = Math.floor(Date.parse(ctx.now) / 1000) + OFFER_CUTOFF_MINUTES * 60;
+    const { cutoffMinutes } = await rosterNumbers(ctx.db);
+    const closes = Math.floor(Date.parse(ctx.now) / 1000) + cutoffMinutes * 60;
     const rows = await ctx.db
       .selectFrom("core_staff_offer as o")
       .selectAll("o")
@@ -1085,7 +1119,9 @@ export const staffingOffers = defineOperation({
     const open = [];
     for (const offer of rows) {
       const s = await loadShift(ctx, offer.object_type, offer.record_id);
-      if (!s || s.deleted || !s.shift.live || pastCutoff(s.shift.starts, ctx.now)) continue;
+      if (!s || s.deleted || !s.shift.live || pastCutoff(s.shift.starts, ctx.now, cutoffMinutes)) {
+        continue;
+      }
       const e = await eligibilityOf(ctx, s, me);
       if (!e.active || !e.qualified || !e.person || e.clash) continue;
       open.push({ ...(await offerOut(ctx, offer, s)), unavailable: e.away });
@@ -1108,6 +1144,93 @@ export const staffingOffers = defineOperation({
   },
 });
 
+// --- The roster read (step 4) ---------------------------------------------------------------------
+
+/** The most days one roster read covers (guess, the spec's). */
+const WEEK_MAX_DAYS = 62;
+
+const rosterShiftSchema = z.object({
+  object: z.string(),
+  id: z.string(),
+  title: z.string(),
+  kind: z.object({ object: z.string(), id: z.string(), name: z.string() }).nullable(),
+  startsAt: z.string(),
+  endsAt: z.string().nullable(),
+  zone: z.string().nullable(),
+  place: z.string().nullable(),
+  uncovered: z.boolean().describe("Nobody is on it"),
+  noAccount: z
+    .boolean()
+    .describe("Its person has no staff account (a visiting coach): covered, on nobody's roster"),
+  account: z.string().nullable(),
+  name: z.string().nullable(),
+  mine: z.boolean().describe("Its person is the reader"),
+  offer: z
+    .object({ id: z.string(), to: z.string().nullable(), from: z.string().nullable() })
+    .nullable(),
+  warnings: z
+    .array(staffWarningSchema)
+    .nullable()
+    .describe("Someone who rosters only (null otherwise): unavailable, not_qualified, uncovered"),
+});
+
+export const staffingWeek = defineOperation({
+  name: "staffing.week",
+  description:
+    "Tool-only (a shipped pack's tool): the roster, every live shift of every kind (classes, " +
+    "duty shifts) from `from` to `to` (local dates in the organisation's zone, both included; at " +
+    `most ${WEEK_MAX_DAYS} days), in order of start: its kind, title, times, place, who is on it ` +
+    "(and whether it is you), whether it has nobody on it, and its open offer (`truncated` when " +
+    "more than 1,000 of one kind fall in the range). `mine` keeps " +
+    "your own shifts, `account` one person's. Someone who rosters also gets each shift's " +
+    "warnings. Never a class's bookings, places or list, nor any member. Read-only.",
+  input: z.object({
+    from: localDate,
+    to: localDate,
+    mine: z.boolean().optional().describe("Only your own shifts"),
+    account: accountId.optional().describe("Only this person's shifts"),
+  }),
+  output: z.object({
+    shifts: z.array(rosterShiftSchema),
+    zone: z.string(),
+    truncated: z
+      .boolean()
+      .describe("More shifts than one answer holds (1,000 of a kind): ask for fewer days"),
+  }),
+  permission: "records:read",
+  risk: "read",
+  toolOnly: true,
+  mcp: { expose: false },
+  async handler(input, ctx) {
+    await assertShippedToolRun(ctx, "staffing.week");
+    const from = parseLocalDate(input.from);
+    const to = parseLocalDate(input.to);
+    if (!from) throw new ValidationError(`${input.from} is not a date`, { field: "from" });
+    if (!to) throw new ValidationError(`${input.to} is not a date`, { field: "to" });
+    if (input.to < input.from) {
+      throw new ValidationError("It must end on or after its first date", { field: "to" });
+    }
+    const days =
+      (Date.UTC(to.year, to.month - 1, to.day) - Date.UTC(from.year, from.month - 1, from.day)) /
+        86_400_000 +
+      1;
+    if (days > WEEK_MAX_DAYS) {
+      throw new ValidationError(`At most ${WEEK_MAX_DAYS} days at a time`, { field: "to" });
+    }
+    const { timezone } = await loadGeneralSettings(ctx.db);
+    const start = wallClockToInstant({ ...from, hour: 0, minute: 0 }, timezone) / 1000;
+    const end = wallClockToInstant({ ...addLocalDays(to, 1), hour: 0, minute: 0 }, timezone) / 1000;
+    const rosterer = await mayRoster(ctx);
+    const { shifts, truncated } = await rosterRange(
+      ctx,
+      { from: start, to: end, account: input.mine ? actingAccount(ctx) : input.account },
+      actingAccount(ctx),
+      { warnings: rosterer, uncoveredDays: (await rosterNumbers(ctx.db)).uncoveredDays },
+    );
+    return { shifts, zone: timezone, truncated };
+  },
+});
+
 // --- Rosterers' writes and reads ------------------------------------------------------------------
 
 export const staffingAssign = defineOperation({
@@ -1126,7 +1249,7 @@ export const staffingAssign = defineOperation({
   mcp: { expose: false },
   async handler(input, ctx) {
     await assertShippedToolRun(ctx, "staffing.assign");
-    assertRosterer(ctx, "put people on shifts");
+    await assertRosterer(ctx, "put people on shifts");
     assertPersonApplies(ctx, "Putting someone on a shift");
     const s = await requireLiveShift(ctx, input.object, input.id);
     let value: string | null = null;
@@ -1151,9 +1274,9 @@ export const staffingUncovered = defineOperation({
   name: "staffing.uncovered",
   description:
     "Tool-only (a shipped pack's tool): live shifts with nobody on them from now for `days` days " +
-    `(default ${UNCOVERED_WINDOW_DAYS}, at most 62), and whether each is offered. Someone who ` +
-    "rosters. Read-only.",
-  input: z.object({ days: z.number().int().min(1).max(62).default(UNCOVERED_WINDOW_DAYS) }),
+    `(default the uncovered window, a Rostering setting: ${DEFAULT_UNCOVERED_DAYS} days unless ` +
+    "changed; at most 62), and whether each is offered. Someone who rosters. Read-only.",
+  input: z.object({ days: z.number().int().min(1).max(62).optional() }),
   output: z.object({ items: z.array(shiftSummary.extend({ offered: z.boolean() })) }),
   permission: "records:read",
   risk: "read",
@@ -1161,9 +1284,10 @@ export const staffingUncovered = defineOperation({
   mcp: { expose: false },
   async handler(input, ctx) {
     await assertShippedToolRun(ctx, "staffing.uncovered");
-    assertRosterer(ctx, "read the uncovered shifts");
+    await assertRosterer(ctx, "read the uncovered shifts");
     const now = Math.floor(Date.parse(ctx.now) / 1000);
-    const shifts = await uncoveredShifts(ctx, now, now + input.days * 86_400);
+    const days = input.days ?? (await rosterNumbers(ctx.db)).uncoveredDays;
+    const shifts = await uncoveredShifts(ctx, now, now + days * 86_400);
     const offered = new Set(
       (
         await ctx.db
@@ -1230,6 +1354,7 @@ export async function runStaffingDue(
 
 export const staffingOperations = [
   staffingCheck,
+  staffingWeek,
   staffingQualify,
   staffingQualifications,
   staffingAway,

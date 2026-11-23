@@ -28,7 +28,10 @@ decisions 14 to 25). Build step 1, field-level exceptions in `recurring`, is bui
 below). Build step 3, qualifications, unavailability, offers and takes, uncovered shifts, the
 notices and leaving, is built ([ADR 0623](../adr/0623-offers-and-takes-the-race-and-the-cut-off.md),
 [ADR 0624](../adr/0624-the-rosters-notices-uncovered-shifts-and-leaving.md), migration 0812; see
-"Built in step 3" below). Builds on stage
+"Built in step 3" below). Build step 4, restricted pack permissions, the `rostering.team` role
+and the Rostering pack's spine, is built ([ADR 0625](../adr/0625-restricted-pack-permissions.md),
+[ADR 0626](../adr/0626-the-rostering-pack-and-bookings-additions.md), no migration; see "Built in
+step 4" below). Builds on stage
 31a (built) and ADR 0600 (merged). Replaces the roadmap's placeholder stage 40 (Rosters), which was
 never specced. Where this spec guesses, it says **(guess)**.
 
@@ -859,6 +862,55 @@ calls them until Rostering's tools (step 4).
   deactivated account on a new date. The feed's revocation is step 5's.
 - **Not in this step**: `staffing.week`, `staffing.forget`, `staffName`, the feed, pay, the
   permissions and the pack.
+
+### Built in step 4 (2026-11-23)
+[ADR 0625](../adr/0625-restricted-pack-permissions.md) (amends ADRs 0436, 0449 and 0600),
+[ADR 0626](../adr/0626-the-rostering-pack-and-bookings-additions.md) (amends ADR 0553). No
+migration; no `core_write_guard` remake (0852 stays free).
+- **Restricted permissions** as this spec says: `restricted` in a pack's manifest; a tool naming
+  only restricted permissions is held by admins and by a grant of it, never by a member's or
+  viewer's role or a pack role; never called by an automation or another extension's code (its
+  `actors` are a person, an assistant and MCP); a human admin grants it, **never to their own
+  account** (`rule: "self_grant"`, decided here: an admin would keep it once made a member);
+  `user.grantablePermissions` marks it. The contract refuses one no tool declares, one a role holds,
+  a tool mixing it with another permission, and a runtime extension declaring it.
+- **The caller of a pack's tool** (found in this step): inside a tool's run `ctx.user` is the
+  extension's own account, so step 3's operations, tested with the person as `ctx.user`, would have
+  acted for the extension in the real runtime. The runtime now puts the verified caller on the run
+  (`ctx.extension.tool.calledBy: { account, actor }`), and every staffing operation acts for it,
+  and refuses a run not called for a staff account.
+- **Who rosters** is `rostering:manage` everywhere (`staffing/rosterers.ts`): admins, and accounts
+  granted it, read through the pack's `staffing.rosters` declaration (ADR 0626), so the host names
+  no pack. The cut-off and the uncovered window are Rostering's settings, read by the host through
+  the same declaration; the host's defaults (60 minutes, 14 days) without it.
+- **The roster read** `staffing.week { from, to, mine?, account? }` (it was not built in step 3),
+  set-based, warnings for a rosterer only.
+- **The pack**: `rostering.duty`, `rostering.dutyseries` (`recurring`, with a new
+  `horizonSetting`: the duty horizon), `rostering.shift` (`staffed`, `states`); the team role; the
+  team's tools (`rostering:team` and the grantable `rostering:roster`) and the rosterers' tools
+  (`rostering:manage`), as the AI table says; the settings (cut-off, uncovered window, horizon).
+  Who is on a duty shift and a series' regular person are `personApproves`, as Bookings' coach
+  fields now are.
+- **Decided here**: a rosterers' read of everyone's time off, `awayList` (`humanOnly`), beside the
+  spec's `awayFor`, for the unavailability screen; a tool may declare input fields the audit log
+  never keeps (`redact`), used for the leave note (the tool's own audit row held it); an assistant
+  reading its own person's time off gets the times without the notes (step 3 gave it the notes).
+- **Who works a shift is a rosterer's to say, by every path** (the review of PR #284; a
+  coordinator's decision the owner may override): where a pack declares who rosters, a caller's
+  write of a shift's person, a pattern's person or a coach profile's account is refused unless
+  they roster, by record writes, imports, series changes, `recurring.follow` and restores; the
+  host's own writes (a take, the generation, a leaver) are not refused. A product with Bookings
+  alone is unchanged. An AI's roster change is approved only by someone who could make it. See
+  ADR 0626. (Step 4 as first written restricted only the tools: a member could still write a
+  shift's person directly.)
+- **A `rostering.team` account may be granted `rostering:manage`** by a human admin, and then rosters
+  (ADR 0625 allows a fixed-role account any pack permission; a coach who also rosters is the case
+  the spec names). This is deliberate.
+- **The roster read says when it is cut short** (`truncated`, past 1,000 shifts of one object).
+- **Not in this step**: `markNotWorked` and the pay tools and settings (step 6, so `rostering:pay`
+  is not declared yet: a permission must be a tool's), `feed`/`feedRotate` (step 5), the checklist
+  (4b), the dashboards and screens (7), `staffName` with `staffing.forget`, the notices' words in
+  the pack (they stay the host's), and the class type's preparation and pack-down minutes (pay).
 
 **The spine is steps 2 to 4**: without the claim, the rules and the permissions, nothing can be
 rostered safely. Step 1 is built; step 2 can start now and is the riskiest (every write that covers

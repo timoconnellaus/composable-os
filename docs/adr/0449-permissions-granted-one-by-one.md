@@ -96,3 +96,11 @@ person's whatever is granted (`actors: ["human"]`).
 Amended 2026-11-23 (stage 44 step 2, ADRs 0642 and 0643): `agreements:paper` (record that a
 person signed on paper) and `agreements:health` (read health answers, each read audited) join
 the grantable core permissions. Both are a person's whatever is granted (`actors: ["human"]`).
+
+## Amendment, 2026-11-23 (stage 45 step 4, ADR 0625)
+A pack's grantable permission may also be **restricted**: then it is the only way a member or
+viewer holds its tools (admins hold them anyway), and a human admin may not grant it to their own
+account (`user.setPermissions` refuses it, `rule: "self_grant"`), since they would keep it once made
+a member. `user.grantablePermissions` marks each `restricted`. Granting stays a human admin's,
+never an assistant's, an MCP client's, an automation's or a member's. See
+[ADR 0625](0625-restricted-pack-permissions.md).

@@ -162,6 +162,8 @@ const fixture = manifest(ext, {
 const NOW = "2026-05-31T00:00:00.000Z";
 const at = (day: string, time: string) => `2026-06-${day}T${time}:00.000Z`;
 let admin: ActingUser;
+/** The extension's own account, as a tool run's calls act in the runtime (kind `extension`). */
+let extUser: ActingUser;
 const as = (user: ActingUser, now = NOW) => context(user, { clock: () => new Date(now) });
 
 const STAFFING = [
@@ -177,11 +179,17 @@ const STAFFING = [
   "staffing.offers",
   "staffing.assign",
   "staffing.uncovered",
+  "staffing.week",
 ];
-type ToolFlags = { humanOnly?: boolean; personApproves?: boolean };
-/** A call from a shipped pack's tool run, as `user`, with the tool's flags. */
+type ToolFlags = { humanOnly?: boolean; personApproves?: boolean; actor?: string };
+/**
+ * A call from a shipped pack's tool run called for `user`, with the tool's flags. As in the
+ * runtime, the run's own calls act as the extension's account; the person is the tool's verified
+ * caller (`calledBy`, ADR 0625).
+ */
 const tool = (user: ActingUser, flags: ToolFlags = { humanOnly: true }, now = NOW) =>
-  context(user, {
+  // The run's own calls act as the extension's account; a stray `ctx.user.id` would act for it.
+  context(extUser, {
     actor: "extension",
     clock: () => new Date(now),
     extension: {
@@ -192,14 +200,19 @@ const tool = (user: ActingUser, flags: ToolFlags = { humanOnly: true }, now = NO
         humanOnly: flags.humanOnly ?? false,
         ...(flags.personApproves ? { personApproves: true } : {}),
         permission: "rostering:team",
+        calledBy: { account: user.id, actor: flags.actor ?? "human" },
       },
     },
   });
 /** The same tool run by an assistant acting for `user` (the tool lets an AI call it). */
-const aiTool = (user: ActingUser, now = NOW) => tool(user, {}, now);
+const aiTool = (user: ActingUser, now = NOW) => tool(user, { actor: "assistant" }, now);
 
 beforeAll(async () => {
   admin = await createUser("admin");
+  extUser = await createUser("member");
+  await env.DB.prepare("UPDATE core_user SET kind = 'extension' WHERE id = ?")
+    .bind(extUser.id)
+    .run();
   await reconcile(fixture, NOW);
   await env.DB.prepare(
     "INSERT INTO core_extensions (id, source, status, version, commit_oid, manifest, user_id, installed_at, updated_at) VALUES (?, 'shipped', 'active', '1.0.0', 'c1', '{}', ?, ?, ?)",
@@ -1053,9 +1066,10 @@ describe("leave notes never reach an AI", () => {
       tool(sam),
     );
     const audit = await env.DB.prepare(
-      "SELECT input FROM core_audit WHERE operation = 'staffing.away' AND user_id = ?",
+      "SELECT input FROM core_audit WHERE operation = 'staffing.away' AND user_id = ? AND input LIKE '%2026-06-20%'",
     )
-      .bind(sam.id)
+      // A tool run's own calls are the extension's account's in the audit log.
+      .bind(extUser.id)
       .all<{ input: string }>();
     expect(audit.results).toHaveLength(1);
     expect(audit.results[0]?.input).not.toContain("A private reason");
@@ -1065,9 +1079,12 @@ describe("leave notes never reach an AI", () => {
     await expect(
       invoke("staffing.awayList", { account: sam.id }, aiTool(admin)),
     ).rejects.toMatchObject({ details: { rule: "human_only" } });
-    // A person's own list, through any tool, stays theirs.
-    const own = await invoke("staffing.awayList", {}, aiTool(sam));
+    // A person's own list stays theirs: at the screen with the note; read by an assistant acting
+    // for them, the times without it (step 4: a note never reaches an AI, ADR 0626).
+    const own = await invoke("staffing.awayList", {}, tool(sam));
     expect(own.items.map((i) => i.note)).toEqual(["A private reason"]);
+    const asAi = await invoke("staffing.awayList", {}, aiTool(sam));
+    expect(asAi.items.map((i) => i.note)).toEqual([null]);
   });
 });
 
@@ -1348,4 +1365,38 @@ describe("one notice per person for a change of many shifts", () => {
     expect(told).toHaveLength(1);
     expect(told[0]?.title).toBe("You are on 3 shifts");
   });
+});
+
+describe("the roster read (step 4, ADR 0626)", () => {
+  it("says when it was cut short: more than 1,000 shifts of one kind in the range", async () => {
+    const k = await kind("Many");
+    for (let batch = 0; batch < 21; batch++) {
+      await invoke(
+        "record.createMany",
+        {
+          object: DUTY,
+          records: Array.from({ length: 50 }, (_, i) => ({
+            name: `Many ${batch}-${i}`,
+            kind: k,
+            startsAt: "2026-07-15T08:00:00.000Z",
+            endsAt: "2026-07-15T09:00:00.000Z",
+          })),
+        },
+        as(admin),
+      );
+    }
+    const week = await invoke(
+      "staffing.week",
+      { from: "2026-07-15", to: "2026-07-15" },
+      tool(admin, {}),
+    );
+    expect(week.truncated).toBe(true);
+    expect(week.shifts.filter((s) => s.object === DUTY)).toHaveLength(1000);
+    const quiet = await invoke(
+      "staffing.week",
+      { from: "2026-07-20", to: "2026-07-21" },
+      tool(admin, {}),
+    );
+    expect(quiet.truncated).toBe(false);
+  }, 120_000);
 });

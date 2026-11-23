@@ -253,6 +253,24 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
       message: `A runtime extension cannot declare a permission an admin grants. ${why}`,
     });
   }
+  // Who holds a restricted tool, and who rosters other people (ADRs 0625 and 0626), are access:
+  // not something code written in the app may declare.
+  if (manifest.restricted?.length) {
+    issues.push({
+      stage: "contract",
+      code: "outside_audience",
+      path: "restricted",
+      message: `A runtime extension cannot declare a restricted permission. ${why}`,
+    });
+  }
+  if (manifest.staffing) {
+    issues.push({
+      stage: "contract",
+      code: "outside_audience",
+      path: "staffing",
+      message: `A runtime extension cannot declare who rosters other people. ${why}`,
+    });
+  }
   // Routine mail goes to members without a person's approval (ADR 0590): only a shipped
   // extension's declaration may say what it says, so code written in the app declares none and
   // gets no module to send it.

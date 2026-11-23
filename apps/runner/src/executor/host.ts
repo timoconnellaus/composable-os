@@ -148,6 +148,8 @@ export interface RunState {
     startedBy?: string;
     /** startedBy approved another actor's call (stage 44: no health mark for such a run). */
     startedByApproval?: true;
+    /** The staff account the tool was called for, and the actor (ExtensionCaller, ADR 0625). */
+    calledBy?: { account: string; actor: string };
   };
   /** The automation cascade the tool was called in, carried on by its calls (ADR 0478). */
   cascade?: ToolCascade;

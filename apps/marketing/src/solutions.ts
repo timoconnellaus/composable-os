@@ -132,6 +132,11 @@ export const SOLUTIONS: readonly Solution[] = [
           status: "building",
         },
         {
+          title: "Rostering",
+          body: "Which coach takes each class, and who does each shift that is not a class, like the clean after the last class. A weekly pattern makes the shifts eight weeks ahead and you change single dates; nobody is ever on two shifts at once. Staff say when they are away and offer a shift they cannot work: a colleague who may coach that class type takes it with nobody approving, and you are told. Members still see only the coach's public profile: name, photo and bio. Still to come: the screens on the web and in your app, a calendar feed for staff's phones, and hours per pay period for payroll.",
+          status: "building",
+        },
+        {
           title: "Moving from your booking system",
           body: "Your clients, visit history, passes and schedules brought across, with a time when both run side by side.",
           status: "planned",

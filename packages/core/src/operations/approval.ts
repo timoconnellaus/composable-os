@@ -68,6 +68,7 @@ import {
 import { jsonList } from "../records/common.ts";
 import { PUBLISH_OPERATIONS } from "../records/publish.ts";
 import { approvalMarkStatements } from "../routine-mail/marks.ts";
+import { assertRosterApprover } from "../staffing/approvals.ts";
 
 // --- Schemas -----------------------------------------------------------------------------------
 
@@ -981,6 +982,9 @@ async function approveActions(
       );
     }
   }
+  // A roster change (stage 45, ADRs 0625 and 0626): a restricted tool's call is approved only by
+  // someone who holds the tool, and a write of who works a shift only by someone who rosters.
+  await assertRosterApprover(ctx, ctx.db, targets);
   const targetIds = new Set(targets.map((t) => t.id));
   // Out-of-order approval is refused: dependencies must be applied or approved together.
   const depIds = [...new Set(targets.flatMap((t) => parse<string[]>(t.depends_on, [])))];

@@ -106,6 +106,7 @@ export function rolesSummary(
         id: string;
         roles?: Record<string, { label: string; permissions: string[]; read: string[] }>;
         grantable?: string[];
+        restricted?: string[];
         tools?: Record<string, { permission?: string | string[] }>;
       }
     | null
@@ -113,7 +114,8 @@ export function rolesSummary(
 ): string[] {
   const roles = Object.entries(manifest?.roles ?? {});
   const grantable = manifest?.grantable ?? [];
-  if (!manifest || (!roles.length && !grantable.length)) return [];
+  const restricted = manifest?.restricted ?? [];
+  if (!manifest || (!roles.length && !grantable.length && !restricted.length)) return [];
   const opens = (permission: string) =>
     Object.entries(manifest.tools ?? {})
       .filter(([, tool]) =>
@@ -141,8 +143,15 @@ export function rolesSummary(
       ? [
           "Permissions an admin may grant one by one (to an account with a role too):",
           ...grantable.map(
-            (permission) => `  ${permission}: tools ${opens(permission).join(", ") || "none"}`,
+            (permission) =>
+              `  ${permission}: tools ${opens(permission).join(", ") || "none"}${restricted.includes(permission) ? " (restricted)" : ""}`,
           ),
+        ]
+      : []),
+    // Held by admins and by grant only (ADR 0625): a member does not hold these tools.
+    ...(restricted.length
+      ? [
+          `Restricted (admins, and accounts an admin granted it; never a member otherwise): ${restricted.join(", ")}`,
         ]
       : []),
   ];

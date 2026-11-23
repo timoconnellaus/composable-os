@@ -19,6 +19,24 @@
       ]
     },
     {
+      "name": "rostering.team",
+      "pack": "rostering",
+      "label": "Rostered team",
+      "description": "Sees the roster and their own shifts, offers and takes shifts, and says when they are away. Nothing else: no records, no people, no settings.",
+      "read": [],
+      "operations": [
+        "x.rostering.away",
+        "x.rostering.back",
+        "x.rostering.mine",
+        "x.rostering.myAway",
+        "x.rostering.offer",
+        "x.rostering.offers",
+        "x.rostering.take",
+        "x.rostering.week",
+        "x.rostering.withdraw"
+      ]
+    },
+    {
       "name": "ticketing.door",
       "pack": "ticketing",
       "label": "Door",

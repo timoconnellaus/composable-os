@@ -1345,18 +1345,23 @@ holds a **time claim** (its own time, never preparation or pack-down). A write o
 its **warnings** (away, not qualified, uncovered), which never refuse it (ADR 0622).
 _Avoid_: session, slot, booking
 
-**Roster** (stage 45, proposed)
-Every shift in a range, with who works each. A **rosterer** is told what changes the roster
-(takes, lapses, leave over shifts, a shift just left uncovered, the daily list of uncovered shifts;
-step 3, ADR 0624); until stage 45 step 4 a rosterer is an admin. The **pattern** is its regular week (a class series'
-coach, a duty series' person); an **exception** is one date changed from it, and only that field
-leaves the series (a field exception, built: ADR 0620). A **rosterer** may roster others (`rostering:manage`). Not Bookings' tool
-`roster`, which is a class's list.
+**Roster** (stage 45, built in step 4: ADR 0626)
+Every shift in a range, with who works each (`staffing.week`, through Rostering's `week` and
+`mine`): never a class's bookings, places or members. A **rosterer** may roster others: an admin,
+or an account granted `rostering:manage` (restricted, ADR 0625); a rosterer is told what changes the
+roster (takes, lapses, leave over shifts, a shift just left uncovered, the daily list of uncovered
+shifts; ADR 0624) and sees each shift's warnings. With Rostering installed, only a rosterer says who
+works a shift, by any path; anyone else offers their own. The **pattern** is its regular week (a class
+series' coach, a duty series' person); an **exception** is one date changed from it, and only that
+field leaves the series (a field exception, built: ADR 0620). Not Bookings' tool `roster`, which is
+a class's list.
 _Avoid_: rota, schedule (an automation's trigger), timetable (the members' classes)
 
-**Duty** (Rostering; stage 45, proposed)
+**Duty** (Rostering; stage 45, built in step 4: ADR 0626)
 A kind of work that is not a class (Cleaning, Open up), done in **duty shifts** made by a **duty
-series** (`recurring`) with its regular person.
+series** (`recurring`, as far ahead as the duty horizon setting) with its regular person. The
+**team role** (`rostering.team`) is for someone rostered with no other access, such as a cleaner:
+the roster, their own shifts, offers and takes, their time off, nothing else.
 _Avoid_: task (a base record), job
 
 **Qualified** and **Unavailable** (stage 45, built in step 3: ADRs 0622 and 0623)
@@ -1372,7 +1377,7 @@ _Avoid_: skill, certification, availability (say when they are away)
 A shift's person **offers** it (or a rosterer offers an uncovered one), to everyone eligible or to
 one named person; a qualified, free person **takes** it, with nobody approving, and rosterers are
 told. Exactly one take succeeds, decided by the database. Until it is taken the shift is the
-offerer's; at the **cut-off** (1 hour before, a setting from step 4) the offer **lapses**. An offer
+offerer's; at the **cut-off** (1 hour before by default, Rostering's setting) the offer **lapses**. An offer
 is **withdrawn** by its offerer or a rosterer, and **cancelled** by the host when the shift goes to
 someone else, is cancelled, removed, or its person leaves. A person's own act: never an assistant's.
 _Avoid_: swap request, trade, bid
@@ -1638,6 +1643,12 @@ permission the pack declares grantable. Read from the account on every call; it 
 account's role, and with a pack role too when it is a pack's permission (a core one is refused to a
 fixed role's account, ADR 0600); it never lets an AI actor do what only a person may.
 _Avoid_: role (a role is admin, member or viewer), scope (an MCP token's)
+
+**Restricted permission**
+A pack tool permission held by admins and by a permission grant only (ADR 0625): a member or
+viewer does not hold its tools through their role, no pack role holds it, no automation or other
+extension's code calls them, and nobody grants it to themselves. Rostering's `rostering:manage`.
+_Avoid_: admin-only (it can be granted), private
 
 **Through their own records** (`customerVia`)
 What a customer reads of a record one of their own records points to (ADR 0439): the fields an

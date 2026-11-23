@@ -8,12 +8,11 @@ import { newId } from "../ids.ts";
 import type { HandlerContext } from "../operation.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import { localParts } from "../time/local.ts";
+import { actingAccount } from "./rosterers.ts";
 
-/**
- * How long before a shift starts its offer closes (minutes): it can be made and taken until then,
- * and lapses at it (decision 21). The Rostering pack's setting from step 4.
- */
-export const OFFER_CUTOFF_MINUTES = 60;
+// How long before a shift starts its offer closes (decision 21) is the Rostering pack's setting
+// from step 4 (`rosterNumbers`, rosterers.ts): an offer can be made and taken until then, and
+// lapses at it.
 
 /** Why an offer left `open` without being taken. */
 export type OfferEnd = "withdrawn" | "cancelled" | "lapsed";
@@ -61,7 +60,7 @@ export function makeOfferStatement(
       object_type: offer.object,
       record_id: offer.id,
       from_account: offer.from,
-      made_by: ctx.user.id,
+      made_by: actingAccount(ctx),
       to_account: offer.to,
       starts: offer.starts,
       kind_object: offer.kind?.object ?? null,
@@ -89,7 +88,7 @@ export function endOfferStatement(
 ) {
   return ctx.db
     .updateTable("core_staff_offer")
-    .set({ state: end, ended_at: ctx.now, ended_by: ctx.user.id, why: why.slice(0, 200) })
+    .set({ state: end, ended_at: ctx.now, ended_by: actingAccount(ctx), why: why.slice(0, 200) })
     .where("id", "=", offerId);
 }
 
@@ -105,7 +104,12 @@ export function cancelOpenOfferStatement(
 ) {
   return ctx.db
     .updateTable("core_staff_offer")
-    .set({ state: "cancelled", ended_at: ctx.now, ended_by: ctx.user.id, why: why.slice(0, 200) })
+    .set({
+      state: "cancelled",
+      ended_at: ctx.now,
+      ended_by: actingAccount(ctx),
+      why: why.slice(0, 200),
+    })
     .where("object_type", "=", object)
     .where("record_id", "=", id)
     .where("state", "=", "open");
@@ -139,19 +143,22 @@ export function takeOfferStatement(ctx: HandlerContext, offerId: string) {
     .updateTable("core_staff_offer")
     .set({
       state: "taken",
-      taken_by: ctx.user.id,
+      taken_by: actingAccount(ctx),
       taken_at: ctx.now,
       ended_at: ctx.now,
-      ended_by: ctx.user.id,
+      ended_by: actingAccount(ctx),
       why: null,
     })
     .where("id", "=", offerId);
 }
 
-/** Whether a shift starting at `starts` (unix seconds) is past its offer's cut-off at `now`. */
-export function pastCutoff(starts: number | null, now: string): boolean {
+/**
+ * Whether a shift starting at `starts` (unix seconds) is past its offer's cut-off at `now`, the
+ * cut-off being `cutoffMinutes` before it starts.
+ */
+export function pastCutoff(starts: number | null, now: string, cutoffMinutes: number): boolean {
   if (starts === null) return true;
-  return starts - OFFER_CUTOFF_MINUTES * 60 <= Math.floor(Date.parse(now) / 1000);
+  return starts - cutoffMinutes * 60 <= Math.floor(Date.parse(now) / 1000);
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");

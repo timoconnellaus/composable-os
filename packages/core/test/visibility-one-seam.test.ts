@@ -175,6 +175,9 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "staffing/due.ts": [1, WHY.host],
   "staffing/eligibility.ts": [1, WHY.host],
   "staffing/leaving.ts": [3, WHY.write],
+  // The roster read (step 4, ADR 0626): every staffed object's live shifts in a range, their
+  // holders' accounts and their kinds' and places' names; nothing of a booking or a Person.
+  "staffing/week.ts": [3, WHY.host],
   "operations/staffing.ts": [2, WHY.host],
   // The host's read of a period's order by its invoice (stage 32a, ADR 0486).
   "subscriptions/periods.ts": [1, WHY.host],

@@ -29,11 +29,16 @@ import {
 } from "../time/local.ts";
 import { orgReader, visibleSource } from "../visibility/index.ts";
 import { shiftRemoved, shiftWritten } from "./changes.ts";
-import { mayRoster, queueNotice, rosterers, shiftLink } from "./rosterers.ts";
+import {
+  actingAccount,
+  assertMayRoster,
+  mayRoster,
+  queueNotice,
+  rosterers,
+  rosterNumbers,
+  shiftLink,
+} from "./rosterers.ts";
 import { literal, type StaffedTables, selectClaims } from "./sql.ts";
-
-/** How far ahead an uncovered live shift is warned about (days). Rostering's setting, step 4. */
-export const UNCOVERED_WINDOW_DAYS = 14;
 
 /** One account's claim on a span of time: unix seconds, half-open. */
 export interface Claim {
@@ -263,6 +268,84 @@ export async function doubleBooked(
   );
 }
 
+// --- Who may say who works (the review of PR #284, ADR 0626) ---------------------------------------
+
+/**
+ * The fields of `object` that say who works shifts: a staffed object's person; a series' field that
+ * is some staffed object's pattern (its regular person); and a holder's account (a coach profile's
+ * user, which puts that account on every shift naming the profile), the last only once it exists.
+ */
+function rosterFields(object: ObjectDefinition, creating: boolean): string[] {
+  const fields: string[] = [];
+  if (object.staffed) fields.push(object.staffed.who.field);
+  for (const o of listObjects()) {
+    const def = o.staffed;
+    if (!def) continue;
+    const link = def.pattern ? o.fields.find((f) => f.name === def.pattern?.link) : undefined;
+    if (def.pattern && link?.options?.to === object.name) fields.push(def.pattern.who);
+    if (!creating && def.who.account && def.who.object === object.name) {
+      fields.push(def.who.account);
+    }
+  }
+  return [...new Set(fields)];
+}
+
+/**
+ * A caller's write that sets or changes who works a shift, a pattern's person or a holder's account
+ * is a rosterer's, by every path that writes a record (create, update, createMany, import, a
+ * version restored, a series changed): refused otherwise, where a pack declares who rosters. The
+ * host's own writes (a take, a series' generation, a leaver taken off) are not the caller's.
+ * Creating a shift or a pattern with nobody on it stays open to whoever may write the object.
+ */
+export async function assertRosterWrite(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  before: Record<string, unknown> | null,
+  after: Record<string, unknown>,
+  by: Mover | undefined,
+): Promise<void> {
+  if (by === "host" || batchOf(ctx).taking) return;
+  const fields = rosterFields(object, before === null);
+  const changed = fields.filter((f) =>
+    before === null
+      ? text(after[f]) !== null
+      : Object.hasOwn(after, f) && !same(before[f], after[f]),
+  );
+  if (!changed.length) return;
+  await assertMayRoster(ctx, `say who works a ${object.label.toLowerCase()}`);
+}
+
+/**
+ * A record restored from the Trash that says who works shifts (a shift with its person, a series
+ * with its regular person, which the series then generates from): the caller's to say (ADR 0626).
+ */
+export async function assertRosterRestore(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string,
+): Promise<void> {
+  const fields = rosterFields(object, true);
+  const table = objectTableOf(object.name);
+  if (!fields.length || !table) return;
+  const columns = fields
+    .map((f) => object.fields.find((x) => x.name === f)?.column)
+    .filter((c): c is string => !!c);
+  if (!columns.length) return;
+  const row = (await (ctx.db as AnyDb)
+    .selectFrom(table)
+    .select(columns.map((c, i) => `${c} as f${i}`))
+    .where("id", "=", id)
+    .executeTakeFirst()) as Record<string, unknown> | undefined;
+  if (row && columns.some((_, i) => text(row[`f${i}`]) !== null)) {
+    await assertMayRoster(ctx, `restore a ${object.label.toLowerCase()} with someone on it`);
+  }
+}
+
+/** Whether `values` (a write of `object`) would set who works shifts: for an approval (ADR 0626). */
+export function setsRosterFields(object: ObjectDefinition, values: Record<string, unknown>) {
+  return rosterFields(object, false).some((f) => Object.hasOwn(values, f));
+}
+
 /** Notes a claim written (or released, null) by this batch, for the batch's later reads. */
 function noteClaim(ctx: { write: object }, object: string, id: string, claim: Claim | null) {
   batchOf(ctx).claims.set(key(object, id), claim);
@@ -321,10 +404,12 @@ export async function staffedWritten(
       shift,
       by: options.by,
       taking: batchOf(ctx).taking,
+      // Only an uncovered shift asks (the window is the Rostering pack's setting, ADR 0626).
       inWindow:
+        !shift.covered &&
         shift.starts !== null &&
         shift.starts >= now &&
-        shift.starts < now + UNCOVERED_WINDOW_DAYS * 86_400,
+        shift.starts < now + (await rosterNumbers(ctx.db)).uncoveredDays * 86_400,
     });
   }
 }
@@ -564,7 +649,7 @@ async function holderOffersCancelled(
   ctx.write(
     CompiledQuery.raw(
       `UPDATE core_staff_offer SET state = 'cancelled', ended_at = ?, ended_by = ?, why = ? WHERE state = 'open' AND object_type = ? AND record_id IN (${shifts})`,
-      [ctx.now, ctx.user.id, why, staffed.name],
+      [ctx.now, actingAccount(ctx), why, staffed.name],
     ),
   );
   const open = await sql
@@ -876,7 +961,7 @@ export async function warningsFor(
   const out: StaffWarning[] = [];
   if (!shift.covered) {
     const now = Math.floor(Date.parse(ctx.now) / 1000);
-    const window = now + UNCOVERED_WINDOW_DAYS * 86_400;
+    const window = now + (await rosterNumbers(ctx.db)).uncoveredDays * 86_400;
     if (shift.starts !== null && shift.starts >= now && shift.starts < window) {
       out.push(warn("uncovered", `This ${label} has nobody on it.`));
     }
@@ -884,9 +969,10 @@ export async function warningsFor(
   }
   if (!shift.account) return out;
   const name = await nameOf(ctx, shift.account);
-  // Whether someone is away is told only to them and to whoever may roster (until stage 45 step
-  // 4's permission: admins). Other staff never learn it, not even from a write's answer.
-  const mayKnow = ctx.user.id === shift.account || mayRoster(ctx.user);
+  // Whether someone is away is told only to them and to whoever may roster (admins, and anyone
+  // granted the rosterers' permission, ADR 0625). Other staff never learn it, not even from a
+  // write's answer. In a pack tool's run, "who" is the account the tool was called for.
+  const mayKnow = actingAccount(ctx) === shift.account || (await mayRoster(ctx));
   if (mayKnow && shift.starts !== null && shift.ends !== null && shift.ends > shift.starts) {
     if (await awayOver(ctx, shift.account, shift.starts, shift.ends)) {
       out.push(warn("unavailable", `${name} said they are not available then.`));
