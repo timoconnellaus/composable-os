@@ -1590,8 +1590,8 @@ The owner decided that a child's paper form copy goes to the linked parent or gu
   button step 4 left for later), which shows the adult's address, or lists the child's guardians
   with their addresses to pick from, then confirms.
 
-Not built: an e2e journey for "Email a copy" (the operations' tests cover it in workerd; the
-screen is a dialog over them).
+One e2e journey (`apps/app/e2e/agreement-acceptances.spec.ts`): staff email a copy of a child's
+paper form to the parent they pick.
 
 ## Step 5: build notes (`feat/stage-44-blocks`, 2026-11-24)
 
