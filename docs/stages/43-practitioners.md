@@ -105,7 +105,7 @@ is going with it, never the notes. The client can end it at any time, and it end
 | 16 | **Three hats, three sign-ins.** One person who is a practitioner, a coach and a member has three sign-ins on one email address, one hat each, with a clear switch between them. Accepted as designed | the design of decision 15 |
 | 17 | **Coaches see how the client is going with the rehab, set by set**: the rehab exercise list and what was done, each set logged, as for their own programs. Never the practitioner's notes | question 1, (a) |
 | 18 | **When a client ends consent, restrictions stay for the coaches until their end date**, and the client can remove them on the same screen as they end it | question 2, (a) |
-| 19 | **When a client ends consent, the practitioner's private notes stay stored, readable by nobody**, until the client is erased or the practice asks for them (read as: asks for them to be removed, below) | question 3, (a) |
+| 19 | **When a client ends consent, the practitioner's private notes stay stored, readable by nobody**, until the client is erased or the practice asks for them (that is, asks for its own records to be handed over: an export of the practitioner's own notes, below) | question 3, (a) |
 | 20 | **The business's AI assistant may read restrictions and the rehab exercise list only, and only if a person on the staff switches that on** (off by default). Never notes, nutrition plans or habits | question 4, (b) |
 | 21 | **Consent is to that one practitioner.** The client can separately share with a colleague at the same practice | question 5, (a) |
 | 22 | **For a child, a linked parent agrees**, for a child with no sign-in of their own | question 6, (a) |
@@ -247,7 +247,9 @@ programs of those kinds. A **nutrition plan** is targets, meals and guidance for
   at the business turns that on (decision 20), and never the rest; where the data is stored and that
   it may be overseas; that you can end it at any time and what happens then (restrictions stay for
   the coaches until their end date unless you remove them; the practitioner's notes are kept, read
-  by nobody, until you are erased or the practice asks for them to be removed); who to ask for your
+  by nobody in the product, because the practice may have to keep its clinical records; the
+  practice may be given a copy of its practitioner's own notes; they are deleted if you ask for
+  your records to be erased); who to ask for your
   records. The link becomes `live` in the same batch that records the consent. `me.care.decline` closes it.
   Declined, withdrawn and expired look the same to the practitioner ("closed").
 - **The consent record** (in `core_care_link`, or a `core_care_consent` row it points to: the
@@ -265,8 +267,11 @@ programs of those kinds. A **nutrition plan** is targets, meals and guidance for
   dependant has no customer account); the consent records the guardian's account and the
   dependant. The guardian reads the child's care records as the child would, through
   `customer.guardians` on the Care and Programs objects, and may end the link. A dependant with a
-  sign-in of their own agrees themselves, as any client does. A guardian whose family link ends
-  can no longer end or read it; the dependant, once they sign in, can.
+  sign-in of their own agrees themselves, as any client does. **Unless stage 44's minor mark is set:**
+  if the Person carries stage 44's "is a minor" mark, the care consent follows stage 44's rule
+  (a linked guardian agrees, or staff record a paper form), so the two stages never disagree. A
+  guardian whose family link ends can no longer end or read it; the dependant, once they sign in,
+  can.
 - **The consent text** is the platform's, versioned, with the business's name, contact and privacy
   policy address filled in from settings. A human admin may add to it (a `personApproves` setting);
   a new version does not change what earlier clients agreed to, and every consent keeps the version
@@ -290,12 +295,36 @@ programs of those kinds. A **nutrition plan** is targets, meals and guidance for
   removes it later, from My restrictions (`me.care.restrictionRemove`, the client's own act, for a
   restriction whose link has ended). Nobody else changes them: the practitioner has no access and
   staff never change an authored row.
-- **The practitioner's private notes when a link ends** (decision 19): they stay stored, readable by
-  nobody (not the practitioner, staff, the client, a shared practitioner or an AI actor), until the
-  client is erased or the practice asks for them to be removed. The practice asks the business: a
-  person on the staff with `practitioners:manage` removes them (`care.notesRemove { practitionerId,
-  personId }`, `actors: ["human"]`, audited), which deletes them without showing them. A new live
-  link with the same practitioner makes them readable to that practitioner again.
+- **The practitioner's private notes when a link ends** (decision 19): they stay stored and are
+  **readable by nobody in the product**: not the practitioner, staff, the client, a shared
+  practitioner or an AI actor. A new live link with the same practitioner makes them readable to
+  that practitioner again.
+  - **The tension, plainly.** The client ended sharing. But health practitioners usually have to
+    keep their clinical records for years. Deleting the notes could put the practice in breach,
+    and leaving them readable would ignore the client's decision. So they are kept, closed, and
+    leave the product only as the practice's own copy, or not at all.
+  - **The practice asks for its records** ("the practice asks for them"): a person on the staff
+    with `practitioners:manage` makes an export (`care.notesExport { practitionerId, personId,
+    reason }`).
+    - **Who may make it:** a person only. It is `actors: ["human"]`: never the assistant, MCP, an
+      automation, an extension or an import, and an AI cannot even ask for it.
+    - **What it holds:** only that practitioner's own notes about that client (their text, dates and
+      what each was about). Nothing else of the client's: no programs, logs, plan or restrictions,
+      and no other practitioner's work, shared or not.
+    - **Who receives it:** it is handed to that practitioner, at their account's address, or, if
+      they have left, to their practice, at its Organisation's address, as a one-time download
+      that expires. It is never shown in the admin, so the person who makes it does not read it.
+    - **The audit:** who made it, when, for which practitioner and client, why, the number of
+      notes, and who received it. No values.
+  - **Deletion.** The notes are deleted when the client is erased (as for every authored row about
+    them). Removal outside erasure (`care.notesRemove { practitionerId, personId, basis }`) is also
+    `actors: ["human"]`, needs `practitioners:manage`, deletes the notes unseen and is audited. It
+    has two allowed bases and no others:
+    - `client`: the client asked the business, and the business handles the request (it may first
+      make the practice's export);
+    - `retention-ended`: the practice asks after its own retention period has ended, and says so in
+      the request.
+    The practice cannot delete records it may still be obliged to keep.
 - **Live** means: `live`, the practitioner's account `active`, and the client's Person out of the
   Trash. A Person restored from the Trash gets the link back (it never ended).
 
@@ -539,7 +568,7 @@ Errors and logs never carry an authored row's values (the field name only).
 | Native and web: Today | Client | Rehab and habit sessions beside training, marked "from [practitioner]"; log and tick as for training |
 | Native and web: My plan, my restrictions | Client | The published nutrition plan; active restrictions, and "remove" on one whose link has ended |
 | Web: the hat switch | Anyone with more than one account | Which hat this screen is for; switch, or sign in as another (decision 16) |
-| Host admin: Settings, Practitioners | Staff with `practitioners:manage` | Invite, list, end; the consent text's additions; who is told about restrictions; the AI setting (decision 20); remove a practitioner's notes at the practice's request (decision 19) |
+| Host admin: Settings, Practitioners | Staff with `practitioners:manage` | Invite, list, end; the consent text's additions; who is told about restrictions; the AI setting (decision 20); export a practitioner's own notes about a client to that practitioner or practice, and remove notes on the client's request or after the practice's retention period (decision 19) |
 | Host admin: Person page, Care tab | Staff (a person) | Linked practitioners, active and past restrictions, rehab exercise lists and how the client is going, set by set (decision 17) |
 | Coach's client view and builder (Programs' blocks) | Staff | A restrictions banner and the builder's warnings from `restrictionsFor` |
 | Class list (Bookings' blocks, the coach) | Staff, the coach role | A flag beside each member with a current restriction; opening it shows them (decision 23) |
@@ -580,7 +609,9 @@ In plain words. **This is not legal advice**; the business and the practice shou
 - **What the platform does not promise**: that data stays in Australia; that a model provider the
   business chose, if the AI setting (decision 20) is on, is in Australia; that the business's or the
   practice's own processes (privacy policy, access requests, how long a practice must keep its
-  records) meet the law. Exporting a client's notes for an access request is left for later.
+  records) meet the law. The practice's own copy of its practitioner's notes is in this stage
+  (`care.notesExport`, decision 19); an export of a client's notes to the client, for an access
+  request, is left for later.
 
 ## Out of scope
 - Who pays (decision 13), and anything priced or billed for practitioners.
@@ -589,7 +620,8 @@ In plain words. **This is not legal advice**; the business and the practice shou
 - Messaging between practitioner, coach and client.
 - Clinical records beyond notes (assessments, measurements, files, referrals, letters), and
   integration with a practice's own system.
-- An export of a client's practitioner notes for an access request.
+- An export of a client's practitioner notes to the client, for an access request (the practice's
+  own copy is in scope, decision 19).
 - Practitioners booking appointments (stage 31b is staff booking).
 - Moving an existing install to another location; a Cloudflare jurisdiction (`eu`, `us`,
   `fedramp`; there is no Australian one); a location hint for Durable Objects, KV, queues or
@@ -631,9 +663,22 @@ In plain words. **This is not legal advice**; the business and the practice shou
    their rehab, plan, restrictions and logs. Restrictions (decision 18): those the client removes as
    they end it stop showing to coaches in the same batch; the rest stay visible to coaches until
    their end date, and the client can remove one later. Notes (decision 19): after the end nobody
-   reads them (the practitioner, staff, the client, a shared practitioner, an AI actor); erasing the
-   client deletes them; `care.notesRemove`, by a person with `practitioners:manage` only, deletes
-   them without showing them.
+   reads them in the product (the practitioner, staff, the client, a shared practitioner, an AI
+   actor).
+   - `care.notesExport` is made only by a person with `practitioners:manage`. It is refused to the
+     assistant, MCP, automations, extensions and imports, and an AI's request to make it is refused
+     too.
+   - The export holds only that practitioner's own notes about that client: nothing else of the
+     client's, and no other practitioner's work.
+   - It reaches only that practitioner or their practice, as an expiring one-time download. It is
+     never shown in the admin.
+   - It is audited without values.
+   - Erasing the client deletes the notes.
+   - `care.notesRemove` is a person's act, with a basis of `client` or `retention-ended`, and is
+     refused for anything else.
+3b. **A minor** (decision 22 with stage 44): when stage 44's "is a minor" mark is set on a Person,
+   the Person's own `me.care.consent` is refused. Only a linked guardian, or staff recording a paper
+   form, gives the consent, as stage 44's rule says.
 6. **Authored rows and staff**: with a fixture of practitioner work, every staff path (record list
    and get, search, `query.sql`, every dashboard, exports, summaries, embeddings, the digest, the
    Trash list, the timeline, audit values, notifications' email bodies, MCP and the assistant) shows
@@ -742,11 +787,15 @@ safely. Steps 1 and 2 can start today. Step 5 is the riskiest and gets the most 
 - **How the owner's answers are read where they leave a detail open** (2026-11-23):
   - decision 18: a restriction with **no end date** stays for coaches until the client removes it
     (the practitioner can no longer lift it once the link has ended);
-  - decision 19: "until the practice asks for them" is read as **asks for them to be removed**
-    (option (a) as put to the owner); handing notes to the practice or the client (an access
-    request) stays out of scope;
+  - decision 19: "until the practice asks for them" means **the practice asks for its own records
+    to be handed over** (the recommendation the owner accepted: a practice may have to keep its
+    clinical records for years). It is an export of that practitioner's own notes, not deletion
+    (corrected 2026-11-23). Removal outside erasure happens only on the client's request, which the
+    business handles, or the practice's after its retention period. Handing notes to the client
+    (an access request) stays out of scope;
   - decision 22: a dependant **with** a sign-in of their own agrees themselves (as option (a)
-    said); the guardian who agreed may end it;
+    said), unless stage 44's "is a minor" mark is set on their Person: then a guardian or paper, as
+    stage 44 says. The guardian who agreed may end it;
   - decision 23: "only those the client agreed to share" is read as **restrictions under a consent
     the client gave** (whose text says coaches see restrictions), with no per-restriction choice;
     the flag is the mark, and its restrictions open from it (the title is not printed on the list);
@@ -757,6 +806,21 @@ safely. Steps 1 and 2 can start today. Step 5 is the riskiest and gets the most 
 None open. The seven questions of the proposal were answered on 2026-11-23: decisions 17 to 23
 (question 1 is decision 17, question 7 is decision 23), with decision 16 accepting the three hats
 and decision 24 the location hint.
+
+## To confirm with the practice
+Before step 8 (the first real client). None of these blocks the build: each is a setting or a line
+in the consent text.
+- **Keeping notes after consent ends.** The client ended sharing, but the practitioner still has a
+  duty to keep records. Confirm that the practice wants the notes kept, closed, in the host, and
+  how it wants its copy: to the practitioner's address, or to the practice's (`care.notesExport`).
+  Confirm how long it must keep them, so that a later `care.notesRemove` on `retention-ended` is
+  well founded.
+- Whether the client is told when the practice is given a copy of the notes.
+- Erasing a client deletes the notes. Confirm whether the business should offer the practice its
+  copy before it erases a client who has a practitioner's notes.
+- What the practice does when a client asks the business to remove their notes before the
+  retention period ends (removal on `client`, or the export first).
+- The words the consent text uses for this, so the client knows before agreeing.
 
 ## Sources
 Read 2026-11-23, all in this repository: `AGENTS.md`, `CONTEXT.md`, `docs/architecture.md`,
