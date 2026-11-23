@@ -2242,8 +2242,13 @@ export interface CoreSubscriptionCoolOffTable {
   call_outcome: "sent" | "pending" | "unknown" | null;
   asked_at: Timestamp;
   last_asked_at: Timestamp;
+  ask_count: Defaulted<number>;
   ended_at: Timestamp | null;
   told_at: Defaulted<Timestamp | null>;
+  release_left: Defaulted<number>;
+  released_count: Defaulted<number>;
+  release_failures: Defaulted<number>;
+  mail_state: Defaulted<"due" | "sending" | "sent" | "failed" | null>;
   updated_at: Timestamp;
 }
 

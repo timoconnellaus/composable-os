@@ -394,6 +394,12 @@ export function toOperationError(error: unknown): OperationError {
       { rule: "cooling_off", reason: "used" },
     );
   }
+  if (message.includes("core_cool_off_exists")) {
+    return new ConflictError(
+      "A cooling off was asked for this membership a moment ago, so nothing more was asked.",
+      { rule: "cooling_off", reason: "asked" },
+    );
+  }
   if (message.includes("core_cool_off_final")) {
     return new ConflictError("This cooling off has already ended, so nothing was changed.", {
       rule: "cooling_off",

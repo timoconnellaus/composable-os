@@ -42,7 +42,7 @@ export interface Gateway {
    */
   nextChange: "applied" | "refused" | "unknown" | "throw";
   /** Stage 44 step 7: how the next cancelSubscription goes at the gatekeeper (as nextChange). */
-  nextCancel: "applied" | "refused" | "unknown" | "throw";
+  nextCancel: "applied" | "refused" | "unknown" | "throw" | "pending" | "retryable";
   /** Stage 32b second review: what the provider's subscription reads as (getSubscription). */
   providerReads: Map<string, Record<string, unknown>>;
   /** Run before the next plan change, pause or unpause answers (a verified read landing meanwhile). */
@@ -58,8 +58,8 @@ export interface PaymentsDouble {
   connectionId(): string;
   /** Creates the org's payments connection, owned by `ownerId`. Call once, before a refund. */
   connect(ownerId: string): Promise<void>;
-  /** Stores a verified event and applies it, as the host's adapter does. */
-  deliver(event: PaymentsEvent): ReturnType<typeof applyAndReturn>;
+  /** Stores a verified event and applies it, as the host's adapter does (at `clock`, else now). */
+  deliver(event: PaymentsEvent, clock?: () => Date): ReturnType<typeof applyAndReturn>;
   /** Plays the provider: the gatekeeper verified a payment of the last checkout for the order. */
   providerPays(
     orderId: string,
@@ -78,11 +78,23 @@ async function applyAndReturn(
   connectionId: string,
   event: PaymentsEvent,
   crm: CrmDb,
+  clock?: () => Date,
 ) {
-  const key = await recordPaymentEvent(db, event, connectionId, new Date().toISOString());
+  const key = await recordPaymentEvent(
+    db,
+    event,
+    connectionId,
+    (clock?.() ?? new Date()).toISOString(),
+  );
   if (!key) throw new Error("not stored");
   const result = await applyStoredPaymentEvent(
-    { crm, integrations: runtime, events, appOrigin: "https://crm.example.com" },
+    {
+      crm,
+      integrations: runtime,
+      events,
+      appOrigin: "https://crm.example.com",
+      ...(clock ? { clock } : {}),
+    },
     key,
   );
   return { event, result };
@@ -206,29 +218,40 @@ export function paymentsDouble(events: () => Events, crm: () => CrmDb = () => db
             input.method === "openPortal"
               ? { url: "https://billing.example/portal" }
               : { status: how === "applied" ? "sent" : "pending", id: gw.changes.length },
-          pending: [],
+          // A cancel waiting for a person at the gatekeeper: only its presence is read.
+          pending: how === "pending" ? [{ actionId: "pac_x" } as never] : [],
           applied: (changing || cancelling) && how !== "applied" ? [] : [action],
-          ...(how === "refused"
+          ...(how === "retryable"
             ? {
                 failed: [
                   {
                     ...action,
-                    outcome: "refused" as const,
-                    message: "Refused by the provider.",
+                    outcome: "retryable" as const,
+                    message: "Pending again at the gatekeeper.",
                   },
                 ],
               }
-            : how === "unknown"
+            : how === "refused"
               ? {
                   failed: [
                     {
                       ...action,
-                      outcome: "unknown" as const,
-                      message: "The provider did not answer.",
+                      outcome: "refused" as const,
+                      message: "Refused by the provider.",
                     },
                   ],
                 }
-              : {}),
+              : how === "unknown"
+                ? {
+                    failed: [
+                      {
+                        ...action,
+                        outcome: "unknown" as const,
+                        message: "The provider did not answer.",
+                      },
+                    ],
+                  }
+                : {}),
         };
       }
       if (input.method === "send") {
@@ -287,8 +310,8 @@ export function paymentsDouble(events: () => Events, crm: () => CrmDb = () => db
     rejectOutbound: async () => undefined,
   };
 
-  const deliver = (event: PaymentsEvent) =>
-    applyAndReturn(runtime, events(), connectionId, event, crm());
+  const deliver = (event: PaymentsEvent, clock?: () => Date) =>
+    applyAndReturn(runtime, events(), connectionId, event, crm(), clock);
 
   return {
     gw,

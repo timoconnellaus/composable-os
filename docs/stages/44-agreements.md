@@ -1797,6 +1797,43 @@ Statements, measured: `subscription.coolingOff` 8, `subscription.coolOff` 13, th
 36 plus about 11 for each booking released. cos-runner's main module after these fixes is given in
 the PR.
 
+### Step 7: after the second review of PR #299 (2026-11-24)
+
+Fixed in the same PR (ADR 0647 rewritten to match; migration 0856 edited in place):
+
+1. **An end the provider made at the first ask, reported after an ask again, lapsed.** Whose end
+   it is (`causedBy`) now runs from the first ask: inside the window, within two days of the
+   latest ask, or (while the ask waits at the gatekeeper) whenever it is approved. Every ask again
+   reads the provider first, and one it already ended is recorded as sent.
+2. **A refused cooling off whose subscription then ended anyway was dropped.** A refused one is
+   judged by the same rule: the cooling off's, or lapsed with admins told. A `retryable` failure
+   (pending again at the gatekeeper) is recorded as pending, never refused.
+3. **Waiting at the gatekeeper was a dead end.** The sweep takes one waiting over an hour (the
+   provider read; admins told once), staff may ask again, and an approval given late is the
+   cooling off's (the ask was in time), owing what was paid in the window and since the ask.
+4. **Once per member, ever**: a lapsed one, or one refused that never ended the membership, does
+   not count until staff finish it (a lapsed one can be finished: the window's payments owed, and
+   it counts). The lapsed notice says to finish it there, not to refund by hand.
+5. Tests: a booking paid by another holder, or for a class already started, is not released; 61
+   ahead.
+6. **Bookings past the cap**: 20 in the end's batch, the rest by follow-ups
+   (`subscription.coolOffRelease`, 30 a time) until none is left; the member's own waiting places
+   it would pay for go too; one summary email to the member through the host's mail; a failed
+   batch is applied again with the end and the refunds. Tested on the real Bookings pack
+   (`apps/runner/test/cooling-off-bookings.test.ts`): the waiter moves in, the largest batch well
+   under D1's limit.
+7. **What is owed is by when it was paid**: every payment on or before the window's end (one taken
+   in the window for a later period included), plus those between the ask that ended it and the
+   end.
+8. **Each ask is a new request** (`askKey`, the gatekeeper's key `cos-cancel-<id>-now-cool-off-<n>`);
+   the sweep's retry keeps its ask's key; staff's "end it now" keeps the subscription's own.
+9. `subscription.cancel` is refused while a cooling off is under way; the database refuses an
+   `INSERT OR REPLACE` over a cooling off; an idle minute writes no audit row; the site's copy
+   says "what they paid in that period".
+
+Statements, measured: `subscription.coolingOff` 8, `subscription.coolOff` 13, the provider's end
+37 plus about 11 for each booking released (20 in the batch); a follow-up of 30 about 360.
+
 **The owner's answers (interview of 2026-11-24)**, confirming what is built, recorded in ADR 0647:
 (1) when a member cools off, classes booked for later are cancelled and the places freed, waiting
 lists moving people in; (2) once per member, ever; (3) the ceiling for the setting is 30 days;

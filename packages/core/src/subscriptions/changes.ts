@@ -668,9 +668,6 @@ function outcomeOf(result: {
   };
 }
 
-/** What came of a subscription call, read from the gatekeeper's typed outcome (cooling-off.ts too). */
-export const subscriptionCallOutcome = outcomeOf;
-
 /**
  * Writes what came of a call on the change, with an audit row of the host's (review of 32b).
  * Conditional on the change's state, so a verified read applied meanwhile is not undone; the audit

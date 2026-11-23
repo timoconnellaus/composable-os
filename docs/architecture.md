@@ -1800,13 +1800,17 @@ only when it says so. `subscription.coolOff` (the payer, or staff with `subscrip
 person only) writes `core_subscription_cool_off` in its batch and, after the commit, asks the
 payments gatekeeper to end the subscription now; a lost or refused answer is kept on the row and
 admins are told once. The member asks again only inside the window; staff finish one after it. The
-minute cron's `subscription.coolOffSweep` (a host step) resolves an ask whose answer was lost or
-never made, reading the provider first. In the batch of the provider's verified event that shows it
-ended within two days of the latest ask (`followCoolOff`, from `applySubscriptionEvent`), one
-statement owes back each order for a period up to the window's end or between that ask and the end
+minute cron's `subscription.coolOffSweep` (a host step; an idle tick invokes nothing) resolves an
+ask whose answer was lost, never made or long waiting, reading the provider first; every ask is
+its own request to the provider (`askKey`). In the batch of the provider's verified event that
+shows it ended, `causedBy` says whether the cooling off ended it (from the first ask: inside the
+window, within two days of the latest ask, or an approval at the gatekeeper given late); then one
+statement owes back each order paid up to the window's end or between that ask and the end
 (`core_sellable_refund_due`, `entered: "cooled_off"`), and the bookings ahead the membership paid
-for are moved into their spender's `released` state (`allowance.spends.released`: Bookings'
-`cancelled_by_us`); any other end makes it `lapsed`, owing nothing as cooled off. The minute cron
+for, and the member's own waiting places it would pay for, are moved into their spender's
+`released` state (`allowance.spends.released`: Bookings' `cancelled_by_us`), 20 in the batch and
+the rest by `subscription.coolOffRelease`, with one summary email to the member; any other end
+makes it `lapsed`, owing nothing as cooled off until staff finish it. The minute cron
 asks the gatekeeper for each refund, which waits for a person with `orders:refund` (ADR 0429).
 Nothing refunds a card on its own.
 

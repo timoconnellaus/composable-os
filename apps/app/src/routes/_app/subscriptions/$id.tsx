@@ -298,7 +298,7 @@ function CoolingOff({ subscription: s }: { subscription: SubscriptionData }) {
   const again = own?.askAgain === true;
   const words = own
     ? own.state === "lapsed"
-      ? "Asked in its cooling-off period, but it ended another way later: nothing is owed as cooled off. Check whether a refund of what was paid in the period is due, and refund it from the orders below."
+      ? "Asked in its cooling-off period, but it ended another way later: nothing is owed as cooled off yet. To refund what was paid in the period, finish the cooling off here (it then counts as the member's one); do not refund it by hand from the orders."
       : own.state === "ended"
         ? `Ended in its cooling-off period${own.endedAt ? ` on ${formatDateTime(own.endedAt)}` : ""}. ` +
           (own.refunds === "refunded"
@@ -329,7 +329,11 @@ function CoolingOff({ subscription: s }: { subscription: SubscriptionData }) {
         {(c.offered || again) && (
           <div>
             <Button size="sm" variant="outline" onClick={() => setConfirming(true)}>
-              {again ? "Ask the payment provider again" : "End it with a full refund"}
+              {own?.state === "lapsed"
+                ? "Finish the cooling off"
+                : again
+                  ? "Ask the payment provider again"
+                  : "End it with a full refund"}
             </Button>
           </div>
         )}

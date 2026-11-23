@@ -26,7 +26,7 @@
 // caller's own subscription (through the seam) or the checkout it opens.
 import { z } from "zod";
 import { guestAcceptancesSchema } from "../agreements/enforce.ts";
-import { ForbiddenError } from "../errors.ts";
+import { ConflictError, ForbiddenError } from "../errors.ts";
 import { SUBSCRIPTION_STATES } from "../fields/subscription.ts";
 import { filterSchema } from "../filter.ts";
 import { LIST_MAX_LIMIT, sortSchema } from "../list.ts";
@@ -40,7 +40,9 @@ import {
 import {
   coolingOffFor,
   coolOff,
+  coolOffOpen,
   NOT_OFFERED,
+  releaseFollowUp,
   sweepCoolOffs,
 } from "../subscriptions/cooling-off.ts";
 import {
@@ -356,6 +358,16 @@ export const subscriptionCancel = defineOperation({
   mcp: { expose: false },
   async handler(input, ctx) {
     const row = await subscriptionForChange(ctx, input.id);
+    // A cooling off under way is finished as one (ADR 0647): an ordinary cancel would end it
+    // without its refunds, or as an end that is not the cooling off's.
+    if (await coolOffOpen(ctx.db, row.id, ctx.now)) {
+      throw new ConflictError(
+        "A cooling off is under way on this membership: it ends with a full refund of what was " +
+          "paid in the period. Wait for it, or finish it from Cooling off; it cannot also be " +
+          "cancelled now.",
+        { subscription: row.id, rule: "cooling_off_open" },
+      );
+    }
     if (input.now) await cancelNow(ctx, row, input.reason);
     else await cancelAtPeriodEnd(ctx, row, input.reason);
     return { id: row.id, requested: true as const };
@@ -663,16 +675,19 @@ export const subscriptionCoolingOff = defineOperation({
 export const subscriptionCoolOff = defineOperation({
   name: "subscription.coolOff",
   description:
-    "End a subscription in its cooling-off period, for a full refund of what was paid on it " +
-    "(subscription.coolingOff says whether it may be). Ended at the payment provider now: " +
-    "nothing more is charged, and what it gives stops once the provider confirms. Then a refund " +
-    "of every paid period is owed, in full, whatever was used; each waits for a person with " +
-    "orders:refund to approve it, as every refund does. Refused outside the window, for a plan " +
-    "with no cooling off, for a membership moved over with a continuation offer, when the " +
-    "member has cooled off before, and while nothing has been paid (a free trial: cancel " +
-    "instead). A signed-in customer ends their own (the one they pay for, a child's included); " +
-    "staff any, with subscriptions:manage. Asked again, it asks the provider again until it is " +
-    "taken; nothing is done twice. A person decides, never an AI assistant.",
+    "End a subscription in its cooling-off period, for a full refund of what was paid in it " +
+    "(subscription.coolingOff says whether it may be, and what it owes). Ended at the payment " +
+    "provider now: nothing more is charged, and what it gives stops once the provider confirms. " +
+    "Then each order paid up to the end of the period, and between the ask and the end, is owed " +
+    "back in full, whatever was used; each waits for a person with orders:refund to approve it. " +
+    "The bookings ahead the membership paid for are cancelled as the business's. Refused for a " +
+    "plan with no cooling off, a membership moved over with a continuation offer, a member who " +
+    "has cooled off before, while nothing has been paid (a free trial: cancel instead), and " +
+    "after the period unless one was asked in it. A signed-in customer ends their own (the one " +
+    "they pay for, a child's included) and asks again only inside the period; staff any, with " +
+    "subscriptions:manage, and finish one asked in time after it (a lapsed one too: what was " +
+    "paid in the period is owed). Each ask reads the provider first and is a new request to it; " +
+    "nothing is done twice. A person decides, never an AI assistant.",
   input: z.object({ id: subscriptionId }),
   output: z.object({
     id: z.string(),
@@ -716,6 +731,7 @@ export const subscriptionCoolOffSweep = defineOperation({
     asked: z.number(),
     told: z.number(),
     unread: z.number(),
+    mailed: z.number(),
   }),
   permission: "subscriptions:manage",
   risk: "write",
@@ -728,6 +744,29 @@ export const subscriptionCoolOffSweep = defineOperation({
       throw new ForbiddenError("Only the host's own cron sweeps cooling offs");
     }
     return afterCommit(() => sweepCoolOffs(ctx));
+  },
+});
+
+export const subscriptionCoolOffRelease = defineOperation({
+  name: "subscription.coolOffRelease",
+  description:
+    "The host's follow-up for a membership ended in its cooling-off period: cancels the next " +
+    "bookings ahead it paid for, as the business's, until none is left. The host's own cron only.",
+  input: z.object({ id: subscriptionId }),
+  output: z.object({ released: z.number(), left: z.boolean() }),
+  permission: "subscriptions:manage",
+  risk: "write",
+  actors: ["automation"],
+  // The host carrying out what a person asked in time: never queued under a floor.
+  hostStep: true,
+  mcp: { expose: false },
+  async handler(input, ctx) {
+    if (ctx.origin.surface !== "system") {
+      throw new ForbiddenError(
+        "Only the host's own cron releases a cooled-off membership's bookings",
+      );
+    }
+    return releaseFollowUp(ctx, input.id);
   },
 });
 
@@ -745,4 +784,5 @@ export const subscriptionOperations = [
   subscriptionCoolingOff,
   subscriptionCoolOff,
   subscriptionCoolOffSweep,
+  subscriptionCoolOffRelease,
 ] as const;
