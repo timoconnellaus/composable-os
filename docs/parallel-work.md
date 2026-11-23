@@ -55,7 +55,8 @@ commit**, by editing this table. Use the next free block. Unused numbers in a bl
 | AQ | 0710–0729 | 0570–0579 | Stage 31a step 9, messages, the reminder, the calendar file and the dashboard (`feat/stage-31a-messages`) | in flight |
 | AT | 0770–0789 | 0600–0609 | A coach who also works the desk (`feat/coach-desk-permissions`, issue #258): `bookings:desk`, grants on a pack-role account adding up with its role; migration 0770, ADR 0600 | in flight |
 | AU | 0790–0809 | 0610–0619 | Stage 46, Hosted clients (spec and ADR 0610; no migrations yet) | specced |
-| AX | 0850–0869 | 0640–0649 | Stage 44, Agreements. Step 1, documents and versions (`feat/stage-44-documents`): migration 0850, ADRs 0640 and 0641. Step 2, acceptances and the one question (`feat/stage-44-acceptances`): migration 0851 (remakes `core_write_guard` with the `agreements` kind), ADRs 0642 and 0643; the later steps take theirs from here. First claimed as AU, which stage 46 took on `main` first; AV and AW are claimed on their branches (`feat/stage-45-recurring-exceptions`, `ci/namespace-runners`) | in flight |
+| AW | 0830–0849 | 0630–0639 | CI on Namespace runners (`ci/namespace-runners`): the runner choice, the fork rule, the cache volume; ADR 0630, no migrations | in flight |
+| AX | 0850–0869 | 0640–0649 | Stage 44, Agreements. Step 1, documents and versions (`feat/stage-44-documents`): migration 0850, ADRs 0640 and 0641. Step 2, acceptances and the one question (`feat/stage-44-acceptances`): migration 0851 (remakes `core_write_guard` with the `agreements` kind), ADRs 0642 and 0643; the later steps take theirs from here. First claimed as AU, which stage 46 took on `main` first; AV is claimed on its branch (`feat/stage-45-recurring-exceptions`) | in flight |
 
 **`core_write_guard` remakes come in order.** Each kind added drops and recreates the table and its
 trigger, carrying every earlier kind. Stage 44 step 2's remake (migration 0851, kind `agreements`)
