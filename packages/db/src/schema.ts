@@ -1279,6 +1279,46 @@ export interface CoreRecurrenceExceptionTable {
   set_at: string;
 }
 
+/**
+ * Migration 0811 (stage 45, ADR 0621): a live, covered shift's time claim, kept by triggers on the
+ * staffed object's table. The database refuses two overlapping claims of one account.
+ */
+export interface CoreStaffTimeTable {
+  object_type: string;
+  record_id: string;
+  account_id: string;
+  /** Unix seconds, half-open. */
+  starts: number;
+  ends: number;
+}
+
+/** Migration 0811 (stage 45, ADR 0622): who may do which kind of work. */
+export interface CoreStaffQualificationTable {
+  account_id: string;
+  kind_object: string;
+  kind_record: string;
+  set_by: string;
+  set_at: string;
+}
+
+/** Migration 0811 (stage 45, ADR 0622): when someone said they cannot work. */
+export interface CoreStaffAwayTable {
+  id: string;
+  account_id: string;
+  kind: "leave" | "regular" | "other";
+  note: string | null;
+  starts_at: string | null;
+  ends_at: string | null;
+  weekdays: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  from_date: string | null;
+  until_date: string | null;
+  zone: string;
+  set_by: string;
+  set_at: string;
+}
+
 /** Migration 0533 (stage 32b, ADR 0493): an allowance holder's terms, kept from its record. */
 export interface CoreAllowanceTable {
   object_type: string;
@@ -2690,6 +2730,9 @@ export interface CoreDatabase {
   core_recurrence_occurrence: CoreRecurrenceOccurrenceTable;
   core_recurrence_exception: CoreRecurrenceExceptionTable;
   core_recurrence_guard: CoreRecurrenceGuardTable;
+  core_staff_time: CoreStaffTimeTable;
+  core_staff_qualification: CoreStaffQualificationTable;
+  core_staff_away: CoreStaffAwayTable;
   core_write_guard: CoreWriteGuardTable;
   core_allowance: CoreAllowanceTable;
   core_allowance_period: CoreAllowancePeriodTable;

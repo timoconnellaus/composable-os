@@ -46816,6 +46816,46 @@
               "string",
               "null"
             ]
+          },
+          "warnings": {
+            "description": "A shift's warnings (ADR 0622): its person away or not qualified, or nobody on it. The write was made.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "unavailable",
+                    "not_qualified",
+                    "uncovered"
+                  ]
+                },
+                "object": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "account": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "object",
+                "id",
+                "account",
+                "message"
+              ],
+              "additionalProperties": false
+            }
           }
         },
         "required": [
@@ -48315,6 +48355,46 @@
               "string",
               "null"
             ]
+          },
+          "warnings": {
+            "description": "A shift's warnings (ADR 0622): its person away or not qualified, or nobody on it. The write was made.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "unavailable",
+                    "not_qualified",
+                    "uncovered"
+                  ]
+                },
+                "object": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "account": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "object",
+                "id",
+                "account",
+                "message"
+              ],
+              "additionalProperties": false
+            }
           }
         },
         "required": [

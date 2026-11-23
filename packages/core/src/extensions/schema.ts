@@ -18,6 +18,7 @@ import {
   RECURRING_HORIZON_DAYS,
   type RecurringScheduleManifest,
   type SellableManifest,
+  type StaffedManifest,
   type StagesManifest,
   type StatesManifest,
   spendsOnList,
@@ -81,6 +82,8 @@ export interface ObjectDefinitionJson {
   claims?: ClaimsManifest;
   unique?: UniqueManifest;
   recurring?: RecurringScheduleManifest;
+  /** A shift (stage 45, ADR 0621), as declared. */
+  staffed?: StaffedManifest;
   owner?: string;
   /** The object's customer (ADR 0402), as declared. */
   customer?: {
@@ -799,6 +802,28 @@ function claimsDefinition(
 }
 
 /** The recurring declaration (ADR 0500), with the objects' registry names. */
+/** The staffed declaration (ADR 0621), with the account holder's registry name. */
+function staffedDefinition(
+  object: ObjectState,
+  own: readonly FieldState[],
+): Pick<ObjectDefinition, "staffed"> {
+  const declared = object.definition.staffed;
+  if (!declared) return {};
+  const holder = declared.who.account
+    ? own.find((f) => f.localName === declared.who.field)?.definition.to
+    : undefined;
+  return {
+    staffed: {
+      ...declared,
+      who: {
+        field: declared.who.field,
+        ...(declared.who.account ? { account: declared.who.account, object: holder } : {}),
+      },
+      live: [...declared.live],
+    },
+  };
+}
+
 function recurringDefinition(object: ObjectState): Pick<ObjectDefinition, "recurring"> {
   const declared = object.definition.recurring;
   if (!declared) return {};
@@ -1111,6 +1136,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...claimsDefinition(object, own),
       ...(object.definition.unique?.length ? { unique: object.definition.unique } : {}),
       ...recurringDefinition(object),
+      ...staffedDefinition(object, own),
       ...(object.definition.owner ? { ownerField: object.definition.owner } : {}),
       ...(object.definition.customer ? { customer: object.definition.customer } : {}),
       ...(object.definition.public ? { public: object.definition.public } : {}),

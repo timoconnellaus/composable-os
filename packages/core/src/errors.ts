@@ -294,6 +294,22 @@ export function toOperationError(error: unknown): OperationError {
       { rule: "recurring_stale" },
     );
   }
+  // One staff account on two overlapping shifts (migration 0811, ADR 0621): refused by the
+  // database for every writer. A write the host read as free names the other shift itself; this
+  // is a race it could not see, or a write by a path that does not read first.
+  if (message.includes("core_staff_double_booked")) {
+    return new ConflictError(
+      "This person is already on another shift at that time, so nothing was changed.",
+      { rule: "double_booked" },
+    );
+  }
+  // A live shift whose end is not after its start (ADR 0621), written by a path that does not
+  // check first: the trigger on the staffed object's table refuses it.
+  if (message.includes("core_staff_time_backwards")) {
+    return new ValidationError("A shift must end after it starts, so nothing was changed.", {
+      rule: "staffed_time",
+    });
+  }
   // A claimant took a place after it was read as holding none (ADR 0501).
   if (message.includes("core_claim_live")) {
     return new ConflictError(

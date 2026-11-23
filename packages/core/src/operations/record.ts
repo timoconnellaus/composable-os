@@ -71,6 +71,15 @@ import {
 } from "../recurring/index.ts";
 import { type ChangeMarks, CREATED, type MarkSource } from "../routine-mail/marks.ts";
 import { loadGeneralSettings } from "../settings.ts";
+import {
+  assertHolderTrashable,
+  holderWritten,
+  type StaffWarning,
+  staffedReleased,
+  staffedRestored,
+  staffedWritten,
+  warningsOf,
+} from "../staffing/index.ts";
 import { type Reader, visibleSource, visibleTable } from "../visibility/index.ts";
 import { setRecordWriter } from "../visibility/writes.ts";
 
@@ -94,6 +103,36 @@ export const recordSchema = z.object({
   updatedAt: z.string().nullable(),
 });
 export type RecordOutput = z.infer<typeof recordSchema>;
+
+/** A warning a write of a shift was made with (stage 45, ADR 0622): it was made, not refused. */
+export const staffWarningSchema = z.object({
+  code: z.enum(["unavailable", "not_qualified", "uncovered"]),
+  object: z.string(),
+  id: z.string(),
+  account: z.string().nullable(),
+  message: z.string(),
+});
+
+/** What record.create and record.update answer: the stored record, and any warnings. */
+export const recordWriteSchema = recordSchema.extend({
+  warnings: z
+    .array(staffWarningSchema)
+    .optional()
+    .describe(
+      "A shift's warnings (ADR 0622): its person away or not qualified, or nobody on it. The write was made.",
+    ),
+});
+
+/** The record as stored, with the warnings this batch's write of it was made with. */
+async function withWarnings(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string,
+  warnings: readonly StaffWarning[],
+) {
+  const record = (await loadRecord(ctx, object, id)) as RecordOutput;
+  return warnings.length ? { ...record, warnings: [...warnings] } : record;
+}
 
 // biome-ignore lint/suspicious/noExplicitAny: x_* tables and rec_x_* views are not in CoreDatabase; names come from the registry.
 type AnyDb = Kysely<any>;
@@ -593,13 +632,14 @@ export const recordCreate = defineOperation({
     "record ids (an array when the field holds many). Returns the stored record. Core objects " +
     "(person, organisation, …) use their own create operations.",
   input: z.object({ object: objectName, values: valuesSchema.default({}) }),
-  output: recordSchema,
+  output: recordWriteSchema,
   permission: "records:write",
   risk: "write",
   async handler(input, ctx) {
     const object = requireExtensionObject(input.object);
     const id = await createRecord(ctx, object, input.values);
-    return ctx.afterCommit(async () => (await loadRecord(ctx, object, id)) as RecordOutput);
+    const warnings = warningsOf(ctx, object.name, id);
+    return ctx.afterCommit(() => withWarnings(ctx, object, id, warnings));
   },
 });
 
@@ -671,6 +711,8 @@ export async function createRecord(
   prepared = withHostValues(prepared, withValues(outcome, spent.values), object);
   // One live record per declared key (ADR 0502); the database's index refuses a race.
   await assertUnique(ctx, object, id, valuesOf(prepared));
+  // A shift: never one person on two at once, refused naming the other; its warnings (ADR 0621).
+  await staffedWritten(ctx, object, id, null, valuesOf(prepared));
   const own = prepared.filter((p) => p.own);
   const columns = ["id", "created_at", "updated_at", "created_by", ...own.map((p) => p.column)];
   ctx.write(
@@ -699,6 +741,7 @@ export async function createRecord(
       })
     : undefined;
   const after = valuesOf(prepared);
+  const warnings = warningsOf(ctx, object.name, id);
   ctx.recordChange({
     object: object.name,
     id,
@@ -715,6 +758,7 @@ export async function createRecord(
       options.copied,
       options.generated,
     ),
+    ...(warnings.length ? { warnings } : {}),
   });
   return id;
 }
@@ -1072,6 +1116,10 @@ export async function updateRecord(
   // One live record per declared key (ADR 0502); the database's index refuses a race.
   if (object.unique)
     await assertUnique(ctx, object, id, { ...before.values, ...valuesOf(prepared) });
+  // A shift (or the profile holding the account of some): never one person on two shifts at once,
+  // refused naming the other; a shift's warnings (ADR 0621, 0622).
+  await staffedWritten(ctx, object, id, before.values, { ...before.values, ...valuesOf(prepared) });
+  await holderWritten(ctx, object, id, before.values, { ...before.values, ...valuesOf(prepared) });
   const own = prepared.filter((p) => p.own);
   if (own.length || !isCoreObject(object.name)) {
     const table = objectTableOf(object.name);
@@ -1128,6 +1176,7 @@ export async function updateRecord(
     const title = after[object.titleField];
     ctx.write(...searchDoc(object.name, id, title == null ? null : String(title)));
   }
+  const warnings = warningsOf(ctx, object.name, id);
   ctx.recordChange({
     object: object.name,
     id,
@@ -1143,6 +1192,7 @@ export async function updateRecord(
         (f) => (by === "host" || !Object.hasOwn(values, f)) && !options.copied?.[f],
       ),
     },
+    ...(warnings.length ? { warnings } : {}),
   });
   return true;
 }
@@ -1284,6 +1334,8 @@ async function trashRecordAsHost(ctx: HandlerContext, object: ObjectDefinition, 
   await assertNoLiveClaim(ctx, object, id);
   if (object.capacity) ctx.write(guardStatement("claimed", object.name, id, 0));
   if (object.claims) ctx.write(guardStatement("claimant", object.name, id, 0));
+  // A shift in the Trash claims nobody's time (its trigger drops the claim, ADR 0621).
+  staffedReleased(ctx, object, id);
   const table = objectTableOf(object.name) as string;
   ctx.write(
     CompiledQuery.raw(`UPDATE ${table} SET deleted_at = ?, deleted_by = ? WHERE id = ?`, [
@@ -1329,13 +1381,14 @@ export const recordUpdate = defineOperation({
           "as a conflict (reason not_in_position or moved_meanwhile) when the record has left it.",
       ),
   }),
-  output: recordSchema,
+  output: recordWriteSchema,
   permission: "records:write",
   risk: "write",
   async handler(input, ctx) {
     const object = requireObject(input.object);
     await updateRecord(ctx, object, input.id, input.values, { from: input.from });
-    return ctx.afterCommit(async () => (await loadRecord(ctx, object, input.id)) as RecordOutput);
+    const warnings = warningsOf(ctx, object.name, input.id);
+    return ctx.afterCommit(() => withWarnings(ctx, object, input.id, warnings));
   },
 });
 
@@ -1443,6 +1496,10 @@ export const recordDelete = defineOperation({
     await seriesChanged(ctx, object, input.id, before.values, before.values, { trashed: true });
     // The read above gives the message; this makes it hold at commit (a claim made meanwhile).
     if (object.claims) ctx.write(guardStatement("claimant", object.name, input.id, 0));
+    // A shift in the Trash claims nobody's time (its trigger drops the claim, ADR 0621); a coach
+    // profile on shifts not yet ended is not trashed while it still names their person.
+    staffedReleased(ctx, object, input.id);
+    await assertHolderTrashable(ctx, object, input.id);
     const table = objectTableOf(object.name) as string;
     ctx.write(
       CompiledQuery.raw(`UPDATE ${table} SET deleted_at = ?, deleted_by = ? WHERE id = ?`, [
@@ -1487,6 +1544,8 @@ export const recordRestore = defineOperation({
     if (deletedAt === null) throw new ValidationError(`${input.id} is not in Trash`);
     // Its slug may have been taken while it was in the Trash (stage 28, ADR 0444).
     await assertRestorable(ctx, object, input.id);
+    // A shift's time may have been given to its person meanwhile (ADR 0621): refused naming it.
+    await staffedRestored(ctx, object, input.id);
     // A granted holder comes back only in a final state (ADR 0513).
     const stateColumn = object.states
       ? fieldStorage(object.name, object.states.field)?.column

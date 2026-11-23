@@ -912,7 +912,8 @@ and claims, ADRs 0430 to 0433) and `sellable` (prices, sale rules and what a pai
 ADR 0435), which exist; `publishable` (a working copy and published versions, ADR 0446), whose
 half without a public exists; `recurring` (a weekly series that makes dated records, ADR 0500), capacity **claimants**
 (ADR 0501, with waitlists, ADR 0520) and declared uniqueness (ADR 0502), which exist since stage
-31; `allowance` (ADR 0493), which exists since stage 32b.
+31; `allowance` (ADR 0493), which exists since stage 32b; `staffed` (a shift and its time claim,
+ADR 0621), which exists since stage 45.
 _Avoid_: hook, trigger (a trigger starts an automation), plugin
 
 **Pack**
@@ -1333,11 +1334,13 @@ membership at once for a full refund of what they paid, each refund still waitin
 `orders:refund`.
 _Avoid_: trial (a plan's free first days), grace period
 
-**Shift** (the `staffed` behaviour; stage 45, proposed)
+**Shift** (the `staffed` behaviour; stage 45, built in step 2: ADR 0621)
 A time someone works: a class (its coach works it) or a **duty shift** (cleaning, opening up), with
 at most one staff account on it. **Covered** when it has a person, **uncovered** when it has none.
 A record declares `staffed` to be one. One person's shifts never overlap: a **double-booking** is
-refused by the database, for every actor.
+refused by the database, for every actor. Each live, covered shift whose person has an account
+holds a **time claim** (its own time, never preparation or pack-down). A write of a shift answers
+its **warnings** (away, not qualified, uncovered), which never refuse it (ADR 0622).
 _Avoid_: session, slot, booking
 
 **Roster** (stage 45, proposed)

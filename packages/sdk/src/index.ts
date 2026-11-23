@@ -34,5 +34,6 @@ export {
 } from "./runtime.ts";
 export * from "./sellable.ts";
 export * from "./slug.ts";
+export * from "./staffed.ts";
 export * from "./states.ts";
 export * from "./unique.ts";

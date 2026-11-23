@@ -34,6 +34,7 @@ import { followersOn } from "../records/follows.ts";
 import type { Mover } from "../records/transitions.ts";
 import type { MarkSource } from "../routine-mail/marks.ts";
 import { loadGeneralSettings } from "../settings.ts";
+import { assertPlansStaffFree, generationClash } from "../staffing/index.ts";
 import {
   isoWeekday,
   localParts,
@@ -379,11 +380,26 @@ export async function generateSeries(
     (o) => o.starts > now && !made.has(o.date) && !closed(o.date),
   );
   const batch = due.slice(0, Math.max(0, limit));
+  const staffed = generated.staffed;
+  const stateField = generated.states?.field;
   for (const occurrence of batch) {
-    const values = {
+    const values: Record<string, unknown> = {
       ...occurrenceValues(def, rule, occurrence, series),
       [def.link]: id,
     };
+    // The host's generation never fails on a clash (ADR 0621): a date whose pattern person is
+    // already on an overlapping shift is made with nobody on it, and keeps that as its own (a
+    // field exception), so the series does not write the clash back; a rosterer settles it.
+    const who = staffed?.who.field;
+    const uncovered =
+      who !== undefined &&
+      values[who] !== null &&
+      values[who] !== undefined &&
+      (await generationClash(ctx, generated, {
+        ...(stateField ? { [stateField]: generated.states?.initial } : {}),
+        ...values,
+      })) !== null;
+    if (uncovered && who) values[who] = null;
     const record = await records().create(ctx, generated, values, {
       by: "host",
       copied: occurrenceSources(def, object.name, id, series, Object.keys(values)),
@@ -398,6 +414,9 @@ export async function generateSeries(
         now: ctx.now,
       }),
     );
+    if (uncovered && who && Object.hasOwn(def.copy, who)) {
+      writeException(ctx, generated.name, record, who, true);
+    }
   }
   const more = due.length > batch.length;
   ctx.write(armSeriesStatement(object.name, id, more ? ctx.now : nextDaily, ctx.now));
@@ -747,6 +766,8 @@ interface Planned {
   date: string;
   values: Record<string, unknown>;
   action: "update" | "remove" | "cancel";
+  /** An update's record as it will be (a shift's claim is checked on it, ADR 0621). */
+  after?: Record<string, unknown>;
   claimed: number;
   /** Live records that follow it (a class's bookings, ADR 0507), places or not. */
   followers: number;
@@ -942,6 +963,7 @@ export async function seriesChanged(
         date: row.local_date,
         values,
         action: "update",
+        after: { ...record, ...values },
         claimed,
         followers,
         state,
@@ -972,6 +994,15 @@ export async function seriesChanged(
     options.confirm,
     `of this ${object.label.toLowerCase()}'s ${generated.plural?.toLowerCase() ?? "records"}`,
     options.trashed ? "end the series with recurring.change first" : "recurring.change",
+  );
+  // A change that would put a shift's person on two shifts at once on any date is refused whole,
+  // naming the dates (ADR 0621): the rosterer settles those dates first.
+  await assertPlansStaffFree(
+    ctx,
+    generated,
+    plans.flatMap((p) =>
+      p.action === "update" && p.after ? [{ id: p.id, date: p.date, after: p.after }] : [],
+    ),
   );
   for (const plan of plans) {
     // Booked meanwhile, or given back: the plan no longer holds and the change is tried again.

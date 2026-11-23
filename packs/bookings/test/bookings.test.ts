@@ -929,6 +929,24 @@ describe("bookings pack (test host)", () => {
     ]);
   });
 
+  // --- Stage 45 step 2: a class is its coach's shift ---------------------------------------------------
+
+  it("declares a class a shift its coach's account works, and one coach profile per account", () => {
+    const m = host().manifest;
+    // The host refuses one account on two overlapping shifts (ADR 0621); no tool checks it.
+    expect(m.objects.class?.staffed).toEqual({
+      who: { field: "coach", account: "user" },
+      starts: "startsAt",
+      ends: "endsAt",
+      zone: "timezone",
+      kind: "classType",
+      live: ["scheduled", "done"],
+      place: "room.name",
+      pattern: { link: "series", who: "coach" },
+    });
+    expect(m.objects.coach?.unique).toEqual([{ fields: ["user"] }]);
+  });
+
   // --- Step 7: attendance, the coach role, moves and cancelling a class -----------------------------
 
   it("declares the coach role, the list's windows, no-shows after the class, and who cancels a class", () => {

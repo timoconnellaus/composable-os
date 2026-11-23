@@ -1019,7 +1019,8 @@ Stages 25 to 28; [ADR 0404](adr/0404-behaviours-are-the-vocabulary.md).
 The rules products share, declared in a manifest and enforced by the host in the write's own batch.
 `stages`, `states`, `capacity`, `sellable` and `publishable` exist (the last with its public
 half, and the media library beside it, since stage 28). `allowance` exists since stage 32b;
-`recurring`, capacity claimants and declared uniqueness since stage 31 (below). Behaviours stack:
+`recurring`, capacity claimants and declared uniqueness since stage 31 (below); `staffed` since
+stage 45 (below). Behaviours stack:
 an event is publishable, sellable and has a capacity.
 
 `stages` and `states` are two declarations on one **transition engine**
@@ -1135,6 +1136,26 @@ stale or orphaned records. A tick makes at most 100 records, 25 per series run, 
 1000 queries per invocation (ADR 0500). `horizonAtLeast` keeps the horizon at least the longest
 booking window; a series in Trash is handled as ended. The wall-clock helper is shared with
 subscriptions' `paidUpMoment` and stage 32b's allowances.
+
+**`staffed`** ([ADR 0621](adr/0621-the-staffed-behaviour-and-the-time-claim.md),
+[ADR 0622](adr/0622-warnings-in-a-writes-answer.md), `packages/core/src/staffing/`; stage 45
+step 2). A record that declares `staffed: { who, starts, ends, zone?, kind, live, … }` is a
+**shift**: a time, a kind of work, and at most one staff account (a `user` field, or a relation
+whose record's user field holds it: a class's coach profile). Every live, covered shift whose
+person has an account holds a **time claim** in `core_staff_time` (migration 0811), and the
+database refuses two overlapping claims of one account (`conflict`, `rule: "double_booked"`), for
+every writer and under races. The claims are derived by triggers the reconciler builds on the
+staffed object's own table and on the account holder's table (`staffing/sql.ts`), so every
+statement that writes a shift writes its claim: create, edit, move, cancel, the Trash, a restore,
+erase, merge, imports, a series' generation and changes; the checks hold for `INSERT OR REPLACE`,
+upserts, `UPDATE OR REPLACE` and id updates. A read before the write names the other shift; the
+series' generation makes a clashing date uncovered (kept as a field exception) rather than fail; a
+series change that would double-book on any date is refused naming the dates; a reconcile over
+shifts that clash and have not ended is refused (`staffed_conflict`; past clashes are skipped and reported, and admins are told of a refused shipped upgrade). A live shift must end after it starts, and a coach profile on shifts not yet ended cannot go to the Trash. Writes answer **warnings** they are
+made with (`unavailable`, `not_qualified`, `uncovered` within 14 days), which the audit row
+records; `staffing.check` (tool-only) is the same answer first. Qualifications and unavailability
+are core tables in no `rec_*` view (`core_staff_qualification`, `core_staff_away`; their writers
+are stage 45 step 3). Bookings' class declares it.
 
 `sellable.moves` ([ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md),
 `packages/core/src/orders/moves.ts` and `refund-due.ts`) is a paid line that moves a record that
@@ -1665,7 +1686,7 @@ calculates a price, checks a capacity or checks a permission.
 | Programs | `document`, `publishable` (no public half), `states`, `customer`, `signedIn` | stage 41: steps 1 to 6 built (the spine, the dashboard, views and Person tab, hooks and blocks, draft and import); Ghetto's app is step 7 |
 | Content | `publishable`, rich text, slugs, media | stage 28: steps 1 to 6 built (rich text, `publishable` completed, public reads, media, the editor, the pack: posts and categories, hooks, web and native renderers); the first client's import and blog routes are its own repository's |
 | Courses | `publishable`, `sellable` (grants and a tax code), `access` and holders' parts, `states`, `customer` with `requireAccess`, `requires: ["programs"]`, video media and `media.play` | stage 42: steps 1 to 4, 6, 7 and the draft built ([ADR 0478](adr/0478-the-courses-pack.md)); the import and the first client to come |
-| Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer` with `guardians`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 6 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md); parents booking for their children, [ADR 0540](adr/0540-the-family-link.md)); step 7, attendance, moves and cancelling a class; step 8, drop-ins with `sellable.moves`, [ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md)); step 9, messages, the reminder, the dashboard and the coach's app screen, [ADR 0572](adr/0572-bookings-messages-the-dashboard-and-the-coachs-app-screen.md); step 10 to come |
+| Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `staffed` (a class is its coach's shift, stage 45), `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer` with `guardians`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 6 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md); parents booking for their children, [ADR 0540](adr/0540-the-family-link.md)); step 7, attendance, moves and cancelling a class; step 8, drop-ins with `sellable.moves`, [ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md)); step 9, messages, the reminder, the dashboard and the coach's app screen, [ADR 0572](adr/0572-bookings-messages-the-dashboard-and-the-coachs-app-screen.md); step 10 to come |
 | Memberships | `allowance` (holders), recurring billing with `recurring.grants` and `recurring.pause`, `sellable.onePerPerson`, `humanOnly` tools, `requires: ["programs"]` | stage 32b: steps 5 to 7 built (the behaviour, the pack, plan changes and pauses, the dashboard, views and blocks); the import (step 8) to come |
 
 ### Client repos
