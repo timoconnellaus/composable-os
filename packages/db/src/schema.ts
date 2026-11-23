@@ -1204,6 +1204,11 @@ export interface CoreAgreementCopyTable {
   guardian_id: Defaulted<string | null>;
   /** When that guardian was erased: their address left the row then. */
   guardian_erased_at: Defaulted<string | null>;
+  /**
+   * When the guardian's link to the child stopped being live before the copy went (ended, or
+   * either Person to the Trash): it was cancelled and its address cleared then.
+   */
+  guardian_ended_at: Defaulted<string | null>;
 }
 
 /**

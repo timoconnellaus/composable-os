@@ -1590,6 +1590,14 @@ The owner decided that a child's paper form copy goes to the linked parent or gu
   button step 4 left for later), which shows the adult's address, or lists the child's guardians
   with their addresses to pick from, then confirms.
 
+After the privacy review of PR #301 (ADR 0648 amended): a guardian copy not yet gone is cancelled
+the moment the link stops being live (ended, deleted, or either Person in the Trash), its pending
+approval turned down and redacted, the scrub owed if it reached the gatekeeper; the sender checks
+again before every send or re-ask. A second ask for another recipient is refused
+(`agreement_copy_already`); a guardian copy cancelled before any try reached the gatekeeper may go
+to a guardian linked now (the same row and first key, `core_agreement_copy_reopen`). The guardian's
+email never says they agreed. A paper copy with no guardian is refused for a minor in the database.
+
 One e2e journey (`apps/app/e2e/agreement-acceptances.spec.ts`): staff email a copy of a child's
 paper form to the parent they pick.
 

@@ -320,11 +320,14 @@ function AcceptanceDialog({
               {one.data.copy ? `Copy ${COPY_STATE[one.data.copy.state]}` : ""}
             </span>
           )}
-          {one.data?.by === "paper" && !one.data.kept && !one.data.copy && canEmailCopy && (
-            <Button variant="outline" onClick={() => setEmailing(true)}>
-              Email a copy
-            </Button>
-          )}
+          {one.data?.by === "paper" &&
+            !one.data.kept &&
+            (!one.data.copy || one.data.copy.state === "cancelled") &&
+            canEmailCopy && (
+              <Button variant="outline" onClick={() => setEmailing(true)}>
+                Email a copy
+              </Button>
+            )}
           <Button variant="outline" onClick={onClose}>
             Close
           </Button>
@@ -388,7 +391,7 @@ function EmailCopyDialog({ acceptanceId, onClose }: { acceptanceId: string; onCl
             <Skeleton className="h-16 w-full" />
           ) : preview.isError ? (
             <p className="text-destructive text-sm">{errorMessage(preview.error)}</p>
-          ) : preview.data.state ? (
+          ) : preview.data.state && !preview.data.askAgain ? (
             <p className="text-sm">
               A copy was already asked for: {COPY_STATE[preview.data.state]}.
             </p>
@@ -401,6 +404,12 @@ function EmailCopyDialog({ acceptanceId, onClose }: { acceptanceId: string; onCl
             <p className="text-sm">This Person has no email address to send the copy to.</p>
           ) : guardians.length ? (
             <fieldset className="grid gap-2">
+              {preview.data.askAgain && (
+                <p className="text-muted-foreground mb-1 text-sm">
+                  The copy asked for before was cancelled before it went: the parent or guardian it
+                  was for is no longer linked. It can go to one linked now.
+                </p>
+              )}
               <legend className="mb-1 text-sm">
                 This form is for a child: choose the parent or guardian to send it to.
               </legend>
@@ -442,7 +451,7 @@ function EmailCopyDialog({ acceptanceId, onClose }: { acceptanceId: string; onCl
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            {!preview.data?.state && !preview.data?.refused && (
+            {(!preview.data?.state || preview.data.askAgain) && !preview.data?.refused && (
               <Button type="submit" disabled={!to || send.isPending}>
                 Send the copy
               </Button>

@@ -831,6 +831,14 @@ describe("the copy (criterion 10)", () => {
     const sent = JSON.stringify(deliveredFor(paper.id)[0]);
     expect(sent).toContain("Recorded from paper");
     expect(sent).toContain("for someone linked to you as their parent or guardian");
+    // Never as if they agreed (the review of PR #301).
+    const message = deliveredFor(paper.id)[0];
+    expect(message?.text).toMatch(/^This is a copy of "/);
+    expect(message?.text).toContain(
+      "If you think this was sent to you by mistake, reply to this email or tell",
+    );
+    expect(message?.text).not.toContain("If you did not agree");
+    expect(message?.subject).toContain(": a copy of ");
     const childName = (
       await env.DB.prepare("SELECT display_name FROM core_person WHERE id = ?")
         .bind(childId)
@@ -848,10 +856,13 @@ describe("the copy (criterion 10)", () => {
     ]) {
       expect(sent).not.toContain(hidden);
     }
-    // Asked again, with anyone: how the first one went, nothing more sent.
-    expect((await send({ guardianId: a.principal.personId, confirmTo: a.email })).state).toBe(
-      "sent",
-    );
+    // Asked again for the same guardian: how the first one went. For another: refused, naming
+    // nobody (the review of PR #301). Nothing more sent either way.
+    expect((await send({ guardianId: b, confirmTo: bEmail })).state).toBe("sent");
+    const other = await refusal(send({ guardianId: a.principal.personId, confirmTo: a.email }));
+    expect(other.details.rule).toBe("agreement_copy_already");
+    expect(other.message).not.toContain(bEmail);
+    expect(other.message).not.toContain(a.email);
     expect(deliveredFor(paper.id)).toHaveLength(1);
     expect(await copyRow(paper.id)).toMatchObject({ to_address: bEmail, guardian_id: b });
 
@@ -1152,7 +1163,7 @@ describe("exactly once", () => {
       )
         .bind(new Date().toISOString(), done.id)
         .run(),
-    ).rejects.toThrow(/CHECK constraint failed/);
+    ).rejects.toThrow(/CHECK constraint failed|core_agreement_copy_fixed/);
     await expect(
       env.DB.prepare("UPDATE core_agreement_copy SET to_address = ? WHERE acceptance_id = ?")
         .bind(buyer.email, done.id)

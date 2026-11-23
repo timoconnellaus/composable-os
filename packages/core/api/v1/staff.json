@@ -6557,6 +6557,10 @@
               }
             ],
             "description": "A copy already asked for: how it went"
+          },
+          "askAgain": {
+            "type": "boolean",
+            "description": "A child's copy cancelled before it went (its guardian erased or their link ended): it may be sent to a guardian linked now"
           }
         },
         "required": [
@@ -6564,7 +6568,8 @@
           "to",
           "guardians",
           "refused",
-          "state"
+          "state",
+          "askAgain"
         ],
         "additionalProperties": false
       },

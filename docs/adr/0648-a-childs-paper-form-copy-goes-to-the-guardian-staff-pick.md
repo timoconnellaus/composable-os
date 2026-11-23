@@ -55,3 +55,27 @@ send to a picked guardian once, to the host's address for them; an ended link, a
 address, a stale `confirmTo` and raw writes refused; the adult path unchanged; each branch of the
 trigger) and `packages/core/test/agreement-erase.test.ts` (erasing the child, erasing the guardian,
 a merge, and the database's rules for clearing the guardian).
+
+## Amended 2026-11-24: the privacy review of PR #301 (before it merged)
+- **Only while the link is live.** A guardian copy not yet gone (queued, retrying, sending, or
+  waiting for a person's approval) is cancelled the moment the guardian's link to the child stops
+  being live: the link ended or deleted, or the guardian or the child put in the Trash (migration
+  0857's triggers, in the same batch). Its pending approval is turned down and redacted first, so
+  no approver can release the held send; the address is cleared, the end recorded
+  (`guardian_ended_at`), and the scrub of the email gatekeeper owed if a try ever reached it, as
+  for the guardian's erase. The sender checks again before every send or re-ask
+  (`cancelUnlinkedGuardianCopies`, and the claim itself takes a guardian copy only while the link
+  is live). An ended link is often a custody or safeguarding change.
+- **One copy, one recipient.** Asking again for another recipient once a copy exists is refused
+  (`agreement_copy_already`), naming nobody. Only a guardian copy cancelled because its guardian was
+  erased or their link ended, before any try reached the gatekeeper (no try counted, nothing sent,
+  no scrub owed), may be asked for again, to a guardian linked now (`askAgain` in the preview). It
+  is the same row with its first key, put back under the insert's rules
+  (`core_agreement_copy_reopen`): nothing was ever sent or held under that key, so the gatekeeper's
+  first-send answer can only be for this send, and exactly once holds. One that reached the
+  gatekeeper is not sent again (its key is scrubbed there); staff give the PDF.
+- **The wording.** The guardian's copy never says they agreed: "This is a copy of …", "The signed
+  form is attached", and it ends "If you think this was sent to you by mistake, reply to this email
+  or tell [the business]." An adult's own copy is worded as before.
+- **Never to the child, in the database too.** A paper copy with no guardian is refused for a
+  Person marked a minor or with a live guardian link.

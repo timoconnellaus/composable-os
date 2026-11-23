@@ -404,7 +404,11 @@ export async function copyMessage(
       ? `It was recorded from a paper form signed on ${a.signed_on}`
       : "It was recorded from a paper form";
   const lines = [
-    `This is your copy of "${document.title}", version ${document.versionNumber}.`,
+    // The guardian's copy never says they agreed (the review of PR #301): it is a copy of a form
+    // recorded from paper for a child linked to them.
+    toGuardian
+      ? `This is a copy of "${document.title}", version ${document.versionNumber}.`
+      : `This is your copy of "${document.title}", version ${document.versionNumber}.`,
     "",
     toGuardian
       ? `${paperLine}, for someone linked to you as their parent or guardian: the attached file names who it is for.`
@@ -413,7 +417,9 @@ export async function copyMessage(
         : BY_WORDS[a.by],
     `${a.by === "paper" ? "Recorded" : "Agreed"}: ${when}.`,
     "",
-    "The signed agreement is attached as a PDF. You can see it at any time under My agreements, in the app or on the website.",
+    toGuardian
+      ? "The signed form is attached as a PDF. You can see it at any time under My agreements, in the app or on the website."
+      : "The signed agreement is attached as a PDF. You can see it at any time under My agreements, in the app or on the website.",
   ];
   if (document.questions) {
     lines.push(
@@ -423,13 +429,21 @@ export async function copyMessage(
         : "Your answers to the health questions are not in this email or the attached file: they are in the app.",
     );
   }
-  lines.push("", `If you did not agree to this, reply to this email or tell ${document.business}.`);
+  lines.push(
+    "",
+    toGuardian
+      ? `If you think this was sent to you by mistake, reply to this email or tell ${document.business}.`
+      : `If you did not agree to this, reply to this email or tell ${document.business}.`,
+  );
   const summary =
     a.by === "paper"
       ? `recorded from paper, ${utcTime(a.accepted_at)}`
       : `agreed ${a.by === "guardian" ? "by a parent or guardian" : a.by === "guest" ? "by a buyer without an account" : "by the person"}, ${utcTime(a.accepted_at)}`;
   return {
-    subject: `${document.business}: your copy of ${document.title}`.replace(/[\r\n]+/g, " "),
+    subject: `${document.business}: ${toGuardian ? "a" : "your"} copy of ${document.title}`.replace(
+      /[\r\n]+/g,
+      " ",
+    ),
     text: lines.join("\n"),
     agreement: { ...document, summary },
   };
@@ -566,8 +580,14 @@ export async function sendAgreementCopies(
     for (const row of await query.execute()) due.push(row.acceptance_id);
   }
 
+  // A child's paper copy goes only while its guardian's link is live (ADR 0648, the review of PR
+  // #301): one whose link ended, or whose guardian or child went to the Trash, is cancelled
+  // before any send or re-ask (migration 0857's triggers do the same the moment the link ends).
+  await cancelUnlinkedGuardianCopies(db, at, due);
+
   for (const id of due) {
-    // One sender per row: the claim either takes it or finds it taken.
+    // One sender per row: the claim either takes it or finds it taken. A guardian copy is
+    // claimed only while the link is live, in the same statement.
     const { rows } = await sql<{ send_key: string; attempts: number; to_address: string | null }>`
       UPDATE core_agreement_copy
       SET state = 'sending', claimed_at = ${at}, next_at = ${later(now, STALE_MS)},
@@ -581,6 +601,7 @@ export async function sendAgreementCopies(
           ELSE json_insert(via, '$[#]', ${viaOf(resolved.target)}) END
       WHERE acceptance_id = ${id} AND state IN ('queued', 'sending', 'waiting')
         AND next_at <= ${at}
+        AND (guardian_id IS NULL OR ${liveGuardianLink("core_agreement_copy")})
       RETURNING send_key, attempts, to_address`.execute(db);
     const claimed = rows[0];
     if (!claimed) continue;
@@ -980,6 +1001,62 @@ function errorCategory(text: string): CopyError {
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Whether the copy row `alias` (a trusted table name or alias, never input) still has a live link
+ * from its guardian to the Person its acceptance is for: the link not ended, both out of the
+ * Trash, as the seam reads it and as migration 0857 checks it.
+ */
+function liveGuardianLink(alias: string) {
+  const c = sql.raw(alias);
+  return sql`EXISTS (SELECT 1 FROM core_agreement_acceptance a
+    JOIN core_person_link l ON l.dependant_id = a.person_id AND l.guardian_id = ${c}.guardian_id
+      AND l.kind = ${GUARDIAN_LINK} AND l.ended_at IS NULL
+    JOIN core_person g ON g.id = l.guardian_id AND g.deleted_at IS NULL
+    JOIN core_person d ON d.id = l.dependant_id AND d.deleted_at IS NULL
+    WHERE a.id = ${c}.acceptance_id)`;
+}
+
+/**
+ * Cancels the guardian copies of `ids` still open (queued, sending, or waiting for a person's
+ * approval) whose guardian's link to the child is no longer live (the review of PR #301), as
+ * migration 0857's triggers do when the link ends: the pending approval turned down and redacted
+ * first, so nobody can release the held send; the address cleared and the end recorded
+ * (`guardian_ended_at`); the scrub owed if a try ever reached the email gatekeeper.
+ */
+export async function cancelUnlinkedGuardianCopies(
+  db: Db,
+  at: string,
+  ids: readonly string[],
+): Promise<void> {
+  if (!ids.length) return;
+  const these = sql`(SELECT value FROM json_each(${JSON.stringify(ids)}))`;
+  const open = sql`c.guardian_id IS NOT NULL AND c.state IN ('queued', 'sending', 'waiting')
+    AND c.acceptance_id IN ${these} AND NOT ${liveGuardianLink("c")}`;
+  await db.executeQuery(
+    sql`UPDATE core_pending_action SET
+        input = ${JSON.stringify("[erased]")}, reason = ${"[erased]"}, preview = '[]',
+        simulated = ${JSON.stringify({ output: null, records: [] })},
+        status_reason = CASE WHEN status = 'pending'
+          THEN 'Rejected: the parent or guardian it was for is no longer linked to the child'
+          ELSE status_reason END,
+        decided_at = CASE WHEN status = 'pending' THEN ${at} ELSE decided_at END,
+        status = CASE WHEN status = 'pending' THEN 'rejected' ELSE status END
+      WHERE id IN (SELECT c.pending_action_id FROM core_agreement_copy c
+        WHERE c.pending_action_id IS NOT NULL AND ${open})`.compile(db),
+  );
+  await db.executeQuery(
+    sql`UPDATE core_agreement_copy SET
+        scrub_due_at = CASE WHEN attempts > 0 THEN ${at} ELSE scrub_due_at END,
+        scrub_owed_since = CASE WHEN attempts > 0 THEN coalesce(scrub_owed_since, ${at})
+          ELSE scrub_owed_since END,
+        to_address = NULL, next_at = NULL, error = NULL, pending_action_id = NULL,
+        state = 'cancelled', guardian_ended_at = ${at}
+      WHERE acceptance_id IN (SELECT c.acceptance_id FROM core_agreement_copy c WHERE ${open})`.compile(
+      db,
+    ),
+  );
 }
 
 /** A live parent or guardian of a child a paper form's copy may go to, and their address. */

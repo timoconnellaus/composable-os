@@ -193,7 +193,15 @@ async function paperCopyTarget(ctx: HandlerContext, acceptanceId: string) {
   }
   const existing = await ctx.db
     .selectFrom("core_agreement_copy")
-    .select("state")
+    .select([
+      "state",
+      "attempts",
+      "sent_at",
+      "guardian_id",
+      "guardian_ended_at",
+      "guardian_erased_at",
+      "scrub_owed_since",
+    ])
     .where("acceptance_id", "=", facts.id)
     .executeTakeFirst();
   return {
@@ -232,7 +240,32 @@ async function guardianChoices(
   return out;
 }
 
+/**
+ * A copy that may be asked for again (the review of PR #301): a child's paper copy cancelled
+ * because its guardian was erased or their link ended, before any try reached the email
+ * gatekeeper. Nothing was ever sent under its key, so the same row and the same first key go
+ * again, once (migration 0857's `core_agreement_copy_reopen` holds the database to the same).
+ */
+function mayAskAgain(existing: {
+  state: string;
+  attempts: number;
+  sent_at: string | null;
+  guardian_ended_at: string | null;
+  guardian_erased_at: string | null;
+  scrub_owed_since: string | null;
+}): boolean {
+  return (
+    existing.state === "cancelled" &&
+    existing.attempts === 0 &&
+    existing.sent_at === null &&
+    existing.scrub_owed_since === null &&
+    (existing.guardian_ended_at !== null || existing.guardian_erased_at !== null)
+  );
+}
+
 const REFUSED = {
+  already:
+    "A copy of this form was already asked for: it is not sent to anyone else. Download the PDF if another copy is needed.",
   minor:
     "This form is for a child, and no parent or guardian linked to them has an email address to send the copy to. Download the PDF and give it to their parent or guardian.",
   no_address: "This Person has no email address to send the copy to.",
@@ -271,6 +304,11 @@ export const agreementCopyPreview = defineOperation({
       .describe("A child's form: the linked parents and guardians to choose from"),
     refused: z.enum(["minor", "no_address"]).nullable(),
     state: copyState.nullable().describe("A copy already asked for: how it went"),
+    askAgain: z
+      .boolean()
+      .describe(
+        "A child's copy cancelled before it went (its guardian erased or their link ended): it may be sent to a guardian linked now",
+      ),
   }),
   permission: "agreements:paper",
   risk: "read",
@@ -293,6 +331,7 @@ export const agreementCopyPreview = defineOperation({
             ? "minor"
             : null,
       state: existing?.state ?? null,
+      askAgain: existing ? mayAskAgain(existing) : false,
     };
   },
 });
@@ -329,7 +368,16 @@ export const agreementCopySend = defineOperation({
   async handler(input, ctx) {
     if (ctx.actor !== "human") throw new ForbiddenError("Only a person emails a paper form's copy");
     const { facts, existing, recipient } = await paperCopyTarget(ctx, input.acceptanceId);
-    if (existing) return { acceptanceId: facts.id, state: existing.state };
+    // Asked for already: how it went, to the same recipient; never a second copy to someone else
+    // (naming nobody), unless it was cancelled before it ever went and may be asked for again.
+    const again = existing ? mayAskAgain(existing) : false;
+    if (existing && !again) {
+      const sameRecipient = (input.guardianId ?? null) === existing.guardian_id;
+      if (!sameRecipient) {
+        throw new ConflictError(REFUSED.already, { rule: "agreement_copy_already" });
+      }
+      return { acceptanceId: facts.id, state: existing.state };
+    }
     // The address is the host's record, never an input: the confirmation only proves the person
     // saw the one the host holds now. For a child's form, the guardian chosen must be a live
     // guardian of the child this person may see, with an address; migration 0857 checks the
@@ -375,18 +423,33 @@ export const agreementCopySend = defineOperation({
         { rule: "agreement_copy_address_changed" },
       );
     }
+    const fresh = {
+      to_address: to,
+      state: "queued" as const,
+      send_key: `agreement-copy:${facts.id}`,
+      attempts: 0,
+      queued_at: ctx.now,
+      next_at: ctx.now,
+      requested_by: ctx.user.id,
+      guardian_id: guardianId,
+    };
     ctx.write(
-      ctx.db.insertInto("core_agreement_copy").values({
-        acceptance_id: facts.id,
-        to_address: to,
-        state: "queued",
-        send_key: `agreement-copy:${facts.id}`,
-        attempts: 0,
-        queued_at: ctx.now,
-        next_at: ctx.now,
-        requested_by: ctx.user.id,
-        guardian_id: guardianId,
-      }),
+      again
+        ? // The cancelled row, back to its first state with its first key: only while it is
+          // still cancelled and still never tried (the reopen trigger checks the rest).
+          ctx.db
+            .updateTable("core_agreement_copy")
+            .set({
+              ...fresh,
+              claimed_at: null,
+              error: null,
+              guardian_ended_at: null,
+              guardian_erased_at: null,
+            })
+            .where("acceptance_id", "=", facts.id)
+            .where("state", "=", "cancelled")
+            .where("attempts", "=", 0)
+        : ctx.db.insertInto("core_agreement_copy").values({ acceptance_id: facts.id, ...fresh }),
     );
     const integrations = ctx.integrations;
     return afterCommit(async () => {

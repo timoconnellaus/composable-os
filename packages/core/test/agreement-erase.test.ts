@@ -2235,3 +2235,302 @@ describe("whom a child's paper copy went to, in the database (migration 0857)", 
     });
   });
 });
+
+describe("a guardian copy not yet gone goes only while the link is live (review of PR #301)", () => {
+  async function linked(label: string) {
+    const { parent, child } = await family(label);
+    const link = await env.DB.prepare(
+      "SELECT id FROM core_person_link WHERE guardian_id = ? AND dependant_id = ? AND ended_at IS NULL",
+    )
+      .bind(parent.principal.personId, child.principal.personId)
+      .first<{ id: string }>();
+    return { parent, child, linkId: link?.id as string };
+  }
+  async function paper(childId: string) {
+    return (
+      await run<{ id: string }>(
+        "agreement.recordPaper",
+        {
+          personId: childId,
+          versionId: guardianDoc.versionId,
+          signedOn: new Date().toISOString().slice(0, 10),
+          typedName: "Fixture Paper Name",
+        },
+        staff(),
+      )
+    ).id;
+  }
+  const sendTo = (id: string, guardian: { id: string; email: string }, extra = {}) =>
+    run<{ state: string }>(
+      "agreement.copy.send",
+      { acceptanceId: id, guardianId: guardian.id, confirmTo: guardian.email },
+      staff(admin, extra),
+    );
+  const delivered = (id: string) =>
+    mail.delivered.filter((m) => m.idempotencyKey?.includes(id)).length;
+
+  it("queued: the link ends, the copy is cancelled at once and never sent; it may then go to a guardian linked now", async () => {
+    const { parent, child, linkId } = await linked("lq");
+    const id = await paper(child.principal.personId);
+    // No integration host at the send: it waits, queued.
+    await sendTo(
+      id,
+      { id: parent.principal.personId, email: parent.email },
+      {
+        integrations: undefined,
+      },
+    );
+    expect(await row("core_agreement_copy", "acceptance_id", id)).toMatchObject({
+      state: "queued",
+      attempts: 0,
+    });
+    await run("person.link.end", { id: linkId }, staff());
+    expect(await row("core_agreement_copy", "acceptance_id", id)).toMatchObject({
+      state: "cancelled",
+      to_address: null,
+      guardian_id: parent.principal.personId,
+      guardian_ended_at: expect.any(String),
+      scrub_due_at: null,
+    });
+    await sendAgreementCopies({ db: db.query, integrations: mail.runtime });
+    expect(delivered(id)).toBe(0);
+
+    // Asking the ex-guardian again: not a live guardian. Another guardian linked now: it goes,
+    // once, under the copy's first key (nothing was ever sent under it).
+    expect(
+      (await refusal(sendTo(id, { id: parent.principal.personId, email: parent.email }))).details
+        .rule,
+    ).toBe("agreement_copy_not_guardian");
+    const other = await createBuyer(admin, "lqo");
+    await run(
+      "person.link.add",
+      { guardianId: other.principal.personId, dependantId: child.principal.personId },
+      staff(),
+    );
+    const preview = await run<{ state: string; askAgain: boolean }>(
+      "agreement.copy.preview",
+      { acceptanceId: id },
+      staff(),
+    );
+    expect(preview).toMatchObject({ state: "cancelled", askAgain: true });
+    expect((await sendTo(id, { id: other.principal.personId, email: other.email })).state).toBe(
+      "sent",
+    );
+    expect(mail.delivered.filter((m) => m.idempotencyKey === `agreement-copy:${id}`)).toEqual([
+      expect.objectContaining({ to: [other.email] }),
+    ]);
+    expect(await row("core_agreement_copy", "acceptance_id", id)).toMatchObject({
+      state: "sent",
+      to_address: other.email,
+      guardian_id: other.principal.personId,
+      guardian_ended_at: null,
+    });
+    // Once sent: never to anyone else, and nothing names who.
+    const again = await refusal(sendTo(id, { id: parent.principal.personId, email: parent.email }));
+    expect(again.details.rule).toBe("agreement_copy_already");
+    expect(again.message).not.toContain(other.email);
+    expect(delivered(id)).toBe(1);
+  });
+
+  it("waiting for a person's approval: the link ends, the approval is turned down and redacted and cannot be released; the held send is scrubbed", async () => {
+    const { parent, child, linkId } = await linked("lw");
+    const id = await paper(child.principal.personId);
+    mail.modes.push("pending");
+    await sendTo(id, { id: parent.principal.personId, email: parent.email });
+    const waiting = await row("core_agreement_copy", "acceptance_id", id);
+    expect(waiting).toMatchObject({ state: "waiting" });
+    const actionId = waiting?.pending_action_id as string;
+    await run("person.link.end", { id: linkId }, staff());
+    // At once, in the batch that ended the link.
+    expect(await row("core_agreement_copy", "acceptance_id", id)).toMatchObject({
+      state: "cancelled",
+      to_address: null,
+      pending_action_id: null,
+      guardian_ended_at: expect.any(String),
+      scrub_due_at: expect.any(String),
+    });
+    const action = await row("core_pending_action", "id", actionId);
+    expect(action).toMatchObject({ status: "rejected", input: JSON.stringify("[erased]") });
+    expect(JSON.stringify(action)).not.toContain(parent.email);
+    // An approver cannot release it.
+    await run("approval.approve", { actionIds: [actionId] }, staff()).catch(() => null);
+    expect(await row("core_pending_action", "id", actionId)).toMatchObject({ status: "rejected" });
+    // The scrub drops the held send at the gatekeeper; nothing is ever delivered.
+    await sendAgreementCopies({ db: db.query, integrations: mail.runtime });
+    expect(mail.waiting.has(`agreement-copy:${id}`)).toBe(false);
+    expect(await row("core_agreement_copy", "acceptance_id", id)).toMatchObject({
+      scrub_due_at: null,
+      scrubbed_at: expect.any(String),
+    });
+    expect(delivered(id)).toBe(0);
+    // It reached the gatekeeper, so it is not asked for again: the PDF is staff's way.
+    const other = await createBuyer(admin, "lwo");
+    await run(
+      "person.link.add",
+      { guardianId: other.principal.personId, dependantId: child.principal.personId },
+      staff(),
+    );
+    expect(
+      (await refusal(sendTo(id, { id: other.principal.personId, email: other.email }))).details
+        .rule,
+    ).toBe("agreement_copy_already");
+  });
+
+  it("retrying, then the child goes to the Trash: cancelled and its scrub owed; the sender's own check cancels one whose link died by any path", async () => {
+    const { parent, child } = await linked("lr");
+    const id = await paper(child.principal.personId);
+    await sendTo(
+      id,
+      { id: parent.principal.personId, email: parent.email },
+      {
+        integrations: undefined,
+      },
+    );
+    // As a refused try leaves it: tried once, due again later.
+    await env.DB.prepare(
+      "UPDATE core_agreement_copy SET attempts = 1, error = 'unreachable', next_at = ? WHERE acceptance_id = ?",
+    )
+      .bind(new Date(Date.now() + DAY).toISOString(), id)
+      .run();
+    await run("person.delete", { id: child.principal.personId }, staff());
+    expect(await row("core_agreement_copy", "acceptance_id", id)).toMatchObject({
+      state: "cancelled",
+      to_address: null,
+      guardian_ended_at: expect.any(String),
+      scrub_due_at: expect.any(String),
+    });
+    await run("person.restore", { id: child.principal.personId }, staff());
+    expect(await row("core_agreement_copy", "acceptance_id", id)).toMatchObject({
+      state: "cancelled",
+    });
+
+    // The sender itself: a link that stopped being live by a path no trigger watches (a raw
+    // write), found before the send.
+    const two = await linked("lr2");
+    const id2 = await paper(two.child.principal.personId);
+    await sendTo(
+      id2,
+      { id: two.parent.principal.personId, email: two.parent.email },
+      {
+        integrations: undefined,
+      },
+    );
+    const stranger = await createBuyer(admin, "lr2s");
+    await env.DB.prepare("UPDATE core_person_link SET guardian_id = ? WHERE id = ?")
+      .bind(stranger.principal.personId, two.linkId)
+      .run();
+    await sendAgreementCopies({ db: db.query, integrations: mail.runtime });
+    expect(await row("core_agreement_copy", "acceptance_id", id2)).toMatchObject({
+      state: "cancelled",
+      to_address: null,
+      guardian_ended_at: expect.any(String),
+    });
+    expect(delivered(id2)).toBe(0);
+  });
+
+  it("the database: an open guardian copy is cancelled for a dead link only; a cancelled one comes back only as a fresh send to a live guardian", async () => {
+    const { parent, child, linkId } = await linked("ldb");
+    const id = await paper(child.principal.personId);
+    await sendTo(
+      id,
+      { id: parent.principal.personId, email: parent.email },
+      {
+        integrations: undefined,
+      },
+    );
+    const at = new Date().toISOString();
+    // While the link is live, no "ended".
+    await expect(
+      env.DB.prepare(
+        "UPDATE core_agreement_copy SET to_address = NULL, state = 'cancelled', next_at = NULL, guardian_ended_at = ? WHERE acceptance_id = ?",
+      )
+        .bind(at, id)
+        .run(),
+    ).rejects.toThrow(/core_agreement_copy_fixed/);
+    await run("person.link.end", { id: linkId }, staff());
+    const cancelled = await row("core_agreement_copy", "acceptance_id", id);
+    // Recorded once.
+    await expect(
+      env.DB.prepare(
+        "UPDATE core_agreement_copy SET guardian_ended_at = NULL WHERE acceptance_id = ?",
+      )
+        .bind(id)
+        .run(),
+    ).rejects.toThrow(/core_agreement_copy_fixed/);
+    // Back to the ex-guardian, to a stranger, or with a try counted: refused.
+    const stranger = await createBuyer(admin, "ldbs");
+    const reopen = (to: string, guardianId: string, attempts = 0) =>
+      env.DB.prepare(
+        "UPDATE core_agreement_copy SET state = 'queued', next_at = ?, to_address = ?, guardian_id = ?, guardian_ended_at = NULL, attempts = ? WHERE acceptance_id = ?",
+      )
+        .bind(at, to, guardianId, attempts, id)
+        .run();
+    await expect(reopen(parent.email, parent.principal.personId)).rejects.toThrow(
+      /core_agreement_copy_address/,
+    );
+    await expect(reopen(stranger.email, stranger.principal.personId)).rejects.toThrow(
+      /core_agreement_copy_address/,
+    );
+    await expect(reopen(child.email, parent.principal.personId, 1)).rejects.toThrow(
+      /core_agreement_copy_fixed/,
+    );
+    await expect(
+      env.DB.prepare(
+        "UPDATE core_agreement_copy SET state = 'sending', next_at = ? WHERE acceptance_id = ?",
+      )
+        .bind(at, id)
+        .run(),
+    ).rejects.toThrow(/core_agreement_copy_fixed/);
+    expect(await row("core_agreement_copy", "acceptance_id", id)).toEqual(cancelled);
+    // A cancelled copy that reached the gatekeeper never comes back, even to a live guardian.
+    await run(
+      "person.link.add",
+      { guardianId: stranger.principal.personId, dependantId: child.principal.personId },
+      staff(),
+    );
+    await env.DB.prepare("UPDATE core_agreement_copy SET attempts = 1 WHERE acceptance_id = ?")
+      .bind(id)
+      .run();
+    await expect(reopen(stranger.email, stranger.principal.personId)).rejects.toThrow(
+      /core_agreement_copy_fixed/,
+    );
+    // Never tried: to the live guardian's own address, it comes back.
+    await env.DB.prepare("UPDATE core_agreement_copy SET attempts = 0 WHERE acceptance_id = ?")
+      .bind(id)
+      .run();
+    await reopen(stranger.email, stranger.principal.personId);
+    expect(await row("core_agreement_copy", "acceptance_id", id)).toMatchObject({
+      state: "queued",
+      to_address: stranger.email,
+      guardian_id: stranger.principal.personId,
+    });
+  });
+
+  it("a paper copy with no guardian never goes to a minor, in the database", async () => {
+    const { child } = await linked("lmin");
+    const marked = await createBuyer(admin, "lminm");
+    await run("agreement.setMinor", { personId: marked.principal.personId, minor: true }, staff());
+    const at = new Date().toISOString();
+    for (const kid of [child, marked]) {
+      const id = await paper(kid.principal.personId);
+      await expect(
+        env.DB.prepare(
+          "INSERT INTO core_agreement_copy (acceptance_id, to_address, state, send_key, attempts, queued_at, next_at) VALUES (?, ?, 'queued', ?, 0, ?, ?)",
+        )
+          .bind(id, kid.email, `agreement-copy:${id}`, at, at)
+          .run(),
+      ).rejects.toThrow(/core_agreement_copy_address/);
+    }
+    // An adult's own: allowed, as before.
+    const adult = await createBuyer(admin, "lminad");
+    const id = await paper(adult.principal.personId);
+    await env.DB.prepare(
+      "INSERT INTO core_agreement_copy (acceptance_id, to_address, state, send_key, attempts, queued_at, next_at) VALUES (?, ?, 'queued', ?, 0, ?, ?)",
+    )
+      .bind(id, adult.email, `agreement-copy:${id}`, at, at)
+      .run();
+    expect(await row("core_agreement_copy", "acceptance_id", id)).toMatchObject({
+      to_address: adult.email,
+    });
+  });
+});
