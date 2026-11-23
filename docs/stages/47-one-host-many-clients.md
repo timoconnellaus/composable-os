@@ -18,8 +18,9 @@ branch `spike/one-host` (`packages/core/test/spike/`); `packages/db/src/handle.t
 and `bound.ts`, `server/mcp/handler.ts`, `apps/runner/src/index.ts`, `automations/dispatch.ts`,
 `extensions/shipped-list.ts`, `packages/auth/src/index.ts`, `packages/release/src/update.ts`.
 
-Status: **proposal.** The owner chose the design on 2026-11-23 (decisions 1 to 6). The questions
-at the end are open. Build step 1 repeats the spike on Cloudflare and needs none of them.
+Status: **spec agreed** (the owner chose the design on 2026-11-23, decisions 1 to 6, and answered
+the open questions the same day, decisions 7 to 11). One question is still open and blocks
+nothing: whether Workers for Platforms is switched off.
 
 This stage replaces most of stage 46. What stage 46 decided about people and promises stands
 (its decisions 13 to 22); how a hosted client's Workers are laid out does not.
@@ -107,6 +108,16 @@ The first client is the gym that stage 27 was built for.
 | 5 | A set of Workers per client (built today) is not the layout for hosted clients either: it does not fit dozens of gyms |
 | 6 | Stage 46's decisions 13 to 22 stand: hostnames on `composableos.app`, the fleet's account, usage reported before limits are set, a moved client's old copy kept 90 days, our repositories while a client is hosted, and the leaving promise |
 
+### The owner's answers to the open questions (2026-11-23)
+
+| # | Decision | Was |
+| --- | --- | --- |
+| 7 | **No client is held on an older release.** Updates go to staging first. A client whose own extensions fail the new release's checks stops the update before live, and we fix the extensions. This replaces stage 46's decision 5 (a hold per client), made when each client had its own Workers | question 1 |
+| 8 | **A client's given secrets may be stored encrypted in the registry:** under a key only the host's environment holds, written only by the operator's command, never readable by an operation, an extension or the assistant. Auth secrets are derived, not stored. ADRs 0008, 0151 and 0428 are amended for a many-client deployment | question 2 |
+| 9 | **A client in its own account, and a self-hosted install, stay as built,** on D1 | question 3 |
+| 10 | **Staging is a second deployment** holding every client's staging environment. Each release runs there before live | question 4 |
+| 11 | **The first client starts with its own web app and repository.** The standard web app and settings-only gyms are the next stage, with their own interview | question 5 |
+
 ## The design in one page
 
 ```
@@ -188,7 +199,7 @@ version stamp changes.
 - **The operator's own** (the Stream token, the Platform AI token, the gatekeepers' own OAuth
   apps) stay Worker secrets, shared.
 
-This amends ADRs 0008, 0151 and 0428 for a many-client deployment (question 2). A single-client
+This amends ADRs 0008, 0151 and 0428 for a many-client deployment (decision 8). A single-client
 deployment keeps Worker secrets exactly as today.
 
 ### Deciding the client at each entry
@@ -264,7 +275,8 @@ endpoint id says which client's connection it is for.
 - **The host refuses a request for a client whose schema is behind the code,** with a "being
   updated" page, where today it only reports it.
 - **Staging first:** a second deployment, `staging`, holds every client's staging environment. An
-  update goes there, then to live (question 4).
+  update goes there, then to live (decision 10). Before live, the new release's checks run on
+  every client's own extensions; a failure stops the update (decision 7).
 - **`cos client export`, `cos client import`, `cos client remove`:** the database as SQL, the
   client's files, its videos by creator, its secrets. Export then install in the client's own
   account is the leaving promise; a removed client's export is kept 90 days.
@@ -279,7 +291,7 @@ single-client deployment.
 
 - **The standard web app and signing a gym up from settings.** The standard product's own
   interview and stage, next. This stage makes the host able to hold them.
-- **Holding one client on an older release** (question 1).
+- **Holding one client on an older release** (decision 7).
 - Charging for usage, and limits.
 - Moving the single-client deployment off D1.
 - Selling the hosted CRM by sign-up, and the stage 10 control plane, which is unchanged.
@@ -369,20 +381,5 @@ Steps 2 and 3 can run side by side; 4 and 6 after 3.
 
 ## Questions for the owner
 
-1. **Is holding one client on an older release needed at the start?** With one deploy for
-   everyone it needs a second copy of the live host and a router in front. Proposed: no. Updates
-   go to staging first, and a client whose own extensions fail the new release's checks stops the
-   update before live; the extensions are in our repositories, so we fix them.
-2. **May a client's given secrets (Stripe keys, their own Google sign-in, their own AI keys) be
-   stored encrypted in the registry?** Today the rule is that these are Worker secrets only. With
-   one set of Workers there is no per-client Worker to hold them. Proposed: yes, encrypted under a
-   key only the host's `env` holds, written only by the operator's command, never readable by an
-   operation or the assistant.
-3. **Does a client in its own account, and a self-hosted install, stay on D1 as today?**
-   Proposed: yes.
-4. **Is staging a second deployment holding every client's staging environment?** Proposed: yes.
-   It is also where each release runs before live.
-5. **Does the first client start with its own web app and its own repository** (the bespoke tier,
-   on the shared host), with the standard web app and settings-only gyms as the next stage?
-   Proposed: yes.
-6. **Shall Workers for Platforms be switched off?** Nothing in this design uses it. Proposed: yes.
+1. **Shall Workers for Platforms be switched off?** Nothing in this design uses it. Only the
+   owner can cancel it. It blocks nothing.

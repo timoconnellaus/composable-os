@@ -44,15 +44,16 @@ database for each client. It can open a different Durable Object for each.
 
 ## Consequences
 - **One deploy reaches every client.** A bad release does too. Updates go to a staging deployment
-  first; whether one client can be held back is an open question of stage 47.
+  first, and no client is held on an older release (stage 47's decision 7).
 - **Separation of clients' files, search, queues and key-value data is the host's work,** not
   Cloudflare's: prefixes, namespaces and stamps added by wrappers at one seam. A client's
   database is separate by construction.
 - **Anything cached at module level can leak between clients.** Each such cache is keyed by
   client, and the suite is run with two clients in one isolate.
-- **ADRs 0008, 0151 and 0428 need amending** for a many-client deployment: auth secrets are
-  derived per client from one secret in the environment, and a client's given secrets are stored
-  encrypted in the registry. The owner's answer is awaited (stage 47, question 2).
+- **ADRs 0008, 0151 and 0428 are amended** for a many-client deployment (the owner's answer of
+  2026-11-23, stage 47's decision 8): auth secrets are derived per client from one secret in the
+  environment, and a client's given secrets are stored encrypted in the registry, written only by
+  the operator.
 - **A client's database holds 10 GB at most** and handles one query at a time.
 - **The deploy engine's database steps change:** bookmark, migrate and restore are done for each
   client through the host, where today they are done over D1's REST API.
