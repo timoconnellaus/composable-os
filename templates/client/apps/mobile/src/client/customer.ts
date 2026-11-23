@@ -5,7 +5,7 @@ import { type ClientOptions, createClient } from "@composable-os/client";
 /** Every operation's input, output and kind. */
 export type Operations = {
   /**
-   * The words a visitor buying without an account is asked to agree to: each version named (by the versionId of an agreements_due refusal from a buying call), as it will be recorded: its title, body, tick label, health questions and how it is agreed to. Only a version in effect, or scheduled, of a live document attached somewhere and asked of everyone; any other id is left out. The business's text, never anyone's personal data. Read-only.
+   * The words a visitor buying without an account is asked to agree to: each version named (by the versionId of an agreements_due refusal from a buying call), as it will be recorded: its title, body, tick label, health questions and how it is agreed to. Only the version in effect of a live document attached somewhere and asked of everyone; any other id (an older version, one scheduled for later) is left out. The business's text, never anyone's personal data. Read-only.
    */
   "agreement.guestVersions": {
     kind: "query";

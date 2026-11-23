@@ -490,6 +490,20 @@ async function createFromCheckout(
     );
     return { refused: "unknown_subscription" };
   }
+  // Its Person or address was erased before the provider confirmed it (ADR 0646): nothing of
+  // theirs is made again. Staff cancel it with the provider; the notice names nobody.
+  if (checkout.erased_at) {
+    await tellStaff(
+      ctx,
+      "A subscription was confirmed for someone who was erased",
+      `The ${event.provider} subscription ${read.ref} was started by a person since erased, before ` +
+        "the provider confirmed it. Nothing was made here. Cancel it, and refund it, with the " +
+        "provider.",
+      null,
+      `subscription.erased:${event.provider}:${read.ref}`,
+    );
+    return { refused: "checkout_erased" };
+  }
   const base: SubscriptionRow = {
     id: checkout.id,
     payer_person_id: checkout.payer_person_id,

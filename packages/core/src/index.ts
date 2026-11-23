@@ -8,6 +8,7 @@ export {
   type AgreementDocument,
   type CopyRun,
   copyKey,
+  scrubErasedCopies,
   sendAgreementCopies,
 } from "./agreements/copy.ts";
 export {
@@ -17,6 +18,7 @@ export {
   agreementPoints,
   versionHash,
 } from "./agreements/documents.ts";
+export { runAgreementRetention } from "./agreements/retention.ts";
 export { runAgreementsDue } from "./agreements/schedule.ts";
 export * from "./ai/admin.ts";
 export * from "./ai/cache-review.ts";

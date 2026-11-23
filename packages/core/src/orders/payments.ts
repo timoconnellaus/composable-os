@@ -146,7 +146,10 @@ export async function applyVerifiedPayment(
     ctx.write(...plan.statements);
   };
 
-  if (row.state !== "pending" && row.state !== "part_paid") {
+  // An order an erase detached (no Person and no address: stage 44 step 8, ADR 0646) is nobody's:
+  // a payment on it, a part-paid one's balance included, is handled as one after it closed.
+  const erased = row.person_id === null && row.email === null;
+  if ((row.state !== "pending" && row.state !== "part_paid") || erased) {
     record("late");
     // A drop-in's place went back when its order closed (ADR 0560): the payment is owed back,
     // asked for by the host and approved by a person, never honoured.
@@ -160,7 +163,9 @@ export async function applyVerifiedPayment(
       `Order ${row.id} is ${row.state}, and ${money(payment.amount, currency)} was paid on it. ` +
         (owed
           ? "What it paid for was no longer held: its refund is being asked for, for a person to approve."
-          : "Honour it or refund it."),
+          : erased
+            ? "The person it was for was erased, so it cannot be honoured: refund it."
+            : "Honour it or refund it."),
       "late_payment",
     );
     return { outcome: "late", orderId: row.id };

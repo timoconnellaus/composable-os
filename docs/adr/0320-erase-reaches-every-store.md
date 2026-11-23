@@ -206,3 +206,10 @@ row about them), keeping the document's shape (`scrubDocument`). Published versi
 (`core_publish_version`, ADR 0446) that mention a term are scrubbed the same way. Programs' logged
 sets are deleted with their person; assignments and sessions are kept with no person. See
 [ADR 0448](0448-programs-the-layout-assignments-and-the-log.md).
+
+## Amended 2026-11-23: agreements (stage 44 step 8, [ADR 0646](0646-erase-merge-and-retention-for-agreements.md))
+An erased Person's acceptances are kept detached for the retention period, as decision 15 of stage
+44 says, and purged after it; their health answers, minor mark, health notices and a buyer's
+unpaid acceptances go at once. The email gatekeeper's storage of their copies (journal records
+and history lines) is scrubbed through the host's own agreements mail, and a waiting copy's
+approval is turned down and redacted.

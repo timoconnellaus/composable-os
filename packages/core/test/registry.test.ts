@@ -45,10 +45,13 @@ describe("core registry", () => {
         // ai.usage) are admin-only too, as are the policy adjudicator's settings and agreement
         // rate (adjudicator.get, adjudicator.agreement: policy:manage). A health form's answers
         // are read only with agreements:health (stage 44, ADR 0643), and the address a paper
-        // form's copy would go to only by whoever may send it, agreements:paper (ADR 0645).
+        // form's copy would go to only by whoever may send it, agreements:paper (ADR 0645). An
+        // acceptance kept after its person was erased is found only with agreements:manage
+        // (agreement.kept.find, ADR 0646).
         if (op.risk === "read") {
           expect([
             "agreements:health",
+            "agreements:manage",
             "agreements:paper",
             "records:read",
             "audit:read",

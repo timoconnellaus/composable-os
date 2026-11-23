@@ -111,6 +111,13 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   // Stage 44 step 4 (ADR 0645): the signed PDF names whom it is for, and a paper copy goes to
   // the Person's own address; read only after the operation checked who may have it.
   "agreements/copy.ts": [2, WHY.agreements],
+  // Stage 44 step 8 (ADR 0646): erase finds a buyer's unsettled purchases by the erased Person's
+  // address or id, and reads the erased Person's names (to find the paper forms that name them),
+  // inside person.erase, which only an admin calls.
+  "agreements/people.ts": [2, WHY.agreements],
+  // Stage 44 step 8 (ADR 0646): the erase preview finds the Person to be erased, a Person in the
+  // Trash included (as person.erase does); an admin and a person only, counts only.
+  "operations/agreement-retention.ts": [1, WHY.agreements],
   "allowance/records.ts": [1, WHY.write],
   "assistant/memory.ts": [2, WHY.later],
   "assistant/producers.ts": [5, WHY.sql],

@@ -45,6 +45,7 @@ import { ForbiddenError, NotFoundError, OperationError, ValidationError } from "
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { type CustomerPrincipal, holdsPermission } from "../principals.ts";
 import { isLiveDependant } from "../visibility/guardians.ts";
+import { requireVisible } from "./agreement-copy.ts";
 
 const id = (what: string) => z.string().min(1).max(64).describe(what);
 const BY = ["self", "guardian", "guest", "paper"] as const;
@@ -1014,7 +1015,9 @@ export const agreementAcceptanceGet = defineOperation({
   description:
     "One acceptance in full, for a person on the staff: the version shown, the name typed (beside " +
     "the Person's own name), the signature drawn, and for paper who recorded it. Health answers " +
-    "are agreement.answers.get's. Never an AI's read. Read-only.",
+    "are agreement.answers.get's. Never an AI's read. Who signed a paper form and its " +
+    "note are shown only with agreements:manage, as is an acceptance kept after an erase. Every " +
+    "read is audited (which acceptance, never what it says). Read-only.",
   input: z.object({ id: id("The acceptance's id (aga_…)") }),
   output: acceptanceSummary.extend({
     version: versionOut.nullable(),
@@ -1023,9 +1026,13 @@ export const agreementAcceptanceGet = defineOperation({
     signature: strokesOut,
     agentName: z.string().nullable(),
     recordedByName: z.string().nullable(),
-    signedBy: z.string().nullable(),
-    note: z.string().nullable(),
+    signedBy: z
+      .string()
+      .nullable()
+      .describe("Paper: who signed it; null without agreements:manage"),
+    note: z.string().nullable().describe("Paper: staff's note; null without agreements:manage"),
     hasAnswers: z.boolean(),
+    kept: z.boolean().describe("Kept after its Person, or the guardian who made it, was erased"),
     copy: z
       .object({
         state: z.enum(["queued", "sending", "sent", "waiting", "failed", "cancelled"]),
@@ -1038,18 +1045,27 @@ export const agreementAcceptanceGet = defineOperation({
   risk: "read",
   actors: ["human"],
   mcp: { expose: false },
+  // Who opened which acceptance, a kept one above all, can be reconstructed (the review of
+  // PR #288): the row names the acceptance, never a value read.
+  auditReads: true,
+  auditSummary: (output, input) => ({ acceptanceId: input.id, kept: output.kept }),
   async handler(input, ctx) {
     const row = (await acceptanceRows(ctx)
-      .select(["a.typed_name", "a.signed_by", "a.note"])
+      .select(["a.typed_name", "a.signed_by", "a.note", "a.erased_at"])
       .where("a.id", "=", input.id)
       .executeTakeFirst()) as
       | (AcceptanceRow & {
           typed_name: string | null;
           signed_by: string | null;
           note: string | null;
+          erased_at: string | null;
         })
       | undefined;
     if (!row) throw new NotFoundError("acceptance", input.id);
+    // Whose it is decides who reads it, as for the PDF (ADR 0646): a Person staff may see through
+    // the seam; one kept after an erase, or a buyer's not yet settled, the manager's only.
+    await requireVisible(ctx, row.erased_at ? null : row.person_id);
+    const freeText = holdsPermission(ctx.user, ctx.permissionGrants, "agreements:manage");
     const counting = row.person_id
       ? (await standing(ctx, row.person_id, await personFacts(ctx.db, row.person_id))).counting
       : new Set<string>();
@@ -1081,9 +1097,10 @@ export const agreementAcceptanceGet = defineOperation({
       signature: signature ? (JSON.parse(signature.strokes) as Signature) : null,
       agentName: row.agent_person_id ? (people.get(row.agent_person_id) ?? null) : null,
       recordedByName: row.recorded_by ? (users.get(row.recorded_by) ?? null) : null,
-      signedBy: row.signed_by,
-      note: row.note,
+      signedBy: freeText ? row.signed_by : null,
+      note: freeText ? row.note : null,
       hasAnswers: Boolean(answers),
+      kept: row.erased_at !== null,
       copy: copy ? { state: copy.state, sentAt: copy.sent_at } : null,
     };
   },

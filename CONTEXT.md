@@ -1326,6 +1326,18 @@ the app (decision 21); a download shows them only to the person, their guardian 
 `agreements:health`. The **blank PDF** of a version is the form staff print for paper.
 _Avoid_: receipt, certificate, attachment (alone)
 
+**Kept acceptance** and **retention** (stage 44, built in step 8)
+When a Person is erased, their health answers and minor mark go at once; each of their acceptances
+is **kept**, detached from them (no Person, no account, `erased_at` set), as the business's
+evidence, until the **retention** period ends (`agreement_retention`, years from the erase, default
+7, a human admin's setting), when the daily **purge** deletes it. A guardian's erase clears their
+name, signature and account from a child's acceptance, which is kept the same way, and the child
+is due again. Only staff with `agreements:manage` find a kept one (by the address or the name it
+holds) and open it, and they may put it **on hold** for a dispute or a claim, which the purge
+passes by. The email gatekeeper's record of its copy is **scrubbed** (ADR 0646).
+_Avoid_: archived, anonymised (the name typed and the signature are kept), deleted (until the
+purge)
+
 **Health form** and **health answers** (stage 44, built in step 2)
 A `health` document's yes or no questions, a note if yes, and a person's answers. Health
 information: kept apart from every staff bulk path and every AI actor, read on screen only by

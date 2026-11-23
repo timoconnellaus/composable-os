@@ -48,6 +48,14 @@ decorators, because the CRM app's Vite dev server does not transform them. `list
 `authorizeObservation()` before it returns. It shows sends still awaiting approval as `pending`
 (simulation from the action journal), then the last 200 sent or rejected ones.
 
+One more session method is the host's alone and is not in the agent-facing types:
+`scrubAgreementCopy({ key })` (ADR 0646). Only a session whose queue is the host's agreements mail
+(`hostPurpose()` answers `agreements`) may call it, with a copy's key
+(`agreement-copy:<acceptance id>`), once the acceptance was erased. It drops every journal record
+of that copy (waiting, failed, or a submission in flight), refuses any later send under the key or
+a retry's, and blanks the recipients and subject of its history lines. It returns counts only.
+Every other queue is refused.
+
 ## Actions
 
 | `actionKind.tag` | Label | `autoApprovable` | When |

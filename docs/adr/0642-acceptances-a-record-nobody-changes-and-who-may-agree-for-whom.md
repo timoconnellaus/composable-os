@@ -144,3 +144,11 @@ confirmed after three days.
 Whether an acceptance's copy went is kept beside it (`core_agreement_copy`, migration 0854); the
 acceptance's own triggers are unchanged. A row a raw writer inserts still makes a copy, to the
 address that row holds: the person named there hears of it, which is what the copy is for.
+
+## Amended 2026-11-23: erase, merge and retention (stage 44 step 8, [ADR 0646](0646-erase-merge-and-retention-for-agreements.md))
+A kept acceptance is deleted after the retention period (`agreement_retention`, default 7 years
+from the erase) by the daily cron's purge, unless a person holds it; migration 0855 extends this
+record's delete trigger to allow exactly that, once its signature, answers and copy row are gone.
+A buyer's acceptance on a paid order nobody settled may be marked erased once erase cleared the
+order's address. A kept one is read only by staff with `agreements:manage` (`agreement.kept.find`,
+`agreement.acceptance.get`, `agreement.acceptance.pdf`).

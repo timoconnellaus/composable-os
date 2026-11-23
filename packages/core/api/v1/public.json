@@ -3,7 +3,7 @@
   "operations": [
     {
       "name": "agreement.guestVersions",
-      "description": "The words a visitor buying without an account is asked to agree to: each version named (by the versionId of an agreements_due refusal from a buying call), as it will be recorded: its title, body, tick label, health questions and how it is agreed to. Only a version in effect, or scheduled, of a live document attached somewhere and asked of everyone; any other id is left out. The business's text, never anyone's personal data. Read-only.",
+      "description": "The words a visitor buying without an account is asked to agree to: each version named (by the versionId of an agreements_due refusal from a buying call), as it will be recorded: its title, body, tick label, health questions and how it is agreed to. Only the version in effect of a live document attached somewhere and asked of everyone; any other id (an older version, one scheduled for later) is left out. The business's text, never anyone's personal data. Read-only.",
       "risk": "read",
       "audiences": ["public"],
       "kind": "query",
