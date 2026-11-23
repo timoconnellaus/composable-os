@@ -28,6 +28,7 @@ import { getObject } from "../fields/index.ts";
 import { dropRecurringStatements } from "../recurring/bookkeeping.ts";
 import { loadGeneralSettings, ORG_TIMEZONE_SETTING } from "../settings.ts";
 import {
+  type ClashRow,
   clashQuery,
   createStaffedTriggers,
   dropClaims,
@@ -73,7 +74,8 @@ export type SchemaChangeKind =
   | "drop_object"
   | "add_index"
   | "drop_index"
-  | "seed_records";
+  | "seed_records"
+  | "skip_claims";
 
 export interface SchemaChange {
   kind: SchemaChangeKind;
@@ -163,7 +165,7 @@ export async function planReconcile(
   const { timezone } = await loadGeneralSettings(db);
   const current = await loadSchemaState(db);
   const plan = planFromState(db, current, manifest, options.now, timezone);
-  plan.issues.push(...(await dataIssues(db, current, plan.next, manifest.id)));
+  plan.issues.push(...(await dataIssues(db, current, plan.next, manifest.id, options.now, plan)));
   return plan;
 }
 
@@ -207,6 +209,8 @@ async function dataIssues(
   current: SchemaState,
   next: SchemaState,
   ext: string,
+  at: string,
+  plan: { changes: SchemaChange[] },
 ): Promise<ReconcileIssue[]> {
   const issues: ReconcileIssue[] = [];
   // Org-wide, through the seam: the installed object's view as the registry has it now.
@@ -249,16 +253,29 @@ async function dataIssues(
     }
     // A shift declaration over records that already put one person on two overlapping shifts
     // (imported data) is refused before its triggers are built, naming them (ADR 0621).
+    // Shifts that clash and have both ended are not refused: the claim is not made for the later
+    // one, and the plan says which (they happened before anything checked).
     const staffed = staffedTables(next, object);
     if (staffed && staffedColumnsExist(current, staffed)) {
-      const clash = await sql
-        .raw<{ record: string; other_object: string; other: string }>(clashQuery(staffed))
-        .execute(db);
-      if (clash.rows.length) {
+      const seconds = Math.floor(Date.parse(at) / 1000);
+      const clash = await sql.raw<ClashRow>(clashQuery(staffed, seconds)).execute(db);
+      const named = async (r: ClashRow) =>
+        `${await shiftLabel(db, r.object_type, r.record_id, r.starts)} and ${await shiftLabel(db, r.other_object, r.other, r.other_starts)}`;
+      const live = clash.rows.filter((r) => Math.max(r.ends, r.other_ends) > seconds);
+      if (live.length) {
+        const names = await Promise.all(live.map(named));
         issues.push({
           code: "staffed_conflict",
           path: `objects.${object.localName}.staffed`,
-          message: `${object.name}: these records would put one person on two overlapping shifts: ${clash.rows.map((r) => `${r.record} and ${r.other_object} ${r.other}`).join("; ")}. Change their person or time first.`,
+          message: `${object.name}: these shifts put one person on two at once: ${names.join("; ")}. Change their person or time first.`,
+        });
+      } else if (clash.rows.length) {
+        const names = await Promise.all(clash.rows.map(named));
+        const total = Number(clash.rows[0]?.total ?? clash.rows.length);
+        plan.changes.push({
+          kind: "skip_claims",
+          object: object.name,
+          detail: `${total} past shift(s) overlapped another of their person's and claim no time: ${names.join("; ")}${total > names.length ? "; …" : ""}`,
         });
       }
     }
@@ -1132,6 +1149,30 @@ function allowanceBackfill(
     );
   }
   return statements;
+}
+
+/** A shift as a reconcile message names it: its title and its start (UTC). */
+async function shiftLabel(
+  db: Kysely<CoreDatabase>,
+  objectName: string,
+  id: string,
+  starts: number,
+): Promise<string> {
+  const object = getObject(objectName);
+  const column = object?.fields.find((f) => f.name === object.titleField)?.column;
+  const source = object ? visibleSource(orgReader(db), object) : undefined;
+  let title: string | null = null;
+  if (column && source) {
+    // biome-ignore lint/suspicious/noExplicitAny: extension views are not in the typed schema.
+    const row = (await (db as unknown as Kysely<any>)
+      .selectFrom(source)
+      .select(`${column} as title`)
+      .where("id", "=", id)
+      .executeTakeFirst()) as { title?: unknown } | undefined;
+    title = typeof row?.title === "string" && row.title ? row.title : null;
+  }
+  const when = new Date(starts * 1000).toISOString().slice(0, 16).replace("T", " ");
+  return `${title ?? object?.label ?? "a shift"} (${when} UTC)`;
 }
 
 /**

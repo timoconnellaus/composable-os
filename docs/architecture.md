@@ -1129,7 +1129,7 @@ erase, merge, imports, a series' generation and changes; the checks hold for `IN
 upserts, `UPDATE OR REPLACE` and id updates. A read before the write names the other shift; the
 series' generation makes a clashing date uncovered (kept as a field exception) rather than fail; a
 series change that would double-book on any date is refused naming the dates; a reconcile over
-records that already clash is refused (`staffed_conflict`). Writes answer **warnings** they are
+shifts that clash and have not ended is refused (`staffed_conflict`; past clashes are skipped and reported, and admins are told of a refused shipped upgrade). A live shift must end after it starts, and a coach profile on shifts not yet ended cannot go to the Trash. Writes answer **warnings** they are
 made with (`unavailable`, `not_qualified`, `uncovered` within 14 days), which the audit row
 records; `staffing.check` (tool-only) is the same answer first. Qualifications and unavailability
 are core tables in no `rec_*` view (`core_staff_qualification`, `core_staff_away`; their writers

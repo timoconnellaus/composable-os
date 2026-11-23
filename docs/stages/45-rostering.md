@@ -654,6 +654,8 @@ coaches, series with their coach, one-off and future classes):
   patterns screen, or `cos rostering import` from a CSV of duties and duty series (guess).
 - **Not imported**: unavailability (staff enter it), pay basis (the owner sets it), past pay.
 - Clashes found on import are reported as conflicts and imported uncovered; warnings are listed.
+  The import runs the same check as the reconcile (ADR 0621): what clashes and has not ended is
+  refused or imported uncovered; clashes between shifts that have both ended are reported.
 
 ## Out of scope
 - Pay rates, pay amounts, payroll, tax, award rules, overtime and penalty rates (decisions 10 and
@@ -786,8 +788,17 @@ trigger keeping a completed run unchanged). No `x_*` table is touched by a migra
   example has it): a class done still counts for pay, and its time was worked.
 - **The warnings' tables are made in this step** (`core_staff_qualification`, `core_staff_away`),
   so the warnings and `staffing.check` are whole now; their writers (`staffing.qualify`,
-  `staffing.away`, `staffing.back`) are step 3's. Until then every covered class answers
-  `not_qualified`. A one-off unavailability is stored as instants with its zone.
+  `staffing.away`, `staffing.back`) are step 3's. A one-off unavailability is stored as instants
+  with its zone. **Decided in review** (the coordinator, 2026-11-23), and kept by step 3: no
+  `not_qualified` warning while there is no qualification row at all for that kind's object (a
+  business that has not set qualifications up is not warned); the `unavailable` warning goes only
+  to the person themselves and to someone who may roster (admins until step 4's permission).
+- **Decided in review**: a reconcile (an upgrade) is refused when shifts that have not ended clash
+  or two coach profiles share an account, naming the shifts by title and start; clashes between
+  shifts that have both ended are skipped (the later one claims no time) and reported; a refused
+  shipped upgrade is told to admins as a notification. A coach profile on live shifts that have not
+  ended cannot go to the Trash. A live shift must end after it starts. The claims are indexed by
+  account and end (migration 0811 edited in place before merge).
 - **The uncovered window is 14 days, fixed** until the Rostering pack's setting (step 4). No
   notices are sent in this step (step 3's): a date the generation leaves uncovered is kept as a
   field exception on the person, so the series does not write the clash back.

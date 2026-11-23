@@ -30,7 +30,14 @@ appointments live in different objects, possibly different packs, so no pack can
   seconds, half-open (06:00 to 07:00 and 07:00 to 08:00 do not clash). `BEFORE INSERT` and
   `BEFORE UPDATE` triggers refuse a row that overlaps another of the same account
   (`core_staff_double_booked`, answered `conflict`, `rule: "double_booked"`). D1 runs one batch at
-  a time, so of two batches that would double-book one person, one fails whole.
+  a time, so of two batches that would double-book one person, one fails whole. The claims are
+  indexed by account and **end** (`account_id, ends, starts`), so the check reads only the claims
+  that end after the new one starts: a coach's years of past classes are never read. Claims are
+  always derived in order of start, so re-deriving many at once (a profile given another account)
+  reads a few rows each.
+- **A live shift ends after it starts.** One that does not would claim nothing and could sit
+  inside another of its person's shifts, so it is refused: as a validation error at write time
+  (`rule: "staffed_time"`), and by the trigger for any other writer (`core_staff_time_backwards`).
 - **The claims are derived by triggers on the staffed object's own table**, which the schema
   reconciler builds (never a migration: no `x_*` table is touched by one), not written by the record
   operations. `AFTER INSERT`, `AFTER UPDATE OF` every column the claim reads plus the id, and
@@ -46,7 +53,9 @@ appointments live in different objects, possibly different packs, so no pack can
   and on every update (a REPLACE and an upsert are inserts first; an id change is an update), each
   leaving out only the row's own key, which such a statement replaces. A row a REPLACE deletes
   silently leaves its claim behind, which can only refuse more, never let a double-booking
-  through. Tests write every shape to the shift's table, the holder's table and the claims.
+  through, and the next reconcile of the extension heals it (it derives every claim again from the
+  rows, so a claim whose row is gone is not written back). Tests write every shape to the shift's
+  table, the holder's table and the claims.
 - **The claim is the shift's own time.** Preparation and pack-down minutes are for pay only
   (`payBefore`, `payAfter`); counting them here would refuse a coach two classes back to back.
 - **A read before the write** (`packages/core/src/staffing/`) names the other shift in the common
@@ -60,9 +69,22 @@ appointments live in different objects, possibly different packs, so no pack can
 - **A series change that would double-book someone on any date is refused whole**, naming the
   dates (`details.dates`); the rosterer settles those dates first (a coach swapped by hand there is
   an exception the change leaves alone).
-- **Installing the declaration over records that already clash** (imported data) is refused by
-  the reconcile before the triggers are built (`staffed_conflict`, naming the records), as declared
-  uniqueness is. Each reconcile of the extension drops the triggers and builds them again, derives
+- **A coach profile given another account** is checked set-based, in at most three reads however
+  many classes it has (its shifts against the new account's claims, then against each other), so
+  a profile with thousands of classes stays far inside D1's 1,000 queries per invocation.
+- **A coach profile in the Trash still names its classes' account**, so trashing one is refused
+  while a live shift that has not ended names it (`rule: "staffed_holder"`, with how many): a
+  person reassigns them or leaves them with nobody first. With only past shifts it may be trashed,
+  and their claims stay (they were worked).
+- **Installing the declaration over records that already clash** (imported data, an upgrade) is
+  refused by the reconcile before the triggers are built (`staffed_conflict`) when any of the
+  clashing shifts has not ended, naming each pair by title and start; two profiles sharing an
+  account are refused by the profile's declared uniqueness. Clashes between shifts that have both
+  ended are not refused: the later shift of each is left without a claim, and the plan says which
+  (`skip_claims`). The check is one pass per account in order of start (a running latest end),
+  never a pair of every two shifts. A shipped extension whose upgrade is refused keeps running as
+  it was, and the admins are told in the product (a notification, once per release of it), not
+  only in a log. Each reconcile of the extension drops the triggers and builds them again, derives
   every claim again, and drops the claims of an object that no longer declares it.
 - **Bookings' class declares it** (`who: { field: "coach", account: "user" }`, `kind: "classType"`,
   `live: ["scheduled", "done"]`: a class done still counts for pay, a cancelled one does not), and
@@ -83,9 +105,16 @@ appointments live in different objects, possibly different packs, so no pack can
 - The claim reads a coach profile's account whether or not the profile is in the Trash (the class
   still names it); a profile deleted for good, or given another id, leaves its classes claiming
   nobody.
-- A shift whose end is not after its start claims nothing; a datetime the database cannot read
-  (never written by the record operations, which check ISO 8601) claims nothing.
-- Every write of a coach profile's account checks each of its live classes (one read each); a
-  coach with many classes makes that write slower, which is rare.
+- A datetime the database cannot read (never written by the record operations, which check ISO
+  8601) claims nothing.
+- Stage 33's import (the move from the old booking system) must run the same check before it
+  writes: refuse, or import uncovered, what would clash and has not ended.
+
+## Amended 2026-11-23 (review of PR #279, before merge)
+The index by end, claims derived in order of start, the one-pass clash check, the set-based check
+of a profile's new account, refusing a backwards shift, refusing to trash a profile on shifts not
+yet ended, not refusing an upgrade over past clashes (skipped and reported), and telling admins of
+a refused upgrade were added in review (above). Migration 0811 was edited in place (unmerged); a
+local or preview database that applied the earlier version must be rebuilt.
 - `staffName` (the name kept on a shift as it was) is not in this step; step 3 or 4 adds it with
   `staffing.forget`.

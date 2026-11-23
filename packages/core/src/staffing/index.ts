@@ -13,8 +13,8 @@
 //   away over the shift (`unavailable`), not qualified for its kind (`not_qualified`), or a live
 //   shift left with nobody on it within the uncovered window (`uncovered`). The write's answer and
 //   its audit row carry them; `staffing.check` gives the same answer before the write.
-import type { Kysely } from "kysely";
-import { ConflictError } from "../errors.ts";
+import { type Kysely, sql } from "kysely";
+import { ConflictError, ValidationError } from "../errors.ts";
 import { objectTableOf } from "../extensions/schema.ts";
 import { getObject, listObjects } from "../fields/index.ts";
 import type { ObjectDefinition, StaffedDefinition } from "../fields/types.ts";
@@ -27,6 +27,7 @@ import {
   wallClockToInstant,
 } from "../time/local.ts";
 import { orgReader, visibleSource } from "../visibility/index.ts";
+import { literal, type StaffedTables, selectClaims } from "./sql.ts";
 
 /** How far ahead an uncovered live shift is warned about (days). Rostering's setting, step 4. */
 export const UNCOVERED_WINDOW_DAYS = 14;
@@ -274,6 +275,15 @@ export async function staffedWritten(
 ): Promise<void> {
   if (!object.staffed) return;
   const shift = (await shiftOf(ctx, object, after)) as Shift;
+  // A live shift ends after it starts (the trigger refuses it too): one that does not would claim
+  // nothing, and could sit inside another of its person's shifts.
+  if (shift.live && shift.starts !== null && shift.ends !== null && shift.ends <= shift.starts) {
+    const field = object.staffed.ends;
+    throw new ValidationError(
+      `${object.label}: ${object.fields.find((f) => f.name === field)?.label ?? field} must be after its start`,
+      { field, rule: "staffed_time" },
+    );
+  }
   const claim = claimOf(shift);
   if (claim) {
     const clash = await clashWith(ctx, object.name, id, claim);
@@ -325,9 +335,34 @@ export async function staffedRestored(
   if (values) await staffedWritten(ctx, object, id, null, values);
 }
 
+/** The tables and columns of a staffed object as installed (the triggers' SQL reads them). */
+function tablesOf(object: ObjectDefinition): StaffedTables | null {
+  const def = object.staffed;
+  const table = objectTableOf(object.name);
+  const column = (name: string | undefined) =>
+    name ? object.fields.find((f) => f.name === name)?.column : undefined;
+  const who = column(def?.who.field);
+  const starts = column(def?.starts);
+  const ends = column(def?.ends);
+  const state = column(object.states?.field);
+  if (!def || !table || !who || !starts || !ends || !state) return null;
+  let account: StaffedTables["account"];
+  if (def.who.account) {
+    const holder = def.who.object ? getObject(def.who.object) : undefined;
+    const holderTable = holder ? objectTableOf(holder.name) : undefined;
+    const holderColumn = holder?.fields.find((f) => f.name === def.who.account)?.column;
+    if (!holderTable || !holderColumn) return null;
+    account = { table: holderTable, column: holderColumn };
+  }
+  return { object: object.name, table, who, account, starts, ends, state, live: def.live };
+}
+
 /**
  * A record that holds the account of other objects' shifts (a coach profile) written: a new
- * account takes over every live shift that names it, so each is checked as a write of its own.
+ * account takes over every live shift that names it, past ones included. Checked set-based, in at
+ * most three reads however many shifts the profile has (ADR 0621): its shifts against the new
+ * account's other claims, then its shifts against each other (they claimed nobody's time while the
+ * profile had no account). The trigger on the profile writes the claims, and refuses a race.
  */
 export async function holderWritten(
   ctx: HandlerContext,
@@ -341,25 +376,96 @@ export async function holderWritten(
     if (!def?.who.account || def.who.object !== object.name) continue;
     if (same(before[def.who.account], after[def.who.account])) continue;
     const account = text(after[def.who.account]);
-    const table = objectTableOf(staffed.name);
-    const whoColumn = staffed.fields.find((f) => f.name === def.who.field)?.column;
-    if (!table || !whoColumn) continue;
-    const rows = (await (ctx.db as AnyDb)
-      .selectFrom(table)
-      .select("id")
-      .where(whoColumn, "=", id)
-      .where("deleted_at", "is", null)
-      .execute()) as { id: string }[];
-    for (const row of rows) {
-      const values = await storedShiftValues(ctx, staffed, row.id);
-      if (!values) continue;
-      const shift = (await shiftOf(ctx, staffed, values)) as Shift;
-      const claim = claimOf({ ...shift, account });
-      if (claim) {
-        const clash = await clashWith(ctx, staffed.name, row.id, claim);
-        if (clash) throw await doubleBooked(ctx, staffed.name, row.id, claim, clash);
-      }
-      noteClaim(ctx, staffed.name, row.id, claim);
+    const t = tablesOf(staffed);
+    if (!account || !t) continue;
+    const mine = selectClaims(t, `r.${t.who} = ${literal(id)}`, literal(account));
+    const outside = await sql
+      .raw<{
+        shift: string;
+        object_type: string;
+        record_id: string;
+        starts: number;
+        ends: number;
+        s_starts: number;
+        s_ends: number;
+      }>(
+        `WITH s AS MATERIALIZED (${mine}) SELECT s.record_id AS shift, s.starts AS s_starts, ` +
+          "s.ends AS s_ends, c.object_type, c.record_id, c.starts, c.ends FROM s " +
+          "JOIN core_staff_time c ON c.account_id = s.account_id AND c.ends > s.starts " +
+          "AND c.starts < s.ends AND NOT (c.object_type = s.object_type AND c.record_id = s.record_id) " +
+          "ORDER BY s.starts LIMIT 1",
+      )
+      .execute(ctx.db);
+    const hit = outside.rows[0];
+    if (hit) {
+      throw await doubleBooked(
+        ctx,
+        staffed.name,
+        hit.shift,
+        { account, starts: hit.s_starts, ends: hit.s_ends },
+        { object: hit.object_type, id: hit.record_id, starts: hit.starts, ends: hit.ends },
+      );
+    }
+    const inside = await sql
+      .raw<{
+        a: string;
+        a_starts: number;
+        a_ends: number;
+        b: string;
+        b_starts: number;
+        b_ends: number;
+      }>(
+        `WITH s AS MATERIALIZED (${mine}), ` +
+          "w AS (SELECT s.*, MAX(ends) OVER (ORDER BY starts, record_id ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev_end FROM s), " +
+          "f AS (SELECT * FROM w WHERE prev_end > starts ORDER BY starts LIMIT 1) " +
+          "SELECT f.record_id AS a, f.starts AS a_starts, f.ends AS a_ends, b.record_id AS b, " +
+          "b.starts AS b_starts, b.ends AS b_ends FROM f JOIN s b ON b.ends > f.starts " +
+          "AND b.starts <= f.starts AND b.record_id != f.record_id ORDER BY b.starts LIMIT 1",
+      )
+      .execute(ctx.db);
+    const pair = inside.rows[0];
+    if (pair) {
+      throw await doubleBooked(
+        ctx,
+        staffed.name,
+        pair.a,
+        { account, starts: pair.a_starts, ends: pair.a_ends },
+        { object: staffed.name, id: pair.b, starts: pair.b_starts, ends: pair.b_ends },
+      );
+    }
+  }
+}
+
+/**
+ * A record holding the account of other objects' shifts (a coach profile) sent to the Trash: refused
+ * while a live shift that has not ended names it (ADR 0621), answering how many, so a person
+ * reassigns those or leaves them with nobody first. With only past shifts it may go; their claims
+ * stay (they were worked).
+ */
+export async function assertHolderTrashable(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string,
+): Promise<void> {
+  const now = Math.floor(Date.parse(ctx.now) / 1000);
+  for (const staffed of listObjects()) {
+    const def = staffed.staffed;
+    if (!def?.who.account || def.who.object !== object.name) continue;
+    const t = tablesOf(staffed);
+    if (!t) continue;
+    const row = await sql
+      .raw<{ n: number }>(
+        `SELECT count(*) AS n FROM ${t.table} r WHERE r.${t.who} = ${literal(id)} ` +
+          `AND r.deleted_at IS NULL AND r.${t.state} IN (${t.live.map(literal).join(", ")}) ` +
+          `AND (strftime('%s', r.${t.ends}) IS NULL OR CAST(strftime('%s', r.${t.ends}) AS INTEGER) > ${now})`,
+      )
+      .execute(ctx.db);
+    const n = Number(row.rows[0]?.n ?? 0);
+    if (n > 0) {
+      throw new ConflictError(
+        `${object.label} is on ${n} ${(staffed.plural ?? "shifts").toLowerCase()} that have not ended. Give them to someone else, or leave them with nobody, before deleting it.`,
+        { rule: "staffed_holder", object: staffed.name, count: n },
+      );
     }
   }
 }
@@ -440,7 +546,17 @@ async function qualified(
     .where("kind_object", "=", kindObject)
     .where("kind_record", "=", kind)
     .executeTakeFirst();
-  if (!row) return false;
+  if (!row) {
+    // A business that has not set qualifications up for this kind of work (no row at all for its
+    // object) is not warned: nobody is marked, so the warning would say nothing (ADR 0622).
+    const any = await ctx.db
+      .selectFrom("core_staff_qualification")
+      .select("kind_record")
+      .where("kind_object", "=", kindObject)
+      .limit(1)
+      .executeTakeFirst();
+    return !any;
+  }
   // A kind record in the Trash, or gone, qualifies nobody (restored, its qualifications return).
   const target = getObject(kindObject);
   if (!target) return false;
@@ -558,7 +674,10 @@ export async function warningsFor(
   }
   if (!shift.account) return out;
   const name = await nameOf(ctx, shift.account);
-  if (shift.starts !== null && shift.ends !== null && shift.ends > shift.starts) {
+  // Whether someone is away is told only to them and to whoever may roster (until stage 45 step
+  // 4's permission: admins). Other staff never learn it, not even from a write's answer.
+  const mayKnow = ctx.user.id === shift.account || ctx.user.role === "admin";
+  if (mayKnow && shift.starts !== null && shift.ends !== null && shift.ends > shift.starts) {
     if (await awayOver(ctx, shift.account, shift.starts, shift.ends)) {
       out.push(warn("unavailable", `${name} said they are not available then.`));
     }

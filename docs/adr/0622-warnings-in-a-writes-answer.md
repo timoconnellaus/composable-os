@@ -17,8 +17,13 @@ by every member with `records:read`, by SQL, exports and the assistant.
   - `uncovered`: nobody on it, and it starts within the uncovered window (14 days from now; the
     Rostering pack's setting from step 4);
   - `not_qualified`: its person's account is not qualified for its kind (no row in
-    `core_staff_qualification`, or the kind record is in the Trash or gone);
-  - `unavailable`: its person's account has an unavailability overlapping it (`core_staff_away`).
+    `core_staff_qualification`, or the kind record is in the Trash or gone), and only when the
+    business has set qualifications up for that kind's object (at least one row for it): a
+    business that marks nobody is not warned about everybody;
+  - `unavailable`: its person's account has an unavailability overlapping it (`core_staff_away`),
+    told only to the person themselves and to whoever may roster (admins until stage 45 step 4's
+    `rostering:manage`). Anyone else's write is answered without it: other staff never learn that
+    someone is away.
   A person with no account (a visiting coach) has neither of the last two.
 - **A write is made with its warnings, never refused for them.** `record.create` and
   `record.update` answer `warnings` (each a code, the record, the account and a message; no note of
@@ -39,9 +44,9 @@ by every member with `records:read`, by SQL, exports and the assistant.
   them.
 
 ## Consequences
-- Until step 3 nothing writes the two tables, so every shift with a person answers
-  `not_qualified`: the stated default, noisy until qualifications can be set.
-- A warning names that someone is away, never why: the write's caller learns no note. Who may write
-  another person's shift (a rosterer) is step 4's; until then any staff account that may write a
-  class's coach sees that warning, as for any other field it writes.
+- Until step 3 nothing writes the two tables, so no shift answers `not_qualified` or
+  `unavailable` yet. Step 3 keeps both rules (no `not_qualified` before a kind's object has any
+  qualification; `unavailable` only to the person and rosterers).
+- A warning names that someone is away, never why: no note reaches the write's caller.
+- An assistant acting for an admin is answered as the admin is.
 - The approval card can show the warnings from the dry run's answer (stage 45 step 7 shows them).

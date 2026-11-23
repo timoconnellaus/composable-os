@@ -9,10 +9,16 @@
 import { env } from "cloudflare:workers";
 import { validateManifest } from "@composable-os/sdk";
 import { beforeAll, describe, expect, it } from "vitest";
+import { z } from "zod";
 import {
   type ActingUser,
   checkManifest,
+  createInvoker,
+  createRegistry,
+  defineOperation,
+  type ExtensionHost,
   getObject,
+  installShippedExtensions,
   invoke,
   objectTableOf,
   PendingApprovalError,
@@ -817,6 +823,7 @@ describe("warnings", () => {
   it("answers not qualified, away and uncovered, and the audit row records them", async () => {
     const strength = await kind("Strength");
     const { user, profile } = await coach("Vi");
+    // Nobody is marked qualified for any kind yet: the business has not set it up, no warning.
     const made = await create(KLASS, {
       name: "Strength",
       kind: strength,
@@ -824,7 +831,12 @@ describe("warnings", () => {
       startsAt: at("11", "06:00"),
       endsAt: at("11", "07:00"),
     });
-    expect(codes(made)).toEqual(["not_qualified"]);
+    expect(codes(made)).toEqual([]);
+    // Someone else is marked for another kind: now an unmarked coach is warned.
+    const other = await createUser("member");
+    await qualify(other.id, await kind("Boxing"));
+    const again = await update(KLASS, made.id as string, { startsAt: at("11", "06:05") });
+    expect(codes(again)).toEqual(["not_qualified"]);
     await qualify(user.id, strength);
     await away(user.id, {
       kind: "leave",
@@ -856,6 +868,79 @@ describe("warnings", () => {
       records: { id: string; warnings?: { code: string }[] }[];
     };
     expect(summary.records[0]).toMatchObject({ id: made.id, warnings: [{ code: "uncovered" }] });
+  });
+
+  it("tells that someone is away only to them and to an admin, never to other staff", async () => {
+    const pilates = await kind("Pilates");
+    const { user, profile } = await coach("Noa");
+    await qualify(user.id, pilates);
+    await away(user.id, {
+      kind: "leave",
+      starts_at: "2026-06-12T00:00:00.000Z",
+      ends_at: "2026-06-13T00:00:00.000Z",
+      zone: "UTC",
+    });
+    const member = await createUser("member");
+    const asMember = context(member, { clock: () => new Date(NOW) });
+    const theirs = await invoke(
+      "record.create",
+      {
+        object: KLASS,
+        values: {
+          name: "Pilates",
+          kind: pilates,
+          coach: profile,
+          startsAt: at("12", "09:00"),
+          endsAt: at("12", "10:00"),
+        },
+      },
+      asMember,
+    );
+    expect(codes(theirs)).toEqual([]);
+    // The person themselves, writing their own duty: told.
+    const own = await invoke(
+      "record.create",
+      {
+        object: DUTY,
+        values: {
+          name: "Own",
+          staff: user.id,
+          startsAt: at("12", "11:00"),
+          endsAt: at("12", "12:00"),
+        },
+      },
+      context(user, { clock: () => new Date(NOW) }),
+    );
+    expect(codes(own)).toEqual(["unavailable"]);
+    // An admin: told.
+    const moved = await update(KLASS, theirs.id as string, { startsAt: at("12", "08:00") });
+    expect(codes(moved)).toEqual(["unavailable"]);
+  });
+
+  it("refuses a live shift that ends at or before it starts, whoever writes it", async () => {
+    const user = await createUser("member");
+    await expect(
+      create(DUTY, {
+        name: "Backwards",
+        staff: user.id,
+        startsAt: at("14", "08:00"),
+        endsAt: at("14", "07:00"),
+      }),
+    ).rejects.toMatchObject({ code: "invalid_input", details: { rule: "staffed_time" } });
+    const duty = await create(DUTY, {
+      name: "Forwards",
+      staff: user.id,
+      startsAt: at("14", "07:00"),
+      endsAt: at("14", "08:00"),
+    });
+    await expect(
+      env.DB.prepare(`UPDATE ${table(DUTY)} SET ${column(DUTY, "endsAt")} = ? WHERE id = ?`)
+        .bind(at("14", "07:00"), duty.id)
+        .run(),
+    ).rejects.toThrow(/core_staff_time_backwards/);
+    // Cancelled, it is no shift: its times are not checked.
+    await update(DUTY, duty.id as string, { state: "cancelled" });
+    await update(DUTY, duty.id as string, { endsAt: at("14", "06:00") });
   });
 
   it("checks a regular unavailability by wall clock, across a clock change", () => {
@@ -942,9 +1027,9 @@ describe("warnings", () => {
 });
 
 describe("installing over records that already clash", () => {
-  it("is refused before the triggers are built, naming them; removing it drops the claims", async () => {
+  it("is refused for shifts not yet ended, naming them; past clashes are reported and skipped", async () => {
     const id = extId("stfimp");
-    await reconcile(roster(id, { staffed: false }));
+    await reconcile(roster(id, { staffed: false }), NOW);
     const user = await createUser("member");
     const profile = (await create(`${id}.coach`, { name: "Imported", user: user.id })).id;
     const one = await create(`${id}.klass`, {
@@ -953,22 +1038,39 @@ describe("installing over records that already clash", () => {
       startsAt: at("15", "06:00"),
       endsAt: at("15", "07:00"),
     });
-    const two = await create(`${id}.klass`, {
+    await create(`${id}.klass`, {
       name: "Two",
       coach: profile,
       startsAt: at("15", "06:30"),
       endsAt: at("15", "07:30"),
     });
-    const planned = await plan(roster(id));
+    const planned = await plan(roster(id), NOW);
     expect(planned.issues).toEqual([
       expect.objectContaining({ code: "staffed_conflict", path: "objects.klass.staffed" }),
     ]);
-    const [first] = [String(one.id), String(two.id)].sort();
-    expect(planned.issues[0]?.message).toContain(first);
-    await update(`${id}.klass`, two.id as string, { state: "cancelled" });
-    await reconcile(roster(id));
+    expect(planned.issues[0]?.message).toContain("One (2026-06-15 06:00 UTC)");
+    expect(planned.issues[0]?.message).toContain("Two (2026-06-15 06:30 UTC)");
+    // Once both have ended: installed; the later one claims no time, and the plan says so.
+    const later = "2026-07-01T00:00:00.000Z";
+    const installed = await reconcile(roster(id), later);
+    expect(installed.changes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "skip_claims",
+          detail: expect.stringContaining("Two (2026-06-15 06:30 UTC)"),
+        }),
+      ]),
+    );
     expect((await claims(user.id)).map((c) => c.record_id)).toEqual([one.id]);
-    await reconcile(roster(id, { staffed: false }));
+    // A claim a raw REPLACE left behind (its row gone) is healed by the next reconcile.
+    await env.DB.prepare(
+      "INSERT INTO core_staff_time (object_type, record_id, account_id, starts, ends) VALUES (?, 'gone', ?, 1, 2)",
+    )
+      .bind(`${id}.klass`, user.id)
+      .run();
+    await reconcile(roster(id), later);
+    expect((await claims(user.id)).map((c) => c.record_id)).toEqual([one.id]);
+    await reconcile(roster(id, { staffed: false }), later);
     expect(await claims(user.id)).toEqual([]);
     const { results } = await env.DB.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'trigger' AND (tbl_name = ? OR tbl_name = ?)",
@@ -976,5 +1078,85 @@ describe("installing over records that already clash", () => {
       .bind(`x_${id}_klass`, `x_${id}_coach`)
       .all();
     expect(results).toEqual([]);
+  });
+
+  it("tells the admins when a shipped extension cannot be upgraded", async () => {
+    const host = {
+      shipped: async () => [{ id: "stfbroken", optional: false }],
+      commitShipped: async () => {
+        throw new Error("these shifts put one person on two at once");
+      },
+    } as unknown as ExtensionHost;
+    const results = await installShippedExtensions({ db, host });
+    expect(results).toEqual([expect.objectContaining({ id: "stfbroken", outcome: "failed" })]);
+    const { results: notes } = await env.DB.prepare(
+      "SELECT title, body FROM core_notifications WHERE user_id = ? AND title LIKE '%stfbroken%'",
+    )
+      .bind(admin.id)
+      .all<{ title: string; body: string }>();
+    expect(notes).toEqual([
+      expect.objectContaining({ body: expect.stringContaining("keeps running as it was") }),
+    ]);
+    // Once per release: a second boot does not tell them again.
+    await installShippedExtensions({ db, host });
+    const { results: again } = await env.DB.prepare(
+      "SELECT 1 FROM core_notifications WHERE user_id = ? AND title LIKE '%stfbroken%'",
+    )
+      .bind(admin.id)
+      .all();
+    expect(again).toHaveLength(1);
+  });
+});
+
+describe("a coach profile in the Trash", () => {
+  it("is refused while it is on shifts not yet ended; with only past ones it goes", async () => {
+    const { user, profile } = await coach("Ari");
+    const klass = await create(KLASS, {
+      name: "Future",
+      coach: profile,
+      startsAt: at("16", "06:00"),
+      endsAt: at("16", "07:00"),
+    });
+    await expect(
+      invoke("record.delete", { object: COACH, id: profile }, as()),
+    ).rejects.toMatchObject({ code: "conflict", details: { rule: "staffed_holder", count: 1 } });
+    // After the class, the profile may go, and the class keeps its claim (it was worked).
+    const after = "2026-06-20T00:00:00.000Z";
+    await invoke("record.delete", { object: COACH, id: profile }, as(after));
+    expect((await claims(user.id)).map((c) => c.record_id)).toEqual([klass.id]);
+  });
+});
+
+describe("toolOnly for staff", () => {
+  it("the pipeline itself refuses a staff-only tool-only operation outside a tool run", async () => {
+    const probe = defineOperation({
+      name: "staffing.probe",
+      description: "A staff-only tool-only probe for this test: answers ok, checks nothing itself.",
+      input: z.object({}),
+      output: z.object({ ok: z.boolean() }),
+      permission: "records:read",
+      risk: "read",
+      toolOnly: true,
+      async handler() {
+        return { ok: true };
+      },
+    });
+    const invoker = createInvoker(createRegistry([probe]));
+    await expect(invoker.invokeByName("staffing.probe", {}, as())).rejects.toMatchObject({
+      code: "unknown_operation",
+    });
+    expect((await invoker.listFor(as())).map((o) => o.name)).not.toContain("staffing.probe");
+    await expect(invoker.resolveFor("staffing.probe", as())).rejects.toMatchObject({
+      code: "unknown_operation",
+    });
+    const tool = context(admin, {
+      actor: "extension",
+      extension: {
+        id: ext,
+        permissions: { operations: ["staffing.probe"], objects: {} } as never,
+        tool: { name: "probe", humanOnly: false, permission: null },
+      },
+    });
+    expect(await invoker.invokeByName("staffing.probe", {}, tool)).toEqual({ ok: true });
   });
 });

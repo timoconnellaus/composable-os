@@ -34,20 +34,25 @@ export interface StaffedTables {
   live: readonly string[];
 }
 
-const literal = (value: string) => `'${value.replaceAll("'", "''")}'`;
 const seconds = (column: string) => `CAST(strftime('%s', r.${ident(column)}) AS INTEGER)`;
+
+/** A string as an SQL literal (an object name, a state, an account id). */
+export const literal = (value: string) => `'${value.replaceAll("'", "''")}'`;
 
 /** The account a row's claim is for, as SQL over the row `r` (and its holder `p`). */
 function accountExpr(t: StaffedTables): string {
   return t.account ? `p.${ident(t.account.column)}` : `r.${ident(t.who)}`;
 }
 
-/** The claims the rows of `t` meeting `where` (over the row `r`) give, as a SELECT. */
-export function selectClaims(t: StaffedTables, where: string): string {
-  const account = accountExpr(t);
-  const join = t.account
-    ? ` LEFT JOIN ${ident(t.account.table)} p ON p.id = r.${ident(t.who)}`
-    : "";
+/**
+ * The claims the rows of `t` meeting `where` (over the row `r`) give, as a SELECT. `account`
+ * replaces the account expression (a literal: the claims the rows would give another account).
+ */
+export function selectClaims(t: StaffedTables, where: string, account = accountExpr(t)): string {
+  const join =
+    t.account && account === accountExpr(t)
+      ? ` LEFT JOIN ${ident(t.account.table)} p ON p.id = r.${ident(t.who)}`
+      : "";
   return (
     `SELECT ${literal(t.object)} AS object_type, r.id AS record_id, ${account} AS account_id, ` +
     `${seconds(t.starts)} AS starts, ${seconds(t.ends)} AS ends ` +
@@ -60,9 +65,13 @@ export function selectClaims(t: StaffedTables, where: string): string {
   );
 }
 
-/** The claims of the rows of `t` meeting `where`, written (INSERT … SELECT). */
+/**
+ * The claims of the rows of `t` meeting `where`, written (INSERT … SELECT) in order of start, so
+ * each insert's overlap check reads only the claims that end after it starts: a profile's 2,000
+ * past classes given to another account read a few rows each, not every one already written.
+ */
 export function deriveClaims(t: StaffedTables, where: string): string {
-  return `INSERT INTO core_staff_time (object_type, record_id, account_id, starts, ends) ${selectClaims(t, where)}`;
+  return `INSERT INTO core_staff_time (object_type, record_id, account_id, starts, ends) ${selectClaims(t, where)} ORDER BY starts`;
 }
 
 /** The trigger names one staffed object owns: on its table, and on its account's table. */
@@ -94,9 +103,17 @@ export function createStaffedTriggers(t: StaffedTables): string[] {
     `DELETE FROM core_staff_time WHERE object_type = ${object} AND record_id IN (${keys});`;
   // Every column the claim reads, and the id (an id update moves the claim).
   const columns = [...new Set(["id", "deleted_at", t.who, t.starts, t.ends, t.state])].map(ident);
+  // A live shift whose end is at or before its start is refused, whoever writes it (it would
+  // claim nothing, and so could sit inside another of its person's shifts).
+  const backwards =
+    `SELECT RAISE(ABORT, 'core_staff_time_backwards') FROM ${ident(t.table)} r ` +
+    `WHERE r.id = NEW.id AND r.deleted_at IS NULL ` +
+    `AND r.${ident(t.state)} IN (${t.live.map(literal).join(", ")}) ` +
+    `AND ${seconds(t.starts)} IS NOT NULL AND ${seconds(t.ends)} IS NOT NULL ` +
+    `AND ${seconds(t.ends)} <= ${seconds(t.starts)};`;
   const out = [
-    `CREATE TRIGGER ${ins} AFTER INSERT ON ${ident(t.table)} BEGIN ${clear("NEW.id")} ${deriveClaims(t, "r.id = NEW.id")}; END`,
-    `CREATE TRIGGER ${upd} AFTER UPDATE OF ${columns.join(", ")} ON ${ident(t.table)} BEGIN ${clear("OLD.id, NEW.id")} ${deriveClaims(t, "r.id = NEW.id")}; END`,
+    `CREATE TRIGGER ${ins} AFTER INSERT ON ${ident(t.table)} BEGIN ${backwards} ${clear("NEW.id")} ${deriveClaims(t, "r.id = NEW.id")}; END`,
+    `CREATE TRIGGER ${upd} AFTER UPDATE OF ${columns.join(", ")} ON ${ident(t.table)} BEGIN ${backwards} ${clear("OLD.id, NEW.id")} ${deriveClaims(t, "r.id = NEW.id")}; END`,
     `CREATE TRIGGER ${del} AFTER DELETE ON ${ident(t.table)} BEGIN ${clear("OLD.id")} END`,
   ];
   if (t.account && holderIns && holderUpd && holderDel) {
@@ -115,11 +132,32 @@ export function createStaffedTriggers(t: StaffedTables): string[] {
   return out;
 }
 
-/** Every claim of an object derived again from its rows (installing, or a changed declaration). */
+/** A claim's latest end among its account's earlier claims (a window over a CTE of claims). */
+const PREVIOUS_END =
+  "MAX(ends) OVER (PARTITION BY account_id ORDER BY starts, object_type, record_id " +
+  "ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)";
+
+/**
+ * Every claim of an object derived again from its rows (installing, an upgrade, a changed
+ * declaration), in order of start. This also heals a claim a raw REPLACE left behind (its row is
+ * gone, so it is not derived again). Shifts that overlap an earlier one of the same account, or
+ * another object's claim, are left without a claim: the reconcile refused the plan if any of them
+ * has not ended (clashQuery), so these are past shifts that clashed before the claim existed,
+ * reported by the reconcile and never written over.
+ */
 export function resyncClaims(t: StaffedTables): CompiledQuery[] {
   return [
     CompiledQuery.raw("DELETE FROM core_staff_time WHERE object_type = ?", [t.object]),
-    CompiledQuery.raw(deriveClaims(t, "1 = 1")),
+    CompiledQuery.raw(
+      `WITH d AS MATERIALIZED (${selectClaims(t, "1 = 1")}), ` +
+        `w AS (SELECT d.*, ${PREVIOUS_END} AS prev_end FROM d) ` +
+        "INSERT INTO core_staff_time (object_type, record_id, account_id, starts, ends) " +
+        "SELECT object_type, record_id, account_id, starts, ends FROM w " +
+        "WHERE (prev_end IS NULL OR prev_end <= starts) AND NOT EXISTS (" +
+        "SELECT 1 FROM core_staff_time c WHERE c.account_id = w.account_id " +
+        `AND c.object_type != ${literal(t.object)} AND c.ends > w.starts AND c.starts < w.ends) ` +
+        "ORDER BY starts",
+    ),
   ];
 }
 
@@ -128,21 +166,44 @@ export function dropClaims(object: string): CompiledQuery {
   return CompiledQuery.raw("DELETE FROM core_staff_time WHERE object_type = ?", [object]);
 }
 
+/** A shift that would clash with an earlier one once `t`'s claims are derived. */
+export interface ClashRow {
+  object_type: string;
+  record_id: string;
+  starts: number;
+  ends: number;
+  other_object: string;
+  other: string;
+  other_starts: number;
+  other_ends: number;
+  /** How many shifts clash in all. */
+  total: number;
+}
+
 /**
- * Pairs of shifts that would clash once `t`'s claims are derived (ADR 0621): among its own rows,
- * and against other objects' claims already held. Read before the triggers are built, so a
- * declaration over records that already double-book someone is refused naming them.
+ * The shifts that would clash once `t`'s claims are derived (ADR 0621): with an earlier one of
+ * their account among its own rows, or with another object's claim already held. One pass per
+ * account in order of start (a running latest end), never a pair of every two shifts; each clash
+ * is named with the earliest shift it overlaps. Clashes involving a shift that has not ended (by
+ * `now`, unix seconds) come first. Read before the triggers are built.
  */
-export function clashQuery(t: StaffedTables, limit = 5): string {
+export function clashQuery(t: StaffedTables, now: number, limit = 5): string {
+  const object = literal(t.object);
   return (
-    `WITH d AS (${selectClaims(t, "1 = 1")}), o AS (SELECT object_type, record_id, account_id, starts, ends FROM d ` +
-    `UNION ALL SELECT object_type, record_id, account_id, starts, ends FROM core_staff_time ` +
-    `WHERE object_type != ${literal(t.object)}) ` +
-    "SELECT a.record_id AS record, b.object_type AS other_object, b.record_id AS other, " +
-    "a.account_id AS account FROM d a JOIN o b ON b.account_id = a.account_id " +
-    "AND NOT (b.object_type = a.object_type AND b.record_id = a.record_id) " +
-    "AND b.starts < a.ends AND b.ends > a.starts " +
-    "AND (b.object_type != a.object_type OR a.record_id < b.record_id) " +
-    `LIMIT ${limit}`
+    `WITH d AS MATERIALIZED (${selectClaims(t, "1 = 1")}), ` +
+    "o AS MATERIALIZED (SELECT object_type, record_id, account_id, starts, ends FROM d " +
+    "UNION ALL SELECT object_type, record_id, account_id, starts, ends FROM core_staff_time " +
+    `WHERE object_type != ${object} AND account_id IN (SELECT account_id FROM d)), ` +
+    `w AS (SELECT o.*, ${PREVIOUS_END} AS prev_end FROM o), ` +
+    "f AS (SELECT * FROM w WHERE prev_end > starts), " +
+    "p AS (SELECT f.object_type, f.record_id, f.starts, f.ends, b.object_type AS other_object, " +
+    "b.record_id AS other, b.starts AS other_starts, b.ends AS other_ends, " +
+    "ROW_NUMBER() OVER (PARTITION BY f.object_type, f.record_id ORDER BY b.starts, b.record_id) AS n " +
+    "FROM f JOIN o b ON b.account_id = f.account_id AND b.ends > f.starts AND b.starts < f.ends " +
+    "AND NOT (b.object_type = f.object_type AND b.record_id = f.record_id) " +
+    "AND (b.starts < f.starts OR (b.starts = f.starts AND (b.object_type, b.record_id) < (f.object_type, f.record_id)))) " +
+    "SELECT object_type, record_id, starts, ends, other_object, other, other_starts, other_ends, " +
+    `count(*) OVER () AS total FROM p WHERE n = 1 AND (object_type = ${object} OR other_object = ${object}) ` +
+    `ORDER BY max(ends, other_ends) > ${Math.floor(now)} DESC, starts LIMIT ${limit}`
   );
 }

@@ -31,7 +31,9 @@ CREATE TABLE core_staff_time (
   CHECK (ends > starts)
 ) WITHOUT ROWID;
 
-CREATE INDEX core_staff_time_account ON core_staff_time (account_id, starts, ends);
+-- By account and end: an overlap check reads only the claims that end after the new one starts
+-- (an account's past shifts are never read), however long its history.
+CREATE INDEX core_staff_time_account ON core_staff_time (account_id, ends, starts);
 
 CREATE TRIGGER core_staff_time_insert
 BEFORE INSERT ON core_staff_time
@@ -41,7 +43,7 @@ BEGIN
     SELECT 1 FROM core_staff_time c
     WHERE c.account_id = NEW.account_id
       AND NOT (c.object_type = NEW.object_type AND c.record_id = NEW.record_id)
-      AND c.starts < NEW.ends AND c.ends > NEW.starts
+      AND c.ends > NEW.starts AND c.starts < NEW.ends
   );
 END;
 
@@ -54,7 +56,7 @@ BEGIN
     WHERE c.account_id = NEW.account_id
       AND NOT (c.object_type = OLD.object_type AND c.record_id = OLD.record_id)
       AND NOT (c.object_type = NEW.object_type AND c.record_id = NEW.record_id)
-      AND c.starts < NEW.ends AND c.ends > NEW.starts
+      AND c.ends > NEW.starts AND c.starts < NEW.ends
   );
 END;
 

@@ -70,6 +70,7 @@ import {
 } from "../recurring/index.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import {
+  assertHolderTrashable,
   holderWritten,
   type StaffWarning,
   staffedReleased,
@@ -1366,8 +1367,10 @@ export const recordDelete = defineOperation({
     await seriesChanged(ctx, object, input.id, before.values, before.values, { trashed: true });
     // The read above gives the message; this makes it hold at commit (a claim made meanwhile).
     if (object.claims) ctx.write(guardStatement("claimant", object.name, input.id, 0));
-    // A shift in the Trash claims nobody's time (its trigger drops the claim, ADR 0621).
+    // A shift in the Trash claims nobody's time (its trigger drops the claim, ADR 0621); a coach
+    // profile on shifts not yet ended is not trashed while it still names their person.
     staffedReleased(ctx, object, input.id);
+    await assertHolderTrashable(ctx, object, input.id);
     const table = objectTableOf(object.name) as string;
     ctx.write(
       CompiledQuery.raw(`UPDATE ${table} SET deleted_at = ?, deleted_by = ? WHERE id = ?`, [
