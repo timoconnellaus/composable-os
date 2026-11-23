@@ -117,7 +117,7 @@ function ClassRoster({
                   <View key={booking.id}>
                     <Row
                       title={name}
-                      detail={`${STATE_LABEL[booking.state ?? ""]}${booking.markedBy ? ` (${booking.markedBy})` : ""}`}
+                      detail={`${STATE_LABEL[booking.state ?? ""]}${booking.markedBy ? ` (${booking.markedBy})` : ""}${booking.healthNote ? " · Health note" : ""}`}
                     />
                     {booking.state === "booked" || booking.state === "no_show" ? (
                       <Button

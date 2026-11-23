@@ -89,6 +89,12 @@ const WHY = {
    * the ids `holdsAccess` was given are live records of the object, answered only to the seam.
    */
   access: "an access source the seam asks: which of the ids it was given are live records",
+  /**
+   * Agreements (stage 44, ADR 0642): whether a Person the host already has (the caller's own, a
+   * live dependant the seam's family gave, or one staff named) is in the Trash, a minor, and
+   * their display name for staff. Never a list of anyone else.
+   */
+  agreements: "agreements: the Trash, minor and name facts of a Person the host was given",
 } as const;
 type Why = (typeof WHY)[keyof typeof WHY];
 
@@ -101,6 +107,7 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "ai/embedding.ts": [9, WHY.org],
   "ai/summaries.ts": [16, WHY.later],
   // Stage 32b (ADR 0493): a spend checks its Person is not in the Trash, in the write's own path.
+  "agreements/due.ts": [2, WHY.agreements],
   "allowance/records.ts": [1, WHY.write],
   "assistant/memory.ts": [2, WHY.later],
   "assistant/producers.ts": [5, WHY.sql],
@@ -126,6 +133,8 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "notifications/send.ts": [2, WHY.org],
   "operations/activity.ts": [1, WHY.part],
   "operations/affiliation.ts": [5, WHY.part],
+  "operations/agreement-acceptance.ts": [2, WHY.agreements],
+  "operations/agreement.ts": [1, WHY.agreements],
   "operations/duplicate.ts": [3, WHY.later],
   "operations/enrichment.ts": [8, WHY.write],
   "operations/erasure.ts": [2, WHY.write],

@@ -351,6 +351,29 @@ export function toOperationError(error: unknown): OperationError {
       rule: "agreement_moved",
     });
   }
+  // Acceptances (migration 0851, ADR 0642): what one says never changes; a batch planned from a
+  // read of what is due fails when that changed before it committed (the guard's `agreements`
+  // kind); the version is no longer open to agree to; a minor's own acceptance.
+  if (message.includes("core_agreements_changed")) {
+    return new ConflictError(
+      "What must be agreed to changed while this was being done, so nothing was changed. Look again.",
+      { rule: "agreements_changed" },
+    );
+  }
+  if (message.includes("core_agreement_acceptance_immutable")) {
+    return new ForbiddenError("An acceptance is never changed or deleted.", {
+      rule: "agreement_acceptance_immutable",
+    });
+  }
+  if (message.includes("core_agreement_version_not_open")) {
+    return new ConflictError(
+      "This is not the version in effect: read the current one and agree to that.",
+      { rule: "agreement_version_replaced" },
+    );
+  }
+  if (message.includes("core_agreement_minor_self")) {
+    return new ForbiddenError("A parent or guardian agrees for you.", { rule: "agreement_minor" });
+  }
   // A guardian's write after their link ended, or the dependant went to the Trash (migration
   // 0650, ADR 0540): as if the Person were not there.
   if (message.includes("core_person_link_not_live")) {

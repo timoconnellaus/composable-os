@@ -71,6 +71,11 @@ describe("default closed (criterion 1)", () => {
       "content.get",
       "content.list",
       "content.preview",
+      // Stage 44 step 2 (ADR 0642): a customer's own agreements and their live dependants'.
+      "me.agreements.accept",
+      "me.agreements.due",
+      "me.agreements.get",
+      "me.agreements.list",
       "me.deleteAccount",
       // Stage 31a step 6 (ADR 0540): their own family, the children staff linked to them.
       "me.family",
@@ -400,6 +405,12 @@ describe("the closed handler context (ADR 0413)", () => {
       "content.list",
       "content.preview",
       "fixture.bookkeeping",
+      // Stage 44 step 2 (ADR 0642): acceptances are core tables, not records: the host reads and
+      // writes them for the caller's own Person and live dependants only.
+      "me.agreements.accept",
+      "me.agreements.due",
+      "me.agreements.get",
+      "me.agreements.list",
       "me.deleteAccount",
       "me.sessions.list",
       "me.sessions.revoke",

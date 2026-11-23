@@ -80,6 +80,12 @@ export type Role = (typeof ROLES)[number];
  *   (stage 44, ADR 0640). Admins only by default, grantable as `orders:refund` is. Publishing,
  *   attaching, detaching and retiring are a person's whatever is granted (`actors: ["human"]`);
  *   an AI acting for an account that holds it may only write a document's working copy.
+ * - `agreements:paper` record that a person signed a document on paper (stage 44, ADR 0642): a
+ *   staff entry, never shown as the member's own acceptance. Admins by default, grantable; a
+ *   person only whatever is granted.
+ * - `agreements:health` read a health form's answers (stage 44, ADR 0643): health information.
+ *   Admins by default, grantable; a person only whatever is granted, and every read is audited.
+ *   No AI actor reads them, with any grant.
  */
 export const PERMISSIONS = [
   "records:read",
@@ -96,6 +102,8 @@ export const PERMISSIONS = [
   "subscriptions:manage",
   "people:link",
   "agreements:manage",
+  "agreements:paper",
+  "agreements:health",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -130,6 +138,8 @@ export const GRANTABLE_PERMISSIONS = [
   "subscriptions:manage",
   "people:link",
   "agreements:manage",
+  "agreements:paper",
+  "agreements:health",
 ] as const;
 
 /**

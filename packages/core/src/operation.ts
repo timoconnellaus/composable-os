@@ -476,6 +476,12 @@ export interface OperationDefinition<
    * or the actors it applies to.
    */
   alwaysReview?: true | readonly Actor[];
+  /**
+   * A read that writes an audit row for every successful call, a person's included (stage 44,
+   * ADR 0643: who read whose health answers). The row holds `auditSummary`'s result, never the
+   * output, so give one that names no value read.
+   */
+  auditReads?: true;
   /** A small JSON summary of the result for the audit log. Default: touched records or id. */
   auditSummary?: (output: z.output<Out>, input: z.output<In>) => unknown;
   mcp?: McpOptions;
@@ -558,6 +564,13 @@ export function operationProblems(op: AnyOperation): string[] {
     problems.push("actors must list known actor types");
   }
   if (typeof op.handler !== "function") problems.push("handler missing");
+  if (op.auditReads !== undefined) {
+    if (op.auditReads !== true) problems.push("auditReads is true or left out");
+    if (op.risk !== "read") problems.push("auditReads is for reads (every write is audited)");
+    if (typeof op.auditSummary !== "function") {
+      problems.push("auditReads needs an auditSummary that names no value read");
+    }
+  }
   problems.push(...audienceProblems(op));
   if (op.hostInternal !== undefined) {
     if (op.hostInternal !== true) problems.push("hostInternal is true or left out");

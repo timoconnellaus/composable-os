@@ -162,6 +162,9 @@ export default defineExtension({
     // in each email and the waiting list's cut-off), notification.send (staff told of a class
     // whose list was not taken); email-send, the members' mail; storage, which class changes are
     // still to be told (several edits within two minutes make one email).
+    // agreement.healthNotes: the "health note" mark beside a name on a class list (stage 44,
+    // decision 18), a yes or no per Person and nothing of the form; the host gives it only when
+    // a person called the tool.
     operations: [
       "order.startHeld",
       "public.list",
@@ -174,6 +177,7 @@ export default defineExtension({
       "order.get",
       "extensionSettings.list",
       "notification.send",
+      "agreement.healthNotes",
     ],
     modules: ["ops", "email-send", "storage"],
   },

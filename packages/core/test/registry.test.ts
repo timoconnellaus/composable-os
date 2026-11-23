@@ -43,9 +43,11 @@ describe("core registry", () => {
         // extension.check runs extension source in the sandbox, so it stays admin-only; the
         // update.* reads (Settings → Updates) and Settings → AI (ai.settings, ai.testRole,
         // ai.usage) are admin-only too, as are the policy adjudicator's settings and agreement
-        // rate (adjudicator.get, adjudicator.agreement: policy:manage).
+        // rate (adjudicator.get, adjudicator.agreement: policy:manage). A health form's answers
+        // are read only with agreements:health (stage 44, ADR 0643).
         if (op.risk === "read") {
           expect([
+            "agreements:health",
             "records:read",
             "audit:read",
             "users:manage",

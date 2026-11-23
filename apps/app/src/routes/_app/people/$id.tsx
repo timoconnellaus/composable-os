@@ -1,4 +1,5 @@
-// Person record page, layout B: header with actions, tabs (Overview, Timeline, Tasks, History),
+// Person record page, layout B: header with actions, tabs (Overview, Timeline, Tasks, History,
+// Agreements),
 // composer + timeline in the main column, and details, organisations and tasks in the side
 // panel. Deleted people stay viewable here with a Restore banner.
 import { personObject } from "@composable-os/core/client";
@@ -23,6 +24,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { EllipsisIcon, PlusIcon, RotateCcwIcon, Trash2Icon, UserXIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { PersonAgreements } from "#/components/agreements/person-agreements";
 import { SimilarRecordsCard } from "#/components/ai/similar-records";
 import { RecordSummaryCard } from "#/components/ai/summary";
 import { useAppCommands } from "#/components/app-commands";
@@ -66,7 +68,7 @@ import { formatDate } from "#/lib/format";
 import { callOp, OperationCallError } from "#/lib/operations";
 import { errorMessage, opKey, useOp, useOpMutation } from "#/lib/query";
 
-const TABS = ["overview", "timeline", "tasks", "history"] as const;
+const TABS = ["overview", "timeline", "tasks", "history", "agreements"] as const;
 type Tab = (typeof TABS)[number] | `x:${string}`;
 
 export const Route = createFileRoute("/_app/people/$id")({
@@ -293,6 +295,17 @@ function PersonRecord({
                 onLoadMore={history.loadMore}
                 isLoadingMore={history.isLoadingMore}
                 loadMoreFailed={history.loadMoreFailed}
+              />
+            ),
+          },
+          {
+            value: "agreements",
+            label: "Agreements",
+            content: (
+              <PersonAgreements
+                personId={person.id}
+                personName={person.displayName}
+                readOnly={deleted}
               />
             ),
           },

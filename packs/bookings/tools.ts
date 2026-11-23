@@ -1319,6 +1319,14 @@ export const day = defineTool({
   },
 });
 
+const healthNote = z
+  .boolean()
+  .nullable()
+  .describe(
+    "A yes on their current health form: a mark only (staff who may read health answers open " +
+      "it from the Person page). Null when not shown.",
+  );
+
 export const classList = defineTool({
   description:
     "A class's list for staff and coaches: the class (as on the day view) and every booking of " +
@@ -1338,6 +1346,7 @@ export const classList = defineTool({
         holderId: z.string().nullable(),
         bookedBy: z.string().nullable(),
         promotedAt: z.string().nullable().describe("When they were moved in from the waitlist"),
+        healthNote,
         passedOver: z
           .string()
           .nullable()
@@ -1350,6 +1359,7 @@ export const classList = defineTool({
   permission: "bookings:desk",
   async handler(input, ctx) {
     const { klass, bookings, names } = await listOf(ctx, input.classId);
+    const notes = await healthNotesOf(ctx, names);
     return {
       class: klass,
       bookings: bookings.map((booking) => {
@@ -1358,6 +1368,7 @@ export const classList = defineTool({
           id: booking.id,
           person: personId ? { id: personId, name: names.get(personId) ?? null } : null,
           state: text(booking.values.state),
+          healthNote: notes && personId ? notes.has(personId) : null,
           paidAtDesk: flag(booking.values.paidOtherwise),
           holderId: text(booking.values.holder),
           bookedBy: text(booking.values.bookedBy),
@@ -1618,6 +1629,25 @@ async function listOf(ctx: Ctx, classId: string) {
   return { klass: klass as z.infer<typeof staffClass>, bookings: page.items, names };
 }
 
+/**
+ * Who on a list answered yes on their current health form (stage 44, decision 18): a mark, no
+ * content, asked of the host. Null when the host gives none: a list the assistant reads, or a
+ * host without agreements.
+ */
+async function healthNotesOf(ctx: Ctx, names: Map<string, string | null>) {
+  if (!names.size) return null;
+  try {
+    const { notes } = await ctx.ops.call<{ notes: { personId: string; healthNote: boolean }[] }>(
+      "agreement.healthNotes",
+      { personIds: [...names.keys()] },
+    );
+    return new Set(notes.filter((n) => n.healthNote).map((n) => n.personId));
+  } catch (error) {
+    if (error instanceof OpsCallError && error.code === "forbidden") return null;
+    throw error;
+  }
+}
+
 export const roster = defineTool({
   description:
     "A class's list for its coach: the class (as on the day view) and every booking of it with " +
@@ -1634,6 +1664,7 @@ export const roster = defineTool({
         markedAt: z.string().nullable(),
         markedBy: z.string().nullable().describe("The name of who marked it"),
         promotedAt: z.string().nullable().describe("When they were moved in from the waitlist"),
+        healthNote,
       }),
     ),
   }),
@@ -1641,6 +1672,7 @@ export const roster = defineTool({
   permission: "bookings:coach",
   async handler(input, ctx) {
     const { klass, bookings, names } = await listOf(ctx, input.classId);
+    const notes = await healthNotesOf(ctx, names);
     return {
       class: klass,
       bookings: bookings.map((booking) => {
@@ -1652,6 +1684,7 @@ export const roster = defineTool({
           markedAt: text(booking.values.markedAt),
           markedBy: text(booking.values.markedByName),
           promotedAt: text(booking.values.promotedAt),
+          healthNote: notes && personId ? notes.has(personId) : null,
         };
       }),
     };

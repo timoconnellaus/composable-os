@@ -3,6 +3,7 @@
 import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, type SqlBool, sql } from "kysely";
 import { z } from "zod";
+import { queueEraseAgreements } from "../agreements/people.ts";
 import { enqueueEmbeddings } from "../ai/embedding.ts";
 import { deleteSummariesStatement } from "../ai/summaries.ts";
 import { queueEraseAllowances } from "../allowance/people.ts";
@@ -339,6 +340,8 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
   await queueEraseOrders(ctx, subject);
   // Their passes' and memberships' uses, and the uses they spent (stage 32b, ADR 0494).
   if (subject.object === "person") queueEraseAllowances(ctx, [...recordIds]);
+  // Their health answers and minor mark go now; their acceptances stay, detached (ADR 0642).
+  if (subject.object === "person") queueEraseAgreements(ctx, [...recordIds]);
 
   // 3f. The erase log outside D1 (R2), so an erasure can be re-applied after a restore. Written
   // before the commit: if it cannot be written the erase fails and can be retried.

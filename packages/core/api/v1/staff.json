@@ -5494,6 +5494,566 @@
       "invalidates": []
     },
     {
+      "name": "agreement.acceptance.get",
+      "description": "One acceptance in full, for a person on the staff: the version shown, the name typed (beside the Person's own name), the signature drawn, and for paper who recorded it. Health answers are agreement.answers.get's. Never an AI's read. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The acceptance's id (aga_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "versionId": {
+            "type": "string"
+          },
+          "versionNumber": {
+            "type": "number"
+          },
+          "personId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "by": {
+            "type": "string",
+            "enum": [
+              "self",
+              "guardian",
+              "guest",
+              "paper"
+            ]
+          },
+          "how": {
+            "type": "string",
+            "enum": [
+              "typed",
+              "drawn",
+              "paper"
+            ]
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "web",
+              "app",
+              "paper",
+              "desk"
+            ]
+          },
+          "acceptedAt": {
+            "type": "string"
+          },
+          "agentPersonId": {
+            "description": "The guardian who agreed for a dependant",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recordedBy": {
+            "description": "Paper: the staff user who recorded it",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "signedOn": {
+            "description": "Paper: the date on the form",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "counts": {
+            "type": "boolean",
+            "description": "Whether it is the acceptance that counts for its document now"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "documentId": {
+                    "type": "string"
+                  },
+                  "number": {
+                    "type": "number"
+                  },
+                  "kind": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "body": {},
+                  "tickLabel": {
+                    "type": "string"
+                  },
+                  "questions": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "key": {
+                              "type": "string"
+                            },
+                            "text": {
+                              "type": "string"
+                            },
+                            "noteOnYes": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "key",
+                            "text",
+                            "noteOnYes"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "how": {
+                    "type": "string",
+                    "enum": [
+                      "typed",
+                      "drawn"
+                    ]
+                  },
+                  "effectiveFrom": {
+                    "type": "string"
+                  },
+                  "hash": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "documentId",
+                  "number",
+                  "kind",
+                  "title",
+                  "body",
+                  "tickLabel",
+                  "questions",
+                  "how",
+                  "effectiveFrom",
+                  "hash"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "personName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "typedName": {
+            "type": "string"
+          },
+          "signature": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "width": {
+                    "type": "number"
+                  },
+                  "height": {
+                    "type": "number"
+                  },
+                  "strokes": {
+                    "type": "array",
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "width",
+                  "height",
+                  "strokes"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "agentName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recordedByName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "signedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasAnswers": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "documentId",
+          "title",
+          "kind",
+          "versionId",
+          "versionNumber",
+          "personId",
+          "by",
+          "how",
+          "channel",
+          "acceptedAt",
+          "agentPersonId",
+          "recordedBy",
+          "signedOn",
+          "counts",
+          "version",
+          "personName",
+          "typedName",
+          "signature",
+          "agentName",
+          "recordedByName",
+          "signedBy",
+          "note",
+          "hasAnswers"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "agreement.acceptances",
+      "description": "The acceptances people made, newest first: by document, version, who agreed (themselves, a guardian, paper) and a date range, each with the Person and how and when. Never a name typed, a signature or health answers. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Only this document's"
+          },
+          "versionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Only this version's"
+          },
+          "by": {
+            "type": "string",
+            "enum": [
+              "self",
+              "guardian",
+              "guest",
+              "paper"
+            ]
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "before": {
+            "description": "Paging: the acceptedAt of the last item seen",
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "documentId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "versionId": {
+                  "type": "string"
+                },
+                "versionNumber": {
+                  "type": "number"
+                },
+                "personId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "by": {
+                  "type": "string",
+                  "enum": [
+                    "self",
+                    "guardian",
+                    "guest",
+                    "paper"
+                  ]
+                },
+                "how": {
+                  "type": "string",
+                  "enum": [
+                    "typed",
+                    "drawn",
+                    "paper"
+                  ]
+                },
+                "channel": {
+                  "type": "string",
+                  "enum": [
+                    "web",
+                    "app",
+                    "paper",
+                    "desk"
+                  ]
+                },
+                "acceptedAt": {
+                  "type": "string"
+                },
+                "agentPersonId": {
+                  "description": "The guardian who agreed for a dependant",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "recordedBy": {
+                  "description": "Paper: the staff user who recorded it",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "signedOn": {
+                  "description": "Paper: the date on the form",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "counts": {
+                  "type": "boolean",
+                  "description": "Whether it is the acceptance that counts for its document now"
+                },
+                "personName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "documentId",
+                "title",
+                "kind",
+                "versionId",
+                "versionNumber",
+                "personId",
+                "by",
+                "how",
+                "channel",
+                "acceptedAt",
+                "agentPersonId",
+                "recordedBy",
+                "signedOn",
+                "counts",
+                "personName"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "agreement.answers.get",
+      "description": "A health form's answers, for a person on the staff with agreements:health: each question, yes or no, and a note. Health information: every read is audited (who read whose), and no AI ever reads them. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "acceptanceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The acceptance's id (aga_…)"
+          }
+        },
+        "required": [
+          "acceptanceId"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "acceptanceId": {
+            "type": "string"
+          },
+          "personId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "acceptedAt": {
+            "type": "string"
+          },
+          "enteredByStaff": {
+            "type": "boolean",
+            "description": "Typed in by staff from a paper form"
+          },
+          "answers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "yes": {
+                  "type": "boolean"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "key",
+                "text",
+                "yes",
+                "note"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "acceptanceId",
+          "personId",
+          "acceptedAt",
+          "enteredByStaff",
+          "answers"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "agreement.attach",
       "description": "Attach a published agreement document to agreement points (agreement.points lists them), so it is needed there: from step 3 of stage 44, nobody buys or books there without a current acceptance of it. Nothing already bought or booked is touched. Only a person on the staff with agreements:manage can do this. Audited.",
       "risk": "write",
@@ -5646,8 +6206,14 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "agreement.acceptance.get",
+        "agreement.acceptances",
+        "agreement.answers.get",
+        "agreement.due.list",
         "agreement.get",
+        "agreement.healthNotes",
         "agreement.list",
+        "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
         "agreement.version.get"
@@ -5698,8 +6264,14 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "agreement.acceptance.get",
+        "agreement.acceptances",
+        "agreement.answers.get",
+        "agreement.due.list",
         "agreement.get",
+        "agreement.healthNotes",
         "agreement.list",
+        "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
         "agreement.version.get"
@@ -5858,8 +6430,14 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "agreement.acceptance.get",
+        "agreement.acceptances",
+        "agreement.answers.get",
+        "agreement.due.list",
         "agreement.get",
+        "agreement.healthNotes",
         "agreement.list",
+        "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
         "agreement.version.get"
@@ -6101,12 +6679,111 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "agreement.acceptance.get",
+        "agreement.acceptances",
+        "agreement.answers.get",
+        "agreement.due.list",
         "agreement.get",
+        "agreement.healthNotes",
         "agreement.list",
+        "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
         "agreement.version.get"
       ]
+    },
+    {
+      "name": "agreement.due.list",
+      "description": "Who still has to agree to which document: People with a sign-in, a subscription, a family link or the minor mark who have something attached due, those with a live subscription first. Titles and dates only. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Only this document"
+          },
+          "limit": {
+            "default": 100,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "personId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "subscribed": {
+                  "type": "boolean"
+                },
+                "due": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "documentId": {
+                        "type": "string"
+                      },
+                      "title": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "enum": [
+                          "never",
+                          "agree_again",
+                          "ask_again",
+                          "guardian"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "documentId",
+                      "title",
+                      "reason"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "personId",
+                "name",
+                "subscribed",
+                "due"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "more": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "more"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
     },
     {
       "name": "agreement.get",
@@ -6434,6 +7111,10 @@
                     "scheduled",
                     "never_in_force"
                   ]
+                },
+                "acceptances": {
+                  "type": "number",
+                  "description": "How many acceptances of this version there are"
                 }
               },
               "required": [
@@ -6452,7 +7133,8 @@
                 "publishedBy",
                 "hash",
                 "intact",
-                "status"
+                "status",
+                "acceptances"
               ],
               "additionalProperties": false
             }
@@ -6471,6 +7153,62 @@
           "retiredAt",
           "draft",
           "versions"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "agreement.healthNotes",
+      "description": "For a class list: which of these People answered yes on their current health form, as a yes or no each (a mark, nothing of the form). For a person on the staff, or a pack's tool a person called; never an AI. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "personIds": {
+            "maxItems": 200,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "A Person (per_…)"
+            }
+          }
+        },
+        "required": [
+          "personIds"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "personId": {
+                  "type": "string"
+                },
+                "healthNote": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "personId",
+                "healthNote"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "notes"
         ],
         "additionalProperties": false
       },
@@ -6622,6 +7360,304 @@
         },
         "required": [
           "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "agreement.person",
+      "description": "A Person's agreements, as the Person page shows them: each document attached anywhere, current or due (and why: never agreed, agree again, asked again, a guardian must agree), every acceptance (who agreed, how, when; paper marked), and whether they are a minor. Titles and dates only: never a name typed, a signature or health answers. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The Person (per_…)"
+          }
+        },
+        "required": [
+          "personId"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string"
+          },
+          "minor": {
+            "type": "object",
+            "properties": {
+              "marked": {
+                "type": "boolean",
+                "description": "Staff marked them a minor (agreement.setMinor)"
+              },
+              "dependant": {
+                "type": "boolean",
+                "description": "A child of a live family link"
+              },
+              "markedBy": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "markedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "marked",
+              "dependant",
+              "markedBy",
+              "markedAt"
+            ],
+            "additionalProperties": false
+          },
+          "documents": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "documentId": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "points": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "versionId": {
+                  "type": "string",
+                  "description": "The version in effect"
+                },
+                "versionNumber": {
+                  "type": "number"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "current",
+                    "due"
+                  ]
+                },
+                "reason": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "never",
+                        "agree_again",
+                        "ask_again",
+                        "guardian"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Why it is due: never agreed, agree again, …"
+                },
+                "acceptanceId": {
+                  "description": "The acceptance that counts now",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "acceptedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "documentId",
+                "kind",
+                "title",
+                "points",
+                "versionId",
+                "versionNumber",
+                "status",
+                "reason",
+                "acceptanceId",
+                "acceptedAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "acceptances": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "documentId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "versionId": {
+                  "type": "string"
+                },
+                "versionNumber": {
+                  "type": "number"
+                },
+                "personId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "by": {
+                  "type": "string",
+                  "enum": [
+                    "self",
+                    "guardian",
+                    "guest",
+                    "paper"
+                  ]
+                },
+                "how": {
+                  "type": "string",
+                  "enum": [
+                    "typed",
+                    "drawn",
+                    "paper"
+                  ]
+                },
+                "channel": {
+                  "type": "string",
+                  "enum": [
+                    "web",
+                    "app",
+                    "paper",
+                    "desk"
+                  ]
+                },
+                "acceptedAt": {
+                  "type": "string"
+                },
+                "agentPersonId": {
+                  "description": "The guardian who agreed for a dependant",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "recordedBy": {
+                  "description": "Paper: the staff user who recorded it",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "signedOn": {
+                  "description": "Paper: the date on the form",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "counts": {
+                  "type": "boolean",
+                  "description": "Whether it is the acceptance that counts for its document now"
+                },
+                "agentName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "recordedByName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "documentId",
+                "title",
+                "kind",
+                "versionId",
+                "versionNumber",
+                "personId",
+                "by",
+                "how",
+                "channel",
+                "acceptedAt",
+                "agentPersonId",
+                "recordedBy",
+                "signedOn",
+                "counts",
+                "agentName",
+                "recordedByName"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "healthNote": {
+            "description": "A yes on their current health form; null unless a person is asking",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "can": {
+            "type": "object",
+            "properties": {
+              "recordPaper": {
+                "type": "boolean"
+              },
+              "setMinor": {
+                "type": "boolean"
+              },
+              "readAnswers": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "recordPaper",
+              "setMinor",
+              "readAnswers"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "personId",
+          "minor",
+          "documents",
+          "acceptances",
+          "healthNote",
+          "can"
         ],
         "additionalProperties": false
       },
@@ -6988,8 +8024,14 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "agreement.acceptance.get",
+        "agreement.acceptances",
+        "agreement.answers.get",
+        "agreement.due.list",
         "agreement.get",
+        "agreement.healthNotes",
         "agreement.list",
+        "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
         "agreement.version.get"
@@ -7314,6 +8356,10 @@
             "items": {
               "type": "string"
             }
+          },
+          "asksAgain": {
+            "type": "number",
+            "description": "How many people \"agree again\" would ask: those whose acceptance counts now"
           }
         },
         "required": [
@@ -7324,11 +8370,127 @@
           "draftHash",
           "draftRev",
           "latest",
-          "problems"
+          "problems",
+          "asksAgain"
         ],
         "additionalProperties": false
       },
       "invalidates": []
+    },
+    {
+      "name": "agreement.recordPaper",
+      "description": "Record that a Person signed a version of a document on paper (printed from that version): the name on the form, the date written on it, who signed it for a child (signedBy), a note, and for a health form the answers typed in. Shown everywhere as recorded from paper by you, never as their own acceptance. A person on the staff with agreements:paper only.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Whom it is for (per_…): for a child, the child"
+          },
+          "versionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The version printed on the form (agv_…)"
+          },
+          "signedOn": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "The date written on the form"
+          },
+          "typedName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The name as written on the form"
+          },
+          "signedBy": {
+            "description": "For a child: who signed",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "answers": {
+            "minItems": 1,
+            "maxItems": 40,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40
+                },
+                "yes": {
+                  "type": "boolean"
+                },
+                "note": {
+                  "type": "string",
+                  "maxLength": 1000
+                }
+              },
+              "required": [
+                "key",
+                "yes"
+              ],
+              "additionalProperties": false
+            },
+            "description": "A health form's answers: health information, never shown to an AI or logged"
+          }
+        },
+        "required": [
+          "personId",
+          "versionId",
+          "signedOn",
+          "typedName"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "versionNumber": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "documentId",
+          "versionNumber"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "agreement.acceptance.get",
+        "agreement.acceptances",
+        "agreement.answers.get",
+        "agreement.due.list",
+        "agreement.get",
+        "agreement.healthNotes",
+        "agreement.list",
+        "agreement.person",
+        "agreement.points",
+        "agreement.publishPreview",
+        "agreement.version.get"
+      ]
     },
     {
       "name": "agreement.retire",
@@ -7472,8 +8634,70 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "agreement.acceptance.get",
+        "agreement.acceptances",
+        "agreement.answers.get",
+        "agreement.due.list",
         "agreement.get",
+        "agreement.healthNotes",
         "agreement.list",
+        "agreement.person",
+        "agreement.points",
+        "agreement.publishPreview",
+        "agreement.version.get"
+      ]
+    },
+    {
+      "name": "agreement.setMinor",
+      "description": "Mark a Person as a minor, or clear the mark: a parent or guardian agrees for them (or staff record paper), never they themselves, and every document attached anywhere is due as for a child. The host holds no date of birth: clear it when they come of age. A person on the staff with people:link only. Audited.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The Person (per_…)"
+          },
+          "minor": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "personId",
+          "minor"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string"
+          },
+          "minor": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "personId",
+          "minor"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "agreement.acceptance.get",
+        "agreement.acceptances",
+        "agreement.answers.get",
+        "agreement.due.list",
+        "agreement.get",
+        "agreement.healthNotes",
+        "agreement.list",
+        "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
         "agreement.version.get"
@@ -7507,8 +8731,14 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "agreement.acceptance.get",
+        "agreement.acceptances",
+        "agreement.answers.get",
+        "agreement.due.list",
         "agreement.get",
+        "agreement.healthNotes",
         "agreement.list",
+        "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
         "agreement.version.get"
@@ -42460,7 +43690,7 @@
     },
     {
       "name": "person.erase",
-      "description": "Permanently delete a person now, for GDPR erasure requests (admins only). Works on live people and people in Trash, and also erases anyone merged into them. Emails, phones, affiliations and tags go; activities and tasks linked only to them are deleted; system activities about them (field changes, job changes, merges) are removed from every timeline. Audit-log content that mentions them (their id, emails or phone numbers) is replaced with \"[erased]\"; who did what and when is kept. In-app assistant conversations that referenced them are redacted the same way (tool calls and results that mention them lose their content; their ids, emails, phone numbers and names in text become \"[erased]\"). Former emails and phones count too. Synced email bodies, suggested contacts, signatures, extension data related to them, automation run history and notifications about them are deleted or redacted, and their addresses are added to the erased-address list so mail sync does not collect them again. Their customer account, its sessions and sign-in codes, invites for their addresses and their erase requests are deleted (an open request is closed as erased). Cannot be undone; use person.delete for a reversible delete.",
+      "description": "Permanently delete a person now, for GDPR erasure requests (admins only). Works on live people and people in Trash, and also erases anyone merged into them. Emails, phones, affiliations and tags go; activities and tasks linked only to them are deleted; system activities about them (field changes, job changes, merges) are removed from every timeline. Audit-log content that mentions them (their id, emails or phone numbers) is replaced with \"[erased]\"; who did what and when is kept. In-app assistant conversations that referenced them are redacted the same way (tool calls and results that mention them lose their content; their ids, emails, phone numbers and names in text become \"[erased]\"). Former emails and phones count too. Synced email bodies, suggested contacts, signatures, extension data related to them, automation run history and notifications about them are deleted or redacted, and their addresses are added to the erased-address list so mail sync does not collect them again. Their customer account, its sessions and sign-in codes, invites for their addresses and their erase requests are deleted (an open request is closed as erased). Their health answers and minor mark are deleted; what they agreed to is kept, no longer theirs. Cannot be undone; use person.delete for a reversible delete.",
       "risk": "destructive",
       "audiences": [
         "staff"
@@ -68879,6 +70109,13 @@
                     "null"
                   ]
                 },
+                "healthNote": {
+                  "description": "A yes on their current health form: a mark only (staff who may read health answers open it from the Person page). Null when not shown.",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
                 "passedOver": {
                   "description": "While waiting: why a free place could not be theirs (what they hold)",
                   "type": [
@@ -68895,6 +70132,7 @@
                 "holderId",
                 "bookedBy",
                 "promotedAt",
+                "healthNote",
                 "passedOver"
               ],
               "additionalProperties": false
@@ -70131,6 +71369,13 @@
                     "string",
                     "null"
                   ]
+                },
+                "healthNote": {
+                  "description": "A yes on their current health form: a mark only (staff who may read health answers open it from the Person page). Null when not shown.",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -70139,7 +71384,8 @@
                 "state",
                 "markedAt",
                 "markedBy",
-                "promotedAt"
+                "promotedAt",
+                "healthNote"
               ],
               "additionalProperties": false
             }

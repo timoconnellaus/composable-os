@@ -33,6 +33,7 @@ import {
   titleSchema,
   type VersionTiming,
   versionHash,
+  versionIntact,
 } from "../agreements/documents.ts";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
 import { newId } from "../ids.ts";
@@ -247,21 +248,7 @@ async function draftOf(
 }
 
 /** Recomputes a stored version's hash from its own content (ADR 0640: reads that matter check). */
-async function intact(v: VersionRow, kind: string): Promise<boolean> {
-  return (
-    (await versionHash({
-      kind,
-      title: v.title,
-      body: JSON.parse(v.body),
-      tickLabel: v.tick_label,
-      questions: parse<Question[]>(v.questions),
-      how: v.how,
-      who: v.who,
-      forWhom: v.for_whom,
-      askAgainMonths: v.ask_again_months,
-    })) === v.hash
-  );
-}
+const intact = (v: VersionRow, kind: string) => versionIntact(v, kind);
 
 function statusOf(
   v: VersionRow,
@@ -309,6 +296,21 @@ function publishProblems(doc: DocumentRow): string[] {
   if (!doc.draft_tick_label) problems.push("The tick label (the words beside the box) is empty");
   if (doc.kind === "health" && !doc.draft_questions) problems.push("A health form needs questions");
   return problems;
+}
+
+/**
+ * How many People have an acceptance of the document that counts by its number now (stage 44 step
+ * 2): those "agree again" would ask. Out of the Trash; a count, never who.
+ */
+async function currentAcceptors(ctx: HandlerContext, documentId: string): Promise<number> {
+  const { rows } = await sql<{ n: number }>`SELECT count(DISTINCT a.person_id) AS n
+    FROM core_agreement_acceptance a
+    JOIN core_agreement_version v ON v.id = a.version_id
+    JOIN core_agreement_document d ON d.id = a.document_id
+    JOIN core_person p ON p.id = a.person_id AND p.deleted_at IS NULL
+    WHERE a.document_id = ${documentId} AND v.number >= d.agree_from
+      AND v.effective_from <= ${ctx.now}`.execute(ctx.db);
+  return Number(rows[0]?.n ?? 0);
 }
 
 const draftChanged = () =>
@@ -374,9 +376,10 @@ export const agreementGet = defineOperation({
   output: documentSummary.extend({
     draft: draftSchema,
     versions: z.array(
-      versionSchema
-        .omit({ body: true, questions: true })
-        .extend({ status: z.enum(VERSION_STATUSES) }),
+      versionSchema.omit({ body: true, questions: true }).extend({
+        status: z.enum(VERSION_STATUSES),
+        acceptances: z.number().describe("How many acceptances of this version there are"),
+      }),
     ),
   }),
   permission: "records:read",
@@ -386,6 +389,16 @@ export const agreementGet = defineOperation({
     const doc = await loadDocument(ctx, input.id);
     const versions = await versionsOf(ctx, doc.id);
     const points = (await pointsOf(ctx, [doc.id])).get(doc.id) ?? [];
+    const counts = new Map(
+      (
+        await ctx.db
+          .selectFrom("core_agreement_acceptance")
+          .select(["version_id", (eb) => eb.fn.countAll<number>().as("n")])
+          .where("document_id", "=", doc.id)
+          .groupBy("version_id")
+          .execute()
+      ).map((r) => [r.version_id, Number(r.n)]),
+    );
     return {
       ...summarise(doc, versions, points, ctx.now),
       draft: await draftOf(doc, await nameOf(ctx, doc.draft_updated_by)),
@@ -397,7 +410,11 @@ export const agreementGet = defineOperation({
               questions: _questions,
               ...rest
             } = toVersion(v, await intact(v, doc.kind));
-            return { ...rest, status: statusOf(v, doc, versions, ctx.now) };
+            return {
+              ...rest,
+              status: statusOf(v, doc, versions, ctx.now),
+              acceptances: counts.get(v.id) ?? 0,
+            };
           }),
         )
       ).reverse(),
@@ -593,6 +610,9 @@ export const agreementPublishPreview = defineOperation({
     draftRev: z.number(),
     latest: versionSchema.nullable(),
     problems: z.array(z.string()),
+    asksAgain: z
+      .number()
+      .describe('How many people "agree again" would ask: those whose acceptance counts now'),
   }),
   permission: "records:read",
   risk: "read",
@@ -616,6 +636,7 @@ export const agreementPublishPreview = defineOperation({
       draftRev: doc.draft_rev,
       latest,
       problems: publishProblems(doc),
+      asksAgain: await currentAcceptors(ctx, doc.id),
     };
   },
 });
