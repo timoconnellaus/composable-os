@@ -143,6 +143,8 @@ export interface RunState {
     personApproves?: boolean;
     permission: string | readonly string[] | null;
     startedBy?: string;
+    /** startedBy approved another actor's call (stage 44: no health mark for such a run). */
+    startedByApproval?: true;
   };
   /** The automation cascade the tool was called in, carried on by its calls (ADR 0478). */
   cascade?: ToolCascade;

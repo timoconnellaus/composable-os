@@ -43,6 +43,11 @@ beforeAll(async () => {
 // capacity.get (stage 26) and the order.* operations (stage 25) are open too; their own tests
 // list them (customer-pipeline.test.ts).
 const OPENED = [
+  // Stage 44 step 2 (ADR 0642): the caller's own agreements and their live dependants'.
+  "me.agreements.accept",
+  "me.agreements.due",
+  "me.agreements.get",
+  "me.agreements.list",
   "me.deleteAccount",
   // Stage 31a step 6 (ADR 0540): the caller's own family links.
   "me.family",
@@ -71,9 +76,16 @@ describe("what this step opens", () => {
     );
     for (const entry of direct as { name: string; hostInternal?: boolean }[]) {
       expect(entry.hostInternal === true, entry.name).toBe(
-        ["me.deleteAccount", "me.sessions.list", "me.sessions.revoke", "me.signOut"].includes(
-          entry.name,
-        ),
+        [
+          "me.agreements.accept",
+          "me.agreements.due",
+          "me.agreements.get",
+          "me.agreements.list",
+          "me.deleteAccount",
+          "me.sessions.list",
+          "me.sessions.revoke",
+          "me.signOut",
+        ].includes(entry.name),
       );
     }
   });

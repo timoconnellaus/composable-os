@@ -3,6 +3,7 @@
 import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, type SqlBool, sql } from "kysely";
 import { z } from "zod";
+import { queueEraseAgreements } from "../agreements/people.ts";
 import { enqueueEmbeddings } from "../ai/embedding.ts";
 import { deleteSummariesStatement } from "../ai/summaries.ts";
 import { queueEraseAllowances } from "../allowance/people.ts";
@@ -363,6 +364,9 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
         : ctx.db.deleteFrom("core_organisation").where("id", "in", ids),
     );
   }
+  // Their health answers and minor mark go now; their acceptances stay, detached (ADR 0642).
+  // After the Person's row is deleted: the acceptance triggers allow a detach only then.
+  if (subject.object === "person") queueEraseAgreements(ctx, [...recordIds]);
 
   // 5. FTS5 keeps deleted terms in older index segments until they are merged. Merge now, after
   // every delete above, so the erased values leave the search index's storage, not just its

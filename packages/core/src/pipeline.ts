@@ -364,7 +364,7 @@ export function redactInput(value: unknown, extra: readonly string[] = []): unkn
  * one that fails or is refused still gets a full audit row.
  */
 function isAudited(op: AnyOperation, actor: Actor): boolean {
-  return op.risk !== "read" || actor !== "human";
+  return op.risk !== "read" || actor !== "human" || op.auditReads === true;
 }
 
 /** The UTC hour a read is counted in: 'YYYY-MM-DDTHH:00:00.000Z'. */
@@ -1289,7 +1289,7 @@ async function invokeOnce<O extends AnyOperation>(
 
   const summary =
     op.auditSummary && !deferred ? op.auditSummary(output, input) : defaultSummary(output, changes);
-  if (audited && op.risk === "read") {
+  if (audited && op.risk === "read" && !op.auditReads) {
     // A successful non-human read: counted, not audited row by row (ADR 0090).
     if (!ctx.simulate) await countRead(op, ctx, now, false);
   } else if (audited) {

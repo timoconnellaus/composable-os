@@ -1377,18 +1377,25 @@ describe("review 9: what a customer is told", () => {
 
 describe("review 10: a change of period, a spender with no return, a Person in the Trash", () => {
   it("weekly to monthly: the week running keeps its count; later uses move to their month", async () => {
-    const p = await person();
-    const holder = await pass(p, { uses: 2, per: "week" });
-    const now = Date.now();
-    const week = allowancePeriodOf(new Date(now).toISOString(), "week", SYDNEY);
+    // A fixed clock, midday on a Wednesday in Sydney, so "now" and the next three minutes are in
+    // one week. On the real clock the test failed when the run crossed the week's turn (#251).
+    const now = Date.parse("2027-03-10T01:00:00.000Z");
+    const ctx = staff({ clock: () => new Date(now) });
     const at = (ms: number) => new Date(ms).toISOString();
-    await book(p, await klass(at(now + 60_000)));
-    await book(p, await klass(at(now + 120_000)));
+    const p = await person();
+    const holder = await create(
+      PASS,
+      { name: unique("Pass"), person: p, zone: SYDNEY, uses: 2, per: "week" },
+      ctx,
+    );
+    const week = allowancePeriodOf(at(now), "week", SYDNEY);
+    await book(p, await klass(at(now + 60_000)), {}, ctx);
+    await book(p, await klass(at(now + 120_000)), {}, ctx);
     const nextWeek = Date.parse(week.endsAt) + 3_600_000;
-    const ahead = await book(p, await klass(at(nextWeek)));
-    await invoke("record.update", { object: PASS, id: holder, values: { per: "month" } }, staff());
+    const ahead = await book(p, await klass(at(nextWeek)), {}, ctx);
+    await invoke("record.update", { object: PASS, id: holder, values: { per: "month" } }, ctx);
     // This week still counts as a week: full.
-    expect(await refusal(book(p, await klass(at(now + 180_000))))).toMatchObject({
+    expect(await refusal(book(p, await klass(at(now + 180_000)), {}, ctx))).toMatchObject({
       reason: "no_uses_left",
       period: week.key,
     });

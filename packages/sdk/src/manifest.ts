@@ -3,7 +3,12 @@
 // diffs and reconciles the manifest. `validateManifest` is the contract check `extension.check`
 // runs; it returns structured issues a model can act on.
 import { z } from "zod";
-import { agreementsManifestSchema, checkObjectAgreements } from "./agreements.ts";
+import {
+  agreementsManifestSchema,
+  checkObjectAgreements,
+  checkObjectHealthNotes,
+  healthNotesManifestSchema,
+} from "./agreements.ts";
 import { allowanceManifestSchema, checkObjectAllowance } from "./allowance.ts";
 import { automationManifestSchema } from "./automation.ts";
 import { checkAutomation } from "./automation-check.ts";
@@ -205,6 +210,7 @@ export const objectManifestSchema = z.object({
   sellable: sellableManifestSchema.optional(),
   allowance: allowanceManifestSchema.optional(),
   agreements: agreementsManifestSchema.optional(),
+  healthNotes: healthNotesManifestSchema.optional(),
   states: statesManifestSchema.optional(),
   claims: claimsManifestSchema.optional(),
   unique: uniqueManifestSchema.optional(),
@@ -1053,6 +1059,7 @@ export function validateManifest(
     checkObjectSellable(m, name, object, contract);
     checkObjectAllowance(m, name, object, contract);
     checkObjectAgreements(m, name, object, contract);
+    checkObjectHealthNotes(m, name, object, contract);
     checkObjectStates(m, name, object, contract);
     checkObjectClaims(m, name, object, contract);
     checkObjectUnique(m, name, object, contract);

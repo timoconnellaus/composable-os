@@ -91,6 +91,8 @@ export const ID_PREFIXES = {
   agreementDocument: "agd",
   /** A published version of an agreement document, never changed (stage 44, ADR 0640). */
   agreementVersion: "agv",
+  /** One record that a person agreed to one version, never changed (stage 44, ADR 0642). */
+  agreementAcceptance: "aga",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

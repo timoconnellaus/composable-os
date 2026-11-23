@@ -360,6 +360,7 @@ export function planFromState(
       ...(object.sellable ? { sellable: object.sellable } : {}),
       ...(object.allowance ? { allowance: object.allowance } : {}),
       ...(object.agreements ? { agreements: object.agreements } : {}),
+      ...(object.healthNotes ? { healthNotes: object.healthNotes } : {}),
       ...(object.states ? { states: object.states } : {}),
       ...(object.claims ? { claims: object.claims } : {}),
       ...(object.unique?.length ? { unique: object.unique } : {}),

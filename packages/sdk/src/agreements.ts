@@ -102,3 +102,50 @@ export function checkObjectAgreements(
     contract(`${path}.person`, `person must be a relation field (one record) to person`);
   }
 }
+
+/**
+ * A health-note list (stage 44, ADR 0643): records of this object make a list a person on the
+ * staff reads (a class's bookings), and the host may mark, beside each Person on it, a yes on
+ * their current health form, nothing else. `list` is the relation to the list's own record (the
+ * class), `person` the relation to the Person. The host reads the People itself; pack code names
+ * only the list's record (`agreement.listHealthNotes`), inside a tool a person called.
+ */
+export interface HealthNotesSpec {
+  list: string;
+  person: string;
+}
+
+export const healthNotesManifestSchema = z.object({
+  list: z.string().max(40),
+  person: z.string().max(40),
+});
+export type HealthNotesManifest = z.infer<typeof healthNotesManifestSchema>;
+
+/** The contract checks of an object's `healthNotes` declaration. */
+export function checkObjectHealthNotes(
+  m: ExtensionManifest,
+  name: string,
+  object: ObjectManifest,
+  contract: (path: string, message: string) => void,
+): void {
+  const declared = object.healthNotes;
+  if (!declared) return;
+  const path = `objects.${name}.healthNotes`;
+  const one = (field: string) =>
+    Object.hasOwn(object.fields, field) ? object.fields[field] : undefined;
+  const list = one(declared.list);
+  const self = `${m.id}.${name}`;
+  if (
+    list?.type !== "relation" ||
+    list.many ||
+    list.to === "person" ||
+    list.to === self ||
+    list.to === name
+  ) {
+    contract(`${path}.list`, "list must be a relation field (one record) to another object");
+  }
+  const person = one(declared.person);
+  if (person?.type !== "relation" || person.many || person.to !== "person") {
+    contract(`${path}.person`, "person must be a relation field (one record) to person");
+  }
+}

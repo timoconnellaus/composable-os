@@ -1279,8 +1279,8 @@ copy and can never publish, attach or retire, not even by asking. Every publish,
 retire bumps one counter (`core_agreement_rev`) that the guard at commit reads. Not a record's
 version (`core_publish_version`).
 
-**Agreement point** (the `agreements` behaviour; stage 44: declared and attached in step 1, asked
-from step 3)
+**Agreement point** (the `agreements` behaviour; stage 44: declared and attached in step 1,
+`agreementsDue` and its guard in step 2, asked at checkout and booking from step 3)
 A place a pack says agreement may be needed: buying a membership or a pass, making a booking,
 buying a ticket or a course, a care link. A person with `agreements:manage` **attaches** published
 documents to points; nothing is needed anywhere by default (ADR 0641). The host asks one question, `agreementsDue`, when an order or a
@@ -1289,13 +1289,16 @@ that fails if any document changed since. The host's own moves (a promotion, a p
 are never checked.
 _Avoid_: requirement (alone), gate (the approval gate)
 
-**Acceptance** (stage 44, proposed)
+**Acceptance** (stage 44: by a customer, a guardian and from paper built in step 2; a guest's
+from step 3, at the desk from step 6)
 One record that a person agreed to one version of a document: by themselves, by a **guardian** for
 a dependant, by a **guest** with their order (the Person's from the verified payment), or **recorded
 from paper** by a person on the staff (shown as that, never as the member's own), or **at the desk**
 on the business's tablet in a session a person on the staff started (the member's own, shown as
 "agreed in person on the business's device"). It holds the version and the hash of what was shown,
-who, how (typed, drawn, paper) and when; never the device or internet address. Nobody can change it. A drawn **signature** is kept as its strokes. It is
+who, how (typed, drawn, paper) and when; never the device or internet address. Nobody can change it:
+the database refuses every statement but setting its Person (settlement, merge) and clearing who
+it names (erase), ADR 0642. A drawn **signature** is kept as its strokes. It is
 **current** while its version is at or after the document's last "agree again" (and, for health,
 within its ask-again months); a document is **due** for a Person at a point where it is attached and
 they have no current acceptance of it. The person is emailed a **copy** with the **signed PDF**,
@@ -1303,15 +1306,17 @@ built from the stored version, never kept as a file.
 _Avoid_: consent (stage 43's care link word, which becomes an acceptance), signature (one way to
 accept), sign-off
 
-**Health form** and **health answers** (stage 44, proposed)
+**Health form** and **health answers** (stage 44, built in step 2)
 A `health` document's yes or no questions, a note if yes, and a person's answers. Health
 information: kept apart from every staff bulk path and every AI actor, read on screen only by
-staff with `agreements:health` (each read audited), by the person and by their guardian.
+staff with `agreements:health` (each read audited), by the person and by their guardian (ADR 0643).
+A coach's class list shows only a **health note** mark beside a name whose current health form has
+a yes.
 
-**Minor** (for agreements; stage 44, proposed)
+**Minor** (for agreements; stage 44, built in step 2)
 A Person who is a dependant of a live family link, or whom staff have marked as a minor (the host
-holds no date of birth). Only a guardian's acceptance or a paper form counts for them, never their
-own.
+holds no date of birth; `agreement.setMinor`, a person with `people:link`). Only a guardian's
+acceptance or a paper form counts for them, never their own, and the database refuses their own.
 
 **Desk signing session** (stage 44, proposed)
 A short session a person on the staff starts, from their own signed-in account, for one named Person

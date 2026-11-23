@@ -165,6 +165,9 @@ export default defineExtension({
     // members' email (routine-mail.ts, ADR 0590: the host decides who it goes to and what it
     // says), sent from the email-send connection a person binds to each automation; storage,
     // which class changes are still to be told (several edits within two minutes make one email).
+    // agreement.listHealthNotes: the "health note" mark beside a name on a class list (stage 44,
+    // decision 18), a yes or no per Person on the class's bookings (the host reads them) and
+    // nothing of the form; the host gives it only when a person called the tool themselves.
     operations: [
       "order.startHeld",
       "public.list",
@@ -177,6 +180,7 @@ export default defineExtension({
       "order.get",
       "extensionSettings.list",
       "notification.send",
+      "agreement.listHealthNotes",
     ],
     modules: ["ops", "routine-mail", "email-send", "storage"],
   },
@@ -742,6 +746,9 @@ export default defineExtension({
           },
         ],
       },
+      // A class's bookings are the list its coach reads (stage 44, ADR 0643): the host may mark a
+      // health note beside each Person on it, asked for by the class's id only.
+      healthNotes: { list: "class", person: "person" },
       // A place on the class while held, booked, attended or a no-show (ADR 0501).
       // Its waitlist (ADR 0520): a place given back before the class type's "waitlist stops"
       // time (else the organisation's) goes to the first waiter, whom the host moves in.

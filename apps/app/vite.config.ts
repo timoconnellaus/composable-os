@@ -72,6 +72,12 @@ export default defineConfig(({ command }) => ({
       // scripts/deploy.mjs builds with a generated config that adds the AI bindings (ADR 0150).
       ...(process.env.COS_WRANGLER_CONFIG ? { configPath: process.env.COS_WRANGLER_CONFIG } : {}),
       viteEnvironment: { name: "ssr" },
+      // The e2e suite's dev server (e2e/dev-server.mjs) runs without the inspector. With a session
+      // attached, workerd logs "An RPC result was not disposed properly" with a JS stack trace, and
+      // when that warning fires from a finalizer during garbage collection, building the stack
+      // allocates inside the collection and workerd aborts (a V8 check in GCTracer::StartCycle):
+      // the "Workers runtime crashed unexpectedly" that failed e2e shards in CI.
+      ...(process.env.COS_E2E_DEV_SERVER === "1" ? { inspectorPort: false as const } : {}),
       // Local dev only: declared secrets would otherwise keep optional ones in .dev.vars (provider
       // keys and the like) from reaching the Worker. Builds keep wrangler.jsonc's declaration, so
       // deploys still require BETTER_AUTH_SECRET (dev-secrets.ts, docs/deploying.md).

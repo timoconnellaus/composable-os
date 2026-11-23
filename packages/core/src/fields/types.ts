@@ -121,6 +121,8 @@ export interface ObjectDefinition {
    * Extension objects: an agreement point (stage 44, ADR 0641), as declared (it names no field the
    * registry renames; `person` and `enter` are local names, read only from step 3 on).
    */
+  /** Extension objects: a health-note list (stage 44, ADR 0643), local field names. */
+  healthNotes?: { list: string; person: string };
   agreements?: {
     point: string;
     label: string;

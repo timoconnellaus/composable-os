@@ -37,6 +37,11 @@ export interface NotifyInput {
   link?: NotificationLink | null;
   /** One notification per (user, key): repeats are ignored (INSERT OR IGNORE). */
   dedupeKey?: string;
+  /**
+   * Shown to the person only (stage 44, ADR 0643): no AI actor acting for them lists it, counts
+   * it or marks it read, because when it was written can itself say something (a health "yes").
+   */
+  humanOnly?: boolean;
   source: { actor: string; automationId?: string; runId?: string; userId?: string };
 }
 
@@ -205,6 +210,7 @@ export async function notifyStatements(
         link,
         source,
         dedupe_key: input.dedupeKey ?? null,
+        human_only: input.humanOnly ? 1 : 0,
         read_at: null,
         created_at: now,
       }),

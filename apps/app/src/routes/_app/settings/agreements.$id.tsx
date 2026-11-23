@@ -482,6 +482,12 @@ function Publish({
                   <RadioGroupItem value="agree_again" /> Everyone agrees again before their next
                   booking or purchase
                 </Label>
+                {change === "agree_again" && (
+                  <p className="text-muted-foreground text-sm" data-testid="asks-again">
+                    This asks {p.asksAgain} {p.asksAgain === 1 ? "person" : "people"} who agreed to
+                    an earlier version to agree again.
+                  </p>
+                )}
               </RadioGroup>
             )}
             <div className="grid gap-1">
@@ -680,7 +686,7 @@ function Versions({ doc }: { doc: Doc }) {
                 </span>
                 {!v.intact && <Badge variant="destructive">does not match its hash</Badge>}
                 <span className="text-muted-foreground">
-                  published {formatDateTime(v.publishedAt)}
+                  published {formatDateTime(v.publishedAt)} · {v.acceptances} agreed
                 </span>
               </li>
             ))}

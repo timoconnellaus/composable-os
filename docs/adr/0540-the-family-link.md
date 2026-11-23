@@ -127,3 +127,10 @@ The guard in the batch closes the race the read-then-write check would leave.
   is what they read.
 - Left out: a guardian adding a child themselves, age rules, links of other kinds, a chain of
   guardians, and a guardian's access to records an object reads through `access`.
+
+## Amended 2026-11-23: a guardian agrees for a dependant (stage 44, ADR 0642)
+A live link also lets the guardian agree to an agreement document for the dependant
+(`me.agreements.accept` with `forPersonId`), recorded `by: "guardian"`; the acceptance's batch
+carries `core_person_link_guard`, and the acceptance table's own insert trigger checks the link
+again. A live dependant counts as a minor: their own acceptance is refused. Ending the link later
+does not undo what the guardian agreed.

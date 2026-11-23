@@ -208,6 +208,48 @@ export async function versionHash(content: VersionContent): Promise<string> {
   return [...digest].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/** A stored version row, as migration 0850 holds it. */
+export interface StoredVersion {
+  title: string;
+  body: string;
+  tick_label: string;
+  questions: string | null;
+  how: string;
+  who: string;
+  for_whom: string;
+  ask_again_months: number | null;
+  hash: string;
+}
+
+/**
+ * Whether a stored version's hash matches its own content (ADR 0640): SQLite cannot hash, so a raw
+ * writer could give a row a made-up hash. Every read that matters recomputes it; an acceptance
+ * refuses a version that is not intact (ADR 0642).
+ */
+export async function versionIntact(v: StoredVersion, kind: string): Promise<boolean> {
+  let body: unknown;
+  let questions: Question[] | null;
+  try {
+    body = JSON.parse(v.body);
+    questions = v.questions === null ? null : (JSON.parse(v.questions) as Question[]);
+  } catch {
+    return false;
+  }
+  return (
+    (await versionHash({
+      kind,
+      title: v.title,
+      body,
+      tickLabel: v.tick_label,
+      questions,
+      how: v.how,
+      who: v.who,
+      forWhom: v.for_whom,
+      askAgainMonths: v.ask_again_months,
+    })) === v.hash
+  );
+}
+
 /** A version's number, change and effective moment: enough to work out what is in effect. */
 export interface VersionTiming {
   id: string;

@@ -359,7 +359,9 @@ export class Executor {
           : input.caller.actor === "human"
             ? { startedBy: input.caller.userId }
             : input.caller.approvedBy
-              ? { startedBy: input.caller.approvedBy }
+              ? // Started by a person's approval of another actor's call: still that person's
+                // say-so, but not a person at the screen (stage 44: no health mark).
+                { startedBy: input.caller.approvedBy, startedByApproval: true }
               : {}),
       },
       // Who stands behind what the tool writes (ADR 0590, the third review), from the pipeline's

@@ -75,6 +75,8 @@ export interface ObjectDefinitionJson {
   allowance?: AllowanceManifest;
   /** An agreement point (stage 44, ADR 0641), as declared. */
   agreements?: AgreementsManifest;
+  /** A health-note list (stage 44, ADR 0643), as declared. */
+  healthNotes?: { list: string; person: string };
   states?: StatesManifest;
   claims?: ClaimsManifest;
   unique?: UniqueManifest;
@@ -1104,6 +1106,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...(sellable ? { sellable } : {}),
       ...(allowance ? { allowance } : {}),
       ...(object.definition.agreements ? { agreements: object.definition.agreements } : {}),
+      ...(object.definition.healthNotes ? { healthNotes: object.definition.healthNotes } : {}),
       ...(object.definition.states ? { states: object.definition.states } : {}),
       ...claimsDefinition(object, own),
       ...(object.definition.unique?.length ? { unique: object.definition.unique } : {}),

@@ -11,6 +11,7 @@
 // The coach sees today's classes and lists and ticks today's names; nobody else is limited.
 import type { CoreDatabase } from "@composable-os/db";
 import { CompiledQuery, type Kysely } from "kysely";
+import { healthListOf } from "./agreements/health-list.ts";
 import { ForbiddenError, NotFoundError } from "./errors.ts";
 import { getObject } from "./fields/index.ts";
 import type { ObjectDefinition } from "./fields/types.ts";
@@ -168,6 +169,22 @@ export async function holdRoleToday(
 ): Promise<unknown> {
   if (!limits) return input;
   const record = (input ?? {}) as Record<string, unknown>;
+  // A health-note list names its list's own record by `value` (stage 44, ADR 0643): held to the
+  // role's limit on that record's object, as a record.get of it would be.
+  if (operation === "agreement.listHealthNotes" && typeof record.records === "string") {
+    const list = healthListOf(record.records);
+    if (!list) return input;
+    const limited = [list.parent.name, list.object.name].filter((o) => Object.hasOwn(limits, o));
+    if (!limited.length) return input;
+    const plan = Object.hasOwn(limits, list.parent.name)
+      ? planOf(list.parent.name, limits[list.parent.name] as TodayLimit)
+      : null;
+    const id = String(record.value ?? "");
+    if (!plan || !(await reachable(db, list.parent.name, plan, id, now))) {
+      throw new NotFoundError(list.parent.name, id);
+    }
+    return input;
+  }
   const object = record.object;
   if (typeof object !== "string" || !Object.hasOwn(limits, object)) return input;
   const plan = planOf(object, limits[object] as TodayLimit);
