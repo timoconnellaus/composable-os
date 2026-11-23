@@ -1732,8 +1732,8 @@ order, `payment_ref` null, and approved by a person with `orders:refund`):
 
 Deviations and decisions, and why:
 
-- **Once per member**: the spec is silent on cycling (subscribe, use the classes, cool off,
-  repeat). Conservative: a holder who cooled off one membership here cannot cool off another,
+- **Once per member, ever** (the owner's decision of 2026-11-24, below; the spec was silent on
+  cycling): a holder who cooled off one membership here cannot cool off another,
   held by the database on insert (so a merge or an erase is never refused). Per holder, not per
   payer: a parent with two children may cool off each child's once.
 - **The days are those at the start, for good** (as amended after the review, below): kept on the
@@ -1778,8 +1778,8 @@ on `main`):
 3. **Asking again after the holder cooled off another membership** is refused as `used` (the
    trigger's message is a conflict too), never an internal error.
 4. **Raising the setting reopened closed windows**: the days are those at the start, for good
-   (coordinator's decision, the owner being asked).
-5. **Bookings ahead** (coordinator's decision, the owner being asked): the end the cooling off
+   (the owner's decision, below).
+5. **Bookings ahead** (the owner's decision, below): the end the cooling off
    caused cancels the member's bookings ahead that the membership paid for, as the business's
    (`cancelled_by_us`), freeing places for the waiting list and giving uses back; attended and
    late-cancelled ones stand. Platform: `allowance.spends.released` on the spender (checked by the
@@ -1796,6 +1796,12 @@ on `main`):
 Statements, measured: `subscription.coolingOff` 8, `subscription.coolOff` 13, the provider's end
 36 plus about 11 for each booking released. cos-runner's main module after these fixes is given in
 the PR.
+
+**The owner's answers (interview of 2026-11-24)**, confirming what is built, recorded in ADR 0647:
+(1) when a member cools off, classes booked for later are cancelled and the places freed, waiting
+lists moving people in; (2) once per member, ever; (3) the ceiling for the setting is 30 days;
+(4) the clock starts when the payment provider confirms the membership started; (5) a longer period
+set later applies only to people who join after the change.
 
 ## Step 8: build notes (`feat/stage-44-erase`, 2026-11-23)
 

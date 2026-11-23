@@ -45,11 +45,11 @@ button, the operation and staff's page):
   day 0. The end is a local midnight, so a change of clocks moves nothing. A plan change, a pause,
   a renewal or an agreement accepted again makes no new subscription and so never moves it;
 - the days are **those in force when it was started**, kept on its checkout
-  (`core_subscription_checkout.cooling_off_days`), for good (coordinator's decision of
-  2026-11-24, the owner being asked): a setting changed later, shorter or longer, applies only to
+  (`core_subscription_checkout.cooling_off_days`), for good (the owner's decision 5 of
+  2026-11-24): a setting changed later, shorter or longer, applies only to
   subscriptions started after it, so a raise never reopens a closed window. One started before
   the setting existed has 0;
-- **once per member** (the spec is silent; the coordinator's conservative reading): a holder who
+- **once per member, ever** (the owner's decision 2 of 2026-11-24): a holder who
   cooled off one membership here cannot cool off another. Held by the database (migration 0856's
   triggers, on insert and on a refused one asked again, never on the update a merge makes), and
   answered by the host as a conflict (`reason: "used"`), never an internal error;
@@ -125,8 +125,7 @@ own.
 - refused in the window and finished by staff months later: only what was paid for the window
   (renewals since are not owed).
 
-**What was used, and bookings ahead** (coordinator's decision of 2026-11-24, the owner being
-asked). Classes attended stand (decision 16). When the cooling off's end is processed, in the same
+**What was used, and bookings ahead** (the owner's decision 1 of 2026-11-24). Classes attended stand (decision 16). When the cooling off's end is processed, in the same
 batch, each record that spent a use of the subscription's granted membership, not given back,
 whose time is still ahead and that is still in a state it spends in (booked), is moved by the host
 into its object's `released` state: a new optional field of the allowance spender's declaration
@@ -163,11 +162,13 @@ the window.
 - `INSERT OR REPLACE` over a cool-off row would bypass the final-state trigger (recursive triggers
   are off); no host code writes one that way.
 
-## Open, for the owner
-- Bookings ahead are cancelled as the business's (coordinator's decision, above): confirm.
-- The days are those at the start, for good (coordinator's decision, above): confirm.
-- Once per member is the coordinator's reading where the spec is silent. Per member and plan, or
-  per payer, are the alternatives.
-- The setting's upper bound (30 days) is a guess; the platform allows up to 90.
-- The window counts from the host's processing of the provider's confirmation; counting from the
-  member's acceptance of the terms is the alternative.
+## The owner's decisions (interview of 2026-11-24)
+1. When a member cools off, classes booked for later are cancelled and their places freed, waiting
+   lists moving people in (built: `allowance.spends.released`, above).
+2. Once per member, ever (built: migration 0856's triggers).
+3. The ceiling for the setting is 30 days (the Memberships pack's `coolingOffDays`, 0 to 30; the
+   platform's contract allows a pack up to 90, and no shipped pack goes past 30).
+4. The clock starts when the payment provider confirms the membership started (the host's
+   processing of the provider's first verified event for it).
+5. A longer period set later applies only to people who join after the change (the days kept on
+   the checkout at the start, for good).
