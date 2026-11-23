@@ -850,6 +850,112 @@ describe("with nothing attached a sale is as before (criterion 13)", () => {
   });
 });
 
+// Stage 44 step 5: what the blocks read. A visitor reads the words of what a refusal named
+// (agreement.guestVersions); a member is told where the copy goes.
+describe("what the agreement blocks read", () => {
+  it("a visitor reads the versions a refusal named, and nothing a guest is not asked", async () => {
+    const email = `${unique("words")}@buyers.example`.toLowerCase();
+    const refused = await refusal(startOrder(PASS, pass, as(PUBLIC), { email }));
+    const named = (refused.details.documents as { versionId: string }[]).map((d) => d.versionId);
+    const read = await run<{ versions: { id: string; title: string; tickLabel: string }[] }>(
+      "agreement.guestVersions",
+      { versionIds: [...named, "agv_01NOSUCHVERSION0000000000"] },
+      as(PUBLIC),
+    );
+    expect(read.versions.map((v) => v.id).sort()).toEqual([...named].sort());
+    expect(read.versions[0]?.tickLabel).toBe("I have read this fixture");
+    // A document only for children (a guardian's consent) is never a guest's to read.
+    const { id } = await run<{ id: string }>(
+      "agreement.create",
+      { title: unique("Fixture consent"), kind: "guardian" },
+      staff(),
+    );
+    const saved = await run<{ hash: string; rev: number }>(
+      "agreement.draft.save",
+      {
+        id,
+        body: body("Fixture text: not a real document."),
+        tickLabel: "I have read this fixture",
+        forWhom: "dependants",
+      },
+      staff(),
+    );
+    const { version } = await run<{ version: { id: string } }>(
+      "agreement.publish",
+      { documentId: id, draftHash: saved.hash, draftRev: saved.rev, number: 1, change: "small" },
+      staff(),
+    );
+    // A version scheduled for later is not what a guest is asked: left out.
+    const terms2 = await run<{ hash: string; rev: number }>(
+      "agreement.draft.save",
+      { id: terms.id, body: body(unique("Fixture text, later")) },
+      staff(),
+    );
+    const termsDoc = await run<{ versions: unknown[] }>("agreement.get", { id: terms.id }, staff());
+    const later = await run<{ version: { id: string } }>(
+      "agreement.publish",
+      {
+        documentId: terms.id,
+        draftHash: terms2.hash,
+        draftRev: terms2.rev,
+        number: termsDoc.versions.length + 1,
+        change: "small",
+        effectiveFrom: new Date(Date.now() + 30 * DAY).toISOString(),
+      },
+      staff(),
+    );
+    expect(
+      (
+        await run<{ versions: { id: string }[] }>(
+          "agreement.guestVersions",
+          { versionIds: [later.version.id, terms.versionId] },
+          as(PUBLIC),
+        )
+      ).versions.map((v) => v.id),
+    ).toEqual([terms.versionId]);
+    // Not attached anywhere yet, then attached: a guest reads neither.
+    expect(
+      (
+        await run<{ versions: unknown[] }>(
+          "agreement.guestVersions",
+          { versionIds: [version.id] },
+          as(PUBLIC),
+        )
+      ).versions,
+    ).toEqual([]);
+    await run("agreement.attach", { documentId: id, points: [EVENT] }, staff());
+    try {
+      expect(
+        (
+          await run<{ versions: unknown[] }>(
+            "agreement.guestVersions",
+            { versionIds: [version.id] },
+            as(PUBLIC),
+          )
+        ).versions,
+      ).toEqual([]);
+    } finally {
+      await run("agreement.retire", { documentId: id }, staff());
+    }
+  });
+
+  it("tells a member where the copy goes, and names none for a repeat that records nothing", async () => {
+    const buyer = await fresh("copyto");
+    const first = await run<{ copyTo: string | null }>(
+      "me.agreements.accept",
+      { versionId: waiver.versionId, typedName: "Fixture Name" },
+      as(buyer.principal),
+    );
+    expect(first.copyTo).toBe(buyer.email);
+    const again = await run<{ copyTo: string | null }>(
+      "me.agreements.accept",
+      { versionId: waiver.versionId, typedName: "Fixture Name" },
+      as(buyer.principal),
+    );
+    expect(again.copyTo).toBe(null);
+  });
+});
+
 describe("over HTTP", () => {
   it("refuses a guest's order and a customer's visit with agreements_due, and takes a guest's acceptances", async () => {
     const surface = surfaceOver(registry, as(PUBLIC));

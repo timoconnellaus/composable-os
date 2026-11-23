@@ -119,6 +119,17 @@ export interface OperationRouteOptions {
 const refuse = (status: number, code: string, message: string) =>
   Response.json({ error: { code, message } }, { status });
 
+/** A path's part decoded, or null when it is not valid percent-encoding (a bad `%`). */
+function decoded(part: string): string | null {
+  try {
+    return decodeURIComponent(part);
+  } catch {
+    return null;
+  }
+}
+
+const badPath = () => refuse(400, "invalid_input", "The address is not valid");
+
 /**
  * A same-origin route for calls from the browser (ADR 0451): a web block running in a page, an
  * Astro island, any client code that cannot reach HOST itself. `POST <path><operation>` with a
@@ -138,7 +149,8 @@ export async function operationRoute(
   const path = options.path ?? OPERATION_ROUTE;
   const url = new URL(request.url);
   if (!url.pathname.startsWith(path)) return null;
-  const name = decodeURIComponent(url.pathname.slice(path.length));
+  const name = decoded(url.pathname.slice(path.length));
+  if (name === null) return badPath();
   if (request.method !== "POST") return refuse(405, "invalid_input", "Use POST");
   const spec = (operations as Record<string, { kind: "query" | "mutation" } | undefined>)[name];
   if (!spec || !options.allow.includes(name as keyof typeof operations)) {
@@ -172,6 +184,40 @@ export async function operationRoute(
   });
 }
 
+/** Where a signed-in customer downloads their own signed agreement (stage 44, ADR 0645). */
+export const AGREEMENT_PDF_ROUTE = "/api/v1/agreements/acceptances/";
+
+const ACCEPTANCE_ID = /^aga_[A-Za-z0-9_-]{1,60}$/;
+
+/**
+ * A signed agreement's PDF, on this site's own hostname (stage 44): `GET
+ * /api/v1/agreements/acceptances/<id>.pdf` is forwarded to the host over HOST with the customer's
+ * cookie and nothing else, and the file comes back as the host drew it. Whose it may be is the
+ * host's answer (`me.agreements.pdf`: the customer's own and their children's); anything else is
+ * not found. Never cached. Null for any other request.
+ */
+export async function agreementPdfRoute(request: Request, env: HostEnv): Promise<Response | null> {
+  const url = new URL(request.url);
+  if (!url.pathname.startsWith(AGREEMENT_PDF_ROUTE)) return null;
+  if (request.method !== "GET") return refuse(405, "invalid_input", "Use GET");
+  const file = decoded(url.pathname.slice(AGREEMENT_PDF_ROUTE.length));
+  if (file === null) return badPath();
+  const id = file.endsWith(".pdf") ? file.slice(0, -4) : "";
+  if (!ACCEPTANCE_ID.test(id)) return refuse(404, "not_found", "Not found");
+  const answer = await env.HOST.fetch(`${BOUND}${AGREEMENT_PDF_ROUTE}${id}.pdf`, {
+    method: "GET",
+    headers: customerSession(request.headers.get("cookie")),
+  });
+  const headers = new Headers({
+    "content-type": answer.headers.get("content-type") ?? "application/json",
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+  });
+  const disposition = answer.headers.get("content-disposition");
+  if (disposition) headers.set("content-disposition", disposition);
+  return new Response(answer.body, { status: answer.status, headers });
+}
+
 /** Where this site's pages ask for a picture: `<img src="/api/media/<id>?w=640">`. */
 export const MEDIA_ROUTE = "/api/media/";
 
@@ -191,7 +237,8 @@ export async function mediaRoute(request: Request, env: HostEnv): Promise<Respon
   if (request.method !== "GET" && request.method !== "HEAD") {
     return refuse(405, "invalid_input", "Use GET");
   }
-  const id = decodeURIComponent(url.pathname.slice(MEDIA_ROUTE.length));
+  const id = decoded(url.pathname.slice(MEDIA_ROUTE.length));
+  if (id === null) return badPath();
   if (!MEDIA_ID.test(id)) return refuse(404, "not_found", "Not found");
   const width = url.searchParams.get("w");
   const query = width && /^[0-9]{1,5}$/.test(width) ? `?w=${width}` : "";

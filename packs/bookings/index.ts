@@ -811,6 +811,8 @@ export default defineExtension({
         suggests: ["waiver", "health", "guardian"],
         enter: ["booked", "waiting"],
         person: "person",
+        // The timetable and drop-in blocks show what is due and let a person agree (step 5).
+        inlineStep: true,
       },
       // A place on the class while held, booked, attended or a no-show (ADR 0501).
       // Its waitlist (ADR 0520): a place given back before the class type's "waitlist stops"

@@ -6,6 +6,7 @@
   "files": ["ticket-picker.tsx", "LICENSE"],
   "dependsOn": ["ui-button", "ui-input", "ui-label"],
   "packages": {
+    "@composable-os/client": "*",
     "@composable-os/pack-ticketing": "*"
   }
 }

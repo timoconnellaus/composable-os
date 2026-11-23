@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.native.json"
   },
   "devDependencies": {
+    "@composable-os/client": "workspace:*",
     "@types/react": "19.3.0",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",

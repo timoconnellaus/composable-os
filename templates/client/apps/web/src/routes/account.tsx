@@ -27,6 +27,9 @@ function Account() {
         Sign out
       </button>
       <p>
+        <Link to="/agreements">Your agreements</Link>
+      </p>
+      <p>
         <Link to="/">Home</Link>
       </p>
     </main>

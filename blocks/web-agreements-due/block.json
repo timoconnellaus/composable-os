@@ -1,0 +1,11 @@
+{
+  "name": "web-agreements-due",
+  "pack": null,
+  "skin": "web",
+  "operations": ["me.agreements.due", "me.agreements.accept"],
+  "files": ["before-you-go-on.tsx", "LICENSE"],
+  "dependsOn": ["web-agree", "ui-button"],
+  "packages": {
+    "@composable-os/client": "*"
+  }
+}

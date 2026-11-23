@@ -1,5 +1,6 @@
 // Sign-in with a code by email, on this app's own hostname. The host sends the code and makes the
-// session; this page only posts to this app's /auth routes (src/host.ts).
+// session; this page only posts to this app's /auth routes (src/host.ts). Signed in, the customer
+// goes to "Before you go on", which goes straight on to their account when nothing is due.
 import { createFileRoute } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 
@@ -28,7 +29,7 @@ function SignIn() {
       else setError("We could not send a code. Try again in a moment.");
       return;
     }
-    if (await post("/auth/sign-in", { email, code })) window.location.assign("/account");
+    if (await post("/auth/sign-in", { email, code })) window.location.assign("/before-you-go-on");
     else setError("That code did not work. Check it, or ask for a new one.");
   }
 

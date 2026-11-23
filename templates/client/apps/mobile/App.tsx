@@ -63,12 +63,32 @@ type Session = ReturnType<typeof hostSession>;
 
 function Account({ session, onSignedOut }: { session: Session; onSignedOut: () => void }) {
   const [name, setName] = useState<string | null>(null);
+  // What the host says is still to be agreed to (stage 44). Copy the native-agreements-due block
+  // (cos add native-agreements-due) to read and agree to each in the app, after sign-in.
+  const [due, setDue] = useState<string[]>([]);
   useEffect(() => {
     session.api.call("me.get", {}).then((me) => setName(me.displayName));
+    session.api
+      .call("me.agreements.due", {})
+      .then((answer) =>
+        setDue(
+          answer.people
+            .filter((p) => p.due.length)
+            .map((p) =>
+              p.self
+                ? p.due.map((d) => d.title).join(", ")
+                : `for ${p.name.split(" ")[0]}: ${p.due.map((d) => d.title).join(", ")}`,
+            ),
+        ),
+      )
+      .catch(() => setDue([]));
   }, [session]);
   return (
     <View>
       <Text style={styles.title}>{name ? `Signed in as ${name}` : "Loading"}</Text>
+      {due.length ? (
+        <Text accessibilityRole="alert">{`Before you book, please read and agree to: ${due.join("; ")}.`}</Text>
+      ) : null}
       <NativeButton title="Sign out" onPress={() => session.signOut().then(onSignedOut)} />
     </View>
   );

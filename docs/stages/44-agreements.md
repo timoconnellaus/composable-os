@@ -32,8 +32,9 @@ Status: **spec agreed** (owner interviewed 2026-11-23; the eight questions answe
 decisions 15 to 22; step 1 built on `feat/stage-44-documents`, ADRs 0640 and 0641; step 2 built on
 `feat/stage-44-acceptances`, ADRs 0642 and 0643; step 3, enforcement, built on
 `feat/stage-44-enforcement`, ADR 0644; step 4, the copy and the signed PDF, built on
-`feat/stage-44-copy`, ADR 0645; step 8, erase, merge and retention, built on `feat/stage-44-erase`, ADR
-0646; build notes at the end).
+`feat/stage-44-copy`, ADR 0645; step 5, the blocks, built on `feat/stage-44-blocks`, ADR 0644
+amended; step 8, erase, merge and retention, built on `feat/stage-44-erase`, ADR 0646; build
+notes at the end).
 Builds on stages 25, 31a and 32. The first client is a gym moving from another system. It must be in
 place before members pay or train on the new system (decision 13).
 
@@ -1558,6 +1559,137 @@ error category and its pending approval's id, and cancels any copy not yet sent.
 binding's types allow) and in mail clients; the copy through the real email-send gatekeeper and
 the real integration host together (each is tested with the other's double: the runner with the
 fake outbox, the gatekeeper with a fake queue).
+
+## Step 5: build notes (`feat/stage-44-blocks`, 2026-11-24)
+
+Built: the headless entry `packages/client/src/agreements.ts` (exported by `@composable-os/client`):
+`createAgreementsHooks`, `agreementRefusal` and `withAgreements` (read a buying or booking call's
+refusal, and try once more on `agreements_changed`), `dueForRefusal` and `dueSteps`, the form's
+checks and input (`agreeProblems`, `agreeInput`: the version id shown, only what that version asks
+for), `StrokeRecorder` and `boxPoint` (a drawn signature in the host's format: integer points in
+the 1000 by 400 box, never NaN or Infinity, stopping at 30 strokes, 5,000 points and 32 KB rather
+than sending more), the words a screen shows (`dueReasonWords`, `agreedByWords`, `copyWords`,
+`agreeErrorWords`) and `agreementPdfPath`. Base-layer blocks over it:
+
+| Block | Skin | What |
+| --- | --- | --- |
+| `web-agree` | web | `Agree` (the words in a region that scrolls by itself and by keyboard, a health form's questions, the tick label and box, the typed name, the signature pad for `drawn`; problems tied to their fields; cleared after agreeing), `SignaturePad` (pointer events: mouse, touch, pen; coalesced points; `touch-action: none`; a clear control), `MemberAgreementStep` and `GuestAgreementStep` (the inline step) |
+| `web-agreements-due` | web | `BeforeYouGoOn`: each due document in turn, the member's own then each child's; "Not now" |
+| `web-my-agreements` | web | `MyAgreements`: per person, what is due (with "agree again" notices) and every acceptance (version, when, by whom in words, in effect or replaced), the PDF, a health form's answers to update; `personId` for one child's |
+| `native-agree` | native | The same `Agree` and `MemberAgreementStep`; the pad on React Native's touch responder (PanResponder), drawn with plain Views, no new native module |
+| `native-agreements-due` | native | `BeforeYouGoOnScreen` (holds its scroll still while a signature is drawn) |
+| `native-my-agreements` | native | `MyAgreementsScreen`; the PDF through the app's own `onDownload` |
+
+The inline step, with an optional `agreements` prop (without it, the refusal is only named):
+`bookings-drop-in` (a member's step or a visitor's), `bookings-timetable` (book and pay),
+`bookings-native-timetable` (book), `memberships-passes` and `memberships-plans` (a member's step
+or a visitor's). The client template: `/before-you-go-on` (sign-in goes there; nothing due goes
+straight to the account) and `/agreements` (plain pages, as its sign-in page is), `agreementPdfRoute`
+in `src/host.ts` (a person's own PDF on the app's hostname), the agreement operations in
+`BROWSER_OPERATIONS`, the generated clients regenerated; the mobile template's Account names what
+is due. The `/blocks` development page mounts the base layer's `web-*` blocks and gives every
+block the agreements hooks.
+
+Every answer from the host has a designed state:
+
+| The host says | What the person sees |
+| --- | --- |
+| Nothing due | Before you go on goes straight on; the purchase or booking goes through |
+| Due, their own | The documents in turn, then the call again ("Agree and book", "Agree and pay") |
+| Due, a child's (a parent booking for them) | The same, for the child, "for [name]", recorded as the parent's |
+| `reason: "guardian"` (`canAgree: false`) | "A parent or guardian agrees to this for you", with how (their parent's own account, or a paper form); no form |
+| `reason: "minor_payer"` | "A parent or guardian needs to buy this for you." |
+| `reason: "agree_again"` / `"ask_again"` | The new version, "This has changed since you agreed: please read it and agree again" / "It is time to answer these again" |
+| `agreements_changed` | Asked again and tried once more; a second time, the call's own error |
+| A visitor's agreements for an older version (`agreement_not_asked`), or a version replaced while reading (`agreement_version_replaced`) | Asked again with none: the documents due now; "This changed while you were reading it" |
+| A visitor | The words from `agreement.guestVersions`, every document agreed in turn, then the buying call carries them |
+| Offline or the host unreachable | "We could not reach the business just now… what you entered is still here"; nothing is lost from the form |
+
+Operations: `agreement.guestVersions` (customer and public, `hostInternal`, `records:read`, read)
+is new; `me.agreements.accept` answers `copyTo` (the address the copy goes to; null for a repeat
+that records nothing).
+
+Deviations and decisions, and why:
+
+- **The inline step follows the host's refusal** (ADR 0644 amended): the block makes the call,
+  and shows what is due when the host refuses it, then makes it again. The spec's "what is due at
+  this point, inline, before Pay or Book" would need a block to know the point, or a second
+  question beside the one that holds; the refusal is made before any batch is planned, so nothing
+  is held or charged by it, and it cannot disagree with the check.
+- **A public operation, `agreement.guestVersions`**, so a visitor can read the words before
+  agreeing: only what `guestDue` asks (a live, attached document for everyone, its version in
+  effect; never one scheduled for later). A reviewed change (ADR 0402); it reads no Person.
+- **Bookings' `book` and `buy` pass the host's agreements refusal through**, `agreements_changed`
+  included (it was told as "it changed while you were booking").
+- **For a document agreed to by drawing there is no typed alternative in the block**: how is the
+  business's choice per document (decision 2). The pad says to ask the business for a paper form,
+  which staff record (`agreement.recordPaper`); a keyboard or screen reader user is told the same.
+- **The block's checks only say what is missing** (the box, the name, each answer, some ink): the
+  host checks all of it again. A tap is refused here as it is by the host (the same least ink).
+- **Nothing a person gives is kept**: the form's state is the component's, cleared after agreeing;
+  a visitor's are handed once to the buying call; `me.agreements.accept`, `me.agreements.get` and
+  the buying calls that carry a visitor's agreements keep nothing in the app's cache after them
+  (`gcTime: 0`). No URL, storage, log or analytics; the e2e checks the visitor's typed name is in
+  neither the address nor the browser's storage.
+- **Native never buys**, so the app has no visitor's step; the PDF download in the app is the app's
+  own `onDownload` (opening a link cannot send the session's token).
+- **The template's pages are plain**, as its sign-in page is; the blocks are what `cos add` copies.
+
+Tests: `packages/client/test/agreements.test.ts` (the refusals, the retry, matching what is due,
+the form's input, the recorder's limits and mapping, the hooks a client can back);
+`packages/core/test/agreement-signature-pad.test.ts` (what the pads record passes the host's
+`signatureSchema`, cut to the limits); `agreement-enforcement.test.ts` ("what the agreement blocks
+read": `agreement.guestVersions` and `copyTo`); the template's PDF route in
+`apps/app/test/company-web-media.test.ts`. E2E, one test per journey
+(`apps/app/e2e/agreement-blocks.spec.ts`): a member agrees on Before you go on and books; a visitor
+pays for a class with a drawn waiver and a health form inline (`@phone`: the pad fits the width);
+a parent agrees for their child on My agreements and books them; a new version is asked inline at
+the next booking, the earlier booking kept; a member marked a minor is told a parent or guardian
+buys their pass.
+
+Not verified: any of it on a real phone. The native blocks are type-checked only; whether a
+ScrollView takes a stroke away on iOS or Android inside the timetable (which cannot hold its scroll
+still), and how smooth the View-drawn line is, need a device. The web pad was driven by mouse
+events in desktop Chromium and at phone width; touch and pen input on a real device were not.
+
+### Step 5: after the review of PR #291 (2026-11-24)
+
+Fixed in the same PR (ADR 0644's amendment corrected):
+
+- **Nothing a person gave stays in the app's cache.** `gcTime: 0` removes a mutation only once no
+  screen uses it, so every call that carries a name typed, a signature or answers
+  (`me.agreements.accept`, a visitor's buying call) goes through `forgetAfter`, which resets the
+  mutation whether it succeeded or failed (tested against TanStack Query's own observer). A
+  visitor's agreements are held in the buying block's state only: kept when the purchase fails for
+  another reason (network, card) so nothing is typed twice, forgotten once it starts, on Back, and
+  when the page is left or brought back from the back-forward cache (`useForgetOnLeave`).
+- **`agreement.guestVersions` returns only the version in effect**, never one scheduled for later.
+- **The native step is on a screen of its own** (`AgreementStepModal`, a modal over the list),
+  whose scroll holds still while a signature is drawn; the native pad redraws at most once a frame
+  and only the run of lines being drawn, and a second finger draws nothing.
+- **One pointer draws on the web pad** (`isPrimary`, and `StrokeRecorder` follows one pointer id).
+- **Purchases**: a second refusal on the retry, and a network failure, each have their words
+  (`purchaseErrorWords`); the "copy is on its way" line is shown in the drop-in, plans, passes and
+  both timetables; a visitor is told the copy follows the payment.
+- **A point declares whether its pack's screens let a person agree** (`inlineStep` on the
+  `agreements` declaration; Memberships and Bookings set it). The document page warns when a
+  document is attached to a point without it (Ticketing's `event`, Courses' `course`), and those
+  packs' checkouts say "This needs an agreement that can't be given here yet" for the host's
+  refusal. The real steps there are an issue.
+- **The template's routes** answer a bad percent-encoding with 400, and the PDF route keeps the
+  session; the mobile Account names whose document is due.
+- **The e2e spec** is skipped against a reused server unless `E2E_AGREEMENTS_REUSED=1`, puts the
+  customer and order settings back after each test, and draws the `@phone` signature with touch
+  events. Its retiring of every live document happens at the start and end of its own tests only;
+  specs run one at a time, and the step 8 spec (`agreements-kept.spec.ts`) makes its own document
+  inside its test, so nothing of it is retired while it runs.
+
+What a device test must check (not verified here): on an iPhone and an Android phone, in the
+native timetable's agreement step (the modal) and on Before you go on and My agreements: a
+signature drawn top to bottom and fast is not cut off or turned into a scroll; the line follows the
+finger without lag; a second finger on the pad draws nothing; Clear empties it; the keyboard does
+not cover the name field; VoiceOver and TalkBack read the tick label, the questions and the pad's
+state; the modal closes with the system back gesture; and a booking goes through after agreeing.
 
 ## Step 8: build notes (`feat/stage-44-erase`, 2026-11-23)
 

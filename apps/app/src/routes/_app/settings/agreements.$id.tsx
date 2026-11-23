@@ -657,6 +657,18 @@ function Points({ doc }: { doc: Doc }) {
             )}
           </Label>
         ))}
+        {items
+          .filter((point) => !point.inlineStep)
+          .map((point) => (
+            <p
+              key={`warn-${point.point}`}
+              role={doc.points.includes(point.point) ? "alert" : undefined}
+              data-testid="point-no-inline-step"
+              className="text-sm text-amber-700"
+            >
+              {`${point.label}: people cannot agree on these screens yet. A document attached here stops every purchase there until the person agrees on My agreements, at the desk or on paper.`}
+            </p>
+          ))}
       </CardContent>
     </Card>
   );

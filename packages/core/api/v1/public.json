@@ -2,6 +2,116 @@
   "version": "v1",
   "operations": [
     {
+      "name": "agreement.guestVersions",
+      "description": "The words a visitor buying without an account is asked to agree to: each version named (by the versionId of an agreements_due refusal from a buying call), as it will be recorded: its title, body, tick label, health questions and how it is agreed to. Only the version in effect of a live document attached somewhere and asked of everyone; any other id (an older version, one scheduled for later) is left out. The business's text, never anyone's personal data. Read-only.",
+      "risk": "read",
+      "audiences": ["public"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "versionIds": {
+            "minItems": 1,
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "A version's id (agv_…), as an agreements_due refusal named it"
+            }
+          }
+        },
+        "required": ["versionIds"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "versions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "documentId": {
+                  "type": "string"
+                },
+                "number": {
+                  "type": "number"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "body": {},
+                "tickLabel": {
+                  "type": "string"
+                },
+                "questions": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          },
+                          "noteOnYes": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": ["key", "text", "noteOnYes"],
+                        "additionalProperties": false
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "how": {
+                  "type": "string",
+                  "enum": ["typed", "drawn"]
+                },
+                "effectiveFrom": {
+                  "type": "string"
+                },
+                "hash": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "documentId",
+                "number",
+                "kind",
+                "title",
+                "body",
+                "tickLabel",
+                "questions",
+                "how",
+                "effectiveFrom",
+                "hash"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["versions"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "capacity.get",
       "description": "How many places a record of an object with a capacity has left (a ticket type, a class). Staff get places, held (while someone pays), taken (paid), available, and the pool's numbers when the record draws on a parent's places. Customers and the public get only what the object shows: the number left, a low-stock warning, or available / sold out. Read-only; claims nothing.",
       "risk": "read",

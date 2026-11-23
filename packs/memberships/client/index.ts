@@ -121,6 +121,11 @@ export type MembershipsOperations = {
       returnUrl: string;
       email?: string;
       offerId?: string;
+      /**
+       * A guest only: what they agreed to on the way (stage 44, ADR 0644), each
+       * { versionId, typedName, signature?, answers? }, as the host's refusal asked.
+       */
+      agreements?: Record<string, unknown>[];
     };
     output: StartedSubscription;
   };
@@ -370,12 +375,15 @@ export type UseQuery = <T>(options: {
 export type UseMutation = <I, O>(options: {
   mutationKey: readonly unknown[];
   mutationFn: (input: I) => Promise<O>;
+  gcTime?: number;
 }) => {
   mutate(input: I): void;
   mutateAsync(input: I): Promise<O>;
   data: O | undefined;
   isPending: boolean;
   error: unknown;
+  /** Forgets the call: its variables and its answer (TanStack Query's `reset`). */
+  reset?: () => void;
 };
 
 /**
@@ -437,7 +445,9 @@ function allMembershipsHooks(
     /** Start an order for a pass; then `checkout` it on the provider's page (web only). */
     useBuyPass() {
       return {
-        start: useMutation(api.mutation("x.memberships.buy")),
+        // A visitor's agreements (a name typed, a signature, health answers) go in this call:
+        // not kept in the app's cache once it is over (stage 44).
+        start: useMutation({ ...api.mutation("x.memberships.buy"), gcTime: 0 }),
         checkout: useMutation(api.mutation("order.checkout")),
       };
     },
@@ -459,7 +469,8 @@ function allMembershipsHooks(
     },
     /** Start a membership: the host opens the provider's page (web only); the trial is the host's. */
     useSubscribe() {
-      return useMutation(api.mutation("subscription.start"));
+      // A guest's agreements go in this call: not kept in the app's cache after it (stage 44).
+      return useMutation({ ...api.mutation("subscription.start"), gcTime: 0 });
     },
     /** The signed-in payer's own membership subscriptions, newest first. */
     useMySubscriptions() {

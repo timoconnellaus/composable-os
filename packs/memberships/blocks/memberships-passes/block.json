@@ -2,10 +2,18 @@
   "name": "memberships-passes",
   "pack": "memberships",
   "skin": "web",
-  "operations": ["x.memberships.passTypes", "x.memberships.buy", "order.checkout"],
+  "operations": [
+    "x.memberships.passTypes",
+    "x.memberships.buy",
+    "order.checkout",
+    "me.agreements.due",
+    "me.agreements.accept",
+    "agreement.guestVersions"
+  ],
   "files": ["passes.tsx", "LICENSE"],
-  "dependsOn": ["ui-button", "ui-card", "ui-input", "ui-label"],
+  "dependsOn": ["ui-button", "ui-card", "ui-input", "ui-label", "web-agree"],
   "packages": {
+    "@composable-os/client": "*",
     "@composable-os/pack-memberships": "*"
   }
 }

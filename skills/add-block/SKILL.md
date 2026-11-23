@@ -54,7 +54,13 @@ buttons, fields, lists, sheets, or a pack's screens. Blocks ship inside the plat
    `@composable-os/pack-ticketing/client` (Programs: `createProgramsHooks({ useQuery,
    useMutation, useState, useEffect }, api)` from `@composable-os/pack-programs/client`, whose
    builder saves itself and so needs `useEffect`; Content: `createContentHooks({ useQuery,
-   useMutation }, api)` from `@composable-os/pack-content/client`) and pass them down. Content's
+   useMutation }, api)` from `@composable-os/pack-content/client`) and pass them down. The
+   agreement blocks (`web-agree`, `web-agreements-due`, `web-my-agreements` and their `native-*`
+   twins) take `agreements`: `createAgreementsHooks({ useQuery, useMutation }, api)` from
+   `@composable-os/client` itself. Pass the same `agreements` to Bookings' and Memberships'
+   blocks that buy or book, so what must be agreed to first shows inline; in the web app allow
+   the operations their block.json lists (`agreement.guestVersions` among them, for a visitor),
+   and the template's `agreementPdfRoute` serves a person's signed PDF on the app's hostname. Content's
    rich text blocks (`content-rich-text`, `content-native-rich-text`) take the document itself
    and find pictures by themselves on the web: the template's `src/host.ts` has `mediaRoute`, which
    `src/server.ts` calls, forwarding `GET /api/media/<id>?w=` to the host over the binding (in an

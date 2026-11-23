@@ -8545,13 +8545,18 @@
                   "items": {
                     "type": "string"
                   }
+                },
+                "inlineStep": {
+                  "type": "boolean",
+                  "description": "Whether the pack's screens let a person agree on the way: false means a document attached here refuses purchases or bookings there until they agree elsewhere"
                 }
               },
               "required": [
                 "point",
                 "label",
                 "suggests",
-                "objects"
+                "objects",
+                "inlineStep"
               ],
               "additionalProperties": false
             }
