@@ -1193,6 +1193,11 @@ export const staffingWeek = defineOperation({
   output: z.object({
     shifts: z.array(rosterShiftSchema),
     zone: z.string(),
+    days: z
+      .array(z.object({ date: z.string(), hours: z.number() }))
+      .describe(
+        "Each local date in the range and how many hours it has in the zone: 23 or 25 on a clock change",
+      ),
     truncated: z
       .boolean()
       .describe("More shifts than one answer holds (1,000 of a kind): ask for fewer days"),
@@ -1227,7 +1232,16 @@ export const staffingWeek = defineOperation({
       actingAccount(ctx),
       { warnings: rosterer, uncoveredDays: (await rosterNumbers(ctx.db)).uncoveredDays },
     );
-    return { shifts, zone: timezone, truncated };
+    // Each day's length in the zone, from the host's clock: a screen never works it out from the
+    // device's own zone (a clock change makes a 23- or 25-hour day).
+    const dayList: { date: string; hours: number }[] = [];
+    for (let day = from, n = 0; n < days; day = addLocalDays(day, 1), n++) {
+      const begins = wallClockToInstant({ ...day, hour: 0, minute: 0 }, timezone);
+      const next = wallClockToInstant({ ...addLocalDays(day, 1), hour: 0, minute: 0 }, timezone);
+      const date = `${String(day.year).padStart(4, "0")}-${String(day.month).padStart(2, "0")}-${String(day.day).padStart(2, "0")}`;
+      dayList.push({ date, hours: (next - begins) / 3_600_000 });
+    }
+    return { shifts, zone: timezone, days: dayList, truncated };
   },
 });
 

@@ -66,7 +66,38 @@ const AWAY = {
 function hostWith(): TestHost {
   return createTestHost(rostering, {
     operations: {
-      "staffing.week": () => ({ shifts: [SHIFT], zone: "Australia/Sydney", truncated: false }),
+      "staffing.week": () => ({
+        shifts: [SHIFT],
+        zone: "Australia/Sydney",
+        days: [{ date: "2026-06-02", hours: 24 }],
+        truncated: false,
+      }),
+      "staffing.me": () => ({
+        account: "usr_sam",
+        name: "Sam",
+        rosters: false,
+        pays: false,
+        zone: "Australia/Sydney",
+        today: "2026-06-01",
+        cutoffMinutes: 60,
+        uncoveredDays: 14,
+      }),
+      "staffing.candidates": () => ({
+        current: { account: null, name: null },
+        pattern: null,
+        people: [],
+        truncated: false,
+      }),
+      "staffing.follow": (input) => ({ object: input.object, id: input.id, warnings: [] }),
+      "staffing.people": () => ({ people: [], kinds: [], truncated: false }),
+      "staffing.patterns": () => ({ patterns: [], truncated: false }),
+      "staffing.setPattern": (input) => ({
+        object: input.object,
+        id: input.id,
+        account: input.account,
+        from: input.from ?? "2026-06-01",
+      }),
+      "staffing.planCheck": () => ({ plans: [], truncated: false }),
       "staffing.offers": () => ({ open: [{ ...OFFER, unavailable: false }], mine: [] }),
       "staffing.offer": () => ({ offer: OFFER, told: null }),
       "staffing.withdraw": () => ({ offer: { ...OFFER, state: "withdrawn" } }),
@@ -186,7 +217,18 @@ describe("the manifest", () => {
 
   it("gives each tool the permission, and the AI limits, the spec says", () => {
     const tools = hostWith().manifest.tools;
-    const team = ["week", "mine", "offers", "offer", "withdraw", "take", "away", "back", "myAway"];
+    const team = [
+      "me",
+      "week",
+      "mine",
+      "offers",
+      "offer",
+      "withdraw",
+      "take",
+      "away",
+      "back",
+      "myAway",
+    ];
     for (const name of team) {
       expect(tools[name]?.permission, name).toEqual(["rostering:team", "rostering:roster"]);
     }
@@ -199,6 +241,12 @@ describe("the manifest", () => {
       "awayList",
       "uncovered",
       "markNotWorked",
+      "candidates",
+      "follow",
+      "people",
+      "patterns",
+      "setPattern",
+      "planCheck",
     ]) {
       expect(tools[name]?.permission, name).toBe("rostering:manage");
     }
@@ -214,11 +262,20 @@ describe("the manifest", () => {
     expect(tools.reopen?.redact).toEqual(["reason"]);
     expect(tools.markNotWorked?.redact).toEqual(["reason"]);
     // A person's own acts: never an assistant's.
-    for (const name of ["offer", "withdraw", "take", "away", "back", "awayFor", "awayList"]) {
+    for (const name of [
+      "offer",
+      "withdraw",
+      "take",
+      "away",
+      "back",
+      "awayFor",
+      "awayList",
+      "planCheck",
+    ]) {
       expect(tools[name]?.humanOnly, name).toBe(true);
     }
     // Roster changes an assistant may ask for, applied by a person.
-    for (const name of ["assign", "qualify", "markNotWorked"]) {
+    for (const name of ["assign", "qualify", "markNotWorked", "follow", "setPattern"]) {
       expect(tools[name]?.personApproves, name).toBe(true);
     }
     // Reads open to an assistant.
@@ -230,6 +287,10 @@ describe("the manifest", () => {
       "check",
       "qualifications",
       "uncovered",
+      "me",
+      "candidates",
+      "people",
+      "patterns",
     ]) {
       expect(tools[name]?.humanOnly, name).toBeUndefined();
       expect(tools[name]?.risk, name).toBe("read");
@@ -410,5 +471,54 @@ describe("the pay tools", () => {
       reason: "A late correction",
     });
     expect(callsTo(host, "staffing.payPeriod.export")[0]?.input).toEqual({ start: "2026-06-01" });
+  });
+});
+
+describe("the screens' tools (step 7)", () => {
+  it("each asks the host's operation, passing only what it was given", async () => {
+    const host = hostWith();
+    expect(await host.runTool<{ rosters: boolean }>("me", {}, { caller: ME })).toMatchObject({
+      rosters: false,
+      today: "2026-06-01",
+    });
+    await host.runTool("candidates", { object: "rostering.shift", id: "shf_1" });
+    await host.runTool("follow", { object: "rostering.shift", id: "shf_1" });
+    await host.runTool("people", {});
+    await host.runTool("patterns", {});
+    await host.runTool("setPattern", {
+      object: "rostering.dutyseries",
+      id: "dse_1",
+      account: null,
+      from: "2026-06-08",
+    });
+    await host.runTool(
+      "planCheck",
+      { plans: [{ account: null, date: "2026-06-08", time: "06:00", length: 60 }] },
+      { caller: ME },
+    );
+    expect(callsTo(host, "staffing.me")[0]?.input).toEqual({});
+    expect(callsTo(host, "staffing.candidates")[0]?.input).toEqual({
+      object: "rostering.shift",
+      id: "shf_1",
+    });
+    expect(callsTo(host, "staffing.follow")[0]?.input).toEqual({
+      object: "rostering.shift",
+      id: "shf_1",
+    });
+    expect(callsTo(host, "staffing.setPattern")[0]?.input).toEqual({
+      object: "rostering.dutyseries",
+      id: "dse_1",
+      account: null,
+      from: "2026-06-08",
+    });
+    expect(callsTo(host, "staffing.planCheck")[0]?.input).toEqual({
+      plans: [{ account: null, date: "2026-06-08", time: "06:00", length: 60 }],
+    });
+  });
+
+  it("the roster carries each day and its hours from the host", async () => {
+    const host = hostWith();
+    const out = await host.runTool<{ days: unknown[] }>("week", {}, { caller: ME });
+    expect(out.days).toEqual([{ date: "2026-06-02", hours: 24 }]);
   });
 });

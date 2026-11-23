@@ -25,6 +25,7 @@ import {
   gatekeeperSettings,
   isLiveEnvironment,
   LIVE_ENVIRONMENT,
+  mobileRole,
   type ProductDefinition,
 } from "@composable-os/product";
 import { DEFAULT_PRODUCT, products } from "@composable-os/products";
@@ -268,20 +269,36 @@ export async function generateClients(
         "The release's client kit has no roles.json: it is older than role clients. Upgrade the platform version first.",
       );
     }
-    const declared = (JSON.parse(decode(rolesFile)) as PackRolesFile).roles;
+    const parsed = JSON.parse(decode(rolesFile)) as PackRolesFile;
+    const declared = parsed.roles;
     const staff = perAudience[2] as ApiContract;
     const dir = join(product.mobile.dir, product.mobile.clientDir ?? "src/client", "roles");
     mkdirSync(join(root, dir), { recursive: true });
-    for (const name of roles) {
+    for (const entry of roles) {
+      const { role: name, grants } = mobileRole(entry);
       const role = declared.find((r) => r.name === name);
       if (!role) {
         throw new CliError(
           `The release has no pack role ${name}. Its roles: ${declared.map((r) => r.name).join(", ") || "none"}.`,
         );
       }
+      // A role with grants (ADR 0600): its client also holds the tools each grant opens.
+      const granted: string[] = [];
+      for (const permission of grants) {
+        const grant = parsed.grants?.find((g) => g.permission === permission);
+        if (!grant) {
+          throw new CliError(
+            `The release has no grantable permission ${permission}. Its grantable permissions: ${(parsed.grants ?? []).map((g) => g.permission).join(", ") || "none (the release is older than role clients with grants)"}.`,
+          );
+        }
+        granted.push(...grant.operations);
+      }
+      const withGrants = granted.length
+        ? { ...role, operations: [...new Set([...role.operations, ...granted])].sort() }
+        : role;
       writeFileSync(
         join(root, dir, `${name}.ts`),
-        renderRoleClient(staff, role, { product: product.id }),
+        renderRoleClient(staff, withGrants, { product: product.id, grants }),
       );
       written.push(join(dir, `${name}.ts`));
     }

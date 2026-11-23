@@ -1,0 +1,11 @@
+{
+  "name": "rostering-offers",
+  "pack": "rostering",
+  "skin": "web",
+  "operations": ["x.rostering.me", "x.rostering.offers", "x.rostering.take"],
+  "files": ["offers.tsx", "LICENSE"],
+  "dependsOn": ["ui-button"],
+  "packages": {
+    "@composable-os/pack-rostering": "*"
+  }
+}

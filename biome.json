@@ -79,7 +79,15 @@
         "packs/memberships/blocks/memberships-plans/**",
         "packs/memberships/blocks/memberships-passes/**",
         "packs/memberships/blocks/memberships-mine/**",
-        "packs/memberships/blocks/memberships-staff-holdings/**"
+        "packs/memberships/blocks/memberships-staff-holdings/**",
+        "packs/rostering/blocks/rostering-week/**",
+        "packs/rostering/blocks/rostering-my-shifts/**",
+        "packs/rostering/blocks/rostering-offers/**",
+        "packs/rostering/blocks/rostering-my-availability/**",
+        "packs/rostering/blocks/rostering-patterns/**",
+        "packs/rostering/blocks/rostering-qualifications/**",
+        "packs/rostering/blocks/rostering-away/**",
+        "packs/rostering/blocks/rostering-pay/**"
       ],
       "linter": { "rules": { "correctness": { "noReactNativeRawText": "off" } } }
     },

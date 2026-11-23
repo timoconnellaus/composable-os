@@ -27,6 +27,7 @@
       "operations": [
         "x.rostering.away",
         "x.rostering.back",
+        "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
         "x.rostering.offer",
@@ -43,6 +44,92 @@
       "description": "Checks tickets in at the door and sees events, ticket types and tickets. Nothing else: no people, orders, leads or settings.",
       "read": ["ticketing.event", "ticketing.ticket", "ticketing.tickettype"],
       "operations": ["record.get", "record.list", "x.ticketing.checkIn", "x.ticketing.undoCheckIn"]
+    }
+  ],
+  "grants": [
+    {
+      "permission": "bookings:desk",
+      "pack": "bookings",
+      "label": "Front desk: find people, book anyone (walk-ins too) into any class, cancel or move their bookings, give a use back, and see any day's classes and full lists. For a coach who also works the desk.",
+      "restricted": false,
+      "operations": [
+        "x.bookings.bookFor",
+        "x.bookings.cancelFor",
+        "x.bookings.classList",
+        "x.bookings.day",
+        "x.bookings.findPeople",
+        "x.bookings.move",
+        "x.bookings.returnUse"
+      ]
+    },
+    {
+      "permission": "courses:enrol",
+      "pack": "courses",
+      "label": "courses:enrol",
+      "restricted": false,
+      "operations": ["x.courses.endEnrolment", "x.courses.enrol"]
+    },
+    {
+      "permission": "memberships:passes",
+      "pack": "memberships",
+      "label": "memberships:passes",
+      "restricted": false,
+      "operations": ["x.memberships.givePass", "x.memberships.voidPass"]
+    },
+    {
+      "permission": "rostering:manage",
+      "pack": "rostering",
+      "label": "Rostering, rosters others: put people on shifts, say who may do which work, record others' time off and see everyone's, see shifts with nobody on them, and mark a shift not worked. Admins hold it.",
+      "restricted": true,
+      "operations": [
+        "x.rostering.assign",
+        "x.rostering.awayFor",
+        "x.rostering.awayList",
+        "x.rostering.candidates",
+        "x.rostering.check",
+        "x.rostering.follow",
+        "x.rostering.markNotWorked",
+        "x.rostering.patterns",
+        "x.rostering.people",
+        "x.rostering.planCheck",
+        "x.rostering.qualifications",
+        "x.rostering.qualify",
+        "x.rostering.setPattern",
+        "x.rostering.uncovered"
+      ]
+    },
+    {
+      "permission": "rostering:pay",
+      "pack": "rostering",
+      "label": "Rostering, pay: say who is counted for pay, see each pay period's hours and shifts, lock, reopen and export them for payroll. No rates or money are held. Admins hold it.",
+      "restricted": true,
+      "operations": [
+        "x.rostering.export",
+        "x.rostering.lock",
+        "x.rostering.payBases",
+        "x.rostering.payBasis",
+        "x.rostering.periodTotals",
+        "x.rostering.periods",
+        "x.rostering.reopen"
+      ]
+    },
+    {
+      "permission": "rostering:roster",
+      "pack": "rostering",
+      "label": "Rostering: see the roster and their own shifts, offer and take shifts, and say when they are away. For a coach or anyone with another role who is rostered.",
+      "restricted": false,
+      "operations": [
+        "x.rostering.away",
+        "x.rostering.back",
+        "x.rostering.me",
+        "x.rostering.mine",
+        "x.rostering.myAway",
+        "x.rostering.offer",
+        "x.rostering.offers",
+        "x.rostering.take",
+        "x.rostering.week",
+        "x.rostering.withdraw"
+      ]
     }
   ]
 }

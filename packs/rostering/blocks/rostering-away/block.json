@@ -1,0 +1,17 @@
+{
+  "name": "rostering-away",
+  "pack": "rostering",
+  "skin": "web",
+  "operations": [
+    "x.rostering.me",
+    "x.rostering.awayList",
+    "x.rostering.awayFor",
+    "x.rostering.back",
+    "x.rostering.people"
+  ],
+  "files": ["away-list.tsx", "LICENSE"],
+  "dependsOn": ["ui-button"],
+  "packages": {
+    "@composable-os/pack-rostering": "*"
+  }
+}

@@ -61,6 +61,20 @@ export interface PackRolesFile {
     /** Every operation a holder may call: its tools and the generic reads. */
     operations: string[];
   }[];
+  /**
+   * Each carried pack's grantable permissions (ADRs 0449 and 0600) and the tools a grant of one
+   * opens: a role client generated with grants (`mobile.roles` with `grants`) holds the role's
+   * operations and these (stage 45 step 7: a coach granted `rostering:roster`).
+   */
+  grants?: {
+    /** `<pack>:<name>`, as an account is granted it. */
+    permission: string;
+    pack: string;
+    label: string;
+    /** Held by admins and by grant only (ADR 0625). */
+    restricted: boolean;
+    operations: string[];
+  }[];
 }
 
 function jsonSchema(schema: z.ZodType, io: "input" | "output"): JsonSchema {

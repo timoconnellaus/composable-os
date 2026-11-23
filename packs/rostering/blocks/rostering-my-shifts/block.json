@@ -1,0 +1,17 @@
+{
+  "name": "rostering-my-shifts",
+  "pack": "rostering",
+  "skin": "web",
+  "operations": [
+    "x.rostering.me",
+    "x.rostering.mine",
+    "x.rostering.offers",
+    "x.rostering.offer",
+    "x.rostering.withdraw"
+  ],
+  "files": ["my-shifts.tsx", "LICENSE"],
+  "dependsOn": ["ui-button"],
+  "packages": {
+    "@composable-os/pack-rostering": "*"
+  }
+}

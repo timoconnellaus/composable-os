@@ -74,6 +74,27 @@ const computedRoles: PackRolesFile = {
       })
       .sort((a, b) => a.name.localeCompare(b.name));
   }),
+  // Each grantable pack permission and the tools a grant of it opens (ADR 0600): a role client
+  // generated with grants holds these too (stage 45 step 7).
+  grants: releasePackExtensions
+    .flatMap((extension) => {
+      const manifest = toManifest(extension);
+      const tools = releasePackTools.filter((op) => op.name.startsWith(`x.${manifest.id}.`));
+      return (manifest.grantable ?? []).map((permission) => ({
+        permission,
+        pack: manifest.id,
+        label: manifest.grantableLabels?.[permission] ?? permission,
+        restricted: (manifest.restricted ?? []).includes(permission),
+        operations: tools
+          .filter(
+            (op) =>
+              audiencesOf(op).includes("staff") && (op.packGrantable ?? []).includes(permission),
+          )
+          .map((op) => op.name)
+          .sort(),
+      }));
+    })
+    .sort((a, b) => a.permission.localeCompare(b.permission)),
 };
 
 // scripts/write-api-contract.mjs reads these lines (only it asks for them: they are large).
