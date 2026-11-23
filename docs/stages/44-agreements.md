@@ -33,8 +33,8 @@ decisions 15 to 22; step 1 built on `feat/stage-44-documents`, ADRs 0640 and 064
 `feat/stage-44-acceptances`, ADRs 0642 and 0643; step 3, enforcement, built on
 `feat/stage-44-enforcement`, ADR 0644; step 4, the copy and the signed PDF, built on
 `feat/stage-44-copy`, ADR 0645; step 5, the blocks, built on `feat/stage-44-blocks`, ADR 0644
-amended; step 8, erase, merge and retention, built on `feat/stage-44-erase`, ADR 0646; build
-notes at the end).
+amended; step 7, cooling off, built on `feat/stage-44-cooling-off`, ADR 0647; step 8, erase,
+merge and retention, built on `feat/stage-44-erase`, ADR 0646; build notes at the end).
 Builds on stages 25, 31a and 32. The first client is a gym moving from another system. It must be in
 place before members pay or train on the new system (decision 13).
 
@@ -1121,7 +1121,7 @@ no-delete and draft triggers, `core_agreement_point`, `core_agreement_rev`) and 
 4. Health answers and their isolation.
 5. The copy and the signed PDF: host mail for agreements, and the gatekeeper's second attachment
    (amending ADR 0571).
-6. Cooling off.
+6. Cooling off (**ADR 0647**, step 7).
 7. Keeping acceptances after erase (**ADR 0646**, step 8).
 8. Signing at the desk: a session a person starts, a tablet with no sign-in.
 
@@ -1140,7 +1140,7 @@ with dated notes.
 | 4 | **The copy and the PDF**: the PDF writer module (vendored or our own, noted in `UPSTREAMS.md` if vendored), the gatekeeper's `agreement` part, `callAsHost` purpose `agreements` with the copy's idempotency key, the download routes, the blank PDF | `packages/gatekeeper-email-send` (`validate.ts`, `worker.ts`, a new `agreement.ts`), the fake outbox, `integrations/runtime.ts` (the purpose), `apps/app/src/server/http/` (downloads) | Yes, after step 2 (PR #256 is merged); beside anything but other email-gatekeeper work (issue #259, and `feat/routine-mail` while it is open) |
 | 5 | **Blocks and hooks**: Agree, Before you go on, My agreements, a child's, the checkout and booking steps; the web signature pad (pointer events) and the native one | base-layer blocks, a headless `agreements` entry in `packages/client`, the client template's routes, the Bookings and Memberships web blocks (the inline step) | Yes, once step 2's operations are merged; coordinate with whoever owns the drop-in and timetable blocks |
 | 6 | **Signing at the desk** (decision 22): `core_agreement_desk_device` (admin enrolment announced to every admin, browser and network recorded, rotation idempotent for 60 seconds, a clone revokes) and `core_agreement_desk_session` (bound to the device staff chose, idle and total limits and the bounded heartbeat held on the server); `agreement.desk.enrol` and `revoke` (admins, a person) and `start` and `end` (`agreements:desk`, made grantable to fixed-role accounts, ADR 0600 amended); `desk.claim`, `desk.documents`, `desk.accept`, `desk.heartbeat`, `desk.finish` (public, needing the device credential and the session token); the desk origin (its own hostname, set up by `cos deploy`), its cookies (`HttpOnly`, `Secure`, `SameSite=Strict`), the `Origin` check; HMAC of codes and tokens under an env secret; the lock-out; the staff side's Sign at the desk (with the claiming device) and Desk tablets; the address marks on the Acceptances list, by mailbox, over every path that changes an address; the copy's wording; the desk page at tablet width from the Agree block's web skin. No native work | `agreements/` (a new `desk.ts`), `operations/agreement-desk.ts`, `open-operations.json`, `principals.ts` (the fixed-role grantable list), `apps/app/src/server/identity.ts` and the Worker's routing (the desk origin), `packages/release` and `cos deploy` (the hostname), a new desk route, the admin Person page | After step 2 (it records acceptances) and step 4 (every desk acceptance sends its copy); its page after step 5's Agree block. Beside anything but other work on public paths in `identity.ts` |
-| 7 | **Cooling off**: the setting, `subscription.coolOff`, refunds owed per period | `subscriptions/` (a new `cooling-off.ts`), `orders/refund-due.ts`, `packs/memberships` (the setting, the member's button) | Yes, beside 31 work; **not beside other `subscriptions/` work** (issue #254's hardening) |
+| 7 | **Cooling off** (**built**, `feat/stage-44-cooling-off`, ADR 0647): the setting, `subscription.coolOff`, refunds owed per period | `subscriptions/` (a new `cooling-off.ts`), `orders/refund-due.ts`, `packs/memberships` (the setting, the member's button) | Yes, beside 31 work; **not beside other `subscriptions/` work** (issue #254's hardening) |
 | 8 | **Erase, merge, the Trash and retention** (**built**, `feat/stage-44-erase`, ADR 0646): erase keeps acceptances detached, deletes answers, the minor mark and open desk sessions; merge re-points; the purge after the retention period (copy rows with it); a copy that was waiting for a person: its pending approval cancelled, and the email gatekeeper's storage scrubbed of an erased person's copies (the sent history's recipient and subject, and the journal records with the whole message; left here by step 4's reviews) | `records/erase.ts`, `records/erase-stores.ts`, `person.merge`, `purge.ts` | **Not beside other erase or merge work** (the "erase completeness" reserved area, stage 43 step 4) |
 | 9 | **Stage 43's consent** as a `care` acceptance (when stage 43 step 4 is built) | `agreements/`, stage 43's `care.ts` | With stage 43 step 4 |
 | 10 | **The first client**: the business writes and publishes its four documents, attaches them; a moved member's first sign-in in test mode; a visitor's drop-in; a parent for a child; a member at the desk | The first client's own repository and deployment | After 3 to 6; before members pay or train on the new system |
@@ -1690,6 +1690,75 @@ signature drawn top to bottom and fast is not cut off or turned into a scroll; t
 finger without lag; a second finger on the pad draws nothing; Clear empties it; the keyboard does
 not cover the name field; VoiceOver and TalkBack read the tick label, the questions and the pad's
 state; the modal closes with the system back gesture; and a booking goes through after agreeing.
+
+## Step 7: build notes (`feat/stage-44-cooling-off`, 2026-11-24)
+
+Built: migration 0856 (`core_subscription_checkout.cooling_off_days`, `core_subscription_cool_off`
+and its once-per-member and final-state triggers), ADR 0647. The SDK's
+`sellable.recurring.coolingOff: { setting }` and its contract check; `subscriptions/cooling-off.ts`
+(`coolingOffStatuses`, `coolOff`, `followCoolOff`, `coolingOffWindow`); `startSubscription` keeps the
+days in force on the checkout; `applySubscriptionEvent` owes the refunds once the provider shows
+the subscription ended; the person merge moves cooling offs to the survivor; `refund-due.ts` words
+its notices by why the refund is owed. The Memberships pack's `coolingOffDays` setting (0 to 30,
+default 0, a person's) and `recurring.coolingOff`; its headless entry's `useCoolingOff`,
+`useCoolOff` and words; the web block's "Cancel for a full refund"; the app's block saying until
+when (on the website); staff's Cooling off card on the subscription's page; the block lint counting
+`subscription.coolOff` and `useCoolOff` as billing. The generated clients, the API contract,
+`open-operations.json` and the golden manifest regenerated.
+
+Operations:
+
+| Operation | Audience | Actors | Permission | Risk |
+| --- | --- | --- | --- | --- |
+| `subscription.coolingOff` | staff, customer (their own as payer; hostInternal) | every actor | records:read | read |
+| `subscription.coolOff` | staff, customer (their own as payer; hostInternal) | human (not on MCP) | subscriptions:manage (a customer: their own) | write |
+
+The rule for each case of money (every figure in minor units; each refund owed in full on its
+order, `payment_ref` null, and approved by a person with `orders:refund`):
+
+| Case | What is owed |
+| --- | --- |
+| Paid periods before it ended | Each, in full |
+| A period the provider charged as it ended, reported after | That one too, by its own event's batch |
+| An upgrade inside the window | Its prorated charge too (an order of the subscription); the window does not move |
+| A downgrade inside the window | Nothing more (it moves no money); the window does not move |
+| A pause inside the window | What was paid before it; the window does not move |
+| A free trial (nothing paid) | Not offered: the ordinary cancel ends it at no charge (the spec's "the button says cancel") |
+| A trial shorter than the window, then a charge | That charge |
+| A continuation offer's free period (moving over) | Never covered (decision 17) |
+| A guardian paying for a child | The guardian, as payer, cools off; their orders are owed back; the child's membership ends |
+| A guest's subscription | A new member's: staff end it for them, or the guest signed in as the paying address |
+| Staff already refunded part of an order | What is left of it |
+
+Deviations and decisions, and why:
+
+- **Once per member**: the spec is silent on cycling (subscribe, use the classes, cool off,
+  repeat). Conservative: a holder who cooled off one membership here cannot cool off another,
+  held by the database on insert (so a merge or an erase is never refused). Per holder, not per
+  payer: a parent with two children may cool off each child's once.
+- **The days are the longer of the setting at the start and now** (the coordinator's conservative
+  reading): kept on the checkout, so shortening or turning it off never shortens anyone's window,
+  and lengthening it lengthens everyone's. The spec says the terms state the period; they are the
+  business's text, so the host keeps the number it held when they agreed.
+- **The window ends at the end of the last local day** (the start's day being day 0), not at the
+  same time of day: "within 14 days" read generously, and a clock change moves nothing. Day 13 is
+  inside and day 15 outside, as criterion 12 says; day 14 is inside.
+- **Nothing paid is not offered** (a trial, or before the first payment), rather than ending the
+  free time early with nothing to refund: the ordinary cancel does what the member wants.
+- **A provider that refuses because it already ended it** is read first and counted as sent, so a
+  second ask racing the first can never mark a real cooling off refused and lose its refunds.
+- **The app shows, the web acts** (ADR 0490): the native block says until when and that it is
+  done on the website, with no amounts (it is `noPurchase`); only the web block has the button.
+- **Bookings ahead are not cancelled**: the spec says they follow a membership ended at once,
+  which today keeps them. Asked of the owner (ADR 0647).
+- **A refused cooling off owes nothing**, even if the subscription ends later another way; it is
+  asked again by the member or staff, and after the window too once asked inside it.
+
+Not built here: signing at the desk (step 6), stage 43's consent (step 9). Not verified: the real
+payments gatekeeper's `cancelSubscription { when: "now" }` against Stripe in test mode (the host
+is tested with the payments double, the e2e with the fake provider); the closing instant in the
+e2e (the host's clock cannot be moved from a browser: both sides of it, across a clock change,
+are in `packages/core/test/subscription-cooling-off.test.ts`); the native block on a phone.
 
 ## Step 8: build notes (`feat/stage-44-erase`, 2026-11-23)
 

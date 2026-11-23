@@ -1369,11 +1369,17 @@ origin, shows only that Person's due documents, and locks on limits the host kee
 "on the device enrolled as [name] by [admin]", never "in person".
 _Avoid_: kiosk (a standing sign-in on a shared device, which this is not)
 
-**Cooling off** (stage 44, proposed)
-The days (a Memberships setting; 0, the default, turns it off) in which a new member may cancel a
-membership at once for a full refund of what they paid, each refund still waiting for a person with
-`orders:refund`.
-_Avoid_: trial (a plan's free first days), grace period
+**Cooling off** (stage 44, built in step 7: ADR 0647)
+The days (a Memberships setting, `coolingOffDays`; 0, the default, turns it off; a person's to
+change) in which a **new member** (a membership started here, not one moving over with a
+continuation offer, not a pass) may end their membership at once for a full refund of every period
+they paid, whatever they used. The window runs from the provider-confirmed start to the end of the
+last day in the business's time zone; the days are the longer of the setting when they joined and
+the setting now; once per member. Each refund is **owed** once the provider shows the membership
+ended, and waits for a person with `orders:refund`. Nothing is offered in a free trial (nothing
+paid: the ordinary cancel ends it). What the law asks is the business's to confirm.
+_Avoid_: trial (a plan's free first days), grace period, cancellation (which ends it at the
+period's end, with no refund)
 
 **Shift** (the `staffed` behaviour; stage 45, built in step 2: ADR 0621)
 A time someone works: a class (its coach works it) or a **duty shift** (cleaning, opening up), with

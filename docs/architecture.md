@@ -1652,7 +1652,9 @@ merge moves subscriptions and trials to the survivor. With no event, past due gi
 days of failing, and an active one past its period keeps access while staff are told the events
 are not arriving (the minute cron, `subscriptions/sweep.ts`). Staff end one at once
 (`subscription.cancel` with `now`) and see subscriptions in the admin's Subscriptions section
-(all, trials, failing, ending) and on a Person's page. **Continuation offers**
+(all, trials, failing, ending) and on a Person's page. A new member may end a membership in the
+business's **cooling-off period** for a full refund, each refund approved by a person (stage 44 step
+7, ADR 0647, below under Agreements). **Continuation offers**
 ([ADR 0491](adr/0491-continuation-offers.md), [ADR 0492](adr/0492-a-continuation-replaces-the-trial.md),
 `subscriptions/offers.ts`, migration 0532) move subscribers from another platform:
 `subscription.offer.import` (a person with `subscriptions:manage`, `cos subscriptions offers
@@ -1782,8 +1784,25 @@ email gatekeeper owes a **scrub** (`scrub_due_at`): the host asks each email-sen
 reached (`via`), through its own agreements queue only (`callAsHost`, method `scrubAgreementCopy`), to drop the copy's journal
 records, refuse any later send under its key and blank its history lines; a send in flight during
 the erase is scrubbed after it. Merge moves acceptances unchanged (`agreement.mergePlan` counts
-them for the preview). Signing at the desk and cooling off are the later steps
-(`docs/stages/44-agreements.md`).
+them for the preview). Signing at the desk is a later step (`docs/stages/44-agreements.md`).
+
+**Cooling off** (stage 44 step 7, [ADR 0647](adr/0647-cooling-off-a-new-member-ends-it-for-a-full-refund-a-person-approves.md)):
+a plan's pack names a number setting of its own as the plan's cooling-off days
+(`sellable.recurring.coolingOff`, a person's to change, 0 to at most 90, off by default; the
+Memberships pack's `coolingOffDays`). `subscriptions/cooling-off.ts` is the one definition of who
+may: a subscription started here without a continuation offer, inside the window (from the host's
+record of the provider's confirmation to the end of the last local day, in the business's zone),
+with something paid, once per holder (migration 0856's trigger), the days the longer of the
+setting kept on its checkout at the start and the setting now. `subscription.coolingOff` (customer,
+their own as payer; staff) answers it for up to 20 subscriptions in a fixed number of reads; the
+blocks show the button only when it says so. `subscription.coolOff` (the payer, or staff with
+`subscriptions:manage`; a person only) writes `core_subscription_cool_off` in its batch and, after
+the commit, asks the payments gatekeeper to end the subscription now; a lost or refused answer is
+kept on the row, admins are told, and it is asked again. In the batch of the provider's verified
+event that shows it ended (`followCoolOff`, from `applySubscriptionEvent`), one statement owes back
+every paid order of the subscription in full (`core_sellable_refund_due`, `entered: "cooled_off"`),
+and a period paid later the same way; the minute cron asks the gatekeeper for each, which waits for
+a person with `orders:refund` (ADR 0429). Nothing refunds a card on its own.
 
 Two reasons this is the centre of the design. Extension tools cannot run several writes as one
 transaction, so anything that must be atomic (take the last place and create the order) has to be
