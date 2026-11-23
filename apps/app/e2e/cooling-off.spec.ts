@@ -221,7 +221,8 @@ test("a new member ends their membership in the cooling-off period and sees a fu
           await memberPage.goto(mine(origin));
           return card
             .getByRole("button", { name: "Cancel for a full refund" })
-            .isVisible({ timeout: 10_000 })
+            .waitFor({ state: "visible", timeout: 10_000 })
+            .then(() => true)
             .catch(() => false);
         },
         { timeout: 60_000 },
