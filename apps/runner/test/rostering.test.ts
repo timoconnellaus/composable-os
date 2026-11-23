@@ -1264,7 +1264,7 @@ describe("pay (step 6: criteria 8 and 10 on the shipped packs)", () => {
 
 describe("a redacted input in the approval queue is read only by who could approve it", () => {
   it("why a shift was not worked: a viewer and a member see it redacted; a rosterer and an admin see it", async () => {
-    const shift = await dutyShift(-3 * HOUR, admin.id);
+    const shift = await dutyShift(-30 * HOUR, admin.id);
     const asked = await refusal(
       run(
         "x.rostering.markNotWorked",
