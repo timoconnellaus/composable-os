@@ -327,7 +327,7 @@ export const toolManifestSchema = z.object({
   audiences: z.array(z.enum(TOOL_AUDIENCES)).min(1).max(3).optional(),
   customerFields: z.record(z.string().max(80), z.array(z.string().max(40)).max(50)).optional(),
   /** The permission a staff caller needs (`<id>:<word>`), for the extension's roles (ADR 0436). */
-  permission: z.string().max(80).optional(),
+  permission: z.union([z.string().max(80), z.array(z.string().max(80)).min(1).max(5)]).optional(),
   /** Only a person may call it (ADR 0512). */
   humanOnly: z.literal(true).optional(),
   /** A person approves anyone else's call (ADR 0552). */
@@ -364,6 +364,14 @@ export type RoleManifest = z.infer<typeof roleManifestSchema>;
 
 /** A role's or a tool's permission: `<extension id>:<word>`. */
 export const EXTENSION_PERMISSION_RE = /^([a-z][a-z0-9]{1,29}):([a-z][a-zA-Z0-9]{0,39})$/;
+
+/** A tool's permissions, one or several (any one opens it, ADR 0600); none when it declares none. */
+export function toolPermissions(tool: {
+  permission?: string | readonly string[] | undefined;
+}): string[] {
+  const p = tool.permission;
+  return p === undefined ? [] : typeof p === "string" ? [p] : [...p];
+}
 
 export const viewManifestSchema = z.object({
   label: z.string().min(1).max(100),
@@ -482,6 +490,8 @@ export const manifestSchema = z.object({
   roles: z.record(z.string(), roleManifestSchema).default({}),
   /** Tool permissions an admin may grant one by one (ADR 0449). */
   grantable: z.array(z.string().max(80)).max(20).optional(),
+  /** What each grantable permission gives, in plain words, for the admin (ADR 0600). */
+  grantableLabels: z.record(z.string().max(80), z.string().min(10).max(300)).optional(),
 });
 export type ExtensionManifest = z.infer<typeof manifestSchema>;
 
@@ -657,7 +667,12 @@ export function toManifest(extension: Extension): ExtensionManifest {
           risk: tool.risk ?? "write",
           ...(tool.recordAction ? { recordAction: tool.recordAction } : {}),
           ...(tool.audiences ? { audiences: [...tool.audiences] } : {}),
-          ...(tool.permission ? { permission: tool.permission } : {}),
+          ...(tool.permission
+            ? {
+                permission:
+                  typeof tool.permission === "string" ? tool.permission : [...tool.permission],
+              }
+            : {}),
           ...(tool.humanOnly ? { humanOnly: true as const } : {}),
           ...(tool.personApproves ? { personApproves: true as const } : {}),
           ...(tool.customerFields
@@ -692,6 +707,7 @@ export function toManifest(extension: Extension): ExtensionManifest {
       ]),
     ),
     ...(extension.grantable ? { grantable: [...extension.grantable] } : {}),
+    ...(extension.grantableLabels ? { grantableLabels: { ...extension.grantableLabels } } : {}),
     ...(extension.requires?.length ? { requires: [...extension.requires] } : {}),
     roles: Object.fromEntries(
       Object.entries(extension.roles ?? {}).map(([name, role]) => [
@@ -1560,12 +1576,18 @@ export function validateManifest(
       }
     }
     if (tool.permission !== undefined) {
-      const match = EXTENSION_PERMISSION_RE.exec(tool.permission);
-      if (!match || match[1] !== m.id) {
-        contract(
-          `tools.${name}.permission`,
-          `A tool's permission is named ${m.id}:<word> (camelCase), not "${tool.permission}"`,
-        );
+      const permissions = toolPermissions(tool);
+      for (const permission of permissions) {
+        const match = EXTENSION_PERMISSION_RE.exec(permission);
+        if (!match || match[1] !== m.id) {
+          contract(
+            `tools.${name}.permission`,
+            `A tool's permission is named ${m.id}:<word> (camelCase), not "${permission}"`,
+          );
+        }
+      }
+      if (new Set(permissions).size !== permissions.length) {
+        contract(`tools.${name}.permission`, "A tool names each permission once");
       }
       if (tool.audiences && !tool.audiences.includes("staff")) {
         contract(
@@ -1596,20 +1618,34 @@ export function validateManifest(
   }
 
   // Grantable permissions (ADR 0449): permissions this extension's tools declare, for staff.
+  // A permission one of its roles holds is not grantable (ADR 0600): a role's limits (today's
+  // records only) bind what the role gives, and a grant of the same name would lift them.
+  const roleHeld = new Set(Object.values(m.roles).flatMap((role) => role.permissions));
   (m.grantable ?? []).forEach((permission, i) => {
-    const tool = Object.values(m.tools).find((t) => t.permission === permission);
+    const tool = Object.values(m.tools).find((t) => toolPermissions(t).includes(permission));
     if (!tool) {
       contract(
         `grantable.${i}`,
         `"${permission}" is not the permission of any of this extension's tools (tools.<name>.permission)`,
       );
     }
+    if (roleHeld.has(permission)) {
+      contract(
+        `grantable.${i}`,
+        `"${permission}" is held by a role of this extension, so it cannot be granted one by one: name a permission of its own on the tools a grant opens`,
+      );
+    }
   });
+  for (const permission of Object.keys(m.grantableLabels ?? {})) {
+    if (!(m.grantable ?? []).includes(permission)) {
+      contract(`grantableLabels.${permission}`, `"${permission}" is not in grantable`);
+    }
+  }
 
   // Roles (ADR 0436): each holds permissions this extension's tools declare and reads objects
   // of its own, and nothing else, so a role can never reach past the extension that declares it.
   const declaredPermissions = new Set(
-    Object.values(m.tools).flatMap((tool) => (tool.permission ? [tool.permission] : [])),
+    Object.values(m.tools).flatMap((tool) => toolPermissions(tool)),
   );
   for (const [name, role] of Object.entries(m.roles)) {
     const path = `roles.${name}`;

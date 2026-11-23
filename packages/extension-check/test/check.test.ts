@@ -140,6 +140,26 @@ describe("the staff roles an extension declares (stage 27, ADR 0436)", () => {
       "  role ticketing.door (Door): tools with ticketing:checkin; reads ticketing.ticket",
     ]);
   });
+
+  it("names what each grantable permission opens, which adds up with a role (ADR 0600)", () => {
+    expect(
+      rolesSummary({
+        id: "bookings",
+        roles: { coach: { label: "Coach", permissions: ["bookings:coach"], read: [] } },
+        grantable: ["bookings:desk"],
+        tools: {
+          day: { permission: ["bookings:coach", "bookings:desk"] },
+          bookFor: { permission: "bookings:desk" },
+          roster: { permission: "bookings:coach" },
+        },
+      }),
+    ).toEqual([
+      "This extension declares staff roles. An account given one may do this, and what it is granted below, and nothing else:",
+      "  role bookings.coach (Coach): tools with bookings:coach; reads nothing",
+      "Permissions an admin may grant one by one (to an account with a role too):",
+      "  bookings:desk: tools day, bookFor",
+    ]);
+  });
 });
 
 describe("what an extension opens to people outside the org (stage 22, ADR 0414)", () => {

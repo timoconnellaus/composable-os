@@ -123,12 +123,16 @@ function PermissionChecks({
   idPrefix,
   value,
   onChange,
+  fixedRole = false,
 }: {
   idPrefix: string;
   value: string[];
   onChange: (next: string[]) => void;
+  /** For an account with a fixed role: only what may be added to one (a pack's, ADR 0600). */
+  fixedRole?: boolean;
 }) {
-  const { grantable } = useAccessChoices();
+  const { grantable: all } = useAccessChoices();
+  const grantable = fixedRole ? all.filter((g) => g.forFixedRole) : all;
   if (!grantable.length) return null;
   return (
     <fieldset className="grid gap-2">
@@ -157,7 +161,7 @@ function PermissionChecks({
 }
 
 function InviteCard() {
-  const { packRoles } = useAccessChoices();
+  const { packRoles, grantable } = useAccessChoices();
   const invite = useOpMutation("user.invite", { invalidates: ["user.invites"] });
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("member");
@@ -173,7 +177,13 @@ function InviteCard() {
         email,
         role,
         packRole: packRole === NONE ? null : packRole,
-        permissions: packRole === NONE ? permissions : [],
+        // A fixed role's account may be granted a pack's permissions only (ADR 0600).
+        permissions:
+          packRole === NONE
+            ? permissions
+            : permissions.filter((p) =>
+                grantable.some((g) => g.permission === p && g.forFixedRole),
+              ),
       });
       toast.success(
         result.signIn === "access"
@@ -252,14 +262,18 @@ function InviteCard() {
               </div>
             )}
           </div>
-          {packRole !== NONE ? (
+          {packRole !== NONE && (
             <p className="text-xs text-muted-foreground">
-              {packRoles.find((r) => r.name === packRole)?.description} This is all the account may
-              do.
+              {packRoles.find((r) => r.name === packRole)?.description} This, and what you tick
+              below, is all the account may do.
             </p>
-          ) : (
-            <PermissionChecks idPrefix="invite" value={permissions} onChange={setPermissions} />
           )}
+          <PermissionChecks
+            idPrefix="invite"
+            value={permissions}
+            onChange={setPermissions}
+            fixedRole={packRole !== NONE}
+          />
           {error && (
             <p role="alert" className="text-sm text-destructive">
               {error}
@@ -476,6 +490,7 @@ function UserList() {
                       Permissions
                     </Button>
                   )}
+                  {u.packRole && <FixedRoleGrants user={u} />}
                 </>
               ) : (
                 <Badge variant="outline">{u.packRole ?? ROLE_COPY[role].label}</Badge>
@@ -486,6 +501,55 @@ function UserList() {
       </ul>
       {granting && <GrantsDialog user={granting} onClose={() => setGranting(null)} />}
     </>
+  );
+}
+
+/**
+ * What an account with a fixed role may be given on top of it (ADR 0600): a pack's permissions,
+ * each one tick on the account's row, in the pack's own words (a coach given the Bookings desk).
+ * Saved at once with user.setPermissions; the host counts it from the account's next call.
+ */
+function FixedRoleGrants({ user }: { user: ListedUser }) {
+  const { grantable } = useAccessChoices();
+  const save = useOpMutation("user.setPermissions", { invalidates: ["user.list"] });
+  const choices = grantable.filter((g) => g.forFixedRole);
+  if (!choices.length) return null;
+  const name = user.name ?? user.email ?? user.id;
+  const held = user.permissions ?? [];
+  return (
+    <fieldset className="grid w-full gap-2 sm:pl-11" aria-label={`Also allowed for ${name}`}>
+      {choices.map((g) => {
+        const id = `fixed-${user.id}-${g.permission}`;
+        return (
+          <div key={g.permission} className="flex items-start gap-2 text-sm">
+            <Checkbox
+              id={id}
+              className="mt-0.5"
+              checked={held.includes(g.permission)}
+              disabled={save.isPending}
+              onCheckedChange={async (checked) => {
+                const next = checked
+                  ? [...held, g.permission]
+                  : held.filter((p) => p !== g.permission);
+                try {
+                  await save.mutateAsync({ id: user.id, permissions: next });
+                  toast.success(
+                    checked
+                      ? `${name} may now also: ${g.label}`
+                      : `${name} no longer has: ${g.label}`,
+                  );
+                } catch (error) {
+                  toast.error(errorMessage(error));
+                }
+              }}
+            />
+            <Label htmlFor={id} className="font-normal leading-snug">
+              {g.label}
+            </Label>
+          </div>
+        );
+      })}
+    </fieldset>
   );
 }
 
