@@ -58,7 +58,12 @@ async function document(
   kind: "waiver" | "guardian" | "health",
   extra: Record<string, unknown> = {},
 ) {
-  await op(page.request, "extension.install", { id: "agrfixture", files: { "index.ts": FIXTURE } }, false);
+  await op(
+    page.request,
+    "extension.install",
+    { id: "agrfixture", files: { "index.ts": FIXTURE } },
+    false,
+  );
   const title = `${kind} ${unique("doc")}`;
   const { id } = await op<{ id: string }>(page.request, "agreement.create", { title, kind });
   const saved = await op<{ hash: string; rev: number }>(page.request, "agreement.draft.save", {
@@ -134,7 +139,9 @@ async function newMember(page: Page, label: string) {
   return { id: person.id, email, given };
 }
 
-type Due = { people: { personId: string; due: { documentId: string; version: { id: string } }[] }[] };
+type Due = {
+  people: { personId: string; due: { documentId: string; version: { id: string } }[] }[];
+};
 
 async function agreementsTab(page: Page, personId: string) {
   await open(page, `/people/${personId}?tab=agreements`);
@@ -290,11 +297,9 @@ test("staff with the health permission read a health yes; a coach sees only the 
     headers: { origin },
   });
   expect(signedIn.ok(), await signedIn.text()).toBe(true);
-  const roster = await op<{ bookings: { person: { id: string } | null; healthNote: boolean | null }[] }>(
-    coach.request,
-    "x.bookings.roster",
-    { classId: klass.id },
-  );
+  const roster = await op<{
+    bookings: { person: { id: string } | null; healthNote: boolean | null }[];
+  }>(coach.request, "x.bookings.roster", { classId: klass.id });
   expect(roster.bookings.find((b) => b.person?.id === member.id)?.healthNote).toBe(true);
   expect(JSON.stringify(roster)).not.toContain(note);
   // The coach's own screen: the mark beside the name.

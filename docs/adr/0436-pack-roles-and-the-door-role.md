@@ -144,3 +144,8 @@ holds); each opens only the tools naming it. Each call is allowed by one authori
 travel only on calls the role allows. A tool may name several permissions, any one of which opens
 it (Bookings' `day`: the coach's and the desk's). The account still holds one pack role. See
 [ADR 0600](0600-a-pack-role-and-its-grants-add-up.md).
+
+Amended 2026-11-23 (stage 44 step 2, ADR 0643): the coach's class list gains one read, a yes or
+no per Person on it ("health note": a yes on their current health form), which Bookings' tools
+ask of the host (`agreement.healthNotes`) and the host gives only inside a tool a person called.
+Nothing of the form reaches the role.

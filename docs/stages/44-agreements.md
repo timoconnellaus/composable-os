@@ -29,7 +29,8 @@ family link's guard) and 0670 (`core_write_guard`), and `packs/bookings/index.ts
 declarations).
 
 Status: **spec agreed** (owner interviewed 2026-11-23; the eight questions answered the same day,
-decisions 15 to 22; step 1 built on `feat/stage-44-documents`, ADRs 0640 and 0641).
+decisions 15 to 22; step 1 built on `feat/stage-44-documents`, ADRs 0640 and 0641; step 2 built on
+`feat/stage-44-acceptances`, ADRs 0642 and 0643, build notes at the end).
 Builds on stages 25, 31a and 32. The first client is a gym moving from another system. It must be in
 place before members pay or train on the new system (decision 13).
 
@@ -1282,3 +1283,78 @@ bundle; how standard PDF fonts handle every character a business types (a publis
 the PDF cannot draw); that the native app's touch handling draws a signature smoothly without a new
 module; and how a membership ended at once treats bookings ahead (stage 32b's behaviour, which
 cooling off follows).
+
+## Step 2: build notes (`feat/stage-44-acceptances`, 2026-11-23)
+
+Built: migration 0851 (`core_agreement_acceptance`, `core_agreement_signature`,
+`core_agreement_answer`, `core_agreement_minor`, and `core_write_guard` made again with the kind
+`agreements`, every earlier kind carried forward), ADRs 0642 (acceptances, who may agree for whom,
+signatures, the minor mark) and 0643 (health answers), ADR 0641 amended (`agreementsDue` and its
+guard), ADRs 0540, 0449 and 0436 amended with dated notes. The permissions `agreements:paper` and
+`agreements:health` (admins by default, grantable). `agreements/due.ts` (`agreementsDue`,
+`requireNothingDue`, `agreementsGuard`), `agreements/accept.ts` (every acceptance),
+`agreements/capture.ts` (typed name, strokes, answers), `agreements/people.ts` (erase, purge and
+merge), `operations/agreement-acceptance.ts`. The Person page's Agreements tab; Settings →
+Agreements → Acceptances (the due list and the acceptances); the editor's "asks N people" on
+agree again and each version's count; "Health note" on Bookings' class list (web and native).
+
+Operations (every one with its audience, actors, permission and risk class):
+
+| Operation | Audience | Actors | Permission | Risk |
+| --- | --- | --- | --- | --- |
+| `me.agreements.due` | customer (hostInternal) | the customer | records:read | read |
+| `me.agreements.list` | customer (hostInternal) | the customer | records:read | read |
+| `me.agreements.get` | customer (hostInternal) | the customer | records:read | read |
+| `me.agreements.accept` | customer (hostInternal) | the customer | records:write | write |
+| `agreement.person` | staff | every actor (no mark, no capability for an AI) | records:read | read |
+| `agreement.acceptances` | staff | every actor | records:read | read |
+| `agreement.due.list` | staff | every actor | records:read | read |
+| `agreement.healthNotes` | staff | human; extension inside a tool a person called | records:read | read |
+| `agreement.acceptance.get` | staff | human | records:read | read |
+| `agreement.answers.get` | staff | human | agreements:health | read, every read audited |
+| `agreement.recordPaper` | staff | human | agreements:paper | write |
+| `agreement.setMinor` | staff | human | people:link | write |
+
+Deviations from the text above, and why:
+
+- **`agreement.recordPaper` has no `forPersonId`.** `personId` is whom the form is for (for a
+  child, the child), and `signedBy` names who signed it. A second id would have made two people
+  for one paper row with no rule for which counts. It also takes `typedName`, the name as written
+  on the form, which the record's `typed_name` holds (the spec's input list omitted it).
+- **The notice of a health "yes" names nobody.** Its title is "A member's health form needs a
+  look" and it links to the Person, because an in-app notice may also go out by email or Slack;
+  the spec's in-host wording "[name] answered yes" would have carried a name and a health fact
+  into those.
+- **`agreement.healthNotes` is a new core read** (the spec said the coach role "gains that one
+  read"): a pack's tool asks the host, which gives the mark only inside a tool a person called.
+  Bookings declares it; `roster` and `classList` carry `healthNote` (null when the host gives
+  none, as for the assistant).
+- **A new pipeline option, `auditReads`**, writes an audit row for every successful read of an
+  operation that sets it (a person's reads are otherwise not audited, ADR 0090). Only
+  `agreement.answers.get` uses it.
+- **`me.agreements.due` asks every point**, not one: the first sign-in's "before you go on" shows
+  everything attached anywhere for the caller and each live dependant.
+- **The due list's people** are those with a sign-in, a subscription as holder, a live family
+  link as a dependant, or the minor mark (2,000 at most), those with a live subscription first.
+  "Members with a booking ahead first" needs pack knowledge the core does not have; step 3, which
+  declares Bookings' point, can add it.
+- **The channel** is `app` for a native app's device session and `web` otherwise, from the
+  session, never from the input.
+- **Erase, the Trash purge and merge** were touched as far as these tables need to be safe:
+  erase and the purge delete health answers and the minor mark and keep acceptances detached
+  (`erased_at`); merge moves acceptances (and those made as a guardian) to the survivor and keeps
+  the mark. Left for step 8: the retention purge after `keepAcceptancesYears`, the setting, the
+  erase screen's words, finding a kept acceptance by name or address, the merge preview's count.
+- **`context` must be null** until step 9 (the care consent) remakes the insert trigger.
+- **Not built here** (later steps, as the build order says): enforcement at checkout,
+  subscription start and booking (step 3; `requireNothingDue` is ready for it), the copy, its
+  `core_agreement_copy` row and the PDF (step 4: the acceptance already stores the address), the
+  Agree, Before you go on and My agreements blocks (step 5), "send a link", the desk (step 6),
+  cooling off (step 7). No practitioner principal exists yet (stage 43); when it does it holds no
+  `agreements:health`.
+
+What step 3 needs from here: call `requireNothingDue(db, { point, participant, payer, now })`
+before planning the batch (it refuses with `rule: "agreements_due"` and the documents) and put the
+guard it returns in the batch; for a guest, insert `by: "guest"` rows with the order (the table
+and its triggers already allow a Person-less guest row, its settlement and its deletion) through
+an `accept.ts` path for guests; the guard's conflict is `rule: "agreements_changed"`.

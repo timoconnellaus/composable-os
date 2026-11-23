@@ -1,0 +1,53 @@
+# ADR 0643: Health answers: read by a person with the permission, every read audited
+
+Status: accepted, 2026-11-23 (stage 44, build step 2). Builds on
+[ADR 0642](0642-acceptances-a-record-nobody-changes-and-who-may-agree-for-whom.md),
+[ADR 0019](0019-audit-redaction-for-erasure.md) (audit redaction), [ADR 0436](0436-pack-roles-and-the-door-role.md)
+(pack roles) and [ADR 0449](0449-permissions-granted-one-by-one.md) (grants). Stage 44's spec,
+"Health questions", decisions 5, 18 and 19.
+
+## Context
+A health form's answers are health information. A field on a Person or a record would put them in
+every `rec_*` view, and so in `query.sql`, dashboards, exports, search, embeddings, summaries and
+the assistant's reads. The coach on the floor needs to know to ask, but not what was answered.
+
+## Decision
+- **Their own table**, `core_agreement_answer` (migration 0851): the acceptance, the answers as
+  JSON, `any_yes`, and `entered_by` for a paper form's answers typed in by staff. In no view;
+  refused any update; deleted only once its acceptance is erased (decision 15: at once on erase).
+- **Who reads them**: the person (and a guardian, for a dependant) in `me.agreements.get`; and
+  `agreement.answers.get`: permission `agreements:health` (new; admins by default, grantable one
+  by one), `actors: ["human"]`. No AI actor reads them with any grant, and an account holding a
+  pack role reaches none of the core reads. There is no practitioner principal yet (stage 43);
+  when there is, it is not given this permission.
+- **Every read is audited**, a person's included: a new operation option, `auditReads: true`,
+  makes the pipeline write an audit row for each successful read, holding `auditSummary`'s
+  result (who read whose: the acceptance and the Person) and never the output. The option needs
+  an `auditSummary` and a read.
+- **No value in the audit, an error or a log**: the inputs that hold a name typed, a signature,
+  answers, a paper form's signer or note are redacted (`redact`); the answers' and strokes'
+  checks name the rule and the question key (the business's), never a value; errors carry no
+  values.
+- **The coach's mark** (decision 18): `agreement.healthNotes { personIds }` returns a yes or no
+  per Person (a yes on their current health form). `actors: ["human", "extension"]`; pack code
+  gets it only inside a tool a person called (the runner sets `startedBy`), so the assistant
+  reading the same tool gets no mark. Bookings' `roster` and `classList` carry `healthNote`, and
+  the class list blocks show "Health note" beside the name, nothing else.
+- **A yes tells staff** who may read answers (decision 19), as an in-app notice whose words name
+  no one and nothing of the form ("A member's health form needs a look"), linking to the Person,
+  because a notice may also go out by email or Slack. The member can still book.
+
+## Consequences
+- The Person page's Agreements tab shows the answers behind "Show answers" for staff who hold the
+  permission, asking once per click (each ask is a row in the audit).
+- Stage 43's restrictions stay separate: neither feeds the other.
+
+## Proof
+`packages/core/test/agreement-acceptances.test.ts`, "health answers are isolated": a person with
+the permission reads them and each read is an audit row with no value; a member without is
+refused, granted reads them; every AI actor is refused the answers and the full acceptance, with
+any grant, and the Person tab it may read has no mark and no value; pack code without a person
+gets no mark; a pack-role coach is refused; the notice names nothing; `query.sql` refuses every
+agreements table, no view names one, `search.global`, `export.csv` and the assistant's person
+summary (the model's input) hold none of it, and no audit row of any operation does.
+`packs/bookings/test/bookings.test.ts`: the roster's mark, and none when the host gives none.

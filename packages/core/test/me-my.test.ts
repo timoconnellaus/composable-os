@@ -85,9 +85,7 @@ describe("what this step opens", () => {
           "me.sessions.list",
           "me.sessions.revoke",
           "me.signOut",
-        ].includes(
-          entry.name,
-        ),
+        ].includes(entry.name),
       );
     }
   });
