@@ -41,8 +41,15 @@ export default defineExtension({
   objects: {
     plan: {
       label: "Plan", plural: "Plans", titleField: "name",
-      fields: { name: { type: "text", label: "Name" } },
-      agreements: { point: "${POINT}", label: "Starting a fixture plan" },
+      fields: {
+        name: { type: "text", label: "Name" },
+        person: { type: "relation", label: "Person", to: "person" },
+        state: { type: "select", label: "State", options: [
+          { value: "open", label: "Open" }, { value: "done", label: "Done" },
+        ] },
+      },
+      states: { field: "state", initial: "open", moves: [{ from: "open", to: "done", by: ["staff"] }] },
+      agreements: { point: "${POINT}", label: "Starting a fixture plan", enter: ["open"], person: "person" },
     },
   },
 });
@@ -58,12 +65,7 @@ async function document(
   kind: "waiver" | "guardian" | "health",
   extra: Record<string, unknown> = {},
 ) {
-  await op(
-    page.request,
-    "extension.install",
-    { id: "agrfixture", files: { "index.ts": FIXTURE } },
-    false,
-  );
+  await op(page.request, "extension.install", { id: "agrfixture", files: { "index.ts": FIXTURE } });
   const title = `${kind} ${unique("doc")}`;
   const { id } = await op<{ id: string }>(page.request, "agreement.create", { title, kind });
   const saved = await op<{ hash: string; rev: number }>(page.request, "agreement.draft.save", {
