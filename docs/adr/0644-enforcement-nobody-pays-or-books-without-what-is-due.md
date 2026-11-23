@@ -157,3 +157,24 @@ and the cron promoting a waiter, and the waiter's next booking asked.
   merge of one), refused otherwise (`order_person`), and a minor only once nothing is due for them.
 - **`order.honourLate`** does not judge an order that moves a record (a drop-in): its move hook
   refuses honouring it (`held_gone`), and its participant is the booking's Person, not the payer.
+
+## Amended 2026-11-24: the blocks (stage 44 step 5)
+
+- **The inline step follows the refusal.** A block that buys or books makes the call; when the
+  host refuses it with `agreements_due`, the block shows the documents it named, in turn, and makes
+  the call again once they are agreed. No operation tells a block in advance what a purchase will
+  need: the refusal, made before any batch is planned, is the one answer, so it cannot disagree with
+  the check that holds. On `agreements_changed` the block asks again and tries once more
+  (`withAgreements` in `@composable-os/client`); a visitor whose agreements are for an older version
+  (`agreement_not_asked`) is asked again with none and shown what is due now.
+- **A visitor reads the words through `agreement.guestVersions`** (customer and public,
+  `hostInternal`, read): the versions a refusal named, as recorded. Only a version in effect, or
+  scheduled, of a live document attached somewhere and asked of everyone (what `guestDue` can ask);
+  anything else is left out. It reads no Person, and the text is the business's. Opening it to the
+  public is the reviewed change ADR 0402 asks for.
+- **Bookings' tools pass the host's agreements refusal through** as it is (`agreements_due`, and
+  `agreements_changed`, which before this was told as "it changed while you were booking"), so the
+  block can tell a change of what is due from a change of the class.
+- **What a visitor gives is held in the screen's memory only** until the buying call, which the
+  packs' clients make with no cache kept after it (`gcTime: 0`), as `me.agreements.accept` and
+  `me.agreements.get` are.

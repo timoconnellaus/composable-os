@@ -137,6 +137,11 @@ export const SOLUTIONS: readonly Solution[] = [
           status: "building",
         },
         {
+          title: "Waivers and agreements",
+          body: "Your membership terms, waiver, health questions and a parent's consent, in your own words. Members read and agree on your site or in your app, by ticking and typing their name or by drawing a signature, as you choose for each document. A visitor agrees on the way to paying for a class, and a parent agrees for their child. Nobody books or buys without what you need, and when you change a document you choose whether everyone agrees again before their next booking. Each member gets a copy by email and you download the signed PDF. Health answers are read only by the staff you allow; a coach sees a mark beside the name, never the answers. Still to come: signing on the gym's own tablet at the desk, and a cooling-off period.",
+          status: "building",
+        },
+        {
           title: "Moving from your booking system",
           body: "Your clients, visit history, passes and schedules brought across, with a time when both run side by side.",
           status: "planned",

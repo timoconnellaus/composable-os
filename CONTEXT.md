@@ -1305,7 +1305,9 @@ it names (erase), ADR 0642. A drawn **signature** is kept as its strokes. It is
 **current** while its version is at or after the document's last "agree again" (and, for health,
 within its ask-again months); a document is **due** for a Person at a point where it is attached and
 they have no current acceptance of it. The person is emailed a **copy** with the **signed PDF**,
-built from the stored version, never kept as a file.
+built from the stored version, never kept as a file. A person agrees on the **Agree** block (web
+and app, step 5): after sign-in on **Before you go on**, inline when the host refuses a purchase or
+a booking with what is due (the **agreement step**), and from **My agreements**.
 _Avoid_: consent (stage 43's care link word, which becomes an acceptance), signature (one way to
 accept), sign-off
 
@@ -1330,6 +1332,16 @@ information: kept apart from every staff bulk path and every AI actor, read on s
 staff with `agreements:health` (each read audited), by the person and by their guardian (ADR 0643).
 A coach's class list shows only a **health note** mark beside a name whose current health form has
 a yes.
+
+**Agreement step** and **Before you go on** (stage 44, built in step 5)
+The **agreement step** is what a block that buys or books shows when the host refuses the call with
+`agreements_due`: each document it named, in turn, before "Pay", "Book", "Buy" or "Join" is tried
+again. A member's are recorded as they agree (for a child, by their parent); a visitor's are kept
+in the screen's memory only until the buying call, which carries them. **Before you go on** is the
+screen after sign-in that walks through everything due for the member and each child; "Not now"
+goes on. Neither decides anything: what is due, for whom, and whether the purchase may go ahead are
+the host's answers.
+_Avoid_: checkout gate, consent screen
 
 **Minor** (for agreements; stage 44, built in step 2)
 A Person who is a dependant of a live family link, or whom staff have marked as a minor (the host
