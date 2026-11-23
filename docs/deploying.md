@@ -1045,7 +1045,9 @@ Behind Access: the staff app (every page), `/sign-in`, `/api/auth/*`, the assist
 (`/api/assistant/*`), support access (`/support/*`), `/oauth/consent` (where a person signs in for
 MCP), `/connect/handoff`, `/api/media/*` (the media library: staff upload and view pictures; a company's
 site shows its pictures through its own `/api/media/<id>` route over the binding, and a phone asks
-`/api/v1/media/<id>`), `/blocks` (development only; nothing there when deployed), `/native/staff-sign-in` (a native app's staff sign-in in the system
+`/api/v1/media/<id>`), `/api/agreements/*` (staff download a signed agreement's PDF and a
+version's blank form; a customer downloads their own at `/api/v1/agreements/…` or over the
+binding), `/blocks` (development only; nothing there when deployed), `/native/staff-sign-in` (a native app's staff sign-in in the system
 browser), and every other `/gatekeeper/*` route: OAuth callbacks and connect pages open in a staff
 member's browser, which carries the Access cookie.
 

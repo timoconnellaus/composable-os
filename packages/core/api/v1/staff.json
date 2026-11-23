@@ -5759,6 +5759,41 @@
           },
           "hasAnswers": {
             "type": "boolean"
+          },
+          "copy": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "queued",
+                      "sending",
+                      "sent",
+                      "waiting",
+                      "failed",
+                      "cancelled"
+                    ]
+                  },
+                  "sentAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "state",
+                  "sentAt"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The emailed copy (step 4): whether it went; paper has none until Email a copy"
           }
         },
         "required": [
@@ -5785,7 +5820,197 @@
           "recordedByName",
           "signedBy",
           "note",
-          "hasAnswers"
+          "hasAnswers",
+          "copy"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "agreement.acceptance.pdf",
+      "description": "The signed PDF of one acceptance, for a person on the staff: the version shown and the record of who agreed, how and when, the name typed and the signature drawn (paper marked as recorded from paper), and a health form's answers only for staff with agreements:health. Every download is audited. Never an AI's read. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "acceptanceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The acceptance's id (aga_…)"
+          }
+        },
+        "required": [
+          "acceptanceId"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string",
+            "description": "The file name to save it as"
+          },
+          "document": {
+            "type": "object",
+            "properties": {
+              "business": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "versionNumber": {
+                "type": "number"
+              },
+              "versionHash": {
+                "type": "string"
+              },
+              "body": {
+                "type": "object",
+                "properties": {
+                  "blocks": {
+                    "type": "array",
+                    "items": {}
+                  }
+                },
+                "required": [
+                  "blocks"
+                ],
+                "additionalProperties": false
+              },
+              "tickLabel": {
+                "type": "string"
+              },
+              "questions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "text"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "answers": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "yes": {
+                          "type": "boolean"
+                        },
+                        "note": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "yes"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "type": "string",
+                    "const": "in-app"
+                  },
+                  {
+                    "type": "string",
+                    "const": "withheld"
+                  }
+                ]
+              },
+              "record": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "value"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "signature": {
+                "type": "object",
+                "properties": {
+                  "width": {
+                    "type": "number"
+                  },
+                  "height": {
+                    "type": "number"
+                  },
+                  "strokes": {
+                    "type": "array",
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "width",
+                  "height",
+                  "strokes"
+                ],
+                "additionalProperties": false
+              },
+              "acceptanceId": {
+                "type": "string"
+              },
+              "blank": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "business",
+              "title",
+              "versionNumber",
+              "versionHash",
+              "body",
+              "tickLabel"
+            ],
+            "additionalProperties": false,
+            "description": "What the signed PDF says; the download route draws it"
+          }
+        },
+        "required": [
+          "filename",
+          "document"
         ],
         "additionalProperties": false
       },
@@ -6211,8 +6436,10 @@
       },
       "invalidates": [
         "agreement.acceptance.get",
+        "agreement.acceptance.pdf",
         "agreement.acceptances",
         "agreement.answers.get",
+        "agreement.copy.preview",
         "agreement.due.list",
         "agreement.get",
         "agreement.healthNotes",
@@ -6222,7 +6449,160 @@
         "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
-        "agreement.version.get"
+        "agreement.version.get",
+        "agreement.version.pdf"
+      ]
+    },
+    {
+      "name": "agreement.copy.preview",
+      "description": "Before Email a copy of a paper form: the address the host would send it to (the Person's sign-in address, or their primary email), or why it would not be sent (a child's form, or no address), and whether a copy was already asked for. Show the address to the person, who confirms it with agreement.copy.send. A person on the staff with agreements:paper. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "acceptanceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The paper acceptance's id (aga_…)"
+          }
+        },
+        "required": [
+          "acceptanceId"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "acceptanceId": {
+            "type": "string"
+          },
+          "to": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "refused": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "minor",
+                  "no_address"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "queued",
+                  "sending",
+                  "sent",
+                  "waiting",
+                  "failed",
+                  "cancelled"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A copy already asked for: how it went"
+          }
+        },
+        "required": [
+          "acceptanceId",
+          "to",
+          "refused",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "agreement.copy.send",
+      "description": "Email a paper form's copy (Email a copy): the signed PDF goes, as the host's own mail, to the address the host holds for the Person it is for, which agreement.copy.preview showed. `confirmTo` is that address as the person saw it: if the host's address changed since (an edit, by anyone), it is refused and shown again. Once only: asking again answers how the first one went. Refused for a child's form and for a Person with no address. A person on the staff with agreements:paper only.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "acceptanceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The paper acceptance's id (aga_…)"
+          },
+          "confirmTo": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 320,
+            "description": "The address agreement.copy.preview showed, as the person confirmed it"
+          }
+        },
+        "required": [
+          "acceptanceId",
+          "confirmTo"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "acceptanceId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "sending",
+              "sent",
+              "waiting",
+              "failed",
+              "cancelled"
+            ]
+          }
+        },
+        "required": [
+          "acceptanceId",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "agreement.acceptance.get",
+        "agreement.acceptance.pdf",
+        "agreement.acceptances",
+        "agreement.answers.get",
+        "agreement.copy.preview",
+        "agreement.due.list",
+        "agreement.get",
+        "agreement.healthNotes",
+        "agreement.healthReviews",
+        "agreement.list",
+        "agreement.listHealthNotes",
+        "agreement.person",
+        "agreement.points",
+        "agreement.publishPreview",
+        "agreement.version.get",
+        "agreement.version.pdf"
       ]
     },
     {
@@ -6271,8 +6651,10 @@
       },
       "invalidates": [
         "agreement.acceptance.get",
+        "agreement.acceptance.pdf",
         "agreement.acceptances",
         "agreement.answers.get",
+        "agreement.copy.preview",
         "agreement.due.list",
         "agreement.get",
         "agreement.healthNotes",
@@ -6282,7 +6664,8 @@
         "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
-        "agreement.version.get"
+        "agreement.version.get",
+        "agreement.version.pdf"
       ]
     },
     {
@@ -6439,8 +6822,10 @@
       },
       "invalidates": [
         "agreement.acceptance.get",
+        "agreement.acceptance.pdf",
         "agreement.acceptances",
         "agreement.answers.get",
+        "agreement.copy.preview",
         "agreement.due.list",
         "agreement.get",
         "agreement.healthNotes",
@@ -6450,7 +6835,8 @@
         "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
-        "agreement.version.get"
+        "agreement.version.get",
+        "agreement.version.pdf"
       ]
     },
     {
@@ -6690,8 +7076,10 @@
       },
       "invalidates": [
         "agreement.acceptance.get",
+        "agreement.acceptance.pdf",
         "agreement.acceptances",
         "agreement.answers.get",
+        "agreement.copy.preview",
         "agreement.due.list",
         "agreement.get",
         "agreement.healthNotes",
@@ -6701,7 +7089,8 @@
         "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
-        "agreement.version.get"
+        "agreement.version.get",
+        "agreement.version.pdf"
       ]
     },
     {
@@ -8153,8 +8542,10 @@
       },
       "invalidates": [
         "agreement.acceptance.get",
+        "agreement.acceptance.pdf",
         "agreement.acceptances",
         "agreement.answers.get",
+        "agreement.copy.preview",
         "agreement.due.list",
         "agreement.get",
         "agreement.healthNotes",
@@ -8164,7 +8555,8 @@
         "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
-        "agreement.version.get"
+        "agreement.version.get",
+        "agreement.version.pdf"
       ]
     },
     {
@@ -8610,8 +9002,10 @@
       },
       "invalidates": [
         "agreement.acceptance.get",
+        "agreement.acceptance.pdf",
         "agreement.acceptances",
         "agreement.answers.get",
+        "agreement.copy.preview",
         "agreement.due.list",
         "agreement.get",
         "agreement.healthNotes",
@@ -8621,7 +9015,8 @@
         "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
-        "agreement.version.get"
+        "agreement.version.get",
+        "agreement.version.pdf"
       ]
     },
     {
@@ -8767,8 +9162,10 @@
       },
       "invalidates": [
         "agreement.acceptance.get",
+        "agreement.acceptance.pdf",
         "agreement.acceptances",
         "agreement.answers.get",
+        "agreement.copy.preview",
         "agreement.due.list",
         "agreement.get",
         "agreement.healthNotes",
@@ -8778,7 +9175,8 @@
         "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
-        "agreement.version.get"
+        "agreement.version.get",
+        "agreement.version.pdf"
       ]
     },
     {
@@ -8825,8 +9223,10 @@
       },
       "invalidates": [
         "agreement.acceptance.get",
+        "agreement.acceptance.pdf",
         "agreement.acceptances",
         "agreement.answers.get",
+        "agreement.copy.preview",
         "agreement.due.list",
         "agreement.get",
         "agreement.healthNotes",
@@ -8836,7 +9236,8 @@
         "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
-        "agreement.version.get"
+        "agreement.version.get",
+        "agreement.version.pdf"
       ]
     },
     {
@@ -8868,8 +9269,10 @@
       },
       "invalidates": [
         "agreement.acceptance.get",
+        "agreement.acceptance.pdf",
         "agreement.acceptances",
         "agreement.answers.get",
+        "agreement.copy.preview",
         "agreement.due.list",
         "agreement.get",
         "agreement.healthNotes",
@@ -8879,7 +9282,8 @@
         "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
-        "agreement.version.get"
+        "agreement.version.get",
+        "agreement.version.pdf"
       ]
     },
     {
@@ -9023,6 +9427,195 @@
           "publishedBy",
           "hash",
           "intact"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "agreement.version.pdf",
+      "description": "A version's blank form as a PDF, to print and sign on paper (then agreement.recordPaper): its words, the tick label, a health form's questions with boxes, lines for the name, signature and date, and the version's number and hash at the foot of every page. A person on the staff. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "versionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The version's id (agv_…)"
+          }
+        },
+        "required": [
+          "versionId"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string",
+            "description": "The file name to save it as"
+          },
+          "document": {
+            "type": "object",
+            "properties": {
+              "business": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "versionNumber": {
+                "type": "number"
+              },
+              "versionHash": {
+                "type": "string"
+              },
+              "body": {
+                "type": "object",
+                "properties": {
+                  "blocks": {
+                    "type": "array",
+                    "items": {}
+                  }
+                },
+                "required": [
+                  "blocks"
+                ],
+                "additionalProperties": false
+              },
+              "tickLabel": {
+                "type": "string"
+              },
+              "questions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "text"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "answers": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "yes": {
+                          "type": "boolean"
+                        },
+                        "note": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "yes"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "type": "string",
+                    "const": "in-app"
+                  },
+                  {
+                    "type": "string",
+                    "const": "withheld"
+                  }
+                ]
+              },
+              "record": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "value"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "signature": {
+                "type": "object",
+                "properties": {
+                  "width": {
+                    "type": "number"
+                  },
+                  "height": {
+                    "type": "number"
+                  },
+                  "strokes": {
+                    "type": "array",
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "width",
+                  "height",
+                  "strokes"
+                ],
+                "additionalProperties": false
+              },
+              "acceptanceId": {
+                "type": "string"
+              },
+              "blank": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "business",
+              "title",
+              "versionNumber",
+              "versionHash",
+              "body",
+              "tickLabel"
+            ],
+            "additionalProperties": false,
+            "description": "What the signed PDF says; the download route draws it"
+          }
+        },
+        "required": [
+          "filename",
+          "document"
         ],
         "additionalProperties": false
       },

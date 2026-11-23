@@ -26,6 +26,7 @@ import {
   signatureSchema,
   typedNameSchema,
 } from "../agreements/capture.ts";
+import { sendCopiesNow } from "../agreements/copy.ts";
 import { type Question, versionIntact } from "../agreements/documents.ts";
 import {
   acceptanceKey,
@@ -569,13 +570,21 @@ export const meAgreementsAccept = defineOperation({
       },
       ctx.now,
     );
-    if (planned.statements.length) ctx.write(...planned.statements);
-    return {
+    const output = {
       id: planned.id,
       documentId: planned.documentId,
       versionNumber: planned.versionNumber,
       acceptedAt: planned.acceptedAt,
     };
+    if (!planned.statements.length || planned.existing) return output;
+    ctx.write(...planned.statements);
+    // The copy (step 4, ADR 0645): migration 0854 queued it with the acceptance; it goes now,
+    // after the commit, and the minute cron sends what did not.
+    const integrations = ctx.integrations;
+    return ctx.afterCommit(async () => {
+      await sendCopiesNow({ db: ctx.db, integrations }, [planned.id]);
+      return output;
+    });
   },
 });
 
@@ -969,6 +978,13 @@ export const agreementAcceptanceGet = defineOperation({
     signedBy: z.string().nullable(),
     note: z.string().nullable(),
     hasAnswers: z.boolean(),
+    copy: z
+      .object({
+        state: z.enum(["queued", "sending", "sent", "waiting", "failed", "cancelled"]),
+        sentAt: z.string().nullable(),
+      })
+      .nullable()
+      .describe("The emailed copy (step 4): whether it went; paper has none until Email a copy"),
   }),
   permission: "records:read",
   risk: "read",
@@ -989,7 +1005,7 @@ export const agreementAcceptanceGet = defineOperation({
     const counting = row.person_id
       ? (await standing(ctx, row.person_id, await personFacts(ctx.db, row.person_id))).counting
       : new Set<string>();
-    const [version, people, users, signature, answers] = await Promise.all([
+    const [version, people, users, signature, answers, copy] = await Promise.all([
       versionsById(ctx, [row.version_id]),
       namesOf(ctx, [row.person_id ?? "", row.agent_person_id ?? ""]),
       userNames(ctx, [row.recorded_by ?? ""]),
@@ -1001,6 +1017,11 @@ export const agreementAcceptanceGet = defineOperation({
       ctx.db
         .selectFrom("core_agreement_answer")
         .select("acceptance_id")
+        .where("acceptance_id", "=", row.id)
+        .executeTakeFirst(),
+      ctx.db
+        .selectFrom("core_agreement_copy")
+        .select(["state", "sent_at"])
         .where("acceptance_id", "=", row.id)
         .executeTakeFirst(),
     ]);
@@ -1015,6 +1036,7 @@ export const agreementAcceptanceGet = defineOperation({
       signedBy: row.signed_by,
       note: row.note,
       hasAnswers: Boolean(answers),
+      copy: copy ? { state: copy.state, sentAt: copy.sent_at } : null,
     };
   },
 });

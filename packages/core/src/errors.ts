@@ -447,6 +447,18 @@ export function toOperationError(error: unknown): OperationError {
   if (message.includes("core_agreement_minor_self")) {
     return new ForbiddenError("A parent or guardian agrees for you.", { rule: "agreement_minor" });
   }
+  // An agreement's copy (migration 0854, ADR 0645): where it goes is the host's records', and
+  // never changes once written. The message names the rule, never the address.
+  if (message.includes("core_agreement_copy_address")) {
+    return new ForbiddenError("A copy goes only to the address the host holds for it.", {
+      rule: "agreement_copy_address",
+    });
+  }
+  if (message.includes("core_agreement_copy_fixed")) {
+    return new ConflictError("A copy's address is fixed once it is written.", {
+      rule: "agreement_copy_fixed",
+    });
+  }
   // A guardian's write after their link ended, or the dependant went to the Trash (migration
   // 0650, ADR 0540): as if the Person were not there.
   if (message.includes("core_person_link_not_live")) {

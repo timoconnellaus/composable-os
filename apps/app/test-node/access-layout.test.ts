@@ -77,7 +77,11 @@ describe("every route of cos-app is accounted for behind Access", () => {
       // Stage 28 (ADR 0444): staff upload and view pictures here. Outsiders are served them at
       // /api/v1/media/<id> (the bypassed surface, below) or through the client-app binding.
       isMediaPath: "/api/media/med_1",
+      // Stage 44 step 4 (ADR 0645): staff download a signed PDF here; a customer at
+      // /api/v1/agreements/… (the bypassed surface) or through the client-app binding.
+      isAgreementPdfPath: "/api/agreements/acceptances/aga_1.pdf",
     };
+
     expect([...dispatched].sort()).toEqual(Object.keys(known).sort());
     expect(Object.fromEntries(Object.entries(known).map(([k, p]) => [k, classify(p)]))).toEqual({
       isSupportRoute: "staff",
@@ -86,6 +90,7 @@ describe("every route of cos-app is accounted for behind Access", () => {
       isCustomerAuthPath: "bypass",
       NATIVE_STAFF_SIGN_IN_PATH: "staff",
       isMediaPath: "staff",
+      isAgreementPdfPath: "staff",
     });
     // Every version of the surface, and every native sign-in route, is the bypassed surface.
     for (const path of [
@@ -94,6 +99,8 @@ describe("every route of cos-app is accounted for behind Access", () => {
       "/api/v1/media/med_1",
       // An upload by a staff device token (cos content import, ADR 0470): the bypassed surface.
       "/api/v1/media",
+      // A customer's own signed PDF (ADR 0645), as me.agreements.pdf decides.
+      "/api/v1/agreements/acceptances/aga_1.pdf",
       "/api/v1/auth/customer/sign-in",
       "/api/v1/auth/staff/exchange",
       "/api/v1/auth/sign-out",

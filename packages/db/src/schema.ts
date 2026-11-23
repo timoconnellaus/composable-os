@@ -1156,6 +1156,29 @@ export interface CoreAgreementMinorTable {
 }
 
 /**
+ * Migration 0854 (stage 44 step 4, ADR 0645): the copy of one acceptance, the host's own mail,
+ * kept beside it so the acceptance itself never changes. Made by trigger when a person agrees (and
+ * when a guest's acceptance settles), or by `agreement.copy.send` for paper. Who it goes to never
+ * changes once written.
+ */
+export interface CoreAgreementCopyTable {
+  acceptance_id: string;
+  to_address: string | null;
+  state: "queued" | "sending" | "sent" | "waiting" | "failed" | "cancelled";
+  /** The idempotency key of the current try (`agreement-copy:<acceptance id>` first). */
+  send_key: string;
+  attempts: number;
+  queued_at: string;
+  next_at: string | null;
+  claimed_at: string | null;
+  sent_at: string | null;
+  pending_action_id: string | null;
+  error: string | null;
+  /** Paper: the staff user who pressed "Email a copy". */
+  requested_by: string | null;
+}
+
+/**
  * Migration 0690 (ADR 0560): a refund the host owes on a record bought through `sellable.moves`
  * (a drop-in booking cancelled in time, or its class cancelled). The minute cron asks for it.
  */
@@ -2828,6 +2851,7 @@ export interface CoreDatabase {
   core_agreement_signature: CoreAgreementSignatureTable;
   core_agreement_answer: CoreAgreementAnswerTable;
   core_agreement_minor: CoreAgreementMinorTable;
+  core_agreement_copy: CoreAgreementCopyTable;
   core_person_link_guard: CorePersonLinkGuardTable;
   core_sellable_refund_due: CoreSellableRefundDueTable;
   core_routine_mail: CoreRoutineMailTable;

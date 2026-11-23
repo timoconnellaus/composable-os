@@ -68,6 +68,12 @@
       "hostInternal": true
     },
     {
+      "name": "me.agreements.pdf",
+      "audiences": ["customer"],
+      "risk": "read",
+      "hostInternal": true
+    },
+    {
       "name": "me.deleteAccount",
       "audiences": ["customer"],
       "risk": "write",

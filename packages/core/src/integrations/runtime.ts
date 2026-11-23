@@ -56,6 +56,11 @@ export interface IntegrationCallResult {
     outcome: "refused" | "unknown" | "retryable";
     message: string;
   }[];
+  /**
+   * Actions the gate denied (the deploy-time floor) and rejected on the facet: never sent. Set by
+   * the host's own calls (`callAsHost`), so the copy of an agreement tells a refusal from a wait.
+   */
+  denied?: number[];
 }
 
 export interface ConnectStart {
@@ -153,9 +158,11 @@ export interface IntegrationRuntime {
     /**
      * `orders`: an order's checkout and confirmation (ADR 0429). `sign-in`: a sign-in code, sent
      * by the host for `origin` (ADR 0456); the queue tells the gatekeeper it is the host's
-     * sign-in mail, which no other caller can say.
+     * sign-in mail, which no other caller can say. `agreements`: the copy of a signed agreement
+     * (ADR 0645), one send; the queue tells the gatekeeper it may carry the signed PDF, which no
+     * other caller can say, and the send is the system's (no AI writes or reads it).
      */
-    purpose: "orders" | "sign-in";
+    purpose: "orders" | "sign-in" | "agreements";
     origin?: "system.customer-mail" | "system.staff-mail";
   }): Promise<IntegrationCallResult>;
   /** The TypeScript declarations agents code against for a bound resource. */

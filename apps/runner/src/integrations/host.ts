@@ -838,12 +838,16 @@ export class IntegrationHost extends DurableObject<Env> {
     resource: string;
     method: string;
     args: unknown[];
-    purpose: "orders" | "sign-in";
+    purpose: "orders" | "sign-in" | "agreements";
     origin?: string;
   }): Promise<IntegrationCallResult> {
     const meta = await this.#meta();
     if (meta.scope !== "org") throw new Error("The host uses org connections only");
-    if (input.purpose !== "orders" && input.purpose !== "sign-in") {
+    if (
+      input.purpose !== "orders" &&
+      input.purpose !== "sign-in" &&
+      input.purpose !== "agreements"
+    ) {
       throw new Error("Not a purpose the host calls for");
     }
     if (!/^[a-zA-Z][a-zA-Z0-9]{0,60}$/.test(input.method) || input.method === "constructor") {
@@ -857,6 +861,11 @@ export class IntegrationHost extends DurableObject<Env> {
       const origin = SIGN_IN_MAIL_ORIGINS.find((o) => o === input.origin);
       if (!origin) throw new Error("Not an origin the host sends sign-in mail for");
       caller = { kind: "system", purpose: "sign-in", origin, user: SYSTEM_USER };
+    } else if (input.purpose === "agreements") {
+      // The copy of a signed agreement (ADR 0645): one send, by the system user. The queue tells
+      // the gatekeeper it may carry the signed PDF; no other caller's queue does.
+      if (input.method !== "send") throw new Error("Agreements mail is one send");
+      caller = { kind: "system", purpose: "agreements", user: SYSTEM_USER };
     } else {
       caller = {
         kind: "system",
@@ -867,7 +876,14 @@ export class IntegrationHost extends DurableObject<Env> {
     const { value, queue } = await this.#withSession(input.resource, caller, async (session) =>
       toJson(await session[input.method](...input.args)),
     );
-    return { value, pending: queue.pending, applied: queue.applied, failed: queue.failed };
+    return {
+      value,
+      pending: queue.pending,
+      applied: queue.applied,
+      failed: queue.failed,
+      // What the deploy-time floor refused: the host's own calls tell a refusal from a wait.
+      ...(queue.denied.length ? { denied: queue.denied } : {}),
+    };
   }
 
   /**
