@@ -252,7 +252,14 @@ export default defineExtension({
         },
         event: { type: "relation", label: "Event", to: "ticketing.event", required: true },
         holder: { type: "relation", label: "Holder", to: "person" },
-        order: { type: "text", label: "Order" },
+        // Which order granted it, set by the host's grant (ADR 0590, the fourth review): never
+        // written by a caller, or a ticket could be moved to another buyer's order and mailed.
+        order: {
+          type: "text",
+          label: "Order",
+          readOnly: true,
+          description: "The order that granted this ticket, set by the host.",
+        },
         state: {
           type: "select",
           label: "State",

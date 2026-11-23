@@ -197,7 +197,9 @@ export async function markStatements(
   const sources = new SourceMarks(db, pending);
   const copies: { row: Row; sources: MarkSource[] }[] = [];
   const own = (value: unknown, s: Standing): Standing => {
-    if (s !== "host" || standing !== "host" || !given?.size) return s;
+    // A person's own given values are theirs, whether the run writes as the host or (a runtime
+    // extension's tool) as an AI.
+    if (s !== standing || (standing !== "host" && standing !== "ai") || !given?.size) return s;
     const form = normalForm(value);
     return form && given.has(form) ? "person" : s;
   };
@@ -378,4 +380,54 @@ export async function approvalMarkStatements(
     );
   }
   return out;
+}
+
+/**
+ * What a tool called from a run carries in its caller (ADR 0590, the fourth review): the calling
+ * run's standing and its person's given values, so the called tool writes no better than it.
+ */
+export function callerMarks(ctx: {
+  actor: string;
+  markStanding?: Standing | undefined;
+  markGiven?: ReadonlySet<string> | undefined;
+}): { markStanding?: "host" | "ai"; markGiven?: string[] } {
+  if (ctx.actor !== "extension" && ctx.actor !== "automation") return {};
+  return {
+    markStanding: ctx.markStanding === "ai" ? "ai" : "host",
+    ...(ctx.markGiven ? { markGiven: [...ctx.markGiven] } : {}),
+  };
+}
+
+/**
+ * Who stands behind what a tool run writes (ADR 0590, the third and fourth reviews): an AI's
+ * call, a runtime extension's tool (its code was authored in the app, perhaps by an AI), or a
+ * tool called by an AI's run, write as an AI; a shipped pack's tool as the host. Either way the
+ * values the person who ran it gave it (or who approved an AI's call, never the adjudicator) are
+ * theirs; a tool called by another run takes that run's person's values, never its own input.
+ */
+export function toolRunStanding(
+  caller: {
+    actor: string;
+    principal?: unknown;
+    approvedBy?: string | undefined;
+    markStanding?: "host" | "ai" | undefined;
+    markGiven?: readonly string[] | undefined;
+  },
+  source: string,
+  input: unknown,
+): { standing: "host" | "ai"; given?: Set<string> } {
+  const approved = Boolean(caller.approvedBy && caller.approvedBy !== "adjudicator");
+  const ai =
+    caller.markStanding === "ai" ||
+    source !== "shipped" ||
+    (!caller.principal && (caller.actor === "assistant" || caller.actor === "mcp") && !approved);
+  const fromRun = caller.actor === "extension" || caller.actor === "automation";
+  const given = fromRun
+    ? caller.markGiven
+      ? new Set(caller.markGiven)
+      : undefined
+    : !caller.principal && (caller.actor === "human" || approved)
+      ? givenValues(input)
+      : undefined;
+  return { standing: ai ? "ai" : "host", ...(given ? { given } : {}) };
 }

@@ -15,13 +15,13 @@ import {
   createTestSimulation,
   type EvaluateResult,
   extensionPrincipalId,
-  givenValues,
   newId,
   type ProducerResult,
   type ProducerRun,
   type RunToolInput,
   type RunToolResult,
   type SourceIssue,
+  toolRunStanding,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import {
@@ -291,6 +291,7 @@ export class Executor {
       .innerJoin("core_user as u", "u.id", "e.user_id")
       .select([
         "e.status",
+        "e.source",
         "e.manifest",
         "e.failure_count",
         "e.last_good_commit",
@@ -369,17 +370,11 @@ export class Executor {
       // except a value equal to one the person who ran it (or approved an AI's call of it, never
       // the adjudicator) gave it, which is theirs (`given`). An AI's call is an AI's; a model used
       // in the run makes the rest of it an AI's (host.ts). A customer's call is theirs anyway.
-      standing:
-        !input.caller.principal &&
-        (input.caller.actor === "assistant" || input.caller.actor === "mcp") &&
-        !(input.caller.approvedBy && input.caller.approvedBy !== "adjudicator")
-          ? "ai"
-          : "host",
-      ...(!input.caller.principal &&
-      (input.caller.actor === "human" ||
-        (input.caller.approvedBy && input.caller.approvedBy !== "adjudicator"))
-        ? { given: givenValues(input.input) }
-        : {}),
+      // Only a shipped pack's own tool writes as the host (the fourth review): a runtime
+      // extension's code was authored in the app, perhaps by an AI, so it writes as an AI, the
+      // person's own given values still theirs. A tool called by another run writes no better
+      // than that run (its standing and given values carried in `caller`).
+      ...toolRunStanding(input.caller, row.source, input.input),
       ...(input.cascade ? { cascade: input.cascade } : {}),
       ...(input.readOnly || input.dryRun
         ? { readOnly: { dryRun: Boolean(input.dryRun), tool: input.tool } }

@@ -652,3 +652,27 @@ describe("erasure takes the marks of the person's orders (the third review, 6b)"
     expect(Number(left?.n)).toBe(0);
   });
 });
+
+describe("an address the host cannot be sure of (the fourth review, L5)", {
+  timeout: 60_000,
+}, () => {
+  it("is kept for staff with the reason, never sent and never dropped in silence", async () => {
+    const own = `${unique("l5").toLowerCase()}@members.test`;
+    const person = await run<{ id: string }>(
+      "person.create",
+      { givenName: "Lee", emails: [{ email: own }] },
+      staff(),
+    );
+    await givePass(person.id);
+    // A trailing dot: an address the host's pattern does not take (written outside the rules).
+    const odd = `${own}.`;
+    await env.DB.prepare("UPDATE core_person_emails SET email = ? WHERE person_id = ?")
+      .bind(odd, person.id)
+      .run();
+    const out = await bookFor(person.id);
+    const [row] = await rowsFor(out.bookingId as string);
+    // Kept, failed with the reason, in the log staff read: not sent, not dropped.
+    expect(row).toMatchObject({ recipient: odd, status: "failed", routine: 0 });
+    expect(row?.held_reason).toContain("the address is not one the host sends to on its own");
+  });
+});

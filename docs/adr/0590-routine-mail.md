@@ -368,3 +368,43 @@ child's email leaves the guardian's AI address held, and the next change is sent
 its own (E1); an erased person's orders keep no mark. `apps/runner/test/routine-mail-standing.test.ts`:
 a person's tool run, a run that used a model, an automation of a runtime extension, and setting
 defaults.
+
+## Amended 2026-11-23, after the fourth security review
+
+- **An `each` slot's lines are shown too.** Which records are the lines is part of the email: for
+  each line record the host checks the field that ties it to the record (`each.via`), the field
+  that picks it (`each.where.field`), and its own creation, as links (anything but an AI's). The
+  contract requires `each.via` to be `readOnly` (set by the host). Ticketing's `ticket.order` and
+  Courses' `enrolment.order` are now `readOnly`, set by the host's grant, as Bookings'
+  `booking.dropInOrder` and Memberships' `pass.order` already were. Without this, an AI could
+  re-point another buyer's ticket at an attacker's order and the attacker's tickets email would
+  carry the victim's door code. The other host-set links were checked: Memberships' `person`,
+  `payer`, `subscription` and `order`, and Bookings' `dropInOrder`, `movedFrom` and `madeBy` are
+  already `readOnly`. Each ticket's, enrolment's and booking's Person (`holder`, `person`) stays
+  writable by staff: it is the record's link to its Person, checked on every email as never an AI's.
+  Bookings' `holder` (which pass pays) is a choice the caller makes.
+- **A runtime extension's tool writes as an AI**, even when a person clicks it: its code was
+  authored in the app. The values the person gave it stay theirs. Only a shipped pack's own tool
+  writes as the host.
+- **A tool called by a run writes no better than that run.** The calling run's standing and its
+  person's given values go into the called tool's caller. The called tool's own input, chosen by
+  the calling code, is never a person's.
+- **Outside text.** A gatekeeper's answer may carry outside text (a web page, a mailbox, an MCP
+  server's reply), so after any gatekeeper call but `email-send` and `slack-post` (which answer with
+  an id) the run writes as an AI, as after a model. After either, not even a value equal to the
+  person's input is theirs. A value a run reads back from its own storage (`ctx.storage`) is
+  written as the host's or an AI's, never a person's, so it never passes a shown-value check.
+- **A key checked twice is held to the stricter list.** A state shown in an email's words is
+  checked as a shown value (a person's or a default), not only as the record's state.
+- **A link slot's setting must be one a person approves.** `cos ext check` fails otherwise.
+- **An address the host cannot be sure of** (one its pattern rejects, such as a trailing dot or an
+  international domain) is no longer dropped in silence. Its row is kept, failed with the reason, in
+  the log staff read (Settings → Routine email); it is never sent (the email gatekeeper would refuse
+  it, and approving it could not send it).
+
+Proof: `apps/runner/test/ticketing.test.ts` (R4-T: a caller's write of a ticket's order is refused,
+and a ticket re-pointed outside the rules holds the buyer's tickets email, the victim's code never
+sent); `apps/runner/test/routine-mail-standing.test.ts` (a runtime tool a person clicks, a
+gatekeeper read, a value read back from storage); `packages/core/test/routine-mail-standing.test.ts`
+(the tool-run rules and the caller carried into a called tool); `packages/sdk/test/routine-mail.test.ts`
+(the link setting and `each.via` rules).

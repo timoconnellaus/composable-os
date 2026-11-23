@@ -107,6 +107,9 @@ export interface RunOperation {
  * principal, with the run's cascade tags on their origin, and post-commit events. In test mode
  * (ADR 0133) they run against `simulate` and send no events.
  */
+/** Gatekeepers whose answers carry no outside text (a sent message's id): ADR 0590. */
+const SEND_ONLY: ReadonlySet<string> = new Set(["email-send", "slack-post"]);
+
 export interface AutomationRunContext {
   automationId: string;
   runId: string;
@@ -155,7 +158,10 @@ export interface RunState {
   standing?: "ai" | "host";
   /** The values a person gave the tool (normal forms): what equals one of them is theirs. */
   given?: ReadonlySet<string>;
-  /** Set once the run used a model (`codemode:ai`): what it writes from then on is an AI's. */
+  /**
+   * Set once the run used a model (`codemode:ai`) or read outside text through a gatekeeper:
+   * what it writes from then on is an AI's (ADR 0590).
+   */
   usedModel?: boolean;
   /**
    * The calling staff account's pack role limit to today (ADR 0553): the run's record reads and
@@ -249,7 +255,13 @@ export class RunHost extends RpcTarget {
           await runModelRole(this.#env, method as "summarise" | "extract" | "classify", list),
         );
       default:
-        if (isGatekeeperModule(module)) return this.#gatekeeper(module, method, list);
+        if (isGatekeeperModule(module)) {
+          // A gatekeeper's answer may carry outside text (a web page, a mailbox, an MCP server's
+          // reply): what the run writes from now on is an AI's, as after a model (ADR 0590, the
+          // fourth review). Only the two that send and answer with an id do not.
+          if (!SEND_ONLY.has(module)) run.usedModel = true;
+          return this.#gatekeeper(module, method, list);
+        }
         throw new Error(`Unknown host module ${module}`);
     }
   }
@@ -257,8 +269,13 @@ export class RunHost extends RpcTarget {
   /** Who stands behind what this run writes (ADR 0590), for the pipeline's marks. */
   #marks(): { markStanding: "ai" | "host"; markGiven?: ReadonlySet<string> } {
     const run = this.#run;
-    if (run.usedModel || run.standing === "ai") return { markStanding: "ai" };
-    return { markStanding: "host", ...(run.given ? { markGiven: run.given } : {}) };
+    // After a model or outside text, nothing the run writes is a person's, not even what equals
+    // their input (the model may have chosen it).
+    if (run.usedModel) return { markStanding: "ai" };
+    return {
+      markStanding: run.standing === "ai" ? "ai" : "host",
+      ...(run.given ? { markGiven: run.given } : {}),
+    };
   }
 
   /** A read tool's sandbox (RunState.readOnly): refuses what is not a read, before it runs. */

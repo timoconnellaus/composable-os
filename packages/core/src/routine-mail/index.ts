@@ -252,6 +252,8 @@ interface Recipient {
   self: boolean;
   /** Why an email to this address is not routine (an unpaid order's typed address). */
   held?: string;
+  /** An address the host cannot send to: the row is kept, failed, for staff to see. */
+  invalid?: true;
 }
 
 const ADDRESS = /^[^\s@<>()[\]\\,;:"]{1,64}@[a-z0-9.-]{1,190}\.[a-z]{2,}$/i;
@@ -490,8 +492,19 @@ async function recipientsOf(
   const seen = new Set<string>();
   const add = (address: string | null | undefined, r: Omit<Recipient, "address">) => {
     const a = text(address)?.trim().toLowerCase();
-    if (!a || !ADDRESS.test(a) || seen.has(a)) return;
+    if (!a || seen.has(a)) return;
     seen.add(a);
+    // An address the host cannot be sure of (a trailing dot, an international domain) is never
+    // dropped in silence: the email waits for staff, who see why (the fourth review).
+    if (!ADDRESS.test(a) || a.length > 254) {
+      out.push({
+        address: a.slice(0, 254),
+        ...r,
+        held: "the address is not one the host sends to on its own (check it is right)",
+        invalid: true,
+      });
+      return;
+    }
     out.push({ address: a, ...r });
   };
   const paidOrder = async (orderId: string | null) => {
@@ -883,6 +896,9 @@ export async function prepareRoutineMail(
       .where("record_id", "=", r)
       .where("field", "=", f)
       .executeTakeFirst();
+  // A key checked twice (a state shown in the words as well as checked as the record's state)
+  // is held to the stricter of the two lists (the fourth review).
+  const allowedOf = new Map<string, readonly Standing[]>();
   const check = async (
     o: string,
     r: string,
@@ -892,10 +908,12 @@ export async function prepareRoutineMail(
     label: string,
   ): Promise<string> => {
     const key = markKey(o, r, f);
-    if (checked.has(key)) return key;
+    const before = allowedOf.get(key);
+    const strict = before ? before.filter((s) => allowed.includes(s)) : allowed;
+    allowedOf.set(key, strict);
     const h = await valueHash(value);
     const mark = await markOf(o, r, f);
-    const ok = mark && mark.value_hash === h && allowed.includes(mark.standing);
+    const ok = mark && mark.value_hash === h && strict.includes(mark.standing);
     checked.set(key, {
       shown: { o, r, f, h },
       problem: ok
@@ -950,6 +968,18 @@ export async function prepareRoutineMail(
     for (const source of records.sources.values()) {
       const row = await records.get(source.object, source.id);
       for (const [field, kind] of source.fields) {
+        // A line record's creation (an `each` slot's ticket): anything but an AI's.
+        if (field === CREATED) {
+          await check(
+            source.object,
+            source.id,
+            CREATED,
+            "",
+            ["person", "customer", "public", "default", "host"],
+            `${source.object} ${source.id} itself`,
+          );
+          continue;
+        }
         const shownValue = row?.[field];
         // Nothing shown (an optional slot left empty): nothing to stand behind.
         if (shownValue === null || shownValue === undefined || shownValue === "") continue;
@@ -1143,7 +1173,9 @@ export async function prepareRoutineMail(
           : reasons.length
             ? reasons.join("; ").slice(0, 1000)
             : null,
-      status: on ? "ready" : "off",
+      // An address the host cannot send to is kept, failed with the reason, in the log staff
+      // read (Settings → Routine email), never dropped in silence (the fourth review).
+      status: !on ? "off" : recipient.invalid ? "failed" : "ready",
       connection_id: on ? input.connectionId : null,
       subject: on ? subject.slice(0, 200) : null,
       body: on ? body : null,
@@ -1151,7 +1183,7 @@ export async function prepareRoutineMail(
       related: JSON.stringify([...records.read].slice(0, 20)),
       sources: JSON.stringify(unreadable ? [] : shown),
       pending_action_id: null,
-      error: null,
+      error: on && recipient.invalid ? (recipient.held ?? null) : null,
       created_at: now,
       updated_at: now,
     });
@@ -1218,6 +1250,12 @@ async function eachSlot(
     const item = await records.get(object, row.id);
     if (!item) continue;
     if (each.where && !each.where.in.includes(String(item[each.where.field] ?? ""))) continue;
+    // Which records are the lines is shown too (the fourth review): the field that ties each to
+    // the record, the field that picks it, and the line record's own creation, none an AI's. An
+    // AI re-pointing another buyer's ticket at this order holds the email.
+    records.note(object, item.id, each.via, "link");
+    if (each.where) records.note(object, item.id, each.where.field, "link");
+    records.note(object, item.id, CREATED, "link");
     if (each.distinct) {
       const d = String((await walk(records, object, item, each.distinct)) ?? "");
       if (seen.has(d)) continue;

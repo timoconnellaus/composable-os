@@ -266,7 +266,13 @@ export default defineExtension({
         holder: { type: "relation", label: "Student", to: "person" },
         course: { type: "relation", label: "Course", to: "courses.course" },
         bundle: { type: "relation", label: "Bundle", to: "courses.bundle" },
-        order: { type: "text", label: "Order" },
+        // Which order granted it, set by the host's grant (ADR 0590, the fourth review).
+        order: {
+          type: "text",
+          label: "Order",
+          readOnly: true,
+          description: "The order that granted this enrolment, set by the host.",
+        },
         source: {
           type: "select",
           label: "Where it came from",

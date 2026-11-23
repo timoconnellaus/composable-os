@@ -877,6 +877,8 @@ async function invokeOnce<O extends AnyOperation>(
     grantedPermissions: ctx.grantedPermissions,
     permissionGrants: packRole ? [] : grants,
     ...(roleToday ? { roleToday } : {}),
+    ...(ctx.markStanding ? { markStanding: ctx.markStanding } : {}),
+    ...(ctx.markGiven ? { markGiven: ctx.markGiven } : {}),
     reason: ctx.reason,
     ...(ctx.approval
       ? {

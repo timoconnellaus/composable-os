@@ -521,11 +521,12 @@ const TIME_FIELD_TYPES = new Set(["datetime", "date"]);
 interface CheckFieldManifest {
   type: string;
   to?: string | undefined;
+  readOnly?: boolean | undefined;
 }
 interface CheckManifest {
   id: string;
   objects: Record<string, { fields: Record<string, CheckFieldManifest> }>;
-  settings: Record<string, { type: string }>;
+  settings: Record<string, { type: string; personApproves?: boolean | undefined }>;
   permissions: { modules: readonly string[] };
   routineMail?: Record<string, RoutineMailKindManifest> | undefined;
 }
@@ -629,8 +630,15 @@ export function routineMailIssues(manifest: CheckManifest): { path: string; mess
           if ("problem" in zone) contract(`${at}.zone`, zone.problem);
         }
       } else if ("link" in slot) {
-        if (manifest.settings[slot.link]?.type !== "text") {
+        const setting = manifest.settings[slot.link];
+        if (setting?.type !== "text") {
           contract(`${at}.link`, `"${slot.link}" is not a text setting of this extension`);
+        } else if (setting.personApproves !== true) {
+          // The link every email carries: a person's to change, never an AI's (ADR 0590).
+          contract(
+            `${at}.link`,
+            `"${slot.link}" must be a setting a person approves (personApproves)`,
+          );
         }
       } else if ("each" in slot) {
         const each = slot.each;
@@ -643,6 +651,13 @@ export function routineMailIssues(manifest: CheckManifest): { path: string; mess
         const target = about === ROUTINE_ABOUT_ORDER ? "order" : `${manifest.id}.${about}`;
         if (!via || (via.type !== "text" && !(via.type === "relation" && via.to === target))) {
           contract(`${at}.each.via`, `${each.object}.${each.via} must point to the ${about}`);
+        } else if (via.readOnly !== true) {
+          // Which records are the lines is the host's (a grant's order): a caller re-pointing a
+          // ticket at another order must not put it in that buyer's email (ADR 0590).
+          contract(
+            `${at}.each.via`,
+            `${each.object}.${each.via} must be readOnly (set by the host)`,
+          );
         }
         if (each.where && !object.fields[each.where.field]) {
           contract(`${at}.each.where`, `"${each.where.field}" is not a field of ${each.object}`);

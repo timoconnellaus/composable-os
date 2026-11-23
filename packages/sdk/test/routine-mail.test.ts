@@ -19,7 +19,8 @@ function gym(routineMail: object, modules = ["ops", "routine-mail"]) {
     contractVersion: 1,
     permissions: { modules },
     settings: {
-      url: { type: "text", label: "Bookings page" },
+      url: { type: "text", label: "Bookings page", personApproves: true },
+      plain: { type: "text", label: "A page anyone may change" },
       size: { type: "number", label: "N" },
     },
     objects: {
@@ -50,6 +51,16 @@ function gym(routineMail: object, modules = ["ops", "routine-mail"]) {
           title: { type: "text", label: "Title" },
           class: { type: "relation", label: "Class", to: "gym.class" },
           person: { type: "relation", label: "Person", to: "person" },
+        },
+      },
+      guest: {
+        label: "Guest",
+        plural: "Guests",
+        titleField: "name",
+        fields: {
+          name: { type: "text", label: "Name" },
+          booking: { type: "relation", label: "Booking", to: "gym.booking" },
+          bookingSet: { type: "relation", label: "Booking", to: "gym.booking", readOnly: true },
         },
       },
     },
@@ -155,6 +166,31 @@ describe("the declaration", () => {
     expect(
       issues({ confirmation: kind({ slots: { link: { link: "size" } } }) }).join("\n"),
     ).toMatch(/not a text setting/);
+  });
+
+  it("a link's setting is one a person approves, and an each slot's lines are tied by a host-set field (the fourth review)", () => {
+    expect(
+      issues({ confirmation: kind({ slots: { link: { link: "plain" } } }) }).join("\n"),
+    ).toMatch(/"plain" must be a setting a person approves/);
+    const each = (via: string) =>
+      kind({
+        slots: {
+          guests: {
+            each: {
+              object: "guest",
+              via,
+              max: 5,
+              line: "- {name}",
+              slots: { name: { field: "name" } },
+            },
+          },
+        },
+        messages: { booked: { subject: "Booked", text: "Guests:\n{guests}" } },
+      });
+    expect(issues({ confirmation: each("booking") }).join("\n")).toMatch(
+      /guest\.booking must be readOnly/,
+    );
+    expect(issues({ confirmation: each("bookingSet") }).join("\n")).not.toMatch(/readOnly/);
   });
 });
 

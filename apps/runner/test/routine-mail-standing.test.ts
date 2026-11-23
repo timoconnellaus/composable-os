@@ -1,8 +1,11 @@
-// Who stands behind what a tool or an automation writes (ADR 0590, the third review), as the marks
-// the host keeps: a tool a person runs writes as the host, except the values the person gave it;
-// a run that used a model writes as an AI from then on; an automation authored in the app (here,
-// a runtime extension's) writes as an AI, so mail it causes is held. A field default taken from an
-// extension setting is the host's unless the setting is one a person approves.
+// Who stands behind what a tool or an automation writes (ADR 0590, the third and fourth reviews),
+// as the marks the host keeps: a runtime extension's tool (authored in the app) writes as an AI
+// even when a person clicks it, except the values the person gave it (a shipped pack's tool writes
+// as the host: Bookings' bookFor, in routine-mail-reads.test.ts); a run that used a model, or read
+// outside text through a gatekeeper, writes as an AI from then on, not even the person's values
+// kept; what a run reads back from its storage is never a person's; an automation authored in the
+// app writes as an AI, so mail it causes is held. A field default taken from an extension setting
+// is the host's unless the setting is one a person approves.
 import { introspectWorkflow } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { type ActingUser, invokeByName } from "@composable-os/core";
@@ -21,7 +24,7 @@ export default defineExtension({
   version: "1.0.0",
   contractVersion: 1,
   label: "Standing tests",
-  permissions: { modules: ["ops", "ai"] },
+  permissions: { modules: ["ops", "ai", "storage", "fake"] },
   settings: {
     defaultKind: { type: "text", label: "Default kind" },
     defaultRoom: { type: "text", label: "Default room", personApproves: true },
@@ -40,6 +43,46 @@ export default defineExtension({
     },
   },
   tools: {
+    remember: defineTool({
+      description: "Keeps a name for later.",
+      risk: "write",
+      input: z.object({ name: z.string() }),
+      output: z.object({ ok: z.boolean() }),
+      async handler({ name }, ctx) {
+        await ctx.storage.set("name", name);
+        return { ok: true };
+      },
+    }),
+    recall: defineTool({
+      description: "Makes an item named as kept earlier.",
+      risk: "write",
+      input: z.object({}),
+      output: z.object({ id: z.string() }),
+      async handler(_input, ctx) {
+        const name = String((await ctx.storage.get("name")) ?? "Nothing kept");
+        const out = await ctx.ops.call<{ id: string }>("record.create", {
+          object: "${ITEM}",
+          values: { name },
+        });
+        return { id: out.id };
+      },
+    }),
+    fetched: defineTool({
+      description: "Reads through a gatekeeper, then makes an item named as given.",
+      risk: "write",
+      input: z.object({ name: z.string() }),
+      output: z.object({ id: z.string() }),
+      async handler({ name }, ctx) {
+        try {
+          await ctx.gatekeeper("fake").call("none", "OUTBOX", "list", {});
+        } catch {}
+        const out = await ctx.ops.call<{ id: string }>("record.create", {
+          object: "${ITEM}",
+          values: { name },
+        });
+        return { id: out.id };
+      },
+    }),
     make: defineTool({
       description: "Makes an item named as given, with a note of its own.",
       risk: "write",
@@ -97,13 +140,26 @@ beforeAll(async () => {
   });
 }, 120_000);
 
-describe("a tool a person runs (the third review, 4)", { timeout: 60_000 }, () => {
-  it("writes as the host, except the values the person gave it", async () => {
+describe("a runtime extension's tool a person runs (the fourth review, M1)", {
+  timeout: 60_000,
+}, () => {
+  it("writes as an AI, except the values the person gave it", async () => {
     const name = unique("Given");
     const { id } = await op<{ id: string }>(`x.${EXT}.make`, { name });
     expect(await markOf(id, "name")).toBe("person");
-    expect(await markOf(id, "note")).toBe("host");
-    expect(await markOf(id, "$created")).toBe("host");
+    expect(await markOf(id, "note")).toBe("ai");
+    expect(await markOf(id, "$created")).toBe("ai");
+  });
+
+  it("writes as an AI after reading through a gatekeeper, the person's values too (L2)", async () => {
+    const { id } = await op<{ id: string }>(`x.${EXT}.fetched`, { name: unique("Fetched") });
+    expect(await markOf(id, "name")).toBe("ai");
+  });
+
+  it("a value read back from its storage is never a person's (L2)", async () => {
+    await op(`x.${EXT}.remember`, { name: unique("Kept") });
+    const { id } = await op<{ id: string }>(`x.${EXT}.recall`, {});
+    expect(await markOf(id, "name")).toBe("ai");
   });
 
   it("writes as an AI once the run used a model", async () => {

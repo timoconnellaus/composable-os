@@ -349,10 +349,11 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   mark per field (`core_value_mark`: who stands behind that value, with its hash; a Person's
   addresses one by one, and which is primary), a copy carrying its sources' marks; an email is
   routine only when every value its own words and calendar file show, every relation followed to
-  them, the record, and its own address have a person's (or a default's) mark for the value they
-  have now, and approving a held email marks exactly what that email showed. A tool a person runs
-  writes as the host except the values they gave it, a run that used a model and an automation
-  authored in the app write as an AI. The daily caps (20 per mailbox, 2,000 for the
+  them (an `each` slot's lines included), the record, and its own address have a person's (or a
+  default's) mark for the value they have now, and approving a held email marks exactly what that
+  email showed. A shipped pack's tool a person runs writes as the host except the values they gave
+  it; a runtime extension's tool or automation, a run that used a model or read outside text, and a
+  tool called by such a run write as an AI. The daily caps (20 per mailbox, 2,000 for the
   organisation) are counted where a row is claimed. Each kind has a human admin's switch (Settings →
   Routine email), with the log, kept 12 months by default.
 - **Gatekeepers we wrote**: `gatekeeper-email-send`, `gatekeeper-slack-post`, `gatekeeper-webhook`.

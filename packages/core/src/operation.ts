@@ -161,6 +161,13 @@ export interface HandlerContext {
   /** The caller's reason for the change, when it gave one (MCP). */
   readonly reason?: string | undefined;
   /**
+   * Who stands behind what this call writes, when a tool or automation run made it (ADR 0590):
+   * carried into a tool it calls, so a tool called by an AI's (or a model-using) run stays an AI's.
+   */
+  readonly markStanding?: "person" | "customer" | "public" | "default" | "host" | "ai" | undefined;
+  /** The values the person who started the run gave it (normal forms), carried on likewise. */
+  readonly markGiven?: ReadonlySet<string> | undefined;
+  /**
    * Set only while an approved pending action is applied: which action, who approved it (a
    * person's user id, or the adjudicator's principal) and the preview they approved. A publish
    * records its approver and refuses a working copy changed since it was asked for (ADR 0480).

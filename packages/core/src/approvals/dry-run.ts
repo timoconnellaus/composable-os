@@ -73,6 +73,8 @@ const CONTEXT_KEYS = {
   grantedPermissions: "data",
   permissionGrants: "data",
   roleToday: "data",
+  markStanding: "data",
+  markGiven: "data",
   reason: "data",
   approval: "data",
   records: "database",
