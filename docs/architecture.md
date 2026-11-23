@@ -1570,6 +1570,25 @@ not live or not valid at the spender's time, so the whole batch fails (`invalid_
 Holders carry read-only `used` and `left`; `allowance.get` reads a period; `rec_allowance`,
 `rec_allowance_period` and `rec_allowance_use` are queryable.
 
+**Agreements** (stage 44, ADRs [0640](adr/0640-agreement-documents-versions-nobody-changes-published-by-a-person.md)
+and [0641](adr/0641-agreement-points-a-pack-declares-documents-a-person-attaches.md),
+`packages/core/src/agreements/`, `operations/agreement.ts`, `packages/sdk/src/agreements.ts`;
+step 1 built). The documents a business asks people to agree to are core tables, not records
+(migration 0850), in no `rec_*` view: `core_agreement_document` (its kind, state and working copy),
+`core_agreement_version` (each published wording and its terms, with the SHA-256 of everything it
+holds, recomputed on read; triggers refuse every update and delete, an insert over an existing id
+(so `INSERT OR REPLACE`) and an insert that does not match the working copy at its rev),
+`core_agreement_point` and `core_agreement_rev`. Staff with `agreements:manage` (and the assistant
+for them, through the gate) write the working copy; publishing it (small change or agree again, now
+or from a date the minute cron honours), attaching it to points and retiring it are
+`actors: ["human"]`, so no AI actor can do or queue them. An object marks where agreement may be
+needed with the `agreements` behaviour (`point`, `label`, `suggests`, and `enter` and `person` for a
+record a caller makes); in step 1 it is inert. Every publish, attach, detach, retire and scheduled
+version taking effect bumps `core_agreement_rev`, which the guard of step 2 compares at commit.
+Acceptances, `agreementsDue`, enforcement in the orders pipeline and the transition engine, health
+answers, the copy and PDF, signing at the desk and cooling off are the later steps
+(`docs/stages/44-agreements.md`).
+
 Two reasons this is the centre of the design. Extension tools cannot run several writes as one
 transaction, so anything that must be atomic (take the last place and create the order) has to be
 the host's. And a rule in the host holds for a person, an MCP client, an import and a client app

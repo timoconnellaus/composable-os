@@ -11,6 +11,7 @@ import {
   CreditCardIcon,
   DatabaseIcon,
   DownloadCloudIcon,
+  FileSignatureIcon,
   GavelIcon,
   LifeBuoyIcon,
   ListOrderedIcon,
@@ -43,6 +44,7 @@ function Section({
   title: string;
   description: string;
   to?:
+    | "/settings/agreements"
     | "/settings/approval-policy"
     | "/settings/agents"
     | "/settings/assistant-memory"
@@ -243,6 +245,12 @@ function SettingsPage() {
               to="/settings/duplicates"
             />
           )}
+          <Section
+            icon={<FileSignatureIcon className="size-5" />}
+            title="Agreements"
+            description="The documents people agree to (terms, a waiver, health questions, a parent's consent), their versions, and where each is needed."
+            to="/settings/agreements"
+          />
           {isAdmin && (
             <Section
               icon={<ShoppingBagIcon className="size-5" />}

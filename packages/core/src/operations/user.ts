@@ -374,6 +374,7 @@ export async function grantable(
     "orders:refund": "Refund orders and keep late payments",
     "subscriptions:manage": "End or keep going customers' subscriptions",
     "people:link": "Link a parent or guardian to a child, and end the link",
+    "agreements:manage": "Write agreement documents, and publish, attach and retire them",
   };
   return [
     ...GRANTABLE_PERMISSIONS.map((permission) => ({
