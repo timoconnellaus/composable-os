@@ -10,10 +10,12 @@ async function saveCopy(page: Page) {
   await expect(page.getByText("Working copy saved").first()).toBeVisible();
 }
 
-async function publish(page: Page, number: number) {
+async function publish(page: Page, number: number, changed?: string) {
   await page.getByRole("button", { name: `Publish version ${number}` }).click();
   const confirm = page.getByRole("alertdialog");
   await expect(confirm).toContainText("cannot be changed or withdrawn");
+  // A changed body shows its changed blocks, before and after.
+  if (changed) await expect(confirm.getByTestId("body-changes")).toContainText(changed);
   await confirm.getByRole("button", { name: "Publish" }).click();
   await expect(page.getByText(`Version ${number} published`).first()).toBeVisible();
 }
@@ -44,7 +46,7 @@ test("staff write a document, publish it, then publish a changed version as agre
   await saveCopy(page);
   await expect(page.getByTestId("publish-summary")).toContainText("Changed since version 1: body");
   await page.getByLabel(/Everyone agrees again/).check();
-  await publish(page, 2);
+  await publish(page, 2, "A second fixture sentence.");
   const versions = page.getByTestId("agreement-versions");
   await expect(versions).toContainText("Version 2");
   await expect(versions).toContainText("Everyone agrees again");

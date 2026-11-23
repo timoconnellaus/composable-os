@@ -19,6 +19,7 @@ type Block = {
   style?: "bullet" | "ordered";
   items?: { content?: Run[]; list?: Block }[];
   attribution?: string;
+  tone?: string;
 };
 
 function runs(content: Run[] | undefined): ReactNode {
@@ -53,6 +54,14 @@ function list(block: Block): ReactNode {
   );
 }
 
+const HEADING_SIZES = ["text-2xl", "text-xl", "text-lg", "text-base", "text-sm", "text-xs"];
+const TONES: Record<string, { label: string; className: string }> = {
+  info: { label: "Information", className: "border-blue-500 bg-blue-50 dark:bg-blue-950" },
+  note: { label: "Note", className: "border-slate-500 bg-slate-50 dark:bg-slate-900" },
+  success: { label: "Good to know", className: "border-green-600 bg-green-50 dark:bg-green-950" },
+  warning: { label: "Warning", className: "border-amber-500 bg-amber-50 dark:bg-amber-950" },
+};
+
 export function AgreementBody({ value }: { value: unknown }) {
   const blocks = ((value as { blocks?: Block[] } | null)?.blocks ?? []) as Block[];
   return (
@@ -60,12 +69,20 @@ export function AgreementBody({ value }: { value: unknown }) {
       {blocks.map((block, i) => {
         const key = `${block.type}-${i}`;
         switch (block.type) {
-          case "heading":
+          case "heading": {
+            // The level is part of what is hashed: drawn as it will appear.
+            const level = Math.min(Math.max(block.level ?? 2, 1), 6);
+            const Tag = `h${level}` as "h1";
             return (
-              <p key={key} className="font-semibold">
+              <Tag
+                key={key}
+                data-level={level}
+                className={`font-semibold ${HEADING_SIZES[level - 1]}`}
+              >
                 {runs(block.content)}
-              </p>
+              </Tag>
             );
+          }
           case "list":
             return <div key={key}>{list(block)}</div>;
           case "quote":
@@ -75,12 +92,20 @@ export function AgreementBody({ value }: { value: unknown }) {
                 {block.attribution ? <footer>{block.attribution}</footer> : null}
               </blockquote>
             );
-          case "callout":
+          case "callout": {
+            // The tone is hashed too: shown by its colour and named.
+            const tone = TONES[block.tone ?? "info"] ?? TONES.info;
             return (
-              <div key={key} className="rounded border p-2">
+              <div
+                key={key}
+                className={`rounded border-l-4 p-2 ${tone?.className}`}
+                data-tone={block.tone}
+              >
+                <span className="mr-1 font-medium">{tone?.label}:</span>
                 {runs(block.content)}
               </div>
             );
+          }
           case "divider":
             return <hr key={key} />;
           default:

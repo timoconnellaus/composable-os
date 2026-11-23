@@ -99,6 +99,15 @@ export const PERMISSIONS = [
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
+/**
+ * The namespaces of the core permissions (`agreements`, `orders`, `people`, …): no extension may
+ * take one as its id, or it could declare a core permission as its own grantable one (stage 44
+ * review). Derived from PERMISSIONS, so a new core permission reserves its namespace by itself.
+ */
+export const CORE_PERMISSION_NAMESPACES: readonly string[] = [
+  ...new Set(PERMISSIONS.map((p) => p.split(":")[0] as string)),
+];
+
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   viewer: ["records:read"],
   member: ["records:read", "records:write"],

@@ -818,6 +818,12 @@ export interface ValidateOptions {
    * automation checks; null when unknown (those checks are skipped). Core objects are built in.
    */
   objectFields?: (object: string) => Record<string, FieldTypeName> | null;
+  /**
+   * Further ids no extension may take: the host passes the namespaces of its own permissions
+   * (`agreements`, `orders`, `people`, …), derived from its permission list, so a pack can never
+   * declare a core permission such as `agreements:manage` as its own grantable one.
+   */
+  reservedIds?: readonly string[];
 }
 
 /** Formula environment for a set of field manifests (formula fields compile on demand). */
@@ -857,7 +863,11 @@ export function validateManifest(
   }
   const m = parsed.data;
 
-  if (!EXTENSION_ID_RE.test(m.id) || RESERVED_EXTENSION_IDS.has(m.id)) {
+  if (
+    !EXTENSION_ID_RE.test(m.id) ||
+    RESERVED_EXTENSION_IDS.has(m.id) ||
+    options.reservedIds?.includes(m.id)
+  ) {
     contract(
       "id",
       `Extension id "${m.id}" must be 2-30 lowercase letters or digits, start with a letter, and not be reserved`,

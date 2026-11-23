@@ -90,6 +90,10 @@ async function draftDocument(
 const draftRev = async (id: string) =>
   (await invoke("agreement.get", { id }, context(admin))).draft.rev as number;
 
+/** The number a publish makes now (a publish names the number its preview showed). */
+const nextNumber = async (id: string) =>
+  (await invoke("agreement.get", { id }, context(admin))).versions.length + 1;
+
 const publish = async (
   documentId: string,
   draftHash: string,
@@ -102,6 +106,7 @@ const publish = async (
       documentId,
       draftHash,
       draftRev: await draftRev(documentId),
+      number: await nextNumber(documentId),
       change: "small",
       ...extra,
     },
@@ -220,7 +225,10 @@ describe("publishing is a person's", () => {
             : {}),
         });
         for (const [name, input] of [
-          ["agreement.publish", { documentId: id, draftHash: hash, draftRev: 1, change: "small" }],
+          [
+            "agreement.publish",
+            { documentId: id, draftHash: hash, draftRev: 1, number: 1, change: "small" },
+          ],
           ["agreement.attach", { documentId: id, points: [POINT] }],
           ["agreement.detach", { documentId: id, points: [POINT] }],
           ["agreement.retire", { documentId: id }],
@@ -239,7 +247,7 @@ describe("publishing is a person's", () => {
       const code = await refusal(
         invoke(
           "agreement.publish",
-          { documentId: id, draftHash: hash, draftRev: 1, change: "small" },
+          { documentId: id, draftHash: hash, draftRev: 1, number: 1, change: "small" },
           context(admin, {
             actor: "mcp",
             origin: { surface: "mcp", clientId: "c", clientName: "Code", sessionId: "cap_code" },
@@ -597,6 +605,7 @@ describe("the publish pins every term, not only the words (review A1)", () => {
             documentId: health.id,
             draftHash: before.draftHash,
             draftRev: before.draftRev,
+            number: before.number,
             change: "small",
           },
           context(admin),
@@ -625,6 +634,7 @@ describe("the publish pins every term, not only the words (review A1)", () => {
             documentId: id,
             draftHash: preview.draftHash,
             draftRev: preview.draftRev,
+            number: preview.number,
             change: "small",
           },
           context(admin),
@@ -639,7 +649,13 @@ describe("the publish pins every term, not only the words (review A1)", () => {
       await refusal(
         invoke(
           "agreement.publish",
-          { documentId: id, draftHash: again.draftHash, draftRev: again.draftRev, change: "small" },
+          {
+            documentId: id,
+            draftHash: again.draftHash,
+            draftRev: again.draftRev,
+            number: again.number,
+            change: "small",
+          },
           context(admin),
         ),
       ),
@@ -828,18 +844,26 @@ describe("content the hash cannot pin is refused (review A4, A5)", () => {
 
   it("no text made only of zero-width characters; no bidirectional controls", async () => {
     const { id } = await draftDocument();
-    expect(await save(id, { title: "​‌⁠" })).toMatchObject({ code: "invalid_input" });
-    expect(await save(id, { tickLabel: "I agree ‮" })).toMatchObject({ code: "invalid_input" });
-    expect(await save(id, { title: "Waiver ⁦x⁩" })).toMatchObject({ code: "invalid_input" });
-    expect(await save(id, { body: body("Fixture ‭ text") })).toMatchObject({
+    expect(await save(id, { title: "\u200b\u200c\u2060" })).toMatchObject({
+      code: "invalid_input",
+    });
+    expect(await save(id, { tickLabel: "I agree \u202e" })).toMatchObject({
+      code: "invalid_input",
+    });
+    expect(await save(id, { title: "Waiver \u2066x\u2069" })).toMatchObject({
+      code: "invalid_input",
+    });
+    expect(await save(id, { body: body("Fixture \u202d text") })).toMatchObject({
       code: "invalid_input",
     });
     const health = await draftDocument("health");
-    expect(await save(health.id, { questions: [{ key: "q", text: "Fixture‮?" }] })).toMatchObject({
+    expect(
+      await save(health.id, { questions: [{ key: "q", text: "Fixture\u202e?" }] }),
+    ).toMatchObject({
       code: "invalid_input",
     });
     // A body of zero-width characters only is not text: it cannot be published.
-    await invoke("agreement.draft.save", { id, body: body("​​") }, context(admin));
+    await invoke("agreement.draft.save", { id, body: body("\u200b\u200b") }, context(admin));
     const preview = await invoke("agreement.publishPreview", { id }, context(admin));
     expect(preview.problems).toContain("The body has no text");
   });
@@ -861,5 +885,244 @@ describe("content the hash cannot pin is refused (review A4, A5)", () => {
     // And the cron never makes it current.
     await runAgreementsDue(db, { clock: () => new Date(Date.now() + 2 * 3_600_000) });
     expect((await invoke("agreement.get", { id }, context(admin))).current).toBeNull();
+  });
+});
+
+// Round two of the review of PR #266: each of these failed before its fix.
+describe("a reviewed snapshot publishes once, as the version it showed (review B1)", () => {
+  it("the same hash, rev and number cannot publish twice; a version landing in between is refused", async () => {
+    const { id } = await draftDocument();
+    const preview = await invoke("agreement.publishPreview", { id }, context(admin));
+    const input = {
+      documentId: id,
+      draftHash: preview.draftHash,
+      draftRev: preview.draftRev,
+      number: preview.number,
+      change: "agree_again" as const,
+    };
+    await invoke("agreement.publish", input, context(admin));
+    expect(await refusal(invoke("agreement.publish", input, context(admin)))).toMatchObject({
+      code: "conflict",
+    });
+    // The rev moved in the publish's batch: the same rev with a new number is refused too.
+    expect(
+      await refusal(invoke("agreement.publish", { ...input, number: 2 }, context(admin))),
+    ).toMatchObject({ code: "conflict" });
+    expect((await invoke("agreement.get", { id }, context(admin))).versions.length).toBe(1);
+  });
+
+  it("a preview of 'version 1' is refused once version 1 exists", async () => {
+    const { id } = await draftDocument();
+    const shown = await invoke("agreement.publishPreview", { id }, context(admin));
+    expect(shown).toMatchObject({ number: 1, first: true });
+    // Someone else publishes, then changes the copy so a publish would otherwise make version 2.
+    await publish(id, shown.draftHash);
+    const saved = await invoke(
+      "agreement.draft.save",
+      { id, body: body("Fixture v2") },
+      context(admin),
+    );
+    expect(
+      await refusal(
+        invoke(
+          "agreement.publish",
+          {
+            documentId: id,
+            draftHash: saved.hash,
+            draftRev: saved.rev,
+            number: shown.number,
+            change: "small",
+          },
+          context(admin),
+        ),
+      ),
+    ).toMatchObject({ code: "conflict", details: { rule: "agreement_draft_changed" } });
+  });
+
+  it("a publish with nothing changed since the newest version is refused", async () => {
+    const { id, hash } = await draftDocument();
+    await publish(id, hash);
+    const saved = await invoke("agreement.draft.save", { id }, context(admin));
+    expect(await refusal(publish(id, saved.hash, { change: "agree_again" }))).toMatchObject({
+      code: "conflict",
+      details: { rule: "agreement_unchanged" },
+    });
+  });
+});
+
+describe("each term is pinned on its own (review: tests the rev check masked)", () => {
+  const TERMS: [column: string, value: string | number, field: string][] = [
+    ["draft_how", "drawn", "how"],
+    ["draft_who", "payer", "who"],
+    ["draft_for", "dependants", "forWhom"],
+    ["draft_ask_again_months", 120, "askAgainMonths"],
+  ];
+
+  it("the hash covers each term: a raw change with the rev bumped is refused against the old hash", async () => {
+    for (const [column, value, field] of TERMS) {
+      const { id } = await draftDocument("health");
+      const preview = await invoke("agreement.publishPreview", { id }, context(admin));
+      await env.DB.prepare(
+        `UPDATE core_agreement_document SET ${column} = ?, draft_rev = draft_rev + 1 WHERE id = ?`,
+      )
+        .bind(value, id)
+        .run();
+      const refused = await refusal(
+        invoke(
+          "agreement.publish",
+          {
+            documentId: id,
+            draftHash: preview.draftHash,
+            draftRev: preview.draftRev + 1,
+            number: 1,
+            change: "small",
+          },
+          context(admin),
+        ),
+      );
+      expect(refused, field).toMatchObject({ code: "conflict" });
+      const after = await invoke("agreement.publishPreview", { id }, context(admin));
+      expect(after.draftHash, field).not.toBe(preview.draftHash);
+    }
+  });
+
+  it("the insert trigger compares each term: a forged row differing in one is refused", async () => {
+    const forged: [column: string, expression: string][] = [
+      ["title", "'Other title'"],
+      ["body", `'{"blocks":[]}'`],
+      ["tick_label", "'Other label'"],
+      ["questions", "NULL"],
+      ["how", "'drawn'"],
+      ["who", "'payer'"],
+      ["for_whom", "'dependants'"],
+      ["ask_again_months", "120"],
+    ];
+    for (const [column, expression] of forged) {
+      const { id } = await draftDocument("health");
+      const columns: Record<string, string> = {
+        title: "draft_title",
+        body: "draft_body",
+        tick_label: "draft_tick_label",
+        questions: "draft_questions",
+        how: "draft_how",
+        who: "draft_who",
+        for_whom: "draft_for",
+        ask_again_months: "draft_ask_again_months",
+      };
+      const select = Object.entries(columns)
+        .map(([c, d]) => (c === column ? expression : d))
+        .join(", ");
+      await expect(
+        env.DB.prepare(
+          `INSERT INTO core_agreement_version (id, document_id, number, title, body, tick_label,
+             questions, how, who, for_whom, ask_again_months, change, effective_from, published_at,
+             published_by, draft_rev, hash)
+           SELECT 'agv_f_${column}', id, 1, ${select}, 'first', 'now', 'now', 'usr', draft_rev,
+             printf('%064d', 0) FROM core_agreement_document WHERE id = ?`,
+        )
+          .bind(id)
+          .run(),
+        column,
+      ).rejects.toThrow(/core_agreement_draft_changed/);
+    }
+  });
+});
+
+describe("raw SQL gaps (review B2)", () => {
+  it("a document's id never changes, a point is never rewritten, a draft change always moves the rev", async () => {
+    const live = await draftDocument();
+    await publish(live.id, live.hash);
+    const draft = await draftDocument();
+    await expect(
+      env.DB.prepare("UPDATE OR REPLACE core_agreement_document SET id = ? WHERE id = ?")
+        .bind(live.id, draft.id)
+        .run(),
+    ).rejects.toThrow(/document_fixed/);
+    await expect(
+      env.DB.prepare("UPDATE core_agreement_document SET id = 'agd_moved' WHERE id = ?")
+        .bind(draft.id)
+        .run(),
+    ).rejects.toThrow(/document_fixed/);
+    await invoke("agreement.attach", { documentId: live.id, points: [POINT] }, context(admin));
+    await expect(
+      env.DB.prepare("UPDATE core_agreement_point SET document_id = ? WHERE document_id = ?")
+        .bind(draft.id, live.id)
+        .run(),
+    ).rejects.toThrow(/core_agreement_not_live/);
+    await expect(
+      env.DB.prepare("UPDATE core_agreement_document SET draft_title = 'Raw' WHERE id = ?")
+        .bind(draft.id)
+        .run(),
+    ).rejects.toThrow(/core_agreement_draft_changed/);
+    // With the rev moved, the change is allowed (and the editor sees a new rev).
+    await env.DB.prepare(
+      "UPDATE core_agreement_document SET draft_title = 'Raw', draft_rev = draft_rev + 1 WHERE id = ?",
+    )
+      .bind(draft.id)
+      .run();
+    expect((await invoke("agreement.get", { id: draft.id }, context(admin))).draft.title).toBe(
+      "Raw",
+    );
+  });
+});
+
+describe("invisible characters (review B3)", () => {
+  const save = (id: string, input: Record<string, unknown>) =>
+    invoke("agreement.draft.save", { id, ...input }, context(admin));
+
+  it("refuses tag characters outside a flag and C1 controls; fillers are not text", async () => {
+    const { id } = await draftDocument();
+    for (const title of [
+      "Waiver\u{e0041}\u{e0042}",
+      "Waiver\u0085",
+      "\u3164\u3164",
+      "\u2800",
+      "\u115f\u1160\uffa0",
+      "\u00ad\u034f\u180e\ufe0f",
+    ]) {
+      expect(await refusal(save(id, { title })), JSON.stringify(title)).toMatchObject({
+        code: "invalid_input",
+      });
+    }
+    expect(await refusal(save(id, { body: body("Fixture\u{e0020}text") }))).toMatchObject({
+      code: "invalid_input",
+    });
+    // Allowed: a subdivision flag, a joiner in an emoji, a soft hyphen, a direction mark in text.
+    const flag = "\u{1f3f4}\u{e0067}\u{e0062}\u{e0073}\u{e0063}\u{e0074}\u{e007f}";
+    const ok = await save(id, {
+      title: `Waiver ${flag} \u{1f469}\u200d\u{1f4bb} co\u00adop \u200f`,
+    });
+    expect(ok.title).toContain(flag);
+    await save(id, { body: body("\u3164\u2800\u200b") });
+    expect((await invoke("agreement.publishPreview", { id }, context(admin))).problems).toContain(
+      "The body has no text",
+    );
+  });
+});
+
+describe("core permission namespaces are reserved (review B5)", () => {
+  it("an extension cannot take the id of a core permission's namespace", async () => {
+    const { CORE_PERMISSION_NAMESPACES } = await import("../src/principals.ts");
+    expect(CORE_PERMISSION_NAMESPACES).toContain("agreements");
+    for (const id of CORE_PERMISSION_NAMESPACES) {
+      const result = await check(manifest(id, { grantable: [`${id}:manage`] } as never));
+      expect(JSON.stringify(result.issues), id).toContain('"path":"id"');
+    }
+  });
+
+  it("an account holding a pack role is refused an agreements:manage grant", async () => {
+    const coach = await createUser("viewer");
+    await env.DB.prepare("UPDATE core_user SET pack_role = 'bookings.coach' WHERE id = ?")
+      .bind(coach.id)
+      .run();
+    expect(
+      await refusal(
+        invoke(
+          "user.setPermissions",
+          { id: coach.id, permissions: ["agreements:manage"] },
+          context(admin),
+        ),
+      ),
+    ).toMatchObject({ code: "invalid_input" });
   });
 });

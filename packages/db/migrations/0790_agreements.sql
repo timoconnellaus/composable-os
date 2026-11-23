@@ -138,6 +138,33 @@ BEGIN
   SELECT RAISE(ABORT, 'core_agreement_draft_changed');
 END;
 
+-- Any change to the working copy moves its rev by one, raw writes included: so the editor's "someone
+-- else changed it" always sees it, and a reviewed rev never covers different content.
+CREATE TRIGGER core_agreement_document_draft_changes
+BEFORE UPDATE OF draft_title, draft_body, draft_tick_label, draft_questions, draft_how, draft_who,
+  draft_for, draft_ask_again_months, draft_updated_at, draft_updated_by, draft_updated_via
+  ON core_agreement_document
+WHEN (NEW.draft_title IS NOT OLD.draft_title OR NEW.draft_body IS NOT OLD.draft_body
+    OR NEW.draft_tick_label IS NOT OLD.draft_tick_label
+    OR NEW.draft_questions IS NOT OLD.draft_questions OR NEW.draft_how IS NOT OLD.draft_how
+    OR NEW.draft_who IS NOT OLD.draft_who OR NEW.draft_for IS NOT OLD.draft_for
+    OR NEW.draft_ask_again_months IS NOT OLD.draft_ask_again_months
+    OR NEW.draft_updated_at IS NOT OLD.draft_updated_at
+    OR NEW.draft_updated_by IS NOT OLD.draft_updated_by
+    OR NEW.draft_updated_via IS NOT OLD.draft_updated_via)
+  AND NEW.draft_rev IS NOT OLD.draft_rev + 1
+BEGIN
+  SELECT RAISE(ABORT, 'core_agreement_draft_changed');
+END;
+
+-- A document keeps its id (an UPDATE OR REPLACE of the id would rewrite another document).
+CREATE TRIGGER core_agreement_document_id
+BEFORE UPDATE OF id ON core_agreement_document
+WHEN NEW.id IS NOT OLD.id
+BEGIN
+  SELECT RAISE(ABORT, 'core_agreement_document_fixed');
+END;
+
 -- The kind is fixed; the state only moves forward (draft to live or retired, live to retired).
 CREATE TRIGGER core_agreement_document_kind_state
 BEFORE UPDATE OF kind, state ON core_agreement_document
@@ -201,6 +228,14 @@ BEGIN
   WHERE NOT EXISTS (
     SELECT 1 FROM core_agreement_document d WHERE d.id = NEW.document_id AND d.state = 'live'
   );
+END;
+
+-- An attachment is added or removed, never rewritten (moving one to a never-published document
+-- would get past the trigger above).
+CREATE TRIGGER core_agreement_point_no_update
+BEFORE UPDATE ON core_agreement_point
+BEGIN
+  SELECT RAISE(ABORT, 'core_agreement_not_live');
 END;
 
 -- One counter the host bumps in the batch of every change to what is due (every publish, a

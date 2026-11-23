@@ -27,13 +27,31 @@ export const AGREEMENT_CHANGES = ["first", "small", "agree_again"] as const;
 export const BODY_MAX_BYTES = 131_072;
 const BODY_BLOCKS_REFUSED = new Set(["embed", "button", "image"]);
 
-/** Zero-width characters: nothing a person sees. */
-const ZERO_WIDTH = /[​-‍⁠﻿]/g;
+/**
+ * Characters a person does not see, which never count as text: zero-width spaces and joiners, word
+ * joiner and BOM, direction marks, soft hyphen, combining grapheme joiner, Mongolian vowel
+ * separator, Hangul fillers, the blank Braille pattern, and variation selectors. They are allowed
+ * (several languages and emoji need them); a text made only of them is not text.
+ */
+const INVISIBLE =
+  /[\u200b-\u200f]|[\u2060-\u2064]|[\ufeff]|[\u061c]|[\u00ad]|[\u034f]|[\u180e]|[\u3164]|[\u115f]|[\u1160]|[\uffa0]|[\u2800]|[\ufe00-\ufe0f]|[\u{e0100}-\u{e01ef}]/gu;
 /** Bidirectional overrides and isolates: they make a text read differently from what it holds. */
-const BIDI_CONTROLS = /[‪-‮⁦-⁩]/;
+const BIDI_CONTROLS = /[\u202a-\u202e\u2066-\u2069]/;
+/** C0 and C1 control characters, and DEL. */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: refusing control characters is the point.
+const CONTROLS = /[\u0000-\u001f\u007f-\u009f]/;
+/** The same in body text, which may hold tabs and line ends. */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: refusing control characters is the point.
+const BODY_CONTROLS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/;
+/** A subdivision flag (a black flag, tag letters, a cancel tag): the one use of tag characters. */
+const TAG_FLAG = /\u{1f3f4}[\u{e0020}-\u{e007e}]+\u{e007f}/gu;
+const TAGS = /[\u{e0000}-\u{e007f}]/u;
+
+/** Tag characters outside a subdivision flag: invisible text that can carry anything. */
+const hasStrayTags = (value: string) => TAGS.test(value.replace(TAG_FLAG, ""));
 
 /** Whether a string has something a person can read. */
-const visible = (value: string) => /\S/.test(value.replace(ZERO_WIDTH, ""));
+const visible = (value: string) => /\S/u.test(value.replace(INVISIBLE, ""));
 
 /** A single line a person reads: no control characters, no bidi controls, not empty to the eye. */
 const line = (max: number) =>
@@ -42,9 +60,9 @@ const line = (max: number) =>
     .trim()
     .min(1)
     .max(max)
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: refusing control characters is the point.
-    .refine((value) => !/[\u0000-\u001f\u007f]/.test(value), "No control characters")
+    .refine((value) => !CONTROLS.test(value), "No control characters")
     .refine((value) => !BIDI_CONTROLS.test(value), "No bidirectional control characters")
+    .refine((value) => !hasStrayTags(value), "No invisible tag characters")
     .refine(visible, "Nothing a person could read");
 
 export const titleSchema = line(200);
@@ -93,6 +111,12 @@ export const bodySchema = z.unknown().superRefine((value, ctx) => {
     (text, path) => {
       if (BIDI_CONTROLS.test(text)) {
         ctx.addIssue({ code: "custom", path, message: "No bidirectional control characters" });
+      }
+      if (BODY_CONTROLS.test(text)) {
+        ctx.addIssue({ code: "custom", path, message: "No control characters" });
+      }
+      if (hasStrayTags(text)) {
+        ctx.addIssue({ code: "custom", path, message: "No invisible tag characters" });
       }
     },
     (run, path) => {

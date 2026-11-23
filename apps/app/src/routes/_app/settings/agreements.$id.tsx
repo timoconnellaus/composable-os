@@ -68,6 +68,14 @@ const VIA_LABELS: Record<string, string> = {
   extension: "extension code",
 };
 
+/** Who saved a copy: the staff account's name and, when it was not the person, the kind of actor. */
+function savedBy(draft: { updatedVia: string; updatedByName: string | null }): string {
+  const name = draft.updatedByName ?? "a staff account";
+  return draft.updatedVia === "human"
+    ? name
+    : `${VIA_LABELS[draft.updatedVia] ?? draft.updatedVia}, for ${name}`;
+}
+
 function AgreementPage() {
   const { id } = Route.useParams();
   const doc = useOp("agreement.get", { id });
@@ -107,6 +115,8 @@ function AgreementPage() {
           {doc.data.state !== "retired" && (
             <Publish
               doc={doc.data}
+              shownRev={shownRev}
+              onPublished={setShownRev}
               blocked={
                 dirty
                   ? "Save or discard your edits before publishing."
@@ -188,7 +198,7 @@ function WorkingCopy({
         <CardTitle>Working copy</CardTitle>
         <p className="text-muted-foreground text-sm">
           Saving changes no published version and asks nobody anything. Last saved{" "}
-          {formatDateTime(doc.draft.updatedAt)} by {VIA_LABELS[doc.draft.updatedVia] ?? "someone"}.
+          {formatDateTime(doc.draft.updatedAt)} by {savedBy(doc.draft)}.
         </p>
         {changedElsewhere && (
           <div
@@ -196,7 +206,7 @@ function WorkingCopy({
             role="alert"
             data-testid="draft-changed"
           >
-            The working copy was changed by {VIA_LABELS[doc.draft.updatedVia] ?? "someone"} at{" "}
+            The working copy was changed by {savedBy(doc.draft)} at{" "}
             {formatDateTime(doc.draft.updatedAt)}, after you opened it. You are still looking at the
             copy you opened.
             <Button size="sm" variant="outline" onClick={loadNewest}>
@@ -381,7 +391,17 @@ function Questions({
 
 type Preview = CoreOutput<"agreement.publishPreview">;
 
-function Publish({ doc, blocked }: { doc: Doc; blocked: string | null }) {
+function Publish({
+  doc,
+  blocked,
+  shownRev,
+  onPublished,
+}: {
+  doc: Doc;
+  blocked: string | null;
+  shownRev: number | null;
+  onPublished: (rev: number) => void;
+}) {
   const preview = useOp("agreement.publishPreview", { id: doc.id });
   const publish = useOpMutation("agreement.publish", { invalidates: ["agreement."] });
   const client = useQueryClient();
@@ -407,8 +427,11 @@ function Publish({ doc, blocked }: { doc: Doc; blocked: string | null }) {
         change,
         draftHash: snapshot.draftHash,
         draftRev: snapshot.draftRev,
+        number: snapshot.number,
         ...(effectiveFrom ? { effectiveFrom } : {}),
       });
+      // The publish spends the reviewed rev: the editor now shows the next one, its own.
+      onPublished(snapshot.draftRev + 1);
       toast.success(`Version ${out.version.number} published`);
       setWhen("");
     } catch (error) {
@@ -493,6 +516,17 @@ function Publish({ doc, blocked }: { doc: Doc; blocked: string | null }) {
               cannot be changed or withdrawn afterwards.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {reviewing && shownRev !== null && reviewing.draftRev !== shownRev && (
+            <p
+              className="rounded-md border border-amber-500 p-2 text-sm"
+              role="alert"
+              data-testid="snapshot-differs"
+            >
+              This is not the copy the editor is showing: it was saved again by{" "}
+              {savedBy(reviewing.snapshot)} at {formatDateTime(reviewing.snapshot.updatedAt)}. Read
+              it below before publishing.
+            </p>
+          )}
           {reviewing && <Snapshot preview={reviewing} />}
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -501,6 +535,37 @@ function Publish({ doc, blocked }: { doc: Doc; blocked: string | null }) {
         </AlertDialogContent>
       </AlertDialog>
     </Card>
+  );
+}
+
+/** The body's blocks that differ from the newest version's, each before and after. */
+function BodyChanges({ before, after }: { before: unknown; after: unknown }) {
+  const blocksOf = (v: unknown) =>
+    ((v as { blocks?: unknown[] } | null)?.blocks ?? []) as unknown[];
+  const a = blocksOf(before);
+  const b = blocksOf(after);
+  const rows: { i: number; was: unknown; now: unknown }[] = [];
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    if (JSON.stringify(a[i] ?? null) !== JSON.stringify(b[i] ?? null)) {
+      rows.push({ i, was: a[i], now: b[i] });
+    }
+  }
+  return (
+    <div className="space-y-2 text-sm" data-testid="body-changes">
+      <p className="font-medium">What changed in the body</p>
+      {rows.map((row) => (
+        <div key={row.i} className="grid gap-2 sm:grid-cols-2">
+          <div className="rounded border border-red-300 p-2">
+            <p className="text-muted-foreground text-xs">Before (block {row.i + 1})</p>
+            {row.was ? <AgreementBody value={{ blocks: [row.was] }} /> : <p>(none)</p>}
+          </div>
+          <div className="rounded border border-green-400 p-2">
+            <p className="text-muted-foreground text-xs">After (block {row.i + 1})</p>
+            {row.now ? <AgreementBody value={{ blocks: [row.now] }} /> : <p>(removed)</p>}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -517,6 +582,9 @@ function Snapshot({ preview }: { preview: Preview }) {
     <div className="space-y-3 rounded-md border p-3" data-testid="publish-snapshot">
       <p className="font-semibold">{s.title}</p>
       <AgreementBody value={s.body} />
+      {preview.latest && preview.changed.includes("body") && (
+        <BodyChanges before={preview.latest.body} after={s.body} />
+      )}
       <dl className="space-y-1 text-sm">
         {row("Beside the box", s.tickLabel ?? "")}
         {row("How a person agrees", HOW_LABELS[s.how] ?? s.how)}

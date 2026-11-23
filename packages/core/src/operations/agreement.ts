@@ -74,6 +74,7 @@ const draftSchema = z.object({
   updatedAt: z.string(),
   updatedBy: z.string(),
   updatedVia: z.string().describe("The actor of the last save: human, assistant, mcp, …"),
+  updatedByName: z.string().nullable().describe("The name of the staff account it was saved for"),
   hash: z.string().describe("Hash of everything a version made from it would hold"),
 });
 
@@ -208,7 +209,20 @@ function summarise(
   };
 }
 
-async function draftOf(doc: DocumentRow): Promise<z.infer<typeof draftSchema>> {
+/** The name of the staff account a working copy was last saved for (null when not a user's). */
+async function nameOf(ctx: HandlerContext, userId: string): Promise<string | null> {
+  const row = await ctx.db
+    .selectFrom("core_user")
+    .select("name")
+    .where("id", "=", userId)
+    .executeTakeFirst();
+  return row?.name ?? null;
+}
+
+async function draftOf(
+  doc: DocumentRow,
+  updatedByName: string | null = null,
+): Promise<z.infer<typeof draftSchema>> {
   const body = parse<unknown>(doc.draft_body);
   const questions = parse<Question[]>(doc.draft_questions);
   const content = {
@@ -227,6 +241,7 @@ async function draftOf(doc: DocumentRow): Promise<z.infer<typeof draftSchema>> {
     updatedAt: doc.draft_updated_at,
     updatedBy: doc.draft_updated_by,
     updatedVia: doc.draft_updated_via,
+    updatedByName,
     hash: await versionHash({ kind: doc.kind, ...content }),
   };
 }
@@ -373,7 +388,7 @@ export const agreementGet = defineOperation({
     const points = (await pointsOf(ctx, [doc.id])).get(doc.id) ?? [];
     return {
       ...summarise(doc, versions, points, ctx.now),
-      draft: await draftOf(doc),
+      draft: await draftOf(doc, await nameOf(ctx, doc.draft_updated_by)),
       versions: (
         await Promise.all(
           versions.map(async (v) => {
@@ -545,7 +560,7 @@ export const agreementDraftSave = defineOperation({
         })
         .where("id", "=", doc.id),
     );
-    return draftOf(next);
+    return draftOf(next, ctx.user.name);
   },
 });
 
@@ -584,7 +599,7 @@ export const agreementPublishPreview = defineOperation({
   mcp: { idempotent: true },
   async handler(input, ctx) {
     const doc = await loadDocument(ctx, input.id);
-    const draft = await draftOf(doc);
+    const draft = await draftOf(doc, await nameOf(ctx, doc.draft_updated_by));
     const latestRow = (await versionsOf(ctx, doc.id)).at(-1);
     const latest = latestRow ? toVersion(latestRow, await intact(latestRow, doc.kind)) : null;
     const changed = latest
@@ -620,6 +635,7 @@ export const agreementPublish = defineOperation({
     effectiveFrom: z.string().datetime({ offset: true }).optional(),
     draftHash: z.string().regex(/^[0-9a-f]{64}$/),
     draftRev: z.number().int().min(0),
+    number: z.number().int().min(1).describe("The version number the preview showed"),
   }),
   output: z.object({ document: documentSummary, version: versionSchema }),
   permission: "agreements:manage",
@@ -649,6 +665,9 @@ export const agreementPublish = defineOperation({
     }
     const versions = await versionsOf(ctx, doc.id);
     const latest = versions.at(-1);
+    // The number the person was shown ("version 1, the first"): another publish landing between
+    // the preview and the click makes this one something else, so it is refused.
+    if (input.number !== (latest?.number ?? 0) + 1) throw draftChanged();
     const effectiveFrom = input.effectiveFrom
       ? new Date(input.effectiveFrom).toISOString()
       : ctx.now;
@@ -662,6 +681,19 @@ export const agreementPublish = defineOperation({
         `Version ${latest.number} takes effect at ${latest.effective_from}: a newer one cannot take effect before it`,
         { rule: "agreement_effective_order" },
       );
+    }
+    if (latest) {
+      const newest = toVersion(latest, true);
+      if (
+        COMPARED.every(
+          (f) => JSON.stringify(draft[f] ?? null) === JSON.stringify(newest[f] ?? null),
+        )
+      ) {
+        throw new ConflictError(
+          `Nothing changed since version ${latest.number}: there is nothing to publish.`,
+          { rule: "agreement_unchanged" },
+        );
+      }
     }
     // The stored working copy's own columns, unchanged: the insert trigger compares each of them
     // with the document's at commit, so the version holds exactly the copy at input.draftRev.
@@ -684,7 +716,14 @@ export const agreementPublish = defineOperation({
       draft_rev: input.draftRev,
       hash: draft.hash,
     };
-    ctx.write(ctx.db.insertInto("core_agreement_version").values(row));
+    ctx.write(
+      ctx.db.insertInto("core_agreement_version").values(row),
+      // The reviewed rev is spent: the same hash and rev can never publish a second version.
+      ctx.db
+        .updateTable("core_agreement_document")
+        .set({ draft_rev: input.draftRev + 1 })
+        .where("id", "=", doc.id),
+    );
     const timing: VersionTiming[] = [...versions, row];
     const effect = inEffect(timing, ctx.now);
     const next: DocumentRow = {
