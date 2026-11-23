@@ -647,19 +647,21 @@ export const checklistTick = defineOperation({
       });
     }
     if (p.make) ctx.write(p.make);
+    // The record's run, whoever made it: this call a moment ago, or the minute cron meanwhile.
+    const runOfRecord = sql<string>`(SELECT id FROM core_checklist_run WHERE object_type = ${p.facts.object} AND record_id = ${p.facts.id})`;
     // Whose run it is now (a shift reassigned is continued by its new person).
     ctx.write(
       ctx.db
         .updateTable("core_checklist_run")
         .set({ account_id: p.facts.account })
-        .where("id", "=", p.runId)
+        .where("id", "=", runOfRecord)
         .where("state", "=", "open"),
     );
     if (input.state === "clear") {
       ctx.write(
         ctx.db
           .deleteFrom("core_checklist_tick")
-          .where("run_id", "=", p.runId)
+          .where("run_id", "=", runOfRecord)
           .where("position", "=", input.step),
       );
     } else {
@@ -676,7 +678,7 @@ export const checklistTick = defineOperation({
       ctx.write(
         ctx.db
           .insertInto("core_checklist_tick")
-          .values({ run_id: p.runId, position: input.step, ...values })
+          .values({ run_id: runOfRecord, position: input.step, ...values })
           .onConflict((oc) => oc.columns(["run_id", "position"]).doUpdateSet(values)),
       );
     }
