@@ -576,6 +576,10 @@
       "sha256": "2ca01c64bc369b412d480808be677a89bbcb44f30859ad05da321199e8fa1931"
     },
     {
+      "name": "0812_staff_offers.sql",
+      "sha256": "96f13c74d16c3adf366a3df5c17d898564b67ca0e1d001d2fc36846386b5e478"
+    },
+    {
       "name": "0850_agreements.sql",
       "sha256": "ac44a255fe73e8195da0f8ef6fed7572e561918517d138581094d9f46e2789e5"
     },

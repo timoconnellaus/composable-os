@@ -25,7 +25,10 @@ decisions 14 to 25). Build step 1, field-level exceptions in `recurring`, is bui
 ([ADR 0620](../adr/0620-field-level-exceptions-in-recurring.md), migration 0810). Build step 2,
 `staffed` and the time claim, is built ([ADR 0621](../adr/0621-the-staffed-behaviour-and-the-time-claim.md),
 [ADR 0622](../adr/0622-warnings-in-a-writes-answer.md), migration 0811; see "Built in step 2"
-below). Builds on stage
+below). Build step 3, qualifications, unavailability, offers and takes, uncovered shifts, the
+notices and leaving, is built ([ADR 0623](../adr/0623-offers-and-takes-the-race-and-the-cut-off.md),
+[ADR 0624](../adr/0624-the-rosters-notices-uncovered-shifts-and-leaving.md), migration 0812; see
+"Built in step 3" below). Builds on stage
 31a (built) and ADR 0600 (merged). Replaces the roadmap's placeholder stage 40 (Rosters), which was
 never specced. Where this spec guesses, it says **(guess)**.
 
@@ -808,6 +811,54 @@ trigger keeping a completed run unchanged). No `x_*` table is touched by a migra
   4).
 - **Not in this step**: `staffName` (with `staffing.forget`), the `pay_period_locked` refusal and
   the notices.
+
+### Built in step 3 (2026-11-23)
+[ADR 0623](../adr/0623-offers-and-takes-the-race-and-the-cut-off.md),
+[ADR 0624](../adr/0624-the-rosters-notices-uncovered-shifts-and-leaving.md), ADR 0622 amended,
+migration 0812 (`core_staff_offer` and its triggers, with its shift's start and kind kept on it;
+the qualification index by kind; `core_staff_run`; `core_staff_guard`; edited in place in the
+review of PR #282, before merge). All of the host's new operations are tool-only, as `staffing.check` is; nothing
+calls them until Rostering's tools (step 4).
+- **Qualifications**: `staffing.qualify` (a rosterer; the calling tool must be `personApproves` or
+  `humanOnly`, so an AI's request waits for a person) and `staffing.qualifications`.
+- **Unavailability**: `staffing.away` (one-off as local date-times in a zone, or regular), answering
+  the shifts it covers (to offer in one step) and telling the rosterers in a person-only notice;
+  `staffing.back` (removes it); `staffing.awayList`. Their own, or anyone's for a rosterer; a
+  person's own act. Someone else's is answered as not there. The note is redacted from the audit
+  log, and other people's leave is read only through a tool a person calls (`humanOnly`), never by
+  an assistant (decided in review).
+- **Offers and takes**: `staffing.offer`, `staffing.take`, `staffing.withdraw`, `staffing.offers`,
+  as this spec says, with these decisions: **the race is decided by a trigger on the offer, not a
+  `core_write_guard` kind** (an offer leaves `open` once; the take updates it by id; migration 0852,
+  reserved for the guard remake, is released); a take needs a qualification row even where the
+  business has set none up, and a shift with no kind can be taken by nobody; an offer to one named
+  person checks they are qualified, have a profile and are free, never whether they are away; the
+  offerer is never told how many were told (a rosterer is); after a failed take the pipeline's new
+  `explainFailure` names who took it. Decided in review: every write that changes a shift's person
+  (or its coach profile's account) cancels its open offer by the shift at commit, and the take
+  refuses an offer whose shift has changed hands (`offer_stale`), so a take never removes someone
+  who did not offer it; an offer to everyone is refused when nobody but the offerer is qualified
+  for the kind, or the shift has no kind (`nobody_qualified`, from qualifications alone; the owner
+  may override); a taker's list reads only offers of kinds they are qualified for, soonest first.
+- **The cut-off** is fixed at 60 minutes until Rostering's setting (step 4). The minute cron's
+  `staffing.due` lapses offers past it, nearest first (the offer keeps its shift's start, indexed),
+  and cancels those whose shift is gone. It and `recurring.generate` are host steps, never queued
+  for review under an approval floor.
+- **`staffing.assign`** (a rosterer; applied by a person) is built here, since it shares the take's
+  write of the person; **`staffing.uncovered`** too.
+- **Notices** are written for every write of a shift, whatever path (`staffing/changes.ts`), and
+  gathered over the call: **one notice per person per call**, a summary (how many, the dates) when
+  it touched several of their shifts. So a change of a series' coach or time tells each person on,
+  off or moved once, and an import tells each person once. A series' generation tells nobody per
+  record; a date it leaves uncovered tells the rosterers. The daily uncovered notice goes from
+  07:00 local, once a day.
+- **Leaving**: `user.deactivate { id, confirm }` as this spec says; shifts under way keep their
+  person; patterns in the Trash are cleared too; the changes are the host's (ADR 0590's marks), and
+  a guard fails the batch if anything it read changed, so what is recorded is exactly what was
+  cleared; more than 2,000 future shifts is refused, not partly done. The generation never puts a
+  deactivated account on a new date. The feed's revocation is step 5's.
+- **Not in this step**: `staffing.week`, `staffing.forget`, `staffName`, the feed, pay, the
+  permissions and the pack.
 
 **The spine is steps 2 to 4**: without the claim, the rules and the permissions, nothing can be
 rostered safely. Step 1 is built; step 2 can start now and is the riskiest (every write that covers

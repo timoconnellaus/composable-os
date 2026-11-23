@@ -34,7 +34,12 @@ import { followersOn } from "../records/follows.ts";
 import type { Mover } from "../records/transitions.ts";
 import type { MarkSource } from "../routine-mail/marks.ts";
 import { loadGeneralSettings } from "../settings.ts";
-import { assertPlansStaffFree, generationClash } from "../staffing/index.ts";
+import {
+  assertPlansStaffFree,
+  generationClash,
+  patternNotApplied,
+  personDeactivated,
+} from "../staffing/index.ts";
 import {
   isoWeekday,
   localParts,
@@ -391,19 +396,32 @@ export async function generateSeries(
     // already on an overlapping shift is made with nobody on it, and keeps that as its own (a
     // field exception), so the series does not write the clash back; a rosterer settles it.
     const who = staffed?.who.field;
-    const uncovered =
+    // A pattern still naming someone who left (a series restored from the Trash) puts nobody on
+    // the date (stage 45, ADR 0624); the series keeps its value for a rosterer to change.
+    if (
       who !== undefined &&
       values[who] !== null &&
       values[who] !== undefined &&
-      (await generationClash(ctx, generated, {
-        ...(stateField ? { [stateField]: generated.states?.initial } : {}),
-        ...values,
-      })) !== null;
+      (await personDeactivated(ctx, generated, values))
+    ) {
+      values[who] = null;
+    }
+    const planned = {
+      ...(stateField ? { [stateField]: generated.states?.initial } : {}),
+      ...values,
+    };
+    const clash =
+      who !== undefined && values[who] !== null && values[who] !== undefined
+        ? await generationClash(ctx, generated, planned)
+        : null;
+    const uncovered = clash !== null;
     if (uncovered && who) values[who] = null;
     const record = await records().create(ctx, generated, values, {
       by: "host",
       copied: occurrenceSources(def, object.name, id, series, Object.keys(values)),
     });
+    // The rosterers are told the date and why (stage 45 step 3, ADR 0624).
+    if (clash) await patternNotApplied(ctx, generated, record, occurrence.date, planned, clash);
     ctx.write(
       occurrenceStatement({
         seriesObject: object.name,

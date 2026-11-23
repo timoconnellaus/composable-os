@@ -26,6 +26,7 @@ import {
   runDuplicateCron,
   runPublishDue,
   runRecurringDue,
+  runStaffingDue,
   runTimedMovesDue,
   runWaitlistDue,
   type ShippedExtension,
@@ -376,6 +377,11 @@ export async function minuteTick(env: Env, at: Date) {
       ...(env.AUTOMATION_EVENTS ? { events: queueEventSink(env.AUTOMATION_EVENTS) } : {}),
     }),
   );
+  // The roster (stage 45, ADRs 0623 and 0624): offers past their cut-off lapse; once a day the
+  // rosterers hear of shifts with nobody on them. A quiet minute is a few reads and no write.
+  const staffing = await minuteStep("staffing", () =>
+    runStaffingDue(createCrmDb(env.DB), { clock: () => at, floor: parseFloor(env.APPROVAL_FLOOR) }),
+  );
   // Agreements (stage 44, ADR 0640): scheduled versions whose time has come take effect.
   const agreements = await minuteStep("agreements", () =>
     runAgreementsDue(createCrmDb(env.DB), {
@@ -410,6 +416,7 @@ export async function minuteTick(env: Env, at: Date) {
     recurring,
     waitlist,
     timedMoves,
+    staffing,
     agreements,
     agreementCopies,
     customerSignup,

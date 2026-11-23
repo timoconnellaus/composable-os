@@ -194,6 +194,12 @@ export interface HandlerContext {
   /** Queues statements (Kysely insert/update/delete builders) for the commit batch, in order. */
   write(...statements: (Compilable | CompiledQuery)[]): void;
   /**
+   * Runs `fn` once the handler has returned, before the batch commits, to queue writes gathered
+   * over the whole call (stage 45, ADR 0624: one notice per person for a bulk write). Absent on a
+   * simulated call, whose writes are not committed.
+   */
+  readonly beforeCommit?: ((fn: () => Promise<void>) => void) | undefined;
+  /**
    * Records a touched record for the audit log. For `update`s, changed fields flagged
    * `track: "timeline"` in the field registry also post a system activity on the record.
    */
@@ -506,6 +512,16 @@ export interface OperationDefinition<
   auditReads?: true;
   /** A small JSON summary of the result for the audit log. Default: touched records or id. */
   auditSummary?: (output: z.output<Out>, input: z.output<In>) => unknown;
+  /**
+   * The batch failed at commit (a race the database decided, stage 45, ADR 0623): read again and
+   * answer what happened instead (the take of an offer someone else took a moment before names
+   * who). Return null to keep the error as it is. Reads only; nothing it queues is written.
+   */
+  explainFailure?: (
+    error: import("./errors.ts").OperationError,
+    input: z.output<In>,
+    ctx: HandlerContext,
+  ) => Promise<import("./errors.ts").OperationError | null>;
   mcp?: McpOptions;
   handler: (
     input: z.output<In>,

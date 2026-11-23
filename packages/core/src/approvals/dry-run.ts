@@ -81,6 +81,8 @@ const CONTEXT_KEYS = {
   // Reads the caller's own sign-in address: a lookup, not an effect.
   signIn: "data",
   write: "database",
+  // Queues writes at the end of the call (stage 45): a simulated call has none (readOnlyContext).
+  beforeCommit: "database",
   recordChange: "database",
   recordHostChange: "database",
   postActivity: "database",
