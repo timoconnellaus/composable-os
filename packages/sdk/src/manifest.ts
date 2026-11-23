@@ -19,6 +19,7 @@ import {
   checkObjectClaims,
   claimsManifestSchema,
 } from "./capacity.ts";
+import { checklistsManifestSchema, checkObjectChecklists } from "./checklists.ts";
 import {
   type Extension,
   HOST_MODULES,
@@ -217,6 +218,7 @@ export const objectManifestSchema = z.object({
   unique: uniqueManifestSchema.optional(),
   recurring: recurringManifestSchema.optional(),
   staffed: staffedManifestSchema.optional(),
+  checklists: checklistsManifestSchema.optional(),
   owner: z.string().max(40).optional(),
   customer: z
     .object({
@@ -1106,6 +1108,7 @@ export function validateManifest(
     checkObjectUnique(m, name, object, contract);
     checkObjectRecurring(m, name, object, contract);
     checkObjectStaffed(m, name, object, contract);
+    checkObjectChecklists(m, name, object, contract);
     object.requireOneOf?.forEach((group, i) => {
       for (const field of group) {
         if (!object.fields[field]) {

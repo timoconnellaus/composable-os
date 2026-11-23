@@ -14,6 +14,7 @@ import {
   FileSignatureIcon,
   GavelIcon,
   LifeBuoyIcon,
+  ListChecksIcon,
   ListOrderedIcon,
   MailCheckIcon,
   MicIcon,
@@ -46,6 +47,7 @@ function Section({
   description: string;
   to?:
     | "/settings/agreements"
+    | "/settings/checklists"
     | "/settings/approval-policy"
     | "/settings/agents"
     | "/settings/assistant-memory"
@@ -252,6 +254,12 @@ function SettingsPage() {
             title="Agreements"
             description="The documents people agree to (terms, a waiver, health questions, a parent's consent), their versions, and where each is needed."
             to="/settings/agreements"
+          />
+          <Section
+            icon={<ListChecksIcon className="size-5" />}
+            title="Checklists"
+            description="Lists of steps staff tick off on a duty (a close-down clean, opening up), and which are in use."
+            to="/settings/checklists"
           />
           {isAdmin && (
             <Section

@@ -197,6 +197,12 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "staffing/pay.ts": [6, WHY.host],
   // The calendar feed (ADR 0628): the token's own shifts, by id from their time claims.
   "staffing/feed.ts": [1, WHY.host],
+  // Checklists (stage 45 step 4b, ADR 0650): a record's person, opening and closing times, state,
+  // title and the checklist its relation names, for its run and who may tick it (never a booking
+  // or a Person); the minute cron's records needing a run and open runs out of step with theirs;
+  // and whether a duty carries a checklist (who may move a shift off it, or bin it).
+  "checklists/index.ts": [3, WHY.host],
+  "checklists/runs.ts": [2, WHY.host],
   // The host's read of a period's order by its invoice (stage 32a, ADR 0486).
   "subscriptions/periods.ts": [1, WHY.host],
   // Whether a paid invoice is the first period after a pause the host asked for (stage 32b, ADR 0531).

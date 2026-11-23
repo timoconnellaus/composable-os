@@ -99,6 +99,14 @@ export const ID_PREFIXES = {
   staffAway: "saw",
   /** One locked version of a pay period (stage 45 step 6, ADR 0627). */
   payPeriod: "ppe",
+  /** A checklist template (stage 45 step 4b, ADR 0650). */
+  checklist: "ckl",
+  /** A run of a checklist on one record, never changed once closed (ADR 0650). */
+  checklistRun: "ckr",
+  /** A correction added beside a closed checklist run (ADR 0650). */
+  checklistNote: "ckn",
+  /** One tick of a checklist run's step, never changed (ADR 0650). */
+  checklistTick: "ckt",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

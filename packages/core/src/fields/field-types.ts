@@ -33,7 +33,8 @@ export type WidgetKind =
   | "document"
   | "richText"
   | "image"
-  | "video";
+  | "video"
+  | "checklist";
 
 /** The storage value of a field: what goes into its column. */
 export type StoredValue = string | number | null;
@@ -335,6 +336,18 @@ export const FIELD_TYPE_REGISTRY: Record<FieldTypeName, FieldTypeSpec> = {
     "text",
     z.string().max(120).regex(SLUG_RE, "Lowercase letters and digits in words joined by hyphens"),
   ),
+  // A checklist template, by id (stage 45 step 4b, ADR 0650): an active one, checked on write.
+  checklist: {
+    storage: "TEXT",
+    filterType: () => "id",
+    multi: () => false,
+    sortable: () => false,
+    schema: () => nullable(z.string().min(1).max(64)),
+    toStorage: identity,
+    fromStorage: identity,
+    csv: csvText,
+    widget: { display: "checklist", edit: "checklist" },
+  },
   formula: {
     storage: null,
     // Replaced by the formula's result type when the registry is built.

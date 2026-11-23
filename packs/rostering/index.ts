@@ -34,8 +34,14 @@
 //     and `feedRevoke`, the team's, a person's own acts; the host serves the feed and keeps only
 //     its token's hash.
 // The screens (step 7, ADR 0629) are this pack's blocks (blocks/) over its headless entry
-// (client/): they show what the tools answer and decide nothing. Not yet: the checklist on a duty
-// (step 4b).
+// (client/): they show what the tools answer and decide nothing.
+//
+// A duty may carry a checklist (step 4b, ADR 0650): a template the business writes in Settings →
+// Checklists, picked on the duty (`checklist`, a person's to change). Each of its shifts gets a run
+// of it, made by the host, which the shift's person ticks off (`checklist`, `tick`,
+// `checklistDone`), and whoever rosters reads how they went (`checklistRuns`) and adds corrections
+// (`checklistCorrect`). Who ticks, the window, a done run never changing, and who reads a run are
+// the host's (the `checklists` declaration below); every checklist tool is a person's own.
 import { defineExtension } from "@composable-os/sdk";
 import {
   assign,
@@ -45,6 +51,10 @@ import {
   back,
   candidates,
   check,
+  checklist,
+  checklistCorrect,
+  checklistDone,
+  checklistRuns,
   exportPeriod,
   feed,
   feedRevoke,
@@ -69,6 +79,7 @@ import {
   reopen,
   setPattern,
   take,
+  tick,
   uncovered,
   week,
   withdraw,
@@ -129,6 +140,11 @@ export default defineExtension({
       "staffing.feed.status",
       "staffing.feed.rotate",
       "staffing.feed.revoke",
+      "checklist.forRecord",
+      "checklist.tick",
+      "checklist.complete",
+      "checklist.runs",
+      "checklist.correct",
     ],
     modules: ["ops"],
   },
@@ -155,6 +171,14 @@ export default defineExtension({
         },
         place: { type: "text", label: "Where" },
         instructions: { type: "longText", label: "What to do" },
+        // A checklist its shifts' people tick off (step 4b, ADR 0650): what staff are asked to
+        // do, so a person's to change (an assistant's change waits for a person).
+        checklist: {
+          type: "checklist",
+          label: "Checklist",
+          description: "Ticked off on each of its shifts by whoever is on it. Empty: none.",
+          personApproves: true,
+        },
         active: { type: "boolean", label: "Active", default: true },
       },
     },
@@ -246,7 +270,14 @@ export default defineExtension({
       navigationOrder: 40,
       fields: {
         title: { type: "text", label: "Title" },
-        duty: { type: "relation", label: "Duty", to: "rostering.duty", required: true },
+        // Which duty, and so which checklist, a shift is: a person's to change (ADR 0650).
+        duty: {
+          type: "relation",
+          label: "Duty",
+          to: "rostering.duty",
+          required: true,
+          personApproves: true,
+        },
         series: {
           type: "relation",
           label: "Duty series",
@@ -299,6 +330,15 @@ export default defineExtension({
         live: ["scheduled"],
         place: "duty.place",
         pattern: { link: "series", who: "staff" },
+      },
+      // Its duty's checklist, ticked off by its person from its start until 2 hours after its end
+      // (ADR 0650): the runs, who ticks, a done run kept unchanged and who reads it are the host's.
+      checklists: {
+        template: "duty.checklist",
+        who: "staff",
+        opens: "startsAt",
+        closes: "endsAt",
+        live: ["scheduled"],
       },
       indexes: [["startsAt"], ["staff"], ["state", "startsAt"], ["series"]],
     },
@@ -416,8 +456,8 @@ export default defineExtension({
       "rostered.",
     "rostering:manage":
       "Rostering, rosters others: put people on shifts, say who may do which work, record " +
-      "others' time off and see everyone's, see shifts with nobody on them, and mark a shift not " +
-      "worked. Admins hold it.",
+      "others' time off and see everyone's, see shifts with nobody on them, mark a shift not " +
+      "worked, and see how everyone's checklists went and tick one for someone. Admins hold it.",
     "rostering:pay":
       "Rostering, pay: say who is counted for pay, see each pay period's hours and shifts, lock, " +
       "reopen and export them for payroll. No rates or money are held. Admins hold it.",
@@ -448,6 +488,11 @@ export default defineExtension({
     uncovered,
     markNotWorked,
     candidates,
+    checklist,
+    tick,
+    checklistDone,
+    checklistRuns,
+    checklistCorrect,
     follow,
     people,
     patterns,

@@ -141,6 +141,9 @@ const TEAM_TOOLS = [
   "feed",
   "feedRotate",
   "feedRevoke",
+  "checklist",
+  "tick",
+  "checklistDone",
 ].map((t) => `x.rostering.${t}`);
 /** The rosterers' tools: restricted. */
 const MANAGE_TOOLS = [
@@ -158,6 +161,8 @@ const MANAGE_TOOLS = [
   "patterns",
   "setPattern",
   "planCheck",
+  "checklistRuns",
+  "checklistCorrect",
 ].map((t) => `x.rostering.${t}`);
 /** Pay (step 6): restricted, and a person's only. */
 const PAY = "rostering:pay";
@@ -572,6 +577,8 @@ describe("restricted permissions (criterion 8, ADR 0625)", () => {
       "x.rostering.planCheck": {
         plans: [{ account: member.id, date: localDate(30 * DAY), time: "06:00", length: 60 }],
       },
+      "x.rostering.checklistRuns": { from: localDate(0), to: localDate(0) },
+      "x.rostering.checklistCorrect": { run: "ckr_missing", text: "x" },
     };
     for (const name of MANAGE_TOOLS) {
       for (const who of [member, viewer]) {
