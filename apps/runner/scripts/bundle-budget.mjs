@@ -30,7 +30,12 @@ import { fileURLToPath } from "node:url";
 // the packs' sources as a JS literal (generated/shipped.ts) 359 KiB, growing by each pack's whole
 // source. Packs were not duplicated (no blocks, clients or SDK copies in it). The packs' sources
 // moved to a Text module (shipped.txt), as the SDK bundle's are: 6,874 KiB with all nine packs.
-const MAIN_BUDGET_KIB = 7_168;
+// Raised to 7,232 KiB (2026-11-23, one step of 64): routine mail (ADR 0590) took main from 7,101 to
+// 7,169 KiB: the host's decision (core routine-mail, 26 KiB), the declaration's schema, checks and
+// templates in the SDK (18 KiB), its operations (11 KiB) and the runner's module and send. Its
+// manifest types were written out by hand to keep the SDK's declarations small; no React or
+// compiler came with it.
+const MAIN_BUDGET_KIB = 7_232;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
