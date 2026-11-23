@@ -78,6 +78,21 @@ rosterer's, and an AI never does it (`person_applies`), so the person on a shift
 checklist disappear before it is missed. Every such end of a record is marked on its open, opened
 run with who did it, which decides missed or cancelled at its close.
 
+The same holds for what a run reads its checklist through (the second review of PR #298): moving a
+shift to another duty, or off one, when either duty carries a checklist is a rosterer's (a shift's
+`duty` is also `personApproves`, so an AI's change waits for a person, and only a rosterer approves
+it); putting a duty that carries a checklist in the Trash, or restoring it, is a rosterer's, and an
+AI never does it unasked (`person_applies`; a queued one is approved only by a rosterer). A step
+whose latest tick is a clear is anyone's who may tick the run. One step takes at most 50 ticks
+(refused beyond, by the operation and the database), and a read shows the latest 20 earlier ones,
+saying when it left some out. Corrections are read only by the run's own person and rosterers.
+
+**Coordinator's decisions recorded for the owner** (the second review of PR #298, open to
+override): a holder of `checklists:write` who does not roster (admins hold both by default) may
+edit or deactivate a template, which affects future runs only, never an open one; `withheld` shows
+that a tick has a note or reason without showing its words; a person cannot change a tick someone
+who rosters made for them (only a rosterer can).
+
 **A closed run never changes**, for every writer and statement shape. Triggers refuse: inserting a
 run over any existing one (by id or record) or a closed one; any change of a closed run; changing an
 open run's record, template, version, name, steps or made time; deleting a closed or ticked run;
@@ -165,6 +180,9 @@ over 62 days with 400 shifts with checklists, 30; `checklist` of a 50-step run, 
   development page (`/blocks`); the product's admin cannot yet show a pack's own screens to staff.
   Settings → Checklists is real admin UI.
 
+- **The audit rows of extension tools** are listed to an AI only while an installed pack still
+  has the tool and it is not `humanOnly`: a pack since removed, or upgraded without the tool,
+  keeps its rows hidden from non-human callers.
 - **A pack disabled** leaves its open runs as they are: its objects leave the field registry, so the
   cron neither ticks nor closes them; enabled again, they close by the rules above (a run past its
   close and grace then is missed, and the rosterers are told).

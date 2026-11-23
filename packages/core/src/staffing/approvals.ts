@@ -7,8 +7,8 @@
 //   declares who rosters.
 import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
+import { checklistTemplateFields } from "../checklists/index.ts";
 import { ForbiddenError } from "../errors.ts";
-import { objectTableOf } from "../extensions/schema.ts";
 import { resolveExtensionOperation } from "../extensions/tools.ts";
 import { getObject } from "../fields/index.ts";
 import type { HandlerContext } from "../operation.ts";
@@ -40,6 +40,10 @@ export function touchesRoster(operation: string, input: unknown): boolean {
         ),
       );
     }
+    // A holder of a checklist (a duty) put in the Trash or back (ADR 0650, the review of PR #298).
+    case "record.delete":
+    case "record.restore":
+      return checklistTemplateFields(object).length > 0;
     case "recurring.follow": {
       const who = object.staffed?.who.field;
       if (!who) return false;
@@ -68,46 +72,6 @@ export async function movesStartedShiftCall(
   return movesStartedShiftById(db as never, object, input.id, input.values, now);
 }
 
-/**
- * Whether a call cancels, trashes or removes a record whose checklist has opened (a rosterer's,
- * ADR 0650): `record.update` moving it out of its live states, or `record.delete`, once it has
- * started. Read against the record as it is.
- */
-export async function endsStartedChecklistCall(
-  db: Kysely<CoreDatabase>,
-  operation: string,
-  input: unknown,
-  now: string,
-): Promise<boolean> {
-  if (operation !== "record.update" && operation !== "record.delete") return false;
-  if (!isValues(input) || typeof input.object !== "string" || typeof input.id !== "string") {
-    return false;
-  }
-  const object = getObject(input.object);
-  const def = object?.checklists;
-  const table = object ? objectTableOf(object.name) : undefined;
-  const column = (f: string | undefined) => object?.fields.find((x) => x.name === f)?.column;
-  const opensCol = column(def?.opens);
-  const stateCol = column(object?.states?.field);
-  if (!object || !def || !table || !opensCol || !stateCol) return false;
-  if (operation === "record.update") {
-    const values = isValues(input.values) ? input.values : {};
-    const field = object.states?.field ?? "";
-    if (!Object.hasOwn(values, field) || def.live.includes(String(values[field]))) return false;
-  }
-  const row = (await (db as unknown as Kysely<Record<string, Record<string, unknown>>>)
-    .selectFrom(table)
-    .select([`${opensCol} as opens`, `${stateCol} as state`])
-    .where("id", "=", input.id)
-    .executeTakeFirst()) as { opens?: unknown; state?: unknown } | undefined;
-  const opens = Date.parse(String(row?.opens ?? ""));
-  return (
-    def.live.includes(String(row?.state ?? "")) &&
-    Number.isFinite(opens) &&
-    opens <= Date.parse(now)
-  );
-}
-
 /** Refuses an approval of a roster change by anyone who could not make it themselves. */
 export async function assertRosterApprover(
   ctx: HandlerContext,
@@ -122,8 +86,7 @@ export async function assertRosterApprover(
     const restricted = op?.packRestricted === true;
     const roster =
       (touchesRoster(target.operation, input) ||
-        (await movesStartedShiftCall(db, target.operation, input, ctx.now)) ||
-        (await endsStartedChecklistCall(db, target.operation, input, ctx.now))) &&
+        (await movesStartedShiftCall(db, target.operation, input, ctx.now))) &&
       (await rosteringDeclared(db));
     if (!restricted && !roster) continue;
     if (ctx.actor !== "human") {

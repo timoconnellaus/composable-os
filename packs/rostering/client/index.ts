@@ -399,6 +399,7 @@ export type RosterRefusalKind =
   | "checklist_not_yours"
   | "checklist_not_your_tick"
   | "checklist_nothing_to_clear"
+  | "checklist_too_many_ticks"
   | "checklist_for_why"
   | "checklist_note_needed"
   | "checklist_why"
@@ -470,6 +471,7 @@ const KNOWN_RULES: ReadonlySet<string> = new Set<RosterRefusalKind>([
   "checklist_not_yours",
   "checklist_not_your_tick",
   "checklist_nothing_to_clear",
+  "checklist_too_many_ticks",
   "checklist_for_why",
   "checklist_note_needed",
   "checklist_why",
@@ -566,6 +568,10 @@ export function refusalNext(kind: RosterRefusalKind, rosters: boolean): string |
     case "checklist_not_yours":
     case "checklist_not_live":
       return "The checklist has been refreshed.";
+    case "checklist_not_your_tick":
+      return "Someone else ticked this step: whoever rosters can change it.";
+    case "checklist_nothing_to_clear":
+      return "That step is not ticked, so there is nothing to clear.";
     case "checklist_window":
       return "A checklist can be ticked from when the shift starts until 2 hours after it ends.";
     default:

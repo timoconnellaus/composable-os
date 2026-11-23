@@ -270,7 +270,14 @@ export default defineExtension({
       navigationOrder: 40,
       fields: {
         title: { type: "text", label: "Title" },
-        duty: { type: "relation", label: "Duty", to: "rostering.duty", required: true },
+        // Which duty, and so which checklist, a shift is: a person's to change (ADR 0650).
+        duty: {
+          type: "relation",
+          label: "Duty",
+          to: "rostering.duty",
+          required: true,
+          personApproves: true,
+        },
         series: {
           type: "relation",
           label: "Duty series",

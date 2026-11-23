@@ -18,7 +18,7 @@ import {
   mayRoster,
   rosteringDeclared,
 } from "../staffing/rosterers.ts";
-import { endedStatement } from "./index.ts";
+import { checklistTemplateFields, endedStatement, holdersCarryChecklist } from "./index.ts";
 
 const liveIn = (object: ObjectDefinition, values: Record<string, unknown> | null) => {
   const def = object.checklists;
@@ -56,9 +56,8 @@ export async function checklistRecordWritten(
   if (!was || is || !startedBy(object, before, ctx.now)) return;
   const host = by === "host";
   if (!host) {
-    // An AI never ends a started shift on its own: only a person who rosters, or an approval a
-    // rosterer gave (approvals.ts checks the approver).
-    if (ctx.actor !== "human" && ctx.actor !== "extension" && !ctx.approval) {
+    // An AI never ends a started shift: only a person who rosters (ADR 0650).
+    if (ctx.actor !== "human" && ctx.actor !== "extension") {
       throw new ForbiddenError(
         `Cancelling or removing a ${object.label.toLowerCase()} that has started is a person's to do.`,
         { rule: "person_applies" },
@@ -80,4 +79,28 @@ export function checklistRecordRestored(
   id: string,
 ): void {
   if (object.checklists) ctx.write(endedStatement(object.name, id, null, 0));
+}
+
+/**
+ * A holder of a checklist (a duty naming one) put in the Trash, restored or removed by a caller:
+ * a rosterer's where a pack declares who rosters (the review of PR #298), since its shifts would
+ * otherwise get no run and nothing would ever be missed. The host's own writes are not refused.
+ */
+export async function assertChecklistHolderMove(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string,
+  what: "put in the Trash" | "restore",
+  by: Mover | undefined,
+): Promise<void> {
+  if (by === "host" || !checklistTemplateFields(object).length) return;
+  if (!(await holdersCarryChecklist(ctx.db, object.name, [id]))) return;
+  // An AI's is applied only through an approval, which a rosterer gives (approvals.ts).
+  if (ctx.actor !== "human" && ctx.actor !== "extension" && !ctx.approval) {
+    throw new ForbiddenError(
+      `Putting a ${object.label.toLowerCase()} that carries a checklist in the Trash, or back, is a person's to do.`,
+      { rule: "person_applies" },
+    );
+  }
+  await assertMayRoster(ctx, `${what} a ${object.label.toLowerCase()} that carries a checklist`);
 }

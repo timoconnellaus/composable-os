@@ -1165,6 +1165,14 @@ triggers). No `core_write_guard` remake (0852 stays free).
   never listed to an AI; a duty naming an inactive checklist, or in the Trash, gives no run and no
   work; missed steps are the required ones; new runs are bound in chunks of at most 256 KiB and
   closing never waits on making.
+- **Decided in the second review of PR #298**: moving a shift to another duty or off one, when
+  either carries a checklist, is a rosterer's (a shift's `duty` is `personApproves`); putting a duty
+  carrying a checklist in the Trash, or restoring it, is a rosterer's and never an AI's unasked; a
+  cleared step is anyone's who may tick the run; at most 50 ticks a step, the latest 20 earlier ones
+  shown; corrections for the run's own person and rosterers; an extension tool's audit rows hidden
+  from an AI once its pack no longer has it. Recorded for the owner: a holder of `checklists:write`
+  who does not roster may edit or deactivate a template (future runs only); `withheld` says a note
+  exists without its words; a person cannot change a tick a rosterer made for them.
 - **Cost**: set-based reads; the cron's writes a few JSON-batched statements per object. D1
   statements per call at the largest input (ceiling 250): the cron making 200 runs 10, closing 200
   16, `week` over 62 days with 400 checklisted shifts 30, `checklist` of 50 steps 19,

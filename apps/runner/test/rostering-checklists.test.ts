@@ -1068,6 +1068,175 @@ describe("the largest checklist (item 8) and required steps only (item 9)", () =
   }, 300_000);
 });
 
+let statementsOfFullHistory = 0;
+
+// --- The second review of PR #298 -------------------------------------------------------------------
+
+describe("what a shift's checklist hangs on is a rosterer's (second review, items 1 and 2)", () => {
+  it("a member or the shift's own person cannot move a shift to a duty with no checklist, or off one; a rosterer can; an AI's change waits for a rosterer", async () => {
+    const duty = await dutyWith(await template([{ text: "One" }]));
+    const bare = await dutyWith(null);
+    const bare2 = await dutyWith(null);
+    const person = await account(unique("Mover Mv"));
+    const member = await account(unique("Member Mn"));
+    const s = await shiftOf(duty, 3 * HOUR, person.id);
+    await cron();
+    const before = await runRow(s);
+    for (const who of [person, member]) {
+      expect(
+        await rule(
+          run("record.update", { object: SHIFT, id: s, values: { duty: bare } }, asUser(who)),
+        ),
+      ).toBe("rostering");
+    }
+    await cron();
+    expect((await runRow(s))?.id).toBe(before?.id);
+    // Between duties with no checklist, nothing hangs on it: whoever may write the shift.
+    const free = await shiftOf(bare, 4 * HOUR, person.id);
+    await run(
+      "record.update",
+      { object: SHIFT, id: free, values: { duty: bare2 } },
+      asUser(member),
+    );
+    // An assistant's change of it is approved only by someone who rosters.
+    const asked = await refusal(
+      run("record.update", { object: SHIFT, id: s, values: { duty: bare } }, asAi(admin)),
+    );
+    expect(asked.code).toBe("pending_approval");
+    const actionId = (asked.details as { actionId: string }).actionId;
+    await refusal(run("approval.approve", { actionIds: [actionId] }, asUser(member)));
+    await run("approval.approve", { actionIds: [actionId] }, staff());
+    expect((await runRow(s))?.id).toBe(before?.id); // Removed by the next minute, not now.
+  });
+
+  it("a member cannot put a duty that carries a checklist in the Trash, or bring it back; a rosterer can, and its shifts then get no run", async () => {
+    const duty = await dutyWith(await template([{ text: "One" }]));
+    const person = await account(unique("Binner Bn"));
+    const s = await shiftOf(duty, 30 * HOUR, person.id);
+    expect(await rule(run("record.delete", { object: DUTY, id: duty }, asUser(person)))).toBe(
+      "rostering",
+    );
+    // A duty with no checklist is anyone's who may write duties.
+    const bare = await dutyWith(null);
+    await run("record.delete", { object: DUTY, id: bare }, asUser(person));
+    await run("record.delete", { object: DUTY, id: duty }, staff());
+    expect(await rule(run("record.restore", { object: DUTY, id: duty }, asUser(person)))).toBe(
+      "rostering",
+    );
+    await cron(new Date(Date.now() + 8 * HOUR));
+    expect(await runRow(s)).toBeNull();
+    // An assistant's restore of it waits for someone who rosters.
+    expect(await rule(run("record.restore", { object: DUTY, id: duty }, asAi(admin)))).toMatch(
+      /person_applies|pending_approval/,
+    );
+  });
+});
+
+describe("a cleared step is anyone's who may tick the run (second review, item 3)", () => {
+  it("the new person on a shift ticks a step the earlier person cleared, and a person redoes a step a rosterer cleared for them", async () => {
+    const duty = await dutyWith(await template([{ text: "One" }, { text: "Two" }]));
+    const first = await account(unique("Clear Ca"));
+    const second = await account(unique("Clear Cb"));
+    const s = await shiftOf(duty, -10 * MINUTE, first.id);
+    await tick(first, s, 0);
+    await tick(first, s, 0, { state: "clear" });
+    await run("x.rostering.assign", { object: SHIFT, id: s, account: second.id }, staff());
+    await tick(second, s, 0);
+    await tick(second, s, 1);
+    await done(second, s);
+    expect((await runRow(s))?.state).toBe("done");
+    const ownerUser = await account(unique("Clear Cc"));
+    const other = await shiftOf(duty, -9 * MINUTE, ownerUser.id);
+    await tick(ownerUser, other, 0);
+    await tick(admin, other, 0, { state: "clear", forWhy: "Do it again" });
+    await tick(ownerUser, other, 0);
+    expect((await view(ownerUser, other)).run?.steps[0]?.tick?.by).toBe(ownerUser.id);
+  });
+});
+
+describe("corrections are read by the run's own person and rosterers (second review, item 4)", () => {
+  it("someone who once ticked a run that closed for another reads their own ticks, never its corrections", async () => {
+    const duty = await dutyWith(await template([{ text: "One", note: true }, { text: "Two" }]));
+    const first = await account(unique("Corr Ca"));
+    const second = await account(unique("Corr Cb"));
+    const s = await shiftOf(duty, -10 * MINUTE, first.id);
+    await tick(first, s, 0, { note: "First words" });
+    await run("x.rostering.assign", { object: SHIFT, id: s, account: second.id }, staff());
+    await tick(second, s, 1);
+    await done(second, s);
+    const r = await runRow(s);
+    await run("x.rostering.checklistCorrect", { run: r?.id, text: "About the second" }, staff());
+    const asFirst = await view(first, s);
+    expect(asFirst.run?.corrections).toEqual([]);
+    expect(asFirst.run?.steps[0]?.tick?.note).toBe("First words");
+    expect((await view(second, s)).run?.corrections.map((c) => c.text)).toEqual([
+      "About the second",
+    ]);
+  });
+});
+
+describe("a run keeps its checklist once open, and the minute stays quiet (second review, item 5)", () => {
+  it("an opened run whose duty now names another checklist is neither removed nor worked on every minute", async () => {
+    const first = await template([{ text: "Opened with" }]);
+    const second = await template([{ text: "Changed to" }]);
+    const duty = await dutyWith(first);
+    const person = await account(unique("Open Op"));
+    const s = await shiftOf(duty, -10 * MINUTE, person.id);
+    await cron();
+    const made = await runRow(s);
+    await run("record.update", { object: DUTY, id: duty, values: { checklist: second } }, staff());
+    const count = async () =>
+      (
+        await env.DB.prepare(
+          "SELECT count(*) AS n FROM core_audit WHERE operation = 'checklist.due'",
+        ).first<{ n: number }>()
+      )?.n;
+    // Settle anything else, then two quiet minutes.
+    for (let i = 0; i < 3; i++) await cron();
+    const before = await count();
+    await cron();
+    await cron();
+    expect(await count()).toBe(before);
+    expect((await runRow(s))?.id).toBe(made?.id);
+    expect((await view(admin, s)).run?.template.id).toBe(first);
+  });
+});
+
+describe("a step's ticks are capped (second review, item 6)", () => {
+  it("at most 50 ticks of one step, refused beyond; a read shows the latest 20 earlier ones and says it left some out", async () => {
+    const duty = await dutyWith(await template([{ text: "One" }]));
+    const person = await account(unique("Cap Cp"));
+    const s = await shiftOf(duty, -10 * MINUTE, person.id);
+    for (let i = 0; i < 50; i++) {
+      await tick(person, s, 0, i % 2 ? { state: "clear" } : {});
+    }
+    expect(await rule(tick(person, s, 0, { state: "clear" }))).toBe("checklist_too_many_ticks");
+    const step = (await view(person, s)).run?.steps[0] as unknown as {
+      history: unknown[];
+      historyTruncated: boolean;
+    };
+    expect(step.history).toHaveLength(20);
+    expect(step.historyTruncated).toBe(true);
+    // The database holds it too, for every writer.
+    const runId = (await runRow(s))?.id;
+    const error = await env.DB.prepare(
+      "INSERT INTO core_checklist_tick (id, run_id, position, state, ticked_by, ticked_for, on_behalf, ticked_at) VALUES ('ckt_over', ?, 0, 'done', ?, ?, 0, ?)",
+    )
+      .bind(runId, person.id, person.id, new Date().toISOString())
+      .run()
+      .then(
+        () => null,
+        (e: Error) => e.message,
+      );
+    expect(error).toMatch(/core_checklist_too_many_ticks/);
+    const counted = await queriesOf(() => view(person, s));
+    expect(counted.outcome).toBe("ok");
+    expect(counted.queries).toBeLessThan(CEILING);
+    statementsOfFullHistory = counted.queries;
+    expect(statementsOfFullHistory).toBeGreaterThan(0);
+  });
+});
+
 // --- What one call reads -----------------------------------------------------------------------------
 
 /** How many statements `call` prepares against D1 (each query is one). */

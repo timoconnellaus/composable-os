@@ -78713,6 +78713,9 @@
                             {
                               "type": "object",
                               "properties": {
+                                "id": {
+                                  "type": "string"
+                                },
                                 "state": {
                                   "type": "string",
                                   "enum": [
@@ -78770,6 +78773,7 @@
                                 }
                               },
                               "required": [
+                                "id",
                                 "state",
                                 "done",
                                 "why",
@@ -78797,6 +78801,9 @@
                           "items": {
                             "type": "object",
                             "properties": {
+                              "id": {
+                                "type": "string"
+                              },
                               "state": {
                                 "type": "string",
                                 "enum": [
@@ -78854,6 +78861,7 @@
                               }
                             },
                             "required": [
+                              "id",
                               "state",
                               "done",
                               "why",
@@ -78870,7 +78878,10 @@
                             ],
                             "additionalProperties": false
                           },
-                          "description": "Earlier ticks: all for whoever rosters, your own otherwise"
+                          "description": "Earlier ticks, the latest 20: all for whoever rosters, your own otherwise"
+                        },
+                        "historyTruncated": {
+                          "type": "boolean"
                         },
                         "missed": {
                           "type": "boolean"
@@ -78883,6 +78894,7 @@
                         "asksNote",
                         "tick",
                         "history",
+                        "historyTruncated",
                         "missed"
                       ],
                       "additionalProperties": false
@@ -79005,6 +79017,12 @@
               "string",
               "null"
             ]
+          },
+          "you": {
+            "type": "string"
+          },
+          "youRoster": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -79016,7 +79034,9 @@
           "tickUntil",
           "canTick",
           "onBehalf",
-          "forName"
+          "forName",
+          "you",
+          "youRoster"
         ],
         "additionalProperties": false
       },

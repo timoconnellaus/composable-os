@@ -65,6 +65,7 @@ export type TickState = "done" | "not_done" | "cleared";
 
 /** One tick as its reader sees it: who ticked it, and for whom. */
 export interface TickView {
+  id: string;
   state: TickState;
   done: boolean;
   /** Why it was not done, what was written on it, why it was ticked for someone: its author's and
@@ -109,8 +110,11 @@ export interface RunView {
     asksNote: boolean;
     /** The step's latest tick (null when none, or the latest is a clear). */
     tick: TickView | null;
-    /** Its earlier ticks, oldest first: all for a rosterer, their own for anyone else. */
+    /** Its earlier ticks, oldest first, the latest HISTORY_SHOWN: all for a rosterer, their own
+     * for anyone else. */
     history: TickView[];
+    /** Earlier ticks the reader may see were left out (more than HISTORY_SHOWN). */
+    historyTruncated: boolean;
     /** Missed: a required step nobody ticked by the close. */
     missed: boolean;
   }[];
@@ -124,6 +128,10 @@ export interface Reader {
 }
 
 const iso = (s: number) => new Date(s * 1000).toISOString();
+
+/** The most ticks one step of one run takes (a later one is refused), and how many a read shows. */
+export const TICKS_PER_STEP = 50;
+export const HISTORY_SHOWN = 20;
 
 function parseList(json: string | null): number[] {
   if (!json) return [];
@@ -170,6 +178,7 @@ export async function runViews(
     const forName = nameOf(t.ticked_for);
     const verb = t.state === "cleared" ? "Cleared" : "Ticked";
     return {
+      id: t.id,
       state: t.state,
       done: t.state === "done",
       why: whole ? t.why : null,
@@ -207,9 +216,11 @@ export async function runViews(
       steps: stepsOf(r.steps).map((s: RunStep, position) => {
         const all = inOrder(mine.filter((x) => x.position === position));
         const latest = all.at(-1);
-        const earlier = all
-          .slice(0, -1)
-          .filter((t) => reader.rosters || t.ticked_by === reader.account);
+        const seen = [
+          ...all.slice(0, -1).filter((t) => reader.rosters || t.ticked_by === reader.account),
+          ...(latest?.state === "cleared" ? [latest] : []),
+        ];
+        const shown = seen.slice(-HISTORY_SHOWN);
         return {
           position,
           text: s.text,
@@ -217,11 +228,13 @@ export async function runViews(
           asksNote: s.note,
           missed: missed.has(position),
           tick: latest && latest.state !== "cleared" ? view(latest) : null,
-          history: [...earlier.map(view), ...(latest?.state === "cleared" ? [view(latest)] : [])],
+          history: shown.map(view),
+          historyTruncated: seen.length > shown.length,
         };
       }),
+      // Corrections are about how the run went: its own person's and the rosterers' only.
       corrections: notes
-        .filter((n) => n.run_id === r.id)
+        .filter((n) => n.run_id === r.id && (reader.rosters || r.account_id === reader.account))
         .map((n) => ({
           id: n.id,
           text: n.text,

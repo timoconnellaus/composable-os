@@ -184,6 +184,8 @@ function hostWith(): TestHost {
         canTick: false,
         onBehalf: false,
         forName: "Sam",
+        you: "usr_sam",
+        youRoster: false,
       }),
       "checklist.tick": (input) => ({
         run: "ckr_1",

@@ -72,6 +72,9 @@ export function ShiftChecklistNative({
   const data = hidden ? undefined : answer.data;
   const run = data?.run ?? null;
   const editable = Boolean(data?.canTick) && (run === null || run.state === "open");
+  // Someone else's tick is changed only by whoever rosters (the host refuses it otherwise).
+  const mayChange = (step: { tick: { by: string } | null }) =>
+    !step.tick || step.tick.by === data?.you || data?.youRoster === true;
   const onBehalf = Boolean(data?.onBehalf);
   const tz = shift.zone ?? zone ?? "UTC";
   const draftOf = (p: number) => drafts[p] ?? EMPTY;
@@ -186,13 +189,14 @@ export function ShiftChecklistNative({
                 {step.tick?.why ? <Text>Why: {step.tick.why}</Text> : null}
                 {step.tick?.note ? <Text>Note: {step.tick.note}</Text> : null}
                 {step.history.map((h) => (
-                  <Text key={`${h.at}-${h.by}`}>
+                  <Text key={h.id}>
                     Earlier: {h.state === "cleared" ? h.label : tickLabel(h)}
+                    {h.why ? ` · Why: ${h.why}` : ""}
                     {h.note ? ` · Note: ${h.note}` : ""}
                   </Text>
                 ))}
                 {step.missed ? <Text>Missed</Text> : null}
-                {editable ? (
+                {editable && mayChange(step) ? (
                   <View>
                     <Field
                       label={

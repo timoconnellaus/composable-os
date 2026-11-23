@@ -41,6 +41,7 @@ import {
   type RunView,
   runOf,
   runViews,
+  TICKS_PER_STEP,
   ticked,
 } from "../checklists/runs.ts";
 import {
@@ -364,6 +365,7 @@ const notThere = (object: string, id: string) => new NotFoundError(`checklist of
 // --- Shapes ---------------------------------------------------------------------------------------
 
 const tickShape = z.object({
+  id: z.string(),
   state: z.enum(["done", "not_done", "cleared"]),
   done: z.boolean(),
   why: z.string().nullable(),
@@ -408,7 +410,10 @@ const runShape = z.object({
       tick: tickShape.nullable().describe("The step's latest tick"),
       history: z
         .array(tickShape)
-        .describe("Its earlier ticks: every one for someone who rosters, your own otherwise"),
+        .describe(
+          "Its earlier ticks, the latest 20: every one for someone who rosters, your own otherwise",
+        ),
+      historyTruncated: z.boolean().describe("Earlier ticks were left out"),
       missed: z.boolean(),
     }),
   ),
@@ -450,6 +455,8 @@ export const checklistForRecord = defineOperation({
     /** Ticking is for someone else (the caller rosters and is not the person). */
     onBehalf: z.boolean(),
     forName: z.string().nullable().describe("Whose run it is now"),
+    you: z.string().describe("The reader's account"),
+    youRoster: z.boolean().describe("The reader rosters: they may change anyone's tick"),
   }),
   permission: "records:read",
   risk: "read",
@@ -505,6 +512,8 @@ export const checklistForRecord = defineOperation({
       canTick,
       onBehalf: canTick && !s.isPerson,
       forName: names ? names.name || names.email : null,
+      you: account,
+      youRoster: s.rosters,
     };
   },
 });
@@ -665,13 +674,27 @@ export const checklistTick = defineOperation({
     const current = latest?.get(input.step);
     // Someone else's tick is changed only by someone who rosters (the review of PR #298): the
     // person a shift passed to continues it, and never overwrites what the earlier person did.
-    if (current && current.ticked_by !== p.account && !p.onBehalf) {
+    if (current && current.state !== "cleared" && current.ticked_by !== p.account && !p.onBehalf) {
       if (!(await isRosterer(ctx.db, p.account))) {
         throw new ForbiddenError(
           "Someone else ticked this step: only whoever rosters changes it.",
           { rule: "checklist_not_your_tick" },
         );
       }
+    }
+    const count = p.run
+      ? await ctx.db
+          .selectFrom("core_checklist_tick")
+          .select(sql<number>`count(*)`.as("n"))
+          .where("run_id", "=", p.run.id)
+          .where("position", "=", input.step)
+          .executeTakeFirst()
+      : undefined;
+    if (Number(count?.n ?? 0) >= TICKS_PER_STEP) {
+      throw new ConflictError(
+        `This step has been ticked ${TICKS_PER_STEP} times, the most one step takes. Ask whoever rosters to add a correction once the checklist is closed.`,
+        { rule: "checklist_too_many_ticks" },
+      );
     }
     if (input.state === "clear" && !ticked(current)) {
       throw new ValidationError("This step is not ticked, so there is nothing to clear.", {

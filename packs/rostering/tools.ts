@@ -924,6 +924,7 @@ export const exportPeriod = defineTool({
 // now; these tools ask and pass on what it answers.
 
 const checklistTick = z.object({
+  id: z.string(),
   state: z.enum(["done", "not_done", "cleared"]),
   done: z.boolean(),
   why: z.string().nullable(),
@@ -964,7 +965,8 @@ const checklistRun = z.object({
       tick: checklistTick.nullable().describe("The latest tick"),
       history: z
         .array(checklistTick)
-        .describe("Earlier ticks: all for whoever rosters, your own otherwise"),
+        .describe("Earlier ticks, the latest 20: all for whoever rosters, your own otherwise"),
+      historyTruncated: z.boolean(),
       missed: z.boolean(),
     }),
   ),
@@ -999,6 +1001,8 @@ export const checklist = defineTool({
     canTick: z.boolean(),
     onBehalf: z.boolean(),
     forName: z.string().nullable(),
+    you: z.string(),
+    youRoster: z.boolean(),
   }),
   risk: "read",
   permission: [...TEAM],

@@ -354,6 +354,11 @@ export function toOperationError(error: unknown): OperationError {
       },
     );
   }
+  if (message.includes("core_checklist_too_many_ticks")) {
+    return new ConflictError("This step has been ticked 50 times, the most one step takes.", {
+      rule: "checklist_too_many_ticks",
+    });
+  }
   if (message.includes("core_checklist_fixed")) {
     return new ConflictError(
       "A checklist run's steps and record never change, so nothing was changed.",

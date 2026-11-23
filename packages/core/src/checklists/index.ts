@@ -421,3 +421,38 @@ export function endedStatement(
         [object, id],
       );
 }
+
+/**
+ * The relation fields of `object` through which a `checklists` declaration reads its checklist (a
+ * shift's `duty`): changing one changes which checklist a record carries, so it is a rosterer's
+ * where a pack declares who rosters (the review of PR #298), with the holder object each names.
+ */
+export function checklistViaFields(object: ObjectDefinition): { field: string; holder: string }[] {
+  const def = object.checklists;
+  return def?.template.via && def.template.viaObject
+    ? [{ field: def.template.via, holder: def.template.viaObject }]
+    : [];
+}
+
+/** Whether any of the records `ids` of `holder` names a checklist now (one read). */
+export async function holdersCarryChecklist(
+  db: Kysely<CoreDatabase>,
+  holder: string,
+  ids: readonly unknown[],
+): Promise<boolean> {
+  const object = getObject(holder);
+  const table = objectTableOf(holder);
+  const list = [...new Set(ids.filter((i): i is string => typeof i === "string" && i !== ""))];
+  if (!object || !table || !list.length) return false;
+  const columns = checklistTemplateFields(object)
+    .map((f) => column(object, f))
+    .filter((c): c is string => !!c);
+  if (!columns.length) return false;
+  const row = await sql<{ id: string }>`SELECT id FROM ${sql.table(table)} WHERE id IN ${jsonList(
+    list,
+  )} AND (${sql.join(
+    columns.map((c) => sql`(${sql.ref(c)} IS NOT NULL AND ${sql.ref(c)} != '')`),
+    sql` OR `,
+  )}) LIMIT 1`.execute(db);
+  return row.rows.length > 0;
+}

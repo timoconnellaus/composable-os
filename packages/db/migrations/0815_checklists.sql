@@ -191,6 +191,10 @@ BEGIN
   WHERE EXISTS (SELECT 1 FROM core_checklist_tick t WHERE t.id = NEW.id)
     OR NEW.position >= (SELECT json_array_length(r.steps) FROM core_checklist_run r
       WHERE r.id = NEW.run_id);
+  -- At most 50 ticks of one step of one run: the history every read carries stays bounded.
+  SELECT RAISE(ABORT, 'core_checklist_too_many_ticks')
+  WHERE (SELECT count(*) FROM core_checklist_tick t WHERE t.run_id = NEW.run_id
+    AND t.position = NEW.position) >= 50;
   SELECT RAISE(ABORT, 'core_checklist_note_needed')
   WHERE NEW.state = 'done' AND (NEW.note IS NULL OR trim(NEW.note) = '')
     AND (SELECT json_extract(r.steps, '$[' || NEW.position || '].note') FROM core_checklist_run r

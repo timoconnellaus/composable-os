@@ -110,8 +110,10 @@ export const auditList = defineOperation({
       if (PEOPLE_ONLY_AUDIT.size) {
         query = query.where("a.operation", "not in", [...PEOPLE_ONLY_AUDIT]);
       }
+      // A tool's row is listed only while an installed pack still has the tool and it is not a
+      // person's only: a pack since removed, or upgraded without the tool, keeps its rows hidden.
       query = query.where(
-        sql<boolean>`a.operation NOT IN (SELECT 'x.' || e.id || '.' || t.key FROM core_extensions e, json_each(e.manifest, '$.tools') t WHERE json_extract(t.value, '$.humanOnly') = 1)`,
+        sql<boolean>`(a.operation NOT LIKE 'x.%' OR a.operation IN (SELECT 'x.' || e.id || '.' || t.key FROM core_extensions e, json_each(e.manifest, '$.tools') t WHERE coalesce(json_extract(t.value, '$.humanOnly'), 0) != 1))`,
       );
     }
     if (input.userId) query = query.where("a.user_id", "=", input.userId);

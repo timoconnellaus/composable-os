@@ -98,6 +98,9 @@ export function ShiftChecklist({
   const data = hidden ? undefined : answer.data;
   const run = data?.run ?? null;
   const editable = Boolean(data?.canTick) && (run === null || run.state === "open");
+  // Someone else's tick is changed only by whoever rosters (the host refuses it otherwise).
+  const mayChange = (step: { tick: ChecklistStep["tick"] }) =>
+    !step.tick || step.tick.by === data?.you || data?.youRoster === true;
   const onBehalf = Boolean(data?.onBehalf);
   const tz = shift.zone ?? zone ?? "UTC";
 
@@ -257,7 +260,7 @@ export function ShiftChecklist({
                           <summary>Earlier ticks ({step.history.length})</summary>
                           <ul className="grid gap-1">
                             {step.history.map((h) => (
-                              <li key={`${h.at}-${h.by}`}>
+                              <li key={h.id}>
                                 {h.state === "cleared" ? h.label : tickLabel(h)}
                                 {h.why ? ` · Why: ${h.why}` : ""}
                                 {h.note ? ` · Note: ${h.note}` : ""}
@@ -267,7 +270,7 @@ export function ShiftChecklist({
                         </details>
                       ) : null}
                       {step.missed ? <p className="text-xs font-semibold">Missed</p> : null}
-                      {editable ? (
+                      {editable && mayChange(step) ? (
                         <div className="grid gap-1">
                           <label className="grid gap-1" htmlFor={`${id}-note-${step.position}`}>
                             <span className="text-xs">
