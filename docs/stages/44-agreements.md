@@ -15,7 +15,10 @@ ADRs [0402](../adr/0402-staff-and-customers.md) to [0404](../adr/0404-behaviours
 [0510](../adr/0510-what-a-subscription-grants.md) to [0513](../adr/0513-a-granted-holder-keeps-what-it-was-granted.md),
 [0540](../adr/0540-the-family-link.md), [0550](../adr/0550-timed-moves-and-a-cancel-that-races-a-booking.md),
 [0552](../adr/0552-a-tool-a-person-approves.md), [0560](../adr/0560-a-paid-line-moves-a-record-that-exists.md),
-and ADR 0571 (a calendar file made by the email gatekeeper, in PR #256); stages
+[0571](../adr/0571-a-calendar-file-made-by-the-email-gatekeeper.md) (a calendar file made by the
+email gatekeeper), [0573](../adr/0573-runs-over-the-rate-rail-wait-their-turn.md) (deferred runs)
+and [0574](../adr/0574-an-idempotency-key-on-an-email-send.md) (an idempotency key on an email
+send), all three merged with PR #256; stages
 [31](31-bookings.md) (drop-ins, the family link), [32](32-memberships.md) and
 [43](43-practitioners.md) (the care link's consent); issue
 [#245](https://github.com/timoconnellaus/composable-os/issues/245) (disputes);
@@ -25,7 +28,8 @@ and ADR 0571 (a calendar file made by the email gatekeeper, in PR #256); stages
 family link's guard) and 0670 (`core_write_guard`), and `packs/bookings/index.ts` (the booking's
 declarations).
 
-Status: **spec proposed** (owner interviewed 2026-11-23; the questions at the end are still open).
+Status: **spec agreed** (owner interviewed 2026-11-23; the eight questions answered the same day,
+decisions 15 to 22; step 1 built on `feat/stage-44-documents`, ADRs 0610 and 0611).
 Builds on stages 25, 31a and 32. The first client is a gym moving from another system. It must be in
 place before members pay or train on the new system (decision 13).
 
@@ -63,9 +67,10 @@ of what was agreed:
 
 ## What exists today (from the code)
 
-- **Nothing records an agreement.** No table holds a document, a version a person accepted, a
-  signature or health answers. Roadmap stage 29 (Forms, not specced) listed "waivers with a
-  signature"; this stage takes waivers from it.
+- **Nothing records an agreement.** Before this stage no table held a document, a version a person
+  accepted, a signature or health answers. Roadmap stage 29 (Forms, not specced) listed "waivers
+  with a signature"; this stage takes waivers from it. (Step 1 is built: documents, versions,
+  publishing and attaching, migration 0790, ADRs 0610 and 0611. Nothing yet records an acceptance.)
 - **Orders are priced and checked in one place.** `createOrder` (`orders/orders.ts`) starts every
   order (`order.start`, and `order.startHeld` for a record made held with its order, ADR 0560). Per
   line rules already run there in the order's batch: capacity holds (`claimOrderPlaces`) and the
@@ -94,7 +99,13 @@ of what was agreed:
 - **Mail the host composes itself** goes out through `callAsHost` (purpose `orders` for an order's
   confirmation, which applies at once unless the deploy-time floor denies it; purpose `sign-in` for
   codes, ADR 0456). The only attachment any email can carry is the calendar file the email gatekeeper
-  builds from checked values (ADR 0571, PR #256).
+  builds from checked values (ADR 0571, merged with PR #256). A send may carry an idempotency key, so
+  a retried step sends nothing twice (ADR 0574); an automation's runs over the runs-per-minute rail
+  wait their turn instead of being dropped (ADR 0573). Neither changes host mail: `callAsHost` is
+  not an automation run.
+- **Routine mail** (the owner's decision of 2026-11-23 that a pack's fixed routine emails send
+  without approval) is being built on `feat/routine-mail`; it is not on `main`, and nothing here
+  waits for it.
 - **Refunds** always wait for a person with `orders:refund` (ADR 0429); a refund the host owes is
   written as `core_sellable_refund_due` and asked for by the minute cron (ADR 0560).
 - **No date of birth** on a Person. A child is known to the host only as a **dependant** of a live
@@ -119,11 +130,24 @@ of what was agreed:
 | 13 | **Start now**, in parallel with other work. It must be in place before members pay or train on the new system |
 | 14 | **The insurer's and the lawyer's requirements are not known.** Use sensible defaults, and list what to confirm with them |
 
+### Answered by the owner (2026-11-23, the spec's eight questions)
+
+| # | Decision | Was question |
+| --- | --- | --- |
+| 15 | **On erasure**, each acceptance is kept, detached from the person, for a set time (the retention setting, default 7 years), then deleted. **Health answers are deleted at once** | 1 (recommended) |
+| 16 | **Cooling off after classes were used**: a full refund regardless | 2 (recommended) |
+| 17 | **Cooling off covers new members' memberships only**: not passes, and not existing members moving over | 3 (recommended) |
+| 18 | **A health "yes"**: the coach sees a mark beside the name only ("health note"), with no details; staff with the health permission can open it | 4 (recommended) |
+| 19 | **After a health "yes" the member can still book**, and staff with the health permission are told | 5 (recommended) |
+| 20 | **A teenager with their own sign-in**: a linked parent or guardian agrees, or a paper form; never the teenager alone. The host holds no date of birth, so staff mark a Person as a minor (below) | 6 (recommended) |
+| 21 | **The emailed copy of the health form does not include the answers** | 7 (recommended) |
+| 22 | **A desk-tablet signing mode is built now** (the member signs on the business's own device): changed from the recommendation. Designed below, [Signing at the desk](#signing-at-the-desk-decision-22) | 8 (changed) |
+
 ## The design in one page
 
-**Agreements is a core capability with its own tables, not records.** A **document** has drafts and
-**versions**. A version, once published, is never changed or deleted while anyone accepted it. Only a
-person with `agreements:manage` publishes, and an AI cannot even ask.
+**Agreements is a core capability with its own tables, not records.** A **document** has a working
+copy and **versions**. A version, once published, is never changed or deleted by anyone (the
+database refuses it). Only a person with `agreements:manage` publishes, and an AI cannot even ask.
 
 **A pack marks where agreement may be needed; the business decides what is needed there.** An
 object declares an **agreement point** with a new behaviour, `agreements` (buying a membership,
@@ -140,7 +164,8 @@ it.
 
 **An acceptance is a row nobody can change.** It holds the version and the hash of what was shown,
 who it is for, who agreed (themselves, a guardian, a guest with an order, or staff from paper), how
-(typed name, drawn signature, paper) and when. The database refuses any change to what it says. A
+(typed name, drawn signature, paper, or in person on the business's device) and when. The database
+refuses any change to what it says. A
 drawn signature is kept as its strokes, not an image. Health answers sit in their own table that no
 `rec_*` view, search, export, dashboard or AI reads.
 
@@ -199,40 +224,68 @@ document's questions and a person's **health answers**. The **copy** is the emai
 sent; the **signed PDF** is the same document and record as a file. **Cooling off** is the days in
 which a new member may cancel for a full refund.
 
-### Documents and versions
+### Documents and versions (step 1, built: ADR 0610)
 
-- **`core_agreement_document`**: id (`agd_…`), title, kind, **how** a person agrees (`typed`: tick
-  and type their name; `drawn`: type their name and draw a signature), **who agrees** (`participant`:
-  the person who trains or attends; `payer`: the person who pays), **for whom** (`everyone`, or
-  `dependants`: only a Person who is a dependant of a live family link), for a `health` document
-  **ask again after** (months; empty for never), the points it is attached to, state (`draft`: never
-  published; `live`; `retired`: no longer needed anywhere, its acceptances kept), the working copy
-  (below), the current version, and `agree_from`: the version from which acceptances count.
+- **`core_agreement_document`**: id (`agd_…`), **kind** (fixed when the document is made: only
+  `health` changes how it works, so it never changes afterwards), state (`draft`: never published;
+  `live`; `retired`: no longer needed anywhere, its acceptances kept; retired is final), the working
+  copy (below) and its counter `draft_rev`, the **current version** (the one in effect now; empty
+  until the first takes effect), and `agree_from`: the number of the version from which acceptances
+  count. The points it is attached to are `core_agreement_point` rows.
 - **The working copy** is the draft the editor changes: the title, the body (rich text, ADR 0440's
   schema), the **tick label** (the words beside the box; the business writes them, and a document
-  without them cannot be published), and for `health` the questions. Staff with `agreements:manage`
-  edit it; the assistant may write it for them (an ordinary write through the gate). Editing it
-  changes no version.
+  without them cannot be published), **how** a person agrees (`typed`: tick and type their name;
+  `drawn`: type their name and draw a signature), **who agrees** (`participant`: the person who
+  trains or attends; `payer`: the person who pays), **for whom** (`everyone`, or `dependants`: only
+  a Person who is a dependant of a live family link), and for `health` the questions and **ask again
+  after** (months; empty for never). Staff with `agreements:manage` edit it; the assistant may write
+  it for them (`agreement.draft.save`, an ordinary write through the gate). Editing it changes no
+  version and nothing anyone is asked: how, who and for whom are in the working copy, not on the
+  document, so even they change only when a person publishes.
 - **`core_agreement_version`**: id (`agv_…`), document, number (1, 2, 3), title, body, tick label,
-  questions, how, **change** (`first`, `small`, `agree_again`), **effective from** (an instant),
-  published at and by (a staff user, a person), and **hash**: SHA-256 of the canonical JSON of what a
+  questions, how, who, for whom, ask again after, **change** (`first`, `small`, `agree_again`),
+  **effective from** (an instant), published at and by (a staff user, a person), the working copy's
+  `draft_rev` it was made from, and **hash**: SHA-256 of the canonical JSON (keys sorted) of what a
   person is shown (title, body, tick label, questions). The database refuses any update and any
-  delete of a version (a trigger), and acceptances reference it.
-- **Publishing**: `agreement.publish { documentId, change: "small" | "agree_again", effectiveFrom? }`
-  (staff, `agreements:manage`, **`actors: ["human"]`**: the assistant, MCP, automations and
-  extensions are refused, not queued). It snapshots the working copy into a new version. A first
-  version is `first`. The screen shows the change against the current version, and for "agree
-  again" how many people it will ask (those with a current acceptance of the document now). An
-  `effectiveFrom` in the future schedules it: the minute cron makes it current at that time. Before
-  then the earlier version stays current; the new one can be read and accepted early (it counts from
-  when it takes effect, and after).
+  delete of a version, by anyone, host code included (two triggers), and acceptances will reference
+  it. Versions are the business's text, not personal data, so nothing ever needs to delete one.
+- **Publishing**: `agreement.publish { documentId, change: "small" | "agree_again", effectiveFrom?,
+  draftHash }` (staff, `agreements:manage`, risk `write`, **`actors: ["human"]`**: the assistant, MCP
+  and Code Mode, automations and extension code are refused, not queued). It snapshots the working
+  copy into a new version. A first version is `first` whatever `change` says. **`draftHash`** is the
+  hash of the working copy the person was shown (`agreement.publishPreview`): if the working copy
+  changed since (the assistant drafting meanwhile), the publish is refused (`conflict`), and the
+  version row's own trigger refuses it in the batch if the copy changed between the read and the
+  commit (`core_agreement_draft_changed`). So what is published is what the person read. The
+  preview shows the change against the current version, and (from step 2) for "agree again" how many
+  people it will ask (those with a current acceptance of the document now).
+- **Effective dates**: `effectiveFrom` left out is now. A date in the past is refused (it would make
+  the evidence look older than it is), and it may not be earlier than the latest version's, so
+  versions take effect in number order. A date in the future schedules it: the minute cron
+  (`runAgreementsDue`) makes it current at that time. Before then the earlier version stays current;
+  the new one can be read (and, from step 2, accepted early: it counts from when it takes effect, and
+  after). **A published version, scheduled or not, cannot be withdrawn**: to replace a scheduled
+  wording, publish a newer version taking effect at the same moment; the newest version in effect is
+  current, and `agree_from` is the newest `first` or `agree_again` version in effect.
 - **Why an AI cannot ask to publish** (unlike ADR 0480): decision 12 says it never publishes, and an
   approval card is a poor place to read a long legal text. A person opens the editor and publishes.
-- **Attaching and retiring**: `agreement.attach { documentId, points }` and `agreement.retire
-  { documentId }` (staff, `agreements:manage`, `actors: ["human"]`): what is needed where is policy,
-  and loosening it (detaching, retiring) is a person's act. Attaching a document makes it due at
-  once for anyone without a current acceptance (it is not retroactive: nothing already bought or
-  booked is touched).
+- **Attaching and retiring**: `agreement.attach { documentId, points }`, `agreement.detach
+  { documentId, points }` and `agreement.retire { documentId }` (staff, `agreements:manage`,
+  `actors: ["human"]`; attach and detach risk `write`, retire `destructive`): what is needed where
+  is policy, and loosening it (detaching, retiring) is a person's act. Only a published document
+  (`live`) is attached, and only to a point an installed object declares. Retiring detaches it
+  everywhere and freezes its working copy. Attaching a document makes it due at once for anyone
+  without a current acceptance (it is not retroactive: nothing already bought or booked is touched).
+- **The counter** `core_agreement_rev` (one row) is step 1's: the host bumps it in the batch of
+  every publish, every version the cron makes current, and every attach, detach and retire. That is
+  a little more often than strictly needed (a small change asks nobody), on purpose: it also covers
+  a version that becomes acceptable early, and a retry is cheap. Step 2's guard reads it; the
+  database refuses to lower it or delete it.
+- **What an AI does in step 1**: reads documents and versions (titles and text are the business's,
+  not personal data), makes a draft document (`agreement.create`) and writes its working copy, each
+  through the gate as any write; under a cautious policy that waits for approval and its dry run
+  writes nothing. Publish, attach, detach and retire are refused to every AI actor before the gate
+  is asked, so nothing of them is ever queued.
 - **Languages**: one language per document in this stage. A second language is a later stage.
 
 ### When an acceptance is current
@@ -243,16 +296,18 @@ An acceptance of document D counts for D while all of these hold:
    itself when it takes effect; a small change does not move it);
 2. for a `health` document with "ask again after" set, it was made less than that many months ago
    (decided by the host's clock);
-3. it is **for** that Person, and for a Person who is a dependant, it was made by a guardian with a
-   live link at the time, or recorded from paper (question 6 asks about older children);
+3. it is **for** that Person, and for a Person who is a **minor** (a dependant of a live family link,
+   or marked as a minor by staff: below), it was made by a guardian with a live link at the time, or
+   recorded from paper; never by the minor themselves (decision 20);
 4. its Person is not in the Trash.
 
 A newer acceptance of the same document replaces an older one for every purpose; both are kept.
 
-### The `agreements` behaviour: agreement points
+### The `agreements` behaviour: agreement points (the declaration built in step 1: ADR 0611)
 
 An object declares where agreement may be needed (SDK and contract; shipped and reviewed packs, as
-`sellable` is):
+`sellable` is). In step 1 the declaration is inert: it is checked and listed (`agreement.points`),
+and documents can be attached to it, but nothing asks it until step 3:
 
 ```ts
 agreements: {
@@ -315,8 +370,8 @@ agreementsDue(db, {
   address has agreed before), for staff the Person's.
 - **The guard**: every batch that relied on the answer carries one row, `core_write_guard` of a new
   kind `agreements` with the `rev` read. `core_agreement_rev` is one counter the host bumps in the
-  batch of every change to what is due: a version taking effect with "agree again" or as a document's
-  first, a document attached, detached or retired, a scheduled version made current by the cron. If
+  batch of every change to what is due (built in step 1, above): every publish, a scheduled version
+  made current by the cron, a document attached, detached or retired. If
   it moved between the read and the commit, the trigger aborts (`core_agreements_changed`), the whole
   batch fails and the caller is told to look again (`conflict`). So a document published with "agree
   again" a moment before a booking commits cannot be booked past. The counter is coarse on purpose:
@@ -340,6 +395,7 @@ it).
 | **A guardian for a dependant** (decision 9) | the same, with `forPersonId` | A customer with a live family link to that Person; the write carries `core_person_link_guard` | `by: "guardian"`, the guardian's Person and account, for the dependant |
 | **A visitor with no account** (a drop-in, a pass, a ticket bought as a guest) | the acceptances go in the buying call: `order.start`'s and `order.startHeld`'s `agreements` input (passed on by `x.bookings.buy`), and `subscription.start`'s for a guest | The public | `by: "guest"`, the order (or the subscription checkout) and its address; no Person until settlement |
 | **Staff from paper** (decision 10) | `agreement.recordPaper { personId, versionId, signedOn, forPersonId?, signedBy?, note?, answers? }` (staff, `agreements:paper`, `actors: ["human"]`) | A person on the staff | `by: "paper"`, the staff user who recorded it, when they recorded it and the date written on the form |
+| **In person on the business's device** (decision 22) | `desk.accept` in a desk signing session a person on the staff started (below) | The member (or their guardian) themselves, on the desk tablet | `by: "self"` or `"guardian"`, channel `desk`, the desk session, which names the staff account that started it and when |
 
 - **A guest's acceptances become the Person's at settlement.** The verified payment that matches the
   order's address to a Person (ADR 0428, ADR 0560) sets the acceptances' Person in its own batch.
@@ -348,10 +404,12 @@ it).
   nobody's personal data to keep. A guest who is already a member and has agreed is asked again, the
   same as anyone, so the answer says nothing about who has the address.
 - **Staff cannot agree for someone.** Staff starting a membership, selling a pass or booking a class
-  for a Person who has something due are refused with the list, and offered two things: **send a
+  for a Person who has something due are refused with the list, and offered three things: **send a
   link** (the host emails the Person, or their guardians for a dependant, a link to agree; a host
-  mail like the copy) and **record a paper form**. Paper is shown everywhere as "Recorded from paper
-  by [staff name] on [date]", never as the member's own acceptance.
+  mail like the copy), **sign at the desk** (below) and **record a paper form**. Paper is shown
+  everywhere as "Recorded from paper by [staff name] on [date]", never as the member's own
+  acceptance; a desk acceptance as "Agreed in person on [business]'s device; session started by
+  [staff name] at [time]".
 - **Paper forms** are printed from the version (a blank PDF of it, with its number and hash at the
   foot, from the document's page), so the paper matches a version the host holds. Staff may type in a
   paper health form's answers; they are marked as entered by staff.
@@ -371,10 +429,11 @@ it).
 | `by` | `self`, `guardian`, `guest`, `paper` |
 | `agent_person_id`, `account_id` | Who agreed: the guardian's Person and customer account, or the customer's own account; null for a guest and for paper |
 | `order_id`, `subscription_checkout` | What a guest's acceptance was taken with |
-| `email` | The address the copy goes to: the account's sign-in address, the guest's order address, or null for paper |
+| `email` | The address the copy goes to: the account's sign-in address, the guest's order address, the address the desk session sent it to, or null for paper |
 | `how` | `typed`, `drawn`, `paper` |
 | `typed_name` | The name typed (1 to 200 characters, no control characters). For paper, the name staff read on the form |
-| `channel` | `web`, `app`, `paper` |
+| `channel` | `web`, `app`, `paper`, `desk` |
+| `desk_session_id` | Desk only: the desk signing session (`core_agreement_desk_session`), which holds the staff account that started it, when, and when the device claimed it |
 | `accepted_at` | The host's clock at commit |
 | `signed_on`, `recorded_by`, `note` | Paper only: the date on the form, the staff user who recorded it, an optional note |
 
@@ -415,15 +474,17 @@ it).
   - **staff with `agreements:health`** (a new permission: admins by default, grantable one by one,
     ADR 0449), a person only (`actors: ["human"]`), on the Person page behind "Show answers"; each
     read writes an audit row naming who read whose answers (no values);
-  - **coaches on a class list see a mark only** (a person answered yes, with no content), if the owner
-    agrees (question 4). The coach role (ADR 0436) gains that one read; issue #258 reshapes roles
-    anyway;
+  - **coaches on a class list see a mark only** (decision 18): "health note" beside the name of a
+    Person whose current health acceptance has a "yes", with no question, answer or note. The coach
+    role (ADR 0436) gains that one read, a yes-or-no per Person on the list; issue #258 reshapes
+    roles anyway. Staff with `agreements:health` open the answers from the Person page;
   - **never an AI actor** (the assistant, MCP, an automation's AI step), whatever is granted. No
     setting turns it on;
   - **never a practitioner** (stage 43): a practitioner sees only their own work.
 - **A "yes"**: staff with `agreements:health` are told in the host ("[name] answered yes to a health
   question"); an email or push says only "a member's health form needs a look: open the app". It
-  does not block booking unless the owner decides so (question 5).
+  does not block booking (decision 19): the member books straight away, and what a "yes" needs (a
+  doctor's clearance) is the business's process with its insurer, not the app's.
 - **Asked again**: after the document's "ask again after" (default 12 months, a guess), the
   acceptance stops being current and the next booking asks for it. A person may also update their
   answers at any time (a new acceptance).
@@ -438,12 +499,17 @@ it).
   agreed, when, how, how to see it in the app), and the signed PDF attached. It goes through
   `callAsHost` with a new purpose, `agreements`, the way an order's confirmation does (purpose
   `orders`): a message the host composed from a fixed template applies at once unless the deploy-time
-  floor denies it. So **it needs nothing from the routine-email work** (the owner's decision of
-  2026-11-23 that a pack's fixed routine emails send without approval, not yet built). If that work
-  lands first and generalises "a fixed template the host composes", Agreements uses it instead; the
-  rule is the same. A guardian is sent the copy of what they agreed for their child. Paper
+  floor denies it. So **it needs nothing from the routine-mail work** (the owner's decision of
+  2026-11-23 that a pack's fixed routine emails send without approval, being built on
+  `feat/routine-mail` and not yet on `main`): that is about a pack's emails, and the copy is the
+  host's own. If routine mail, once merged, gives the host a general "fixed template the host
+  composes" path, step 4 uses it instead; the rule is the same. The copy is not an automation run,
+  so the runs-per-minute rail and its deferred runs (ADR 0573) do not shape it. A guardian is sent
+  the copy of what they agreed for their child. Paper
   acceptances send no copy unless staff press "Email a copy" (and the Person has an address).
-- **Health answers are not in the email** (recommended, question 7): the PDF attached to a health
+- **The copy carries an idempotency key** (ADR 0574), `agreement-copy:<acceptance id>`, so a retried
+  send of the same copy goes once (step 4 passes it through `callAsHost` to the gatekeeper's `send`).
+- **Health answers are not in the email** (decision 21): the PDF attached to a health
   form's copy lists the questions and says "your answers are in the app". The PDF downloaded in the
   app, and by staff with `agreements:health`, includes them.
 - **What the PDF says**: the business's name, the document's title and version number, the body as
@@ -474,10 +540,10 @@ it).
 ### Cooling off (decision 11)
 
 - **The setting**: `coolingOffDays` on the Memberships pack (Settings → Extensions → Memberships), a
-  whole number, 0 off (the default), `personApproves`. A plan may set its own (question 3).
-- **Who may use it**: the holder's subscription to a membership plan started here by
-  `subscription.start` without a continuation offer (a new member, not one moving over: question 3),
-  within that many days of the provider-confirmed start (the host's clock).
+  whole number, 0 off (the default), `personApproves`. One setting for every plan.
+- **Who may use it** (decision 17): the holder's subscription to a membership plan started here by
+  `subscription.start` without a continuation offer (a new member; not a member moving over, and not
+  a pass), within that many days of the provider-confirmed start (the host's clock).
 - **The cancel**: `subscription.coolOff { id }` (customer, for their own as payer; staff with
   `subscriptions:manage`, a person only). It ends the subscription at once with the provider (as a
   cancel now does), and in the batch that follows the provider's verified event it writes a **refund
@@ -486,12 +552,12 @@ it).
   like every refund (ADR 0429). A rejected or lapsed one tells staff, as ADR 0560's do.
 - **A free trial longer than the period** leaves nothing to refund; the button says "cancel" and the
   trial ends as any trial does.
-- **Uses already spent**: by default a full refund whatever was used (question 2). Bookings ahead,
+- **Uses already spent**: a full refund whatever was used (decision 16). Bookings ahead,
   and what the ended membership gives, follow what a membership ended at once does today (stage
   32b).
 - **The words** that tell a member about cooling off are the business's, in its terms. The app shows
   "You can cancel for a full refund until [date]" beside the cancel button while it applies.
-- **Passes**: not covered by default (question 3).
+- **Passes**: not covered (decision 17).
 
 ### Members moving over (decision 8)
 
@@ -517,15 +583,115 @@ it).
 - **A dependant** is a Person with a live family link (ADR 0540). `dependants` documents (the
   guardian consent) are due only for them; every other document attached to a point is due for them
   too (the waiver, the health form), and for a dependant only a guardian's acceptance or a paper one
-  counts (question 6).
+  counts (decision 20).
+- **A minor** is a dependant, or a Person staff have **marked as a minor**. The host holds no date of
+  birth, and a teenager may have their own sign-in and no family link yet, so the mark is how the
+  host knows. It is `core_agreement_minor` (the Person, who set it, when; one row or none), set and
+  cleared by `agreement.setMinor { personId, minor }` (staff, `people:link`, `actors: ["human"]`:
+  who may agree for whom is identity, as the family link is). Staff clear it when the person comes
+  of age; the host never works out an age. **What it gates**, and nothing else: for a minor, every
+  attached document is due as for a dependant (the `dependants` documents included); their own
+  acceptance is refused when they try (signed in, or at the desk for themselves: "a parent or
+  guardian agrees for you"), and only a guardian's with a live link, or paper, counts. A marked
+  minor with no linked guardian cannot book or buy until staff link one or record paper; the Person
+  page says so. The mark is in no `rec_*` view; erase deletes it, and a merge keeps it if either
+  Person had it.
 - **A guardian agrees for each child**, one acceptance each, from "My family" or when booking for the
   child: the host checks the link is live (`core_person_link_guard` in the batch). The guardian
   receives the copy. Ending the link later does not undo what they agreed; another guardian may
   agree again.
 - **Staff record a paper form** for a child, naming who signed it (`signedBy`, free text: "mother,
   [name]").
-- **A child with no link** is treated as an adult by the host. Staff link the parent first; the
-  admin's child view says so.
+- **A child with no link and no mark** is treated as an adult by the host. Staff link the parent
+  first, or mark the Person a minor; the admin's child view says so.
+
+### Signing at the desk (decision 22)
+
+The member signs on the business's own tablet at the front desk, as their own acceptance: not a
+paper form staff type in, and not staff agreeing for them.
+
+**Whose sign-in the device runs under: none.** A person on the staff, signed in on their own account
+(the desk computer, their phone), starts a **desk signing session** for one named Person. The host
+answers with a short one-time **code**. The tablet is a plain browser at the host's `/desk` page,
+**never signed in as staff or as anyone**; the code is typed (or its QR shown on the staff screen
+is scanned by the tablet) and the tablet then holds only that session. Weighed and rejected:
+
+| Option | Why not |
+| --- | --- |
+| **A kiosk account** (a standing "front desk" sign-in on the tablet that can open anyone's documents) | Standing authority on a shared device: signed in all day, it reaches every member's documents, and whoever picks it up holds it. Nobody is accountable for a given session |
+| **Staff hand over their own signed-in device** with a locked screen | The browser still holds a staff credential: a screen lock is the client deciding, and a member with the URL bar (or a reload) reaches staff screens. A lock enforced in the host would need sign-in to be undone on the device, which most desks would turn off |
+| **The member's own phone only** (the spec's first recommendation) | Kept (staff still send a link), but the owner wants the desk too: a visitor without their phone, or a parent with a child |
+
+**The desk session** (`core_agreement_desk_session`, `ads_…`):
+
+- `agreement.desk.start { personId, dependantIds? }` (staff, a new permission `agreements:desk`,
+  admins by default and grantable, `actors: ["human"]`, risk `write`): the Person who will sign, and
+  for a parent, which of their live dependants they will sign for (each must be a live link now).
+  It records the session (the Person, the dependants, the staff user who started it, when, the
+  address the copies will go to) and answers the code: 8 characters from an unambiguous alphabet,
+  single use, valid for 2 minutes until claimed, stored only as its hash. Refused: a Person in the
+  Trash; a Person marked minor signing for themselves (decision 20: start it for their guardian);
+  a signer with no email address (below).
+- `desk.claim { code }` (public, through the host's `/desk` route only): the tablet trades the code
+  for a session token (256 random bits) the route keeps in an HttpOnly cookie scoped to `/desk`. A
+  code claims once; five wrong codes from one address in a minute are rate-limited. Claiming is
+  recorded (when). The token is never in a URL, and never shown.
+- `desk.documents` and `desk.accept { versionId, forPersonId?, typedName, signature?, answers? }`
+  (public audience, the token from the cookie, through `accept.ts` as every acceptance): only the
+  documents **due** for the session's Person (and its listed dependants) at that moment, their
+  current versions, and nothing else. Both are reviewed additions to open-operations.json.
+- `agreement.desk.end { sessionId }` (staff): ends it at once from the staff side.
+
+**What the tablet can and cannot show or do.** It shows the business's name, "Documents for [given
+name]" (and each listed child's given name), each due document's text, the health form, the tick
+label and box, the typed name and the signature pad; then "All done: please hand the device back",
+which shows nothing more. It shows **no other member's data, and none of this member's other data**:
+no membership, bookings, history, earlier answers, address (the copy line says "a copy goes to
+s•••@e•••.com"). It has no navigation: the `/desk` page is the whole app there, and the host's staff
+screens need a staff sign-in the tablet does not have. After a health form is submitted nothing of
+its answers is shown again. **It locks**: 3 minutes without a touch clears the screen back to "Enter
+code" and ends the session; a session lasts at most 20 minutes; it ends when every document is done,
+when staff end it, or when another code is claimed on the tablet. An ended or expired token answers
+nothing.
+
+**How the acceptance is recorded, as honest evidence.** `by: "self"` (or `"guardian"` for a child),
+`channel: "desk"`, `how` typed or drawn as the document says, `desk_session_id`; the session names
+the staff account that started it and when, and when the tablet claimed it. It is the member's own
+acceptance, distinct from paper ("staff recorded a paper form") on every screen and in the PDF:
+"Agreed in person on [business]'s device; session started by [staff] at [time]". No customer
+account is involved, so `account_id` is null.
+
+**A parent for a child at the desk.** Staff start the session for the parent, listing the children;
+the parent agrees for each (`forPersonId`), recorded `by: "guardian"` with the parent as
+`agent_person_id`; the batch carries `core_person_link_guard`, so a link ended meanwhile fails it.
+Their own due documents come first.
+
+**A drawn signature on a tablet.** The same signature pad as the web Agree block (pointer events,
+finger or stylus), the same strokes format and limits; nothing native.
+
+**A visitor with no account yet.** Staff create the Person first (`person.create`, as the desk does
+today) with an email address, then start the session. Desk signing makes no customer account.
+
+**Abuse: staff signing for a member.** What deters and reveals it:
+
+- **The copy is emailed every time**, to the signer's own address: the customer account's sign-in
+  address when they have one (the address a code verified), otherwise the Person's primary email.
+  So the member hears of every desk acceptance made in their name. A signer with no address cannot
+  sign at the desk (they sign on paper or on their own phone).
+- **The address is pinned at start** and kept on the session; if the Person's email changed in the
+  24 hours before, the acceptance is flagged "address changed shortly before" on the staff lists,
+  and the audit shows who changed it.
+- **Every session names its staff account**, and the Acceptances list filters by "at the desk" and by
+  who started them, so one account's pattern is visible to an admin.
+- **It is weaker evidence than a signed-in acceptance**, and the PDF says how it was made. Whether
+  that is enough is on the list for the lawyer.
+
+**Native**: not needed. The tablet runs the web `/desk` page in its browser at tablet width (a
+base-layer web block). The business may also pin the browser with the tablet's own guided-access
+mode; the design does not rely on it.
+
+**The AI**: never. `agreement.desk.start` and `end` are a person's; the desk operations are public
+with a token only a claimed tablet holds.
 
 ### Stage 43: the care link's consent becomes an acceptance
 
@@ -551,10 +717,12 @@ it).
 ### Erase, merge, the Trash and keeping records
 
 Acceptances are evidence a business may need for years (a claim can come long after) and personal
-data a person may ask to have erased. The proposal (question 1):
+data a person may ask to have erased. Decided (decision 15):
 
 - **Erase** deletes at once the Person's **health answers** (all of them; the most sensitive data,
-  and not evidence of the contract) and any guest acceptances on their unpaid orders. It **keeps** the
+  and not evidence of the contract), any guest acceptances on their unpaid orders, their minor mark
+  and any open desk session for them (a closed session stays with the acceptances it made, detached
+  like them). It **keeps** the
   rest of each acceptance (the version, when, how, the typed name, the address, the signature),
   detached from the deleted Person and marked `erased`, until the retention period ends, then the
   purge deletes it. The erase screen says what is kept and until when.
@@ -581,6 +749,7 @@ data a person may ask to have erased. The proposal (question 1):
 | Accept for anyone, record paper | **Never** |
 | Read whether a Person has what is due ("why can't Sam book?") | Yes: document titles and dates, never names typed, signatures or answers |
 | Read health answers, signatures, the PDF | **Never** |
+| Start or end a desk session, mark a Person a minor | **Never** (`actors: ["human"]`) |
 | Start an order, a subscription or a booking for someone | Only as today, and refused like anyone when something is due |
 
 ### Screens
@@ -596,7 +765,10 @@ data a person may ask to have erased. The proposal (question 1):
 | Host admin: **Acceptances** | Staff | By document, version, how (paper marked), date; **Due**: who still needs which document (members with a live membership or a booking ahead first), with "send a link" |
 | Host admin: **Person page → Agreements tab** | Staff | Each document attached anywhere: current, due or agree again; history; the PDF; **Record paper**; **Send a link**; health answers behind "Show answers" (`agreements:health`, audited) |
 | Host admin: **Memberships settings** | Staff (a person) | Cooling-off days |
-| Coach's class list (Bookings) | Coach | A mark beside a name with a health "yes", no content (question 4) |
+| Coach's class list (Bookings) | Coach | "Health note" beside a name with a health "yes", no content (decision 18) |
+| Host admin: **Person page → Sign at the desk** | Staff with `agreements:desk` | Choose the children (for a parent), start: the code and its QR, the session's state (waiting, claimed, done), End |
+| Web, tablet width: **`/desk`** | The member at the desk (no sign-in) | Enter code; the due documents in turn (the Agree block's web skin); "All done: please hand the device back" |
+| Host admin: **Person page → Minor** | Staff with `people:link` | Mark or clear "a minor: a parent or guardian agrees for them" |
 
 The blocks are base-layer blocks with a headless entry (`agreements` hooks), web and native skins.
 No block decides anything: the block lint passes, and every refusal comes from the host.
@@ -604,7 +776,8 @@ No block decides anything: the block lint passes, and every refusal comes from t
 ## Out of scope
 
 - Legal wording of any kind, and any template document.
-- An outside signing service; witness signatures; signing in person on a staff device (question 8).
+- An outside signing service; witness signatures; a kiosk account on a shared device (signing at
+  the desk is in: decision 22).
 - More than one language per document.
 - Scans of paper forms kept in the host.
 - Withdrawing an agreement (a person who no longer agrees cancels; health answers can be updated).
@@ -638,18 +811,27 @@ No block decides anything: the block lint passes, and every refusal comes from t
 4. **An acceptance cannot be changed**: every column but `person_id` (null to a Person, or merged to
    survivor) and the identity columns (to null only) is refused by the database for every writer,
    host code included; no operation updates or deletes one; a version is refused any update or
-   delete.
-5. **Publishing is a person's**: `agreement.publish`, `attach` and `retire` are refused (not queued)
-   to the assistant, MCP, automations and extensions with every grant; a person without
-   `agreements:manage` is refused; the assistant can write the working copy for a person who holds it.
+   delete (step 1: proved with raw SQL as well as through every operation).
+5. **Publishing is a person's** (step 1): `agreement.publish`, `attach`, `detach` and `retire` are
+   refused (not queued: no pending action exists afterwards) to the assistant, MCP and Code Mode,
+   automations and extension code with every grant; a person without `agreements:manage` is
+   refused; a granted member publishes; the assistant can make a draft and write the working copy
+   for a person who holds it, and under a cautious policy that write waits for approval and its dry
+   run changes nothing. A publish whose `draftHash` is not the working copy's is refused. Every
+   publish, attach, detach, retire and scheduled version taking effect bumps `core_agreement_rev`
+   once; each is audited. No `core_agreement_*` table is reachable by `query.sql`, a dashboard, an
+   export, search or a `rec_*` view.
 6. **Guests**: a guest's acceptances carry the version, hash, typed name and the order's address; they
    become the matched Person's in the verified payment's batch, or at `order.setPerson`; an order
    that expires unpaid deletes them; the answer to a guest is the same whatever the address matches.
 7. **Children and paper**: a guardian's acceptance needs a live link at commit (the link ended a
-   moment before fails the batch); a dependant's own acceptance does not count (unless question 6
-   says otherwise); a paper acceptance names the staff user, when they recorded it and the date on the
-   form, is shown as "recorded from paper" on every screen and the PDF, and is a person's act only.
-8. **Health answers are isolated**: with a fixture of answers, no staff bulk path (record lists,
+   moment before fails the batch); a dependant's own acceptance, and a Person marked minor's own, is
+   refused and never counts, signed in or at the desk; marking and clearing a minor is a person's act
+   with `people:link`; a paper acceptance names the staff user, when they recorded it and the date on
+   the form, is shown as "recorded from paper" on every screen and the PDF, and is a person's act
+   only.
+8. **Health answers are isolated**: the coach's class list carries "health note" (a yes or no per
+   Person) and nothing else of the form; with a fixture of answers, no staff bulk path (record lists,
    search, `query.sql`, dashboards, exports, summaries, embeddings, the digest, the Trash list, the
    timeline, audit values, notification email bodies), no AI actor and no practitioner reads any of
    them; staff with `agreements:health` read them on screen, a person only, and each read is audited;
@@ -670,36 +852,58 @@ No block decides anything: the block lint passes, and every refusal comes from t
 14. **Erase and merge**: erase deletes health answers and unpaid guest acceptances at once and keeps the
     rest detached for the retention period, after which the purge deletes it; merge re-points
     acceptances and changes nothing in them.
-15. `pnpm lint typecheck test`, `cos ext check` and `cos ext test` on the packs that declare points,
-    the block lint, and one e2e test per journey (a member agrees on first sign-in and books; a
-    visitor agrees and pays for a class; a parent agrees for a child; staff publish "agree again" and
-    the member is asked at their next booking; staff record a paper form) pass in CI. ADRs for each
-    platform piece; `CONTEXT.md` and `docs/architecture.md` updated.
+15. **Signing at the desk** (the core suite, over `invoke` and over the `/desk` route):
+    - `agreement.desk.start` and `end` are refused to every AI actor and to staff without
+      `agreements:desk`; start is refused for a Person in the Trash, a marked minor for themselves, a
+      signer with no address, and a dependant whose link is not live;
+    - a code claims once, expires unclaimed after 2 minutes, is stored only hashed, and wrong codes
+      are rate-limited; the token is in an HttpOnly cookie scoped to `/desk` and in no URL;
+    - **isolation**: a session's token reads only its Person's (and listed dependants') due
+      documents: a version of a document not due for them, another Person's `forPersonId`, and any
+      record, booking, membership, answer or address are refused or absent; a staff cookie is
+      neither needed nor accepted in its place; the token reaches no other operation; after the
+      session ends, expires (20 minutes) or idles (3 minutes) the token answers nothing;
+    - an acceptance made there is `channel: "desk"` with its session, which names the staff user
+      and the times; it is shown as "agreed in person on the business's device", never as paper;
+      the copy goes to the pinned address every time; a parent's acceptance for a child needs a
+      live link at commit; an address changed in the 24 hours before is flagged.
+16. `pnpm lint typecheck test`, `cos ext check` and `cos ext test` on the packs that declare points,
+    the block lint, and one e2e test per journey (staff publish a document, then a changed version as
+    "agree again" (step 1); a member agrees on first sign-in and books; a visitor agrees and pays for a
+    class; a parent agrees for a child; staff publish "agree again" and the member is asked at their
+    next booking; staff record a paper form; a member signs at the desk on a tablet-width page) pass
+    in CI. ADRs for each platform piece; `CONTEXT.md` and `docs/architecture.md` updated.
 
 ## Dependencies
 
 - Stages 25, 31a (steps 3 to 8, merged) and 32 (32a, 32b steps 5 to 7, merged).
-- PR #256 (31a step 9, the calendar file and the email gatekeeper's changes) before step 4 here.
-- Nothing from 31b, 32b step 8, 33 or 43. Stage 43's step 4 waits for steps 1 and 2 here (above).
+- PR #256 (31a step 9, the calendar file and the email gatekeeper's changes, ADRs 0570 to 0574):
+  **merged**, so step 4 here waits for nothing.
+- Nothing from 31b, 32b step 8, 33 or 43, and nothing from `feat/routine-mail`. Stage 43's step 4
+  waits for steps 1 and 2 here (above).
 
 ## Migrations and numbers
 
-The next free block in [`parallel-work.md`](../parallel-work.md), claimed in the build's first
-commit: `core_agreement_document`, `core_agreement_version` (with its no-update, no-delete
-triggers), `core_agreement_point` (attachments), `core_agreement_rev`, `core_agreement_acceptance`
-(its update trigger), `core_agreement_signature`, `core_agreement_answer`, `core_agreement_copy`;
-`core_write_guard` made again with the kind `agreements` (as migrations 0610 and 0670 did); the
-permissions `agreements:manage`, `agreements:paper`, `agreements:health`; the retention setting. No
-`x_*` table is touched. ADRs the build will need (not written until built):
+Block **AU** in [`parallel-work.md`](../parallel-work.md): migrations 0790–0809, ADRs 0610–0619.
+Step 1 used migration 0790 (`core_agreement_document`, `core_agreement_version` with its no-update,
+no-delete and draft triggers, `core_agreement_point`, `core_agreement_rev`) and the permission
+`agreements:manage`. Later steps: `core_agreement_acceptance` (its update trigger),
+`core_agreement_signature`, `core_agreement_answer`, `core_agreement_copy`,
+`core_agreement_minor`, `core_agreement_desk_session`; `core_write_guard` made again with the kind
+`agreements` (as migrations 0610 and 0670 did); the permissions `agreements:paper`,
+`agreements:health`, `agreements:desk`; the retention setting. No `x_*` table is touched. ADRs:
 
-1. Agreements: documents, versions, publishing by a person only, effective dates, "agree again".
-2. The `agreements` behaviour: points, attaching documents, `agreementsDue` and its guard.
-3. Acceptances: the four paths, the immutable record, signatures as strokes.
+1. Agreements: documents, versions, publishing by a person only, effective dates, "agree again"
+   (**ADR 0610**, step 1).
+2. The `agreements` behaviour: points and attaching documents (**ADR 0611**, step 1);
+   `agreementsDue` and its guard (step 2 amends it).
+3. Acceptances: the paths, the immutable record, signatures as strokes, the minor mark.
 4. Health answers and their isolation.
 5. The copy and the signed PDF: host mail for agreements, and the gatekeeper's second attachment
    (amending ADR 0571).
 6. Cooling off.
 7. Keeping acceptances after erase.
+8. Signing at the desk: a session a person starts, a tablet with no sign-in.
 
 ADRs 0428 (a guest's acceptances settle with the order), 0435 (`sellable` and points), 0491 (a
 continuation needs the terms), 0503 (the engine's create checks), 0540 (a guardian agrees for a
@@ -710,18 +914,19 @@ with dated notes.
 
 | Step | What | Platform files it touches | Runs beside stage 31, 32 and 43 work? |
 | --- | --- | --- | --- |
-| 1 | **Documents and versions**: tables, the working copy, `agreement.publish` (human only), scheduling by the minute cron, attach, retire, the permissions; the `agreements` declaration in the SDK and contract (inert); the admin's document list and editor | a migration; `packages/core/src/agreements/` (new); `operations/agreement.ts` (new); `packages/sdk` (the declaration, contract checks); the admin settings route; the registry | **Yes, now.** New files, except the registry, the route tree and the SDK contract, which always conflict and are resolved by keeping both |
-| 2 | **Acceptances and the one question**: `agreementsDue`, `core_agreement_rev` and the guard kind; `me.agreements.*`, `recordPaper`, the guardian path; signatures; health answers and their isolation (audit redaction, no views); the Person tab, the acceptances and due lists | `agreements/`; a migration remaking `core_write_guard`; `visibility/` (read only: `guardians.ts`'s live link and guard); audit redaction; `open-operations.json`; the admin Person page | **Yes**, after step 1. The `core_write_guard` remake **collides with any build adding a guard kind** at the same time: agree the order of the two migrations in `parallel-work.md` |
+| 1 | **Documents and versions** (**built**, `feat/stage-44-documents`): tables, the working copy, `agreement.publish` (human only, against the reviewed working copy's hash), scheduling by the minute cron, attach, detach, retire, `core_agreement_rev` (bumped by each), the permission `agreements:manage`; the `agreements` declaration in the SDK and contract (inert); the admin's document list and editor | migration 0790; `packages/core/src/agreements/` (new); `operations/agreement.ts` (new); `packages/sdk` (`agreements.ts`, the declaration and contract checks); the runner's minute tick; the admin settings routes; the registry | Done |
+| 2 | **Acceptances and the one question**: `agreementsDue` and the guard kind (reading step 1's counter); `me.agreements.*`, `recordPaper`, the guardian path, the minor mark (`agreement.setMinor`); signatures; health answers and their isolation (audit redaction, no views), the coach's "health note"; the Person tab, the acceptances and due lists | `agreements/`; a migration remaking `core_write_guard`; `visibility/` (read only: `guardians.ts`'s live link and guard); audit redaction; `open-operations.json`; the admin Person page | **Yes, now** (step 1 is built). The `core_write_guard` remake **collides with any build adding a guard kind** at the same time: agree the order of the two migrations in `parallel-work.md` |
 | 3 | **Enforcement**: `createOrder` and `order.startHeld` (guest acceptances in the batch, settlement in the verified payment's batch and `order.setPerson`, deletion on expiry); `startSubscription`; the transition engine's create and move checks; the points on Memberships and Bookings, then Ticketing and Courses | `orders/orders.ts`, `orders/events.ts`, `orders/guests.ts`, `subscriptions/subscriptions.ts`, `records/states.ts` (create checks), `packs/memberships`, `packs/bookings` (index and `buy`), `packs/ticketing`, `packs/courses` | **Not beside other work in `orders/` or the engine's create checks** (31a step 10, 31b, 32b step 8 if it touches `startSubscription`). Its own window; reviewed as stage 25 was |
-| 4 | **The copy and the PDF**: the PDF writer module (vendored or our own, noted in `UPSTREAMS.md` if vendored), the gatekeeper's `agreement` part, `callAsHost` purpose `agreements`, the download routes, the blank PDF | `packages/gatekeeper-email-send` (`validate.ts`, `worker.ts`, a new `agreement.ts`), the fake outbox, `integrations/runtime.ts` (the purpose), `apps/app/src/server/http/` (downloads) | **After PR #256 merges** (it changes the same gatekeeper files). Then yes, beside anything but other email-gatekeeper work (issue #259) |
-| 5 | **Blocks and hooks**: Agree, Before you go on, My agreements, a child's, the checkout and booking steps; native signature pad | base-layer blocks, a headless `agreements` entry in `packages/client`, the client template's routes, the Bookings and Memberships web blocks (the inline step) | Yes, once step 2's operations are merged; coordinate with whoever owns the drop-in and timetable blocks |
-| 6 | **Cooling off**: the setting, `subscription.coolOff`, refunds owed per period | `subscriptions/` (a new `cooling-off.ts`), `orders/refund-due.ts`, `packs/memberships` (the setting, the member's button) | Yes, beside 31 work; **not beside other `subscriptions/` work** (issue #254's hardening) |
-| 7 | **Erase, merge, the Trash and retention**: erase keeps acceptances detached, deletes answers; merge re-points; the purge after the retention period | `records/erase.ts`, `records/erase-stores.ts`, `person.merge`, `purge.ts` | **Not beside other erase or merge work** (the "erase completeness" reserved area, stage 43 step 4) |
-| 8 | **Stage 43's consent** as a `care` acceptance (when stage 43 step 4 is built) | `agreements/`, stage 43's `care.ts` | With stage 43 step 4 |
-| 9 | **The first client**: the business writes and publishes its four documents, attaches them; a moved member's first sign-in in test mode; a visitor's drop-in; a parent for a child | The first client's own repository and deployment | After 3 to 5; before members pay or train on the new system |
+| 4 | **The copy and the PDF**: the PDF writer module (vendored or our own, noted in `UPSTREAMS.md` if vendored), the gatekeeper's `agreement` part, `callAsHost` purpose `agreements` with the copy's idempotency key, the download routes, the blank PDF | `packages/gatekeeper-email-send` (`validate.ts`, `worker.ts`, a new `agreement.ts`), the fake outbox, `integrations/runtime.ts` (the purpose), `apps/app/src/server/http/` (downloads) | Yes, after step 2 (PR #256 is merged); beside anything but other email-gatekeeper work (issue #259, and `feat/routine-mail` while it is open) |
+| 5 | **Blocks and hooks**: Agree, Before you go on, My agreements, a child's, the checkout and booking steps; the web signature pad (pointer events) and the native one | base-layer blocks, a headless `agreements` entry in `packages/client`, the client template's routes, the Bookings and Memberships web blocks (the inline step) | Yes, once step 2's operations are merged; coordinate with whoever owns the drop-in and timetable blocks |
+| 6 | **Signing at the desk** (decision 22): `core_agreement_desk_session`, `agreement.desk.start` and `end` (human only, `agreements:desk`), `desk.claim`, `desk.documents`, `desk.accept` (public, the session token), the `/desk` route and its cookie, the rate limit, the staff side's Sign at the desk; the desk page at tablet width from the Agree block's web skin. No native work | `agreements/` (a new `desk.ts`), `operations/agreement-desk.ts`, `open-operations.json`, `apps/app/src/server/identity.ts` (the public path `/desk`), a new desk route, the admin Person page | After step 2 (it records acceptances) and step 4 (every desk acceptance sends its copy); its page after step 5's Agree block. Beside anything but other work on public paths in `identity.ts` |
+| 7 | **Cooling off**: the setting, `subscription.coolOff`, refunds owed per period | `subscriptions/` (a new `cooling-off.ts`), `orders/refund-due.ts`, `packs/memberships` (the setting, the member's button) | Yes, beside 31 work; **not beside other `subscriptions/` work** (issue #254's hardening) |
+| 8 | **Erase, merge, the Trash and retention**: erase keeps acceptances detached, deletes answers, the minor mark and open desk sessions; merge re-points; the purge after the retention period | `records/erase.ts`, `records/erase-stores.ts`, `person.merge`, `purge.ts` | **Not beside other erase or merge work** (the "erase completeness" reserved area, stage 43 step 4) |
+| 9 | **Stage 43's consent** as a `care` acceptance (when stage 43 step 4 is built) | `agreements/`, stage 43's `care.ts` | With stage 43 step 4 |
+| 10 | **The first client**: the business writes and publishes its four documents, attaches them; a moved member's first sign-in in test mode; a visitor's drop-in; a parent for a child; a member at the desk | The first client's own repository and deployment | After 3 to 6; before members pay or train on the new system |
 
-**The spine is steps 1 to 3.** Steps 1 and 2 can start today. Step 3 is the riskiest (every way to
-pay or book) and gets the most careful review. Step 4 waits for PR #256 only.
+**The spine is steps 1 to 3.** Step 1 is built; step 2 can start now. Step 3 is the riskiest (every
+way to pay or book) and gets the most careful review. Step 4 waits for step 2 only.
 
 ## Decided by this spec, open to override
 
@@ -735,11 +940,20 @@ pay or book) and gets the most careful review. Step 4 waits for PR #256 only.
   the host for downloads; never stored.
 - **The copy is host mail**, applied without review like an order's confirmation.
 - **A guest's acceptances are deleted when their order expires unpaid.**
-- **Staff cannot agree for anyone**; they send a link or record paper.
+- **Staff cannot agree for anyone**; they send a link, start a desk session or record paper.
 - **The health form asks again after 12 months** by default (a guess).
 - **One language per document.**
+- **How, who and for whom are in the working copy**, so they change only when a person publishes;
+  a document's kind is fixed when it is made (step 1).
+- **A published version is never withdrawn**, even scheduled; a newer one replaces its wording
+  (step 1).
+- **The desk tablet holds no sign-in**; a staff member's own session starts each desk session.
+- **A minor is a mark staff set**, never an age the host works out.
 
-## Questions for the owner
+## Questions for the owner (answered 2026-11-23)
+
+The owner's answers are decisions 15 to 22 above. Each question is kept as it was asked, with its
+answer.
 
 1. **When a person asks to be erased, what happens to their signed agreements?**
    - (a) Health answers are deleted at once; the rest of each acceptance (what, when, how, the name,
@@ -750,36 +964,50 @@ pay or book) and gets the most careful review. Step 4 waits for PR #256 only.
    - (c) Everything is deleted at once.
    **Recommended: (a).** The record is the business's evidence for a claim or a dispute that can come
    years later; (b) keeps nothing that proves who. The number of years is for the lawyer.
+   **Answer: (a)** (decision 15).
+
 2. **Cooling off: a member who cancels inside the period after using the gym gets what back?**
    - (a) A full refund, whatever they used.
    - (b) A refund less a drop-in price for each class they attended.
    **Recommended: (a).** It is what "full refund" means to a member, the period is short, and it is
    simple to explain. (b) needs a price per visit and the law may not allow it.
+   **Answer: (a)** (decision 16).
+
 3. **Cooling off: who does it cover?**
    - (a) New members' memberships only: not passes, not members moving over with a continuation offer.
    - (b) Memberships and passes.
    - (c) Everyone, members moving over included.
    **Recommended: (a)**, and one setting for every plan. A moved member is not a new contract in the
    member's eyes; a pass is bought and used at once. Confirm with the lawyer.
+   **Answer: (a)** (decision 17).
+
 4. **Should a coach see a mark on the class list when a member answered yes to a health question?**
    - (a) Yes, a mark only; the answers only to staff with the health permission.
    - (b) No: the Person page only.
    **Recommended: (a).** The coach on the floor is who needs to know to ask. It adds one read to the
    coach role.
+   **Answer: (a)** (decision 18).
+
 5. **When a member answers yes to a health question, can they book straight away?**
    - (a) Yes; staff with the health permission are told to look.
    - (b) No: they wait until a person on the staff marks the form as reviewed.
    **Recommended: (a).** (b) blocks a first booking on staff being quick, and the business decides
    with its insurer what a "yes" needs (a doctor's clearance is a business process, not the app's).
+   **Answer: (a)** (decision 19).
+
 6. **A child with their own account (a teenager): who agrees for them?**
    - (a) Only a linked guardian, or paper.
    - (b) The child themselves for the waiver and the health form; a guardian for the guardian consent.
    **Recommended: (a).** The host does not know a child's age, and a minor's own agreement is
    doubtful evidence.
+   **Answer: (a)** (decision 20), with the minor mark.
+
 7. **Should the emailed copy of the health form include the answers?**
    - (a) No: the questions, and "your answers are in the app".
    - (b) Yes, the whole form.
    **Recommended: (a).** Email is the least protected place health information could go.
+   **Answer: (a)** (decision 21).
+
 8. **Should a new member be able to agree at the desk, on a staff tablet?**
    - (a) Not in this stage: they agree on their own phone (staff send a link or show a code), or on
      paper.
@@ -787,6 +1015,7 @@ pay or book) and gets the most careful review. Step 4 waits for PR #256 only.
      witnessed by the staff account.
    **Recommended: (a).** On a staff device anyone could type the name; paper is at least a real
    signature. (b) can follow if the desk needs it.
+   **Answer: (b)**, changed from the recommendation (decision 22): designed in [Signing at the desk](#signing-at-the-desk-decision-22), with the session started by a person on the staff and a tablet that holds no sign-in.
 
 ## For the business to confirm with its insurer or lawyer
 
@@ -813,6 +1042,12 @@ The platform takes no view on these. Each has a default in this spec.
     (decision 3).
 11. Whether keeping health information with a provider whose storage may be overseas is covered by
     the business's privacy policy (stage 43's location hint applies to new installs only).
+12. Whether an acceptance made at the desk (the member's typed name or drawn signature on the
+    business's tablet, in a session a named staff member started, with the copy emailed to the
+    member) is enough evidence for each document, and whether the business wants a second staff
+    member present.
+13. When a person marked as a minor should be treated as an adult (the host never works out an age:
+    staff clear the mark).
 
 ## Sources
 
