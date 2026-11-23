@@ -95,3 +95,9 @@ ADR 0191 decided one isolated deployment per customer in our account, on Workers
 > the secret `ROS_CONTROL_KEY` ([ADR 0250](0250-deployment-to-control-plane-channel.md)). The
 > tenant id is now visible inside a deployment as that var, never in its data. "Per-tenant names,
 > nothing shared" has one exception: the Platform AI gateway, whose logs hold metadata only.
+
+> **Amended 2026-11-23: client products in a namespace.** [ADR 0610](0610-three-homes-for-a-client-hosted-by-default.md)
+> hosts client products in a namespace too, deployed by `cos deploy` and not by this control plane.
+> Stage 46 moves the dispatch handler, the cron fan-out and the rollout engine into a package both
+> use, and runs the go-live checks listed above on a real namespace as its first step. A client's
+> Workers keep the names its `product.ts` gives them, with no `t…` tenant id.
