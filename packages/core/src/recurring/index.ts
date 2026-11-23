@@ -32,7 +32,7 @@ import type { HandlerContext } from "../operation.ts";
 import { followersOn } from "../records/follows.ts";
 import type { Mover } from "../records/transitions.ts";
 import { loadGeneralSettings } from "../settings.ts";
-import { assertPlansStaffFree, generationClash } from "../staffing/index.ts";
+import { assertPlansStaffFree, generationClash, patternNotApplied } from "../staffing/index.ts";
 import {
   isoWeekday,
   localParts,
@@ -356,16 +356,16 @@ export async function generateSeries(
     // already on an overlapping shift is made with nobody on it, and keeps that as its own (a
     // field exception), so the series does not write the clash back; a rosterer settles it.
     const who = staffed?.who.field;
-    const uncovered =
-      who !== undefined &&
-      values[who] !== null &&
-      values[who] !== undefined &&
-      (await generationClash(ctx, generated, {
-        ...(stateField ? { [stateField]: generated.states?.initial } : {}),
-        ...values,
-      })) !== null;
+    const planned = { ...(stateField ? { [stateField]: generated.states?.initial } : {}), ...values };
+    const clash =
+      who !== undefined && values[who] !== null && values[who] !== undefined
+        ? await generationClash(ctx, generated, planned)
+        : null;
+    const uncovered = clash !== null;
     if (uncovered && who) values[who] = null;
     const record = await records().create(ctx, generated, values, { by: "host" });
+    // The rosterers are told the date and why (stage 45 step 3, ADR 0624).
+    if (clash) await patternNotApplied(ctx, generated, record, occurrence.date, planned, clash);
     ctx.write(
       occurrenceStatement({
         seriesObject: object.name,

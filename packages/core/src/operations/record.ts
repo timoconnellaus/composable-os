@@ -706,7 +706,7 @@ export async function createRecord(
   // One live record per declared key (ADR 0502); the database's index refuses a race.
   await assertUnique(ctx, object, id, valuesOf(prepared));
   // A shift: never one person on two at once, refused naming the other; its warnings (ADR 0621).
-  await staffedWritten(ctx, object, id, null, valuesOf(prepared));
+  await staffedWritten(ctx, object, id, null, valuesOf(prepared), { by });
   const own = prepared.filter((p) => p.own);
   const columns = ["id", "created_at", "updated_at", "created_by", ...own.map((p) => p.column)];
   ctx.write(
@@ -997,7 +997,14 @@ export async function updateRecord(
     await assertUnique(ctx, object, id, { ...before.values, ...valuesOf(prepared) });
   // A shift (or the profile holding the account of some): never one person on two shifts at once,
   // refused naming the other; a shift's warnings (ADR 0621, 0622).
-  await staffedWritten(ctx, object, id, before.values, { ...before.values, ...valuesOf(prepared) });
+  await staffedWritten(
+    ctx,
+    object,
+    id,
+    before.values,
+    { ...before.values, ...valuesOf(prepared) },
+    { by },
+  );
   await holderWritten(ctx, object, id, before.values, { ...before.values, ...valuesOf(prepared) });
   const own = prepared.filter((p) => p.own);
   if (own.length || !isCoreObject(object.name)) {
@@ -1206,7 +1213,7 @@ async function trashRecordAsHost(ctx: HandlerContext, object: ObjectDefinition, 
   if (object.capacity) ctx.write(guardStatement("claimed", object.name, id, 0));
   if (object.claims) ctx.write(guardStatement("claimant", object.name, id, 0));
   // A shift in the Trash claims nobody's time (its trigger drops the claim, ADR 0621).
-  staffedReleased(ctx, object, id);
+  await staffedReleased(ctx, object, id, "host");
   const table = objectTableOf(object.name) as string;
   ctx.write(
     CompiledQuery.raw(`UPDATE ${table} SET deleted_at = ?, deleted_by = ? WHERE id = ?`, [
@@ -1369,7 +1376,7 @@ export const recordDelete = defineOperation({
     if (object.claims) ctx.write(guardStatement("claimant", object.name, input.id, 0));
     // A shift in the Trash claims nobody's time (its trigger drops the claim, ADR 0621); a coach
     // profile on shifts not yet ended is not trashed while it still names their person.
-    staffedReleased(ctx, object, input.id);
+    await staffedReleased(ctx, object, input.id);
     await assertHolderTrashable(ctx, object, input.id);
     const table = objectTableOf(object.name) as string;
     ctx.write(

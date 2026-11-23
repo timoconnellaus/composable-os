@@ -494,6 +494,16 @@ export interface OperationDefinition<
   auditReads?: true;
   /** A small JSON summary of the result for the audit log. Default: touched records or id. */
   auditSummary?: (output: z.output<Out>, input: z.output<In>) => unknown;
+  /**
+   * The batch failed at commit (a race the database decided, stage 45, ADR 0623): read again and
+   * answer what happened instead (the take of an offer someone else took a moment before names
+   * who). Return null to keep the error as it is. Reads only; nothing it queues is written.
+   */
+  explainFailure?: (
+    error: import("./errors.ts").OperationError,
+    input: z.output<In>,
+    ctx: HandlerContext,
+  ) => Promise<import("./errors.ts").OperationError | null>;
   mcp?: McpOptions;
   handler: (
     input: z.output<In>,

@@ -303,6 +303,30 @@ export function toOperationError(error: unknown): OperationError {
       { rule: "double_booked" },
     );
   }
+  // An offer of a shift left `open` meanwhile (migration 0812, ADR 0623): taken by someone else a
+  // moment before, withdrawn, cancelled or lapsed. Of the writes racing for it exactly one landed.
+  if (message.includes("core_staff_offer_closed")) {
+    return new ConflictError(
+      "This offer was taken, withdrawn or closed a moment before, so nothing was changed. Look again.",
+      { rule: "offer_closed" },
+    );
+  }
+  if (
+    message.includes("core_staff_offer_open") ||
+    message.includes("UNIQUE constraint failed: core_staff_offer")
+  ) {
+    return new ConflictError("This shift is already offered, so nothing was changed.", {
+      rule: "offer_open",
+    });
+  }
+  if (
+    message.includes("core_staff_offer_fixed") ||
+    message.includes("core_staff_offer_replaced")
+  ) {
+    return new ConflictError("An offer is never changed or replaced, so nothing was changed.", {
+      rule: "offer_fixed",
+    });
+  }
   // A live shift whose end is not after its start (ADR 0621), written by a path that does not
   // check first: the trigger on the staffed object's table refuses it.
   if (message.includes("core_staff_time_backwards")) {

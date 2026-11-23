@@ -1273,6 +1273,32 @@ export interface CoreStaffAwayTable {
   set_at: string;
 }
 
+/**
+ * Migration 0812 (stage 45, ADR 0623): a shift offered for someone else to take. It leaves `open`
+ * once; the database refuses every later move, so exactly one take wins.
+ */
+export interface CoreStaffOfferTable {
+  id: string;
+  object_type: string;
+  record_id: string;
+  from_account: string | null;
+  made_by: string;
+  to_account: string | null;
+  state: "open" | "taken" | "withdrawn" | "cancelled" | "lapsed";
+  made_at: string;
+  taken_by: string | null;
+  taken_at: string | null;
+  ended_at: string | null;
+  ended_by: string | null;
+  why: string | null;
+}
+
+/** Migration 0812 (stage 45, ADR 0624): the local date the roster's daily work last ran. */
+export interface CoreStaffRunTable {
+  name: string;
+  last_date: string;
+}
+
 /** Migration 0533 (stage 32b, ADR 0493): an allowance holder's terms, kept from its record. */
 export interface CoreAllowanceTable {
   object_type: string;
@@ -2685,6 +2711,8 @@ export interface CoreDatabase {
   core_staff_time: CoreStaffTimeTable;
   core_staff_qualification: CoreStaffQualificationTable;
   core_staff_away: CoreStaffAwayTable;
+  core_staff_offer: CoreStaffOfferTable;
+  core_staff_run: CoreStaffRunTable;
   core_write_guard: CoreWriteGuardTable;
   core_allowance: CoreAllowanceTable;
   core_allowance_period: CoreAllowancePeriodTable;

@@ -1332,6 +1332,13 @@ async function invokeOnce<O extends AnyOperation>(
       if (isAssignmentConflict(error) && attempt < ASSIGNMENT_RETRIES) {
         throw new AssignmentRetry();
       }
+      // A race the database decided: the operation may read again and say what happened.
+      if (op.explainFailure) {
+        const explained = await op
+          .explainFailure(toOperationError(error), input, handlerCtx)
+          .catch(() => null);
+        if (explained) return fail(explained, decision);
+      }
       return fail(error, decision);
     }
   }

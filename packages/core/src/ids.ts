@@ -91,6 +91,10 @@ export const ID_PREFIXES = {
   agreementVersion: "agv",
   /** One record that a person agreed to one version, never changed (stage 44, ADR 0642). */
   agreementAcceptance: "aga",
+  /** A shift offered for someone else to take (stage 45, ADR 0623). */
+  staffOffer: "sfo",
+  /** A time a staff member said they cannot work (stage 45, ADR 0622). */
+  staffAway: "saw",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;
