@@ -30,7 +30,12 @@ import { fileURLToPath } from "node:url";
 // the packs' sources as a JS literal (generated/shipped.ts) 359 KiB, growing by each pack's whole
 // source. Packs were not duplicated (no blocks, clients or SDK copies in it). The packs' sources
 // moved to a Text module (shipped.txt), as the SDK bundle's are: 6,874 KiB with all nine packs.
-const MAIN_BUDGET_KIB = 7_168;
+// Raised to 7,680 KiB (2026-11-23): 7,151 KiB on main after stage 44 step 1 (agreement documents);
+// stage 45 step 1 (field exceptions in recurring) takes it to 7,170, routine mail adds about 37 and
+// stage 44 step 2 more. All of it is packages/core and operation descriptions; no React or compiler
+// came with them, and the compiler check below is unchanged. Raised once here, on main, so the
+// branches in flight stop each failing on the others' growth.
+const MAIN_BUDGET_KIB = 7_680;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
