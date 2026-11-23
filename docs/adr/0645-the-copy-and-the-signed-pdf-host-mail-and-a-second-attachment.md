@@ -179,3 +179,11 @@ the system's, once per key, refused to every other caller and purpose.
   sent history's recipient and subject for its last 200 sends (`listSent`, shown only to the same
   class of queue), and every pending, failed or not-yet-forgotten journal record of a copy, with
   the whole message: the address, the record lines, the name typed and the strokes.
+
+## Amended 2026-11-23: the gatekeeper's storage on erase (stage 44 step 8, [ADR 0646](0646-erase-merge-and-retention-for-agreements.md))
+What this ADR left in the email gatekeeper's storage is now scrubbed: once an acceptance is erased,
+the host asks email-send, through its own agreements queue only (`callAsHost`, method
+`scrubAgreementCopy`), to drop every journal record of the copy, refuse any later send under its
+key and blank the recipients and subject of its history lines. Erase also turns down and redacts
+the host's pending approval of a waiting copy. A copy row that ever reached the gatekeeper owes the
+scrub until it is done (`scrub_due_at`, `scrubbed_at`, migration 0855).

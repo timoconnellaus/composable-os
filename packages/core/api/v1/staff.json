@@ -6444,11 +6444,14 @@
         "agreement.get",
         "agreement.healthNotes",
         "agreement.healthReviews",
+        "agreement.kept.find",
         "agreement.list",
         "agreement.listHealthNotes",
+        "agreement.mergePlan",
         "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
+        "agreement.retention",
         "agreement.version.get",
         "agreement.version.pdf"
       ]
@@ -6596,11 +6599,14 @@
         "agreement.get",
         "agreement.healthNotes",
         "agreement.healthReviews",
+        "agreement.kept.find",
         "agreement.list",
         "agreement.listHealthNotes",
+        "agreement.mergePlan",
         "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
+        "agreement.retention",
         "agreement.version.get",
         "agreement.version.pdf"
       ]
@@ -6659,11 +6665,14 @@
         "agreement.get",
         "agreement.healthNotes",
         "agreement.healthReviews",
+        "agreement.kept.find",
         "agreement.list",
         "agreement.listHealthNotes",
+        "agreement.mergePlan",
         "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
+        "agreement.retention",
         "agreement.version.get",
         "agreement.version.pdf"
       ]
@@ -6830,11 +6839,14 @@
         "agreement.get",
         "agreement.healthNotes",
         "agreement.healthReviews",
+        "agreement.kept.find",
         "agreement.list",
         "agreement.listHealthNotes",
+        "agreement.mergePlan",
         "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
+        "agreement.retention",
         "agreement.version.get",
         "agreement.version.pdf"
       ]
@@ -7084,11 +7096,14 @@
         "agreement.get",
         "agreement.healthNotes",
         "agreement.healthReviews",
+        "agreement.kept.find",
         "agreement.list",
         "agreement.listHealthNotes",
+        "agreement.mergePlan",
         "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
+        "agreement.retention",
         "agreement.version.get",
         "agreement.version.pdf"
       ]
@@ -7673,6 +7688,185 @@
       "invalidates": []
     },
     {
+      "name": "agreement.kept.find",
+      "description": "Find acceptances kept after their person was erased, by the address the copy went to or the name typed (part of it), for a dispute or a claim: what was agreed, how and when, and until when it is kept. Open one with agreement.acceptance.pdf. A person on the staff with agreements:manage only; every search is audited, without what was searched for.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 320
+          },
+          "name": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 200
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "documentId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "versionNumber": {
+                  "type": "number"
+                },
+                "by": {
+                  "type": "string",
+                  "enum": [
+                    "self",
+                    "guardian",
+                    "guest",
+                    "paper"
+                  ]
+                },
+                "how": {
+                  "type": "string",
+                  "enum": [
+                    "typed",
+                    "drawn",
+                    "paper"
+                  ]
+                },
+                "channel": {
+                  "type": "string",
+                  "enum": [
+                    "web",
+                    "app",
+                    "paper",
+                    "desk"
+                  ]
+                },
+                "acceptedAt": {
+                  "type": "string"
+                },
+                "erasedAt": {
+                  "type": "string"
+                },
+                "until": {
+                  "description": "When the purge deletes it; null: not while on hold",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "held": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "documentId",
+                "title",
+                "versionNumber",
+                "by",
+                "how",
+                "channel",
+                "acceptedAt",
+                "erasedAt",
+                "until",
+                "held"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "agreement.kept.hold",
+      "description": "Hold a kept acceptance (one kept after its person was erased) for a dispute or a claim, so the retention purge passes it by; or release it (held: false), after which the purge takes it once its period is over. A person on the staff with agreements:manage only. Audited.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "acceptanceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The kept acceptance (aga_…)"
+          },
+          "held": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "acceptanceId",
+          "held"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "acceptanceId": {
+            "type": "string"
+          },
+          "held": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "acceptanceId",
+          "held"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "agreement.acceptance.get",
+        "agreement.acceptance.pdf",
+        "agreement.acceptances",
+        "agreement.answers.get",
+        "agreement.copy.preview",
+        "agreement.due.list",
+        "agreement.get",
+        "agreement.healthNotes",
+        "agreement.healthReviews",
+        "agreement.kept.find",
+        "agreement.list",
+        "agreement.listHealthNotes",
+        "agreement.mergePlan",
+        "agreement.person",
+        "agreement.points",
+        "agreement.publishPreview",
+        "agreement.retention",
+        "agreement.version.get",
+        "agreement.version.pdf"
+      ]
+    },
+    {
       "name": "agreement.list",
       "description": "List the business's agreement documents (terms, waivers, health forms, a parent's consent): each with its kind, state (draft, live or retired), the version in effect now and any scheduled one, and the agreement points it is attached to. Titles and the business's own text only: nothing here names a member. Read-only.",
       "risk": "read",
@@ -7877,6 +8071,73 @@
         },
         "required": [
           "notes"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "agreement.mergePlan",
+      "description": "What merging mergedId into survivorId would do to their agreements: how many acceptances (their own, and made as a guardian) move to the survivor unchanged, whether the minor mark moves, and whether the caller may merge them (a person with agreements:manage only). Counts only. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "survivorId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The person who remains"
+          },
+          "mergedId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The duplicate merged away"
+          }
+        },
+        "required": [
+          "survivorId",
+          "mergedId"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "acceptances": {
+            "type": "number"
+          },
+          "asGuardian": {
+            "type": "number"
+          },
+          "minor": {
+            "type": "boolean"
+          },
+          "needs": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "agreements:manage",
+                  "person"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the caller cannot merge them; null when they can, or nothing moves"
+          }
+        },
+        "required": [
+          "acceptances",
+          "asGuardian",
+          "minor",
+          "needs"
         ],
         "additionalProperties": false
       },
@@ -8550,11 +8811,14 @@
         "agreement.get",
         "agreement.healthNotes",
         "agreement.healthReviews",
+        "agreement.kept.find",
         "agreement.list",
         "agreement.listHealthNotes",
+        "agreement.mergePlan",
         "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
+        "agreement.retention",
         "agreement.version.get",
         "agreement.version.pdf"
       ]
@@ -8900,6 +9164,56 @@
       "invalidates": []
     },
     {
+      "name": "agreement.purgeKept",
+      "description": "Platform use only: delete the acceptances kept after an erase whose retention period is over (oldest first, at most a bounded number per call), with their signature, answers and copy record; never one on hold, nor one whose copy the email gatekeeper has still to scrub. No input names an acceptance.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "purged": {
+            "type": "number"
+          },
+          "more": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "purged",
+          "more"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "agreement.acceptance.get",
+        "agreement.acceptance.pdf",
+        "agreement.acceptances",
+        "agreement.answers.get",
+        "agreement.copy.preview",
+        "agreement.due.list",
+        "agreement.get",
+        "agreement.healthNotes",
+        "agreement.healthReviews",
+        "agreement.kept.find",
+        "agreement.list",
+        "agreement.listHealthNotes",
+        "agreement.mergePlan",
+        "agreement.person",
+        "agreement.points",
+        "agreement.publishPreview",
+        "agreement.retention",
+        "agreement.version.get",
+        "agreement.version.pdf"
+      ]
+    },
+    {
       "name": "agreement.recordPaper",
       "description": "Record that a Person signed a version of a document on paper (printed from that version): the name on the form, the date written on it, who signed it for a child (signedBy), a note, and for a health form the answers typed in. Shown everywhere as recorded from paper by you, never as their own acceptance. A person on the staff with agreements:paper only.",
       "risk": "write",
@@ -9010,14 +9324,68 @@
         "agreement.get",
         "agreement.healthNotes",
         "agreement.healthReviews",
+        "agreement.kept.find",
         "agreement.list",
         "agreement.listHealthNotes",
+        "agreement.mergePlan",
         "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
+        "agreement.retention",
         "agreement.version.get",
         "agreement.version.pdf"
       ]
+    },
+    {
+      "name": "agreement.retention",
+      "description": "How long an erased person's acceptances are kept as the business's evidence (years, counted from the erase; null when the setting is unreadable, and then nothing is purged), how many are kept now, and how many are on hold. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "years": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "defaultYears": {
+            "type": "number"
+          },
+          "kept": {
+            "type": "number",
+            "description": "Acceptances kept after an erase"
+          },
+          "held": {
+            "type": "number",
+            "description": "Of those, on hold for a dispute or a claim"
+          },
+          "cutoff": {
+            "description": "Erased before this are past the period: the daily cron purges them",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "years",
+          "defaultYears",
+          "kept",
+          "held",
+          "cutoff"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
     },
     {
       "name": "agreement.retire",
@@ -9170,11 +9538,14 @@
         "agreement.get",
         "agreement.healthNotes",
         "agreement.healthReviews",
+        "agreement.kept.find",
         "agreement.list",
         "agreement.listHealthNotes",
+        "agreement.mergePlan",
         "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
+        "agreement.retention",
         "agreement.version.get",
         "agreement.version.pdf"
       ]
@@ -9231,11 +9602,77 @@
         "agreement.get",
         "agreement.healthNotes",
         "agreement.healthReviews",
+        "agreement.kept.find",
         "agreement.list",
         "agreement.listHealthNotes",
+        "agreement.mergePlan",
         "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
+        "agreement.retention",
+        "agreement.version.get",
+        "agreement.version.pdf"
+      ]
+    },
+    {
+      "name": "agreement.setRetention",
+      "description": "Set how many years an erased person's acceptances are kept (1 to 50, counted from each erase); the daily cron then deletes those past it, except any on hold. Shortening it deletes evidence for good. Admins only, and only a person in the app: AI assistants, MCP clients and automations are refused. The change is audited.",
+      "risk": "destructive",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "years": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Years an erased person's acceptances are kept, counted from the erase (1 to 50)"
+          }
+        },
+        "required": [
+          "years"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "years": {
+            "type": "number"
+          },
+          "previousYears": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "years",
+          "previousYears"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "agreement.acceptance.get",
+        "agreement.acceptance.pdf",
+        "agreement.acceptances",
+        "agreement.answers.get",
+        "agreement.copy.preview",
+        "agreement.due.list",
+        "agreement.get",
+        "agreement.healthNotes",
+        "agreement.healthReviews",
+        "agreement.kept.find",
+        "agreement.list",
+        "agreement.listHealthNotes",
+        "agreement.mergePlan",
+        "agreement.person",
+        "agreement.points",
+        "agreement.publishPreview",
+        "agreement.retention",
         "agreement.version.get",
         "agreement.version.pdf"
       ]
@@ -9277,11 +9714,14 @@
         "agreement.get",
         "agreement.healthNotes",
         "agreement.healthReviews",
+        "agreement.kept.find",
         "agreement.list",
         "agreement.listHealthNotes",
+        "agreement.mergePlan",
         "agreement.person",
         "agreement.points",
         "agreement.publishPreview",
+        "agreement.retention",
         "agreement.version.get",
         "agreement.version.pdf"
       ]
@@ -41549,6 +41989,33 @@
             "type": "number",
             "description": "Open erase requests the erase closed (a person's customer account goes with them)"
           },
+          "agreementsKept": {
+            "description": "A person's agreements (ADR 0646): health answers and the minor mark are deleted; each acceptance is kept, detached, until the retention period ends",
+            "type": "object",
+            "properties": {
+              "count": {
+                "type": "number",
+                "description": "Acceptances kept, no longer theirs, as the business's evidence"
+              },
+              "until": {
+                "description": "When the retention purge deletes them (agreement.retention); null: none kept, or the setting keeps them",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "deleted": {
+                "type": "number",
+                "description": "A buyer's acceptances on an unpaid order or unconfirmed checkout, deleted"
+              }
+            },
+            "required": [
+              "count",
+              "until",
+              "deleted"
+            ],
+            "additionalProperties": false
+          },
           "bodiesDeleted": {
             "type": "number",
             "description": "Synced email bodies deleted from blob storage now (the rest are retried)"
@@ -44524,7 +44991,7 @@
     },
     {
       "name": "person.erase",
-      "description": "Permanently delete a person now, for GDPR erasure requests (admins only). Works on live people and people in Trash, and also erases anyone merged into them. Emails, phones, affiliations and tags go; activities and tasks linked only to them are deleted; system activities about them (field changes, job changes, merges) are removed from every timeline. Audit-log content that mentions them (their id, emails or phone numbers) is replaced with \"[erased]\"; who did what and when is kept. In-app assistant conversations that referenced them are redacted the same way (tool calls and results that mention them lose their content; their ids, emails, phone numbers and names in text become \"[erased]\"). Former emails and phones count too. Synced email bodies, suggested contacts, signatures, extension data related to them, automation run history and notifications about them are deleted or redacted, and their addresses are added to the erased-address list so mail sync does not collect them again. Their customer account, its sessions and sign-in codes, invites for their addresses and their erase requests are deleted (an open request is closed as erased). Their health answers and minor mark are deleted; what they agreed to is kept, no longer theirs. Cannot be undone; use person.delete for a reversible delete.",
+      "description": "Permanently delete a person now, for GDPR erasure requests (admins only). Works on live people and people in Trash, and also erases anyone merged into them. Emails, phones, affiliations and tags go; activities and tasks linked only to them are deleted; system activities about them (field changes, job changes, merges) are removed from every timeline. Audit-log content that mentions them (their id, emails or phone numbers) is replaced with \"[erased]\"; who did what and when is kept. In-app assistant conversations that referenced them are redacted the same way (tool calls and results that mention them lose their content; their ids, emails, phone numbers and names in text become \"[erased]\"). Former emails and phones count too. Synced email bodies, suggested contacts, signatures, extension data related to them, automation run history and notifications about them are deleted or redacted, and their addresses are added to the erased-address list so mail sync does not collect them again. Their customer account, its sessions and sign-in codes, invites for their addresses and their erase requests are deleted (an open request is closed as erased). Their health answers and minor mark are deleted; what they agreed to is kept, no longer theirs, as the business's evidence until the retention period ends (agreement.retention, counted from the erase), then deleted: agreementsKept says how many and until when. Cannot be undone; use person.delete for a reversible delete.",
       "risk": "destructive",
       "audiences": [
         "staff"
@@ -44591,6 +45058,33 @@
           "eraseRequestsClosed": {
             "type": "number",
             "description": "Open erase requests the erase closed (a person's customer account goes with them)"
+          },
+          "agreementsKept": {
+            "description": "A person's agreements (ADR 0646): health answers and the minor mark are deleted; each acceptance is kept, detached, until the retention period ends",
+            "type": "object",
+            "properties": {
+              "count": {
+                "type": "number",
+                "description": "Acceptances kept, no longer theirs, as the business's evidence"
+              },
+              "until": {
+                "description": "When the retention purge deletes them (agreement.retention); null: none kept, or the setting keeps them",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "deleted": {
+                "type": "number",
+                "description": "A buyer's acceptances on an unpaid order or unconfirmed checkout, deleted"
+              }
+            },
+            "required": [
+              "count",
+              "until",
+              "deleted"
+            ],
+            "additionalProperties": false
           },
           "bodiesDeleted": {
             "type": "number",
