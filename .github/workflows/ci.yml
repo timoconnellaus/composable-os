@@ -16,13 +16,39 @@ jobs:
   # Documents get a fast lane: when everything a change touches is under docs/ or is a Markdown
   # file at the root (scripts/ci-docs-only.mjs), the build, unit and Playwright jobs are skipped
   # and only the document checks run. If the diff cannot be worked out, everything runs.
+  #
+  # This job also picks the runner every job that does real work runs on (ADR 0630, and
+  # CONTRIBUTING.md, How CI is laid out). It and the small jobs (the documents check and the two
+  # that gather results) stay on GitHub-hosted runners: they take seconds, and GitHub starts them
+  # in one or two.
   changes:
     name: What changed
     runs-on: ubuntu-latest
     outputs:
       docs_only: ${{ steps.diff.outputs.docs_only }}
       unit_matrix: ${{ steps.unit.outputs.matrix }}
+      runner: ${{ steps.runner.outputs.runner }}
     steps:
+      # The one place the runner is chosen.
+      # - A pull request from a fork runs on GitHub's runners, always: a stranger's change must not
+      #   spend this repository's Namespace minutes or read its cache volume. (A pull request whose
+      #   head repository is gone counts as a fork.)
+      # - Everything else (pushes to main, pull requests from this repository's branches) runs on
+      #   the Namespace profile, unless the repository variable CI_RUNNER names another runner:
+      #   set it to `ubuntu-latest` (Settings → Secrets and variables → Actions → Variables) to
+      #   move CI back to GitHub's runners without a commit, for instance when Namespace is down.
+      - id: runner
+        env:
+          FORK: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+          OVERRIDE: ${{ vars.CI_RUNNER }}
+        run: |
+          if [ "$FORK" = true ]; then
+            runner=ubuntu-latest
+          else
+            runner=${OVERRIDE:-namespace-profile-composable-os}
+          fi
+          echo "runner=$runner" >> "$GITHUB_OUTPUT"
+          echo "Jobs run on: $runner"
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
@@ -69,30 +95,20 @@ jobs:
     name: Lint
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.runner }}
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
       - run: pnpm lint
 
   typecheck:
     name: Typecheck
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.runner }}
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
       - run: pnpm typecheck
       # The landing page (apps/marketing): its build fails on any tracker or third-party load.
       - run: pnpm --filter @composable-os/marketing build
@@ -106,19 +122,14 @@ jobs:
     name: Unit ${{ matrix.shard }}
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.runner }}
     strategy:
       # Let every shard finish, so one failure shows all the others too.
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.unit_matrix) }}
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
       - run: node scripts/ci-unit-shards.mjs --run "$SHARD"
         env:
           SHARD: ${{ matrix.shard }}
@@ -133,17 +144,12 @@ jobs:
     name: npm packages
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.runner }}
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
       - name: The release bundle (for the client repo the check makes)
         run: node scripts/release/build-release.ts --version 0.0.0-beta.0 --out release-out
       - name: The npm packages, and a fresh client repo built from them
@@ -178,16 +184,12 @@ jobs:
     name: Landing page (Playwright)
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.runner }}
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
+      - uses: ./.github/actions/setup
         with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @composable-os/marketing exec playwright install --with-deps chromium
+          playwright: "@composable-os/marketing"
       # Builds the site and serves it with the real Worker and a local D1 (playwright.config.ts).
       - run: pnpm --filter @composable-os/marketing test:e2e
       - uses: actions/upload-artifact@v4
@@ -207,7 +209,7 @@ jobs:
     name: E2E shard ${{ matrix.shard }}/4
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.runner }}
     strategy:
       # Let every shard finish, so one failure shows all the others too.
       fail-fast: false
@@ -215,13 +217,9 @@ jobs:
         shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
+      - uses: ./.github/actions/setup
         with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @composable-os/app exec playwright install --with-deps chromium
+          playwright: "@composable-os/app"
       - run: pnpm --filter @composable-os/app test:e2e --shard=${{ matrix.shard }}/4
       - uses: actions/upload-artifact@v4
         if: failure()
@@ -237,16 +235,12 @@ jobs:
     name: E2E control plane
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.changes.outputs.runner }}
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
+      - uses: ./.github/actions/setup
         with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @composable-os/control exec playwright install --with-deps chromium
+          playwright: "@composable-os/control"
       - run: pnpm --filter @composable-os/control test:e2e
       - uses: actions/upload-artifact@v4
         if: failure()
