@@ -1727,8 +1727,8 @@ turns down and redacts a waiting copy's approval, and keeps the rest of each acc
 and may hold it (`core_agreement_hold`). The daily cron's `agreement.purgeKept` (a host step,
 bounded, silent when nothing is due) deletes what is past the period with its copy row, signature
 and answers; migration 0855's triggers refuse every other delete. A copy that ever reached the
-email gatekeeper owes a **scrub** (`scrub_due_at`): the host asks email-send, through its own
-agreements queue only (`callAsHost`, method `scrubAgreementCopy`), to drop the copy's journal
+email gatekeeper owes a **scrub** (`scrub_due_at`): the host asks each email-send gatekeeper the copy
+reached (`via`), through its own agreements queue only (`callAsHost`, method `scrubAgreementCopy`), to drop the copy's journal
 records, refuse any later send under its key and blank its history lines; a send in flight during
 the erase is scrubbed after it. Merge moves acceptances unchanged (`agreement.mergePlan` counts
 them for the preview). Signing at the desk and cooling off are the later steps

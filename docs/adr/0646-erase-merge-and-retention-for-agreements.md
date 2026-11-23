@@ -113,3 +113,38 @@ of a copy that was waiting for a person.
   admin's, and the screen says so.
 - A paid purchase nobody settled whose address belonged to an erased person is kept detached:
   the Person it was for is unknown, and it is evidence of a purchase.
+
+## Amended 2026-11-23: after the privacy review of PR #288
+- **Erase takes only the erased Person's own addresses** from their agreements: those of their own
+  acceptances (`self`) and of those they made as a guardian. Never the address on someone else's
+  acceptance for them (a guardian's for a child, a parent's purchase settled to the child): the
+  first build added those, so erasing a child deleted the guardian's sign-in, cleared their orders
+  and listed their address as erased. More than 50 such addresses is refused, never cut; a buyer's
+  acceptances are read in batches until none is left.
+- **The scrub goes where the copy went.** Each send records the gatekeeper it reached (`via`), and
+  the scrub asks each of them, whatever channel is current. A gatekeeper whose connection is gone
+  is recorded `unreachable` (admins told once, naming nobody) and asked again. The gatekeeper says
+  whether it held anything for the key (`found`), apart from `done`. **A scrub owed for 30 days
+  (`scrub_owed_since`) no longer holds a kept acceptance past its retention period**: the purge
+  deletes it and names it in its audit row (`unscrubbed`); the database's copy trigger uses the
+  same 30 days.
+- **Paper free text** (who signed a paper form, staff's note) may name someone: it is shown only
+  to staff with `agreements:manage` (others see "recorded from paper"), and erasing a guardian
+  clears both on their dependants' paper forms (coordinator decision, owner to confirm). The
+  database allows only clearing them, both together, on a paper form.
+- **Every `agreement.acceptance.get` is audited** (`auditReads`) with the acceptance's id and
+  whether it was kept, never what it says; `agreement.kept.find` records the ids it showed.
+- **Open purchases close on erase**: an order of theirs (or with their address) nothing was paid
+  on is cancelled by the host, so a payment after the erase is a late one, never honoured without
+  staff; an unconfirmed subscription checkout is closed (`erased_at`, its address cleared), so a
+  later confirmation makes no subscription and staff are told to cancel it with the provider.
+- **The retention setting is read by SQLite's JSON functions** in the host as in the triggers:
+  `{"years": 7.0}` is not a whole number to either, and purges nothing. A purge the database
+  refuses is reported as such, not as "immutable".
+- **A change that makes more kept records due** (shorter, or set while unreadable) needs the
+  person to type how many the next daily run deletes (`confirmPurgeable`, from
+  `agreement.retention { years }`), and the audit row keeps the number.
+- **The erase screen**: the app has no erase button (staff erase through the assistant or MCP,
+  with an approval card); the Erase requests list in Settings → Storage now says, per request,
+  how many agreements are kept and until when, and how many health forms' answers go
+  (`agreement.erasePreview`, admins).

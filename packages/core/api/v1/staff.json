@@ -5495,7 +5495,7 @@
     },
     {
       "name": "agreement.acceptance.get",
-      "description": "One acceptance in full, for a person on the staff: the version shown, the name typed (beside the Person's own name), the signature drawn, and for paper who recorded it. Health answers are agreement.answers.get's. Never an AI's read. Read-only.",
+      "description": "One acceptance in full, for a person on the staff: the version shown, the name typed (beside the Person's own name), the signature drawn, and for paper who recorded it. Health answers are agreement.answers.get's. Never an AI's read. Who signed a paper form and its note are shown only with agreements:manage, as is an acceptance kept after an erase. Every read is audited (which acceptance, never what it says). Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -5746,12 +5746,14 @@
             ]
           },
           "signedBy": {
+            "description": "Paper: who signed it; null without agreements:manage",
             "type": [
               "string",
               "null"
             ]
           },
           "note": {
+            "description": "Paper: staff's note; null without agreements:manage",
             "type": [
               "string",
               "null"
@@ -5759,6 +5761,10 @@
           },
           "hasAnswers": {
             "type": "boolean"
+          },
+          "kept": {
+            "type": "boolean",
+            "description": "Kept after its Person, or the guardian who made it, was erased"
           },
           "copy": {
             "anyOf": [
@@ -5821,6 +5827,7 @@
           "signedBy",
           "note",
           "hasAnswers",
+          "kept",
           "copy"
         ],
         "additionalProperties": false
@@ -6441,6 +6448,7 @@
         "agreement.answers.get",
         "agreement.copy.preview",
         "agreement.due.list",
+        "agreement.erasePreview",
         "agreement.get",
         "agreement.healthNotes",
         "agreement.healthReviews",
@@ -6596,6 +6604,7 @@
         "agreement.answers.get",
         "agreement.copy.preview",
         "agreement.due.list",
+        "agreement.erasePreview",
         "agreement.get",
         "agreement.healthNotes",
         "agreement.healthReviews",
@@ -6662,6 +6671,7 @@
         "agreement.answers.get",
         "agreement.copy.preview",
         "agreement.due.list",
+        "agreement.erasePreview",
         "agreement.get",
         "agreement.healthNotes",
         "agreement.healthReviews",
@@ -6836,6 +6846,7 @@
         "agreement.answers.get",
         "agreement.copy.preview",
         "agreement.due.list",
+        "agreement.erasePreview",
         "agreement.get",
         "agreement.healthNotes",
         "agreement.healthReviews",
@@ -7093,6 +7104,7 @@
         "agreement.answers.get",
         "agreement.copy.preview",
         "agreement.due.list",
+        "agreement.erasePreview",
         "agreement.get",
         "agreement.healthNotes",
         "agreement.healthReviews",
@@ -7196,6 +7208,55 @@
         "required": [
           "items",
           "more"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "agreement.erasePreview",
+      "description": "What erasing a Person would do to their agreements, for the screen that confirms an erase: how many acceptances (their own, and those they made as a guardian) are kept, no longer theirs, and until when; how many health forms' answers are deleted at once. Counts only. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The Person to erase (per_…)"
+          }
+        },
+        "required": [
+          "personId"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "kept": {
+            "type": "number"
+          },
+          "until": {
+            "description": "When the purge deletes them; null: nothing is purged",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "healthAnswers": {
+            "type": "number",
+            "description": "Health forms whose answers are deleted at once"
+          }
+        },
+        "required": [
+          "kept",
+          "until",
+          "healthAnswers"
         ],
         "additionalProperties": false
       },
@@ -7851,6 +7912,7 @@
         "agreement.answers.get",
         "agreement.copy.preview",
         "agreement.due.list",
+        "agreement.erasePreview",
         "agreement.get",
         "agreement.healthNotes",
         "agreement.healthReviews",
@@ -8808,6 +8870,7 @@
         "agreement.answers.get",
         "agreement.copy.preview",
         "agreement.due.list",
+        "agreement.erasePreview",
         "agreement.get",
         "agreement.healthNotes",
         "agreement.healthReviews",
@@ -9165,7 +9228,7 @@
     },
     {
       "name": "agreement.purgeKept",
-      "description": "Platform use only: delete the acceptances kept after an erase whose retention period is over (oldest first, at most a bounded number per call), with their signature, answers and copy record; never one on hold, nor one whose copy the email gatekeeper has still to scrub. No input names an acceptance.",
+      "description": "Platform use only: delete the acceptances kept after an erase whose retention period is over (oldest first, at most a bounded number per call), with their signature, answers and copy record; never one on hold, nor one whose copy the email gatekeeper has still to scrub unless that scrub has been owed for 30 days (those are named in the audit). No input names an acceptance.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -9183,11 +9246,19 @@
           },
           "more": {
             "type": "boolean"
+          },
+          "unscrubbed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Purged although the email gatekeeper could not be reached to scrub their copy"
           }
         },
         "required": [
           "purged",
-          "more"
+          "more",
+          "unscrubbed"
         ],
         "additionalProperties": false
       },
@@ -9198,6 +9269,7 @@
         "agreement.answers.get",
         "agreement.copy.preview",
         "agreement.due.list",
+        "agreement.erasePreview",
         "agreement.get",
         "agreement.healthNotes",
         "agreement.healthReviews",
@@ -9321,6 +9393,7 @@
         "agreement.answers.get",
         "agreement.copy.preview",
         "agreement.due.list",
+        "agreement.erasePreview",
         "agreement.get",
         "agreement.healthNotes",
         "agreement.healthReviews",
@@ -9338,7 +9411,7 @@
     },
     {
       "name": "agreement.retention",
-      "description": "How long an erased person's acceptances are kept as the business's evidence (years, counted from the erase; null when the setting is unreadable, and then nothing is purged), how many are kept now, and how many are on hold. Read-only.",
+      "description": "How long an erased person's acceptances are kept as the business's evidence (years, counted from the erase; null when the setting is unreadable, and then nothing is purged), how many are kept now, and how many are on hold. With `years`, also how many kept acceptances that period would make due for deletion at the next daily run. Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -9346,7 +9419,14 @@
       "kind": "query",
       "input": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "years": {
+            "description": "A period to ask about before setting it",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        }
       },
       "output": {
         "type": "object",
@@ -9374,6 +9454,13 @@
               "string",
               "null"
             ]
+          },
+          "purgeableAt": {
+            "description": "With `years`: kept acceptances past that period now, not on hold",
+            "type": [
+              "number",
+              "null"
+            ]
           }
         },
         "required": [
@@ -9381,7 +9468,8 @@
           "defaultYears",
           "kept",
           "held",
-          "cutoff"
+          "cutoff",
+          "purgeableAt"
         ],
         "additionalProperties": false
       },
@@ -9535,6 +9623,7 @@
         "agreement.answers.get",
         "agreement.copy.preview",
         "agreement.due.list",
+        "agreement.erasePreview",
         "agreement.get",
         "agreement.healthNotes",
         "agreement.healthReviews",
@@ -9599,6 +9688,7 @@
         "agreement.answers.get",
         "agreement.copy.preview",
         "agreement.due.list",
+        "agreement.erasePreview",
         "agreement.get",
         "agreement.healthNotes",
         "agreement.healthReviews",
@@ -9616,7 +9706,7 @@
     },
     {
       "name": "agreement.setRetention",
-      "description": "Set how many years an erased person's acceptances are kept (1 to 50, counted from each erase); the daily cron then deletes those past it, except any on hold. Shortening it deletes evidence for good. Admins only, and only a person in the app: AI assistants, MCP clients and automations are refused. The change is audited.",
+      "description": "Set how many years an erased person's acceptances are kept (1 to 50, counted from each erase); the daily cron then deletes those past it, except any on hold. A change that makes more kept acceptances due for deletion needs `confirmPurgeable`: the number agreement.retention gives for that period, typed by the person. Admins only, and only a person in the app: AI assistants, MCP clients and automations are refused. Audited, with that number.",
       "risk": "destructive",
       "audiences": [
         "staff"
@@ -9630,6 +9720,12 @@
             "minimum": 1,
             "maximum": 50,
             "description": "Years an erased person's acceptances are kept, counted from the erase (1 to 50)"
+          },
+          "confirmPurgeable": {
+            "description": "How many kept acceptances the new period makes due for deletion, as shown",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
           }
         },
         "required": [
@@ -9647,11 +9743,16 @@
               "number",
               "null"
             ]
+          },
+          "purgeable": {
+            "type": "number",
+            "description": "Kept acceptances past the new period now, not on hold"
           }
         },
         "required": [
           "years",
-          "previousYears"
+          "previousYears",
+          "purgeable"
         ],
         "additionalProperties": false
       },
@@ -9662,6 +9763,7 @@
         "agreement.answers.get",
         "agreement.copy.preview",
         "agreement.due.list",
+        "agreement.erasePreview",
         "agreement.get",
         "agreement.healthNotes",
         "agreement.healthReviews",
@@ -9711,6 +9813,7 @@
         "agreement.answers.get",
         "agreement.copy.preview",
         "agreement.due.list",
+        "agreement.erasePreview",
         "agreement.get",
         "agreement.healthNotes",
         "agreement.healthReviews",

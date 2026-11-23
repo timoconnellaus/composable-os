@@ -1633,10 +1633,33 @@ Deviations and decisions, and why:
 - **The open desk session** (decision 22) has no table yet: step 6 must end a Person's open session
   on erase and keep a closed one detached with the acceptances it made.
 
-cos-runner's main module is 7,604 KiB after this step (budget 7,680; 7,578 on `main` at 57be31f8).
+cos-runner's main module is 5,560 KiB as shipped after merging `main` at e3a90293 (budget 7,168; `main` 5,531).
 
 A Person purged from the Trash owes the same scrub of their copies (the same trigger). Not built
 here: a download link on the kept page (no screen downloads a PDF yet, as
 step 4 said). Not verified: the scrub against the real email-send and integration host together
 (each is tested with the other's double), and the purge against D1 at a scale of thousands of kept
 acceptances (it is bounded to 100 per round, ten rounds a day, index-ordered).
+
+### Step 8: after the privacy review of PR #288 (2026-11-23)
+
+Fixed in the same PR (ADR 0646 amended; migration 0855 edited in place, as it was not on `main`):
+
+1. **Erasing a child reached the guardian** (a blocker this step introduced): the addresses erase
+   took from agreements included the guardian's on their acceptance for the child. Now only the
+   erased Person's own (`self`, and `guardian` as the agent); more than 50 is refused.
+2. **The scrub goes to the gatekeeper the copy reached** (`via` on the copy row), not the current
+   channel; a gone one is `unreachable`, admins are told once; after 30 days owed the purge goes
+   ahead and audits it. The gatekeeper answers `found` apart from `done`.
+3. **Paper free text** is `agreements:manage`'s only, and a guardian's erase clears it on their
+   dependants' paper forms (coordinator decision, owner to confirm).
+4. **`agreement.acceptance.get` is audited** (the id and whether kept); `kept.find` records the ids
+   it showed.
+5. **Open purchases close on erase**: unpaid orders cancelled by the host; unconfirmed
+   subscription checkouts closed (`core_subscription_checkout.erased_at`, address cleared), so a
+   later confirmation makes nothing.
+6. **The retention setting is read one way** in host and database.
+7. A runner test for the integration host's `scrubAgreementCopy`; an e2e journey for Kept after
+   erase (find, open, hold, release); `agreement.erasePreview` on the Erase requests list (the app
+   has no erase button of its own); a typed confirmation of how many records a shorter period makes
+   due; no silent caps in erase's reads.

@@ -364,18 +364,13 @@ export const agreementErasePreview = defineOperation({
     until: z.string().nullable().describe("When the purge deletes them; null: nothing is purged"),
     healthAnswers: z.number().describe("Health forms whose answers are deleted at once"),
   }),
-  // Admins, who erase (the read permission erasure.addressStatus uses); a Person in the Trash
-  // included, as person.erase takes them.
+  // Admins, who erase (the read permission erasure.addressStatus uses).
   permission: "audit:read",
   risk: "read",
   mcp: { idempotent: true },
   async handler(input, ctx) {
-    const person = await ctx.db
-      .selectFrom("core_person")
-      .select("id")
-      .where("id", "=", input.personId)
-      .executeTakeFirst();
-    if (!person) throw new NotFoundError("person", input.personId);
+    // Through the visibility seam, as any read of a Person.
+    await ctx.records.get("person", input.personId);
     const { rows } = await sql<{ kept: number; answers: number }>`SELECT
         (SELECT count(*) FROM core_agreement_acceptance WHERE erased_at IS NULL
           AND (person_id = ${input.personId} OR agent_person_id = ${input.personId})) AS kept,
