@@ -6070,6 +6070,13 @@
             "type": "string",
             "description": "The actor of the last save: human, assistant, mcp, …"
           },
+          "updatedByName": {
+            "description": "The name of the staff account it was saved for",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "hash": {
             "type": "string",
             "description": "Hash of everything a version made from it would hold"
@@ -6088,6 +6095,7 @@
           "updatedAt",
           "updatedBy",
           "updatedVia",
+          "updatedByName",
           "hash"
         ],
         "additionalProperties": false
@@ -6317,6 +6325,13 @@
                 "type": "string",
                 "description": "The actor of the last save: human, assistant, mcp, …"
               },
+              "updatedByName": {
+                "description": "The name of the staff account it was saved for",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "hash": {
                 "type": "string",
                 "description": "Hash of everything a version made from it would hold"
@@ -6335,6 +6350,7 @@
               "updatedAt",
               "updatedBy",
               "updatedVia",
+              "updatedByName",
               "hash"
             ],
             "additionalProperties": false
@@ -6704,13 +6720,20 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 9007199254740991
+          },
+          "number": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991,
+            "description": "The version number the preview showed"
           }
         },
         "required": [
           "documentId",
           "change",
           "draftHash",
-          "draftRev"
+          "draftRev",
+          "number"
         ]
       },
       "output": {
@@ -7110,6 +7133,13 @@
                 "type": "string",
                 "description": "The actor of the last save: human, assistant, mcp, …"
               },
+              "updatedByName": {
+                "description": "The name of the staff account it was saved for",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "hash": {
                 "type": "string",
                 "description": "Hash of everything a version made from it would hold"
@@ -7138,6 +7168,7 @@
               "updatedAt",
               "updatedBy",
               "updatedVia",
+              "updatedByName",
               "hash",
               "kind"
             ],
