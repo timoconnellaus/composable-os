@@ -27,6 +27,7 @@ import { notifyStatements } from "../notifications/send.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { roleHasPermission } from "../principals.ts";
 import { jsonList } from "../records/common.ts";
+import { leaveRoster } from "../staffing/leaving.ts";
 
 /** One declared connection of an automation, with its live binding (if any). */
 export const automationConnectionViewSchema = z.object({
@@ -354,15 +355,37 @@ const deactivateOutput = z.object({
   deactivatedAt: z.string().nullable(),
   /** Automations paused because they used one of the person's connections. */
   pausedAutomations: z.array(z.string()),
+  /**
+   * Their roster (stage 45, ADR 0624): the future shifts and the patterns cleared (each now has
+   * nobody on it) and their open offers cancelled.
+   */
+  roster: z.object({
+    shifts: z.number().int(),
+    patterns: z.number().int(),
+    offers: z.number().int(),
+  }),
 });
+
+const NO_ROSTER = { shifts: 0, patterns: 0, offers: 0 };
 
 export const userDeactivate = defineOperation({
   name: "user.deactivate",
   description:
     "Deactivate a person who left: they can no longer sign in or act, and every automation " +
     "bound to one of their connections is paused (its binding revoked) with a notice to the " +
-    "admins. Admins only; people only. You cannot deactivate yourself or the last admin.",
-  input: z.object({ id: z.string().min(1).max(64).describe("User id (usr_…)") }),
+    "admins. Admins only; people only. You cannot deactivate yourself or the last admin. Someone " +
+    "on future shifts or regular patterns is refused with their count (rule deactivate_confirm) " +
+    "and the list: pass confirm with that count and they are taken off each (now with nobody on " +
+    "it), their open offers are cancelled and the rosterers are told. Past shifts keep them.",
+  input: z.object({
+    id: z.string().min(1).max(64).describe("User id (usr_…)"),
+    confirm: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe("Their future shifts and patterns, as the refusal counted them"),
+  }),
   output: deactivateOutput,
   permission: "users:manage",
   risk: "write",
@@ -377,7 +400,12 @@ export const userDeactivate = defineOperation({
     if (user?.kind !== "human") throw new NotFoundError("user", input.id);
     if (user.id === ctx.user.id) throw new ConflictError("You cannot deactivate yourself");
     if (user.deactivated_at) {
-      return { id: user.id, deactivatedAt: user.deactivated_at, pausedAutomations: [] };
+      return {
+        id: user.id,
+        deactivatedAt: user.deactivated_at,
+        pausedAutomations: [],
+        roster: NO_ROSTER,
+      };
     }
     if (user.role === "admin") {
       const other = await ctx.db
@@ -399,6 +427,8 @@ export const userDeactivate = defineOperation({
       ctx.db.deleteFrom("core_session").where("user_id", "=", user.id),
       ctx.db.deleteFrom("core_device_session").where("user_id", "=", user.id),
     );
+    // Their future shifts and patterns, confirmed by count (stage 45, ADR 0624).
+    const roster = await leaveRoster(ctx, user.id, input.confirm);
     const plan = await revokeBindingsPlan(
       ctx.db,
       { ownerUserId: user.id },
@@ -412,7 +442,12 @@ export const userDeactivate = defineOperation({
       before: { deactivatedAt: null },
       after: { deactivatedAt: ctx.now },
     });
-    return { id: user.id, deactivatedAt: ctx.now, pausedAutomations: plan.automationIds };
+    return {
+      id: user.id,
+      deactivatedAt: ctx.now,
+      pausedAutomations: plan.automationIds,
+      roster,
+    };
   },
 });
 
@@ -449,7 +484,7 @@ export const userReactivate = defineOperation({
         after: { deactivatedAt: null },
       });
     }
-    return { id: user.id, deactivatedAt: null, pausedAutomations: [] };
+    return { id: user.id, deactivatedAt: null, pausedAutomations: [], roster: NO_ROSTER };
   },
 });
 

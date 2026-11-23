@@ -54625,6 +54625,46 @@
       "invalidates": []
     },
     {
+      "name": "staffing.due",
+      "description": "Platform use only (the minute cron, as the host): open offers past their cut-off lapse and their offerers and the rosterers are told; once a day the rosterers hear of every shift with nobody on it in the uncovered window. Returns what it did.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "lapsed": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "cancelled": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "uncovered": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "lapsed",
+          "cancelled",
+          "uncovered"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "state.after",
       "description": "Platform use only (the minute cron, as the host): make one record's timed move (a declaration's `states.after`, such as a booking still booked after its class becoming a no-show), from the state it was read in or not at all, once it is due.",
       "risk": "write",
@@ -62862,7 +62902,7 @@
     },
     {
       "name": "user.deactivate",
-      "description": "Deactivate a person who left: they can no longer sign in or act, and every automation bound to one of their connections is paused (its binding revoked) with a notice to the admins. Admins only; people only. You cannot deactivate yourself or the last admin.",
+      "description": "Deactivate a person who left: they can no longer sign in or act, and every automation bound to one of their connections is paused (its binding revoked) with a notice to the admins. Admins only; people only. You cannot deactivate yourself or the last admin. Someone on future shifts or regular patterns is refused with their count (rule deactivate_confirm) and the list: pass confirm with that count and they are taken off each (now with nobody on it), their open offers are cancelled and the rosterers are told. Past shifts keep them.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -62876,6 +62916,12 @@
             "minLength": 1,
             "maxLength": 64,
             "description": "User id (usr_…)"
+          },
+          "confirm": {
+            "description": "Their future shifts and patterns, as the refusal counted them",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
           }
         },
         "required": [
@@ -62899,12 +62945,39 @@
             "items": {
               "type": "string"
             }
+          },
+          "roster": {
+            "type": "object",
+            "properties": {
+              "shifts": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "patterns": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "offers": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "shifts",
+              "patterns",
+              "offers"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
           "id",
           "deactivatedAt",
-          "pausedAutomations"
+          "pausedAutomations",
+          "roster"
         ],
         "additionalProperties": false
       },
@@ -63598,12 +63671,39 @@
             "items": {
               "type": "string"
             }
+          },
+          "roster": {
+            "type": "object",
+            "properties": {
+              "shifts": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "patterns": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "offers": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "shifts",
+              "patterns",
+              "offers"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
           "id",
           "deactivatedAt",
-          "pausedAutomations"
+          "pausedAutomations",
+          "roster"
         ],
         "additionalProperties": false
       },

@@ -13,12 +13,13 @@
 //   away over the shift (`unavailable`), not qualified for its kind (`not_qualified`), or a live
 //   shift left with nobody on it within the uncovered window (`uncovered`). The write's answer and
 //   its audit row carry them; `staffing.check` gives the same answer before the write.
-import { type Kysely, sql } from "kysely";
+import { CompiledQuery, type Kysely, sql } from "kysely";
 import { ConflictError, ValidationError } from "../errors.ts";
 import { objectTableOf } from "../extensions/schema.ts";
 import { getObject, listObjects } from "../fields/index.ts";
 import type { ObjectDefinition, StaffedDefinition } from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
+import type { Mover } from "../records/transitions.ts";
 import {
   isoWeekday,
   localParts,
@@ -27,6 +28,8 @@ import {
   wallClockToInstant,
 } from "../time/local.ts";
 import { orgReader, visibleSource } from "../visibility/index.ts";
+import { shiftRemoved, shiftWritten } from "./changes.ts";
+import { mayRoster, queueNotice, rosterers, shiftLink } from "./rosterers.ts";
 import { literal, type StaffedTables, selectClaims } from "./sql.ts";
 
 /** How far ahead an uncovered live shift is warned about (days). Rostering's setting, step 4. */
@@ -89,6 +92,8 @@ interface StaffBatch {
   claims: Map<string, Claim | null>;
   /** Warnings each write in this batch was made with, by record. */
   warnings: Map<string, StaffWarning[]>;
+  /** The offer this batch takes (ADR 0623): its write of the person is the take's. */
+  taking: string | null;
 }
 
 const batches = new WeakMap<object, StaffBatch>();
@@ -97,10 +102,15 @@ const batches = new WeakMap<object, StaffBatch>();
 function batchOf(ctx: { write: object }): StaffBatch {
   let state = batches.get(ctx.write);
   if (!state) {
-    state = { claims: new Map(), warnings: new Map() };
+    state = { claims: new Map(), warnings: new Map(), taking: null };
     batches.set(ctx.write, state);
   }
   return state;
+}
+
+/** Notes that this batch takes `offer` (ADR 0623): the person's write that follows is the take's. */
+export function noteTaking(ctx: { write: object }, offer: string): void {
+  batchOf(ctx).taking = offer;
 }
 
 /** The warnings the writes of this batch to `object`'s record `id` were made with. */
@@ -272,6 +282,12 @@ export async function staffedWritten(
   id: string,
   before: Record<string, unknown> | null,
   after: Record<string, unknown>,
+  options: {
+    /** Who writes: the host's own writes (a series' generation and changes) tell nobody. */
+    by?: Mover | undefined;
+    /** A restore from the Trash: checked, and tells nobody. */
+    restore?: boolean;
+  } = {},
 ): Promise<void> {
   if (!object.staffed) return;
   const shift = (await shiftOf(ctx, object, after)) as Shift;
@@ -290,15 +306,44 @@ export async function staffedWritten(
     if (clash) throw await doubleBooked(ctx, object.name, id, claim, clash);
   }
   noteClaim(ctx, object.name, id, claim);
-  const warnings = changesStaffing(object, before, after)
-    ? await warningsFor(ctx, object, id, shift)
-    : [];
+  const changes = changesStaffing(object, before, after);
+  const warnings = changes ? await warningsFor(ctx, object, id, shift) : [];
   batchOf(ctx).warnings.set(key(object.name, id), warnings);
+  // Its open offer and who is told (ADRs 0623 and 0624), in this write's batch.
+  if (changes && !options.restore) {
+    const now = Math.floor(Date.parse(ctx.now) / 1000);
+    await shiftWritten(ctx, {
+      object,
+      id,
+      before,
+      after,
+      beforeShift: before ? await shiftOf(ctx, object, before) : null,
+      shift,
+      by: options.by,
+      taking: batchOf(ctx).taking,
+      inWindow:
+        shift.starts !== null &&
+        shift.starts >= now &&
+        shift.starts < now + UNCOVERED_WINDOW_DAYS * 86_400,
+    });
+  }
 }
 
-/** A staffed record sent to the Trash (or removed): it claims nothing now. */
-export function staffedReleased(ctx: { write: object }, object: ObjectDefinition, id: string) {
-  if (object.staffed) noteClaim(ctx, object.name, id, null);
+/**
+ * A staffed record sent to the Trash (or removed): it claims nothing now, its open offer is
+ * cancelled, and its person is told.
+ */
+export async function staffedReleased(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string,
+): Promise<void> {
+  if (!object.staffed) return;
+  noteClaim(ctx, object.name, id, null);
+  const values = await storedShiftValues(ctx, object, id, true);
+  // A series no longer making that date removes it as the host: its person hears too, in the one
+  // summary of the series' change (ADR 0624).
+  await shiftRemoved(ctx, object, id, values, values ? await shiftOf(ctx, object, values) : null);
 }
 
 /** The stored values a staffed record's claim reads, in or out of the Trash (a restore). */
@@ -306,13 +351,23 @@ async function storedShiftValues(
   ctx: HandlerContext,
   object: ObjectDefinition,
   id: string,
+  described = false,
 ): Promise<Record<string, unknown> | null> {
   const def = object.staffed;
   const table = objectTableOf(object.name);
   if (!def || !table) return null;
-  const fields = [def.who.field, def.starts, def.ends, def.kind, object.states?.field].filter(
-    (f): f is string => typeof f === "string",
-  );
+  const fields = [
+    ...new Set(
+      [
+        def.who.field,
+        def.starts,
+        def.ends,
+        def.kind,
+        object.states?.field,
+        ...(described ? [object.titleField, def.zone] : []),
+      ].filter((f): f is string => typeof f === "string"),
+    ),
+  ];
   const columns = fields.map((f) => object.fields.find((x) => x.name === f)?.column);
   if (columns.some((c) => !c)) return null;
   const row = (await (ctx.db as AnyDb)
@@ -332,7 +387,64 @@ export async function staffedRestored(
 ): Promise<void> {
   if (!object.staffed) return;
   const values = await storedShiftValues(ctx, object, id);
-  if (values) await staffedWritten(ctx, object, id, null, values);
+  if (values) await staffedWritten(ctx, object, id, null, values, { restore: true });
+}
+
+/** A shift as stored, with what it is and whether it is in the Trash (the offers read it). */
+export interface StoredShift {
+  object: ObjectDefinition;
+  id: string;
+  values: Record<string, unknown>;
+  shift: Shift;
+  deleted: boolean;
+}
+
+/** A staffed record's shift as stored now, or null when there is no such record. */
+export async function loadShift(
+  ctx: HandlerContext,
+  objectName: string,
+  id: string,
+): Promise<StoredShift | null> {
+  const object = getObject(objectName);
+  const table = object ? objectTableOf(object.name) : undefined;
+  if (!object?.staffed || !table) return null;
+  const values = await storedShiftValues(ctx, object, id, true);
+  if (!values) return null;
+  const row = (await (ctx.db as AnyDb)
+    .selectFrom(table)
+    .select("deleted_at")
+    .where("id", "=", id)
+    .executeTakeFirst()) as { deleted_at: string | null } | undefined;
+  return {
+    object,
+    id,
+    values,
+    shift: (await shiftOf(ctx, object, values)) as Shift,
+    deleted: Boolean(row?.deleted_at),
+  };
+}
+
+/** The value of a shift's person field that puts `account` on it, or null (no profile for it). */
+export async function personValueFor(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  account: string,
+): Promise<string | null> {
+  const def = object.staffed;
+  if (!def) return null;
+  if (!def.who.account) return account;
+  const holder = def.who.object ? getObject(def.who.object) : undefined;
+  const table = holder ? objectTableOf(holder.name) : undefined;
+  const column = holder?.fields.find((f) => f.name === def.who.account)?.column;
+  if (!table || !column) return null;
+  const row = (await (ctx.db as AnyDb)
+    .selectFrom(table)
+    .select("id")
+    .where(column, "=", account)
+    .where("deleted_at", "is", null)
+    .orderBy("id")
+    .executeTakeFirst()) as { id: string } | undefined;
+  return row?.id ?? null;
 }
 
 /** The tables and columns of a staffed object as installed (the triggers' SQL reads them). */
@@ -377,7 +489,11 @@ export async function holderWritten(
     if (same(before[def.who.account], after[def.who.account])) continue;
     const account = text(after[def.who.account]);
     const t = tablesOf(staffed);
-    if (!account || !t) continue;
+    if (!t) continue;
+    // Its shifts are someone else's now: their open offers were the old person's to make, so they
+    // are cancelled, at commit (an offer made meanwhile too), and their offerers told (ADR 0623).
+    await holderOffersCancelled(ctx, staffed, t, id);
+    if (!account) continue;
     const mine = selectClaims(t, `r.${t.who} = ${literal(id)}`, literal(account));
     const outside = await sql
       .raw<{
@@ -436,6 +552,36 @@ export async function holderWritten(
   }
 }
 
+/** The open offers of the shifts a holder (a coach profile) names, cancelled with its account. */
+async function holderOffersCancelled(
+  ctx: HandlerContext,
+  staffed: ObjectDefinition,
+  t: StaffedTables,
+  holderId: string,
+): Promise<void> {
+  const why = "The shift's coach profile was given to another account, so the offer was cancelled.";
+  const shifts = `SELECT r.id FROM ${t.table} r WHERE r.${t.who} = ${literal(holderId)}`;
+  ctx.write(
+    CompiledQuery.raw(
+      `UPDATE core_staff_offer SET state = 'cancelled', ended_at = ?, ended_by = ?, why = ? WHERE state = 'open' AND object_type = ? AND record_id IN (${shifts})`,
+      [ctx.now, ctx.user.id, why, staffed.name],
+    ),
+  );
+  const open = await sql
+    .raw<{ from_account: string | null; made_by: string; record_id: string }>(
+      `SELECT from_account, made_by, record_id FROM core_staff_offer WHERE state = 'open' AND object_type = ${literal(staffed.name)} AND record_id IN (${shifts}) LIMIT 50`,
+    )
+    .execute(ctx.db);
+  for (const offer of open.rows) {
+    await queueNotice(ctx, {
+      to: [offer.from_account ?? offer.made_by],
+      title: "Your offer was cancelled",
+      body: why,
+      link: shiftLink(staffed.name, offer.record_id),
+    });
+  }
+}
+
 /**
  * A record holding the account of other objects' shifts (a coach profile) sent to the Trash: refused
  * while a live shift that has not ended names it (ADR 0621), answering how many, so a person
@@ -484,6 +630,49 @@ export async function generationClash(
 }
 
 /**
+ * Whether the person a record's values name has a deactivated account (ADR 0624): the host's
+ * generation makes such a date with nobody on it, whatever its series still names.
+ */
+export async function personDeactivated(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  values: Record<string, unknown>,
+): Promise<boolean> {
+  const shift = await shiftOf(ctx, object, values);
+  if (!shift?.account) return false;
+  const row = await ctx.db
+    .selectFrom("core_user")
+    .select("deactivated_at")
+    .where("id", "=", shift.account)
+    .executeTakeFirst();
+  return Boolean(row?.deactivated_at);
+}
+
+/**
+ * A date the host's generation left with nobody on it because its pattern person was already on
+ * another shift then (ADR 0621): the rosterers are told the date and why (ADR 0624).
+ */
+export async function patternNotApplied(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string,
+  date: string,
+  values: Record<string, unknown>,
+  clash: Clash,
+): Promise<void> {
+  const claim = claimOf(await shiftOf(ctx, object, values));
+  const name = claim ? await nameOf(ctx, claim.account) : "Its regular person";
+  const other = await described(ctx, clash);
+  const title = (object.titleField ? text(values[object.titleField]) : null) ?? object.label;
+  await queueNotice(ctx, {
+    to: await rosterers(ctx.db),
+    title: `A shift has nobody on it: ${title} on ${date}`,
+    body: `${name} is already on ${other.title} at that time, so ${title} on ${date} was made with nobody on it.`,
+    link: shiftLink(object.name, id),
+  });
+}
+
+/**
  * A series change's planned writes to its records (ADR 0621): refused whole when any would put its
  * person on two overlapping shifts, naming every such date, so the rosterer settles those first.
  * Each plan's claim is noted as it is checked, so two of the plans cannot pass each other.
@@ -529,12 +718,19 @@ function changesStaffing(
   return fields.some((f) => f !== undefined && !same(before[f], after[f]));
 }
 
-/** Whether `account` may do the kind of work `kind` names: a live kind record, and qualified. */
-async function qualified(
+export { kindObjectOf } from "./kinds.ts";
+
+/**
+ * Whether `account` may do the kind of work `kind` names: a live kind record, and qualified. Not
+ * strict (a write's warning), a business with no qualification at all for the kind's object is
+ * not warned (ADR 0622); strict (a take, ADR 0623), only a qualification row counts.
+ */
+export async function qualified(
   ctx: HandlerContext,
   object: ObjectDefinition,
   account: string,
   kind: string,
+  strict = false,
 ): Promise<boolean> {
   const def = object.staffed as StaffedDefinition;
   const kindObject = object.fields.find((f) => f.name === def.kind)?.options?.to;
@@ -547,6 +743,7 @@ async function qualified(
     .where("kind_record", "=", kind)
     .executeTakeFirst();
   if (!row) {
+    if (strict) return false;
     // A business that has not set qualifications up for this kind of work (no row at all for its
     // object) is not warned: nobody is marked, so the warning would say nothing (ADR 0622).
     const any = await ctx.db
@@ -575,10 +772,23 @@ export async function awayOver(
   starts: number,
   ends: number,
 ): Promise<{ id: string; kind: string } | null> {
+  // Only what can still overlap: one-off times ending after the shift starts, regular rules not
+  // ended before its first local date (two days early, for any zone). Past leave is not read.
+  const firstDate = plusDays(iso(starts).slice(0, 10), -2);
   const rows = await ctx.db
     .selectFrom("core_staff_away")
     .selectAll()
     .where("account_id", "=", account)
+    .where((eb) =>
+      eb.or([
+        eb.and([eb("kind", "!=", "regular"), eb("ends_at", ">", iso(starts))]),
+        eb.and([
+          eb("kind", "=", "regular"),
+          eb.or([eb("until_date", "is", null), eb("until_date", ">=", firstDate)]),
+        ]),
+      ]),
+    )
+    .limit(500)
     .execute();
   for (const row of rows) {
     if (row.kind !== "regular") {
@@ -676,7 +886,7 @@ export async function warningsFor(
   const name = await nameOf(ctx, shift.account);
   // Whether someone is away is told only to them and to whoever may roster (until stage 45 step
   // 4's permission: admins). Other staff never learn it, not even from a write's answer.
-  const mayKnow = ctx.user.id === shift.account || ctx.user.role === "admin";
+  const mayKnow = ctx.user.id === shift.account || mayRoster(ctx.user);
   if (mayKnow && shift.starts !== null && shift.ends !== null && shift.ends > shift.starts) {
     if (await awayOver(ctx, shift.account, shift.starts, shift.ends)) {
       out.push(warn("unavailable", `${name} said they are not available then.`));

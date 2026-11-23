@@ -200,6 +200,7 @@ export * from "./operations/routine.ts";
 export * from "./operations/search.ts";
 export { COMMON_CURRENCIES, MAX_LOGO_LENGTH } from "./operations/settings.ts";
 export * from "./operations/setup.ts";
+export { runStaffingDue } from "./operations/staffing.ts";
 export * from "./operations/subscription.ts";
 export * from "./operations/suggestions.ts";
 export * from "./operations/summary.ts";
