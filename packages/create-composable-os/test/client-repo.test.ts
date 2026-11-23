@@ -440,6 +440,40 @@ describe("a pack role's client in the mobile app (ADR 0451)", () => {
     );
   });
 
+  it("a role with grants gets the granted tools too, and nothing the grant does not open (stage 45 step 7)", async () => {
+    await publish("1.0.0");
+    const dir = await created();
+    setPacks(dir, ["programs", "bookings", "rostering"]);
+    writeFileSync(
+      join(dir, "product.ts"),
+      read(dir, "product.ts").replace(
+        /(\n\s*web: \{[^\n]*\},)/,
+        '$1\n  mobile: { dir: "apps/mobile", roles: ["rostering.team", { role: "bookings.coach", grants: ["rostering:roster"] }] },',
+      ),
+    );
+    const generated = await cos("client", "generate");
+    expect(generated.code, generated.output).toBe(0);
+    const coach = read(dir, "apps/mobile/src/client/roles/bookings.coach.ts");
+    expect(coach).toContain("createBookingsCoachClient");
+    expect(coach).toContain("With the grants rostering:roster");
+    expect(coach).toContain('"x.bookings.roster"');
+    expect(coach).toContain('"x.rostering.week"');
+    expect(coach).toContain('"x.rostering.take"');
+    expect(coach).not.toContain('"x.rostering.assign"');
+    expect(coach).not.toContain('"x.rostering.periodTotals"');
+    const team = read(dir, "apps/mobile/src/client/roles/rostering.team.ts");
+    expect(team).toContain('"x.rostering.me"');
+    expect(team).not.toContain('"x.bookings.roster"');
+    // A grant the release does not have is refused by name.
+    writeFileSync(
+      join(dir, "product.ts"),
+      read(dir, "product.ts").replace("rostering:roster", "rostering:nothing"),
+    );
+    const refused = await cos("client", "generate");
+    expect(refused.code).toBe(1);
+    expect(refused.output).toContain("no grantable permission rostering:nothing");
+  });
+
   it("refuses a role of a pack the product does not list", async () => {
     await publish("1.0.0");
     const dir = await created();

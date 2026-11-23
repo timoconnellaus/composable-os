@@ -510,6 +510,7 @@ export const planCheck = defineTool({
         ),
         away: z.array(z.string()),
         notQualified: z.boolean(),
+        first: z.object({ date: z.string(), startsAt: z.string(), endsAt: z.string() }).nullable(),
       }),
     ),
     truncated: z.boolean(),

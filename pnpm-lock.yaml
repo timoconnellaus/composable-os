@@ -56,6 +56,9 @@ importers:
       '@composable-os/pack-programs':
         specifier: workspace:*
         version: link:../../packs/programs
+      '@composable-os/pack-rostering':
+        specifier: workspace:*
+        version: link:../../packs/rostering
       '@composable-os/pack-ticketing':
         specifier: workspace:*
         version: link:../../packs/ticketing

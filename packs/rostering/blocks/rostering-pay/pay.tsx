@@ -119,6 +119,7 @@ export function Pay({ rostering, locale = "en-AU" }: { rostering: Hooks; locale?
                 type="button"
                 className="block w-full rounded-md border p-2 text-left text-sm"
                 aria-pressed={chosen === p.start}
+                data-start={p.start}
                 aria-label={`${dayLabel(p.start, locale)} to ${dayLabel(p.end, locale)}, ${p.state === "locked" ? "locked" : p.ended ? "ended, open" : "open"}`}
                 onClick={() => setChosen(p.start)}
               >

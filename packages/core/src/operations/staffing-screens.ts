@@ -606,6 +606,10 @@ export const staffingPlanCheck = defineOperation({
         ),
         away: z.array(z.string()).describe("Dates the person said they are away"),
         notQualified: z.boolean(),
+        first: z
+          .object({ date: z.string(), startsAt: z.string(), endsAt: z.string() })
+          .nullable()
+          .describe("Its first dated shift, as the host places it in its zone"),
       }),
     ),
     truncated: z.boolean(),
@@ -721,6 +725,13 @@ export const staffingPlanCheck = defineOperation({
       out.push({
         key: plan.key ?? null,
         dates: occurrences.length,
+        first: occurrences[0]
+          ? {
+              date: occurrences[0].date,
+              startsAt: iso(occurrences[0].starts),
+              endsAt: iso(occurrences[0].ends),
+            }
+          : null,
         clashes,
         away,
         notQualified,

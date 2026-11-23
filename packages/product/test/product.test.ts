@@ -11,6 +11,7 @@ import {
   environmentNames,
   LOCAL_PREFIX,
   LOCATION_HINTS,
+  mobileRole,
   type ProductDefinition,
 } from "../src/index.ts";
 import { loadProduct, productAlias, productFile } from "../src/node.ts";
@@ -186,5 +187,46 @@ describe("a client product's environments (ADR 0450)", () => {
         environments: { staging: { location: "au" }, live: {} },
       }),
     ).toThrow(/environments\.staging\.location/);
+  });
+});
+
+describe("the mobile app's pack roles (ADRs 0451 and 0600)", () => {
+  const gym: ClientProductDefinition = {
+    id: "gym",
+    label: "Gym",
+    platform: { version: "1.0.0", release: "crm", repository: "example/platform" },
+    packs: ["programs", "bookings", "rostering"],
+    mobile: { dir: "apps/mobile" },
+  };
+  const withRoles = (roles: NonNullable<ClientProductDefinition["mobile"]>["roles"]) => ({
+    ...gym,
+    mobile: { dir: "apps/mobile", roles },
+  });
+
+  it("takes a role by name, or with the grants its staff are given (stage 45 step 7)", () => {
+    expect(mobileRole("rostering.team")).toEqual({ role: "rostering.team", grants: [] });
+    expect(mobileRole({ role: "bookings.coach", grants: ["rostering:roster"] })).toEqual({
+      role: "bookings.coach",
+      grants: ["rostering:roster"],
+    });
+    const ok = withRoles([
+      "rostering.team",
+      { role: "bookings.coach", grants: ["rostering:roster"] },
+    ]);
+    expect(defineClientProduct(ok)).toBe(ok);
+  });
+
+  it("refuses a grant that is not <pack>:<name>, one of a pack it does not list, and a role twice", () => {
+    expect(() =>
+      defineClientProduct(withRoles([{ role: "bookings.coach", grants: ["roster"] }])),
+    ).toThrow(/is not <pack>:<permission>/);
+    expect(() =>
+      defineClientProduct(withRoles([{ role: "bookings.coach", grants: ["ticketing:door"] }])),
+    ).toThrow(/which packs does not list/);
+    expect(() =>
+      defineClientProduct(
+        withRoles(["bookings.coach", { role: "bookings.coach", grants: ["rostering:roster"] }]),
+      ),
+    ).toThrow(/listed twice/);
   });
 });
