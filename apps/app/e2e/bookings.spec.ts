@@ -378,7 +378,9 @@ test("an admin gives a coach the desk, and the coach books a walk-in", async ({
   const origin = new URL(baseURL ?? "").origin;
   const email = `${unique("deskcoach")}@example.com`;
   const password = "coach-password-not-secret";
-  const signUp = await page.request.post("/api/auth/sign-up/email", {
+  // The coach's own browser: signing up there leaves the admin's session alone.
+  const coach = await browser.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
+  const signUp = await coach.request.post("/api/auth/sign-up/email", {
     data: { name: "Desk Coach", email, password },
     headers: { origin },
   });
@@ -388,8 +390,6 @@ test("an admin gives a coach the desk, and the coach books a walk-in", async ({
   });
   const coachId = users.items[0]?.id as string;
   await op(page.request, "user.setPackRole", { id: coachId, role: "bookings.coach" });
-
-  const coach = await browser.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
   const signedIn = await coach.request.post("/api/auth/sign-in/email", {
     data: { email, password },
     headers: { origin },
