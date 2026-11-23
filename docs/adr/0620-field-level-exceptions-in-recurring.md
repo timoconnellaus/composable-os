@@ -122,3 +122,17 @@ still follow.
   is left that `recurring.follow` would refuse to clear.
 - **The API contract**: `recurring.*` invalidates the record reads, and `record.*` writes
   invalidate `recurring.exceptions` (one stale group).
+
+## Amended 2026-11-23 (review round two, before merge)
+- **A plan's guard reads before its plan does.** A series change reads the sum of its occurrences'
+  versions before it reads the occurrences; a hand edit and `recurring.follow` guard on the
+  version read with the occurrence row they planned from, never on a second read. A write
+  committed between two reads is then always caught.
+- **A record detached whole is guarded too**: a hand edit of it guards and bumps its occurrence, so
+  `recurring.follow` reattaching it and that edit cannot both commit.
+- **Two changes of one series in one batch**: the second's expected sum leaves out the occurrences
+  the first deleted (dates no longer in the rule), so the pair commits.
+- **A missing occurrence is stale**: the `occurrence` guard fails when the row is gone (its date
+  removed by a series change meanwhile), so no exception is left on a removed record.
+- Migration 0810 was edited in place again (still unmerged); a local or preview database that
+  applied an earlier version must be rebuilt.

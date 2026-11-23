@@ -18,7 +18,9 @@ import {
   createRecord,
   createRegistry,
   defineOperation,
+  followSeries,
   generateSeries,
+  type HandlerContext,
   invoke,
   localDaysBefore,
   requireExtensionObject,
@@ -998,6 +1000,116 @@ const runThenEdit = defineOperation({
     return result;
   },
 });
+// --- Review round two ------------------------------------------------------------------------------
+
+/**
+ * A context whose first read of core_recurrence_occurrence runs `between` after it returns: a
+ * competing write committed between a plan's first read and the next.
+ */
+function afterFirstOccurrenceRead(ctx: HandlerContext, between: () => Promise<unknown>) {
+  let done = false;
+  const target = new Set<unknown>();
+  const plugged = ctx.db.withPlugin({
+    transformQuery(args) {
+      if (!done && args.node.kind === "SelectQueryNode") {
+        if (JSON.stringify(args.node).includes("core_recurrence_occurrence")) {
+          done = true;
+          target.add(args.queryId);
+        }
+      }
+      return args.node;
+    },
+    async transformResult(args) {
+      if (target.has(args.queryId)) {
+        target.delete(args.queryId);
+        await between();
+      }
+      return args.result;
+    },
+  });
+  return { ...ctx, db: plugged } as HandlerContext;
+}
+
+const round2Input = z.object({
+  series: z.string(),
+  klass: z.string(),
+  values: z.record(z.string(), z.unknown()),
+  competing: z.record(z.string(), z.unknown()),
+  competingOn: z.enum(["klass", "series"]),
+  now: z.string(),
+});
+const compete = (input: z.infer<typeof round2Input>) =>
+  invoke(
+    "record.update",
+    {
+      object: input.competingOn === "klass" ? KLASS : SERIES,
+      id: input.competingOn === "klass" ? input.klass : input.series,
+      values: input.competing,
+    },
+    as(input.now),
+  );
+// A series change with a competing write committed between its first and second reads.
+const changeWithWriteBetween = defineOperation({
+  name: "fixture.changeWithWriteBetween",
+  description: "Test fixture: a series change; a competing write commits between its reads.",
+  input: round2Input,
+  output: z.object({ ok: z.boolean() }),
+  permission: "records:write",
+  risk: "write",
+  async handler(input, ctx) {
+    const inner = afterFirstOccurrenceRead(ctx, () => compete(input));
+    await updateRecord(inner, requireExtensionObject(SERIES), input.series, input.values);
+    return { ok: true };
+  },
+});
+// `recurring.follow` planned, then a competing write commits before it does.
+const followThenWrite = defineOperation({
+  name: "fixture.followThenWrite",
+  description: "Test fixture: follow the series, with a competing write committed under it.",
+  input: round2Input,
+  output: z.object({ ok: z.boolean() }),
+  permission: "records:write",
+  risk: "write",
+  async handler(input, ctx) {
+    await followSeries(ctx, requireExtensionObject(KLASS), input.klass, ["places"]);
+    await compete(input);
+    return { ok: true };
+  },
+});
+// A hand edit of a class planned, then a series change removing its date commits first.
+const editThenRemove = defineOperation({
+  name: "fixture.editThenRemove",
+  description: "Test fixture: a class edit, with its date removed by a series change under it.",
+  input: round2Input,
+  output: z.object({ ok: z.boolean() }),
+  permission: "records:write",
+  risk: "write",
+  async handler(input, ctx) {
+    await updateRecord(ctx, requireExtensionObject(KLASS), input.klass, input.values);
+    await compete(input);
+    return { ok: true };
+  },
+});
+// Two writes in one batch, in order: each { on, id?, values }.
+const batchOfWrites = defineOperation({
+  name: "fixture.batchOfWrites",
+  description: "Test fixture: several record writes in one batch, in order.",
+  input: z.object({
+    writes: z.array(
+      z.object({ on: z.string(), id: z.string(), values: z.record(z.string(), z.unknown()) }),
+    ),
+  }),
+  output: z.object({ ok: z.boolean() }),
+  permission: "records:write",
+  risk: "write",
+  async handler(input, ctx) {
+    for (const w of input.writes) {
+      await updateRecord(ctx, requireExtensionObject(w.on), w.id, w.values);
+    }
+    return { ok: true };
+  },
+});
+
 const fieldRaces = createInvoker(
   createRegistry([
     ...coreRegistry.list(),
@@ -1007,6 +1119,10 @@ const fieldRaces = createInvoker(
     sameBatch,
     editThenEditOther,
     runThenEdit,
+    changeWithWriteBetween,
+    followThenWrite,
+    editThenRemove,
+    batchOfWrites,
   ]),
 );
 
@@ -1336,19 +1452,193 @@ describe("field-level exceptions (ADR 0620)", () => {
     ).rejects.toMatchObject({ code: "conflict", details: { rule: "recurring_state" } });
   });
 
-  it("an exception on a field the series no longer copies is cleaned up at reconcile", async () => {
-    const now = "2029-11-05T00:00:00.000Z";
-    const id = await series({ firstDate: "2029-11-05" }, now);
+  // --- Review round two ----------------------------------------------------------------------------
+
+  it("a hand move committed between a series change's two reads fails the change, and the move stands", async () => {
+    const now = "2030-01-07T00:00:00.000Z";
+    const id = await series({ firstDate: "2030-01-07" }, now);
     await tick(now);
     const [c0] = await made(id);
     if (!c0) throw new Error("expected a class");
-    await setCoach(c0.id, "Coach B", now);
-    await env.DB.prepare(
-      "INSERT INTO core_recurrence_exception (object_type, record_id, field, set_by, set_at) VALUES (?, ?, 'name', ?, ?)",
-    )
-      .bind(KLASS, c0.id, admin.id, now)
+    const moved = new Date(Date.parse(String(c0.values.startsAt)) + 3_600_000).toISOString();
+    await expect(
+      fieldRaces.invoke(
+        "fixture.changeWithWriteBetween",
+        {
+          series: id,
+          klass: c0.id,
+          values: { time: "08:00", coach: "Coach N" },
+          competing: { startsAt: moved },
+          competingOn: "klass",
+          now,
+        },
+        as(now),
+      ),
+    ).rejects.toMatchObject({ code: "conflict", details: { rule: "recurring_stale" } });
+    const [after] = await made(id);
+    expect(after).toMatchObject({ edited: true, values: { startsAt: moved, coach: "Coach A" } });
+  });
+
+  it("a hand edit of a detached class racing recurring.follow: the follow fails, nothing is left attached", async () => {
+    const now = "2030-02-04T00:00:00.000Z";
+    const id = await series({ firstDate: "2030-02-04" }, now);
+    await tick(now);
+    const [c0] = await made(id);
+    if (!c0) throw new Error("expected a class");
+    await env.DB.prepare("UPDATE core_recurrence_occurrence SET edited_at = ? WHERE record_id = ?")
+      .bind(now, c0.id)
       .run();
-    await reconcile(timetable(ext));
-    expect((await own(c0.id)).map((r) => r[0])).toEqual(["coach"]);
+    await expect(
+      fieldRaces.invoke(
+        "fixture.followThenWrite",
+        {
+          series: id,
+          klass: c0.id,
+          values: {},
+          competing: { coach: "Coach H" },
+          competingOn: "klass",
+          now,
+        },
+        as(now),
+      ),
+    ).rejects.toMatchObject({ code: "conflict", details: { rule: "recurring_stale" } });
+    const [after] = await made(id);
+    expect(after).toMatchObject({ edited: true, values: { coach: "Coach H" } });
+  });
+
+  it("recurring.follow racing a series change: the follow fails", async () => {
+    const now = "2030-03-04T00:00:00.000Z";
+    const id = await series({ firstDate: "2030-03-04" }, now);
+    await tick(now);
+    const [c0] = await made(id);
+    if (!c0) throw new Error("expected a class");
+    await invoke("record.update", { object: KLASS, id: c0.id, values: { places: 4 } }, as(now));
+    await expect(
+      fieldRaces.invoke(
+        "fixture.followThenWrite",
+        {
+          series: id,
+          klass: c0.id,
+          values: {},
+          competing: { places: 9 },
+          competingOn: "series",
+          now,
+        },
+        as(now),
+      ),
+    ).rejects.toMatchObject({ code: "conflict", details: { rule: "recurring_stale" } });
+    const [after] = await made(id);
+    expect(after?.values.places).toBe(4);
+    expect((await own(c0.id)).map((r) => r[0])).toEqual(["places"]);
+  });
+
+  it("two changes of one series in one batch, the first removing dates, both apply", async () => {
+    const now = "2030-04-01T00:00:00.000Z";
+    const id = await series({ firstDate: "2030-04-01" }, now);
+    await tick(now);
+    const [first] = await made(id);
+    if (!first) throw new Error("expected a class");
+    const keep = new Date(`${first.date}T00:00:00Z`).getUTCDay() === 2 ? ["tue"] : ["thu"];
+    await fieldRaces.invoke(
+      "fixture.batchOfWrites",
+      {
+        writes: [
+          { on: SERIES, id, values: { weekdays: keep } },
+          { on: SERIES, id, values: { coach: "Coach T" } },
+        ],
+      },
+      as(now),
+    );
+    const classes = await made(id);
+    expect(classes.length).toBeGreaterThan(3);
+    for (const c of classes) expect(c.values.coach).toBe("Coach T");
+    const days = new Set(classes.map((c) => new Date(`${c.date}T00:00:00Z`).getUTCDay()));
+    expect(days.size).toBe(1);
+  });
+
+  it("a hand edit committing against a class its series just removed fails, leaving no exception", async () => {
+    const now = "2030-05-06T00:00:00.000Z";
+    const id = await series({ firstDate: "2030-05-06" }, now);
+    await tick(now);
+    const [first] = await made(id);
+    if (!first) throw new Error("expected a class");
+    const drop = new Date(`${first.date}T00:00:00Z`).getUTCDay() === 2 ? ["thu"] : ["tue"];
+    await expect(
+      fieldRaces.invoke(
+        "fixture.editThenRemove",
+        {
+          series: id,
+          klass: first.id,
+          values: { coach: "Coach O" },
+          competing: { weekdays: drop },
+          competingOn: "series",
+          now,
+        },
+        as(now),
+      ),
+    ).rejects.toMatchObject({ code: "conflict", details: { rule: "recurring_stale" } });
+    expect((await made(id)).map((c) => c.id)).not.toContain(first.id);
+    expect(await own(first.id)).toEqual([]);
+  });
+
+  it("one batch: a hand move then a series time change keeps the move; a hand value then the series' same value leaves no exception", async () => {
+    const now = "2030-06-03T00:00:00.000Z";
+    const id = await series({ firstDate: "2030-06-03" }, now);
+    await tick(now);
+    const [c0, c1] = await made(id);
+    if (!c0 || !c1) throw new Error("expected classes");
+    const moved = new Date(Date.parse(String(c0.values.startsAt)) + 3_600_000).toISOString();
+    await fieldRaces.invoke(
+      "fixture.batchOfWrites",
+      {
+        writes: [
+          { on: KLASS, id: c0.id, values: { startsAt: moved } },
+          { on: SERIES, id, values: { time: "09:00" } },
+        ],
+      },
+      as(now),
+    );
+    let classes = await made(id);
+    expect(classes[0]).toMatchObject({ edited: true, values: { startsAt: moved } });
+    expect(wallClock(classes[1]?.values.startsAt, "Australia/Sydney")).toBe("09:00");
+    await fieldRaces.invoke(
+      "fixture.batchOfWrites",
+      {
+        writes: [
+          { on: KLASS, id: c1.id, values: { coach: "Coach S" } },
+          { on: SERIES, id, values: { coach: "Coach S" } },
+        ],
+      },
+      as(now),
+    );
+    expect(await own(c1.id)).toEqual([]);
+    await invoke("record.update", { object: SERIES, id, values: { coach: "Coach U" } }, as(now));
+    classes = await made(id);
+    expect(classes[1]?.values.coach).toBe("Coach U");
+  });
+
+  it("a field taken out of the series' copy loses its exceptions at reconcile", async () => {
+    const now = "2030-07-01T00:00:00.000Z";
+    const id = await series({ firstDate: "2030-07-01" }, now);
+    await tick(now);
+    const [c0] = await made(id);
+    if (!c0) throw new Error("expected a class");
+    await invoke(
+      "record.update",
+      { object: KLASS, id: c0.id, values: { coach: "Coach B", places: 3 } },
+      as(now),
+    );
+    expect((await own(c0.id)).map((r) => r[0])).toEqual(["coach", "places"]);
+    // The series stops copying its places.
+    const narrower = timetable(ext);
+    const objects = narrower.objects as Record<string, { recurring?: { copy?: object } }>;
+    const recurring = objects.series?.recurring;
+    if (recurring) recurring.copy = { coach: "coach" };
+    try {
+      await reconcile(narrower);
+      expect((await own(c0.id)).map((r) => r[0])).toEqual(["coach"]);
+    } finally {
+      await reconcile(timetable(ext));
+    }
   });
 });

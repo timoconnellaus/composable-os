@@ -402,7 +402,7 @@ async function occurrenceOf(ctx: HandlerContext, object: string, id: string) {
   return (
     (await ctx.db
       .selectFrom("core_recurrence_occurrence")
-      .select(["series_object", "series_id", "local_date", "edited_at"])
+      .select(["series_object", "series_id", "local_date", "edited_at", "version"])
       .where("object_type", "=", object)
       .where("record_id", "=", id)
       .executeTakeFirst()) ?? null
@@ -423,6 +423,7 @@ async function guardRecord(ctx: HandlerContext, object: string, id: string, row:
     seriesObject: row.series_object,
     seriesId: row.series_id,
     date: row.local_date,
+    version: Number(row.version),
   });
 }
 
@@ -505,8 +506,9 @@ export async function generatedRecordEdited(
   // Detached whole already (by hand, or under the rule before ADR 0620): the series leaves it be.
   const key = recordKey(object.name, id);
   const batch = batchOf(ctx);
-  if (occurrence.edited_at || batch.detached.has(key)) return changedFlag(def);
+  // Guarded and bumped detached or not: a `recurring.follow` reattaching it meanwhile must fail.
   await guardRecord(ctx, object.name, id, occurrence);
+  if (occurrence.edited_at || batch.detached.has(key)) return changedFlag(def);
   batch.values.set(key, { ...(batch.values.get(key) ?? {}), ...after });
   if (whole) {
     ctx.write(markEditedStatement(object.name, id, ctx.now));
@@ -798,17 +800,17 @@ export async function seriesChanged(
   const today = zones.map((z) => localParts(now, z).date).sort()[0] as string;
   const first =
     options.from && parseLocalDate(options.from) && options.from > today ? options.from : today;
+  // Guarded and bumped against hand edits (ADR 0620), read before the rows below: a hand edit
+  // committing between the two reads would otherwise be counted yet not seen.
+  await guardAndBumpSeriesOccurrences(ctx, object.name, id, first);
   const rows = await ctx.db
     .selectFrom("core_recurrence_occurrence")
-    .select(["local_date", "record_id", "edited_at"])
+    .select(["local_date", "record_id", "edited_at", "version"])
     .where("series_object", "=", object.name)
     .where("series_id", "=", id)
     .where("local_date", ">=", first)
     .orderBy("local_date")
     .execute();
-  // None of them written by hand since read, and each bumped, so a hand edit planned before this
-  // change fails rather than land over it (ADR 0620).
-  await guardAndBumpSeriesOccurrences(ctx, object.name, id, first);
   // The fields each of those records keeps as its own (ADR 0620): the series writes the rest.
   const own = new Map<string, Set<string>>();
   if (!ended) {
@@ -840,6 +842,7 @@ export async function seriesChanged(
     }
     own.set(row.record_id, fields);
   }
+  const versions = new Map(rows.map((r) => [r.record_id, Number(r.version)]));
   const finals = new Set((generated.states?.moves ?? []).filter((m) => m.final).map((m) => m.to));
   const stateField = generated.states?.field;
   const plans: Planned[] = [];
@@ -935,6 +938,11 @@ export async function seriesChanged(
     } else {
       // Removed, and its date's key with it: the date can be made again if the rule returns to it.
       await records().remove(ctx, generated, plan.id);
+      batch.removed.set(recordKey(generated.name, plan.id), {
+        series: recordKey(object.name, id),
+        date: plan.date,
+        version: versions.get(plan.id) ?? 0,
+      });
       ctx.write(
         ctx.db
           .deleteFrom("core_recurrence_occurrence")

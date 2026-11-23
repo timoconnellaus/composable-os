@@ -135,6 +135,8 @@ export interface BatchState {
   values: Map<string, Record<string, unknown>>;
   /** A series' values as written. */
   seriesValues: Map<string, Record<string, unknown>>;
+  /** Occurrences a series change in this batch deleted (a date removed), with their read version. */
+  removed: Map<string, { series: string; date: string; version: number }>;
 }
 
 const batches = new WeakMap<object, BatchState>();
@@ -154,6 +156,7 @@ export function batchOf(ctx: { write: object }): BatchState {
       detached: new Set(),
       values: new Map(),
       seriesValues: new Map(),
+      removed: new Map(),
     };
     batches.set(ctx.write, state);
   }
@@ -217,17 +220,13 @@ export async function guardAndBumpOccurrence(
     seriesObject: string;
     seriesId: string;
     date: string;
+    /** The version read with the occurrence row the write was planned from (not read again). */
+    version: number;
   },
 ): Promise<void> {
   const state = batchOf(ctx);
   const key = recordKey(occurrence.object, occurrence.record);
   const series = recordKey(occurrence.seriesObject, occurrence.seriesId);
-  const row = await ctx.db
-    .selectFrom("core_recurrence_occurrence")
-    .select("version")
-    .where("object_type", "=", occurrence.object)
-    .where("record_id", "=", occurrence.record)
-    .executeTakeFirst();
   const queued =
     (state.occurrenceBumps.get(key)?.n ?? 0) +
     state.seriesWideBumps.filter((b) => b.series === series && occurrence.date >= b.from).length;
@@ -237,7 +236,7 @@ export async function guardAndBumpOccurrence(
       occurrence.object,
       occurrence.record,
       null,
-      Number(row?.version ?? 0) + queued,
+      occurrence.version + queued,
     ),
     CompiledQuery.raw(
       "UPDATE core_recurrence_occurrence SET version = version + 1 WHERE object_type = ? AND record_id = ?",
@@ -278,6 +277,15 @@ export async function guardAndBumpSeriesOccurrences(
   }
   for (const bump of state.seriesWideBumps) {
     if (bump.series === series) expected += (await totals(bump.from > from ? bump.from : from)).n;
+  }
+  // Rows an earlier change in this batch deleted count for nothing by the time this guard runs:
+  // take off what was counted for them above (their stored version and the bumps before).
+  for (const [key, gone] of state.removed) {
+    if (gone.series !== series || gone.date < from) continue;
+    expected -= gone.version + (state.occurrenceBumps.get(key)?.n ?? 0);
+    expected -= state.seriesWideBumps.filter(
+      (b) => b.series === series && gone.date >= (b.from > from ? b.from : from),
+    ).length;
   }
   ctx.write(
     recurrenceGuard("occurrences", seriesObject, seriesId, from, expected),

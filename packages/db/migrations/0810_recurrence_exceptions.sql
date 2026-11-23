@@ -49,8 +49,9 @@ CREATE TRIGGER core_recurrence_guard_check
 BEFORE INSERT ON core_recurrence_guard
 BEGIN
   SELECT CASE
+    -- A missing occurrence (its date removed by a series change meanwhile) is stale too.
     WHEN NEW.kind = 'occurrence' AND coalesce((SELECT version FROM core_recurrence_occurrence
-        WHERE object_type = NEW.object_type AND record_id = NEW.record_id), 0) != NEW.expected
+        WHERE object_type = NEW.object_type AND record_id = NEW.record_id), -1) != NEW.expected
       THEN RAISE(ABORT, 'core_recurrence_stale')
     WHEN NEW.kind = 'occurrences' AND coalesce((SELECT sum(version) FROM core_recurrence_occurrence
         WHERE series_object = NEW.object_type AND series_id = NEW.record_id

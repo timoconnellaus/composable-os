@@ -565,7 +565,7 @@
     },
     {
       "name": "0810_recurrence_exceptions.sql",
-      "sha256": "d3166eacace0e92a0c15821c4220d7fbf68d506cda6c0db28cd00a7eec3a1deb"
+      "sha256": "2d744aeb49e99bbaa2254189c3926304ab0c7964d7a8e419922073da58288fb1"
     },
     {
       "name": "0850_agreements.sql",
