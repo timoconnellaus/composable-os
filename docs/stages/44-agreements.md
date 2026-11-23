@@ -1499,8 +1499,8 @@ Deviations and decisions, and why:
   font embedding and parsing this needs none of; nothing is added to `UPSTREAMS.md`. It is its
   own package (`@composable-os/agreement-pdf`, no dependencies), imported by the email gatekeeper
   and the download route; core asks only its page estimate at publish (never fewer pages than the
-  writer draws), so cos-runner carries no writer: its main module is 7,546 KiB after merging
-  `main` at 51b62077 (budget 7,680).
+  writer draws), so cos-runner carries no writer: its main module is 7,578 KiB after merging
+  `main` at fb452202 (budget 7,680).
 - **The gatekeeper's `agreement` part has no field for answers** (only `answers: "in-app"`), where
   the spec allowed answers "only where the host asked": the copy never asks, and a part that
   cannot hold them cannot leak them.
