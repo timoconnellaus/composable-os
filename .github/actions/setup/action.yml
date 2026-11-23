@@ -1,10 +1,12 @@
 # pnpm, Node and the dependencies, on either kind of runner CI uses (ADR 0630).
 #
-# - On a Namespace runner (`runner.environment` is `self-hosted`), the pnpm store and Playwright's
-#   browsers live on the runner profile's cache volume (nscloud-cache-action), and setup-node's own
-#   cache is off. Which branches may write that volume is set on the profile, not here.
-# - On a GitHub-hosted runner (pull requests from forks, or the fallback in ci.yml's `changes`
-#   job), setup-node caches the pnpm store in GitHub's cache, as before, and the browsers download.
+# - On a Namespace runner (`runner.environment` is `self-hosted`), Playwright's browsers live on
+#   the runner profile's cache volume (nscloud-cache-action), and setup-node's own cache is off.
+#   The pnpm store is deliberately not on the volume: measured on this repository (Nov 2026), an
+#   install from a warm store there took 12-14 s against 8-9 s downloading into an empty local one.
+#   Which branches may write the volume is set on the profile, not here.
+# - On a GitHub-hosted runner (the standard lane, pull requests from forks, the fallback), setup-node
+#   caches the pnpm store in GitHub's cache, as before, and the browsers download.
 #
 # The repository must be checked out first: this action lives in it, and checkout empties the
 # workspace the cache action links into.
@@ -28,19 +30,17 @@ runs:
         cache: ${{ runner.environment == 'github-hosted' && 'pnpm' || '' }}
         package-manager-cache: ${{ runner.environment == 'github-hosted' }}
 
-    # After pnpm/action-setup: the `pnpm` mode asks pnpm where its store is.
-    - if: runner.environment != 'github-hosted'
-      uses: namespacelabs/nscloud-cache-action@v1
-      with:
-        cache: |
-          pnpm
-          ${{ inputs.playwright != '' && 'playwright' || '' }}
-
     - shell: bash
       run: pnpm install --frozen-lockfile
 
-    # The browser comes from the cache volume on Namespace; `--with-deps` still installs the
-    # system libraries Chromium needs (apt), which the cache does not hold.
+    # Measured: the browsers from the volume took 5-7 s to install, against 10-12 s downloaded.
+    - if: inputs.playwright != '' && runner.environment != 'github-hosted'
+      uses: namespacelabs/nscloud-cache-action@v1
+      with:
+        cache: playwright
+
+    # `--with-deps` also installs the system libraries Chromium needs (apt), which the cache does
+    # not hold.
     - if: inputs.playwright != ''
       shell: bash
       env:
