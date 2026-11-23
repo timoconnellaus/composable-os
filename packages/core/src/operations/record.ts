@@ -182,7 +182,7 @@ function manifestOf(field: FieldDefinition): FieldManifest {
   };
 }
 
-function fromRow(object: ObjectDefinition, row: Record<string, unknown>): RecordOutput {
+export function fromRow(object: ObjectDefinition, row: Record<string, unknown>): RecordOutput {
   const values: Record<string, unknown> = {};
   for (const field of extensionFields(object)) {
     const type = field.fieldType as keyof typeof FIELD_TYPE_REGISTRY;

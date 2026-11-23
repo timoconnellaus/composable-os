@@ -62,3 +62,7 @@ warning is now bounded: only one-off times ending after the shift starts and reg
 ended before it are read, never a person's past leave. A take is held to the qualification
 strictly (a row must exist), unlike the warning. "Who may roster" is one function
 (`staffing/rosterers.ts`), the admins until step 4.
+
+## Amended 2026-11-24 (stage 45 step 7, ADR 0629; a coordinator's decision)
+
+An assistant or MCP acting for a rosterer no longer gets `unavailable` warnings from `staffing.week`, `staffing.check` or `staffing.candidates` (or from Rostering's tools over them): it learns clashes and qualifications, never who is away. A person at the screen sees them as before.

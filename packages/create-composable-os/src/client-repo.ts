@@ -291,6 +291,11 @@ export async function generateClients(
             `The release has no grantable permission ${permission}. Its grantable permissions: ${(parsed.grants ?? []).map((g) => g.permission).join(", ") || "none (the release is older than role clients with grants)"}.`,
           );
         }
+        if (grant.restricted) {
+          io.out(
+            `Note: ${name}'s client includes ${permission}, a restricted permission: the host still decides every call, and only an account an admin granted it may use those screens.`,
+          );
+        }
         granted.push(...grant.operations);
       }
       const withGrants = granted.length

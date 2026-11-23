@@ -273,14 +273,13 @@ describe("the import", () => {
     const { host, calls } = fakeHost({
       staff,
       duties: { "Close-down clean": "dty_1", "Open up": "dty_2" },
-      series: [
+      series: SERIES_THERE,
+      shifts: [
         {
-          id: "dse_1",
-          values: { time: "18:00", firstDate: "2030-03-04", weekdays: ["mon", "wed", "fri"] },
+          id: "shf_1",
+          values: { endsAt: "2030-03-04T19:00:00.000Z", staff: "usr_coach" },
         },
-        { id: "dse_2", values: { time: "06:00", firstDate: "2030-03-09", weekdays: ["sat"] } },
       ],
-      shifts: [{ id: "shf_1", values: {} }],
     });
     const report = await runRosterImport(readRosterFile(FILE), host, { apply: true });
     expect(calls.filter((c) => c.name === "record.create")).toEqual([]);
@@ -291,7 +290,71 @@ describe("the import", () => {
     }[];
     expect(plans[0]?.kind).toEqual({ object: "rostering.duty", id: "dty_1" });
   });
+
+  it("a re-run keeps what is there when the file now says otherwise, and says so", async () => {
+    const { host, calls } = fakeHost({
+      staff,
+      duties: { "Close-down clean": "dty_1", "Open up": "dty_2" },
+      series: [
+        // Another person, and a different length.
+        {
+          id: "dse_1",
+          values: { ...SERIES_THERE[0]?.values, staff: "usr_other", length: 90 },
+        },
+        SERIES_THERE[1] as (typeof SERIES_THERE)[number],
+      ],
+      shifts: [{ id: "shf_1", values: { endsAt: "2030-03-04T20:00:00.000Z", staff: null } }],
+    });
+    const report = await runRosterImport(readRosterFile(FILE), host, { apply: true });
+    expect(calls.filter((c) => c.name === "record.create")).toEqual([]);
+    expect(report.rows.map((r) => r.outcome)).toEqual(["differs", "differs", "exists"]);
+    const lines = rosterReportLines(report, "roster.csv");
+    expect(lines[0]).toContain("left as it is (change it on the roster)");
+    // The terminal names lines, never anyone's address.
+    expect(lines.join("\n")).not.toMatch(/@example\.com/);
+  });
+
+  it("checks the whole file in one call; refuses a file too large to check at once", async () => {
+    const { host, calls } = fakeHost({ staff });
+    const big = [
+      "duty,date,time,length",
+      ...Array.from(
+        { length: 300 },
+        (_, i) => `Clean,2030-03-${String((i % 28) + 1).padStart(2, "0")},06:00,30`,
+      ),
+    ].join("\n");
+    await runRosterImport(readRosterFile(big), host, { apply: false });
+    expect(calls.filter((c) => c.name === "x.rostering.planCheck")).toHaveLength(1);
+    const huge = [
+      "duty,date,time,length",
+      ...Array.from({ length: 1001 }, () => "Clean,2030-03-01,06:00,30"),
+    ].join("\n");
+    expect(readRosterFile(huge).problems.at(-1)?.message).toContain("at most 1000");
+  });
 });
+
+const SERIES_THERE = [
+  {
+    id: "dse_1",
+    values: {
+      time: "18:00",
+      firstDate: "2030-03-04",
+      weekdays: ["mon", "wed", "fri"],
+      staff: "usr_cleaner",
+      length: 60,
+    },
+  },
+  {
+    id: "dse_2",
+    values: {
+      time: "06:00",
+      firstDate: "2030-03-09",
+      weekdays: ["sat"],
+      length: 45,
+      lastDate: "2030-06-29",
+    },
+  },
+];
 
 describe("cos rostering import", () => {
   it("says how to use it, and needs a file and a host", async () => {

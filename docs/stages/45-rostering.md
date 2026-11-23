@@ -608,7 +608,7 @@ Stage 22's isolation suite gains every Rostering object and the feed.
 ### What an AI may do
 | Action | Under `balanced` |
 | --- | --- |
-| Read the roster, a shift's warnings, who is qualified | applied |
+| Read the roster, a shift's warnings, who is qualified | applied (never who is away: an assistant gets no `unavailable` warning, step 7) |
 | Propose a roster ("put Sam on Mondays at 06:00 from March"): `assign`, a series' person, `qualify`, `markNotWorked` | waits for a person (`personApproves`); the card shows the warnings |
 | Offer, take, withdraw, say someone is away | refused: a person's own act |
 | Anything of pay | refused: a person only |
@@ -806,7 +806,8 @@ trigger keeping a completed run unchanged). No `x_*` table is touched by a migra
   with its zone. **Decided in review** (the coordinator, 2026-11-23), and kept by step 3: no
   `not_qualified` warning while there is no qualification row at all for that kind's object (a
   business that has not set qualifications up is not warned); the `unavailable` warning goes only
-  to the person themselves and to someone who may roster (admins until step 4's permission).
+  to the person themselves and to someone who may roster (admins until step 4's permission);
+  since step 7, to a person only: an assistant acting for either gets none (ADR 0629).
 - **Decided in review**: a reconcile (an upgrade) is refused when shifts that have not ended clash
   or two coach profiles share an account, naming the shifts by title and start; clashes between
   shifts that have both ended are skipped (the later one claims no time) and reported; a refused
@@ -1063,16 +1064,40 @@ triggers). No `core_write_guard` remake (0852 stays free). All new operations ar
   the tools it opens; `mobile.roles` takes `{ role: "bookings.coach", grants: ["rostering:roster"] }`,
   and that role's client holds the granted tools too (`rostering.team`'s needs none).
 - **`cos rostering import <roster.csv>`** (the spec's guess, built): duties as weekly patterns or
-  one-off shifts with their person; a dry run unless `--apply`; staff never made; every row checked
-  in one call by the host's own clash check (`planCheck`), clashes named by title and start (both
-  ended: reported only), away and not-qualified dates as warnings; a clashing one-off shift made
-  with nobody on it, a pattern made with its person and each clashing date left uncovered by the
-  host; through `record.create` as the person who signed in; nothing made twice on a re-run.
-  `docs/importing.md` says how.
-- **Not in this step**: the checklist blocks (4b, not built), Settings → Rostering and Users (the host admin's existing screens serve), a native
-  rosterer's screen (rostering is on the web), and a device test: the app's screens are typed and
-  linted against the role clients but not yet tried on a phone, and the feed is not yet tried in
-  phone calendars.
+  one-off shifts with their person; a dry run unless `--apply`; staff never made; the whole file
+  checked in one call by the host's own clash check (`planCheck`; at most 1,000 rows, a larger
+  file refused before anyone signs in; at most 20,000 dates, more refused as `too_large`, never cut
+  short), clashes named by title and start (an earlier row by its line; both ended: reported
+  only), away and not-qualified dates as warnings; `--apply` writes only after that check answered
+  in the same run; a clashing one-off shift made with nobody on it, a pattern made with its person
+  and each clashing date left uncovered by the host; through `record.create` as the person who
+  signed in; nothing made twice on a re-run, and nothing there changed: a row whose pattern or
+  shift is there with another person, length, last date or end is reported "differs, left as it
+  is". The terminal names rows by line, never by address. `docs/importing.md` says how. Not yet run
+  against a live host.
+- **Decided in review of PR #296** (coordinator's decisions): the screens' reads are set-based
+  (`staffing/sets.ts`): a D1 call runs at most 1,000 queries, so `planCheck`, `candidates` and
+  `patterns` read each person's claims, time off and qualifications once for the whole range and
+  check in memory; a test counts each call's queries at its largest input (`week`, `people`,
+  `payBases` too) against a ceiling of 250. An assistant acting for a rosterer gets no
+  `unavailable` warning from `week`, `check` or `candidates` (ADRs 0622 and 0624 amended). Each
+  screen operation's own guards (`assertRosterer`, `assertPersonApplies`) are tested through another
+  shipped pack's open tool. `setPattern` refuses a date that is not real, a past one and an ended
+  pattern. The calendar address is built on the host the screen's client talks to (its `baseUrl`),
+  never a prop or the page's address; the app hides it when it goes to the background.
+- **Not shown in the product's admin yet (open, for the coordinator)**: the web screens mount only
+  on the host app's development page (`/blocks`), as Bookings' desk and class list do; a client web
+  app never serves staff. The host app (`apps/app`) has no mechanism for a pack's blocks to be staff
+  screens: what is missing is a pack declaring its screens (label, block and export, who may open
+  them), the admin building every shipped pack's web blocks into its production bundle and routing
+  to them, navigation that lists only the screens the viewer may open, the pack's hooks over the
+  admin's staff client, and an admin shell a pack-role account (a cleaner, a coach) can use. That is
+  a platform piece of its own (an ADR, the admin's build and navigation, e2e through it), not built
+  here.
+- **Not in this step**: the checklist blocks (4b, not built), Settings → Rostering and Users (the
+  host admin's existing screens serve), a native rosterer's screen (rostering is on the web), and a
+  device test: the app's screens are typed and linted against the role clients but not yet tried on
+  a phone, and the feed is not yet tried in phone calendars.
 
 **The spine is steps 2 to 4**: without the claim, the rules and the permissions, nothing can be
 rostered safely. Step 1 is built; step 2 can start now and is the riskiest (every write that covers

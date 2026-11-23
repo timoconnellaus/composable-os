@@ -18,6 +18,7 @@ import { objectTableOf } from "../extensions/schema.ts";
 import { getObject, listObjects } from "../fields/index.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
+import { jsonList } from "../records/common.ts";
 import {
   exceptionsOf,
   followSeries,
@@ -26,18 +27,7 @@ import {
   type SeriesRule,
 } from "../recurring/index.ts";
 import { isTimezone, loadGeneralSettings } from "../settings.ts";
-import {
-  awayOver,
-  type Claim,
-  checkShift,
-  clashWith,
-  described,
-  kindObjectOf,
-  noteClaim,
-  personValueFor,
-  qualified,
-  warningsOf,
-} from "../staffing/index.ts";
+import { kindObjectOf, personValueFor, warningsOf } from "../staffing/index.ts";
 import { localDateOf } from "../staffing/pay.ts";
 import {
   actingAccount,
@@ -46,8 +36,21 @@ import {
   rosterNumbers,
   staffName,
 } from "../staffing/rosterers.ts";
-import { parseLocalTime, wallClockOf, wallClockToInstant } from "../time/local.ts";
-import { loadRecord, staffWarningSchema, updateRecord } from "./record.ts";
+import {
+  awayIn,
+  awayRowsOf,
+  claimsOf,
+  clashIn,
+  type HeldClaim,
+  namesOf,
+  notQualifiedOf,
+  profilesOf,
+  qualifiedOf,
+  titlesOf,
+} from "../staffing/sets.ts";
+import { parseLocalDate, parseLocalTime, wallClockOf, wallClockToInstant } from "../time/local.ts";
+import { visibleSource } from "../visibility/index.ts";
+import { fromRow, loadRecord, staffWarningSchema, updateRecord } from "./record.ts";
 import {
   assertPersonApplies,
   assertRosterer,
@@ -73,6 +76,8 @@ const text = (value: unknown) => (typeof value === "string" && value !== "" ? va
 export const PEOPLE_MAX = 200;
 /** The most people a shift's candidates are worked out for (each is a few indexed reads). */
 export const CANDIDATES_MAX = 100;
+/** The most series of one object the regular week lists. */
+export const PATTERNS_MAX = 300;
 
 /** Active people's staff accounts (never a deactivated one, never an agent), by name. */
 async function activePeople(
@@ -235,17 +240,59 @@ export const staffingCandidates = defineOperation({
     const s = await requireLiveShift(ctx, input.object, input.id);
     const who = s.object.staffed?.who.field as string;
     const { people, truncated } = await activePeople(ctx, CANDIDATES_MAX);
-    // Which accounts the shift's person field can name (a coach profile each), in one read.
-    const named = new Map<string, string>();
-    for (const p of people) {
-      const value = await personValueFor(ctx, s.object, p.account);
-      if (value) named.set(p.account, value);
-    }
+    const accounts = people.map((p) => p.account);
+    // Read once for everyone (ADR 0629: never per person, a D1 call runs at most 1,000 queries):
+    // profiles, claims, time off and who is marked for the shift's kind, checked in memory by the
+    // writes' own rules (staffing/sets.ts).
+    const named = await profilesOf(ctx, s.object, accounts);
+    const { starts, ends } = s.shift;
+    const span = starts !== null && ends !== null && ends > starts ? { starts, ends } : null;
+    const claims = span ? await claimsOf(ctx, accounts, span.starts, span.ends) : new Map();
+    // Who is away is a person's to read (ADR 0629): an assistant acting for a rosterer learns
+    // clashes and qualifications, never who is away.
+    const person = ctx.extension?.tool?.calledBy?.actor === "human";
+    const away = span && person ? await awayRowsOf(ctx, accounts, span.starts, span.ends) : null;
     const kind = s.shift.kind;
+    const kindObject = kindObjectOf(s.object);
+    const quals = kind && kindObject ? await qualifiedOf(ctx, kindObject, kind, accounts) : null;
+    const clashing = new Map<string, HeldClaim>();
+    for (const a of accounts) {
+      const c = span
+        ? clashIn(claims.get(a), span.starts, span.ends, { object: s.object.name, id: s.id })
+        : null;
+      if (c) clashing.set(a, c);
+    }
+    const titles = await titlesOf(ctx, [...clashing.values()]);
+    const label = s.object.label.toLowerCase();
     const out: z.infer<typeof candidateSchema>[] = [];
     for (const p of people) {
-      const { warnings, clash } = await checkShift(ctx, s.object, s.id, s.values, p.account);
-      const strict = kind ? await qualified(ctx, s.object, p.account, kind, true) : false;
+      const warn = (code: "unavailable" | "not_qualified", message: string) => ({
+        code,
+        object: s.object.name,
+        id: s.id,
+        account: p.account,
+        message,
+      });
+      const warnings: ReturnType<typeof warn>[] = [];
+      if (span && away && awayIn(away.get(p.account), span.starts, span.ends)) {
+        warnings.push(warn("unavailable", `${p.name} said they are not available then.`));
+      }
+      if (quals && !quals.notWarned(p.account)) {
+        warnings.push(
+          warn("not_qualified", `${p.name} is not marked as qualified for this kind of ${label}.`),
+        );
+      }
+      const c = clashing.get(p.account);
+      const clash = c
+        ? {
+            object: c.object,
+            id: c.id,
+            title: titles.get(`${c.object}\u0000${c.id}`) ?? getObject(c.object)?.label ?? "shift",
+            startsAt: iso(c.starts),
+            endsAt: iso(c.ends),
+          }
+        : null;
+      const strict = quals?.strict.has(p.account) ?? false;
       const noProfile = !named.has(p.account);
       out.push({
         account: p.account,
@@ -310,6 +357,7 @@ export const staffingPeople = defineOperation({
     await assertShippedToolRun(ctx, "staffing.people");
     await assertRosterer(ctx, "list the staff and the kinds of work");
     const { people, truncated } = await activePeople(ctx, PEOPLE_MAX);
+    let kindsCut = false;
     const kinds: { object: string; objectLabel: string; id: string; name: string }[] = [];
     const seen = new Set<string>();
     for (const object of listObjects()) {
@@ -324,7 +372,11 @@ export const staffingPeople = defineOperation({
         title,
       )} AS title FROM ${sql.table(table)} WHERE deleted_at IS NULL ORDER BY ${sql.ref(
         title,
-      )} LIMIT 200`.execute(ctx.db);
+      )} LIMIT 201`.execute(ctx.db);
+      if (rows.rows.length > 200) {
+        kindsCut = true;
+        rows.rows.length = 200;
+      }
       for (const r of rows.rows) {
         kinds.push({
           object: kindObject,
@@ -334,7 +386,7 @@ export const staffingPeople = defineOperation({
         });
       }
     }
-    return { people, kinds, truncated };
+    return { people, kinds, truncated: truncated || kindsCut };
   },
 });
 
@@ -392,49 +444,97 @@ export const staffingPatterns = defineOperation({
     const { timezone } = await loadGeneralSettings(ctx.db);
     const patterns: z.infer<typeof patternSchema>[] = [];
     let truncated = false;
+    // One read per series object, then the people, their names and the kinds' names each in one
+    // read for all of them (ADR 0629: never per series).
+    const rowsBy: {
+      shift: ObjectDefinition;
+      series: ObjectDefinition;
+      who: string;
+      records: { id: string; values: Record<string, unknown> }[];
+    }[] = [];
     for (const { shift, series, who } of patternObjects()) {
       const def = series.recurring;
-      const table = objectTableOf(series.name);
-      if (!def || !table) continue;
-      const rows = (await (ctx.db as AnyDb)
-        .selectFrom(table)
-        .select("id")
-        .where("deleted_at", "is", null)
+      if (!def) continue;
+      const found = (await (ctx.db as AnyDb)
+        .selectFrom(visibleSource(ctx, series))
+        .selectAll()
         .orderBy("id")
-        .limit(301)
-        .execute()) as { id: string }[];
-      if (rows.length > 300) {
+        .limit(PATTERNS_MAX + 1)
+        .execute()) as Record<string, unknown>[];
+      if (found.length > PATTERNS_MAX) {
         truncated = true;
-        rows.length = 300;
+        found.length = PATTERNS_MAX;
       }
+      const records = found
+        .map((row) => fromRow(series, row))
+        .filter((r) => !def.ended?.in.includes(String(r.values[def.ended.field] ?? "")));
+      rowsBy.push({ shift, series, who, records });
+    }
+    // Who each pattern's person is: a coach profile's account, read for all profiles at once.
+    const accountOf = new Map<string, string | null>();
+    for (const { shift, who, records } of rowsBy) {
+      const def = shift.staffed;
+      const values = [
+        ...new Set(records.flatMap((r) => (text(r.values[who]) ? [String(r.values[who])] : []))),
+      ];
+      if (!def?.who.account) {
+        for (const v of values) accountOf.set(`${shift.name}\u0000${v}`, v);
+        continue;
+      }
+      const holder = def.who.object ? getObject(def.who.object) : undefined;
+      const table = holder ? objectTableOf(holder.name) : undefined;
+      const column = holder?.fields.find((f) => f.name === def.who.account)?.column;
+      if (!table || !column || !values.length) continue;
+      for (let i = 0; i < values.length; i += 100) {
+        const part = values.slice(i, i + 100);
+        const held = await sql<{ id: string; account: string | null }>`SELECT id, ${sql.ref(
+          column,
+        )} AS account FROM ${sql.table(table)} WHERE id IN ${jsonList(part)}`.execute(ctx.db);
+        for (const r of held.rows) accountOf.set(`${shift.name}\u0000${r.id}`, text(r.account));
+      }
+    }
+    const names = await namesOf(
+      ctx,
+      [...accountOf.values()].filter((a): a is string => a !== null),
+    );
+    const kindRefs: { object: string; id: string }[] = [];
+    const kindOf = (
+      shift: ObjectDefinition,
+      series: ObjectDefinition,
+      values: Record<string, unknown>,
+    ) => {
+      const def = series.recurring;
       const kindField = shift.staffed?.kind;
       const kindObject = kindObjectOf(shift);
-      for (const { id } of rows) {
-        const record = await loadRecord(ctx, series, id);
-        if (!record) continue;
-        const values = record.values;
-        if (def.ended && def.ended.in.includes(String(values[def.ended.field] ?? ""))) continue;
-        const person = text(values[who]);
-        const account = person === null ? null : await accountOfPerson(ctx, shift, person);
-        // The series' kind: the field the series copies into the shift's kind.
-        const seriesKindField = kindField
+      const seriesKindField =
+        def && kindField
           ? Object.entries(def.copy).find(([to]) => to === kindField)?.[1]
           : undefined;
-        const kindId = seriesKindField ? text(values[seriesKindField]) : null;
-        let kind: { object: string; id: string; name: string } | null = null;
-        if (kindObject && kindId) {
-          const target = getObject(kindObject);
-          const kindRecord = target ? await loadRecord(ctx, target, kindId) : null;
-          kind = {
-            object: kindObject,
-            id: kindId,
-            name: String(
-              (target?.titleField ? kindRecord?.values[target.titleField] : null) ??
-                target?.label ??
-                "",
-            ),
-          };
-        }
+      const kindId = seriesKindField ? text(values[seriesKindField]) : null;
+      return kindObject && kindId ? { object: kindObject, id: kindId } : null;
+    };
+    for (const { shift, series, records } of rowsBy) {
+      for (const r of records) {
+        const k = kindOf(shift, series, r.values);
+        if (k) kindRefs.push(k);
+      }
+    }
+    const kindNames = await titlesOf(ctx, kindRefs);
+    for (const { shift, series, who, records } of rowsBy) {
+      const def = series.recurring;
+      if (!def) continue;
+      for (const { id, values } of records) {
+        const person = text(values[who]);
+        const account =
+          person === null ? null : (accountOf.get(`${shift.name}\u0000${person}`) ?? null);
+        const ref = kindOf(shift, series, values);
+        const kind = ref
+          ? {
+              ...ref,
+              name:
+                kindNames.get(`${ref.object}\u0000${ref.id}`) ?? getObject(ref.object)?.label ?? "",
+            }
+          : null;
         const title =
           text(series.titleField ? values[series.titleField] : null) ?? kind?.name ?? series.label;
         const days = values[def.rule.weekdays];
@@ -454,7 +554,7 @@ export const staffingPatterns = defineOperation({
           lastDate: def.rule.until ? text(values[def.rule.until]) : null,
           zone: text(def.rule.zone ? values[def.rule.zone] : null) ?? timezone,
           account,
-          name: account ? await staffName(ctx.db, account) : null,
+          name: account ? (names.get(account) ?? null) : null,
           noAccount: person !== null && account === null,
         });
       }
@@ -501,6 +601,26 @@ export const staffingSetPattern = defineOperation({
     }
     const series = await loadRecord(ctx, found.series, input.id);
     if (!series) throw new NotFoundError(input.object, input.id);
+    const ended = found.series.recurring?.ended;
+    if (ended?.in.includes(String(series.values[ended.field] ?? ""))) {
+      throw new ConflictError("This pattern has ended, so it makes no more shifts to change.", {
+        rule: "pattern_ended",
+      });
+    }
+    const { timezone: orgZone } = await loadGeneralSettings(ctx.db);
+    const today = localDateOf(nowSeconds(ctx), orgZone);
+    if (input.from !== undefined) {
+      if (!parseLocalDate(input.from)) {
+        throw new ValidationError(`${input.from} is not a real date`, { field: "from" });
+      }
+      // A past date would rewrite who worked what: past shifts are corrected one by one.
+      if (input.from < today) {
+        throw new ValidationError("A pattern's person changes from today or a later date", {
+          field: "from",
+          rule: "past",
+        });
+      }
+    }
     let value: string | null = null;
     if (input.account !== null) {
       const user = await ctx.db
@@ -519,8 +639,7 @@ export const staffingSetPattern = defineOperation({
         );
       }
     }
-    const { timezone } = await loadGeneralSettings(ctx.db);
-    const from = input.from ?? localDateOf(nowSeconds(ctx), timezone);
+    const from = input.from ?? today;
     await updateRecord(
       ctx,
       found.series,
@@ -574,8 +693,8 @@ const planSchema = z.object({
   zone: z.string().min(1).max(64).optional(),
 });
 
-/** The most dated shifts one plan check works out. */
-const PLAN_DATES_MAX = 2000;
+/** The most dated shifts one plan check works out: more is refused, never cut short. */
+const PLAN_DATES_MAX = 20_000;
 
 export const staffingPlanCheck = defineOperation({
   name: "staffing.planCheck",
@@ -588,7 +707,7 @@ export const staffingPlanCheck = defineOperation({
     "never refused), and the dates they would be warned about (away, not qualified). The same " +
     "clash check the writes and the reconcile make. Writes nothing.",
   input: z.object({
-    plans: z.array(planSchema).min(1).max(200),
+    plans: z.array(planSchema).min(1).max(1000),
     horizonDays: z.number().int().min(1).max(366).optional(),
   }),
   output: z.object({
@@ -626,11 +745,10 @@ export const staffingPlanCheck = defineOperation({
     const today = localDateOf(now, timezone);
     const horizon = input.horizonDays ?? 56;
     const last = addDaysToDate(today, horizon);
+    // Every plan's dates first: the whole check is one pass over them, read set-based (ADR 0629).
+    const dated: { date: string; starts: number; ends: number }[][] = [];
     let total = 0;
-    let truncated = false;
-    const keys = new Map<string, string>();
-    const out = [];
-    for (const [index, plan] of input.plans.entries()) {
+    for (const plan of input.plans) {
       const zone = plan.zone ?? timezone;
       if (!isTimezone(zone)) throw new ValidationError(`${zone} is not a time zone`);
       const minutes = parseLocalTime(plan.time);
@@ -681,47 +799,115 @@ export const staffingPlanCheck = defineOperation({
             }))
           : [];
       }
-      if (total + occurrences.length > PLAN_DATES_MAX) {
-        truncated = true;
-        occurrences = occurrences.slice(0, Math.max(0, PLAN_DATES_MAX - total));
-      }
       total += occurrences.length;
-      const clashes = [];
-      const away: string[] = [];
-      for (const o of occurrences) {
-        if (!plan.account || !(o.ends > o.starts)) continue;
-        const id = `${index}-${o.date}`;
-        const claim: Claim = { account: plan.account, starts: o.starts, ends: o.ends };
-        const clash = await clashWith(ctx, "staffing.plan", id, claim);
-        if (clash) {
-          const other =
-            clash.object === "staffing.plan"
-              ? {
-                  title: keys.get(clash.id) ?? "an earlier row",
-                  startsAt: iso(clash.starts),
-                  endsAt: iso(clash.ends),
-                }
-              : await described(ctx, clash);
-          clashes.push({
-            date: o.date,
-            startsAt: iso(o.starts),
-            other: { title: other.title, startsAt: other.startsAt, endsAt: other.endsAt },
-            ended: o.ends <= now && clash.ends <= now,
-          });
+      // Budgeted by dates, never cut short: a check that left dates out would let them through.
+      if (total > PLAN_DATES_MAX) {
+        throw new ValidationError(
+          `At most ${PLAN_DATES_MAX} dated shifts are checked at once: split the file, or use a shorter horizon.`,
+          { rule: "too_large", dates: total },
+        );
+      }
+      dated.push(occurrences);
+    }
+    // What the people on the plans hold, and their time off, over the whole range: a few reads,
+    // however many plans and dates.
+    const accounts = [...new Set(input.plans.flatMap((p) => (p.account ? [p.account] : [])))];
+    const all = dated.flat();
+    const lo = Math.min(...all.map((o) => o.starts), now);
+    const hi = Math.max(...all.map((o) => o.ends), now);
+    const held = accounts.length ? await claimsOf(ctx, accounts, lo, hi) : new Map();
+    const awayRows = accounts.length ? await awayRowsOf(ctx, accounts, lo, hi) : new Map();
+    const kinds = input.plans.flatMap((p) => (p.account && p.kind ? [p.kind] : []));
+    const notQualifiedFor = kinds.length ? await notQualifiedOf(ctx, accounts, kinds) : null;
+    // Claims bucketed by day, so each date is checked against only its neighbours.
+    type Bucketed = Map<
+      string,
+      Map<number, { starts: number; ends: number; ref: HeldClaim | string }[]>
+    >;
+    const bucket = (
+      store: Bucketed,
+      account: string,
+      c: { starts: number; ends: number; ref: HeldClaim | string },
+    ) => {
+      const byDay = store.get(account) ?? new Map();
+      for (let d = Math.floor(c.starts / 86_400); d <= Math.floor((c.ends - 1) / 86_400); d++) {
+        const list = byDay.get(d) ?? [];
+        list.push(c);
+        byDay.set(d, list);
+      }
+      store.set(account, byDay);
+    };
+    const find = (store: Bucketed, account: string, starts: number, ends: number) => {
+      const byDay = store.get(account);
+      if (!byDay) return null;
+      for (let d = Math.floor(starts / 86_400); d <= Math.floor((ends - 1) / 86_400); d++) {
+        for (const c of byDay.get(d) ?? []) if (c.starts < ends && c.ends > starts) return c;
+      }
+      return null;
+    };
+    const heldBuckets: Bucketed = new Map();
+    for (const [account, list] of held) {
+      for (const c of list as HeldClaim[])
+        bucket(heldBuckets, account, { starts: c.starts, ends: c.ends, ref: c });
+    }
+    const planned: Bucketed = new Map();
+    const found: {
+      plan: number;
+      date: string;
+      starts: number;
+      ends: number;
+      other: { starts: number; ends: number; ref: HeldClaim | string };
+    }[] = [];
+    const awayDates: string[][] = input.plans.map(() => []);
+    for (const [index, plan] of input.plans.entries()) {
+      const account = plan.account;
+      if (!account) continue;
+      for (const o of dated[index] ?? []) {
+        if (!(o.ends > o.starts)) continue;
+        const other =
+          find(heldBuckets, account, o.starts, o.ends) ?? find(planned, account, o.starts, o.ends);
+        if (other) {
+          found.push({ plan: index, ...o, other });
           continue;
         }
         // Later plans in this check see this one's time as taken.
-        noteClaim(ctx, "staffing.plan", id, claim);
-        keys.set(id, plan.key ?? `row ${index + 1}`);
-        if (await awayOver(ctx, plan.account, o.starts, o.ends)) away.push(o.date);
+        bucket(planned, account, {
+          starts: o.starts,
+          ends: o.ends,
+          ref: plan.key ?? `row ${index + 1}`,
+        });
+        if (awayIn(awayRows.get(account), o.starts, o.ends)) awayDates[index]?.push(o.date);
       }
-      let notQualified = false;
-      if (plan.account && plan.kind) {
-        const shiftObject = listObjects().find((o) => kindObjectOf(o) === plan.kind?.object);
-        notQualified = shiftObject
-          ? !(await qualified(ctx, shiftObject, plan.account, plan.kind.id))
+    }
+    const titles = await titlesOf(
+      ctx,
+      found.flatMap((f) => (typeof f.other.ref === "string" ? [] : [f.other.ref])),
+    );
+    const out = [];
+    for (const [index, plan] of input.plans.entries()) {
+      const occurrences = dated[index] ?? [];
+      const clashes = found
+        .filter((f) => f.plan === index)
+        .map((f) => {
+          const ref = f.other.ref;
+          const title =
+            typeof ref === "string"
+              ? ref
+              : (titles.get(`${ref.object}\u0000${ref.id}`) ??
+                getObject(ref.object)?.label ??
+                "shift");
+          return {
+            date: f.date,
+            startsAt: iso(f.starts),
+            other: { title, startsAt: iso(f.other.starts), endsAt: iso(f.other.ends) },
+            ended: f.ends <= now && f.other.ends <= now,
+          };
+        });
+      const away = awayDates[index] ?? [];
+      const notQualified =
+        plan.account && plan.kind && notQualifiedFor
+          ? notQualifiedFor(plan.account, plan.kind)
           : false;
-      }
       out.push({
         key: plan.key ?? null,
         dates: occurrences.length,
@@ -737,7 +923,7 @@ export const staffingPlanCheck = defineOperation({
         notQualified,
       });
     }
-    return { plans: out, truncated };
+    return { plans: out, truncated: false };
   },
 });
 

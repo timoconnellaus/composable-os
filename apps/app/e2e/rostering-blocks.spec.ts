@@ -229,7 +229,7 @@ test("a team member offers a shift and a qualified colleague takes it", async ({
     await expect(ann.page.locator(`[data-shift="${id}"]`)).toHaveCount(0);
     // Ben adds his shifts to his phone's calendar: the address is shown once, works, holds the
     // shift he took, is in no URL of the app, and is gone once he leaves the page.
-    await mount(ben.page, block("rostering-my-calendar", "MyCalendar", { hostUrl: baseURL }));
+    await mount(ben.page, block("rostering-my-calendar", "MyCalendar"));
     await ben.page.getByRole("button", { name: "Make my calendar address" }).click();
     const shown = ben.page.getByLabel("Your calendar address (shown this once)");
     await expect(shown).toHaveValue(/\/api\/v1\/staffing\/feed\/[^/]+\.ics$/);
@@ -321,12 +321,13 @@ test("someone who handles pay totals, locks and exports a period", async ({
   page,
   browser,
   baseURL,
-}) => {
+}, testInfo) => {
   test.setTimeout(150_000);
   const { duty, dutyName } = await setUp(page);
   const ann = await person(browser, page, baseURL ?? "", unique("Ann "), "rostering.team");
-  // A weekly period, starting on the Monday at least three weeks back: it has ended.
-  const back = localDate(Date.now() - 21 * DAY);
+  // A weekly period that has ended, its own on each attempt: a retry (after a lock, which holds
+  // for good) takes the next week, which has ended too and comes after the locked one.
+  const back = localDate(Date.now() - (21 - 7 * Math.min(testInfo.retry, 1)) * DAY);
   const [y, m, d] = back.split("-").map(Number) as [number, number, number];
   const weekday = (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7;
   const start = new Date(Date.UTC(y, m - 1, d - weekday)).toISOString().slice(0, 10);

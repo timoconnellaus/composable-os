@@ -136,6 +136,8 @@ function browserClient<C>(calls: Record<string, readonly string[]>): C {
   );
   return {
     operations,
+    // The host this page calls: its own origin (the calls are same-origin), never the query.
+    baseUrl: window.location.origin,
     query: (name: string, input: unknown) => ({
       queryKey: [name, input],
       queryFn: () => call(name, input, false),

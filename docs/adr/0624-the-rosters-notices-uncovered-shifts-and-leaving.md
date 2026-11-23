@@ -73,3 +73,7 @@ leaving must not leave their future classes pointing at an account that cannot w
   the record operations tells them without more code, once per person per call.
 - Stage 33's import writes as staff or the host; either way each person hears once per batch.
 - The feed's revocation on leaving and `staffing.forget` are later steps (5 and 4).
+
+## Amended 2026-11-24 (stage 45 step 7, ADR 0629; a coordinator's decision)
+
+An assistant or MCP acting for a rosterer no longer gets `unavailable` warnings from `staffing.week`, `staffing.check` or `staffing.candidates` (or from Rostering's tools over them): it learns clashes and qualifications, never who is away. A person at the screen sees them as before.

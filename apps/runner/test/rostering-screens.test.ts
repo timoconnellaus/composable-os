@@ -81,6 +81,34 @@ export default defineExtension({
 });
 `,
 };
+// A shipped fixture pack whose open tools (no permission of Rostering's, no person's approval)
+// call each of the roster screens' host operations directly: the operations' own guards (who
+// rosters, a person applies) must refuse them, whoever calls the tool.
+const RELAYED = ["candidates", "people", "patterns", "setPattern", "follow", "planCheck"] as const;
+files.staffrelay = {
+  "index.ts": `import { defineExtension, defineTool, z } from "@composable-os/sdk";
+export default defineExtension({
+  id: "staffrelay",
+  version: "0.1.0",
+  contractVersion: 1,
+  label: "Staffing relay (fixture)",
+  requires: ["rostering"],
+  permissions: { operations: [${RELAYED.map((n) => `"staffing.${n}"`).join(", ")}], modules: ["ops"] },
+  objects: {},
+  tools: {
+${RELAYED.map(
+  (n) => `    ${n}: defineTool({
+      description: "Test fixture: calls the host's staffing.${n} from another pack's open tool.",
+      input: z.object({}).passthrough(),
+      output: z.object({}).passthrough(),
+      risk: "${n === "setPattern" || n === "follow" ? "write" : "read"}",
+      handler: async (input, ctx) => ({ out: await ctx.ops.call("staffing.${n}", input) }),
+    }),`,
+).join("\n")}
+  },
+});
+`,
+};
 const OURS = new Set(Object.keys(files));
 
 const shippedHost: ExtensionHost = {
@@ -91,6 +119,7 @@ const shippedHost: ExtensionHost = {
     { id: "bookings", version: "0.1.0" },
     { id: "rostering", version: "0.1.0" },
     { id: "rosterrelay", version: "0.1.0" },
+    { id: "staffrelay", version: "0.1.0" },
   ],
   commitShipped: (id) =>
     files[id]
@@ -181,7 +210,7 @@ beforeAll(async () => {
   admin = await createAdmin();
   await setPreset("balanced");
   await refreshSchemaRegistry(db.query);
-  for (const id of ["programs", "bookings", "rostering", "rosterrelay"]) {
+  for (const id of ["programs", "bookings", "rostering", "rosterrelay", "staffrelay"]) {
     await run("extension.install", { id, shipped: true }, staff());
   }
   await refreshSchemaRegistry(db.query);
@@ -588,5 +617,189 @@ describe("who is counted, everyone (x.rostering.payBases)", () => {
       basis: "not_counted",
       history: [],
     });
+  });
+});
+
+// --- What one call reads (ADR 0629: a D1 call runs at most 1,000 queries) -------------------------
+
+/** How many statements `call` prepares against D1 (each query is one). */
+async function queriesOf(
+  call: () => Promise<unknown>,
+): Promise<{ queries: number; outcome: string }> {
+  const d1 = env.DB as unknown as { prepare: (...a: unknown[]) => unknown };
+  const prepare = d1.prepare.bind(d1);
+  let queries = 0;
+  d1.prepare = (...a: unknown[]) => {
+    queries++;
+    return prepare(...a);
+  };
+  try {
+    const outcome = await call().then(
+      () => "ok",
+      (e: { code?: string }) => String(e.code),
+    );
+    return { queries, outcome };
+  } finally {
+    d1.prepare = prepare;
+  }
+}
+
+/** Well under D1's 1,000 a call, for the largest input each takes. */
+const CEILING = 250;
+
+describe("what one call reads, at the largest input (ADR 0629)", () => {
+  it("planCheck, candidates, patterns, week, people and payBases each stay well under D1's limit", async () => {
+    // A business's worth of staff and patterns, every one on the plans.
+    const staffers: ActingUser[] = [];
+    for (let i = 0; i < 110; i++) staffers.push(await account(`Load ${i} ${unique("")}`, "member"));
+    for (let i = 0; i < 40; i++) {
+      await create(SERIES, {
+        duty,
+        weekdays: ["mon", "thu"],
+        time: "02:00",
+        length: 15,
+        firstDate: localDate(200 * DAY),
+        lastDate: localDate(240 * DAY),
+        timezone: ZONE,
+        staff: staffers[i]?.id,
+      });
+    }
+    // The largest plan check: 20,000 dated shifts, 200 plans of 100 days, every plan its own person.
+    const plans = Array.from({ length: 200 }, (_, i) => ({
+      account: staffers[i % staffers.length]?.id ?? null,
+      kind: { object: DUTY, id: duty },
+      weekdays: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+      time: `${String(i % 24).padStart(2, "0")}:${i % 2 ? "30" : "00"}`,
+      length: 30,
+      firstDate: localDate(0),
+    }));
+    const plan = await queriesOf(() =>
+      run("x.rostering.planCheck", { plans, horizonDays: 99 }, staff()),
+    );
+    expect(plan.outcome).toBe("ok");
+    expect(plan.queries).toBeLessThan(CEILING);
+    // One more date than the budget is refused, never cut short.
+    const over = await refusal(
+      run("x.rostering.planCheck", { plans: [...plans, plans[0]], horizonDays: 99 }, staff()),
+    );
+    expect(JSON.stringify(over)).toContain("too_large");
+    const s = await dutyShift(62 * DAY, null);
+    for (const [label, call] of [
+      ["candidates", () => run("x.rostering.candidates", { object: SHIFT, id: s }, staff())],
+      ["patterns", () => run("x.rostering.patterns", {}, staff())],
+      [
+        "week",
+        () => run("x.rostering.week", { from: localDate(0), to: localDate(61 * DAY) }, staff()),
+      ],
+      ["people", () => run("x.rostering.people", {}, staff())],
+      ["payBases", () => run("x.rostering.payBases", { everyone: true }, staff())],
+    ] as const) {
+      const counted = await queriesOf(call);
+      expect([label, counted.outcome]).toEqual([label, "ok"]);
+      expect([label, counted.queries < CEILING]).toEqual([label, true]);
+    }
+  }, 240_000);
+});
+
+// --- The operations' own guards (not only the tools' permissions) ---------------------------------
+
+describe("each screen operation guards itself, whoever's tool calls it", () => {
+  it("another shipped pack's open tool calling it for a member is refused: only someone who rosters", async () => {
+    const member = await account(unique("Guarded Mo"), "member");
+    const s = await dutyShift(63 * DAY, null);
+    const inputs: Record<(typeof RELAYED)[number], unknown> = {
+      candidates: { object: SHIFT, id: s },
+      people: {},
+      patterns: {},
+      setPattern: { object: SERIES, id: "missing", account: null },
+      follow: { object: SHIFT, id: s },
+      planCheck: {
+        plans: [{ account: null, date: localDate(64 * DAY), time: "10:00", length: 30 }],
+      },
+    };
+    for (const name of RELAYED) {
+      const error = await refusal(run(`x.staffrelay.${name}`, inputs[name], asUser(member)));
+      expect([name, JSON.stringify(error)]).toEqual([
+        name,
+        expect.stringContaining('"rule":"rostering"'),
+      ]);
+    }
+  });
+
+  it("an admin's call through a tool that asks nobody to approve it: setPattern and follow are a person's to apply", async () => {
+    const s = await dutyShift(65 * DAY, null);
+    for (const [name, input] of [
+      ["setPattern", { object: SERIES, id: "missing", account: null }],
+      ["follow", { object: SHIFT, id: s }],
+    ] as const) {
+      const error = await refusal(run(`x.staffrelay.${name}`, input, staff()));
+      expect([name, JSON.stringify(error)]).toEqual([
+        name,
+        expect.stringContaining('"rule":"person_applies"'),
+      ]);
+    }
+  });
+});
+
+// --- An assistant never learns who is away (ADR 0629) -----------------------------------------------
+
+describe("who is away is a person's to read", () => {
+  it("candidates, week and check give an assistant acting for a rosterer no unavailable warning; a person sees it", async () => {
+    const away = await account(unique("Away Ari"), "member");
+    const at = 66 * DAY + 3 * HOUR;
+    const shift = await dutyShift(at, away.id);
+    await run(
+      "x.rostering.awayFor",
+      {
+        account: away.id,
+        kind: "leave",
+        startsAt: `${localDate(at - DAY)}T00:00`,
+        endsAt: `${localDate(at + DAY)}T23:00`,
+      },
+      staff(),
+    );
+    const ai = staff({ actor: "assistant", origin: { surface: "assistant" } });
+    const codes = (out: unknown) => JSON.stringify(out).includes('"unavailable"');
+    const week = { from: localDate(at), to: localDate(at) };
+    expect(codes(await run("x.rostering.week", week, staff()))).toBe(true);
+    expect(codes(await run("x.rostering.week", week, ai))).toBe(false);
+    expect(codes(await run("x.rostering.check", { object: SHIFT, id: shift }, staff()))).toBe(true);
+    expect(codes(await run("x.rostering.check", { object: SHIFT, id: shift }, ai))).toBe(false);
+    const other = await dutyShift(at + 30 * MINUTE, null);
+    expect(codes(await run("x.rostering.candidates", { object: SHIFT, id: other }, staff()))).toBe(
+      true,
+    );
+    expect(codes(await run("x.rostering.candidates", { object: SHIFT, id: other }, ai))).toBe(
+      false,
+    );
+  });
+});
+
+// --- setPattern's dates and ended patterns -----------------------------------------------------------
+
+describe("changing a pattern from a date", () => {
+  it("refuses a date that is not real, a past date, and an ended pattern", async () => {
+    const series = await create(SERIES, {
+      duty,
+      weekdays: ["sun"],
+      time: "03:00",
+      length: 15,
+      firstDate: localDate(70 * DAY),
+      timezone: ZONE,
+    });
+    const at = (from: string) =>
+      refusal(
+        run("x.rostering.setPattern", { object: SERIES, id: series, account: null, from }, staff()),
+      );
+    expect(JSON.stringify(await at("2026-02-30"))).toContain("not a real date");
+    expect(JSON.stringify(await at("2000-01-01"))).toContain('"rule":"past"');
+    await run("record.update", { object: SERIES, id: series, values: { state: "ended" } }, staff());
+    expect(
+      JSON.stringify(
+        await refusal(
+          run("x.rostering.setPattern", { object: SERIES, id: series, account: null }, staff()),
+        ),
+      ),
+    ).toContain("pattern_ended");
   });
 });

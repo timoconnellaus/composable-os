@@ -114,3 +114,13 @@ path, a workspace, a tag, an override). It never installs (as `cos create` and `
 it type-checks only when every moved package is installed at the target version, and otherwise
 says the check was skipped and prints the repo's install command, to run before `cos upgrade`
 again. Tests in `packages/create-composable-os/test/client-repo.test.ts`.
+
+## Amended 2026-11-24 (stage 45 step 7, ADR 0629): a role's client may carry grants
+`roles.json` lists each carried pack's grantable permissions (`grants`: the permission, whether it
+is restricted, and the staff tools a grant of it opens). `product.ts`'s `mobile.roles` takes `{ role,
+grants }` beside a bare role name, and `cos client generate` writes that role's client with the
+granted tools too, naming the grants in its header; a restricted grant prints a note that the host
+still decides every call. A grant of a pack the product does not list, a grant the release does not
+have, and a role listed twice are refused. The generated client also carries the host it talks to
+(`baseUrl`), which a screen uses to show an address on that host (the calendar feed's), never one
+from the page.

@@ -592,7 +592,8 @@ function allRosteringHooks(
     },
     /** The roster from..to (local dates); a rosterer's answer carries each shift's warnings. */
     useWeek(input: In<"x.rostering.week">, enabled = true) {
-      return useQuery({ ...api.query("x.rostering.week", input), enabled });
+      // A rosterer's roster carries who is away: kept no longer than it is on screen.
+      return useQuery({ ...api.query("x.rostering.week", input), enabled, gcTime: 0 });
     },
     /** My own shifts from..to. */
     useMine(input: In<"x.rostering.mine">, enabled = true) {
@@ -638,6 +639,8 @@ function allRosteringHooks(
       return useQuery({
         ...api.query("x.rostering.check", input ?? { object: "", id: "" }),
         enabled: input !== null,
+        // A rosterer's warnings say who is away: on this screen only.
+        gcTime: 0,
       });
     },
     /** A rosterer: who could be put on a shift, eligible first, with the pattern's person. */
@@ -734,11 +737,22 @@ function allRosteringHooks(
       return useQuery(api.query("x.rostering.feed", {}));
     },
     /**
-     * A new calendar address (any old one stops working): shown once. Call it through
-     * `forgetAfter`, keep the path only on screen, and forget it on leaving.
+     * A new calendar address (any old one stops working): shown once, as https and webcal on the
+     * host this client talks to (its `baseUrl`), never on an address the page was given. Call it
+     * through `forgetAfter`, keep the address only on screen, and forget it on leaving.
      */
     useFeedRotate() {
-      return useMutation({ ...api.mutation("x.rostering.feedRotate"), gcTime: 0 });
+      const rotate = api.mutation("x.rostering.feedRotate");
+      return useMutation({
+        mutationKey: rotate.mutationKey,
+        mutationFn: async (input: In<"x.rostering.feedRotate">) => {
+          if (!api.baseUrl)
+            throw new Error("This client has no host address to show the calendar on.");
+          const made = await rotate.mutationFn(input);
+          return { ...feedAddresses(api.baseUrl, made.path), createdAt: made.createdAt };
+        },
+        gcTime: 0,
+      });
     },
     /** Turn my calendar feed off. */
     useFeedRevoke() {

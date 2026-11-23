@@ -49,6 +49,8 @@ export interface RosterFile {
 }
 
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+/** The most rows one run checks and imports: the host checks them all in one call. */
+export const ROWS_MAX = 1000;
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 /** Whether `date` is a real `YYYY-MM-DD` date (no 30 February). */
@@ -193,6 +195,13 @@ export function readRosterFile(text: string, name = "roster.csv"): RosterFile {
   if (!rows.length && !problems.length) {
     problems.push({ file: name, message: "no rows under the header" });
   }
+  // The host checks the whole file in one pass, so a file is never checked in parts.
+  if (rows.length > ROWS_MAX) {
+    problems.push({
+      file: name,
+      message: `${rows.length} rows: at most ${ROWS_MAX} are checked and imported in one run. Split the file.`,
+    });
+  }
   return { rows, problems };
 }
 
@@ -221,8 +230,11 @@ export interface RowReport {
   /** Warnings: the person said they are away; not qualified for the duty. */
   away: string[];
   notQualified: boolean;
-  /** created, already there (a re-run), or would be (a dry run). */
-  outcome: "created" | "exists" | "dry_run";
+  /**
+   * created; already there as the row says (a re-run); there with another person, length or last
+   * date, left as it is (`differs`: change it on the roster); or would be made (a dry run).
+   */
+  outcome: "created" | "exists" | "differs" | "dry_run";
 }
 
 export interface RosterReport {
@@ -241,11 +253,12 @@ const DUTY = "rostering.duty";
 const SERIES = "rostering.dutyseries";
 const SHIFT = "rostering.shift";
 
-function labelOf(row: RosterRow, who: string | null): string {
+/** A row as the terminal names it: never its person's address (the line says who). */
+function labelOf(row: RosterRow): string {
   const when = row.date
     ? `${row.date} ${row.time}`
     : `${(row.weekdays ?? []).join(" ")} ${row.time} from ${row.firstDate}`;
-  return `${row.duty}, ${when}, ${row.length} minutes, ${who ?? "nobody"}`;
+  return `${row.duty}, ${when}, ${row.length} minutes, ${row.staffEmail ? "its person" : "nobody"}`;
 }
 
 /**
@@ -304,19 +317,19 @@ export async function runRosterImport(
           ...(row.lastDate ? { lastDate: row.lastDate } : {}),
         }),
   }));
-  const answers: PlanAnswer[] = [];
-  for (let i = 0; i < plans.length; i += 200) {
-    const checked = await host.call<{ plans: PlanAnswer[] }>("x.rostering.planCheck", {
-      plans: plans.slice(i, i + 200),
-    });
-    answers.push(...checked.plans);
+  // One check of the whole file, before anything is written: rows are checked against each other
+  // and the roster as it stands now. If it fails (too large, a refusal), nothing is written.
+  if (plans.length > ROWS_MAX) {
+    report.problems.push({ file: name, message: `more than ${ROWS_MAX} rows: split the file` });
+    return report;
   }
+  const answers = (await host.call<{ plans: PlanAnswer[] }>("x.rostering.planCheck", { plans }))
+    .plans;
   for (const [i, row] of file.rows.entries()) {
     const answer = answers[i] as PlanAnswer;
-    const who = row.staffEmail ?? null;
     const entry: RowReport = {
       line: row.line,
-      label: labelOf(row, who),
+      label: labelOf(row),
       dates: answer.dates,
       clashes: answer.clashes,
       away: answer.away,
@@ -351,8 +364,13 @@ export async function runRosterImport(
         },
         limit: 1,
       });
-      if (there.items.length) {
-        entry.outcome = "exists";
+      const existing = there.items[0];
+      if (existing) {
+        // Kept as it is: a re-run never changes what is on the roster.
+        const same =
+          existing.values.endsAt === first.endsAt &&
+          (existing.values.staff ?? null) === (account && !answer.clashes.length ? account : null);
+        entry.outcome = same ? "exists" : "differs";
         continue;
       }
       // A clash is the host's to refuse: the shift is made with nobody on it instead.
@@ -383,7 +401,12 @@ export async function runRosterImport(
           JSON.stringify([...(row.weekdays ?? [])].sort()),
     );
     if (same) {
-      entry.outcome = "exists";
+      // Kept as it is: a re-run never changes a pattern, whatever the file now says of it.
+      const unchanged =
+        (same.values.staff ?? null) === account &&
+        same.values.length === row.length &&
+        (same.values.lastDate ?? null) === (row.lastDate ?? null);
+      entry.outcome = unchanged ? "exists" : "differs";
       continue;
     }
     // A weekly pattern keeps its person: the host makes each clashing date with nobody on it.
@@ -420,8 +443,10 @@ export function rosterReportLines(report: RosterReport, name: string): string[] 
       row.outcome === "created"
         ? "made"
         : row.outcome === "exists"
-          ? "already there, left as it is"
-          : "would be made";
+          ? "already there"
+          : row.outcome === "differs"
+            ? "already there with another person, length or last date: left as it is (change it on the roster)"
+            : "would be made";
     lines.push(`${name}:${row.line} ${row.label}: ${row.dates} shift(s) ${verb}.`);
     for (const c of row.clashes) {
       clashes++;

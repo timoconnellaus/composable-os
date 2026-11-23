@@ -193,7 +193,9 @@ export function createClient<T extends OperationTypes>(
 
   // `operations`: which operations this client holds, so a pack's hooks can offer exactly the
   // ones it can back (ADR 0453).
-  return { call, query, mutation, invalidates, operations: specs };
+  // `baseUrl`: the host this client talks to, for a screen that shows an address on it (a calendar
+  // feed's, stage 45): taken from the client, never from the page's own address or query.
+  return { call, query, mutation, invalidates, operations: specs, baseUrl: base };
 }
 
 export type Client<T extends OperationTypes> = ReturnType<typeof createClient<T>>;

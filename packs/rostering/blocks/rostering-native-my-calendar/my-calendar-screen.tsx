@@ -5,14 +5,13 @@
 // with the webcal address); it is never stored, and is cleared when the screen closes. A lost
 // address is never shown again: make a new one. The same headless entry as the web's screen.
 import {
-  feedAddresses,
   forgetAfter,
   type RosteringHooks,
   type RosterRefusal,
   rosterRefusal,
 } from "@composable-os/pack-rostering/client";
 import { useEffect, useState } from "react";
-import { Text, View } from "react-native";
+import { AppState, Text, View } from "react-native";
 import { Button } from "../native-base/button.tsx";
 import { Screen } from "../native-base/screen.tsx";
 import { Sheet } from "../native-base/sheet.tsx";
@@ -21,13 +20,10 @@ type Hooks = Pick<RosteringHooks, "useFeed" | "useFeedRotate" | "useFeedRevoke">
 
 export function MyCalendarScreen({
   rostering,
-  hostUrl,
   openUrl,
   copy,
 }: {
   rostering: Hooks;
-  /** The host's address (`https://admin.example.com`): the calendar address is on it. */
-  hostUrl: string;
   /** Opens the webcal address in the phone's calendar (React Native's `Linking.openURL`). */
   openUrl: (url: string) => Promise<unknown> | unknown;
   /** The app's clipboard, if it has one (for example expo-clipboard's `setStringAsync`). */
@@ -41,6 +37,14 @@ export function MyCalendarScreen({
   const [refusal, setRefusal] = useState<RosterRefusal | null>(null);
   const [said, setSaid] = useState<string | null>(null);
   useEffect(() => () => setAddress(null), []);
+  // Hidden when the app leaves the screen for the background, so the app switcher's snapshot never
+  // shows it.
+  useEffect(() => {
+    const listener = AppState.addEventListener("change", (state) => {
+      if (state !== "active") setAddress(null);
+    });
+    return () => listener.remove();
+  }, []);
 
   async function make() {
     setConfirm(null);
@@ -49,7 +53,7 @@ export function MyCalendarScreen({
     setAddress(null);
     try {
       const made = await forgetAfter(rotate, {});
-      setAddress(feedAddresses(hostUrl, made.path));
+      setAddress({ https: made.https, webcal: made.webcal });
     } catch (error) {
       setRefusal(rosterRefusal(error));
     }

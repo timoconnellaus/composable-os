@@ -552,7 +552,7 @@ export const planCheck = defineTool({
         }),
       )
       .min(1)
-      .max(200),
+      .max(1000),
     horizonDays: z.number().int().min(1).max(366).optional(),
   }),
   output: z.object({

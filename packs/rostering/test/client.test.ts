@@ -321,6 +321,10 @@ describe("hooks", () => {
     expect(gc(() => hooks.usePeriodTotals?.({ start: "2026-06-01" }))).toBe(0);
     expect(gc(() => hooks.usePayBases?.({ everyone: true }))).toBe(0);
     expect(gc(() => hooks.useExport?.())).toBe(0);
+    // A rosterer's roster and dry run carry who is away.
+    expect(gc(() => hooks.useWeek?.({ from: "2026-06-01", to: "2026-06-07" }))).toBe(0);
+    expect(gc(() => hooks.useCheck?.({ object: "rostering.shift", id: "shf_1" }))).toBe(0);
+    expect(gc(() => hooks.useFeedRotate?.())).toBe(0);
     // Nothing of a note or a figure is in a query's key: only what was asked for.
     seen.length = 0;
     hooks.usePeriodTotals?.({ start: "2026-06-01" });
@@ -328,6 +332,35 @@ describe("hooks", () => {
       "x.rostering.periodTotals",
       { start: "2026-06-01" },
     ]);
+  });
+
+  it("a new calendar address is on the host the client talks to, never one the page was given", async () => {
+    const client = {
+      ...clientWith(["x.rostering.feedRotate"]),
+      baseUrl: "https://admin.example.com",
+      mutation: (name: string) => ({
+        mutationKey: [name],
+        mutationFn: async () => ({
+          path: "/api/v1/staffing/feed/tok.ics",
+          createdAt: "2026-06-01",
+        }),
+      }),
+    };
+    const hooks = createRosteringHooks(react, client) as unknown as {
+      useFeedRotate: () => { mutateAsync: (i: unknown) => Promise<unknown> };
+    };
+    expect(await hooks.useFeedRotate().mutateAsync({})).toEqual({
+      https: "https://admin.example.com/api/v1/staffing/feed/tok.ics",
+      webcal: "webcal://admin.example.com/api/v1/staffing/feed/tok.ics",
+      createdAt: "2026-06-01",
+    });
+    const noHost = createRosteringHooks(
+      react,
+      clientWith(["x.rostering.feedRotate"]),
+    ) as unknown as {
+      useFeedRotate: () => { mutateAsync: (i: unknown) => Promise<unknown> };
+    };
+    await expect(noHost.useFeedRotate().mutateAsync({})).rejects.toThrow(/no host address/);
   });
 
   it("the export is fetched when asked, through the query, never as a cached query", async () => {

@@ -457,8 +457,14 @@ A CSV with a header row; columns in any order, extra ones ignored. Each row is a
   qualified for, are listed as warnings: they are imported, as a rosterer's own write would be.
 - **A pattern's shifts** are made by the host over the next minutes, as far ahead as the duty
   horizon (8 weeks by default), each with its person; the clash check covers the same dates.
-- **A re-run makes nothing twice**: a duty by its name, a pattern by its duty, days, time and first
-  date, a shift by its duty and start.
+- **A re-run makes nothing twice, and changes nothing there**: a duty by its name, a pattern by its
+  duty, days, time and first date, a shift by its duty and start. When the file now gives such a
+  pattern another person, length or last date (or such a shift another end or person), it is left
+  as it is and reported "differs, left as it is": change it on the roster.
+- **One file, one check**: at most 1,000 rows (split a larger file: it is refused before anyone
+  signs in) and 20,000 dated shifts (refused, never checked in part). With `--apply`, nothing is
+  written unless that check answered in the same run. The report names rows by their line, never by
+  anyone's address.
 - **Not imported**: time off (staff enter it), who is counted for pay (the owner sets it), past pay.
   Who may do which duty is set on the qualifications screen.
 

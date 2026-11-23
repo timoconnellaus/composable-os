@@ -91,6 +91,18 @@ export async function assertShippedToolRun(ctx: HandlerContext, name: string): P
   }
 }
 
+/**
+ * For a caller who is not a person at the screen (an assistant, MCP): a filter dropping the
+ * `unavailable` warnings, so an AI learns clashes and qualifications but never who is away (ADR
+ * 0629). Null for a person, who sees them all.
+ */
+export function withoutAway(
+  ctx: HandlerContext,
+): (<W extends { code: string }>(warnings: W[]) => W[]) | null {
+  if (ctx.extension?.tool?.calledBy?.actor === "human") return null;
+  return (warnings) => warnings.filter((w) => w.code !== "unavailable");
+}
+
 /** A person's own act (offer, take, withdraw, away): the calling tool lets only a person call it. */
 function assertPersonsOwnAct(ctx: HandlerContext, what: string): void {
   if (ctx.extension?.tool?.humanOnly !== true) {
@@ -300,7 +312,10 @@ export const staffingCheck = defineOperation({
     }
     const record = await loadRecord(ctx, object, input.id);
     if (!record) throw new NotFoundError(input.object, input.id);
-    return checkShift(ctx, object, input.id, record.values, input.account);
+    const answer = await checkShift(ctx, object, input.id, record.values, input.account);
+    // Who is away is a person's to read (ADR 0629): an assistant learns clashes and qualifications.
+    const forAi = withoutAway(ctx);
+    return forAi ? { ...answer, warnings: forAi(answer.warnings) } : answer;
   },
 });
 
@@ -1241,7 +1256,17 @@ export const staffingWeek = defineOperation({
       const date = `${String(day.year).padStart(4, "0")}-${String(day.month).padStart(2, "0")}-${String(day.day).padStart(2, "0")}`;
       dayList.push({ date, hours: (next - begins) / 3_600_000 });
     }
-    return { shifts, zone: timezone, days: dayList, truncated };
+    // Who is away is a person's to read (ADR 0629): an assistant acting for a rosterer gets the
+    // shifts' other warnings, never `unavailable`.
+    const forAi = withoutAway(ctx);
+    return {
+      shifts: forAi
+        ? shifts.map((s) => ({ ...s, warnings: s.warnings ? forAi(s.warnings) : null }))
+        : shifts,
+      zone: timezone,
+      days: dayList,
+      truncated,
+    };
   },
 });
 
