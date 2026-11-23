@@ -4,7 +4,13 @@
 // The client never logs, and errors carry the API's messages but never request bodies, so a
 // token or secret value cannot end up in output.
 
+import type { LocationHint } from "@composable-os/product";
+
 export const CLOUDFLARE_API = "https://api.cloudflare.com/client/v4";
+
+// The location hints D1 and R2 accept on create (ADR 0580). Defined with the product definition,
+// where a client product's `location` names one; re-exported here beside the calls that send them.
+export { isLocationHint, LOCATION_HINTS, type LocationHint } from "@composable-os/product";
 
 export class CloudflareApiError extends Error {
   override name = "CloudflareApiError";
@@ -260,13 +266,18 @@ export class CloudflareClient {
     ).result;
   }
 
-  async createD1(accountId: string, name: string) {
+  /**
+   * Creates a database. A location hint (ADR 0580) is sent as `primary_location_hint`, the D1
+   * create API's field; Cloudflare honours it only at creation, and best effort.
+   */
+  async createD1(accountId: string, name: string, options: { locationHint?: LocationHint } = {}) {
     return (
       await this.request<{ uuid: string; name: string }>(
         "POST",
         `/accounts/${accountId}/d1/database`,
         {
           name,
+          ...(options.locationHint ? { primary_location_hint: options.locationHint } : {}),
         },
       )
     ).result;
@@ -322,8 +333,15 @@ export class CloudflareClient {
     ).result.buckets;
   }
 
-  async createR2(accountId: string, name: string) {
-    await this.request("POST", `/accounts/${accountId}/r2/buckets`, { name });
+  /**
+   * Creates a bucket. A location hint (ADR 0580) is sent as `locationHint`, the R2 create API's
+   * field; Cloudflare honours it only the first time a bucket of that name is created, best effort.
+   */
+  async createR2(accountId: string, name: string, options: { locationHint?: LocationHint } = {}) {
+    await this.request("POST", `/accounts/${accountId}/r2/buckets`, {
+      name,
+      ...(options.locationHint ? { locationHint: options.locationHint } : {}),
+    });
   }
 
   async deleteR2(accountId: string, name: string) {

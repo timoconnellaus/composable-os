@@ -203,6 +203,9 @@ export async function runUpdate(input: UpdateInput): Promise<UpdateOutcome> {
         ),
         log,
         state.resourceNames,
+        // Only resources the new release adds are created here, with the install's hint (ADR
+        // 0580); nothing that exists is sent a hint or moved.
+        { locationHint: state.locationHint },
       )),
     };
     // AI Gateway (with AI on): created or checked, so an upgrade adds what an install would.
