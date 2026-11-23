@@ -75,7 +75,7 @@ import { loadRecord, staffWarningSchema, updateRecord } from "./record.ts";
  * and a run not called for a staff account (an automation's, another extension's code): the
  * roster's operations are about the person who called the tool (ADR 0625).
  */
-async function assertShippedToolRun(ctx: HandlerContext, name: string): Promise<void> {
+export async function assertShippedToolRun(ctx: HandlerContext, name: string): Promise<void> {
   const caller = ctx.extension;
   if (ctx.actor !== "extension" || !caller?.tool) throw new UnknownOperationError(name);
   const row = await ctx.db
@@ -102,7 +102,7 @@ function assertPersonsOwnAct(ctx: HandlerContext, what: string): void {
 }
 
 /** A roster change a person applies: an AI's call of the calling tool waits for a person. */
-function assertPersonApplies(ctx: HandlerContext, what: string): void {
+export function assertPersonApplies(ctx: HandlerContext, what: string): void {
   const tool = ctx.extension?.tool;
   if (tool?.humanOnly !== true && tool?.personApproves !== true) {
     throw new ForbiddenError(`${what} is applied by a person: the calling tool must ask one.`, {
@@ -111,7 +111,7 @@ function assertPersonApplies(ctx: HandlerContext, what: string): void {
   }
 }
 
-async function assertRosterer(ctx: HandlerContext, what: string): Promise<void> {
+export async function assertRosterer(ctx: HandlerContext, what: string): Promise<void> {
   if (!(await mayRoster(ctx))) {
     throw new ForbiddenError(`Only someone who rosters may ${what}.`, { rule: "rostering" });
   }
@@ -221,7 +221,7 @@ async function anyoneQualified(
 }
 
 /** A live shift that is not in the Trash, or the refusal. */
-async function requireLiveShift(ctx: HandlerContext, object: string, id: string) {
+export async function requireLiveShift(ctx: HandlerContext, object: string, id: string) {
   const s = await loadShift(ctx, object, id);
   if (!s || s.deleted) {
     if (!getObject(object)?.staffed) {

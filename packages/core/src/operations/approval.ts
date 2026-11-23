@@ -15,6 +15,7 @@ import { loadVerdicts, verdictViewSchema } from "../adjudicator/run.ts";
 import { actionTitle, outboundTitle, verbOf } from "../approvals/describe.ts";
 import { combinedStep, DEFAULT_PHRASE_THRESHOLD } from "../approvals/high-risk.ts";
 import { ApprovalStateError, objectOfId } from "../approvals/queue.ts";
+import { redactForReader } from "../approvals/redact.ts";
 import { titlesFor } from "../approvals/simulation.ts";
 import {
   loadPhraseThreshold,
@@ -481,9 +482,12 @@ async function loadChangeSetDetail(ctx: HandlerContext, id: string) {
   const set = await changeSetQuery(ctx.db).where("c.id", "=", id).executeTakeFirst();
   if (!set) throw new NotFoundError("change set", id);
   assertCanSee(ctx, set.user_id);
-  const actions = await withVerdicts(
+  const actions = await redactForReader(
     ctx,
-    (await loadActions(ctx.db, { changeSetIds: [id] })).map((r) => toActionView(r, ctx.now)),
+    await withVerdicts(
+      ctx,
+      (await loadActions(ctx.db, { changeSetIds: [id] })).map((r) => toActionView(r, ctx.now)),
+    ),
   );
   return { ...summarise(set, actions), actions };
 }
@@ -533,10 +537,13 @@ export const approvalStatus = defineOperation({
       ? query.where("c.session_id", "=", ctx.origin.sessionId)
       : query.where("c.session_id", "is", null);
     const sets = await query.orderBy("c.id", "desc").limit(10).execute();
-    const actions = await withVerdicts(
+    const actions = await redactForReader(
       ctx,
-      (await loadActions(ctx.db, { changeSetIds: sets.map((s) => s.id) })).map((a) =>
-        toActionView(a, ctx.now),
+      await withVerdicts(
+        ctx,
+        (await loadActions(ctx.db, { changeSetIds: sets.map((s) => s.id) })).map((a) =>
+          toActionView(a, ctx.now),
+        ),
       ),
     );
     return {

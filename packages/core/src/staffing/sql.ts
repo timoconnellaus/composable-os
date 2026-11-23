@@ -32,6 +32,8 @@ export interface StaffedTables {
   /** The states column and the live states. */
   state: string;
   live: readonly string[];
+  /** The kind's column (a class type): a locked pay period keeps it too (ADR 0627). */
+  kind?: string | undefined;
 }
 
 const seconds = (column: string) => `CAST(strftime('%s', r.${ident(column)}) AS INTEGER)`;
@@ -87,7 +89,88 @@ export function staffedTriggerNames(t: Pick<StaffedTables, "table" | "account">)
           `${t.account.table}__staffs_${t.table}_del`,
         ]
       : []),
+    ...payLockTriggerNames(t),
   ];
+}
+
+/** The pay lock's trigger names (ADR 0627): on the object's table, and on its account's table. */
+function payLockTriggerNames(t: Pick<StaffedTables, "table" | "account">): string[] {
+  return [
+    `${t.table}__paylock_ins`,
+    `${t.table}__paylock_upd`,
+    `${t.table}__paylock_del`,
+    `${t.table}__paylock_mark`,
+    ...(t.account
+      ? [
+          `${t.account.table}__paylock_${t.table}_ins`,
+          `${t.account.table}__paylock_${t.table}_upd`,
+          `${t.account.table}__paylock_${t.table}_del`,
+        ]
+      : []),
+  ];
+}
+
+/** Whether the datetime `expr` falls in a locked pay period (by its start, half-open). */
+const inLockedPeriod = (expr: string) =>
+  `EXISTS (SELECT 1 FROM core_pay_period pp WHERE pp.state IN ('locking', 'locked') ` +
+  `AND pp.ends > CAST(strftime('%s', ${expr}) AS INTEGER) ` +
+  `AND pp.starts <= CAST(strftime('%s', ${expr}) AS INTEGER))`;
+
+/**
+ * The pay lock (stage 45 step 6, ADR 0627): a shift whose start is inside a locked pay period
+ * keeps its person, its times, its kind and whether it is live (in a live state and out of the
+ * Trash), for every writer, so a locked period's lines always agree with the roster. D1 runs with
+ * recursive triggers off: a REPLACE (an insert) or an UPDATE OR REPLACE (an id change) that would
+ * delete a locked shift's row without a delete trigger is refused before it runs. On the account's
+ * table (a coach profile), the account of a profile on a locked shift does not change, and a
+ * profile that is not in the Trash is not deleted (one in the Trash may be purged).
+ */
+function createPayLockTriggers(t: StaffedTables): string[] {
+  const [ins, upd, del, mark, holderIns, holderUpd, holderDel] = payLockTriggerNames(t).map(ident);
+  const table = ident(t.table);
+  const col = (alias: string, c: string) => `${alias}.${ident(c)}`;
+  const states = t.live.map(literal).join(", ");
+  const live = (alias: string) =>
+    `(${alias}.deleted_at IS NULL AND ${col(alias, t.state)} IN (${states}))`;
+  const lockedRow = (alias: string) => `${live(alias)} AND ${inLockedPeriod(col(alias, t.starts))}`;
+  const raise = "RAISE(ABORT, 'core_pay_period_locked')";
+  const changed = [
+    "OLD.id IS NOT NEW.id",
+    `${col("OLD", t.who)} IS NOT ${col("NEW", t.who)}`,
+    `${col("OLD", t.starts)} IS NOT ${col("NEW", t.starts)}`,
+    `${col("OLD", t.ends)} IS NOT ${col("NEW", t.ends)}`,
+    ...(t.kind ? [`${col("OLD", t.kind)} IS NOT ${col("NEW", t.kind)}`] : []),
+    "(OLD.deleted_at IS NULL) IS NOT (NEW.deleted_at IS NULL)",
+    `(${col("OLD", t.state)} IN (${states})) IS NOT (${col("NEW", t.state)} IN (${states}))`,
+  ].join(" OR ");
+  const replaced = (id: string) =>
+    `EXISTS (SELECT 1 FROM ${table} r WHERE r.id = ${id} AND ${lockedRow("r")})`;
+  const out = [
+    `CREATE TRIGGER ${ins} BEFORE INSERT ON ${table} BEGIN SELECT ${raise} WHERE (${lockedRow("NEW")}) OR ${replaced("NEW.id")}; END`,
+    `CREATE TRIGGER ${upd} BEFORE UPDATE ON ${table} BEGIN SELECT ${raise} WHERE ((${live("OLD")} OR ${live("NEW")}) AND (${changed}) AND (${inLockedPeriod(col("OLD", t.starts))} OR ${inLockedPeriod(col("NEW", t.starts))})) OR (OLD.id IS NOT NEW.id AND ${replaced("NEW.id")}); END`,
+    `CREATE TRIGGER ${del} BEFORE DELETE ON ${table} BEGIN SELECT ${raise} WHERE ${lockedRow("OLD")}; END`,
+    // A not-worked mark follows its shift: its start (and id) kept current when the shift moves,
+    // so the mark's own lock and a lock's fingerprint read where the shift is now.
+    `CREATE TRIGGER ${mark} AFTER UPDATE OF id, ${ident(t.starts)} ON ${table} BEGIN UPDATE core_staff_not_worked SET record_id = NEW.id, starts = coalesce(CAST(strftime('%s', ${col("NEW", t.starts)}) AS INTEGER), starts) WHERE object_type = ${literal(t.object)} AND record_id = OLD.id; END`,
+  ];
+  if (t.account && holderIns && holderUpd && holderDel) {
+    const holder = ident(t.account.table);
+    const account = ident(t.account.column);
+    const lockedOf = (where: string) =>
+      `EXISTS (SELECT 1 FROM ${holder} h JOIN ${table} r ON ${col("r", t.who)} = h.id WHERE (${where}) AND ${lockedRow("r")})`;
+    out.push(
+      `CREATE TRIGGER ${holderIns} BEFORE INSERT ON ${holder} BEGIN SELECT ${raise} WHERE ${lockedOf(
+        `(h.id = NEW.id AND h.${account} IS NOT NEW.${account}) OR (h.id != NEW.id AND NEW.${account} IS NOT NULL AND h.${account} = NEW.${account})`,
+      )}; END`,
+      `CREATE TRIGGER ${holderUpd} BEFORE UPDATE ON ${holder} WHEN OLD.id IS NOT NEW.id OR OLD.${account} IS NOT NEW.${account} BEGIN SELECT ${raise} WHERE ${lockedOf(
+        `h.id = OLD.id OR h.id = NEW.id OR (NEW.${account} IS NOT NULL AND h.${account} = NEW.${account})`,
+      )}; END`,
+      `CREATE TRIGGER ${holderDel} BEFORE DELETE ON ${holder} BEGIN SELECT ${raise} WHERE OLD.deleted_at IS NULL AND ${lockedOf(
+        "h.id = OLD.id",
+      )}; END`,
+    );
+  }
+  return out;
 }
 
 /** DROP TRIGGER statements for an object's triggers (safe when they do not exist). */
@@ -98,7 +181,9 @@ export function dropStaffedTriggers(t: Pick<StaffedTables, "table" | "account">)
 /** CREATE TRIGGER statements keeping an object's claims (run after its columns exist). */
 export function createStaffedTriggers(t: StaffedTables): string[] {
   const object = literal(t.object);
-  const [ins, upd, del, holderIns, holderUpd, holderDel] = staffedTriggerNames(t).map(ident);
+  const [ins, upd, del, holderIns, holderUpd, holderDel] = staffedTriggerNames(t)
+    .filter((n) => !n.includes("__paylock_"))
+    .map(ident);
   const clear = (keys: string) =>
     `DELETE FROM core_staff_time WHERE object_type = ${object} AND record_id IN (${keys});`;
   // Every column the claim reads, and the id (an id update moves the claim).
@@ -129,7 +214,7 @@ export function createStaffedTriggers(t: StaffedTables): string[] {
       `CREATE TRIGGER ${holderDel} AFTER DELETE ON ${holder} BEGIN ${rederive("OLD.id")} END`,
     );
   }
-  return out;
+  return [...out, ...createPayLockTriggers(t)];
 }
 
 /** A claim's latest end among its account's earlier claims (a window over a CTE of claims). */

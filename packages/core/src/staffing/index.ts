@@ -29,6 +29,7 @@ import {
 } from "../time/local.ts";
 import { orgReader, visibleSource } from "../visibility/index.ts";
 import { shiftRemoved, shiftWritten } from "./changes.ts";
+import { kindObjectOf } from "./kinds.ts";
 import {
   actingAccount,
   assertMayRoster,
@@ -291,6 +292,48 @@ function rosterFields(object: ObjectDefinition, creating: boolean): string[] {
 }
 
 /**
+ * The fields of a kind object (a class type) holding a staffed object's set-up and pack-down
+ * minutes (`staffed.payBefore`, `payAfter`): its own field, or one the staffed object's extension
+ * adds to it (`bookings.rosterBeforeMinutes`). They change what pay totals (ADR 0627).
+ */
+export function payMinuteFields(object: ObjectDefinition): string[] {
+  const out: string[] = [];
+  for (const o of listObjects()) {
+    const def = o.staffed;
+    if (!def || kindObjectOf(o) !== object.name) continue;
+    const ext = o.name.split(".")[0];
+    for (const path of [def.payBefore, def.payAfter]) {
+      const local = path?.field.split(".")[1];
+      if (!local) continue;
+      const field =
+        object.fields.find((f) => f.name === local) ??
+        object.fields.find((f) => f.name === `${ext}.${local}`);
+      if (field) out.push(field.name);
+    }
+  }
+  return [...new Set(out)];
+}
+
+/** Whether a write of `object` moves a shift that has started (or moves one to before `now`). */
+function movesStartedShift(
+  object: ObjectDefinition,
+  before: Record<string, unknown> | null,
+  after: Record<string, unknown>,
+  now: string,
+): boolean {
+  const def = object.staffed;
+  if (!def || before === null) return false;
+  const moved = [def.starts, def.ends].some(
+    (f) => Object.hasOwn(after, f) && !same(before[f], after[f]),
+  );
+  if (!moved) return false;
+  const at = Date.parse(now);
+  const old = Date.parse(String(before[def.starts] ?? ""));
+  const next = Date.parse(String(after[def.starts] ?? before[def.starts] ?? ""));
+  return (Number.isFinite(old) && old <= at) || (Number.isFinite(next) && next <= at);
+}
+
+/**
  * A caller's write that sets or changes who works a shift, a pattern's person or a holder's account
  * is a rosterer's, by every path that writes a record (create, update, createMany, import, a
  * version restored, a series changed): refused otherwise, where a pack declares who rosters. The
@@ -305,14 +348,27 @@ export async function assertRosterWrite(
   by: Mover | undefined,
 ): Promise<void> {
   if (by === "host" || batchOf(ctx).taking) return;
-  const fields = rosterFields(object, before === null);
-  const changed = fields.filter((f) =>
-    before === null
-      ? text(after[f]) !== null
-      : Object.hasOwn(after, f) && !same(before[f], after[f]),
-  );
-  if (!changed.length) return;
-  await assertMayRoster(ctx, `say who works a ${object.label.toLowerCase()}`);
+  const changes = (fields: readonly string[]) =>
+    fields.filter((f) =>
+      before === null
+        ? after[f] !== undefined && after[f] !== null && after[f] !== ""
+        : Object.hasOwn(after, f) && !same(before[f], after[f]),
+    );
+  if (changes(rosterFields(object, before === null)).length) {
+    await assertMayRoster(ctx, `say who works a ${object.label.toLowerCase()}`);
+  }
+  // What pay is totalled from, before a lock (the review of PR #287, ADR 0627): a kind's set-up
+  // and pack-down minutes, and the times of a shift that has started (a future one stays open to
+  // whoever may write it).
+  if (changes(payMinuteFields(object)).length) {
+    await assertMayRoster(ctx, "change the set-up and pack-down minutes pay counts");
+  }
+  if (movesStartedShift(object, before, after, ctx.now)) {
+    await assertMayRoster(
+      ctx,
+      `change the times of a ${object.label.toLowerCase()} that has started`,
+    );
+  }
 }
 
 /**
@@ -343,7 +399,34 @@ export async function assertRosterRestore(
 
 /** Whether `values` (a write of `object`) would set who works shifts: for an approval (ADR 0626). */
 export function setsRosterFields(object: ObjectDefinition, values: Record<string, unknown>) {
-  return rosterFields(object, false).some((f) => Object.hasOwn(values, f));
+  return [...rosterFields(object, false), ...payMinuteFields(object)].some((f) =>
+    Object.hasOwn(values, f),
+  );
+}
+
+/**
+ * Whether an update of `object`'s record `id` with `values` moves a shift that has started (for
+ * an approval: a rosterer's to approve, ADR 0627). Reads the record as it is.
+ */
+export async function movesStartedShiftById(
+  db: AnyDb,
+  object: ObjectDefinition,
+  id: string,
+  values: Record<string, unknown>,
+  now: string,
+): Promise<boolean> {
+  const def = object.staffed;
+  const table = objectTableOf(object.name);
+  const column = (f: string) => object.fields.find((x) => x.name === f)?.column;
+  const startsCol = def ? column(def.starts) : undefined;
+  if (!def || !table || !startsCol) return false;
+  if (!Object.hasOwn(values, def.starts) && !Object.hasOwn(values, def.ends)) return false;
+  const row = (await db
+    .selectFrom(table)
+    .select(`${startsCol} as starts`)
+    .where("id", "=", id)
+    .executeTakeFirst()) as { starts?: unknown } | undefined;
+  return movesStartedShift(object, { [def.starts]: row?.starts ?? null }, values, now);
 }
 
 /** Notes a claim written (or released, null) by this batch, for the batch's later reads. */

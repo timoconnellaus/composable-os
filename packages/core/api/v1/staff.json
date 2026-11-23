@@ -76730,9 +76730,13 @@
       "invalidates": [
         "x.rostering.awayList",
         "x.rostering.check",
+        "x.rostering.export",
         "x.rostering.mine",
         "x.rostering.myAway",
         "x.rostering.offers",
+        "x.rostering.payBases",
+        "x.rostering.periodTotals",
+        "x.rostering.periods",
         "x.rostering.qualifications",
         "x.rostering.uncovered",
         "x.rostering.week"
@@ -76879,9 +76883,13 @@
       "invalidates": [
         "x.rostering.awayList",
         "x.rostering.check",
+        "x.rostering.export",
         "x.rostering.mine",
         "x.rostering.myAway",
         "x.rostering.offers",
+        "x.rostering.payBases",
+        "x.rostering.periodTotals",
+        "x.rostering.periods",
         "x.rostering.qualifications",
         "x.rostering.uncovered",
         "x.rostering.week"
@@ -77034,9 +77042,13 @@
       "invalidates": [
         "x.rostering.awayList",
         "x.rostering.check",
+        "x.rostering.export",
         "x.rostering.mine",
         "x.rostering.myAway",
         "x.rostering.offers",
+        "x.rostering.payBases",
+        "x.rostering.periodTotals",
+        "x.rostering.periods",
         "x.rostering.qualifications",
         "x.rostering.uncovered",
         "x.rostering.week"
@@ -77211,9 +77223,13 @@
       "invalidates": [
         "x.rostering.awayList",
         "x.rostering.check",
+        "x.rostering.export",
         "x.rostering.mine",
         "x.rostering.myAway",
         "x.rostering.offers",
+        "x.rostering.payBases",
+        "x.rostering.periodTotals",
+        "x.rostering.periods",
         "x.rostering.qualifications",
         "x.rostering.uncovered",
         "x.rostering.week"
@@ -77345,6 +77361,205 @@
         "additionalProperties": false
       },
       "invalidates": [],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.export",
+      "description": "A pay period as a CSV file for payroll: a summary row per person and kind of work (shifts, hours as a decimal and in minutes), then a row per shift. From its locked version, or a preview of an open period, marked as such. No rates and no money. Whoever handles pay, a person only. (Extension tool from Rostering 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "start"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string"
+          },
+          "contentType": {
+            "type": "string",
+            "const": "text/csv"
+          },
+          "csv": {
+            "type": "string"
+          },
+          "locked": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "filename",
+          "contentType",
+          "csv",
+          "locked",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.lock",
+      "description": "Lock a pay period that has ended: its totals are written from the roster as it stands and never change; shifts inside it can no longer be changed until it is reopened. Correct the roster first (reassign, mark not worked). Whoever handles pay, a person only. (Extension tool from Rostering 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          }
+        },
+        "required": [
+          "start"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          },
+          "version": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "start",
+          "end",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.rostering.awayList",
+        "x.rostering.check",
+        "x.rostering.export",
+        "x.rostering.mine",
+        "x.rostering.myAway",
+        "x.rostering.offers",
+        "x.rostering.payBases",
+        "x.rostering.periodTotals",
+        "x.rostering.periods",
+        "x.rostering.qualifications",
+        "x.rostering.uncovered",
+        "x.rostering.week"
+      ],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.markNotWorked",
+      "description": "Mark a shift that has started as not worked, with why (nobody ran the class, they did not come in), so it counts for nothing in its pay period; notWorked false clears the mark. A shift in a locked pay period is refused until the period is reopened. Whoever rosters; an assistant may ask, and a person applies it. (Extension tool from Rostering 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 81
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "notWorked": {
+            "default": true,
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "object",
+          "id"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "notWorked": {
+            "type": "boolean"
+          },
+          "changed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "notWorked",
+          "changed"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.rostering.awayList",
+        "x.rostering.check",
+        "x.rostering.export",
+        "x.rostering.mine",
+        "x.rostering.myAway",
+        "x.rostering.offers",
+        "x.rostering.payBases",
+        "x.rostering.periodTotals",
+        "x.rostering.periods",
+        "x.rostering.qualifications",
+        "x.rostering.uncovered",
+        "x.rostering.week"
+      ],
       "pack": "rostering"
     },
     {
@@ -77863,9 +78078,13 @@
       "invalidates": [
         "x.rostering.awayList",
         "x.rostering.check",
+        "x.rostering.export",
         "x.rostering.mine",
         "x.rostering.myAway",
         "x.rostering.offers",
+        "x.rostering.payBases",
+        "x.rostering.periodTotals",
+        "x.rostering.periods",
         "x.rostering.qualifications",
         "x.rostering.uncovered",
         "x.rostering.week"
@@ -78117,6 +78336,698 @@
       "pack": "rostering"
     },
     {
+      "name": "x.rostering.payBases",
+      "description": "Who is counted for pay and how (by time, by class, not counted), today and from which dates. Whoever handles pay, a person only. (Extension tool from Rostering 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "today": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "account": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "basis": {
+                  "type": "string",
+                  "enum": [
+                    "by_time",
+                    "by_class",
+                    "not_counted"
+                  ]
+                },
+                "history": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "from": {
+                        "type": "string"
+                      },
+                      "basis": {
+                        "type": "string",
+                        "enum": [
+                          "by_time",
+                          "by_class",
+                          "not_counted"
+                        ]
+                      },
+                      "setBy": {
+                        "type": "string"
+                      },
+                      "setAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "from",
+                      "basis",
+                      "setBy",
+                      "setAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "account",
+                "name",
+                "basis",
+                "history"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "Cut short: ask for one person's (account)"
+          }
+        },
+        "required": [
+          "today",
+          "items",
+          "truncated"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.payBasis",
+      "description": "Say how a member of staff is counted for pay from a date on (today when left out): by_time (their hours), by_class (their classes and shifts) or not_counted (salaried, the default). No rates are kept: payroll applies them. Whoever handles pay, a person only. (Extension tool from Rostering 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "by_time",
+              "by_class",
+              "not_counted"
+            ]
+          },
+          "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          }
+        },
+        "required": [
+          "account",
+          "basis"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "changed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "account",
+          "from",
+          "changed"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.rostering.awayList",
+        "x.rostering.check",
+        "x.rostering.export",
+        "x.rostering.mine",
+        "x.rostering.myAway",
+        "x.rostering.offers",
+        "x.rostering.payBases",
+        "x.rostering.periodTotals",
+        "x.rostering.periods",
+        "x.rostering.qualifications",
+        "x.rostering.uncovered",
+        "x.rostering.week"
+      ],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.periodTotals",
+      "description": "One pay period's totals: per counted person and kind of work, the shifts and the hours (whole minutes, and hours to two places), and one line per shift with its evidence (its class list taken, by whom, flagged for review when not by its person). A locked period's are its locked lines; an open one's are a preview from the roster as it stands. Whoever handles pay, a person only. (Extension tool from Rostering 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "start"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "period": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "string"
+              },
+              "end": {
+                "type": "string"
+              },
+              "zone": {
+                "type": "string"
+              },
+              "locked": {
+                "type": "boolean"
+              },
+              "preview": {
+                "type": "boolean"
+              },
+              "version": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "number"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "locked",
+                          "reopened"
+                        ]
+                      },
+                      "lockedBy": {
+                        "type": "string"
+                      },
+                      "lockedByName": {
+                        "type": "string"
+                      },
+                      "lockedAt": {
+                        "type": "string"
+                      },
+                      "reopenedBy": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "reopenedAt": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "reopenReason": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "version",
+                      "state",
+                      "lockedBy",
+                      "lockedByName",
+                      "lockedAt",
+                      "reopenedBy",
+                      "reopenedAt",
+                      "reopenReason"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "start",
+              "end",
+              "zone",
+              "locked",
+              "preview",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "totals": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "account": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": "string"
+                },
+                "basis": {
+                  "type": "string",
+                  "enum": [
+                    "by_time",
+                    "by_class"
+                  ]
+                },
+                "kind": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "object": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "object",
+                        "id"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "kindName": {
+                  "type": "string"
+                },
+                "shifts": {
+                  "type": "number"
+                },
+                "minutes": {
+                  "type": "number"
+                },
+                "hours": {
+                  "type": "string"
+                },
+                "notWorked": {
+                  "type": "number"
+                },
+                "flagged": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "account",
+                "name",
+                "email",
+                "basis",
+                "kind",
+                "kindName",
+                "shifts",
+                "minutes",
+                "hours",
+                "notWorked",
+                "flagged"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "account": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": "string"
+                },
+                "basis": {
+                  "type": "string",
+                  "enum": [
+                    "by_time",
+                    "by_class"
+                  ]
+                },
+                "object": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "object": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "object",
+                        "id"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "kindName": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "place": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "localDate": {
+                  "type": "string"
+                },
+                "localStart": {
+                  "type": "string"
+                },
+                "localEnd": {
+                  "type": "string"
+                },
+                "shiftMinutes": {
+                  "type": "number"
+                },
+                "beforeMinutes": {
+                  "type": "number"
+                },
+                "afterMinutes": {
+                  "type": "number"
+                },
+                "countedMinutes": {
+                  "type": "number"
+                },
+                "counted": {
+                  "type": "boolean"
+                },
+                "notWorkedReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "listTaken": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "markedBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "flagged": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "account",
+                "name",
+                "email",
+                "basis",
+                "object",
+                "id",
+                "kind",
+                "kindName",
+                "title",
+                "place",
+                "localDate",
+                "localStart",
+                "localEnd",
+                "shiftMinutes",
+                "beforeMinutes",
+                "afterMinutes",
+                "countedMinutes",
+                "counted",
+                "notWorkedReason",
+                "listTaken",
+                "markedBy",
+                "flagged"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "minutes": {
+            "type": "number"
+          },
+          "hours": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "period",
+          "totals",
+          "lines",
+          "minutes",
+          "hours"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.periods",
+      "description": "The pay periods (the pay period setting: fortnightly by default): the current one and the `count` before it, each open or locked, with its versions. Whoever handles pay, a person only. (Extension tool from Rostering 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 60
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "setting": {
+            "type": "object",
+            "properties": {
+              "period": {
+                "type": "string",
+                "enum": [
+                  "weekly",
+                  "fortnightly",
+                  "monthly"
+                ]
+              },
+              "start": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "day": {
+                "type": "number"
+              },
+              "zone": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "period",
+              "start",
+              "day",
+              "zone"
+            ],
+            "additionalProperties": false
+          },
+          "set": {
+            "type": "boolean",
+            "description": "False until the date a period starts is set: nothing is totalled"
+          },
+          "periods": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "start": {
+                  "type": "string"
+                },
+                "end": {
+                  "type": "string"
+                },
+                "zone": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "open",
+                    "locked"
+                  ]
+                },
+                "ended": {
+                  "type": "boolean"
+                },
+                "versions": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "number"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "locked",
+                          "reopened"
+                        ]
+                      },
+                      "lockedBy": {
+                        "type": "string"
+                      },
+                      "lockedByName": {
+                        "type": "string"
+                      },
+                      "lockedAt": {
+                        "type": "string"
+                      },
+                      "reopenedBy": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "reopenedAt": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "reopenReason": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "version",
+                      "state",
+                      "lockedBy",
+                      "lockedByName",
+                      "lockedAt",
+                      "reopenedBy",
+                      "reopenedAt",
+                      "reopenReason"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "start",
+                "end",
+                "zone",
+                "state",
+                "ended",
+                "versions"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "setting",
+          "set",
+          "periods"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "rostering"
+    },
+    {
       "name": "x.rostering.qualifications",
       "description": "Who may do which kind of work: everyone's, or one person's (account), or one kind of work's (kindObject). Whoever rosters. (Extension tool from Rostering 0.1.0.)",
       "risk": "read",
@@ -78288,9 +79199,76 @@
       "invalidates": [
         "x.rostering.awayList",
         "x.rostering.check",
+        "x.rostering.export",
         "x.rostering.mine",
         "x.rostering.myAway",
         "x.rostering.offers",
+        "x.rostering.payBases",
+        "x.rostering.periodTotals",
+        "x.rostering.periods",
+        "x.rostering.qualifications",
+        "x.rostering.uncovered",
+        "x.rostering.week"
+      ],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.reopen",
+      "description": "Reopen a locked pay period, saying why, to correct its shifts; its locked version is kept. Lock it again for a new version. Whoever handles pay, a person only. (Extension tool from Rostering 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "start",
+          "reason"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          },
+          "version": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "start",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.rostering.awayList",
+        "x.rostering.check",
+        "x.rostering.export",
+        "x.rostering.mine",
+        "x.rostering.myAway",
+        "x.rostering.offers",
+        "x.rostering.payBases",
+        "x.rostering.periodTotals",
+        "x.rostering.periods",
         "x.rostering.qualifications",
         "x.rostering.uncovered",
         "x.rostering.week"
@@ -78412,9 +79390,13 @@
       "invalidates": [
         "x.rostering.awayList",
         "x.rostering.check",
+        "x.rostering.export",
         "x.rostering.mine",
         "x.rostering.myAway",
         "x.rostering.offers",
+        "x.rostering.payBases",
+        "x.rostering.periodTotals",
+        "x.rostering.periods",
         "x.rostering.qualifications",
         "x.rostering.uncovered",
         "x.rostering.week"
@@ -78864,9 +79846,13 @@
       "invalidates": [
         "x.rostering.awayList",
         "x.rostering.check",
+        "x.rostering.export",
         "x.rostering.mine",
         "x.rostering.myAway",
         "x.rostering.offers",
+        "x.rostering.payBases",
+        "x.rostering.periodTotals",
+        "x.rostering.periods",
         "x.rostering.qualifications",
         "x.rostering.uncovered",
         "x.rostering.week"

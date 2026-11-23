@@ -1373,6 +1373,75 @@ export interface CoreStaffGuardTable {
   actual: number;
 }
 
+/** Migration 0813 (stage 45 step 6, ADR 0627): who is counted for pay, from a local date. */
+export interface CoreStaffPayBasisTable {
+  account_id: string;
+  from_date: string;
+  basis: "by_time" | "by_class" | "not_counted";
+  set_by: string;
+  set_at: string;
+}
+
+/** Migration 0813 (stage 45 step 6, ADR 0627): a shift marked not worked, with why. */
+export interface CoreStaffNotWorkedTable {
+  object_type: string;
+  record_id: string;
+  /** The shift's start when marked, unix seconds. */
+  starts: number;
+  reason: string;
+  marked_by: string;
+  marked_at: string;
+}
+
+/** Migration 0813 (stage 45 step 6, ADR 0627): one version of one locked pay period. */
+export interface CorePayPeriodTable {
+  id: string;
+  start_date: string;
+  end_date: string;
+  zone: string;
+  /** Local midnights as unix seconds, half-open. */
+  starts: number;
+  ends: number;
+  version: number;
+  state: "locking" | "locked" | "reopened";
+  locked_by: string;
+  locked_at: string;
+  reopened_by: string | null;
+  reopened_at: string | null;
+  reopen_reason: string | null;
+}
+
+/** Migration 0813 (stage 45 step 6, ADR 0627): one shift counted in a locked pay period. */
+export interface CorePayLineTable {
+  period_id: string;
+  n: number;
+  account_id: string;
+  name: string;
+  email: string;
+  basis: "by_time" | "by_class";
+  object_type: string;
+  record_id: string;
+  kind_object: string | null;
+  kind_record: string | null;
+  kind_name: string;
+  title: string;
+  place: string | null;
+  starts: number;
+  ends: number;
+  local_date: string;
+  local_start: string;
+  local_end: string;
+  shift_minutes: number;
+  before_minutes: number;
+  after_minutes: number;
+  counted_minutes: number;
+  counted: number;
+  not_worked_reason: string | null;
+  list_taken: number | null;
+  marked_by: string | null;
+  flagged: number;
+}
+
 /** Migration 0812 (stage 45, ADR 0624): the local date the roster's daily work last ran. */
 export interface CoreStaffRunTable {
   name: string;
@@ -2797,6 +2866,10 @@ export interface CoreDatabase {
   core_staff_offer: CoreStaffOfferTable;
   core_staff_run: CoreStaffRunTable;
   core_staff_guard: CoreStaffGuardTable;
+  core_staff_pay_basis: CoreStaffPayBasisTable;
+  core_staff_not_worked: CoreStaffNotWorkedTable;
+  core_pay_period: CorePayPeriodTable;
+  core_pay_line: CorePayLineTable;
   core_write_guard: CoreWriteGuardTable;
   core_allowance: CoreAllowanceTable;
   core_allowance_period: CoreAllowancePeriodTable;

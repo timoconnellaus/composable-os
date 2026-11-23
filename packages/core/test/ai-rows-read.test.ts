@@ -109,10 +109,12 @@ describe("rows read on the AI paths", () => {
     // about 615; stage 45's time claim (migration 0811: three tables, three indexes, two triggers)
     // to about 635; stage 44's enforcement (migration 0853: three triggers) to about 638; routine
     // mail's log and marks (migration 0750) to about 655; stage 45's offers (migration 0812: four
-    // tables, five indexes, three triggers) to about 661.
+    // tables, five indexes, three triggers) to about 661; stage 44 step 4's copies (migration
+    // 0854) and stage 45's pay periods (migration 0813: four tables, five indexes, twelve
+    // triggers) to about 691.
     expect(
       await measure("summary.get", { subject: { kind: "record", object: "person", id: personId } }),
-    ).toBeLessThan(680);
+    ).toBeLessThan(705);
     expect(
       await measure("summary.get", {
         subject: { kind: "record", object: "organisation", id: orgId },

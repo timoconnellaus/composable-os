@@ -1402,10 +1402,15 @@ A private address, made of a revocable token, that a staff member's phone calend
 their own shifts only, nothing of members or other staff.
 _Avoid_: calendar sync, invite (the booking email's calendar file)
 
-**Counted for pay** and **Pay period** (stage 45, proposed)
-A staff member is counted **by time**, **by class** or not at all. A **pay period** (weekly,
-fortnightly or monthly) totals the hours and classes of the counted; a **locked** period's totals no
-longer change and are exported for payroll. No rates or amounts. Read only with `rostering:pay`.
+**Counted for pay** and **Pay period** (stage 45, built in step 6: ADR 0627)
+A staff member is counted **by time**, **by class** or not at all, from a date (no basis: not
+counted). A **pay period** (weekly, fortnightly by default, or monthly; Rostering's setting) totals,
+per counted person and kind of work, the shifts and the minutes of the live shifts whose local start
+date is in it, with a kind's set-up and pack-down minutes, and a shift **marked not worked**
+counting nothing; each line shows its **evidence** (the class list taken, and by whom). A **locked**
+period's lines never change, and neither do the shifts inside it, until it is **reopened** (with
+why); locking again makes a new version. It is exported as CSV for payroll. No rates or amounts.
+Read only with `rostering:pay` (admins and by grant), by a person, never an assistant.
 _Avoid_: timesheet, payroll, wages
 
 **Follows** (a state cascade)

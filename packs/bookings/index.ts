@@ -248,6 +248,30 @@ export default defineExtension({
         description: "Members cannot book its classes themselves; staff book them in.",
         personApproves: true,
       },
+      // Preparation and pack-down (stage 45 decision 19, ADR 0627): minutes added to the coach's
+      // pay hours for each class of this type. Pay only: they never make two classes clash.
+      rosterBeforeMinutes: {
+        type: "number",
+        label: "Set-up minutes (pay)",
+        description:
+          "Minutes before each class counted in its coach's pay hours (set-up). Empty: none. " +
+          "They never stop a coach taking the class before.",
+        min: 0,
+        max: 240,
+        step: 1,
+        personApproves: true,
+      },
+      rosterAfterMinutes: {
+        type: "number",
+        label: "Pack-down minutes (pay)",
+        description:
+          "Minutes after each class counted in its coach's pay hours (pack-down). Empty: none. " +
+          "They never stop a coach taking the class after.",
+        min: 0,
+        max: 240,
+        step: 1,
+        personApproves: true,
+      },
     },
   },
   objects: {
@@ -487,6 +511,11 @@ export default defineExtension({
         live: ["scheduled", "done"],
         place: "room.name",
         pattern: { link: "series", who: "coach" },
+        // Pay only (ADR 0627): the class type's set-up and pack-down minutes, and the evidence a
+        // class was run: its bookings, ticked by whoever took the list.
+        payBefore: { field: "classType.rosterBeforeMinutes" },
+        payAfter: { field: "classType.rosterAfterMinutes" },
+        evidence: { object: "booking", link: "class", by: "markedBy" },
       },
       public: {
         read: [
