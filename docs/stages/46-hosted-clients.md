@@ -378,6 +378,41 @@ control plane's.
 
 Step 9 can run beside steps 3 to 8 after step 2.
 
+## Step 1: results so far (2026-11-23)
+
+Run on the fleet's account with throwaway Workers in a throwaway namespace, uploaded with
+`wrangler deploy --dispatch-namespace` (wrangler 4.93.0). Everything made for it was deleted
+afterwards. Three checks are not finished: they need calls to the Cloudflare API that wrangler
+does not make for a namespace, so they wait for an API token.
+
+| Check | Result |
+| --- | --- |
+| Worker Loader in a namespace Worker (`LOADER.get` with an id, and `LOADER.load`) | **Works** |
+| `scheduled()` called from the dispatch Worker on a namespace Worker | **Works**: the handler ran and received the cron expression |
+| A namespace Worker reaching an ordinary Worker in the account by service binding, plain and to a named entrypoint | **Works**, both |
+| A queue producer in a namespace Worker | **Works** |
+| A service binding from one namespace Worker to another, by name | **Refused at upload**: "references Worker … which was not found" (code 10143). A binding's name is looked up among the account's ordinary Workers. Not yet tried: the upload API called directly, in case its service binding takes a namespace |
+| One namespace Worker reaching another through a `dispatch_namespace` binding of its own | **Works for `fetch` and for calls on the default export.** A named entrypoint cannot be chosen this way |
+| A queue consumer on a namespace Worker | **Not finished.** `wrangler deploy` did not attach it and `wrangler queues consumer add` refuses the script (code 10007, not on the account). The deploy engine's own call (`putQueueConsumer`) is not yet tried |
+| Workflows in a namespace Worker | **Not finished.** `wrangler deploy` did not create the Workflow, so starting one failed with "Workflow does not exist". Creating it through the API is not yet tried |
+
+What this means for the design:
+
+- **The namespace can hold a client's host.** The check that would have ruled it out, Worker
+  Loader, passed.
+- **The host's bindings to named entrypoints need a decision in step 2.** The web app's `HOST`
+  binding (`ClientApp`) and the runner's gatekeeper bindings (`GatekeeperVendor`) are named
+  entrypoints on another namespace Worker. Unless the upload API allows it directly, the choices
+  are:
+  - **Through a platform Worker.** Each host Worker binds to an entrypoint on `cos-fleet` (which
+    works), and `cos-fleet` passes the call to the one sibling that host is allowed to reach.
+    No host can name another client's Worker. Preferred.
+  - **A `dispatch_namespace` binding on the host's Workers,** with the entrypoints reached through
+    the default export. Simpler, but that binding can reach every Worker in the namespace, so one
+    client's host could call another's. Refused unless nothing else works.
+- **Crons need no fallback:** `cos-dispatch` calls `scheduled()` as designed.
+- **The Stream broker can be an ordinary service binding** to `cos-fleet`.
+
 ## Decided by this spec, open to override
 
 - **Client hosts keep their `product.ts` names** in the namespace; no `t…` tenant ids. A client id
