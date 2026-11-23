@@ -2,8 +2,10 @@
 // editor (title, body, tick label, how, who, for whom, a health form's questions), Publish (the
 // change against the newest version, small change or everyone agrees again, now or from a date),
 // where it is needed (attach and detach agreement points), its versions, and Retire. The host
-// decides everything: publishing names the hash of the copy shown here, so a copy changed
-// meanwhile (by the assistant drafting) is refused and shown again.
+// decides everything. The confirm step shows the exact snapshot publishPreview returned (every
+// field) and publishes that snapshot's hash and rev, so a copy changed meanwhile (the assistant
+// drafting) is refused. Publish waits for unsaved edits, and a copy someone else saved is never
+// swapped in silently: the page says who changed it and offers to load it.
 
 import type { CoreOutput } from "@composable-os/core";
 import {
@@ -31,12 +33,14 @@ import {
   SelectValue,
 } from "@composable-os/ui/components/select";
 import { Skeleton } from "@composable-os/ui/components/skeleton";
+import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { PlusIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { RichTextEditor } from "#/components/fields/rich-text-editor";
 import { PageLayout } from "#/components/layout/page-layout";
+import { AgreementBody } from "#/components/settings/agreement-body";
 import {
   CHANGE_LABELS,
   FOR_LABELS,
@@ -45,7 +49,8 @@ import {
   WHO_LABELS,
 } from "#/components/settings/agreement-labels";
 import { formatDateTime } from "#/lib/format";
-import { errorMessage, useOp, useOpMutation } from "#/lib/query";
+import { callOp } from "#/lib/operations";
+import { errorMessage, invalidateOps, useOp, useOpMutation } from "#/lib/query";
 
 export const Route = createFileRoute("/_app/settings/agreements/$id")({
   component: AgreementPage,
@@ -55,9 +60,22 @@ type Doc = CoreOutput<"agreement.get">;
 type Draft = Doc["draft"];
 type Question = NonNullable<Draft["questions"]>[number];
 
+const VIA_LABELS: Record<string, string> = {
+  human: "a person",
+  assistant: "the assistant",
+  mcp: "an MCP client",
+  automation: "an automation",
+  extension: "extension code",
+};
+
 function AgreementPage() {
   const { id } = Route.useParams();
   const doc = useOp("agreement.get", { id });
+  // Whether the editor holds edits not yet saved: Publish waits for them.
+  const [dirty, setDirty] = useState(false);
+  // The working copy's rev the editor shows (null until loaded): what a save and a publish are
+  // made against.
+  const [shownRev, setShownRev] = useState<number | null>(null);
   return (
     <PageLayout
       title={doc.data?.title ?? "Agreement"}
@@ -78,8 +96,26 @@ function AgreementPage() {
         <Skeleton className="h-64 w-full" />
       ) : (
         <>
-          {doc.data.state !== "retired" && <WorkingCopy doc={doc.data} />}
-          {doc.data.state !== "retired" && <Publish doc={doc.data} />}
+          {doc.data.state !== "retired" && (
+            <WorkingCopy
+              doc={doc.data}
+              onDirty={setDirty}
+              shownRev={shownRev}
+              onShownRev={setShownRev}
+            />
+          )}
+          {doc.data.state !== "retired" && (
+            <Publish
+              doc={doc.data}
+              blocked={
+                dirty
+                  ? "Save or discard your edits before publishing."
+                  : shownRev !== null && shownRev !== doc.data.draft.rev
+                    ? "Someone else changed the working copy: load it before publishing."
+                    : null
+              }
+            />
+          )}
           <Points doc={doc.data} />
           <Versions doc={doc.data} />
           {doc.data.state !== "retired" && <Retire doc={doc.data} />}
@@ -89,18 +125,47 @@ function AgreementPage() {
   );
 }
 
-function WorkingCopy({ doc }: { doc: Doc }) {
+function WorkingCopy({
+  doc,
+  onDirty,
+  shownRev,
+  onShownRev,
+}: {
+  doc: Doc;
+  onDirty: (dirty: boolean) => void;
+  shownRev: number | null;
+  onShownRev: (rev: number) => void;
+}) {
   const save = useOpMutation("agreement.draft.save", { invalidates: ["agreement."] });
   const [draft, setDraft] = useState<Draft>(doc.draft);
-  // Another save (the assistant's) moves the copy on: show it.
-  useEffect(() => setDraft(doc.draft), [doc.draft]);
+  const [dirty, setDirtyState] = useState(false);
+  // The editor is remounted to show a copy loaded from the server (never while editing).
+  const [editorKey, setEditorKey] = useState(0);
+  const setDirty = (value: boolean) => {
+    setDirtyState(value);
+    onDirty(value);
+  };
+  useEffect(() => {
+    if (shownRev === null) onShownRev(doc.draft.rev);
+  }, [shownRev, doc.draft.rev, onShownRev]);
   const health = doc.kind === "health";
-  const set = <K extends keyof Draft>(key: K, value: Draft[K]) =>
+  const set = <K extends keyof Draft>(key: K, value: Draft[K]) => {
     setDraft((d) => ({ ...d, [key]: value }));
+    setDirty(true);
+  };
+  // Someone else saved since this copy was loaded: say who, and never swap it silently.
+  const changedElsewhere = shownRev !== null && shownRev !== doc.draft.rev;
+  function loadNewest() {
+    setDraft(doc.draft);
+    setEditorKey((k) => k + 1);
+    onShownRev(doc.draft.rev);
+    setDirty(false);
+  }
   async function submit() {
     try {
-      await save.mutateAsync({
+      const saved = await save.mutateAsync({
         id: doc.id,
+        draftRev: shownRev ?? doc.draft.rev,
         title: draft.title,
         ...(draft.body ? { body: draft.body } : {}),
         tickLabel: draft.tickLabel?.trim() ? draft.tickLabel : null,
@@ -110,6 +175,8 @@ function WorkingCopy({ doc }: { doc: Doc }) {
         ...(health ? { questions: draft.questions?.length ? draft.questions : null } : {}),
         ...(health ? { askAgainMonths: draft.askAgainMonths } : {}),
       });
+      onShownRev(saved.rev);
+      setDirty(false);
       toast.success("Working copy saved");
     } catch (error) {
       toast.error(errorMessage(error));
@@ -121,8 +188,22 @@ function WorkingCopy({ doc }: { doc: Doc }) {
         <CardTitle>Working copy</CardTitle>
         <p className="text-muted-foreground text-sm">
           Saving changes no published version and asks nobody anything. Last saved{" "}
-          {formatDateTime(doc.draft.updatedAt)}.
+          {formatDateTime(doc.draft.updatedAt)} by {VIA_LABELS[doc.draft.updatedVia] ?? "someone"}.
         </p>
+        {changedElsewhere && (
+          <div
+            className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500 p-2 text-sm"
+            role="alert"
+            data-testid="draft-changed"
+          >
+            The working copy was changed by {VIA_LABELS[doc.draft.updatedVia] ?? "someone"} at{" "}
+            {formatDateTime(doc.draft.updatedAt)}, after you opened it. You are still looking at the
+            copy you opened.
+            <Button size="sm" variant="outline" onClick={loadNewest}>
+              {dirty ? "Discard my edits and load it" : "Load the newest copy"}
+            </Button>
+          </div>
+        )}
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-1">
@@ -136,8 +217,17 @@ function WorkingCopy({ doc }: { doc: Doc }) {
         </div>
         <div className="grid gap-1">
           <Label htmlFor="draft-body">The document</Label>
+          <p className="text-muted-foreground text-xs">
+            No pictures. A link must show its own address, and a linked page is not part of what a
+            person agrees to.
+          </p>
           <div className="rounded-md border">
-            <RichTextEditor id="draft-body" value={draft.body} onChange={(v) => set("body", v)} />
+            <RichTextEditor
+              key={editorKey}
+              id="draft-body"
+              value={draft.body}
+              onChange={(v) => set("body", v)}
+            />
           </div>
         </div>
         <div className="grid gap-1">
@@ -289,29 +379,44 @@ function Questions({
   );
 }
 
-function Publish({ doc }: { doc: Doc }) {
+type Preview = CoreOutput<"agreement.publishPreview">;
+
+function Publish({ doc, blocked }: { doc: Doc; blocked: string | null }) {
   const preview = useOp("agreement.publishPreview", { id: doc.id });
   const publish = useOpMutation("agreement.publish", { invalidates: ["agreement."] });
+  const client = useQueryClient();
   const [change, setChange] = useState<"small" | "agree_again">("small");
   const [when, setWhen] = useState("");
-  const [confirming, setConfirming] = useState(false);
+  // The exact snapshot the person confirms: read when they press Publish, and what is published.
+  const [reviewing, setReviewing] = useState<Preview | null>(null);
   const p = preview.data;
+  async function review() {
+    try {
+      setReviewing(await callOp("agreement.publishPreview", { id: doc.id }));
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
+  }
   async function confirm() {
-    if (!p) return;
+    const snapshot = reviewing;
+    if (!snapshot) return;
     try {
       const effectiveFrom = when ? new Date(when).toISOString() : undefined;
       const out = await publish.mutateAsync({
         documentId: doc.id,
         change,
-        draftHash: p.draftHash,
+        draftHash: snapshot.draftHash,
+        draftRev: snapshot.draftRev,
         ...(effectiveFrom ? { effectiveFrom } : {}),
       });
       toast.success(`Version ${out.version.number} published`);
       setWhen("");
     } catch (error) {
       toast.error(errorMessage(error));
+      // Show what changed (and who changed it) instead of a stale copy.
+      await invalidateOps(client, "agreement.");
     } finally {
-      setConfirming(false);
+      setReviewing(null);
     }
   }
   return (
@@ -366,22 +471,29 @@ function Publish({ doc }: { doc: Doc }) {
                 onChange={(e) => setWhen(e.target.value)}
               />
             </div>
-            <Button onClick={() => setConfirming(true)} disabled={publish.isPending}>
+            {blocked && (
+              <p className="text-sm text-amber-700" role="note" data-testid="publish-blocked">
+                {blocked}
+              </p>
+            )}
+            <Button onClick={review} disabled={publish.isPending || blocked !== null}>
               Publish version {p.number}
             </Button>
           </>
         )}
       </CardContent>
-      <AlertDialog open={confirming} onOpenChange={setConfirming}>
-        <AlertDialogContent>
+      <AlertDialog open={reviewing !== null} onOpenChange={(open) => !open && setReviewing(null)}>
+        <AlertDialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
           <AlertDialogHeader>
-            <AlertDialogTitle>Publish version {p?.number}?</AlertDialogTitle>
+            <AlertDialogTitle>Publish version {reviewing?.number}?</AlertDialogTitle>
             <AlertDialogDescription>
-              {p?.first ? CHANGE_LABELS.first : CHANGE_LABELS[change]},{" "}
-              {when ? `from ${formatDateTime(new Date(when).toISOString())}` : "now"}. It cannot be
-              changed or withdrawn afterwards.
+              This is exactly what will be published:{" "}
+              {reviewing?.first ? CHANGE_LABELS.first : CHANGE_LABELS[change]},{" "}
+              {when ? `taking effect ${formatDateTime(new Date(when).toISOString())}` : "now"}. It
+              cannot be changed or withdrawn afterwards.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {reviewing && <Snapshot preview={reviewing} />}
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={confirm}>Publish</AlertDialogAction>
@@ -389,6 +501,43 @@ function Publish({ doc }: { doc: Doc }) {
         </AlertDialogContent>
       </AlertDialog>
     </Card>
+  );
+}
+
+/** Every field the version will hold, as `publishPreview` returned it. */
+function Snapshot({ preview }: { preview: Preview }) {
+  const s = preview.snapshot;
+  const row = (label: string, value: string) => (
+    <div className="grid grid-cols-[10rem_1fr] gap-2">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd>{value}</dd>
+    </div>
+  );
+  return (
+    <div className="space-y-3 rounded-md border p-3" data-testid="publish-snapshot">
+      <p className="font-semibold">{s.title}</p>
+      <AgreementBody value={s.body} />
+      <dl className="space-y-1 text-sm">
+        {row("Beside the box", s.tickLabel ?? "")}
+        {row("How a person agrees", HOW_LABELS[s.how] ?? s.how)}
+        {row("Who agrees", WHO_LABELS[s.who] ?? s.who)}
+        {row("For whom", FOR_LABELS[s.forWhom] ?? s.forWhom)}
+        {s.kind === "health" &&
+          row("Asked again after", s.askAgainMonths ? `${s.askAgainMonths} months` : "never")}
+        {!preview.first &&
+          row("Changed", preview.changed.length ? preview.changed.join(", ") : "nothing")}
+      </dl>
+      {s.questions?.length ? (
+        <ol className="list-decimal pl-5 text-sm">
+          {s.questions.map((q) => (
+            <li key={q.key}>
+              {q.text}
+              {q.noteOnYes ? " (a yes asks for a note)" : ""}
+            </li>
+          ))}
+        </ol>
+      ) : null}
+    </div>
   );
 }
 
@@ -453,12 +602,15 @@ function Versions({ doc }: { doc: Doc }) {
                 <span className="font-medium">Version {v.number}</span>
                 <span>{CHANGE_LABELS[v.change]}</span>
                 <span className="text-muted-foreground">
-                  {v.id === doc.current?.id
+                  {v.status === "in_effect"
                     ? "in effect"
-                    : v.effectiveFrom > new Date().toISOString()
+                    : v.status === "scheduled"
                       ? `from ${formatDateTime(v.effectiveFrom)}`
-                      : `from ${formatDateTime(v.effectiveFrom)}, replaced`}
+                      : v.status === "replaced"
+                        ? `from ${formatDateTime(v.effectiveFrom)}, replaced`
+                        : "never in force (cancelled)"}
                 </span>
+                {!v.intact && <Badge variant="destructive">does not match its hash</Badge>}
                 <span className="text-muted-foreground">
                   published {formatDateTime(v.publishedAt)}
                 </span>

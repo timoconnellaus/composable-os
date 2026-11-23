@@ -9,7 +9,7 @@ export {
   AGREEMENT_HOW,
   AGREEMENT_WHO,
   agreementPoints,
-  shownHash,
+  versionHash,
 } from "./agreements/documents.ts";
 export { runAgreementsDue } from "./agreements/schedule.ts";
 export * from "./ai/admin.ts";

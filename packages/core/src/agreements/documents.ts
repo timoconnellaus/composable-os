@@ -17,11 +17,25 @@ export const AGREEMENT_WHO = ["participant", "payer"] as const;
 export const AGREEMENT_FOR = ["everyone", "dependants"] as const;
 export const AGREEMENT_CHANGES = ["first", "small", "agree_again"] as const;
 
-/** A document body: rich text (ADR 0440) without blocks a signed copy cannot hold. */
+/**
+ * A document body: rich text (ADR 0440) without what the hash or the signed copy cannot pin: an
+ * embed or a button (the copy cannot show them) and a picture (it can be deleted from the media
+ * library later, and the hash covers only its id). A link is allowed only when its text is its
+ * own address, so every rendering shows where it goes; the linked page is not part of what a
+ * person agrees to.
+ */
 export const BODY_MAX_BYTES = 131_072;
-const BODY_BLOCKS_REFUSED = new Set(["embed", "button"]);
+const BODY_BLOCKS_REFUSED = new Set(["embed", "button", "image"]);
 
-/** A single line a person reads: no control characters. */
+/** Zero-width characters: nothing a person sees. */
+const ZERO_WIDTH = /[​-‍⁠﻿]/g;
+/** Bidirectional overrides and isolates: they make a text read differently from what it holds. */
+const BIDI_CONTROLS = /[‪-‮⁦-⁩]/;
+
+/** Whether a string has something a person can read. */
+const visible = (value: string) => /\S/.test(value.replace(ZERO_WIDTH, ""));
+
+/** A single line a person reads: no control characters, no bidi controls, not empty to the eye. */
 const line = (max: number) =>
   z
     .string()
@@ -29,10 +43,31 @@ const line = (max: number) =>
     .min(1)
     .max(max)
     // biome-ignore lint/suspicious/noControlCharactersInRegex: refusing control characters is the point.
-    .refine((value) => !/[\u0000-\u001f\u007f]/.test(value), "No control characters");
+    .refine((value) => !/[\u0000-\u001f\u007f]/.test(value), "No control characters")
+    .refine((value) => !BIDI_CONTROLS.test(value), "No bidirectional control characters")
+    .refine(visible, "Nothing a person could read");
 
 export const titleSchema = line(200);
 export const tickLabelSchema = line(500);
+
+/** Every string in a body, with its path, and every text run. */
+function walk(
+  value: unknown,
+  path: (string | number)[],
+  onString: (text: string, path: (string | number)[]) => void,
+  onRun: (run: { text: string; href?: string }, path: (string | number)[]) => void,
+): void {
+  if (typeof value === "string") onString(value, path);
+  else if (Array.isArray(value)) {
+    for (const [i, v] of value.entries()) walk(v, [...path, i], onString, onRun);
+  } else if (value && typeof value === "object") {
+    const node = value as Record<string, unknown>;
+    if (node.type === "text" && typeof node.text === "string") {
+      onRun(node as { text: string; href?: string }, path);
+    }
+    for (const [k, v] of Object.entries(node)) walk(v, [...path, k], onString, onRun);
+  }
+}
 
 export const bodySchema = z.unknown().superRefine((value, ctx) => {
   const result = validateDocument(RICH_TEXT_SCHEMA, value, { maxBytes: BODY_MAX_BYTES });
@@ -48,10 +83,28 @@ export const bodySchema = z.unknown().superRefine((value, ctx) => {
       ctx.addIssue({
         code: "custom",
         path: ["blocks", i, "type"],
-        message: `A document cannot hold a ${block.type}: the signed copy could not show it`,
+        message: `A document cannot hold a ${block.type}: the signed copy could not pin it`,
       });
     }
   });
+  walk(
+    value,
+    [],
+    (text, path) => {
+      if (BIDI_CONTROLS.test(text)) {
+        ctx.addIssue({ code: "custom", path, message: "No bidirectional control characters" });
+      }
+    },
+    (run, path) => {
+      if (run.href !== undefined && run.text.trim() !== run.href) {
+        ctx.addIssue({
+          code: "custom",
+          path: [...path, "text"],
+          message: "A link's text must be its own address, so the person sees where it goes",
+        });
+      }
+    },
+  );
 });
 
 /** A health form's question (stage 44): yes or no, and whether a "yes" asks for a note. */
@@ -70,10 +123,19 @@ export const questionsSchema = z
   .refine((qs) => new Set(qs.map((q) => q.key)).size === qs.length, "Each key once");
 export type Question = z.infer<typeof questionSchema>;
 
-/** Whether a body holds any words a person can read. */
+/** Whether a body holds any words a person can read (zero-width characters are not words). */
 export function bodyHasText(value: unknown): boolean {
   if (value === null || value === undefined) return false;
-  return /"text":"[^"]*\S/.test(JSON.stringify(value));
+  let found = false;
+  walk(
+    value,
+    [],
+    () => {},
+    (run) => {
+      if (visible(run.text)) found = true;
+    },
+  );
+  return found;
 }
 
 /** JSON with every object's keys sorted, so the same content always hashes the same. */
@@ -86,22 +148,36 @@ export function canonicalJson(value: unknown): string {
   return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(",")}}`;
 }
 
-/** What a person is shown of a version, as hashed (title, body, tick label, questions). */
-export interface Shown {
+/**
+ * Everything that becomes part of a version (ADR 0610 as amended): what a person is shown and
+ * every term of how it applies. The hash covers all of it, so a publish of a reviewed hash cannot
+ * carry a change to who agrees, for whom, how, or when a health form is asked again.
+ */
+export interface VersionContent {
+  kind: string;
   title: string;
   body: unknown;
   tickLabel: string | null;
   questions: Question[] | null;
+  how: string;
+  who: string;
+  forWhom: string;
+  askAgainMonths: number | null;
 }
 
-/** SHA-256 (hex) of the canonical JSON of what a person is shown. */
-export async function shownHash(shown: Shown): Promise<string> {
+/** SHA-256 (hex) of the canonical JSON of a version's whole content. */
+export async function versionHash(content: VersionContent): Promise<string> {
   const bytes = new TextEncoder().encode(
     canonicalJson({
-      title: shown.title,
-      body: shown.body ?? null,
-      tickLabel: shown.tickLabel ?? null,
-      questions: shown.questions ?? null,
+      kind: content.kind,
+      title: content.title,
+      body: content.body ?? null,
+      tickLabel: content.tickLabel ?? null,
+      questions: content.questions ?? null,
+      how: content.how,
+      who: content.who,
+      forWhom: content.forWhom,
+      askAgainMonths: content.askAgainMonths ?? null,
     }),
   );
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));

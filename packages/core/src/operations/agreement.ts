@@ -29,10 +29,10 @@ import {
   inEffect,
   type Question,
   questionsSchema,
-  shownHash,
   tickLabelSchema,
   titleSchema,
   type VersionTiming,
+  versionHash,
 } from "../agreements/documents.ts";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
 import { newId } from "../ids.ts";
@@ -50,7 +50,9 @@ const documentSummary = z.object({
   state: z.enum(["draft", "live", "retired"]),
   title: z.string().describe("The current version's title, or the working copy's before one"),
   current: versionRef.describe("The version in effect now"),
-  scheduled: versionRef.describe("A published version that takes effect later"),
+  scheduled: versionRef.describe(
+    "A published version that takes effect later (never for a retired document: it never will)",
+  ),
   agreeFrom: z.number().describe("Acceptances of versions numbered below this stop counting"),
   points: z.array(z.string()).describe("The agreement points it is attached to"),
   draftUpdatedAt: z.string(),
@@ -68,10 +70,11 @@ const draftSchema = z.object({
   who: z.enum(AGREEMENT_WHO),
   forWhom: z.enum(AGREEMENT_FOR),
   askAgainMonths: z.number().nullable(),
-  rev: z.number(),
+  rev: z.number().describe("Bumped by every save; publish and a careful save name it"),
   updatedAt: z.string(),
   updatedBy: z.string(),
-  hash: z.string().describe("Hash of what a person would be shown; publish names it"),
+  updatedVia: z.string().describe("The actor of the last save: human, assistant, mcp, …"),
+  hash: z.string().describe("Hash of everything a version made from it would hold"),
 });
 
 const versionSchema = z.object({
@@ -91,7 +94,12 @@ const versionSchema = z.object({
   publishedAt: z.string(),
   publishedBy: z.string(),
   hash: z.string(),
+  intact: z
+    .boolean()
+    .describe("The hash recomputed from the stored content matches: false means tampering"),
 });
+
+const VERSION_STATUSES = ["in_effect", "replaced", "scheduled", "never_in_force"] as const;
 
 type DocumentRow = {
   id: string;
@@ -108,6 +116,7 @@ type DocumentRow = {
   draft_rev: number;
   draft_updated_at: string;
   draft_updated_by: string;
+  draft_updated_via: string;
   current_version_id: string | null;
   agree_from: number;
   created_at: string;
@@ -182,7 +191,9 @@ function summarise(
   now: string,
 ): z.infer<typeof documentSummary> {
   const current = versions.find((v) => v.id === doc.current_version_id);
-  const scheduled = versions.filter((v) => v.effective_from > now).at(-1);
+  // A retired document's scheduled version never takes effect (the cron reads live ones only).
+  const scheduled =
+    doc.state === "retired" ? undefined : versions.filter((v) => v.effective_from > now).at(-1);
   return {
     id: doc.id,
     kind: doc.kind,
@@ -200,7 +211,7 @@ function summarise(
 async function draftOf(doc: DocumentRow): Promise<z.infer<typeof draftSchema>> {
   const body = parse<unknown>(doc.draft_body);
   const questions = parse<Question[]>(doc.draft_questions);
-  return {
+  const content = {
     title: doc.draft_title,
     body,
     tickLabel: doc.draft_tick_label,
@@ -209,20 +220,53 @@ async function draftOf(doc: DocumentRow): Promise<z.infer<typeof draftSchema>> {
     who: doc.draft_who,
     forWhom: doc.draft_for,
     askAgainMonths: doc.draft_ask_again_months,
+  };
+  return {
+    ...content,
     rev: doc.draft_rev,
     updatedAt: doc.draft_updated_at,
     updatedBy: doc.draft_updated_by,
-    hash: await shownHash({
-      title: doc.draft_title,
-      body,
-      tickLabel: doc.draft_tick_label,
-      questions,
-    }),
+    updatedVia: doc.draft_updated_via,
+    hash: await versionHash({ kind: doc.kind, ...content }),
   };
 }
 
-function toVersion(v: VersionRow): z.infer<typeof versionSchema> {
+/** Recomputes a stored version's hash from its own content (ADR 0610: reads that matter check). */
+async function intact(v: VersionRow, kind: string): Promise<boolean> {
+  return (
+    (await versionHash({
+      kind,
+      title: v.title,
+      body: JSON.parse(v.body),
+      tickLabel: v.tick_label,
+      questions: parse<Question[]>(v.questions),
+      how: v.how,
+      who: v.who,
+      forWhom: v.for_whom,
+      askAgainMonths: v.ask_again_months,
+    })) === v.hash
+  );
+}
+
+function statusOf(
+  v: VersionRow,
+  doc: DocumentRow,
+  versions: VersionRow[],
+  now: string,
+): (typeof VERSION_STATUSES)[number] {
+  if (v.id === doc.current_version_id) return "in_effect";
+  if (v.effective_from > now) return doc.state === "retired" ? "never_in_force" : "scheduled";
+  const current = versions.find((c) => c.id === doc.current_version_id);
+  // Replaced before it took effect by a newer one at the same moment, or retired first.
+  if (current && current.number > v.number && v.effective_from >= current.effective_from) {
+    return "never_in_force";
+  }
+  return current && current.number > v.number ? "replaced" : "never_in_force";
+}
+
+function toVersion(v: VersionRow, isIntact: boolean): z.infer<typeof versionSchema> {
   return {
+    intact: isIntact,
     id: v.id,
     documentId: v.document_id,
     number: v.number,
@@ -251,6 +295,12 @@ function publishProblems(doc: DocumentRow): string[] {
   if (doc.kind === "health" && !doc.draft_questions) problems.push("A health form needs questions");
   return problems;
 }
+
+const draftChanged = () =>
+  new ConflictError(
+    "The working copy changed since you reviewed it (someone else saved it). Look at it again before publishing or saving.",
+    { rule: "agreement_draft_changed" },
+  );
 
 function refuseRetired(doc: DocumentRow): void {
   if (doc.state === "retired") {
@@ -308,7 +358,11 @@ export const agreementGet = defineOperation({
   input: z.object({ id: documentId }),
   output: documentSummary.extend({
     draft: draftSchema,
-    versions: z.array(versionSchema.omit({ body: true, questions: true })),
+    versions: z.array(
+      versionSchema
+        .omit({ body: true, questions: true })
+        .extend({ status: z.enum(VERSION_STATUSES) }),
+    ),
   }),
   permission: "records:read",
   risk: "read",
@@ -320,12 +374,18 @@ export const agreementGet = defineOperation({
     return {
       ...summarise(doc, versions, points, ctx.now),
       draft: await draftOf(doc),
-      versions: versions
-        .map((v) => {
-          const { body: _body, questions: _questions, ...rest } = toVersion(v);
-          return rest;
-        })
-        .reverse(),
+      versions: (
+        await Promise.all(
+          versions.map(async (v) => {
+            const {
+              body: _body,
+              questions: _questions,
+              ...rest
+            } = toVersion(v, await intact(v, doc.kind));
+            return { ...rest, status: statusOf(v, doc, versions, ctx.now) };
+          }),
+        )
+      ).reverse(),
     };
   },
 });
@@ -348,7 +408,8 @@ export const agreementVersionGet = defineOperation({
       .where("id", "=", input.id)
       .executeTakeFirst();
     if (!row) throw new NotFoundError("agreement version", input.id);
-    return toVersion(row as VersionRow);
+    const doc = await loadDocument(ctx, row.document_id);
+    return toVersion(row as VersionRow, await intact(row as VersionRow, doc.kind));
   },
 });
 
@@ -398,6 +459,7 @@ export const agreementCreate = defineOperation({
         draft_title: input.title,
         draft_updated_at: ctx.now,
         draft_updated_by: ctx.user.id,
+        draft_updated_via: ctx.actor,
         created_at: ctx.now,
         created_by: ctx.user.id,
       }),
@@ -414,9 +476,12 @@ export const agreementDraftSave = defineOperation({
     "agrees (the participant or the payer), for whom (everyone, or only a dependant), and for a " +
     "health form its questions and after how many months it is asked again. Only what is given " +
     "changes. It changes no published version and nothing anyone is asked: a person publishes. " +
-    "The assistant may write it for someone who holds agreements:manage.",
+    "draftRev, when given, is the copy's rev the change was made against: a copy saved by " +
+    "someone else since is refused. Two saves of the same rev never both apply. The assistant " +
+    "may write it for someone who holds agreements:manage.",
   input: z.object({
     id: documentId,
+    draftRev: z.number().int().min(0).optional(),
     title: titleSchema.optional(),
     body: bodySchema.optional(),
     tickLabel: tickLabelSchema.nullable().optional(),
@@ -432,6 +497,9 @@ export const agreementDraftSave = defineOperation({
   async handler(input, ctx) {
     const doc = await loadDocument(ctx, input.id);
     refuseRetired(doc);
+    if (input.draftRev !== undefined && input.draftRev !== doc.draft_rev) {
+      throw draftChanged();
+    }
     if (doc.kind !== "health" && (input.questions || input.askAgainMonths)) {
       throw new ValidationError("Only a health form has questions and asks again", {
         rule: "agreement_questions",
@@ -454,6 +522,7 @@ export const agreementDraftSave = defineOperation({
       draft_rev: doc.draft_rev + 1,
       draft_updated_at: ctx.now,
       draft_updated_by: ctx.user.id,
+      draft_updated_via: ctx.actor,
     };
     ctx.write(
       ctx.db
@@ -467,9 +536,12 @@ export const agreementDraftSave = defineOperation({
           draft_for: next.draft_for,
           draft_questions: next.draft_questions,
           draft_ask_again_months: next.draft_ask_again_months,
+          // Compare-and-set: the trigger refuses anything but the stored rev plus one, so of two
+          // saves of the same rev only the first applies (migration 0790).
           draft_rev: next.draft_rev,
           draft_updated_at: ctx.now,
           draft_updated_by: ctx.user.id,
+          draft_updated_via: ctx.actor,
         })
         .where("id", "=", doc.id),
     );
@@ -477,19 +549,33 @@ export const agreementDraftSave = defineOperation({
   },
 });
 
+/** The fields of a version, as the preview compares them with the newest one. */
+const COMPARED = [
+  "title",
+  "body",
+  "tickLabel",
+  "questions",
+  "how",
+  "who",
+  "forWhom",
+  "askAgainMonths",
+] as const;
+
 export const agreementPublishPreview = defineOperation({
   name: "agreement.publishPreview",
   description:
-    "What publishing an agreement document's working copy would make: the version number, " +
-    "whether it is the first, what changed against the newest version (title, body, tick label, " +
-    "questions, how, who, for whom), the working copy's hash to pass to agreement.publish, and " +
-    "why it cannot be published yet if it cannot. Read-only.",
+    "What publishing an agreement document's working copy would make: the exact snapshot (every " +
+    "field a version holds), its number, whether it is the first, which fields changed against " +
+    "the newest version, the hash and rev to pass to agreement.publish, and why it cannot be " +
+    "published yet if it cannot. Read-only.",
   input: z.object({ id: documentId }),
   output: z.object({
     number: z.number(),
     first: z.boolean(),
-    changed: z.array(z.string()),
+    changed: z.array(z.enum(COMPARED)),
+    snapshot: draftSchema.extend({ kind: z.enum(AGREEMENT_KINDS) }),
     draftHash: z.string(),
+    draftRev: z.number(),
     latest: versionSchema.nullable(),
     problems: z.array(z.string()),
   }),
@@ -500,28 +586,19 @@ export const agreementPublishPreview = defineOperation({
     const doc = await loadDocument(ctx, input.id);
     const draft = await draftOf(doc);
     const latestRow = (await versionsOf(ctx, doc.id)).at(-1);
-    const latest = latestRow ? toVersion(latestRow) : null;
-    const changed: string[] = [];
-    if (latest) {
-      const pairs: [string, unknown, unknown][] = [
-        ["title", draft.title, latest.title],
-        ["body", draft.body, latest.body],
-        ["tickLabel", draft.tickLabel, latest.tickLabel],
-        ["questions", draft.questions, latest.questions],
-        ["how", draft.how, latest.how],
-        ["who", draft.who, latest.who],
-        ["forWhom", draft.forWhom, latest.forWhom],
-        ["askAgainMonths", draft.askAgainMonths, latest.askAgainMonths],
-      ];
-      for (const [name, a, b] of pairs) {
-        if (JSON.stringify(a ?? null) !== JSON.stringify(b ?? null)) changed.push(name);
-      }
-    }
+    const latest = latestRow ? toVersion(latestRow, await intact(latestRow, doc.kind)) : null;
+    const changed = latest
+      ? COMPARED.filter(
+          (field) => JSON.stringify(draft[field] ?? null) !== JSON.stringify(latest[field] ?? null),
+        )
+      : [];
     return {
       number: (latest?.number ?? 0) + 1,
       first: !latest,
       changed,
+      snapshot: { ...draft, kind: doc.kind },
       draftHash: draft.hash,
+      draftRev: doc.draft_rev,
       latest,
       problems: publishProblems(doc),
     };
@@ -534,16 +611,15 @@ export const agreementPublish = defineOperation({
     "Publish an agreement document's working copy as its next version, which nobody can change " +
     "afterwards. change: small (earlier acceptances still count) or agree_again (everyone must " +
     "agree to this version before their next booking or purchase); a first version is first. " +
-    "effectiveFrom (left out: now) schedules it; it cannot be in the past or before the newest " +
-    "version's, and a published version cannot be withdrawn. draftHash is the working copy's hash " +
-    "the person reviewed (agreement.publishPreview): a copy changed since is refused. Only a " +
-    "person on the staff with agreements:manage can do this: never the assistant, an MCP client " +
-    "or code. Audited.",
+    "effectiveFrom (left out: now) schedules it; never in the past or before the newest " +
+    "version's, and never withdrawn. draftHash and draftRev are the preview's: a copy changed " +
+    "since in any field is refused. A person on the staff with agreements:manage only. Audited.",
   input: z.object({
     documentId,
     change: z.enum(["small", "agree_again"]),
     effectiveFrom: z.string().datetime({ offset: true }).optional(),
     draftHash: z.string().regex(/^[0-9a-f]{64}$/),
+    draftRev: z.number().int().min(0),
   }),
   output: z.object({ document: documentSummary, version: versionSchema }),
   permission: "agreements:manage",
@@ -555,6 +631,7 @@ export const agreementPublish = defineOperation({
     versionId: output.version.id,
     number: output.version.number,
     change: output.version.change,
+    hash: output.version.hash,
   }),
   async handler(input, ctx) {
     // Belt and braces: the pipeline refused every other actor before the gate (`actors`).
@@ -562,12 +639,7 @@ export const agreementPublish = defineOperation({
     const doc = await loadDocument(ctx, input.documentId);
     refuseRetired(doc);
     const draft = await draftOf(doc);
-    if (draft.hash !== input.draftHash) {
-      throw new ConflictError(
-        "The working copy changed since you reviewed it. Look at it again before publishing.",
-        { rule: "agreement_draft_changed" },
-      );
-    }
+    if (draft.hash !== input.draftHash || doc.draft_rev !== input.draftRev) throw draftChanged();
     const problems = publishProblems(doc);
     if (problems.length) {
       throw new ValidationError(`This document cannot be published yet: ${problems.join("; ")}`, {
@@ -591,27 +663,27 @@ export const agreementPublish = defineOperation({
         { rule: "agreement_effective_order" },
       );
     }
-    const number = (latest?.number ?? 0) + 1;
+    // The stored working copy's own columns, unchanged: the insert trigger compares each of them
+    // with the document's at commit, so the version holds exactly the copy at input.draftRev.
     const row: VersionRow = {
       id: newId("agreementVersion"),
       document_id: doc.id,
-      number,
-      title: draft.title,
-      body: JSON.stringify(draft.body),
-      tick_label: draft.tickLabel ?? "",
-      questions: doc.kind === "health" ? doc.draft_questions : null,
-      how: draft.how,
-      who: draft.who,
-      for_whom: draft.forWhom,
-      ask_again_months: doc.kind === "health" ? draft.askAgainMonths : null,
+      number: (latest?.number ?? 0) + 1,
+      title: doc.draft_title,
+      body: doc.draft_body ?? "null",
+      tick_label: doc.draft_tick_label ?? "",
+      questions: doc.draft_questions,
+      how: doc.draft_how,
+      who: doc.draft_who,
+      for_whom: doc.draft_for,
+      ask_again_months: doc.draft_ask_again_months,
       change: latest ? input.change : "first",
       effective_from: effectiveFrom,
       published_at: ctx.now,
       published_by: ctx.user.id,
-      draft_rev: doc.draft_rev,
+      draft_rev: input.draftRev,
       hash: draft.hash,
     };
-    // The trigger refuses the row unless the working copy is still the one read (draft_rev).
     ctx.write(ctx.db.insertInto("core_agreement_version").values(row));
     const timing: VersionTiming[] = [...versions, row];
     const effect = inEffect(timing, ctx.now);
@@ -635,7 +707,7 @@ export const agreementPublish = defineOperation({
     const points = (await pointsOf(ctx, [doc.id])).get(doc.id) ?? [];
     return {
       document: summarise(next, [...versions, row], points, ctx.now),
-      version: toVersion(row),
+      version: toVersion(row, true),
     };
   },
 });
@@ -665,6 +737,14 @@ export const agreementAttach = defineOperation({
       throw new ConflictError("Publish the document before attaching it.", {
         rule: "agreement_not_live",
       });
+    }
+    // Attached means in force there: a document whose only version is still scheduled is refused
+    // until that version takes effect.
+    if (!doc.current_version_id) {
+      throw new ConflictError(
+        "No version of this document is in force yet: attach it once its first version takes effect.",
+        { rule: "agreement_not_in_force" },
+      );
     }
     const declared = new Set(agreementPoints().map((p) => p.point));
     const unknown = input.points.filter((p) => !declared.has(p));

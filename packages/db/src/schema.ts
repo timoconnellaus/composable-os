@@ -1058,6 +1058,7 @@ export interface CoreAgreementDocumentTable {
   draft_rev: Defaulted<number>;
   draft_updated_at: string;
   draft_updated_by: string;
+  draft_updated_via: Defaulted<string>;
   current_version_id: Defaulted<string | null>;
   agree_from: Defaulted<number>;
   created_at: string;

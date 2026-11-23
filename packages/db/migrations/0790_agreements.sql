@@ -29,6 +29,9 @@ CREATE TABLE core_agreement_document (
   draft_rev INTEGER NOT NULL DEFAULT 0,
   draft_updated_at TEXT NOT NULL,
   draft_updated_by TEXT NOT NULL,
+  -- The actor of the last save (human, assistant, mcp, …): the editor says when someone else,
+  -- the assistant above all, changed the copy a person is looking at.
+  draft_updated_via TEXT NOT NULL DEFAULT 'human',
   -- The version in effect now (empty until the first takes effect), and the version number from
   -- which acceptances count (0 until then).
   current_version_id TEXT,
@@ -68,6 +71,10 @@ CREATE INDEX core_agreement_version_due_idx ON core_agreement_version (effective
 
 -- Nobody changes or deletes a published version: not an operation, not host code, not a
 -- migration's later statement. Refused in the database.
+--
+-- D1 runs with recursive triggers off, so the rows an INSERT OR REPLACE deletes fire no delete
+-- trigger: every table here also refuses an insert whose key already exists (a REPLACE is an
+-- insert), so a REPLACE cannot get round the delete triggers.
 CREATE TRIGGER core_agreement_version_no_update
 BEFORE UPDATE ON core_agreement_version
 BEGIN
@@ -80,15 +87,27 @@ BEGIN
   SELECT RAISE(ABORT, 'core_agreement_version_immutable');
 END;
 
--- A version is made only from the working copy as it is at commit (the person reviewed that one),
--- of a document that is not retired, and numbered next.
+-- A version is made only from the working copy as it is at commit (the person reviewed that
+-- one, by its rev), of a document that is not retired, numbered next, and holding exactly the
+-- copy's content, field by field. SQLite has no SHA-256, so the hash itself is the host's: every
+-- read of a version recomputes it from the stored content (`intact`, ADR 0610).
 CREATE TRIGGER core_agreement_version_from_draft
 BEFORE INSERT ON core_agreement_version
 BEGIN
   SELECT CASE
+    WHEN EXISTS (SELECT 1 FROM core_agreement_version v WHERE v.id = NEW.id)
+      THEN RAISE(ABORT, 'core_agreement_version_immutable')
     WHEN NOT EXISTS (
       SELECT 1 FROM core_agreement_document d
       WHERE d.id = NEW.document_id AND d.draft_rev = NEW.draft_rev AND d.state != 'retired'
+        AND d.draft_title = NEW.title
+        AND d.draft_body IS NEW.body
+        AND d.draft_tick_label IS NEW.tick_label
+        AND d.draft_questions IS NEW.questions
+        AND d.draft_how = NEW.how
+        AND d.draft_who = NEW.who
+        AND d.draft_for = NEW.for_whom
+        AND d.draft_ask_again_months IS NEW.ask_again_months
     )
       THEN RAISE(ABORT, 'core_agreement_draft_changed')
     WHEN NEW.number != 1 + COALESCE(
@@ -97,16 +116,53 @@ BEGIN
   END;
 END;
 
--- A document's current version is one of its own, and agree_from never goes back.
+-- A new document starts as a draft with nothing in effect, and never over an existing id.
+CREATE TRIGGER core_agreement_document_new
+BEFORE INSERT ON core_agreement_document
+BEGIN
+  SELECT CASE
+    WHEN EXISTS (SELECT 1 FROM core_agreement_document d WHERE d.id = NEW.id)
+      THEN RAISE(ABORT, 'core_agreement_version_immutable')
+    WHEN NEW.state != 'draft' OR NEW.current_version_id IS NOT NULL OR NEW.agree_from != 0
+      OR NEW.draft_rev != 0
+      THEN RAISE(ABORT, 'core_agreement_document_new')
+  END;
+END;
+
+-- The working copy's rev moves by exactly one per save: of two saves of the same rev, the second
+-- is refused (compare-and-set).
+CREATE TRIGGER core_agreement_document_draft_rev
+BEFORE UPDATE OF draft_rev ON core_agreement_document
+WHEN NEW.draft_rev != OLD.draft_rev + 1
+BEGIN
+  SELECT RAISE(ABORT, 'core_agreement_draft_changed');
+END;
+
+-- The kind is fixed; the state only moves forward (draft to live or retired, live to retired).
+CREATE TRIGGER core_agreement_document_kind_state
+BEFORE UPDATE OF kind, state ON core_agreement_document
+WHEN NEW.kind != OLD.kind OR (OLD.state = 'live' AND NEW.state = 'draft')
+BEGIN
+  SELECT RAISE(ABORT, 'core_agreement_document_fixed');
+END;
+
+-- A document's current version is one of its own, only ever a newer one, never back to none;
+-- and agree_from never goes back.
 CREATE TRIGGER core_agreement_document_current
 BEFORE UPDATE OF current_version_id, agree_from ON core_agreement_document
 BEGIN
   SELECT CASE
     WHEN NEW.agree_from < OLD.agree_from
       THEN RAISE(ABORT, 'core_agreement_agree_from_back')
-    WHEN NEW.current_version_id IS NOT NULL AND NOT EXISTS (
+    WHEN NEW.current_version_id IS OLD.current_version_id
+      THEN NULL
+    WHEN NEW.current_version_id IS NULL
+      THEN RAISE(ABORT, 'core_agreement_agree_from_back')
+    WHEN NOT EXISTS (
       SELECT 1 FROM core_agreement_version v
       WHERE v.id = NEW.current_version_id AND v.document_id = NEW.id
+        AND v.number > COALESCE(
+          (SELECT o.number FROM core_agreement_version o WHERE o.id = OLD.current_version_id), 0)
     )
       THEN RAISE(ABORT, 'core_agreement_agree_from_back')
   END;
@@ -158,6 +214,13 @@ INSERT INTO core_agreement_rev (id, rev) VALUES (1, 0);
 CREATE TRIGGER core_agreement_rev_forward
 BEFORE UPDATE ON core_agreement_rev
 WHEN NEW.rev <= OLD.rev OR NEW.id != OLD.id
+BEGIN
+  SELECT RAISE(ABORT, 'core_agreement_rev_back');
+END;
+
+-- Its one row is the one above: no other insert (a REPLACE included, which would reset it).
+CREATE TRIGGER core_agreement_rev_no_insert
+BEFORE INSERT ON core_agreement_rev
 BEGIN
   SELECT RAISE(ABORT, 'core_agreement_rev_back');
 END;

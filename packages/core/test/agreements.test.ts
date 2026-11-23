@@ -86,12 +86,27 @@ async function draftDocument(
   return { id: id as string, hash: saved.hash as string };
 }
 
-const publish = (
+/** The working copy's rev now (a publish names the rev it reviewed, as well as the hash). */
+const draftRev = async (id: string) =>
+  (await invoke("agreement.get", { id }, context(admin))).draft.rev as number;
+
+const publish = async (
   documentId: string,
   draftHash: string,
   extra: Record<string, unknown> = {},
   ctx: InvocationContext = context(admin),
-) => invoke("agreement.publish", { documentId, draftHash, change: "small", ...extra }, ctx);
+) =>
+  invoke(
+    "agreement.publish",
+    {
+      documentId,
+      draftHash,
+      draftRev: await draftRev(documentId),
+      change: "small",
+      ...extra,
+    },
+    ctx,
+  );
 
 const AI_ACTORS: {
   actor: Actor;
@@ -205,7 +220,7 @@ describe("publishing is a person's", () => {
             : {}),
         });
         for (const [name, input] of [
-          ["agreement.publish", { documentId: id, draftHash: hash, change: "small" }],
+          ["agreement.publish", { documentId: id, draftHash: hash, draftRev: 1, change: "small" }],
           ["agreement.attach", { documentId: id, points: [POINT] }],
           ["agreement.detach", { documentId: id, points: [POINT] }],
           ["agreement.retire", { documentId: id }],
@@ -224,7 +239,7 @@ describe("publishing is a person's", () => {
       const code = await refusal(
         invoke(
           "agreement.publish",
-          { documentId: id, draftHash: hash, change: "small" },
+          { documentId: id, draftHash: hash, draftRev: 1, change: "small" },
           context(admin, {
             actor: "mcp",
             origin: { surface: "mcp", clientId: "c", clientName: "Code", sessionId: "cap_code" },
@@ -548,5 +563,303 @@ describe("the agreements declaration (inert in step 1)", () => {
     expect(paths).toContain("objects.thing.agreements.point");
     expect(paths).toContain("objects.thing.agreements.enter");
     expect(paths).toContain("objects.thing.agreements.person");
+  });
+});
+
+// The security review of PR #266: each of these failed before its fix.
+const AI = () =>
+  context(admin, {
+    actor: "assistant",
+    origin: { surface: "assistant", sessionId: unique("ath") },
+  });
+
+describe("the publish pins every term, not only the words (review A1)", () => {
+  it("an AI change to who, for whom, how or ask-again after the preview is refused", async () => {
+    const health = await draftDocument("health");
+    const preview = await invoke("agreement.publishPreview", { id: health.id }, context(admin));
+    expect(preview.snapshot).toMatchObject({
+      kind: "health",
+      who: "participant",
+      forWhom: "everyone",
+    });
+    for (const change of [
+      { forWhom: "dependants" },
+      { who: "payer" },
+      { how: "drawn" },
+      { askAgainMonths: 120 },
+    ]) {
+      const before = await invoke("agreement.publishPreview", { id: health.id }, context(admin));
+      await invoke("agreement.draft.save", { id: health.id, ...change } as never, AI());
+      const refused = await refusal(
+        invoke(
+          "agreement.publish",
+          {
+            documentId: health.id,
+            draftHash: before.draftHash,
+            draftRev: before.draftRev,
+            change: "small",
+          },
+          context(admin),
+        ),
+      );
+      expect(refused, JSON.stringify(change)).toMatchObject({
+        code: "conflict",
+        details: { rule: "agreement_draft_changed" },
+      });
+    }
+    expect((await invoke("agreement.get", { id: health.id }, context(admin))).versions).toEqual([]);
+  });
+
+  it("a second version's preview lists every changed field, and a flipped term is refused", async () => {
+    const { id, hash } = await draftDocument();
+    await publish(id, hash);
+    await invoke("agreement.draft.save", { id, body: body("Fixture v2 text") }, context(admin));
+    const preview = await invoke("agreement.publishPreview", { id }, context(admin));
+    expect(preview.changed).toEqual(["body"]);
+    await invoke("agreement.draft.save", { id, forWhom: "dependants" }, AI());
+    expect(
+      await refusal(
+        invoke(
+          "agreement.publish",
+          {
+            documentId: id,
+            draftHash: preview.draftHash,
+            draftRev: preview.draftRev,
+            change: "small",
+          },
+          context(admin),
+        ),
+      ),
+    ).toMatchObject({ code: "conflict" });
+    const again = await invoke("agreement.publishPreview", { id }, context(admin));
+    expect(again.changed).toEqual(["body", "forWhom"]);
+    // The same hash with a moved rev is refused too (a save that changed nothing).
+    await invoke("agreement.draft.save", { id }, AI());
+    expect(
+      await refusal(
+        invoke(
+          "agreement.publish",
+          { documentId: id, draftHash: again.draftHash, draftRev: again.draftRev, change: "small" },
+          context(admin),
+        ),
+      ),
+    ).toMatchObject({ code: "conflict" });
+  });
+
+  it("saves are compare-and-set on the rev: two saves of one rev never both apply", async () => {
+    const { id } = await draftDocument();
+    const rev0 = await draftRev(id);
+    await invoke(
+      "agreement.draft.save",
+      { id, draftRev: rev0, tickLabel: "First" },
+      context(admin),
+    );
+    expect(
+      await refusal(
+        invoke("agreement.draft.save", { id, draftRev: rev0, tickLabel: "Second" }, AI()),
+      ),
+    ).toMatchObject({ code: "conflict", details: { rule: "agreement_draft_changed" } });
+    // In the database: a save planned from an old rev (the same new value) is refused.
+    await expect(
+      env.DB.prepare("UPDATE core_agreement_document SET draft_rev = ? WHERE id = ?")
+        .bind(rev0 + 1, id)
+        .run(),
+    ).rejects.toThrow(/core_agreement_draft_changed/);
+    const doc = await invoke("agreement.get", { id }, context(admin));
+    expect(doc.draft).toMatchObject({ tickLabel: "First", rev: rev0 + 1, updatedVia: "human" });
+    await invoke("agreement.draft.save", { id, tickLabel: "By the AI" }, AI());
+    expect((await invoke("agreement.get", { id }, context(admin))).draft.updatedVia).toBe(
+      "assistant",
+    );
+  });
+});
+
+describe("raw SQL cannot forge or rewind (review A2)", () => {
+  it("INSERT OR REPLACE cannot replace a version, a document or the counter", async () => {
+    const { id, hash } = await draftDocument();
+    const { version } = await publish(id, hash);
+    await expect(
+      env.DB.prepare(
+        `INSERT OR REPLACE INTO core_agreement_version (id, document_id, number, title, body,
+           tick_label, how, who, for_whom, change, effective_from, published_at, published_by,
+           draft_rev, hash)
+         SELECT id, document_id, number, 'forged', body, tick_label, how, who, for_whom, change,
+           effective_from, published_at, published_by, draft_rev, hash
+         FROM core_agreement_version WHERE id = ?`,
+      )
+        .bind(version.id)
+        .run(),
+    ).rejects.toThrow(/immutable/);
+    await expect(
+      env.DB.prepare("INSERT OR REPLACE INTO core_agreement_rev (id, rev) VALUES (1, 0)").run(),
+    ).rejects.toThrow(/rev_back/);
+    await invoke("agreement.retire", { documentId: id }, context(admin));
+    await expect(
+      env.DB.prepare(
+        `INSERT OR REPLACE INTO core_agreement_document (id, kind, state, draft_title,
+           draft_updated_at, draft_updated_by, created_at, created_by, agree_from)
+         VALUES (?, 'waiver', 'live', 'revived', 'now', 'usr', 'now', 'usr', 0)`,
+      )
+        .bind(id)
+        .run(),
+    ).rejects.toThrow(/immutable/);
+    expect(await invoke("agreement.version.get", { id: version.id }, context(admin))).toMatchObject(
+      { title: version.title, intact: true },
+    );
+    expect((await invoke("agreement.get", { id }, context(admin))).state).toBe("retired");
+  });
+
+  it("refuses a forged version, a rewound current version, a state back, a kind change", async () => {
+    const { id, hash } = await draftDocument();
+    const first = (await publish(id, hash)).version;
+    const saved = await invoke(
+      "agreement.draft.save",
+      { id, body: body("Fixture v2") },
+      context(admin),
+    );
+    const second = (await publish(id, saved.hash)).version;
+    // A forged next version: the right rev and number, made-up content.
+    await expect(
+      env.DB.prepare(
+        `INSERT INTO core_agreement_version (id, document_id, number, title, body, tick_label, how,
+           who, for_whom, change, effective_from, published_at, published_by, draft_rev, hash)
+         SELECT 'agv_forged', id, 3, 'Made up', '{"blocks":[]}', draft_tick_label, draft_how,
+           draft_who, draft_for, 'small', 'now', 'now', 'usr', draft_rev, printf('%064d', 0)
+         FROM core_agreement_document WHERE id = ?`,
+      )
+        .bind(id)
+        .run(),
+    ).rejects.toThrow(/core_agreement_draft_changed/);
+    for (const statement of [
+      "UPDATE core_agreement_document SET current_version_id = NULL WHERE id = ?",
+      `UPDATE core_agreement_document SET current_version_id = '${first.id}' WHERE id = ?`,
+    ]) {
+      await expect(env.DB.prepare(statement).bind(id).run()).rejects.toThrow(/agree_from_back/);
+    }
+    await expect(
+      env.DB.prepare("UPDATE core_agreement_document SET state = 'draft' WHERE id = ?")
+        .bind(id)
+        .run(),
+    ).rejects.toThrow(/document_fixed/);
+    await expect(
+      env.DB.prepare("UPDATE core_agreement_document SET kind = 'terms' WHERE id = ?")
+        .bind(id)
+        .run(),
+    ).rejects.toThrow(/document_fixed/);
+    // A new document cannot be inserted already live or with something in effect.
+    await expect(
+      env.DB.prepare(
+        `INSERT INTO core_agreement_document (id, kind, state, draft_title, draft_updated_at,
+           draft_updated_by, created_at, created_by) VALUES ('agd_forged', 'waiver', 'live', 't',
+           'now', 'usr', 'now', 'usr')`,
+      ).run(),
+    ).rejects.toThrow(/document_new/);
+    expect((await invoke("agreement.get", { id }, context(admin))).current?.id).toBe(second.id);
+  });
+
+  it("a version whose content matches but whose hash was forged reads as not intact", async () => {
+    const { id } = await draftDocument();
+    // Content copied from the working copy, so the trigger lets it in; SQLite cannot hash.
+    await env.DB.prepare(
+      `INSERT INTO core_agreement_version (id, document_id, number, title, body, tick_label,
+         questions, how, who, for_whom, ask_again_months, change, effective_from, published_at,
+         published_by, draft_rev, hash)
+       SELECT 'agv_badhash', id, 1, draft_title, draft_body, draft_tick_label, draft_questions,
+         draft_how, draft_who, draft_for, draft_ask_again_months, 'first', 'now', 'now', 'usr',
+         draft_rev, printf('%064d', 0) FROM core_agreement_document WHERE id = ?`,
+    )
+      .bind(id)
+      .run();
+    expect(
+      await invoke("agreement.version.get", { id: "agv_badhash" }, context(admin)),
+    ).toMatchObject({ intact: false });
+    const real = await draftDocument();
+    const { version } = await publish(real.id, real.hash);
+    expect(version.intact).toBe(true);
+    expect((await invoke("agreement.version.get", { id: version.id }, context(admin))).intact).toBe(
+      true,
+    );
+  });
+});
+
+describe("content the hash cannot pin is refused (review A4, A5)", () => {
+  const save = (id: string, input: Record<string, unknown>) =>
+    refusal(invoke("agreement.draft.save", { id, ...input }, context(admin)));
+
+  it("no pictures; a link's text is its own address", async () => {
+    const { id } = await draftDocument();
+    expect(
+      await save(id, {
+        body: { blocks: [{ type: "image", media: "med_01ABCDEFGHJKMNPQRSTVWXYZ00", alt: "x" }] },
+      }),
+    ).toMatchObject({ code: "invalid_input" });
+    expect(
+      await save(id, {
+        body: {
+          blocks: [
+            {
+              type: "paragraph",
+              content: [{ type: "text", text: "our policy", href: "https://example.test/p" }],
+            },
+          ],
+        },
+      }),
+    ).toMatchObject({ code: "invalid_input" });
+    const ok = await invoke(
+      "agreement.draft.save",
+      {
+        id,
+        body: {
+          blocks: [
+            {
+              type: "paragraph",
+              content: [
+                { type: "text", text: "Fixture, see " },
+                { type: "text", text: "https://example.test/p", href: "https://example.test/p" },
+              ],
+            },
+          ],
+        },
+      },
+      context(admin),
+    );
+    expect(ok.rev).toBeGreaterThan(0);
+  });
+
+  it("no text made only of zero-width characters; no bidirectional controls", async () => {
+    const { id } = await draftDocument();
+    expect(await save(id, { title: "​‌⁠" })).toMatchObject({ code: "invalid_input" });
+    expect(await save(id, { tickLabel: "I agree ‮" })).toMatchObject({ code: "invalid_input" });
+    expect(await save(id, { title: "Waiver ⁦x⁩" })).toMatchObject({ code: "invalid_input" });
+    expect(await save(id, { body: body("Fixture ‭ text") })).toMatchObject({
+      code: "invalid_input",
+    });
+    const health = await draftDocument("health");
+    expect(await save(health.id, { questions: [{ key: "q", text: "Fixture‮?" }] })).toMatchObject({
+      code: "invalid_input",
+    });
+    // A body of zero-width characters only is not text: it cannot be published.
+    await invoke("agreement.draft.save", { id, body: body("​​") }, context(admin));
+    const preview = await invoke("agreement.publishPreview", { id }, context(admin));
+    expect(preview.problems).toContain("The body has no text");
+  });
+
+  it("retiring cancels a scheduled version visibly; a document not yet in force is not attached", async () => {
+    const { id, hash } = await draftDocument();
+    const later = new Date(Date.now() + 3_600_000).toISOString();
+    await publish(id, hash, { effectiveFrom: later });
+    expect(
+      await refusal(
+        invoke("agreement.attach", { documentId: id, points: [POINT] }, context(admin)),
+      ),
+    ).toMatchObject({ code: "conflict", details: { rule: "agreement_not_in_force" } });
+    const retired = await invoke("agreement.retire", { documentId: id }, context(admin));
+    expect(retired.scheduled).toBeNull();
+    const doc = await invoke("agreement.get", { id }, context(admin));
+    expect(doc.scheduled).toBeNull();
+    expect(doc.versions[0]?.status).toBe("never_in_force");
+    // And the cron never makes it current.
+    await runAgreementsDue(db, { clock: () => new Date(Date.now() + 2 * 3_600_000) });
+    expect((await invoke("agreement.get", { id }, context(admin))).current).toBeNull();
   });
 });
