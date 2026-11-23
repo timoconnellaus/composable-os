@@ -2,6 +2,7 @@
 // through the one transition engine. record.create, record.update and the record CSV import call
 // `applyTransition` for every write; so does platform code that makes a `host` move.
 
+import { enforceEntry } from "../agreements/enforce.ts";
 import { assertClaimRelationKept, claimantMove } from "../capacity/claimants.ts";
 import { waitlistMove } from "../capacity/waitlist.ts";
 import { ForbiddenError, ValidationError } from "../errors.ts";
@@ -142,6 +143,16 @@ export async function applyTransition(
     assertClaimRelationKept(object, before, written);
     const outcome = await runTransition(lifecycle, ctx, object, id, before, written, options.by);
     assertGuestHeld(object, { ...(before ?? {}), ...written, ...outcome.values });
+    // Nobody books without the agreements they need (stage 44 step 3, ADR 0644): a caller's
+    // record entering a state its agreement point lists, for every actor on every path; never
+    // the host's own moves. The guard rides in this batch.
+    await enforceEntry(
+      ctx,
+      object,
+      before,
+      { ...(before ?? {}), ...written, ...outcome.values },
+      options.by,
+    );
     // A capacity claimant's states hold and give back its place (ADR 0501), in this batch.
     // Its waitlist (ADR 0520): a promotion's hold given back before its place is claimed; a
     // join checked, a place given back handed on to whoever waits, after.

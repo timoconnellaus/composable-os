@@ -149,7 +149,8 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "orders/grants.ts": [1, WHY.host],
   "orders/guests.ts": [1, WHY.host],
   "orders/holds.ts": [1, WHY.host],
-  "orders/late.ts": [2, WHY.host],
+  // Stage 44 step 3 (ADR 0644): honouring a late payment reads the order's lines for their points.
+  "orders/late.ts": [3, WHY.host],
   // ADR 0560: a record an order moves, read as the host (its values, a twin of it for its Person, who a buyer may point at, members' unpaid holds, unsettled guest holds, a Person in the Trash).
   "orders/moves.ts": [9, WHY.host],
   // ADR 0560: an owed refund's order, read by the minute cron to settle the row.

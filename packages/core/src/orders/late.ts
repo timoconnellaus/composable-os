@@ -7,6 +7,7 @@
 //   (`order.honourLate`) or it is refunded.
 // - Once a day admins are told about late payments still undecided and balances past due.
 import type { CrmDb } from "@composable-os/db";
+import { enforcePurchase, pointsOfObjects } from "../agreements/enforce.ts";
 import { ConflictError } from "../errors.ts";
 import { notifyStatements } from "../notifications/send.ts";
 import type { HandlerContext } from "../operation.ts";
@@ -112,6 +113,21 @@ export async function honourLatePayment(ctx: HandlerContext, row: OrderRow): Pro
       { order: row.id, rule: "late_payment" },
     );
   }
+  // Keeping it makes the purchase (stage 44 step 3, ADR 0644): a guest's acceptances went with the
+  // order when it expired, so the order's Person must have what is due now, like any purchase.
+  // Refused with the list: refund the payment, or have them agree and buy again.
+  const lines = await ctx.db
+    .selectFrom("core_order_line")
+    .select("object_type")
+    .where("order_id", "=", row.id)
+    .execute();
+  const agreed = await enforcePurchase(
+    ctx,
+    pointsOfObjects(lines.map((line) => line.object_type)),
+    { guest: false, participant: row.person_id, payer: row.person_id },
+    undefined,
+  );
+  if (agreed.guards.length) ctx.write(...agreed.guards);
   const paid = row.paid + payment.amount;
   const settled = paid >= row.total;
   const next = await changeOrder(

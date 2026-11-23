@@ -39759,7 +39759,7 @@
     },
     {
       "name": "order.start",
-      "description": "Start an order for one or more records that are for sale, as a signed-in customer, a guest (with an email address) or staff. The host prices it from the records: a caller never sends a price or a total. The order starts pending and is not paid: paying happens on the payment provider's page (order.checkout), and only the provider's confirmation marks it paid. An unpaid order expires after a few minutes. Returns the order with its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, which is the only way back to the order (order.view).",
+      "description": "Start an order for one or more records that are for sale, as a signed-in customer, a guest (with an email address) or staff. The host prices it from the records: a caller never sends a price or a total. The order starts pending and is not paid: paying happens on the payment provider's page (order.checkout), and only the provider's confirmation marks it paid. An unpaid order expires after a few minutes. Nobody buys without the agreements the business needs for what is bought: refused with rule agreements_due and the documents while any is due (a guest passes their acceptances in `agreements`; a signed-in customer agrees first; staff send a link, sign at the desk or record paper). Returns the order with its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, which is the only way back to the order (order.view).",
       "risk": "write",
       "audiences": [
         "staff"
@@ -39814,6 +39814,109 @@
             "description": "The buyer's email address. Required when the caller is not a signed-in customer; a signed-in customer's order uses their account's address and must not pass one.",
             "type": "string",
             "maxLength": 320
+          },
+          "agreements": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "versionId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "description": "The version's id (agv_…) the visitor read"
+                },
+                "typedName": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "description": "The name the person typed beside the box: personal data, never shown to an AI"
+                },
+                "signature": {
+                  "type": "object",
+                  "properties": {
+                    "width": {
+                      "type": "number",
+                      "const": 1000
+                    },
+                    "height": {
+                      "type": "number",
+                      "const": 400
+                    },
+                    "strokes": {
+                      "minItems": 1,
+                      "maxItems": 30,
+                      "type": "array",
+                      "items": {
+                        "minItems": 1,
+                        "maxItems": 5000,
+                        "type": "array",
+                        "items": {
+                          "type": "array",
+                          "prefixItems": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 1000
+                            },
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 400
+                            }
+                          ],
+                          "items": false,
+                          "minItems": 2,
+                          "maxItems": 2
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "width",
+                    "height",
+                    "strokes"
+                  ],
+                  "additionalProperties": false,
+                  "description": "A drawn signature as strokes in a 1000 by 400 box: personal data"
+                },
+                "answers": {
+                  "minItems": 1,
+                  "maxItems": 40,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 40
+                      },
+                      "yes": {
+                        "type": "boolean"
+                      },
+                      "note": {
+                        "type": "string",
+                        "maxLength": 1000
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "yes"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "A health form's answers: health information, never shown to an AI or logged"
+                }
+              },
+              "required": [
+                "versionId",
+                "typedName"
+              ],
+              "additionalProperties": false
+            },
+            "description": "A visitor without an account only: what they agreed to on the way to paying, one entry per document the host says is due (each document's current version, the name they typed, a signature for a document agreed to by drawing, every answer for a health form). A signed-in customer agrees first (me.agreements.accept); staff never agree for anyone."
           }
         },
         "required": [
@@ -55842,7 +55945,7 @@
     },
     {
       "name": "subscription.start",
-      "description": "Start a subscription to a plan (a record of an object sold every week, month or year), as a signed-in customer, a guest (with an email address) or staff for someone. Opens the payment provider's own page, which takes the card; the provider charges each period on its own schedule, after the plan's free trial when it has one. A trial is one per person per plan, and only for a signed-in customer (or staff with subscriptions:manage starting it for a person): a guest is charged from the start, and `noTrial` says why no trial was given. Starting again while the page you opened with a trial is still open gives that page. A signed-in customer with a continuation offer (moving their subscription from another platform) takes it with `offerId`: free until their paid-up date, then charged, with no trial on top; with under 48 hours left it is charged at once. The host prices it from the plan: no price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the provider confirms it. Returns the page's address and what will be charged, in minor units.",
+      "description": "Start a subscription to a plan (a record of an object sold every week, month or year), as a signed-in customer, a guest (with an email address) or staff for someone. Opens the payment provider's own page, which takes the card; the provider charges each period on its own schedule, after the plan's free trial when it has one. A trial is one per person per plan, and only for a signed-in customer (or staff with subscriptions:manage starting it for a person): a guest is charged from the start, and `noTrial` says why no trial was given. Starting again while the page you opened with a trial is still open gives that page. A signed-in customer with a continuation offer (moving their subscription from another platform) takes it with `offerId`: free until their paid-up date, then charged, with no trial on top; with under 48 hours left it is charged at once. Nobody starts one without the agreements the business needs for the plan (its terms, a waiver): refused with rule agreements_due and the documents while any is due, a continuation offer included (a guest passes their acceptances in `agreements`; a signed-in customer agrees first; staff send a link or record paper). The host prices it from the plan: no price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the provider confirms it. Returns the page's address and what will be charged, in minor units.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -55894,6 +55997,109 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 64
+          },
+          "agreements": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "versionId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "description": "The version's id (agv_…) the visitor read"
+                },
+                "typedName": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "description": "The name the person typed beside the box: personal data, never shown to an AI"
+                },
+                "signature": {
+                  "type": "object",
+                  "properties": {
+                    "width": {
+                      "type": "number",
+                      "const": 1000
+                    },
+                    "height": {
+                      "type": "number",
+                      "const": 400
+                    },
+                    "strokes": {
+                      "minItems": 1,
+                      "maxItems": 30,
+                      "type": "array",
+                      "items": {
+                        "minItems": 1,
+                        "maxItems": 5000,
+                        "type": "array",
+                        "items": {
+                          "type": "array",
+                          "prefixItems": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 1000
+                            },
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 400
+                            }
+                          ],
+                          "items": false,
+                          "minItems": 2,
+                          "maxItems": 2
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "width",
+                    "height",
+                    "strokes"
+                  ],
+                  "additionalProperties": false,
+                  "description": "A drawn signature as strokes in a 1000 by 400 box: personal data"
+                },
+                "answers": {
+                  "minItems": 1,
+                  "maxItems": 40,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 40
+                      },
+                      "yes": {
+                        "type": "boolean"
+                      },
+                      "note": {
+                        "type": "string",
+                        "maxLength": 1000
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "yes"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "A health form's answers: health information, never shown to an AI or logged"
+                }
+              },
+              "required": [
+                "versionId",
+                "typedName"
+              ],
+              "additionalProperties": false
+            },
+            "description": "A visitor without an account only: what they agreed to on the way to paying, one entry per document the host says is due (each document's current version, the name they typed, a signature for a document agreed to by drawing, every answer for a health form). A signed-in customer agrees first (me.agreements.accept); staff never agree for anyone."
           }
         },
         "required": [

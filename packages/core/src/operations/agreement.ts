@@ -902,6 +902,9 @@ export const agreementRetire = defineOperation({
   },
 });
 
+/** How long a visitor's acceptances wait for the provider to confirm their subscription checkout. */
+export const STALE_CHECKOUT_MS = 3 * 86_400_000;
+
 export const agreementTakeEffect = defineOperation({
   name: "agreement.takeEffect",
   description:
@@ -944,6 +947,24 @@ export const agreementTakeEffect = defineOperation({
       ctx.write(update);
     }
     if (due.length) ctx.write(bumpRev(ctx.db));
+    // A visitor's acceptances taken with a subscription checkout the provider never confirmed
+    // (stage 44 step 3, ADR 0644): the page has long expired, no contract was made, and they are
+    // nobody's to keep. An order's go when it closes unpaid (migration 0853); a checkout has no
+    // such moment, so they go three days on (a provider's page lasts a day at most).
+    const stale = new Date(Date.parse(ctx.now) - STALE_CHECKOUT_MS).toISOString();
+    const unconfirmed = sql`SELECT a.id FROM core_agreement_acceptance a
+      JOIN core_subscription_checkout c ON c.id = a.subscription_checkout
+      WHERE a.by = 'guest' AND a.person_id IS NULL AND a.erased_at IS NULL
+        AND c.subscription_ref IS NULL AND c.created_at < ${stale}`;
+    ctx.write(
+      sql`DELETE FROM core_agreement_answer WHERE acceptance_id IN (${unconfirmed})`.compile(
+        ctx.db,
+      ),
+      sql`DELETE FROM core_agreement_signature WHERE acceptance_id IN (${unconfirmed})`.compile(
+        ctx.db,
+      ),
+      sql`DELETE FROM core_agreement_acceptance WHERE id IN (${unconfirmed})`.compile(ctx.db),
+    );
     return { documents: due.map((d) => d.id) };
   },
 });

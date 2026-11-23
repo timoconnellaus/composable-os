@@ -26,6 +26,7 @@
 // the order they made or the one the caller proved is theirs (their own Person through the seam,
 // or the order's token), and answer only with what a customer may read of an order.
 import { z } from "zod";
+import { guestAcceptancesSchema } from "../agreements/enforce.ts";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { getObject, listObjects } from "../fields/index.ts";
 import { ORDER_STATES } from "../fields/order.ts";
@@ -291,6 +292,7 @@ export const orderStartInput = z.object({
       "The buyer's email address. Required when the caller is not a signed-in customer; a " +
         "signed-in customer's order uses their account's address and must not pass one.",
     ),
+  agreements: guestAcceptancesSchema.optional(),
 });
 
 export const orderStart = defineOperation({
@@ -300,9 +302,12 @@ export const orderStart = defineOperation({
     "(with an email address) or staff. The host prices it from the records: a caller never " +
     "sends a price or a total. The order starts pending and is not paid: paying happens on the " +
     "payment provider's page (order.checkout), and only the provider's confirmation marks it " +
-    "paid. An unpaid order expires after a few minutes. Returns the order with its lines and " +
-    "amounts in the currency's minor unit; a guest also gets `token`, shown once, which is the " +
-    "only way back to the order (order.view).",
+    "paid. An unpaid order expires after a few minutes. Nobody buys without the agreements the " +
+    "business needs for what is bought: refused with rule agreements_due and the documents " +
+    "while any is due (a guest passes their acceptances in `agreements`; a signed-in customer " +
+    "agrees first; staff send a link, sign at the desk or record paper). Returns the order with " +
+    "its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, " +
+    "which is the only way back to the order (order.view).",
   input: orderStartInput,
   output: orderSchema.extend({
     token: z.string().nullable().describe("A guest's key to this order. Null for everyone else."),
@@ -312,6 +317,8 @@ export const orderStart = defineOperation({
   audiences: ["staff", "customer", "public"],
   hostInternal: true,
   mcp: { expose: false },
+  // What a visitor typed, drew and answered never reaches the audit log.
+  redact: ["agreements"],
   // Never the token: it is the guest's, and the audit log is read by staff.
   auditSummary: (output) => ({ id: output.id }),
   async handler(input, ctx) {
@@ -349,6 +356,7 @@ export const orderStart = defineOperation({
       placedAs: caller.kind,
       pay: input.pay,
       accessHash: token ? await hashOrderToken(token) : null,
+      agreements: input.agreements,
     });
     return { ...fromRow(started.row, started.lines.map(toLine), isStaff(ctx)), token };
   },
@@ -1075,6 +1083,7 @@ export const orderStartHeld = defineOperation({
       .max(320)
       .optional()
       .describe("The buyer's address: required for a guest; a signed-in customer passes none"),
+    agreements: guestAcceptancesSchema.optional(),
   }),
   output: orderSchema.extend({
     recordId: z.string().describe("The record made and held for the order"),
@@ -1086,6 +1095,7 @@ export const orderStartHeld = defineOperation({
   hostInternal: true,
   toolOnly: true,
   mcp: { expose: false },
+  redact: ["agreements"],
   auditSummary: (output) => ({ id: output.id, recordId: output.recordId }),
   async handler(input, ctx) {
     const started = await startHeld(ctx, input);

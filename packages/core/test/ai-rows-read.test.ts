@@ -106,10 +106,10 @@ describe("rows read on the AI paths", () => {
     // about 565; stage 44's agreement documents (migration 0850: four tables, two indexes, ten
     // triggers, an autoindex for the version's unique key) to about 588; stage 44's acceptances
     // (migration 0851: four tables, three indexes, ten triggers, the write guard made again) to
-    // about 615.
+    // about 615; stage 44's enforcement (migration 0853: three triggers) to about 618.
     expect(
       await measure("summary.get", { subject: { kind: "record", object: "person", id: personId } }),
-    ).toBeLessThan(630);
+    ).toBeLessThan(640);
     expect(
       await measure("summary.get", {
         subject: { kind: "record", object: "organisation", id: orgId },

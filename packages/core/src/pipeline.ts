@@ -1866,6 +1866,15 @@ function outsideError(error: unknown): OperationError {
     return typed;
   }
   if (typed.code === "rate_limited") return typed;
+  // What must be agreed to changed while this was being planned (the `agreements` guard, stage
+  // 44, ADR 0644): the caller looks again and is asked for what is due now. The counter is one
+  // for the whole host, so this says nothing about any Person.
+  if (
+    typed.code === "conflict" &&
+    (typed.details as { rule?: unknown })?.rule === "agreements_changed"
+  ) {
+    return typed;
+  }
   console.error("outside call failed", errorForLog(error));
   if (typed.code === "conflict")
     return new ConflictError("A record with that value already exists");

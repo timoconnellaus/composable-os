@@ -332,19 +332,97 @@ export function agreementsGuard(rev: number): CompiledQuery {
  */
 export async function requireNothingDue(db: Db, query: DueQuery): Promise<CompiledQuery> {
   const { rev, due } = await agreementsDue(db, query);
-  if (due.length) {
-    throw new ValidationError(
-      `Something must be agreed to first: ${due.map((d) => d.title).join(", ")}`,
-      {
-        rule: "agreements_due",
-        documents: due.map((d) => ({
-          documentId: d.documentId,
-          title: d.title,
-          versionId: d.version.id,
-          personId: d.personId,
-        })),
-      },
-    );
-  }
+  if (due.length) throw dueRefusal(due);
   return agreementsGuard(rev);
+}
+
+/**
+ * The refusal when something is due: `invalid_input`, `rule: "agreements_due"`, and the documents
+ * by id, title and the version to read. A known Person's carry whose each is (the caller's own,
+ * their dependant's, or for staff the Person's); a guest's carry no Person at all.
+ */
+export function dueRefusal(
+  due: readonly {
+    documentId: string;
+    title: string;
+    version: DueVersion;
+    personId?: string | null;
+  }[],
+  message?: string,
+): ValidationError {
+  return new ValidationError(
+    message ?? `Something must be agreed to first: ${due.map((d) => d.title).join(", ")}`,
+    {
+      rule: "agreements_due",
+      documents: due.map((d) => ({
+        documentId: d.documentId,
+        title: d.title,
+        versionId: d.version.id,
+        ...(d.personId ? { personId: d.personId } : {}),
+      })),
+    },
+  );
+}
+
+/** A document a guest must agree to with their purchase: no Person is read for it. */
+export interface GuestDueDocument {
+  documentId: string;
+  kind: string;
+  title: string;
+  who: "participant" | "payer";
+  version: DueVersion;
+}
+
+/**
+ * What a guest (the public, buying without an account) must agree to at these points in the
+ * buying call, and the counter, read first (stage 44 step 3, ADR 0644). No Person is read: a guest
+ * is an unknown adult paying for themselves, so every live document attached there that is for
+ * everyone is due, whatever the address matches, and the answer says nothing about whether the
+ * address has agreed before (spec 44: "a guest who is already a member and has agreed is asked
+ * again"). A `dependants` document never applies: a guest buys for no one else.
+ */
+export async function guestDue(
+  db: Db,
+  points: readonly string[],
+): Promise<{ rev: number; due: GuestDueDocument[] }> {
+  const rev = await readRev(db);
+  const seen = new Set<string>();
+  const due: GuestDueDocument[] = [];
+  for (const point of new Set(points)) {
+    for (const doc of await attachedDocuments(db, point)) {
+      if (seen.has(doc.id) || doc.forWhom !== "everyone") continue;
+      seen.add(doc.id);
+      due.push({
+        documentId: doc.id,
+        kind: doc.kind,
+        title: doc.title,
+        who: doc.who,
+        version: doc.current,
+      });
+    }
+  }
+  return { rev, due };
+}
+
+/**
+ * `agreementsDue` at several points at once (an order with lines at different points): each
+ * document once per Person, with the counter read before any of them.
+ */
+export async function agreementsDueAt(
+  db: Db,
+  points: readonly string[],
+  query: Omit<DueQuery, "point">,
+): Promise<{ rev: number; due: DueDocument[] }> {
+  const rev = await readRev(db);
+  const seen = new Set<string>();
+  const due: DueDocument[] = [];
+  for (const point of new Set(points)) {
+    for (const doc of (await agreementsDue(db, { ...query, point })).due) {
+      const key = `${doc.personId}\u0000${doc.documentId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      due.push(doc);
+    }
+  }
+  return { rev, due };
 }

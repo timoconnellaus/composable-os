@@ -45,6 +45,8 @@ export interface Gateway {
   providerReads: Map<string, Record<string, unknown>>;
   /** Run before the next plan change, pause or unpause answers (a verified read landing meanwhile). */
   beforeAnswer: (() => Promise<void>) | null;
+  /** Stage 44: run once while a subscription checkout is being opened (a write racing the start). */
+  beforeSubscribe: (() => Promise<void>) | null;
 }
 
 export interface PaymentsDouble {
@@ -101,6 +103,7 @@ export function paymentsDouble(events: () => Events, crm: () => CrmDb = () => db
     nextChange: "applied",
     providerReads: new Map(),
     beforeAnswer: null,
+    beforeSubscribe: null,
   };
   let connectionId = "";
   const no = () => Promise.reject(new Error("not used in this test"));
@@ -132,6 +135,11 @@ export function paymentsDouble(events: () => Events, crm: () => CrmDb = () => db
       // Stage 32a (ADR 0485): the host's own subscription calls.
       if (input.method === "createSubscriptionCheckout") {
         const request = input.args[0] as Gateway["subscriptions"][number];
+        if (gw.beforeSubscribe) {
+          const hook = gw.beforeSubscribe;
+          gw.beforeSubscribe = null;
+          await hook();
+        }
         const ref = `fcs_${unique("s")}`;
         gw.subscriptions.push({ ...request, ref });
         gw.pages.set(ref, "open");
