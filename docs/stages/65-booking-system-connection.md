@@ -34,6 +34,13 @@ Status: **spec agreed** (owner interviewed 2026-11-24: decisions 1 to 5). Steps 
 now. Two questions stay open (at the end): connecting a real business's data waits for question 1;
 question 2 sets a default and blocks nothing.
 
+- Step 2, the naming rule, is built ([ADR 0921](../adr/0921-names-of-the-systems-a-business-uses.md)):
+  `scripts/check-stray-names.mjs` allows the booking system's name in the connector's package, ADR
+  0927, this spec, `docs/integrations.md`, the catalogue and `apps/marketing/` (with `SITE.md`), and
+  a new rule, "a business named beside a system", fails any line in those files that names a client:
+  a client product's label (the CRM, the platform's own, is not one), `CLIENTS` in the script (empty)
+  or "first" or "our" before "client". Tests in `check-stray-names.test.mjs`.
+
 **This is not legal advice.** The booking system's own terms of use limit what may be done with
 what its API returns (below, "The outside system's terms"). Whether a business's use is within them
 is for the business and its lawyer, or the booking system's support, to confirm. The connect screen

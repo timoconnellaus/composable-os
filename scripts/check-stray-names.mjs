@@ -161,7 +161,10 @@ const BINARY =
 
 /** A pattern matching `label` as a whole word or phrase, any case. */
 function labelPattern(label) {
-  const escaped = label.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+  const escaped = label
+    .trim()
+    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    .replace(/\s+/g, "\\s+");
   return new RegExp(`(?<![A-Za-z0-9])${escaped}(?![A-Za-z0-9])`, "i");
 }
 
@@ -204,14 +207,17 @@ export function checkStrayNames(files, rules = RULES, allow = ALLOW, clients = C
     if (SKIP.some((re) => re.test(path))) continue;
     const lines = text.split("\n");
     const beside = rules.some(
-      (rule) => rule.supplier && !SELF.test(path) && (rule.allow ?? allow).some((re) => re.test(path)),
+      (rule) =>
+        rule.supplier && !SELF.test(path) && (rule.allow ?? allow).some((re) => re.test(path)),
     );
     if (beside) {
       lines.forEach((line, index) => {
         for (const client of named) {
           const match = new RegExp(client.source, client.flags.replace("g", "")).exec(line);
           if (match) {
-            problems.push(`${path}:${index + 1}: "${match[0]}" (${BESIDE.name}): ${BESIDE.instead}`);
+            problems.push(
+              `${path}:${index + 1}: "${match[0]}" (${BESIDE.name}): ${BESIDE.instead}`,
+            );
             break;
           }
         }

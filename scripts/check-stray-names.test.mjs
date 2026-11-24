@@ -47,13 +47,19 @@ test("the repository's rules are well formed", () => {
   }
   for (const pattern of ALLOW) assert.ok(pattern instanceof RegExp);
   for (const pattern of CLIENTS) assert.ok(pattern instanceof RegExp);
-  assert.ok(RULES.some((rule) => rule.supplier), "the supplier rules are marked");
+  assert.ok(
+    RULES.some((rule) => rule.supplier),
+    "the supplier rules are marked",
+  );
 });
 
 // The booking system's connector (stage 65 step 2, ADR 0921): each allowed path, and a path one
 // directory outside it that is not.
 const CONNECTOR = [
-  ["packages/gatekeeper-booking-system-mindbody/src/index.ts", "packages/gatekeeper-booking-system/src/index.ts"],
+  [
+    "packages/gatekeeper-booking-system-mindbody/src/index.ts",
+    "packages/gatekeeper-booking-system/src/index.ts",
+  ],
   ["docs/adr/0927-the-mindbody-gatekeeper.md", "docs/adr/0920-the-booking-system-contract.md"],
   ["docs/stages/65-booking-system-connection.md", "docs/stages/33-leaving.md"],
   ["docs/integrations.md", "docs/integrations/mindbody.md"],
@@ -85,7 +91,10 @@ test("a client's name in a file allowed a system's name fails", () => {
   const clients = [/\bAcme Gym\b/i];
   const problems = checkStrayNames(
     [
-      ["docs/integrations.md", "# Integrations\n\nThe booking system connector.\nUsed by Acme Gym.\n"],
+      [
+        "docs/integrations.md",
+        "# Integrations\n\nThe booking system connector.\nUsed by Acme Gym.\n",
+      ],
       ["apps/marketing/SITE.md", "Mindbody, for ACME GYM"],
     ],
     RULES,
