@@ -29,6 +29,7 @@ import type { MarkSource } from "../routine-mail/marks.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import { addLocalDays, localParts, wallClockToIso } from "../time/local.ts";
 import { type AnyRow, orgReader, visibleSource } from "../visibility/index.ts";
+import { viewRow } from "./sellable.ts";
 import { currencyDecimals } from "./settings.ts";
 
 /** Crockford's base32: no I, L, O or U, so a code read aloud or typed is not misread. */
@@ -73,12 +74,7 @@ export async function readGrantItem(
   item: ObjectDefinition,
   id: string,
 ): Promise<AnyRow | undefined> {
-  // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
-  return (await (ctx.db as any)
-    .selectFrom(visibleSource(orgReader(ctx.db), item))
-    .selectAll()
-    .where("id", "=", id)
-    .executeTakeFirst()) as AnyRow | undefined;
+  return viewRow(ctx.db, visibleSource(orgReader(ctx.db), item), id);
 }
 
 /**
