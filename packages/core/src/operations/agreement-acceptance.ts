@@ -702,7 +702,7 @@ async function deskOf(
   const out = new Map<string, z.infer<typeof deskOut>>();
   const atDesk = page.filter((r) => r.channel === "desk" && r.desk_session_id);
   if (!atDesk.length) return out;
-  const sessions = JSON.stringify([...new Set(atDesk.map((r) => r.desk_session_id as string))]);
+  const sessions = jsonList([...new Set(atDesk.map((r) => r.desk_session_id as string))]);
   const rows = await ctx.db
     .selectFrom("core_agreement_desk_session as s")
     .leftJoin("core_device as d", "d.id", "s.claimed_device_id")
@@ -718,7 +718,7 @@ async function deskOf(
       "e.name as enrolled_by",
       "u.name as started_by_name",
     ])
-    .where(sql<boolean>`s.id IN (SELECT value FROM json_each(${sessions}))`)
+    .where("s.id", "in", sessions)
     .execute();
   const { timezone } = await businessName(ctx.db);
   const marks = await deskMarks(

@@ -15,7 +15,6 @@
 //
 // None is open to an AI, MCP or code (`actors: ["human"]`, or the customer audience). A code
 // identifies a Person only inside a device tool (people-codes/identify.ts), never here.
-import { sql } from "kysely";
 import { z } from "zod";
 import { ConflictError, NotFoundError, OperationError, ValidationError } from "../errors.ts";
 import { newId } from "../ids.ts";
@@ -37,6 +36,7 @@ import {
   pinProblem,
 } from "../people-codes/keys.ts";
 import type { CustomerPrincipal } from "../principals.ts";
+import { jsonList } from "../records/common.ts";
 import { base64url } from "../records/stream.ts";
 
 /** A Person's id: a real one only, never a provisional `per_pending_…` (which would queue the call). */
@@ -142,11 +142,7 @@ export const meCode = defineOperation({
     const names = await ctx.db
       .selectFrom("core_person")
       .select(["id", "given_name", "display_name"])
-      .where(
-        "id",
-        "in",
-        sql<string>`(SELECT value FROM json_each(${JSON.stringify(people.map((p) => p.personId))}))`,
-      )
+      .where("id", "in", jsonList(people.map((p) => p.personId)))
       .execute();
     // A given name only, never a family name: the display name's first word when none is set.
     const nameOf = new Map(
