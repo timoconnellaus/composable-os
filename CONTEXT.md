@@ -1439,6 +1439,16 @@ holds a **time claim** (its own time, never preparation or pack-down). A write o
 its **warnings** (away, not qualified, uncovered), which never refuse it (ADR 0622).
 _Avoid_: session, slot, booking
 
+**Thing** and **`occupies`** (stage 49, built in step 2: ADR 0765)
+A **thing** is what a record takes for its time: a room, a chair, a hall. A record that declares
+`occupies` takes its thing while it is live, and the database refuses a second live record on the
+same thing at an overlapping time, whatever kind of record (a class and, later, an appointment in
+one private room): the room is **taken** (`room_taken`), and the refusal never says by what. Only
+things marked **one booking at a time** (Bookings' room's `exclusive`) are claimed; a shared floor
+never is. A **buffer** (minutes kept free before or after) enters the claim. One occupant at a
+time: not a capacity.
+_Avoid_: reservation, slot
+
 **Roster** (stage 45, built in step 4: ADR 0626)
 Every shift in a range, with who works each (`staffing.week`, through Rostering's `week` and
 `mine`): never a class's bookings, places or members. A **rosterer** may roster others: an admin,
