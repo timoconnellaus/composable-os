@@ -372,19 +372,26 @@ describe("starting a session (agreements:desk, a person)", () => {
       },
       grants: ["agreements:desk"],
     };
-    const opened = coreRegistry
-      .list()
-      .filter((op) => staffAuthority({ role: "viewer" }, rights, op, {}) !== null)
-      .map((op) => op.name)
-      .sort();
-    expect(opened).toEqual([
+    // Registry-wide: the grant adds exactly the agreements:desk operations to what the role
+    // reaches without it (every pack role's own core reads, such as screens.mine).
+    const reach = (grants: string[]) =>
+      coreRegistry
+        .list()
+        .filter((op) => staffAuthority({ role: "viewer" }, { ...rights, grants }, op, {}) !== null)
+        .map((op) => op.name);
+    const without = new Set(reach([]));
+    expect(without.has("screens.mine")).toBe(true);
+    expect(
+      reach(["agreements:desk"])
+        .filter((name) => !without.has(name))
+        .sort(),
+    ).toEqual([
       "agreement.desk.devices",
       "agreement.desk.end",
       "agreement.desk.find",
       "agreement.desk.get",
       "agreement.desk.prepare",
       "agreement.desk.start",
-      "screens.mine",
     ]);
   });
 });
@@ -759,8 +766,9 @@ describe("rotation, lapsing and erase", () => {
 
 describe("the marks on a desk acceptance", () => {
   it("created that day, and a staff account's address (by mailbox)", async () => {
-    const at = new Date().toISOString();
     const walkIn = await person();
+    // Signed just after the Person was made (a walk-in).
+    const at = new Date(Date.now() + 1_000).toISOString();
     const marks = await deskMarks(db.query, [
       {
         id: "a1",
