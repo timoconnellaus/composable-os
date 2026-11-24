@@ -53,6 +53,11 @@ import {
   handleCustomerAuth,
   isCustomerAuthPath,
 } from "./server/http/api.ts";
+import {
+  type CustomerFeedEnv,
+  handleCustomerFeed,
+  isCustomerFeedPath,
+} from "./server/http/customer-feed.ts";
 import { type DeskHandlerEnv, handleDesk, isDeskPath } from "./server/http/desk.ts";
 import { handleNativeStaffSignIn, NATIVE_STAFF_SIGN_IN_PATH } from "./server/http/native.ts";
 import {
@@ -134,6 +139,11 @@ export default {
     // it with no sign-in, by the secret token in its address. Before the surface, which never
     // sees these paths: everything under /api/v1/staffing/feed/ is answered there.
     if (isStaffFeedPath(pathname)) return handleStaffFeed(request, env as unknown as StaffFeedEnv);
+    // A customer's private calendar feed (stage 62 step 1, ADR 0890): the same, through the shared
+    // feed module, by its own token table. Everything under /api/v1/me/feed/ is answered there.
+    if (isCustomerFeedPath(pathname)) {
+      return handleCustomerFeed(request, env as unknown as CustomerFeedEnv);
+    }
     // The HTTP surface for client apps (stage 23, ADR 0403): /api/v1/*. It resolves its own
     // caller (staff, customer or public) from the request's session, so it is not behind the
     // staff-only identity middleware that guards TanStack Start's routes.

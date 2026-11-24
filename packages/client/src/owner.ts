@@ -108,7 +108,10 @@ export interface WaitingAction {
   risk: string;
   reason: string;
   status: ActionStatus;
+  /** What it changes; with `operation`, what `actionTitle` (core's) words it from. */
   preview: { object: string; id: string; action: string; diff: Record<string, unknown> }[];
+  /** For a send through a connection: the gatekeeper's own title and description of it. */
+  outbound: { title: string; description: string } | null;
   secondStep: SecondStep | null;
 }
 

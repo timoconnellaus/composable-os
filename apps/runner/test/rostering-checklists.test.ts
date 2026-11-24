@@ -365,10 +365,12 @@ describe("who ticks", () => {
     expect(t).toMatchObject({ by: rosterer.id, for: person.id, onBehalf: true });
     expect(t?.label).toBe(`Ticked by ${rosterer.name} for ${person.name}`);
     // The rosterers' view counts it as a tick for the person, never as the person's own.
-    const date = new Intl.DateTimeFormat("en-CA", { timeZone: ZONE }).format(new Date());
+    // From yesterday: just after midnight the shift (20 minutes ago) is on yesterday's date.
+    const dateOf = (at: number) => new Intl.DateTimeFormat("en-CA", { timeZone: ZONE }).format(at);
+    const date = dateOf(Date.now());
     const runs = await run<{ runs: { record: string; onBehalf: number; ticked: number }[] }>(
       "x.rostering.checklistRuns",
-      { from: date, to: date },
+      { from: dateOf(Date.now() - DAY), to: date },
       asUser(rosterer),
     );
     expect(runs.runs.find((r) => r.record === s)).toMatchObject({ onBehalf: 1, ticked: 1 });

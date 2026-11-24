@@ -64,6 +64,8 @@ export const ID_PREFIXES = {
   orderLine: "orl",
   /** Money off an order (stage 34, ADR 0690). */
   orderAdjustment: "oad",
+  /** A payment the host made on an order: a recorded one, or its reversal (stage 34, ADR 0694). */
+  orderPayment: "opy",
   /** A refund of an order's payment (stage 25, ADR 0429). */
   refund: "rfd",
   /** A subscription the payment provider runs (stage 32a, ADR 0485). */
@@ -78,6 +80,8 @@ export const ID_PREFIXES = {
   capacityClaim: "clm",
   /** A movement in the stock ledger (stage 37, ADR 0680); a sale's is named after its claim. */
   stockMovement: "stm",
+  /** A stock record's time at or below its reorder level (ADR 0681). */
+  stockLow: "stl",
   /** A use spent from an allowance holder by a spender (stage 32b, ADR 0493). */
   allowanceUse: "alu",
   /** A Person's one purchase of something sold once per Person (stage 32b, ADR 0512). */

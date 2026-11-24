@@ -1,6 +1,7 @@
 // The Forms automations. The notice of each new submission is the host's own (the door tells the
 // form's chosen person, else the admins, ADR 0720); this one adds the low-rating notice: a first
-// rating at or under the form's "tell at a rating of" tells the same person.
+// rating at or under the form's "tell at a rating of" tells the answers' owner (assignment rules),
+// or the admins when they have none.
 import { defineAutomation } from "@composable-os/sdk";
 import { FORM } from "./tools.ts";
 
@@ -11,7 +12,7 @@ export const lowRating = defineAutomation({
   label: "Tell of a low rating",
   description:
     "When answers arrive with a rating at or under the form's 'tell at a rating of', tells the " +
-    "form's 'who is told', or the admins when it names nobody. Answers kept as spam tell nobody.",
+    "answers' owner, or the admins when they have none. Answers kept as spam tell nobody.",
   trigger: { type: "record", object: "forms.submission", on: ["created"] },
   conditions: {
     and: [
@@ -22,9 +23,12 @@ export const lowRating = defineAutomation({
   steps: [
     {
       name: "tell",
-      label: "Tell the form's person, or the admins",
+      label: "Tell the owner, or the admins",
       reads: [FORM],
-      notifies: [{ to: "admins", message: "A low rating: {record}" }],
+      notifies: [
+        { to: { field: "owner" }, message: "A low rating: {record}" },
+        { to: "admins", message: "A low rating: {record}" },
+      ],
     },
   ],
   async run(event, step, ctx) {
@@ -40,8 +44,8 @@ export const lowRating = defineAutomation({
       });
       const level = num(form.values.lowRating);
       if (level === null || rating > level) return { told: false };
-      const chosen = form.values.notify;
-      await ctx.notify(typeof chosen === "string" && chosen ? { userId: chosen } : "admins", {
+      const owner = submission.data?.owner;
+      await ctx.notify(typeof owner === "string" && owner ? { field: "owner" } : "admins", {
         title: "A low rating: {record}",
         body: `Rated ${rating}. Open the answers to see why.`,
         link: "record",

@@ -489,6 +489,7 @@ export function planFromState(
       ...(object.capacity ? { capacity: object.capacity } : {}),
       ...(object.sellable ? { sellable: object.sellable } : {}),
       ...(object.stock ? { stock: object.stock } : {}),
+      ...(object.stockMoves ? { stockMoves: object.stockMoves } : {}),
       ...(object.allowance ? { allowance: object.allowance } : {}),
       ...(object.agreements ? { agreements: object.agreements } : {}),
       ...(object.healthNotes ? { healthNotes: object.healthNotes } : {}),
@@ -500,6 +501,7 @@ export function planFromState(
       ...(object.staffed ? { staffed: object.staffed } : {}),
       ...(object.workedOn ? { workedOn: object.workedOn } : {}),
       ...(object.occupies ? { occupies: object.occupies } : {}),
+      ...(object.calendarEntry ? { calendarEntry: object.calendarEntry } : {}),
       ...(object.intake ? { intake: object.intake } : {}),
       ...(object.checklists ? { checklists: object.checklists } : {}),
       ...(object.owner ? { owner: object.owner } : {}),
@@ -1126,7 +1128,13 @@ export async function planDropHidden(
   // A stock object's counters and claims too (ADR 0680); its ledger stays, append-only.
   const capacityDrops = droppedObjects
     .filter((o) => o.definition.capacity || o.definition.stock)
-    .flatMap((o) => dropCapacityStatements(o.name));
+    .flatMap((o) => [
+      ...dropCapacityStatements(o.name),
+      // And whether its records were low (ADR 0681).
+      ...(o.definition.stock
+        ? [CompiledQuery.raw("DELETE FROM core_stock_low WHERE object_type = ?", [o.name])]
+        : []),
+    ]);
   // A dropped claimant gives back the places its records held and took (ADR 0501), and a
   // dropped series or generated object takes its recurring bookkeeping with it (ADR 0500).
   const claimantDrops = droppedObjects

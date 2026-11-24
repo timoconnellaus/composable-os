@@ -239,7 +239,8 @@ listed path, no query, fragment or user; never `localhost`. See
 
 ## Amended 2026-11-24 (stage 60 step 6, ADR 0872): a device session's calls are marked
 A staff call made with a device session carries `origin.staffDevice: true`, set by the HTTP surface
-from the session (never from the request) and kept in the audit row's origin. `approval.approve`
-refuses an `extension` or `schema` action under it, for an admin too (`details.reason:
-"review_on_computer"`): a change to how the system is set up is reviewed in the web admin. The
+from the session (never from the request) and kept in the audit row's origin. Under it the host
+refuses any `extension` or `schema` operation, called directly or approved through
+`approval.approve`, for an admin too (`details.reason: "review_on_computer"`): a change to how the
+system is set up is made in the web admin. The
 routes, the tokens and the session table are unchanged.

@@ -292,6 +292,21 @@ function checkMomentMinutes(
   }
 }
 
+/**
+ * True when `object` is of an extension in `onlyWith` that is not installed (no object of it is
+ * `known`): what an automation running only with it names of it is checked once it is (ADR 0812).
+ */
+export function laterObject(
+  onlyWith: readonly string[],
+  known: ReadonlySet<string>,
+  object: string,
+): boolean {
+  const ext = object.split(".")[0] as string;
+  if (!object.includes(".") || !onlyWith.includes(ext)) return false;
+  for (const name of known) if (name.startsWith(`${ext}.`)) return false;
+  return true;
+}
+
 /** Reports problems with `automations.<name>` through `ctx.contract`. */
 export function checkAutomation(
   ctx: AutomationCheckContext,
@@ -306,6 +321,10 @@ export function checkAutomation(
   const canWrite = (object: string) => own(object) || perms.write.includes(object);
   const canRead = (object: string) => canWrite(object) || perms.read.includes(object);
   const trigger = automation.trigger;
+  // An object of an extension the automation runs only with (ADR 0812) is unknown while that
+  // extension is not installed: it is checked when it is, and the automation waits until then.
+  const known = (object: string) =>
+    ctx.known.has(object) || laterObject(automation.onlyWith ?? [], ctx.known, object);
   const object = triggerObject(trigger);
   const base = object !== null && Object.hasOwn(BASE_AUTOMATION_FIELDS, object);
   const fields = object && (ctx.known.has(object) || base) ? fieldsOf(ctx, object) : null;
@@ -317,6 +336,15 @@ export function checkAutomation(
   if (!NAME_RE.test(name)) {
     contract(path, `Automation name "${name}" must be camelCase letters and digits, e.g. wonDeal`);
   }
+  // 0. The extensions it runs only with: never itself, each once, none it already requires.
+  (automation.onlyWith ?? []).forEach((id, i) => {
+    const at = `${path}.onlyWith.${i}`;
+    if (id === m.id) contract(at, "An automation of an extension always runs with it");
+    else if ((automation.onlyWith ?? []).indexOf(id) !== i) contract(at, `"${id}" is listed twice`);
+    else if (m.requires?.includes(id)) {
+      contract(at, `The extension requires ${id}, so it is always installed: remove it here`);
+    }
+  });
   // 1. The trigger.
   if (base && !perms.operations.includes(`${object}.get`)) {
     contract(
@@ -324,7 +352,7 @@ export function checkAutomation(
       `An automation started by ${object} reads it: add "${object}.get" to permissions.operations`,
     );
   }
-  if (object !== null && !ctx.known.has(object) && !base) {
+  if (object !== null && !known(object) && !base) {
     contract(
       `${path}.trigger.object`,
       `Unknown object "${object}". Use a core object (person, organisation, task, activity) or ` +
@@ -411,7 +439,7 @@ export function checkAutomation(
           `"${trigger.operation}" is not an operation name, e.g. record.update`,
         );
       }
-      if (trigger.object !== undefined && !ctx.known.has(trigger.object)) {
+      if (trigger.object !== undefined && !known(trigger.object)) {
         contract(`${path}.trigger.object`, `Unknown object "${trigger.object}"`);
       }
       break;
@@ -536,7 +564,7 @@ export function checkAutomation(
         break;
       default: {
         for (const read of step.reads ?? []) {
-          if (!ctx.known.has(read)) {
+          if (!known(read)) {
             contract(`${at}.reads`, `Unknown object "${read}"`);
           } else if (!canRead(read)) {
             contract(`${at}.reads`, `Step reads ${read}: add "${read}" to permissions.read`);
@@ -544,7 +572,7 @@ export function checkAutomation(
         }
         (step.writes ?? []).forEach((write, j) => {
           const wat = `${at}.writes.${j}`;
-          if (!ctx.known.has(write.object)) {
+          if (!known(write.object)) {
             contract(`${wat}.object`, `Unknown object "${write.object}"`);
           } else if (!canWrite(write.object)) {
             contract(

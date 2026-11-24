@@ -132,6 +132,17 @@ export function stockCounterInsert(object: string, record: string, now: string):
   );
 }
 
+/**
+ * The statement that gives every record a JSON list names (`[{ "r": <id> }, …]`) a counter with
+ * nothing on hand where it has none: the first statement of a record's stockMoves (moves.ts).
+ */
+export function stockCounterInsertMany(object: string, json: string, now: string): CompiledQuery {
+  return CompiledQuery.raw(
+    "INSERT INTO core_capacity (object_type, record_id, places, updated_at) SELECT DISTINCT ?, json_extract(value, '$.r'), 0, ? FROM json_each(?) WHERE true ON CONFLICT (object_type, record_id) DO NOTHING",
+    [object, now, json],
+  );
+}
+
 /** A counter with nothing on hand for an object's records that have none (an object gaining stock). */
 export function backfillStockCounters(input: {
   object: string;

@@ -79,6 +79,28 @@ Enrol a tablet or other browser as the business's own device, for one use: desk 
 | `expiresAt` | string | yes |   |   |
 | `enrolUrl` | string | yes |   | Where to type it, on the device |
 
+## device.heartbeat
+
+Called by an enrolled device holding a device role (a check-in tablet) every few minutes, so it is seen as on and does not lapse after 30 days. Answers the device's own name and role, so its screen knows what it is for. Reads nothing else. Only the device itself, on the desk origin.
+
+|  |  |
+| --- | --- |
+| Permission | `records:read` |
+| Risk | `read` |
+| Audiences | `device` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+No fields.
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `name` | string | yes |   | The name an admin gave the device |
+| `role` | string | yes |   | The device role it holds, &lt;pack&gt;.&lt;role&gt; |
+
 ## device.list
 
 Every enrolled device, of every use: its name, use, who enrolled it and when, when it was last seen, the browser and network it last came from and the changes flagged, a lock-out from wrong codes, and whether it was revoked (by an admin, as a copied credential, or unused for 30 days). Also where the desk is. Admins. Read-only.

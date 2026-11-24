@@ -112,3 +112,10 @@ changes them; a version's content may then include read-only fields the host set
 also takes `publishIn`, the states a record may be published in: outside them a publish is refused,
 a due schedule dropped, and a move out unpublishes the record in its batch. See
 [ADR 0810](0810-publishable-with-an-author.md).
+
+## Amendment, 2026-11-24 (stage 38 step 2, ADR 0701)
+A published version is no longer read only by the public: an object that declares
+`publishable.staffRead` is read by every staff account, pack roles included, as published
+(`content.staffGet`, `content.staffList`, and `content.search` over every text content field),
+through the live view, its content fields and slug only. Editors still edit the working copy on the
+record's page. See [ADR 0701](0701-staff-read-of-published-versions-and-its-reach-for-pack-roles.md).

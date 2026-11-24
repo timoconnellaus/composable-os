@@ -7,6 +7,8 @@
 //   device.list     admins: every device, with who enrolled it, when it was last seen, its flags
 //   device.claim    the desk origin only: the tablet types the enrolment code at /enrol
 //   desk.status     the desk origin only: whether this browser is an enrolled device, and its name
+//   device.heartbeat  an enrolled device holding a device role (the `device` audience, ADR 0781):
+//                   it is still on, so it does not lapse; answers its name and role
 //
 // Enrolling, changing and revoking are identity: a person's acts (`actors: ["human"]`), with
 // users:manage, which no grant gives. Every admin is told of each, in the host. Nothing here is
@@ -549,6 +551,30 @@ export const deskStatus = defineOperation({
   },
 });
 
+export const deviceHeartbeat = defineOperation({
+  name: "device.heartbeat",
+  description:
+    "Called by an enrolled device holding a device role (a check-in tablet) every few minutes, " +
+    "so it is seen as on and does not lapse after 30 days. Answers the device's own name and " +
+    "role, so its screen knows what it is for. Reads nothing else. Only the device itself, on " +
+    "the desk origin.",
+  input: z.object({}).strict(),
+  output: z.object({
+    name: z.string().describe("The name an admin gave the device"),
+    role: z.string().describe("The device role it holds, <pack>.<role>"),
+  }),
+  permission: "records:read",
+  risk: "read",
+  // The pipeline resolved the device and recorded it as seen in this call's batch (ADR 0781).
+  audiences: ["device"],
+  mcp: { expose: false },
+  async handler(_input, ctx) {
+    const caller = ctx.principal;
+    if (caller.kind !== "device") throw new ForbiddenError("Only an enrolled device calls this");
+    return { name: caller.name, role: caller.role };
+  },
+});
+
 export const deviceOperations = [
   deviceEnrol,
   deviceSetUse,
@@ -556,4 +582,5 @@ export const deviceOperations = [
   deviceList,
   deviceClaim,
   deskStatus,
+  deviceHeartbeat,
 ] as const;

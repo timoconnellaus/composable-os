@@ -26,7 +26,7 @@ import {
 } from "../orders/settings.ts";
 import { subscriptionSetup } from "../orders/subscription-setup.ts";
 import { taxCodeOf } from "../orders/tax.ts";
-import { holdsPermission } from "../principals.ts";
+import { holdsPermission, placedAs } from "../principals.ts";
 import { callerOf } from "../records/transitions.ts";
 import { coolingOffDaysNow, coolOffOpen } from "./cooling-off.ts";
 import { loadSubscriptionRow, type SubscriptionRow } from "./events.ts";
@@ -293,7 +293,7 @@ export async function startSubscription(
       payer_person_id: personId,
       holder_person_id: holderPersonId,
       email,
-      placed_as: caller.kind,
+      placed_as: placedAs(caller),
       plan_object: plan.object,
       plan_id: plan.recordId,
       plan_title: plan.title,

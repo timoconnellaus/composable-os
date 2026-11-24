@@ -138,3 +138,29 @@ for and approved a refund) are the accounts' names when downloaded, and a custom
   headings); the day's money in and its total tax do not change.
 - Steps 4, 5, 6 and 8 add their entries, rows, sources and guards to `periodBook`; stage 34's step
   3 adds headings by method and turns recorded payments into sources of their own.
+
+## Amended 2026-11-24 (the review of PR #423, before merge)
+- **A guest's address is not kept.** A closed Refunds row keeps a name and email only when the
+  order has a Person: the erase and migration 1150's trigger reach a closed row by its Person
+  only, so a guest's address (an order with no Person) could never be erased from it. The order
+  holds the address until the erase reaches it there.
+- **An erase racing the close fails it.** The guards also cover who the refunds' orders name (their
+  Person and email, and the Person's name): an erase between the close's read and its batch fails
+  the close (`finance_changed`); retried, the row carries what the erase left.
+- **A refund is checked against its own order's payments.** Whether a refund gives back a payment
+  that was never a sale is looked up through `core_order_payment_order_idx` (`+q.provider`): the
+  planner had taken the primary key's provider prefix, reading every payment the provider ever
+  made for each refund (50 refunds over 90,000 payments: 4.5 million rows; now a few hundred).
+- **Names are read by one JSON parameter**, so a report naming more than 100 staff (a year's
+  refunds) is not refused by D1's 100 variables.
+- **A closed file is byte for byte the same after a reopen.** The header no longer marks a
+  reopened version, so version 1's file downloads as it did (acceptance criterion 9). What can
+  still differ between downloads is a name, never a figure: who closed it and the staff on a refund
+  are read as their accounts are named when it is downloaded, and an erased customer reads "Erased
+  person". This is a deviation from the spec's "byte for byte", recorded here: storing staff names
+  in a closed row would put names an erase could not reach in its figures.
+- **An order with no lines keeps its tax**, under `tax:none:<country>`, instead of the whole payment
+  being booked to `sales:other`.
+- Proof: `packages/core/test/finance-review.test.ts` (each sequence the review reproduced, failing
+  without its fix, and a late payment honoured in a later month), the refunds case in
+  `finance-report-cost.test.ts`, and the full-file comparison in `finance-day-summaries.test.ts`.

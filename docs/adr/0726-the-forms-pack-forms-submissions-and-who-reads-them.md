@@ -19,8 +19,9 @@ updated" list, an hourly cap and spam retention as settings, and a low-rating no
 - **A pack, `packs/forms`** (`forms`, optional), with two objects:
   - `forms.form`: title, an address (`slug`), kind (`enquiry`, `signup`, `survey`, `feedback`,
     `staff`), questions (`QUESTIONS_SCHEMA`), thank-you words, who may answer (`public`,
-    `customers`, `links`, `staff`), anonymous, a destination (a select of objects that may declare
-    `intake` as a destination: `leads.lead` for now; the host refuses one not installed), who is
+    `customers`, `links`, `staff`), anonymous, a destination (a text naming an object that
+    declares `intake` as a destination; none does until step 6 makes `leads.lead` one, so the host
+    refuses every value now), who is
     told, receipt on or off (on by default), a low-rating level (0 to 10), open from and until, a
     daily cap. `publishable` with title, questions, thank-you, who may answer, anonymous and
     destination as content, and the slug as its address; states draft, open and closed.
@@ -32,7 +33,9 @@ updated" list, an hourly cap and spam retention as settings, and a low-rating no
   would show a members-only or link-only form's questions to anyone. The public reads a form only
   through the door: **`intake.open` takes the form's `slug`** as well as its id, when the form
   object declares `publishable.slug`, and a form that does not take the caller's answers is not
-  found, naming the address the caller gave and never the id. The pack's `form` tool calls it.
+  found, naming the address the caller gave and never the id. An old address of a published form
+  whose slug changed (`core_slug_redirect`, ADR 0442) still finds it, so a printed QR code keeps
+  working. The pack's `form` tool calls it.
 - **Two new keys of `intake`** (ADR 0720, amended):
   - `hourlyCap` on a form: a number setting of the pack, which must be `personApproves`, read by
     the door as the deployment's hourly cap (left empty or out, the platform's 200). Forms names its
@@ -47,8 +50,10 @@ updated" list, an hourly cap and spam retention as settings, and a low-rating no
   ["markSpam"]` and `["notSpam"]`, both `personApproves` (ADR 0552): the door keeps a flood as
   spam, a person marks one, and the assistant only suggests it. No plain `record.update` moves a
   submission into or out of spam.
-- **Opening and closing a form are a person's**: the form's status field is `personApproves`, so an
-  AI's write of it waits for a person, as publishing does (ADR 0480).
+- **Opening and closing a form are a person's**: the form's status, its open-from and open-until
+  dates, its daily cap and its address are `personApproves`, so an AI's write of any of them waits
+  for a person, as publishing does (ADR 0480). The door reads the dates and the cap from the
+  working copy, so without this an AI could close or throttle a form at once.
 - **Tools**: `form` and `submit` (customers and the public; read and write), which pass straight to
   `intake.open` and `intake.submit` with the pack's own form object; `enter` (staff enter a phone
   or paper enquiry or a staff form; the host sets certainty and way in to `staff`); `move`,
@@ -59,8 +64,9 @@ updated" list, an hourly cap and spam retention as settings, and a low-rating no
   declares no role, and a pack role reaches only its own pack's objects. Nobody outside the org
   reads a submission: no customer, public or signed-in declaration (ADR 0720's rule).
 - **The low-rating notice** is an automation (`lowRating`): when a submission with a rating that
-  is not spam is created, it reads its form and, at or under the form's level, tells the form's
-  "who is told", else the admins. The notice of each submission stays the door's.
+  is not spam is created, it reads its form and, at or under the form's level, tells the
+  submission's owner (from assignment rules), else the admins: both recipients are declared, so
+  the summary an admin approves says who. The notice of each submission stays the door's.
 - **Views**: new answers, in hand, spam, "Asked to hear from us" (ticked, not spam: Person, form,
   version, time) and open forms; a "Form answers" tab on a Person and an "Answers" tab on a form.
 
@@ -83,6 +89,15 @@ updated" list, an hourly cap and spam retention as settings, and a low-rating no
   sent.
 - The builder, inbox and dashboard screens are step 8 (after stage 47), the hosted page and blocks
   step 4. Until then forms are built through the host's generic record pages and the tools.
+- **Erase is step 7's.** Until then `person.erase` clears a submission's Person and the answers
+  it recognises (name, email) but keeps the row and its free text; criterion 21 (erase deletes a
+  person's submissions) is built there.
+- `x.forms.enter` is an ordinary staff write under the approval policy: the assistant may enter a
+  phone enquiry it is told about. Only the person ticks "keep me updated" (the door), and the
+  Person it makes is filled from empty fields only.
+- An unknown address answers after one read, a known one that does not take answers after a few
+  more: the words are the same and nothing of the form is told, only that the address exists,
+  which a printed address does not keep secret anyway.
 - Not yet tried on a live host.
 
 ## Proof

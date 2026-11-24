@@ -294,6 +294,16 @@ How stage 5 runs automations ([ADR 0130](adr/0130-automation-runtime.md), test m
 
 - **Registry.** `extension.install` syncs `core_automations` from the manifest; the consumer and
   cron load enabled automations through `core_automations_trigger_idx`.
+- **Only with** ([ADR 0812](adr/0812-an-automation-that-runs-only-with-another-pack.md)). An
+  automation that declares `onlyWith: ["<extension>"]` installs with its extension whether or
+  not those are installed; what it names of them is checked at its extension's next install or
+  upgrade while they are installed (not when they are installed). While any is not installed and
+  on, it starts no new run (trigger matching, cron, a manual start, a retry or replay, a run held
+  back by a rail, which stays queued: `waitingFor` in `automations/registry.ts`, one read of
+  `core_extensions` by id, only when an automation names one) and `automation.list` shows it
+  `waiting` with `waitingFor`. Once they are on, an object of theirs it names that does not
+  exist makes it `broken` with `unknownObjects` (`unknownOnlyWithObjects`, against the schema
+  registry). Nothing is stored for either.
 - **Replay.** Each advance replays the extension's `run` with the journal of finished steps in the
   extension's tool worker; one new `step.do` runs per advance, sleeps and waits are Workflow
   sleeps and waits. Steps act as actor `automation` under the extension principal, with cascade
@@ -979,13 +989,16 @@ definition into its client repo.
 
 Stage 22; [ADR 0402](adr/0402-staff-and-customers.md).
 
-Every operation declares its audiences: `staff` (the default), `customer`, `public`.
+Every operation declares its audiences: `staff` (the default), `customer`, `public`, or
+`device` alone (stage 51, [ADR 0781](adr/0781-a-device-as-a-caller-the-device-audience-and-device-roles.md)).
 
 - **Staff** are today's users, with roles.
 - A **customer** is a Person with a sign-in. An object says which relation field is its customer;
   the visibility seam limits a customer to their own records. Customers never reach the admin, MCP,
   Code Mode, `query.sql`, dashboards or exports.
 - **Public** callers have no account. Public operations are few, low risk and rate limited.
+- A **device** is the business's own enrolled tablet holding a device role, signed in as nobody.
+  It calls only on the desk origin, and only its role's tools and `device.heartbeat`.
 
 As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
 [0411](adr/0411-audiences-on-operations-as-built.md),
@@ -1019,6 +1032,13 @@ As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
 - **A call for a customer or the public** carries a principal and no staff user. It takes a
   short path of its own in the pipeline: no role, no approval queue, a write check at the seam
   before the batch commits, and an audit row with actor `customer` or `public`.
+- **A call by an enrolled device** (ADR 0781) takes the same path, from the desk origin's handler
+  only, which says `{ kind: "device" }` and passes the request. The pipeline's device check
+  (`devices/caller.ts`) resolves the device from its credential (rotation, grace, clones and
+  lapsing, ADR 0780), requires the `role` use and a device role an installed, active, shipped pack
+  declares now (`loadDeviceRole`), and refuses, audited, any operation the role does not reach
+  (`deviceRoleReaches`), before the input is looked at. Audited with actor `device` and the
+  device's id; the seam gives it nothing, and its tools' own calls run as the extension.
 - **Its handler has no raw database.** It reads and writes records through `ctx.records`. A core
   operation marked `hostInternal` keeps the database for account and session bookkeeping.
 - **Customer accounts** are `core_customer` and its sessions, apart from `core_user`. A second
@@ -1451,6 +1471,24 @@ no Referer. The file is written by `packages/calendar-file`, the zero-dependency
 email gatekeeper's calendar file (ADR 0571) shares. A tool may declare `redactResult`: answer keys
 never kept in the audit log, an approval or a stored idempotent reply.
 
+**The customer calendar feed** (stage 62 step 1, [ADR 0890](adr/0890-the-customer-calendar-feed-and-the-shared-feed-module.md),
+[ADR 0891](adr/0891-calendar-entry-packs-declare-what-a-customer-feed-shows.md),
+`packages/core/src/customers/calendar-feed.ts`, `operations/me-calendar-feed.ts`,
+`apps/app/src/server/http/customer-feed.ts`, migration 1350): `GET /api/v1/me/feed/<token>.ics`, the
+staff feed's machine shared as one **feed module** (`packages/core/src/feeds/token.ts` for the token,
+hash, lookup and window; `apps/app/src/server/http/calendar-feed.ts` for the limits, headers, the one
+404 and the writer call), with its own token table (`core_customer_feed`) and bindings
+(`CUSTOMER_FEED_RATE_LIMIT`, `CUSTOMER_FEED_ADDRESS_RATE_LIMIT`). Made only by the customer
+(`me.calendarFeed.rotate`, `actors: ["human"]`, the address once, `redactResult`); revoked by them,
+by staff (`customer.revokeCalendarFeed`), and in the batch of `customer.disable`,
+`me.deleteAccount`, an erase or a merge that deletes the account. A fetch checks the account is
+active and linked, then reads as that customer through the visibility seam every object a shipped,
+active pack declares a **`calendarEntry`** on (start, end, title, place as paths, the live states;
+checked by the SDK within a pack and by the host into another pack's objects: every field on the
+way one the customer reads, and past the first field a title's or place's only what the related
+object makes public or signedIn), their own records and a live dependant's (`ownReadSource`), in the
+window, one statement per declaring object.
+
 **Checklists** (stage 45 step 4b, [ADR 0650](adr/0650-checklists-templates-runs-ticks-and-a-done-run-kept-unchanged.md),
 `packages/core/src/checklists/`, `operations/checklist.ts`, migration 0815): a platform piece any
 pack composes. Templates (`core_checklist`, `core_checklist_step`) are read by every staff account
@@ -1654,8 +1692,9 @@ certainty, via and rating are the host's alone on every path; who may answer, an
 destination are read from the published version, as the questions are. An anonymous form keeps no Person, and the call forgets the
 customer (`ctx.anonymise`): no account or session in its audit row, marks or events. No client
 address, user agent or fingerprint is stored. A form object with `publishable.slug` is
-also opened by its address (`intake.open { slug }`, step 3), and a form that does not take the
-caller's answers is not found by it, naming the address and never the id. A form may name a number
+also opened by its address (`intake.open { slug }`, step 3), or an old address of it that a slug
+change kept as a redirect, and a form that does not take the caller's answers is not found by it,
+naming the address and never the id. A form may name a number
 setting of its pack, one a person approves, as the deployment's hourly cap (`hourlyCap`); a
 submission may name a boolean the host sets when a `marketing` consent line was ticked
 (`marketing`), host-only as its other evidence. The Forms pack (`packs/forms`, step 3,
@@ -1724,6 +1763,16 @@ published before it. `content.search { object, q, cursor? }` (public, customer a
 the public, cached by the generation) matches every word as a prefix, keeps the best section of
 each record, reads the records through the public's seam, and answers slug, title, section
 (field, heading, anchor) and a snippet as plain and matching segments.
+
+**Staff read** (stage 38, [ADR 0701](adr/0701-staff-read-of-published-versions-and-its-reach-for-pack-roles.md),
+`packages/core/src/visibility/staff-read.ts`). A publishable object may declare `staffRead: true`:
+every staff account then reads its current published version, never the working copy, through
+`content.staffGet { object, id | slug }` and `content.staffList` (the live view's content fields and
+slug, with the version and when it was published; a draft or an unpublished record is not found),
+and a staff caller's `content.search` on it matches every text content field (the index holds them
+beside what the public reads; a public search still matches only the public's fields). Every pack
+role reaches the three (`PACK_ROLE_STAFF_READS`), allowed only on a `staffRead` object, so a cleaner
+reads published procedures and nothing else new. The public and customers never reach them.
 
 **Read and understood** (stage 38, [ADR 0702](adr/0702-acknowledgements-read-again-and-a-confirmation-nobody-changes.md),
 `packages/core/src/records/acknowledge.ts`, `packages/core/src/operations/ack.ts`). A publishable
@@ -1982,6 +2031,12 @@ A pack may declare a tool permission **restricted**
 held by admins and by a grant of it, never by a member's or viewer's own role or by a pack role,
 and is never called by an automation or another extension's code (Rostering's `rostering:manage`;
 pay in step 6). A human admin grants it, never to their own account.
+A pack may also declare **device roles** (`deviceRoles`,
+[ADR 0781](adr/0781-a-device-as-a-caller-the-device-audience-and-device-roles.md)), held by an
+enrolled device of use `role` rather than an account: the role's tools (open to the `device`
+audience only, permissions no staff role, grant or restriction names) and `device.heartbeat` are
+all the device may do; `ctx.caller` is `{ kind: "device", deviceId, name }`, and the tool's calls
+run as the extension. The contract check and install refuse a runtime extension's.
 A pack's text field may be **restricted** to one of its restricted permissions
 ([ADR 0811](adr/0811-restricted-fields.md), stage 54 step 2): it gets no column and is no registry
 field, its value is kept in `core_restricted_value` (migration 1190, `records/restricted.ts`), so
@@ -2007,9 +2062,9 @@ An **Order** is a base record in core
 `packages/core/src/orders/`). `order.start` takes records and quantities; the host reads each
 price from the record, in the deployment's one currency, and stores amounts as integers in the
 minor unit. The order's state machine is fixed in core and held by the transition engine. Its
-moves to `paid`, `part_paid`, `expired` and `refunded` are `host` moves: the only code that makes
-an order paid is `applyVerifiedPayment`, a function the payments gatekeeper's verified webhook
-calls, never an operation. It is idempotent by the provider's event id, records a payment that
+moves to `paid`, `part_paid`, `expired` and `refunded` are `host` moves: the code that makes an
+order paid is `applyVerifiedPayment`, a function the payments gatekeeper's verified webhook calls,
+or `applyOtherPayment` (paid another way, below), never an operation. The verified one is idempotent by the provider's event id, records a payment that
 does not match or arrives late without moving the order, and tells staff. An order may be paid by
 a deposit and a balance due by a date; nothing is scheduled or charged automatically.
 
@@ -2075,6 +2130,25 @@ the order's checkout cannot open while a person's waits. The database refuses a 
 checkout is recorded, and a checkout for a price that changed meanwhile (migration 0951). A discount cannot take an
 order to nothing yet. Codes and members' prices (the `discount` behaviour) join the seam in a
 later step.
+
+**Paid another way** (stage 34, [ADR 0694](adr/0694-an-order-paid-another-way.md),
+`orders/payments.ts`, `orders/refunds.ts`). The second door into paid: `applyOtherPayment`, a
+function beside `applyVerifiedPayment` that writes a payment row the host makes (provider `host`,
+id `opy_…`) and moves the order through the same settle path (paid or part paid, the move hooks:
+grants, holds, `sellable.moves`, one-per-Person uses). Every payment row has a `method`:
+`provider`, `recorded` (with `recorded_kind`, `recorded_by`, `received_on`, `reference`), and
+`voucher` / `stored_value` for later steps, which the database refuses until their ledgers exist
+(migration 0952's guard also refuses a recorded row without who received it, a reversal that does
+not undo exactly one recorded payment, and any edit of a host row). Today one operation calls it:
+`order.recordPayment` (the restricted core permission `orders:payments`, human only), any amount up
+to what is owed, on the Person's timeline, admins told over `recordedPaymentNotice`.
+`order.reversePayment` undoes one entered in error with a second, negative row and moves a paid
+order back to `part_paid` (what it granted stays). A drop-in (`sellable.moves`) is paid in full or
+not at all, and its payment is reversed only once its booking is cancelled. Refunds go back the way the money came:
+`order.refund` sends only the provider's payments; a recorded one is paid back by a person and
+recorded with `order.recordRefund` (`orders:refund`, human only, nothing sent). `rec_order_payment`
+and `rec_order_refund` report payments and refunds by method. Stage 35's invoices and the till's cash call the same function from
+their own operations.
 
 **Subscriptions** (stage 32a, ADRs [0485](adr/0485-recurring-billing-the-provider-runs-the-schedule.md)
 to [0487](adr/0487-the-payer-and-the-holder.md), `packages/core/src/subscriptions/`). The provider
@@ -2199,6 +2273,32 @@ gives confirmed stock back but a return. `stock.opening` and `stock.adjust` need
 what `show` allows; `stock.movements` and `rec_stock_movement` read the ledger. The reconciler
 refuses adding `stock` to an object that has records, or taking it off one, so every stock counter
 started with nothing on hand.
+
+**`stockMoves`** (stage 37 step 2, [ADR 0681](adr/0681-stock-moves-a-record-s-state-moves-stock.md),
+`packages/core/src/stock/moves.ts`). A record's state moves stock:
+`stockMoves: { move: "add" | "remove" | "set", on, quantity, when, through?, kind?, unitCost?, note? }`.
+When the record enters `when` (a state nothing leaves), the transition engine (`records/lifecycle.ts`)
+writes a movement of its `quantity` on the record `on` points to, in the move's batch, for every
+actor: a receipt `received` adds (`received`, with its unit cost), a write-off removes
+(`written_off` or `used`), a count line sets on hand to the number counted (`counted`, the
+difference from on hand worked out as the batch commits). With `through`, the state is another
+record's (a count's `applied`) and all its live lines move at once. Three statements whatever the
+number of lines (up to 500), the lines as one JSON parameter; too few on hand, or a count below what
+unpaid orders hold, fails the batch with the counter's numbers. Every move into `when` is the
+host's, made through the pack's person tools (`humanOnly` or `personApproves`), so an AI's waits
+for a person. What fed a movement cannot change afterwards, a moved record's lines cannot be
+added, changed or restored, and guards in both batches (the line's on its parent's history, the
+apply's on its lines) refuse a line written while its count is applied. A runtime extension cannot
+declare it.
+
+**Low stock** (stage 37 step 2, ADR 0681, `packages/core/src/stock/low.ts`). When a write takes a
+stock record's on hand to or below its reorder level (`stock.reorderAt`), the staff who hold the
+pack's `stock.notify` permission (else the admins) get an in-app notice, once until it rises above
+again. Every write that changes on hand (opening, a correction, `stockMoves`, a paid order's sale in
+`stock/sold.ts`, a changed level) notes its records; at the end of its batch (`beforeCommit`) four
+statements per object end the crossings of records now above, begin one (`core_stock_low`,
+migration 0931) for records at or below, tell each keeper of a crossing not yet told and mark it
+told. A fixed role's account is told only of objects its role reads.
 
 **`allowance`** (stage 32b, ADRs [0493](adr/0493-the-allowance-behaviour.md) and
 [0494](adr/0494-which-holder-pays-and-what-happens-to-uses.md), `packages/sdk/src/allowance.ts`,
@@ -2456,7 +2556,7 @@ and the mobile Account tab are plain pages over the same entry.
 | Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `staffed` (a class is its coach's shift, stage 45), `occupies` (a class takes a room marked "one booking at a time", stage 49 step 2, [ADR 0765](adr/0765-occupies-the-claim-on-a-thing.md)), `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer` with `guardians`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 6 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md); parents booking for their children, [ADR 0540](adr/0540-the-family-link.md)); step 7, attendance, moves and cancelling a class; step 8, drop-ins with `sellable.moves`, [ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md)); step 9, messages, the reminder, the dashboard and the coach's app screen, [ADR 0572](adr/0572-bookings-messages-the-dashboard-and-the-coachs-app-screen.md); step 10 to come |
 | Rostering | `recurring` (duty series, a horizon from its setting), `staffed` (a duty shift is its person's shift), `states`, a pack role (`rostering.team`), grantable and restricted permissions, the roster's rules (`staffing`), the host's tool-only `staffing.*` operations | stage 45: step 4 built (duties, duty series and shifts, the team role, the roster's tools, settings, [ADR 0626](adr/0626-the-rostering-pack-and-bookings-additions.md)); step 6 built (pay periods: `rostering:pay`, restricted and a person's only, who is counted, totals, the not-worked mark, lock, reopen and export, [ADR 0627](adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md)); step 5 built (each person's private calendar feed: `feed`, `feedRotate`, `feedRevoke`, [ADR 0628](adr/0628-the-staff-calendar-feed-and-the-shared-calendar-writer.md)); step 7 built (the screens as blocks over `@composable-os/pack-rostering/client`, my calendar among them, role clients with grants, `cos rostering import`, [ADR 0629](adr/0629-the-rosters-screens-role-clients-with-grants-and-the-roster-import.md)); checklists (4b) built (a duty's checklist, [ADR 0650](adr/0650-checklists-templates-runs-ticks-and-a-done-run-kept-unchanged.md)) |
 | Daily checklists | no objects: screens and tools over the host's tool-only day-run operations (`checklist.today`, `.day`, `.dayTick`, `.dayDone`, `.days`), tools open to every staff account (`anyStaff`) or held to `checklists:write` (`corePermission`) | built (checklists on their own, [ADR 0651](adr/0651-checklists-on-their-own-a-schedule-a-run-a-day-and-who-may-do-it.md), [ADR 0652](adr/0652-a-tool-for-every-staff-account-and-a-tool-held-to-a-core-permission.md)): Today's checklists (web and the app) and Checklist history; requires nothing |
-| Forms | `publishable` with a slug and no public half, `intake` (form and submission), `states` (moves into and out of spam only by `personApproves` tools), a status field and a setting a person approves, a low-rating automation | stage 29: step 3 built (forms and submissions, the inbox's tools, views among them "Asked to hear from us", the hourly cap setting, the low-rating notice, the staff form kind, [ADR 0726](adr/0726-the-forms-pack-forms-submissions-and-who-reads-them.md)); the hosted page and blocks, personal links and receipts, Leads as a destination, erase, and the screens and dashboard to come |
+| Forms | `publishable` with a slug and no public half, `intake` (form and submission), `states` (moves into and out of spam only by `personApproves` tools), a status, dates, cap and address a person approves, an old address that redirects, a setting a person approves, a low-rating automation | stage 29: step 3 built (forms and submissions, the inbox's tools, views among them "Asked to hear from us", the hourly cap setting, the low-rating notice, the staff form kind, [ADR 0726](adr/0726-the-forms-pack-forms-submissions-and-who-reads-them.md)); the hosted page and blocks, personal links and receipts, Leads as a destination, erase, and the screens and dashboard to come |
 | Memberships | `allowance` (holders), recurring billing with `recurring.grants` and `recurring.pause`, `sellable.onePerPerson`, `humanOnly` tools, `requires: ["programs"]` | stage 32b: steps 5 to 7 built (the behaviour, the pack, plan changes and pauses, the dashboard, views and blocks); the import (step 8) to come |
 
 ### Client repos
@@ -2497,7 +2597,7 @@ As built so far (stage 24; ADRs [0420](adr/0420-packs-as-packages-as-built.md),
   ([ADR 0453](adr/0453-pack-hooks-over-the-clients-operations.md)). `mobile.owner: true` adds the
   **owner's client** (`roles/owner.ts`, from `roles.json`'s `owner`): only Today's, the approvals'
   and the inbox's operations, for any staff account, with `createOwnerHooks` in
-  `@composable-os/client`; the host refuses a setup approval on a staff device session
+  `@composable-os/client`; the host refuses a setup change, made or approved, on a staff device session
   ([ADR 0872](adr/0872-the-owners-client.md)). A web app's
   `operationRoute` passes the browser's allowed calls to `HOST`, same origin only.
 - **Environments** ([ADR 0450](adr/0450-client-environments.md)): `product.ts` may declare
