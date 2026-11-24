@@ -22,6 +22,11 @@ export interface CatalogueEntry {
   companion?: string;
   /** Only offered in development and tests (the fake OAuth provider). */
   devOnly?: boolean;
+  /**
+   * A contract the gatekeeper serves, beyond the gatekeeper interface: `accounting`, the
+   * accounting session (`packages/gatekeeper-accounting`, stage 61, ADR 0880).
+   */
+  implements?: "accounting";
 }
 
 export const CATALOGUE: readonly CatalogueEntry[] = [
@@ -117,6 +122,16 @@ export const CATALOGUE: readonly CatalogueEntry[] = [
       "stay in the gatekeeper; card details never reach the CRM.",
     connect: "auto",
     scopes: ["org"],
+  },
+  {
+    vendor: "accounting-fake",
+    title: "Fake books (development)",
+    description:
+      "Fake accounting books with invented accounts, tax rates and contacts, for development and tests.",
+    connect: "auto",
+    scopes: ["org"],
+    devOnly: true,
+    implements: "accounting",
   },
   {
     vendor: "fake",

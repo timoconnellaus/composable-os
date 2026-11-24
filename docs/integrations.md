@@ -75,6 +75,11 @@ an outbox, all inside cos-runner. Seed its mailbox with
 outbox really sent with `GET /gatekeeper/fake/sent/<address>`. It is never offered when the var is
 not `"true"`.
 
+The dev server also runs **Fake books (development)** (`cos-gatekeeper-accounting-fake`, stage 61,
+ADR 0880): fake accounting books behind the accounting contract, with invented accounts, tax rates
+and contacts. An admin connects it for the org and binds `accounting-fake://books/<name>`; each name
+is its own set of books. It is bound only in development and cos-runner's tests, never deployed.
+
 ## Manual end-to-end check (needs a human)
 
 Stage 6 acceptance criterion 8 needs real Google and Microsoft test accounts, which automated tests
