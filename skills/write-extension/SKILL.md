@@ -382,6 +382,22 @@ the pack's hooks as the prop named for the pack and nothing else, so a screen wh
 other props gets a small wrapper export that works them out (Bookings' `FrontDesk` around `Desk`).
 A runtime extension declaring `screens` is refused. See Bookings and Rostering: `screens`.
 
+### Numbers on Today (shipped packs only)
+
+A **shipped pack** may add up to 8 numbers to the owner's Today by declaring **Today items**
+(`todayItems`, `TodayItemSpec` in `contract.ts`, ADR 0870): `todayItems: { cameToday: { label:
+"Came today", order: 20, format: "count", sql: "SELECT count(*) AS value FROM rec_x_<id>_booking
+WHERE ... >= :today_from AND ... < :today_to", compare: "yesterday", attention: { above: 0 },
+rows: { sql: "SELECT p.name AS member, p.id AS person_id FROM ...", label: "member", record: {
+object: "person", id: "person_id" } }, opens: ["roster"] } }`. The SQL follows the widget rules
+(one `SELECT`/`WITH` over `rec_*` views) with only `:today_from`, `:today_to` (the business's local
+day) and `:now`, and returns exactly one column, `value`; `rows` returns exactly its `label`,
+optional `detail` and `record.id` columns (names and ids, never notes, health answers, pay or
+leave). `format` is `count` or `percent`: a pack declares no money number (money on Today is the
+host's, from Finance reports). `opens` is the gate, as a screen's (this pack's tools, at least one
+for staff only); `web: { screen }` names one of the pack's screens for the web card. A runtime
+extension declaring `todayItems` is refused.
+
 ## The rules
 
 - **No writes to the database.** An extension reaches data only through operations

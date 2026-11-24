@@ -12,8 +12,10 @@ import { dashboardSpecSchema } from "../dashboards/spec.ts";
 import { ConfigError, ValidationError } from "../errors.ts";
 import { listObjects } from "../fields/index.ts";
 import type { HandlerContext } from "../operation.ts";
+import { schemaObjectNames } from "../operations/query.ts";
 import { CORE_PERMISSION_NAMESPACES } from "../principals.ts";
 import { routineMailAvailableNotice } from "../routine-mail/index.ts";
+import { todayItemSqlIssues } from "../today/declaration.ts";
 import { hasAccessSourceKind } from "../visibility/access.ts";
 // The host's own kinds of access source register themselves when loaded: loaded here too, so the
 // install check (and `cos ext check`, which bundles it alone) knows them (ADR 0488).
@@ -116,6 +118,13 @@ export async function checkManifest(
           message: issue.message,
         });
       }
+    }
+  }
+  // A Today item's SQL follows the widget rules (stage 60, ADR 0870): checked here, where the SQL
+  // guards are, against what is installed and the views this install creates.
+  if (manifest?.todayItems && Object.keys(manifest.todayItems).length) {
+    for (const issue of todayItemSqlIssues(manifest, await schemaObjectNames(db))) {
+      all.push({ stage: "contract", code: "contract", path: issue.path, message: issue.message });
     }
   }
   // Who an extension opens the host to is never AI-configurable (ADR 0402): a runtime extension,
@@ -291,6 +300,16 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
       code: "outside_audience",
       path: "screens",
       message: `A runtime extension cannot declare screens: only a shipped pack's blocks are built into the admin. ${why}`,
+    });
+  }
+  // Today's items are shown to the business's owner and staff as the host's numbers (stage 60, ADR
+  // 0870): only a shipped pack's, reviewed in the repository, are.
+  if (manifest.todayItems && Object.keys(manifest.todayItems).length) {
+    issues.push({
+      stage: "contract",
+      code: "outside_audience",
+      path: "todayItems",
+      message: `A runtime extension cannot declare Today items: only a shipped pack's numbers are on Today. ${why}`,
     });
   }
   // Routine mail goes to members without a person's approval (ADR 0590): only a shipped
