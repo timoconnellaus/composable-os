@@ -1,8 +1,9 @@
 // The timetable for a gym's site (stage 31a): the week's classes, and for a signed-in member a
 // Book or Cancel button on each. A parent the gym linked to a child picks who they are booking
 // for (ADR 0540); the child's own membership or pass pays. A member with nothing to spend on a
-// class may pay for it instead (a drop-in, when the app passes `payReturnUrl`; web only). Whether booking is open, whether the gym books a class, the places
-// class), whether a cancel is in time and what it spends are the host's: this shows its answers.
+// class may pay for it instead (a drop-in, when the app passes `payReturnUrl`; web only). Whether
+// booking is open, whether the gym books a class, the places left, whether a cancel is in time
+// and what it spends are the host's: this shows its answers.
 //
 // What must be agreed to first (stage 44: a waiver, a health form, a new version to agree to
 // again) is the host's answer too: when "Book" or "Pay" is refused with it, the documents are shown
@@ -98,7 +99,9 @@ export function Timetable({
       <ul className="grid gap-2">
         {timetable.data.classes.map((klass) => (
           <ClassRow
-            key={klass.id}
+            // One row per person and class: a cancel previewed for one person is never confirmed
+            // for another after "Booking for" changes.
+            key={`${chosen?.personId ?? "self"}:${klass.id}`}
             klass={klass}
             booking={bookingFor(klass.id, mine.data?.bookings)}
             forPerson={chosen ? { id: chosen.personId, name: chosen.name } : null}
