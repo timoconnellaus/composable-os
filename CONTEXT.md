@@ -1145,9 +1145,9 @@ How many of a thing a business has, declared `stock` by an object that is sold (
 item: "Club hoodie, large, black"). The host keeps it on capacity's counter: **on hand** is every
 unit in less every unit out, **held** is what unpaid orders hold while their buyers pay, and
 **available** is on hand less held. Nobody types on hand: it changes only by a **stock movement**.
-A sale is held while the order is unpaid and sold when it is paid; a refund never restocks, a
-return does. What customers and the public see is the object's `show`: in stock or sold out by
-default (stage 37, ADR 0682).
+A sale is held while the order is unpaid (a deposit included) and sold when it is paid in full; a
+refund never restocks, a return does. What customers and the public see is the object's `show`: in
+stock or sold out by default (stage 37, ADR 0682).
 _Avoid_: inventory, quantity (a line's quantity is how many it buys); capacity (places, not goods)
 
 **Stock movement**

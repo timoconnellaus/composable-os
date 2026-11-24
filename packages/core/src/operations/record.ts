@@ -285,6 +285,13 @@ async function prepareValues(
           .map((f) => f.name),
       });
     }
+    // The stock behaviour's values are the ledger's (ADR 0682): nothing writes them.
+    if (object.stock && STOCK_FIELDS.some((f) => f.name === name)) {
+      throw new ValidationError(
+        `${object.label}: ${name} is kept by the host from stock movements; record opening stock with stock.opening or a correction with stock.adjust`,
+        { field: name, rule: "stock" },
+      );
+    }
     if (!field.extension) {
       throw new ValidationError(
         `${object.name}.${name} is a core field; change it with ${object.name}.update`,

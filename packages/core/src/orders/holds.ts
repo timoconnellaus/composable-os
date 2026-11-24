@@ -8,26 +8,36 @@
 //   to `paid` or `part_paid` from `expired`   claim again (the holds were released at expiry) and
 //   (a late payment staff honour)             confirm; a refusal fails the batch, so the order
 //                                             stays expired and staff refund instead
-//   to `cancelled` or `expired`               release: held places from `pending`, confirmed
-//                                             ones from `part_paid`
+//   to `paid` from `part_paid`                confirm what is still held (stock lines, below)
+//   to `cancelled` or `expired`               release: held places and stock, and from
+//                                             `part_paid` confirmed places too
 //   to `refunded`                             release confirmed places, unless a line's object
 //                                             declares `releaseOnRefund: false`
 //
 // A line whose object declares `stock` (stage 37, ADR 0682) holds and confirms through the same
-// claims: its record's counter is on capacity's engine. When it is paid the host writes its `sold`
-// movement in the same batch, and a sold unit never goes back on its own: a refund, or cancelling
-// a part-paid order, keeps its sale (stock comes back by a return, which writes its movement).
+// claims: its record's counter is on capacity's engine. It is sold only when the order is paid in
+// full: a deposit (`part_paid`) confirms the order's places but leaves its goods held, and
+// cancelling a part-paid order gives them back. When it is paid the host writes its `sold`
+// movement in the same batch, and a sold unit never goes back on its own: a refund keeps its sale
+// (stock comes back by a return, which writes its movement).
 //
 // A hold has no clock of its own (ADR 0432): nothing here reads a time. A part-paid order keeps
 // its places until it is paid or staff cancel it, however long that is.
 import { confirmStatements, releaseStatements } from "../capacity/holds.ts";
 import { queueClaim } from "../capacity/records.ts";
+import { ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import type { HandlerContext } from "../operation.ts";
 import { type MoveHook, onRecordMove } from "../records/lifecycle.ts";
 import { orderSoldStatement } from "../stock/index.ts";
 
 export const ORDER_CLAIM_TYPE = "order";
+
+/**
+ * The most objects with stock one order may have lines of. A deposit confirms all but them by
+ * name, and a confirm binds the names three times: this keeps it under D1's 100 bound variables.
+ */
+export const STOCK_OBJECTS_PER_ORDER = 20;
 
 /** Whether an order line's object takes places or stock: what an order claims on. */
 function claims(object: string): boolean {
@@ -112,6 +122,13 @@ export async function claimOrderPlaces(
   orderId: string,
   lines: readonly { object: string; recordId: string; quantity: number }[],
 ): Promise<void> {
+  const stocked = new Set(lines.map((l) => l.object).filter(isStock));
+  if (stocked.size > STOCK_OBJECTS_PER_ORDER) {
+    throw new ValidationError(
+      `An order can have goods of at most ${STOCK_OBJECTS_PER_ORDER} kinds of record`,
+      { rule: "stock", reason: "too_many_objects", max: STOCK_OBJECTS_PER_ORDER },
+    );
+  }
   for (const line of lines) {
     if (!claims(line.object)) continue;
     await queueClaim(ctx, {
@@ -127,29 +144,34 @@ const orderHolds: MoveHook = async (ctx, move) => {
   const from = move.from?.id ?? null;
   const to = move.to.id;
   const target = { for: { type: ORDER_CLAIM_TYPE, id: move.id } };
-  if ((to === "paid" || to === "part_paid") && from === "expired") {
-    // Honoured late: the places went back at expiry. Take them again, then confirm them.
+  if ((to === "paid" || to === "part_paid") && from !== null && from !== to) {
+    if (from !== "pending" && from !== "expired" && from !== "part_paid") return;
     const lines = await linesWithCapacity(ctx, move.id);
-    await claimOrderPlaces(
-      ctx,
-      move.id,
-      lines.map((l) => ({ object: l.object_type, recordId: l.record_id, quantity: l.quantity })),
+    if (from === "expired") {
+      // Honoured late: the places went back at expiry. Take them again, then confirm them.
+      await claimOrderPlaces(
+        ctx,
+        move.id,
+        lines.map((l) => ({ object: l.object_type, recordId: l.record_id, quantity: l.quantity })),
+      );
+    }
+    if (to === "paid") {
+      // Paid in full: every claim still held is confirmed, goods sold (ADR 0682).
+      confirmWithSales(ctx, move.id, lines);
+      return;
+    }
+    // A deposit: places are confirmed, goods stay held until the balance is paid.
+    ctx.write(
+      ...confirmStatements({ ...target, objects: { notIn: stockObjects(lines) } }, ctx.now),
     );
-    confirmWithSales(ctx, move.id, lines);
-    return;
-  }
-  if ((to === "paid" || to === "part_paid") && from === "pending") {
-    confirmWithSales(ctx, move.id, await linesWithCapacity(ctx, move.id));
     return;
   }
   if (to === "cancelled" || to === "expired") {
-    if (from !== "part_paid") {
-      ctx.write(...releaseStatements(target, ctx.now));
-      return;
+    // Held places and goods go back; from part paid, the confirmed places too.
+    ctx.write(...releaseStatements(target, ctx.now));
+    if (from === "part_paid") {
+      ctx.write(...releaseStatements(target, ctx.now, { confirmed: true }));
     }
-    // Part paid: its claims were confirmed. Places go back; goods stay sold.
-    const lines = await linesWithCapacity(ctx, move.id);
-    await releaseConfirmedExcept(ctx, move.id, lines, (l) => isStock(l.object_type));
     return;
   }
   if (to === "refunded") {

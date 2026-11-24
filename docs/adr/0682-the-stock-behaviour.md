@@ -52,15 +52,20 @@ the ledger: kind (`opening`, `received`, `sold`, `returned`, `written_off`, `cou
 inserted from the counter's row, so a record without a counter gets neither), and the ledger's sum
 is on hand. Triggers refuse every update and delete, and an insert of an id that already exists,
 so `INSERT OR REPLACE`, `REPLACE`, `UPDATE OR REPLACE` and `ON CONFLICT DO UPDATE` cannot get round
-them (issue #269's lesson). One `opening` per record and place (a unique index).
+them (issue #269's lesson). One `opening` per record and place, refused by an insert trigger
+rather than a unique index: a REPLACE that conflicted on a unique index would delete the first
+opening, firing no trigger, so the table has no unique key but its id.
 
 **Orders hold and sell through the existing order hook** (`orders/holds.ts`). A line whose object
-declares stock claims like a capacity line in `createOrder`. When the order is paid (or part
-paid, or paid late and honoured) the host writes one `sold` movement per stock line in the paid
-batch, in one statement whatever the number of lines, before the claims are confirmed; each takes
-its claim's ULID as its id, so a claim is sold once. **A refund changes nothing in stock**, and
-neither does cancelling a part-paid order: the stock claims stay confirmed and no movement is
-written. Goods come back only by a return (step 4), which writes its own movement.
+declares stock claims like a capacity line in `createOrder`. It is sold only when the order is
+paid in full (from pending, from part paid, or paid late and honoured): the host writes one
+`sold` movement per stock line in the paid batch, in one statement whatever the number of lines,
+before the claims are confirmed; each takes its claim's ULID as its id, so a claim is sold once.
+A deposit (`part_paid`) confirms the order's places but leaves its goods held, so cancelling a
+part-paid order gives them back with no movement, as the spec says ("releases on cancel or
+expiry"). An order has goods of at most 20 objects (`STOCK_OBJECTS_PER_ORDER`), so the deposit's
+confirm of everything else binds few enough names. **A refund changes nothing in stock**: goods
+come back only by a return (step 4), which writes its own movement.
 
 **Operations.** `stock.get` (staff, customer and public; `records:read`): staff get on hand, held,
 available, the reorder level and quantity, whether on hand is at or below the level, and the last
@@ -90,5 +95,16 @@ a counter per record per place later, and the ledger's history is not rewritten.
   `records:write`, that is a declared permission on `stock`, platform work for a later step.
 - Dropping an object's table for good drops its counters and claims (as for capacity); its ledger
   stays, as history nobody can change.
-- Removing `stock` from an object leaves its counters and ledger in place, unused. Switching an
-  object between `capacity` and `stock` is not supported: the counters would be read the other way.
+- Removing `stock` from an object leaves its counters and ledger in place, unused. An object
+  cannot switch between `capacity` and `stock` over records that have counters, at once or over
+  several upgrades: the reconciler refuses gaining `stock` while a counter is not the ledger's (on
+  hand other than the sum of its movements), and gaining `capacity` while the object has a ledger
+  (`stock_conflict`). Make a new object instead.
+- A movement's note (an adjustment's reason) is kept for good, so it must never name a customer:
+  the operations' descriptions say so to staff and to an AI. An erase cannot find a name in free
+  text, so the column is not made clearable; a later step that needs a person on a movement gives
+  it a column the erase knows.
+- An approved AI adjustment's `made_by` is the account that asked; who approved it is in the
+  approval queue and the audit log, not the ledger.
+- An outsider asking for ever larger quantities can learn how many are available from when "Not
+  enough in stock" turns into a refusal, as with capacity's places. Any quantity input allows it.

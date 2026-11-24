@@ -39,8 +39,9 @@ questions at the end refine later steps and block none of the first ones.
   checks (`stock.ts`: sellable, not with `capacity`, reorder fields, `show`/`lowAt`; refused for a
   runtime extension), the counter on `core_capacity` made with each record and backfilled, the
   ledger `core_stock_movement` with its place and its append-only triggers (migration 0935), the
-  order's `sold` movement in the paid batch and no restock on a refund or on cancelling a part-paid
-  order (`orders/holds.ts`), `stock.get` (staff numbers; outsiders by `show`), `stock.movements`,
+  order's `sold` movement in the batch that pays it in full, goods held (not sold) on a deposit
+  and given back when a part-paid order is cancelled, and no restock on a refund
+  (`orders/holds.ts`), the reconciler refusing a switch between `capacity` and `stock`, `stock.get` (staff numbers; outsiders by `show`), `stock.movements`,
   `stock.opening`, `stock.adjust` (an AI's waits for a person), and the read-only `onHand`, `held`,
   `available` values. ADR 0682 (the spec's 0680; amends 0431 and 0433). Criteria covered for this
   step: 1, 3, 4, 10 (host half), 16, 17 (stock half), 19 (stock half), 20 (the paid confirm).

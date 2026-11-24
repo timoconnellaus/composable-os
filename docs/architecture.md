@@ -1802,9 +1802,10 @@ create with `places` 0, read as stock: on hand is `places - taken`, available is
 `held`. Nobody types on hand: it changes only by a movement in `core_stock_movement` (migration
 0935: kind, signed quantity, a place on every row, always `default` for now, source, who), written
 with its counter change in one batch, append-only against every statement shape. An order line
-holds through capacity's claim in `createOrder`; the paid batch writes one `sold` movement per
-stock line (one statement for all) before confirming; a refund, or cancelling a part-paid order,
-never restocks. A removal below what unpaid orders hold is refused by the counter's trigger, with
+holds through capacity's claim in `createOrder`; the batch that pays it in full writes one `sold`
+movement per stock line (one statement for all) before confirming; a deposit leaves goods held, so
+cancelling a part-paid order gives them back; a refund never restocks. An object cannot switch
+between `capacity` and `stock` over records that have counters (the reconciler refuses it). A removal below what unpaid orders hold is refused by the counter's trigger, with
 the numbers (`rule: "stock"`; outsiders hear only "Sold out"). `stock.get` (staff, customer,
 public, outsiders limited by `show`), `stock.movements`, `stock.opening` and `stock.adjust` (an
 AI's waits for a person); records carry read-only `onHand`, `held`, `available`;

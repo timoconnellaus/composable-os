@@ -109,7 +109,8 @@ export interface ReconcileIssue {
     | "claims_conflict"
     | "grants_conflict"
     | "staffed_conflict"
-    | "occupies_conflict";
+    | "occupies_conflict"
+    | "stock_conflict";
   path: string;
   message: string;
   suggestion?: string;
@@ -234,6 +235,40 @@ async function dataIssues(
     const before = current.objects.find(
       (o) => o.name === object.name && o.tableName === object.tableName && o.status === "active",
     );
+    // A counter is read as places or as stock (ADR 0682): an object cannot switch from one to the
+    // other over records that have counters, in one upgrade or over several. Gaining stock, every
+    // counter it already has must be the ledger's (on hand is the sum of its movements); gaining a
+    // capacity, it must have no ledger. Otherwise on hand would be places staff typed, with no
+    // movement, or a places field would overwrite what the ledger built.
+    const earlier = current.objects.find((o) => o.name === object.name);
+    if (object.definition.stock && !earlier?.definition.stock) {
+      const { rows } = await sql<{
+        n: number;
+      }>`SELECT count(*) AS n FROM core_capacity c WHERE c.object_type = ${object.name} AND (c.places IS NULL OR c.places - c.taken != coalesce((SELECT sum(m.quantity) FROM core_stock_movement m WHERE m.object_type = c.object_type AND m.record_id = c.record_id), 0))`.execute(
+        db,
+      );
+      if (Number(rows[0]?.n ?? 0) > 0) {
+        issues.push({
+          code: "stock_conflict",
+          path: `objects.${object.localName}.stock`,
+          message: `${object.name}: ${rows[0]?.n} record(s) have places counted by a capacity; they cannot become stock, whose on hand only movements change. Make a new object for the goods instead.`,
+        });
+      }
+    }
+    if (object.definition.capacity && !earlier?.definition.capacity) {
+      const { rows } = await sql<{
+        n: number;
+      }>`SELECT count(*) AS n FROM core_stock_movement WHERE object_type = ${object.name}`.execute(
+        db,
+      );
+      if (Number(rows[0]?.n ?? 0) > 0) {
+        issues.push({
+          code: "stock_conflict",
+          path: `objects.${object.localName}.capacity`,
+          message: `${object.name}: its records have a stock ledger; they cannot take places from a field instead. Make a new object for the places instead.`,
+        });
+      }
+    }
     const installed = getObject(object.name);
     if (!before || !installed) continue; // A new object has no records.
     const columnOf = (name: string | undefined) =>

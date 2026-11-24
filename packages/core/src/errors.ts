@@ -214,14 +214,14 @@ export function toOperationError(error: unknown): OperationError {
   const allowance = allowanceRefusal(error);
   if (allowance) return allowance;
   const message = error instanceof Error ? error.message : String(error);
-  // The stock ledger (migration 0935, ADR 0682): append-only, one opening per record.
+  // The stock ledger (migration 0935, ADR 0682): append-only, one opening per record (a trigger).
   if (message.includes("core_stock_movement_immutable")) {
     return new ValidationError("A stock movement is never changed or deleted", {
       rule: "stock",
       reason: "movement_immutable",
     });
   }
-  if (message.includes("UNIQUE constraint failed: core_stock_movement")) {
+  if (message.includes("core_stock_opening_given")) {
     return new ConflictError("It already has its opening stock: correct it with an adjustment", {
       rule: "stock",
       reason: "opening_given",

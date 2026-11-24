@@ -16,8 +16,15 @@
 import { CompiledQuery } from "kysely";
 import type { ClaimFor } from "./index.ts";
 
-/** Which claims: one by id, or every claim taken for something (an order's lines). */
-export type ClaimTarget = { claim: string } | { for: ClaimFor } | { forType: string };
+/**
+ * Which claims: one by id, every claim taken for something (an order's lines), optionally only
+ * those on some objects or on all but some (an order's stock lines, ADR 0682), or every claim of
+ * one kind of claimant.
+ */
+export type ClaimTarget =
+  | { claim: string }
+  | { for: ClaimFor; objects?: { in: readonly string[] } | { notIn: readonly string[] } }
+  | { forType: string };
 
 /** Statements per confirm or release, whatever the number of claims. */
 export const CONFIRM_STATEMENTS = 3;
@@ -27,9 +34,16 @@ function targetWhere(target: ClaimTarget, alias: string): { sql: string; params:
   if ("claim" in target) return { sql: `${alias}.id = ?`, params: [target.claim] };
   // Every claim of one kind of claimant (an object dropped for good, ADR 0501).
   if ("forType" in target) return { sql: `${alias}.for_type = ?`, params: [target.forType] };
-  return {
+  const base = {
     sql: `${alias}.for_type = ? AND ${alias}.for_id = ?`,
     params: [target.for.type, target.for.id],
+  };
+  if (!target.objects) return base;
+  const list = "in" in target.objects ? target.objects.in : target.objects.notIn;
+  if (!list.length) return "in" in target.objects ? { sql: "0", params: [] } : base;
+  return {
+    sql: `${base.sql} AND ${alias}.object_type ${"in" in target.objects ? "IN" : "NOT IN"} (${list.map(() => "?").join(", ")})`,
+    params: [...base.params, ...list],
   };
 }
 

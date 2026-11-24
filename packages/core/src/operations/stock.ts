@@ -163,7 +163,12 @@ export const stockOpening = defineOperation({
   input: z.object({
     ...recordInput,
     quantity: z.number().int().min(1).max(STOCK_QUANTITY_MAX),
-    note: z.string().trim().max(500).optional(),
+    note: z
+      .string()
+      .trim()
+      .max(500)
+      .optional()
+      .describe("Kept for good: never a customer's name or contact details"),
   }),
   output: moveOutput,
   permission: "records:write",
@@ -180,7 +185,9 @@ export const stockAdjust = defineOperation({
     "Corrects a record's stock by a number of units, up (found some) or down (some went " +
     "missing), with the reason. Writes an `adjusted` movement. Refused when it would leave fewer " +
     "on hand than unpaid orders hold. Use it for a correction, not for a delivery, a count or a " +
-    "write-off (those are their own records). An AI's call waits for a person.",
+    "write-off (those are their own records). The reason is kept for good and can never be " +
+    "erased: say what happened, never who a customer is (no names, emails or order details). An " +
+    "AI's call waits for a person.",
   input: z.object({
     ...recordInput,
     quantity: z
@@ -190,7 +197,12 @@ export const stockAdjust = defineOperation({
       .max(STOCK_QUANTITY_MAX)
       .refine((n) => n !== 0, "An adjustment moves at least one unit")
       .describe("Signed: positive adds, negative removes"),
-    reason: z.string().trim().min(1).max(500),
+    reason: z
+      .string()
+      .trim()
+      .min(1)
+      .max(500)
+      .describe("What happened, kept for good: never a customer's name or contact details"),
   }),
   output: moveOutput,
   permission: "records:write",

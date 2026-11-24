@@ -13,7 +13,8 @@
 --
 -- A movement is never changed or deleted, by any statement shape. D1 runs with recursive
 -- triggers off, so the row an INSERT OR REPLACE deletes fires no delete trigger: the insert
--- trigger also refuses an id that already exists (issue #269's lesson, as migration 0850 does).
+-- trigger also refuses an id that already exists (issue #269's lesson, as migration 0850 does),
+-- and the table has no unique key but its id, so no REPLACE can conflict its way into a delete.
 CREATE TABLE core_stock_movement (
   -- smv_… (ids.ts). A sale's movement takes its claim's ULID, so a claim is sold at most once.
   id TEXT PRIMARY KEY NOT NULL,
@@ -45,9 +46,6 @@ CREATE TABLE core_stock_movement (
 CREATE INDEX core_stock_movement_record_idx
   ON core_stock_movement (object_type, record_id, created_at);
 CREATE INDEX core_stock_movement_source_idx ON core_stock_movement (source_type, source_id);
--- One opening stock per record and place: a second is an adjustment.
-CREATE UNIQUE INDEX core_stock_movement_opening
-  ON core_stock_movement (object_type, record_id, place_id) WHERE kind = 'opening';
 
 CREATE TRIGGER core_stock_movement_no_update
 BEFORE UPDATE ON core_stock_movement
@@ -66,6 +64,20 @@ BEFORE INSERT ON core_stock_movement
 WHEN EXISTS (SELECT 1 FROM core_stock_movement m WHERE m.id = NEW.id)
 BEGIN
   SELECT RAISE(ABORT, 'core_stock_movement_immutable');
+END;
+
+-- One opening stock per record and place: a second is an adjustment. A trigger, not a unique
+-- index: a REPLACE that conflicted on a unique index would delete the first opening, and with
+-- recursive triggers off that delete fires no trigger. Nothing here makes a REPLACE delete a row.
+CREATE TRIGGER core_stock_movement_one_opening
+BEFORE INSERT ON core_stock_movement
+WHEN NEW.kind = 'opening' AND EXISTS (
+  SELECT 1 FROM core_stock_movement m
+  WHERE m.object_type = NEW.object_type AND m.record_id = NEW.record_id
+    AND m.place_id = NEW.place_id AND m.kind = 'opening'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'core_stock_opening_given');
 END;
 
 -- rec_stock_movement: every movement, for query.sql and dashboards. It names staff accounts and

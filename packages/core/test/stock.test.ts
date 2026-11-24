@@ -20,7 +20,7 @@ import {
   movementStatements,
   PendingApprovalError,
 } from "../src/index.ts";
-import { extId, manifest, reconcile } from "./extension-helpers.ts";
+import { extId, manifest, plan, reconcile } from "./extension-helpers.ts";
 import { context, createUser, db, setPreset, unique } from "./helpers.ts";
 import { CURRENCY, createBuyer, outside, PUBLIC, refusal, run } from "./order-fixtures.ts";
 import { paymentsDouble } from "./payments-double.ts";
@@ -28,6 +28,8 @@ import { paymentsDouble } from "./payments-double.ts";
 const SHOP = extId("stk");
 const VARIANT = `${SHOP}.variant`;
 const DRINK = `${SHOP}.drink`;
+const KIT = `${SHOP}.kit`;
+const NEXT_YEAR = `${new Date().getUTCFullYear() + 1}-06-30`;
 const RETURN = "https://shop.example.com/thanks";
 
 let events: ReturnType<typeof memoryEventSink>;
@@ -92,6 +94,23 @@ function shop(id: string): ExtensionManifest {
         },
         sellable: { price: "price" },
         stock: { reorderAt: "reorderLevel", reorderQty: "reorderQuantity" },
+        public: { read: ["name", "price"] },
+      },
+      kit: {
+        label: "Kit",
+        plural: "Kits",
+        titleField: "name",
+        fields: {
+          name: { type: "text", label: "Name", required: true },
+          price: { type: "currency", label: "Price", currency: CURRENCY },
+          depositAmount: { type: "currency", label: "Deposit", currency: CURRENCY },
+          balanceDue: { type: "date", label: "Balance due" },
+        },
+        sellable: {
+          price: "price",
+          deposit: { amount: "depositAmount", balanceDue: "balanceDue" },
+        },
+        stock: {},
         public: { read: ["name", "price"] },
       },
       drink: {
@@ -320,6 +339,8 @@ describe("opening stock and stock.get (criterion 1)", () => {
       run("record.update", { object: VARIANT, id, values: { onHand: 100 } }, staff()),
     );
     expect(refused.code).toBe("invalid_input");
+    expect(refused.message).toMatch(/stock\.opening .* stock\.adjust/);
+    expect(refused.details).toMatchObject({ field: "onHand", rule: "stock" });
     expect(await stock(id)).toMatchObject({ onHand: 3 });
   });
 
@@ -377,6 +398,7 @@ describe("orders hold, sell and never restock on a refund (criteria 3, 4 and 10)
 
   it("the last unit goes to one buyer; the other is refused by the database, on every path", async () => {
     const id = await variant(1);
+    const buyer = await createBuyer(admin);
     const tries = await Promise.allSettled([
       startAsGuest([{ id }]),
       run<OrderOut>(
@@ -388,6 +410,12 @@ describe("orders hold, sell and never restock on a refund (criteria 3, 4 and 10)
         "order.start",
         { lines: [{ object: VARIANT, id }], email: `${unique("desk")}@buyers.example` },
         asMcp(),
+      ),
+      // The app's path: a signed-in customer.
+      run<OrderOut>(
+        "order.start",
+        { lines: [{ object: VARIANT, id }] },
+        outside(buyer.principal, { integrations: runtime, events }),
       ),
     ]);
     expect(tries.filter((t) => t.status === "fulfilled")).toHaveLength(1);
@@ -465,6 +493,50 @@ describe("orders hold, sell and never restock on a refund (criteria 3, 4 and 10)
       ["opening", 2],
       ["sold", -1],
     ]);
+  });
+
+  it("a deposit holds the goods; only the balance sells them", async () => {
+    const id = await variant(5, { depositAmount: 10, balanceDue: NEXT_YEAR }, KIT);
+    const order = await run<OrderOut>(
+      "order.start",
+      {
+        lines: [{ object: KIT, id, quantity: 2 }],
+        email: `${unique("guest")}@buyers.example`,
+        pay: "deposit",
+      },
+      guest(),
+    );
+    await pay(order);
+    expect(await state(order.id)).toBe("part_paid");
+    expect(await stock(id, KIT)).toMatchObject({ onHand: 5, held: 2, available: 3 });
+    expect((await movements(id)).map((m) => m.kind)).toEqual(["opening"]);
+    await pay(order);
+    expect(await state(order.id)).toBe("paid");
+    expect(await stock(id, KIT)).toMatchObject({ onHand: 3, held: 0, available: 3 });
+    expect((await movements(id)).map((m) => [m.kind, m.quantity])).toEqual([
+      ["opening", 5],
+      ["sold", -2],
+    ]);
+  });
+
+  it("cancelling a part-paid order gives its goods back, with no movement", async () => {
+    const id = await variant(5, { depositAmount: 10, balanceDue: NEXT_YEAR }, KIT);
+    const order = await run<OrderOut>(
+      "order.start",
+      {
+        lines: [{ object: KIT, id, quantity: 2 }],
+        email: `${unique("guest")}@buyers.example`,
+        pay: "deposit",
+      },
+      guest(),
+    );
+    await pay(order);
+    expect(await state(order.id)).toBe("part_paid");
+    await run("order.cancel", { id: order.id }, staff());
+    expect(await state(order.id)).toBe("cancelled");
+    expect(await stock(id, KIT)).toMatchObject({ onHand: 5, held: 0, available: 5 });
+    expect(await counter(id, KIT)).toMatchObject({ places: 5, held: 0, taken: 0 });
+    expect((await movements(id)).map((m) => m.kind)).toEqual(["opening"]);
   });
 
   it("a refund alone leaves stock as it is: no movement, nothing back on sale", async () => {
@@ -616,7 +688,17 @@ describe("the ledger is append-only (criterion 16)", () => {
           .run(),
       ).rejects.toThrow(/core_stock_movement_immutable/);
     }
-    expect(await movements(id)).toEqual([expect.objectContaining({ quantity: 2 })]);
+    // A second opening under a new id: refused, never a REPLACE that deletes the first.
+    for (const verb of ["INSERT OR REPLACE INTO", "REPLACE INTO", "INSERT INTO"]) {
+      await expect(
+        env.DB.prepare(
+          `${verb} core_stock_movement (id, object_type, record_id, quantity, kind, made_as, created_at) VALUES (?, ?, ?, 999, 'opening', 'host', ?)`,
+        )
+          .bind(`smv_${unique("new")}`, VARIANT, id, now)
+          .run(),
+      ).rejects.toThrow(/core_stock_opening_given/);
+    }
+    expect(await movements(id)).toEqual([expect.objectContaining({ id: movement, quantity: 2 })]);
   });
 });
 
@@ -654,5 +736,55 @@ describe("bounded statements (criterion 20)", () => {
     const one = await paidBatch(1);
     const many = await paidBatch(20);
     expect(many).toBe(one);
+  });
+});
+
+// --- Switching an object's counter -----------------------------------------------------------------
+
+describe("an object cannot switch between capacity and stock over its records", () => {
+  const thing = (id: string, version: string, behaviour: Record<string, unknown>) =>
+    manifest(id, {
+      version,
+      objects: {
+        thing: {
+          label: "Thing",
+          plural: "Things",
+          titleField: "name",
+          fields: {
+            name: { type: "text", label: "Name", required: true },
+            price: { type: "currency", label: "Price", currency: CURRENCY },
+            places: { type: "number", label: "Places" },
+          },
+          sellable: { price: "price" },
+          ...behaviour,
+        },
+      },
+    });
+  const conflicts = async (m: ExtensionManifest) =>
+    (await plan(m)).issues.filter((i) => i.code === "stock_conflict").map((i) => i.path);
+
+  it("capacity to stock, at once or by way of neither, is refused while records have places", async () => {
+    const id = extId("swc");
+    await reconcile(thing(id, "1.0.0", { capacity: { places: "places" } }));
+    await create(`${id}.thing`, { name: "Seven", price: 1, places: 7 });
+    expect(await conflicts(thing(id, "1.1.0", { stock: {} }))).toEqual(["objects.thing.stock"]);
+    // Dropping the capacity first leaves its counters: adding stock later is refused the same.
+    await reconcile(thing(id, "1.1.0", {}));
+    expect(await conflicts(thing(id, "1.2.0", { stock: {} }))).toEqual(["objects.thing.stock"]);
+  });
+
+  it("stock to capacity is refused once the records have a ledger", async () => {
+    const id = extId("sws");
+    await reconcile(thing(id, "1.0.0", { stock: {} }));
+    const record = await create(`${id}.thing`, { name: "Box", price: 1 });
+    // No movement yet: nothing to lose.
+    expect(await conflicts(thing(id, "1.1.0", { capacity: { places: "places" } }))).toEqual([]);
+    await run("stock.opening", { object: `${id}.thing`, id: record, quantity: 4 }, staff());
+    expect(await conflicts(thing(id, "1.1.0", { capacity: { places: "places" } }))).toEqual([
+      "objects.thing.capacity",
+    ]);
+    // Taking stock away and back again keeps the ledger's counters: allowed.
+    await reconcile(thing(id, "1.1.0", {}));
+    expect(await conflicts(thing(id, "1.2.0", { stock: {} }))).toEqual([]);
   });
 });

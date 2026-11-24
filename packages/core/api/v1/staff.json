@@ -57122,7 +57122,7 @@
     },
     {
       "name": "stock.adjust",
-      "description": "Corrects a record's stock by a number of units, up (found some) or down (some went missing), with the reason. Writes an `adjusted` movement. Refused when it would leave fewer on hand than unpaid orders hold. Use it for a correction, not for a delivery, a count or a write-off (those are their own records). An AI's call waits for a person.",
+      "description": "Corrects a record's stock by a number of units, up (found some) or down (some went missing), with the reason. Writes an `adjusted` movement. Refused when it would leave fewer on hand than unpaid orders hold. Use it for a correction, not for a delivery, a count or a write-off (those are their own records). The reason is kept for good and can never be erased: say what happened, never who a customer is (no names, emails or order details). An AI's call waits for a person.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -57151,7 +57151,8 @@
           "reason": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 500
+            "maxLength": 500,
+            "description": "What happened, kept for good: never a customer's name or contact details"
           }
         },
         "required": [
@@ -57584,6 +57585,7 @@
             "maximum": 1000000
           },
           "note": {
+            "description": "Kept for good: never a customer's name or contact details",
             "type": "string",
             "maxLength": 500
           }
