@@ -16,7 +16,12 @@
 // The host checks every record again (`record.import`'s dry run): its outline against the course's
 // schema, its prices, its references. This checks what only the folder can say: files that are
 // there, keys used once, CSV rows that name a course or lesson the folder has.
-import { MEDIA_CAPTION_MAX_BYTES, mediaProblem, sniffFileType } from "@composable-os/sdk";
+import {
+  MEDIA_CAPTION_MAX_BYTES,
+  mediaProblem,
+  slugify,
+  sniffFileType,
+} from "@composable-os/sdk";
 import { isObject, type Problem, replaceMarked } from "../import-door/records.ts";
 
 export const FORMAT_VERSION = 1;
@@ -166,14 +171,6 @@ export function srtToVtt(srt: string): string {
     .replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, "$1.$2");
   return `WEBVTT\n\n${body.trim()}\n`;
 }
-
-const slugify = (text: string) =>
-  text
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 120);
 
 /** The folder as an import, with every problem and the file (and line) it is in. */
 export function readCoursesFolder(folder: CoursesFolder): CoursesPlan {

@@ -97,6 +97,18 @@ describe("the courses folder", () => {
     expect(plan.progress?.[0]).toMatchObject({ line: 2, sourceId: "lw-1", state: "done" });
   });
 
+  it("makes slugs from titles as the host does: accents dropped, never ending in a hyphen", () => {
+    const long = `${"a".repeat(79)} b`;
+    const plan = readCoursesFolder(
+      folder((f) => {
+        f.courses.set("handstands.json", course({ title: "Crème Brûlée" }));
+        f.bundles.set("all.json", JSON.stringify({ title: long, price: 150, courses: [] }));
+      }),
+    );
+    expect(plan.courses[0]?.values.slug).toBe("creme-brulee");
+    expect(plan.bundles[0]?.values.slug).toBe("a".repeat(79));
+  });
+
   it("names every problem with its file and line", () => {
     const plan = readCoursesFolder(
       folder((f) => {
