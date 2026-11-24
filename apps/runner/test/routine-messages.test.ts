@@ -308,7 +308,7 @@ beforeAll(async () => {
     { extension: "bookings", values: { bookingsUrl: `${SITE}/bookings` } },
     staff(),
   );
-  await setting("org_name", "Northside Strength");
+  await setting("org_name", "Example Gym");
   await setting("org_timezone", ZONE);
   type = await create("programs.classtype", { name: unique("Strength") });
 }, 120_000);
@@ -399,9 +399,16 @@ describe("a row per channel", { timeout: 60_000 }, () => {
     );
     const text = (await rowsOf(withMobile.bookingId, runId)).find((r) => r.channel === "text");
     expect(text?.body).toMatch(
-      /^Northside Strength: Booked: Strength, \w+day \d+ \w+ at \d\d:\d\d\. Reply STOP to stop$/,
+      /^Example Gym: Booked: Strength, \w+day \d+ \w+ at \d\d:\d\d\. Reply STOP to stop$/,
     );
     expect(text).toMatchObject({ segments: 1, recipient: "+61400000000", routine: 1 });
+    // The log never shows the number, even while the text waits to go.
+    const log = await run<{ items: { id: string; recipient: string }[] }>(
+      "routineMail.log",
+      { channel: "text" },
+      staff(),
+    );
+    expect(log.items.find((i) => i.id === text?.id)?.recipient).toBe("");
     const pushRunId = await runOf("bookingConfirmed", withApp.bookingId, "record");
     await prepare(
       "bookingConfirmed",

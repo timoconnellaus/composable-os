@@ -54644,6 +54644,51 @@
                 "defaultOn": {
                   "type": "boolean"
                 },
+                "host": {
+                  "type": "boolean",
+                  "description": "Declared by the host itself (asked for by host code), not a pack"
+                },
+                "channels": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "channel": {
+                        "type": "string",
+                        "enum": [
+                          "email",
+                          "text",
+                          "push"
+                        ]
+                      },
+                      "on": {
+                        "type": "boolean",
+                        "description": "Email follows the kind's switch; text and push are switched on one by one"
+                      }
+                    },
+                    "required": [
+                      "channel",
+                      "on"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "The channels the kind declares, and which are on"
+                },
+                "essential": {
+                  "type": "boolean",
+                  "description": "Its email always goes: a person cannot turn it off (text and push they can)"
+                },
+                "purpose": {
+                  "type": "string",
+                  "enum": [
+                    "account",
+                    "follow_up"
+                  ]
+                },
+                "urgent": {
+                  "type": "boolean",
+                  "description": "May go during quiet hours when waiting would make it late (a short-notice cancellation)"
+                },
                 "lastWeek": {
                   "type": "object",
                   "properties": {
@@ -54688,6 +54733,11 @@
                 "messages",
                 "on",
                 "defaultOn",
+                "host",
+                "channels",
+                "essential",
+                "purpose",
+                "urgent",
                 "lastWeek"
               ],
               "additionalProperties": false
@@ -54712,6 +54762,29 @@
               "null"
             ]
           },
+          "textOnlyWithoutApp": {
+            "type": "boolean",
+            "description": "A member reached by a push on the business's app is not also texted"
+          },
+          "quietHours": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+              },
+              "end": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+              }
+            },
+            "required": [
+              "start",
+              "end"
+            ],
+            "additionalProperties": false,
+            "description": "When texts and pushes wait, in the business's time zone; emails always go at once"
+          },
           "sendsOnItsOwn": {
             "type": "string",
             "enum": [
@@ -54728,6 +54801,8 @@
           "orgDailyCap",
           "retentionMonths",
           "siteOrigin",
+          "textOnlyWithoutApp",
+          "quietHours",
           "sendsOnItsOwn"
         ],
         "additionalProperties": false
@@ -54756,9 +54831,22 @@
               "ready",
               "sending",
               "sent",
+              "delivered",
               "waiting",
               "denied",
-              "failed"
+              "failed",
+              "stopped",
+              "expired",
+              "over_limit",
+              "no_channel"
+            ]
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "text",
+              "push"
             ]
           },
           "limit": {
@@ -54795,8 +54883,17 @@
                 "recordId": {
                   "type": "string"
                 },
+                "channel": {
+                  "type": "string",
+                  "enum": [
+                    "email",
+                    "text",
+                    "push"
+                  ]
+                },
                 "recipient": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "The address an email went to; always empty for a text or push"
                 },
                 "recipientRule": {
                   "type": "string",
@@ -54808,10 +54905,17 @@
                   "description": "How the host chose the recipient: the record's person, their guardian, or a paid order's own address"
                 },
                 "automationId": {
-                  "type": "string"
+                  "description": "Null for a host kind's message",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "runId": {
-                  "type": "string"
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "trigger": {
                   "type": "string",
@@ -54865,9 +54969,22 @@
                     "ready",
                     "sending",
                     "sent",
+                    "delivered",
                     "waiting",
                     "denied",
-                    "failed"
+                    "failed",
+                    "stopped",
+                    "expired",
+                    "over_limit",
+                    "no_channel"
+                  ],
+                  "description": "sent, delivered (a text the provider confirmed), waiting (for a person, or for quiet hours to end: waitUntil), off, denied, failed, stopped, expired (its moment passed while it waited), over_limit (the month's text limit), no_channel (no address, textable number or app device)"
+                },
+                "waitUntil": {
+                  "description": "Quiet hours: when a waiting text or push goes",
+                  "type": [
+                    "string",
+                    "null"
                   ]
                 },
                 "pendingActionId": {
@@ -54890,6 +55007,7 @@
                 "message",
                 "object",
                 "recordId",
+                "channel",
                 "recipient",
                 "recipientRule",
                 "automationId",
@@ -54899,6 +55017,7 @@
                 "routine",
                 "heldReason",
                 "status",
+                "waitUntil",
                 "pendingActionId",
                 "error"
               ],
@@ -54915,7 +55034,7 @@
     },
     {
       "name": "routineMail.settings.update",
-      "description": "Turn a pack's routine email on (packs: { bookings: true }: its kinds then send without approval; off, each is an ordinary send the policy decides), turn one kind on or off (kinds: { 'bookings.reminder': false }: off sends nothing and queues nothing), or set the business's own site, the only place routine email links to (siteOrigin, an https origin; null removes the links), the organisation's daily limit (orgDailyCap) or how long the log is kept (retentionMonths). Only what you pass changes. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
+      "description": "Turn a pack's routine email on (packs: { bookings: true }: its kinds then send without approval; off, each is an ordinary send the policy decides), turn one kind on or off (kinds: { 'bookings.reminder': false }: off sends nothing and queues nothing), or set the business's own site, the only place routine email links to (siteOrigin, an https origin; null removes the links), the organisation's daily limit (orgDailyCap) or how long the log is kept (retentionMonths). Switch a kind's text or push on (channels: { 'bookings.reminder': { push: true } }, only channels the kind declares), whether a member reached by push is also texted (textOnlyWithoutApp), or quiet hours, when texts and pushes wait (quietHours: { start: '21:00', end: '07:00' }, the business's time zone; the same start and end: none). Only what you pass changes. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -54964,6 +55083,46 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 84
+          },
+          "channels": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "boolean"
+                },
+                "push": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "textOnlyWithoutApp": {
+            "type": "boolean"
+          },
+          "quietHours": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+              },
+              "end": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+              }
+            },
+            "required": [
+              "start",
+              "end"
+            ],
+            "additionalProperties": false
           }
         }
       },
@@ -55003,6 +55162,45 @@
             "type": "integer",
             "minimum": -9007199254740991,
             "maximum": 9007199254740991
+          },
+          "channels": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "boolean"
+                },
+                "push": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "textOnlyWithoutApp": {
+            "type": "boolean"
+          },
+          "quietHours": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+              },
+              "end": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+              }
+            },
+            "required": [
+              "start",
+              "end"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
@@ -55010,7 +55208,10 @@
           "kinds",
           "siteOrigin",
           "orgDailyCap",
-          "retentionMonths"
+          "retentionMonths",
+          "channels",
+          "textOnlyWithoutApp",
+          "quietHours"
         ],
         "additionalProperties": false
       },

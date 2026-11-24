@@ -204,7 +204,7 @@ const logEntry = z.object({
   channel: z.enum(ROUTINE_CHANNELS),
   recipient: z
     .string()
-    .describe("The address an email went to; empty for a text or push once it is decided"),
+    .describe("The address an email went to; always empty for a text or push"),
   recipientRule: z
     .enum(["person", "guardian", "order"])
     .describe(
@@ -294,7 +294,8 @@ export const routineMailLog = defineOperation({
           object: r.record_object,
           recordId: r.record_id,
           channel: r.channel,
-          recipient: r.recipient,
+          // A text's number or a push's device is never shown, even while it waits (ADR 0670).
+          recipient: r.channel === "email" ? r.recipient : "",
           recipientRule: r.recipient_rule,
           automationId: r.automation_id,
           runId: r.run_id,
