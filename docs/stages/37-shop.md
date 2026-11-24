@@ -232,14 +232,14 @@ What selling abroad needs, and what the first build does:
 
 | Need | First build | Later |
 | --- | --- | --- |
-| **Delivery zones**: which countries an option posts to, at what price | **Yes** (cheap): a post option lists its countries; the address must be in one. A new shop's options list only the business's own country | Zone tables by region within a country |
+| **Delivery zones**: which countries an option posts to, at what price | **Yes** (cheap): a post option lists its countries; the address must be in one. A post option may instead cover "everywhere else" at its own price. A new shop starts with the business's own country only | Zone tables by region within a country |
 | **Tax** on a sale to another country (whether home tax applies, whether the buyer's does) | Step 3 passes a post order's delivery address to the provider as the line's place, as an event's place is passed today (ADR 0479), so with tax at checkout on the provider works tax out for where the goods go. Nothing else. Whether to post abroad at all, and how it is taxed, is for the business to confirm with its accountant | A tax setting per item (issue #198, step 9) |
 | **Currency** | One currency per deployment; prices are shown and charged in it | A second currency is platform work, out of scope |
 | **Customs and duties** (a customs description and country of origin per item, who pays duties) | Not handled | With the carrier step |
 
-So the first build can post abroad if the business adds countries to an option, at a fixed price;
-it does nothing about tax, currency or customs beyond what exists. Whether the first client turns
-that on is question 1.
+So the first build can post abroad at a fixed price: an option lists countries, or covers
+"everywhere else". It does nothing about tax, currency or customs beyond what exists. The first
+client posts anywhere at one international price (follow-up answer 1).
 
 ### What was weighed and rejected
 
@@ -583,6 +583,17 @@ table is touched. ADRs the build writes:
 | 13 | Later: the shipping gatekeeper, a fake carrier, live rates in `order.quote`, labels, tracking; customs details | a new `packages/gatekeeper-shipping`, `orders/`, `packs/shop` | Beside pack work; **collides** with `orders/` |
 | 14 | Later, when a trades client needs it: stock in several places | `stock/`, `capacity/`, a migration, `packs/shop` | **Collides** with `stock/`, `capacity/` and several-locations work |
 
+**Note (2026-11-24): "my orders" moves to My account (stage 48).** Stage 48's spec
+([`48-my-account.md`](48-my-account.md)) makes the base Orders section of My account the one list
+of a customer's orders, read through `my.list` and `order.get` as above. Shop ships no customer
+"my orders" block (web or native). Instead it declares a **Deliveries** section in its manifest's
+`portal` key (`has: ["shop.shipment"]`): the buyer's shipments, with each one's state and the order
+it belongs to, read with `my.list` on `shop.shipment`. Build step 8 changes to match: its customer
+blocks are shop, At the gym, item, basket, checkout and the Deliveries section (web and native).
+The `portal` declaration is stage 48's (build step 5). If Shop's step 8 lands first, it ships the
+Deliveries blocks and adds the declaration once stage 48's step 5 is merged. Where "my orders"
+appears above (Platform work, Screens, step 8), read this note.
+
 ## Size
 
 **Large.** Three platform pieces (a new behaviour with a ledger, a new declaration on the
@@ -618,7 +629,7 @@ manifest on paper. Platform steps in `orders/` run one at a time, and one at a t
 
 - **Money**: line refunds must never exceed what those lines were paid, tax share included, and
   must still match ADR 0479's rule that a payment matches its order. Whether postage is refunded on
-  a part return is question 3.
+  a part return is follow-up answer 3.
 - **Oversell under load**: the database refusal is the guarantee; test with racing buyers on the
   last unit across web, app and staff.
 - **Stock drift**: a count racing sales; the "difference at commit" rule must be tested with sales
@@ -638,32 +649,19 @@ manifest on paper. Platform steps in `orders/` run one at a time, and one at a t
 - **The till**: drafted in parallel; it touches `orders/` too. The seam above is the line; agree
   the order of building before either starts its `orders/` work.
 
-## Questions for the owner
+## Follow-up answers
 
-None blocks steps 1 to 9. Each has a default the build uses until answered.
+Answered by the owner on 2026-11-24. None changes the build order.
 
-1. **Should the shop post to other countries at launch?**
-   - (a) No: posting within the business's own country only, until the accountant confirms how
-     sales abroad are taxed.
-   - (b) Yes, to a few countries, each at a fixed price.
-   - (c) Anywhere, at one fixed international price.
-   **Recommended: (a).** The setting costs nothing to change later; tax, customs and duties abroad
-   are the business's to confirm first, and a carrier connection makes international prices right.
-2. **When a member buys a fridge drink at the gym on their phone, must they be signed in?**
-   - (a) No: a visitor can buy as a guest with an email address, as on the website.
-   - (b) Yes: members only.
-   **Recommended: (a).** It is the same checkout as the website; a guest's order is matched to a
-   member by their email address when it starts (ADR 0428).
-3. **On a return of part of an order that was posted, is the postage refunded?**
-   - (a) No, only the goods returned; staff can refund postage separately when the whole order
-     comes back or the business was at fault.
-   - (b) Yes, always, in proportion.
-   **Recommended: (a).** It is the usual practice and keeps a part refund simple; how returns are
-   handled is for the business to confirm with its lawyer.
-4. **Should a tablet by the fridge, where members serve themselves and pay, be part of the till
-   module's first build?** (For the till's interview.)
-   - (a) No: members use their own phone (the code on the fridge) at first; a tablet with a card
-     reader comes with the till, later.
-   - (b) Yes: build it with the till.
-   **Recommended: (a).** The phone path needs no new device, enrolment or reader; the tablet needs
-   all three.
+1. **The shop posts to other countries from the start: anywhere, at one fixed international postage
+   price.** A post option's list of countries may be "everywhere else", with its own price, so a
+   new shop has two options: the business's own country, and everywhere else. Tax, currency and
+   customs stay as in "Buyers in other countries" above: tax through the provider by the delivery
+   address, one currency, customs not handled. How sales abroad are taxed is still for the business
+   to confirm with its accountant before it turns the international option on.
+2. **A fridge drink bought on the buyer's own phone needs no sign-in.** A visitor buys as a guest
+   with an email address, as on the website (ADR 0428).
+3. **A return of part of a posted order refunds the goods only.** Staff can refund postage
+   separately.
+4. **Members use their own phones at the fridge first.** A shared tablet comes later, with the
+   till's card reader. (Decided by the coordinator as the conventional order of building.)
