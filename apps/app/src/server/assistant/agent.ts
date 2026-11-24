@@ -98,7 +98,7 @@ import {
   withCardText,
   withSavedLines,
 } from "@composable-os/core";
-import { createCrmDb } from "@composable-os/db";
+import { type CrmDb, createCrmDb } from "@composable-os/db";
 import { Agent, type Connection, type ConnectionContext, type WSMessage } from "agents";
 import "./routine-agents.ts";
 import { activeUser } from "../acting-user.ts";
@@ -1023,12 +1023,14 @@ export class AssistantAgent extends withAssistantVoice(Agent<Cloudflare.Env>) im
     personsWords: string,
     assistantTurn?: InvocationContext["assistantTurn"],
     grantedPermissions?: InvocationContext["grantedPermissions"],
+    /** A turn's own database handle and AI context, so its AI settings are read once. */
+    turn?: { db: CrmDb; ai: ReturnType<typeof aiContextFor> },
   ): Promise<AssistantMcp> {
     const env = this.#env;
     const extensionHost = extensionHostFor(env);
     const integrations = integrationRuntimeFor(env);
     const blobs = blobStoreFor(env);
-    const db = createCrmDb(env.DB);
+    const db = turn?.db ?? createCrmDb(env.DB);
     const agentJobs = agentJobsFor(env);
     const context: InvocationContext = {
       ...(integrations ? { integrations } : {}),
@@ -1043,7 +1045,7 @@ export class AssistantAgent extends withAssistantVoice(Agent<Cloudflare.Env>) im
       approvalExpiryDays: approvalExpiryDays(env.APPROVAL_EXPIRY_DAYS),
       ...(extensionHost ? { extensionHost } : {}),
       ...automationWiring(env),
-      ...aiContextFor(env, db),
+      ...(turn?.ai ?? aiContextFor(env, db)),
       assistantThreads: this.#localThreads(),
       ...(agentJobs ? { agentJobs } : {}),
       personsWords,
@@ -1158,8 +1160,10 @@ export class AssistantAgent extends withAssistantVoice(Agent<Cloudflare.Env>) im
     let planModel: PlanModel | null = null;
     let newMessages: Omit<ThreadMessage, "seq" | "createdAt">[] = [];
     let threadId: string | null = null;
+    let turnUser: ActingUser | null = null;
     try {
       const user = await this.#actingUser(request.userId);
+      turnUser = user;
       threadId = await this.#threadId(user);
       await ensureShippedExtensions(env);
       const ai = aiContextFor(env, db);
@@ -1198,6 +1202,8 @@ export class AssistantAgent extends withAssistantVoice(Agent<Cloudflare.Env>) im
             },
           ).slice(0, 2_000),
         },
+        undefined,
+        { db, ai },
       );
       try {
         const settings = await loadGeneralSettings(db.query);
@@ -1331,9 +1337,9 @@ export class AssistantAgent extends withAssistantVoice(Agent<Cloudflare.Env>) im
     // The bookkeeping row (D1): once per turn, through an operation, as the owner. It also indexes
     // the records and emails the turn referenced, so an erase can find this thread, and carries
     // the turn's compaction review data.
-    if (threadId) {
+    if (threadId && turnUser) {
       try {
-        const user = await this.#actingUser(request.userId);
+        const user = turnUser;
         const turnMessages = [store.get(running.userSeq), ...stored].filter(
           (m): m is ThreadMessage => Boolean(m),
         );
