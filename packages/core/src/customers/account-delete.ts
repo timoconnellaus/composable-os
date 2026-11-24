@@ -12,8 +12,9 @@
 //   dependant who would be left with no other guardian. Admins are told these with the request.
 //
 // Every read here is bounded: one statement per kind of thing, the customer objects' counts in
-// one statement per fifty objects (the seam's countOwnOpenRecords), and at most MOST orders and
-// subscriptions acted on (any beyond are left for staff and said so).
+// one statement per fifty objects (the seam's countOwnOpenRecords), and at most
+// ACCOUNT_DELETE_MOST orders and subscriptions acted on (any beyond are left for staff, and the
+// preview says so).
 
 import { sha256Hex } from "../content/cache.ts";
 import type { HandlerContext } from "../operation.ts";
@@ -25,7 +26,7 @@ import { cancelAtPeriodEnd, RUNNING } from "../subscriptions/subscriptions.ts";
 import { countOwnOpenRecords } from "../visibility/own-records.ts";
 
 /** The most subscriptions ended and orders cancelled in one deletion; any more stay for staff. */
-export const MOST = 20;
+export const ACCOUNT_DELETE_MOST = 20;
 /** Why the provider is asked to end a subscription, as `subscription.cancel`'s reason. */
 export const DELETE_REASON = "The payer deleted their account";
 
@@ -54,9 +55,12 @@ export interface LeftForStaff {
   records: { object: string; label: string; count: number }[];
   /** Part-paid orders (a deposit was paid): a customer cannot cancel one. */
   partPaidOrders: number;
-  /** Unpaid orders beyond the MOST cancelled. */
+  /** Unpaid orders beyond the ACCOUNT_DELETE_MOST cancelled. */
   moreUnpaidOrders: number;
-  /** Subscriptions they pay beyond the MOST ended, or in a state that cannot be ended at period end. */
+  /**
+   * Subscriptions they pay beyond the ACCOUNT_DELETE_MOST ended, or in a state that cannot be
+   * ended at its period's end (waiting for a first payment, unpaid, paused).
+   */
   otherSubscriptions: number;
   /** Dependants who would be left with no other live guardian (ADR 0540). */
   dependantsWithoutGuardian: number;
@@ -94,7 +98,7 @@ export async function deletePreview(ctx: HandlerContext, personId: string): Prom
     .orderBy("id")
     .execute();
   const running = paid.filter((row) => RUNNING.has(row.state));
-  const subscriptions = running.slice(0, MOST).map((row) => ({
+  const subscriptions = running.slice(0, ACCOUNT_DELETE_MOST).map((row) => ({
     id: row.id,
     title: row.plan_title,
     amount: row.amount,
@@ -120,7 +124,7 @@ export async function deletePreview(ctx: HandlerContext, personId: string): Prom
     .orderBy("id")
     .execute();
   const unpaid = open.filter((row) => row.state === "pending");
-  const cancelled = unpaid.slice(0, MOST);
+  const cancelled = unpaid.slice(0, ACCOUNT_DELETE_MOST);
   const lines = cancelled.length
     ? await db
         .selectFrom("core_order_line")

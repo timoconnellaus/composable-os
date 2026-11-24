@@ -7,8 +7,12 @@
 import { env } from "cloudflare:workers";
 import { createCrmDb } from "@composable-os/db";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { MOST } from "../src/customers/account-delete.ts";
-import { type ActingUser, memoryEventSink, type ProviderSubscription } from "../src/index.ts";
+import {
+  ACCOUNT_DELETE_MOST,
+  type ActingUser,
+  memoryEventSink,
+  type ProviderSubscription,
+} from "../src/index.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
 import { context, createUser, unique } from "./helpers.ts";
 import {
@@ -445,7 +449,7 @@ describe("statements (D1's limits)", () => {
     const fewReads = ran.length;
 
     const many = await createBuyer(admin, "many");
-    for (let n = 0; n < MOST + 2; n += 1) await startOrder(many, [{ id: ticket }]);
+    for (let n = 0; n < ACCOUNT_DELETE_MOST + 2; n += 1) await startOrder(many, [{ id: ticket }]);
     for (let n = 0; n < 5; n += 1) {
       await create(VISIT, { name: unique("Visit"), person: many.principal.personId });
     }
@@ -453,7 +457,7 @@ describe("statements (D1's limits)", () => {
     const seen = await run<Preview>("me.deleteAccount", {}, as(many, { db: countedDb }));
     // As many statements for twenty-two orders and five visits as for one order.
     expect(ran.length).toBe(fewReads);
-    expect(seen.orders).toHaveLength(MOST);
+    expect(seen.orders).toHaveLength(ACCOUNT_DELETE_MOST);
     expect(seen.leftForStaff.moreUnpaidOrders).toBe(2);
 
     ran = [];
