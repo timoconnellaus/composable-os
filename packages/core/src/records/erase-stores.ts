@@ -11,6 +11,8 @@ import { type CompiledQuery as Compiled, CompiledQuery, type SqlBool, sql } from
 import { mentions } from "../assistant/scrub.ts";
 import { releaseAllClaimsOfStatements } from "../capacity/claimants.ts";
 import { erasedWaiter, handOnAfterRelease } from "../capacity/waitlist.ts";
+import { generationWrite } from "../content/cache.ts";
+import { clearPublishedTextWrite, publishedTextWrites } from "../content/published-text.ts";
 import { getObject } from "../fields/index.ts";
 import type { HandlerContext } from "../operation.ts";
 import { changeOrder } from "../orders/orders.ts";
@@ -390,6 +392,8 @@ export async function queueEraseExtensions(ctx: HandlerContext, s: StoreSubject)
         .deleteFrom("core_search_docs")
         .where("object_type", "=", record.object)
         .where("record_id", "=", record.id),
+      // Its published words (ADR 0700).
+      clearPublishedTextWrite(record.object, record.id),
       // Who stood behind its values (ADR 0590): hashes of what it said.
       ctx.db
         .deleteFrom("core_value_mark")
@@ -472,7 +476,7 @@ export async function queueEraseExtensions(ctx: HandlerContext, s: StoreSubject)
     // loses it as the record's own fields do, keeping its shape and its number.
     const versions = await ctx.db
       .selectFrom("core_publish_version")
-      .select(["object_type", "record_id", "version", "content"])
+      .select(["object_type", "record_id", "version", "content", "current"])
       .where(mentionsSql(termsJson, sql`content`))
       .execute();
     for (const version of versions) {
@@ -487,6 +491,25 @@ export async function queueEraseExtensions(ctx: HandlerContext, s: StoreSubject)
           .where("record_id", "=", version.record_id)
           .where("version", "=", version.version),
       );
+      // The published-text index (ADR 0700) holds the current version's words: made again from
+      // the scrubbed content, so a search never finds them.
+      // A record this erase deletes keeps none (its rows went above); a cached search of the
+      // object is not read again (ADR 0442's generation), so the old snippet is never served.
+      const definition = getObject(version.object_type);
+      const erased = deleted.some(
+        (d) => d.object === version.object_type && d.id === version.record_id,
+      );
+      if (Number(version.current) === 1 && definition && !erased) {
+        ctx.write(
+          ...publishedTextWrites(
+            definition,
+            version.record_id,
+            Number(version.version),
+            JSON.parse(content) as Record<string, unknown>,
+          ),
+        );
+      }
+      if (Number(version.current) === 1) ctx.write(generationWrite(version.object_type, ctx.now));
     }
     // A scheduled publish (stage 28, ADR 0441) holds a snapshot too, until the cron takes it.
     const scheduled = await ctx.db
