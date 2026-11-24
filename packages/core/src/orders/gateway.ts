@@ -317,14 +317,27 @@ export async function callSubscriptionGatekeeper(
 export async function sendHostEmail(
   integrations: IntegrationRuntime | undefined,
   target: { connectionId: string; resource: string },
-  message: { to: string; subject: string; text: string },
+  message: {
+    to: string;
+    subject: string;
+    text: string;
+    /** A send retried after a crash sends nothing twice (ADR 0574). */
+    idempotencyKey?: string;
+  },
 ): Promise<IntegrationCallResult> {
   const call = requireHostCalls(integrations);
   return call({
     connectionId: target.connectionId,
     resource: target.resource,
     method: "send",
-    args: [{ to: [message.to], subject: message.subject, text: message.text }],
+    args: [
+      {
+        to: [message.to],
+        subject: message.subject,
+        text: message.text,
+        ...(message.idempotencyKey ? { idempotencyKey: message.idempotencyKey } : {}),
+      },
+    ],
     purpose: "orders",
   });
 }
