@@ -284,8 +284,8 @@ async function agreementManagers(ctx: HandlerContext): Promise<string[]> {
 }
 
 /**
- * A guest's purchase whose address matched a Person who is a minor (coordinator decision of
- * 2026-11-23 on the review of PR #280, owner to confirm; ADR 0644). Checkout cannot refuse it
+ * A guest's purchase whose address matched a Person who is a minor (the owner's decision of
+ * 2026-11-24, on the review of PR #280; ADR 0644). Checkout cannot refuse it
  * without saying the address is a child's, so the purchase stands; the guest's acceptances count
  * for nothing after it (a guest's never do, and a minor's own never do), so the child stays due
  * (reason `guardian`) until a parent, a guardian or a paper form agrees. Staff who may act on it

@@ -235,6 +235,20 @@ const copyRow = (acceptanceId: string) =>
     .bind(acceptanceId)
     .first<Record<string, unknown>>();
 
+/** A paper form recorded by staff for `personId`, of the waiver. */
+const paperFor = (personId: string, extra: Record<string, unknown> = {}) =>
+  run<{ id: string }>(
+    "agreement.recordPaper",
+    {
+      personId,
+      versionId: waiver.versionId,
+      signedOn: new Date().toISOString().slice(0, 10),
+      typedName: "Fixture Paper Name",
+      ...extra,
+    },
+    staff(),
+  );
+
 const deliveredFor = (acceptanceId: string) =>
   mail.delivered.filter(
     (m) => (m.agreement as { acceptanceId?: string })?.acceptanceId === acceptanceId,
@@ -639,39 +653,255 @@ describe("the copy (criterion 10)", () => {
     ).toBe("agreement_copy_no_address");
   });
 
-  it("a child's paper form is never emailed to the child; only staff see the name on it", async () => {
-    const parent = await createBuyer(admin, "ppar");
+  it("a child's paper form with no linked guardian who has an address is not emailed: staff give the PDF; only staff see the name on it", async () => {
+    // A child marked a minor with no family link, and a child whose only guardian has no address.
+    const marked = await createBuyer(admin, "pmarked");
+    await run("agreement.setMinor", { personId: marked.principal.personId, minor: true }, staff());
     const child = await createBuyer(admin, "pchild");
+    const silent = (
+      await run<{ id: string }>("person.create", { givenName: unique("Silent") }, staff())
+    ).id;
     await run(
       "person.link.add",
-      { guardianId: parent.principal.personId, dependantId: child.principal.personId },
+      { guardianId: silent, dependantId: child.principal.personId },
       staff(),
     );
-    const paper = await run<{ id: string }>(
-      "agreement.recordPaper",
-      {
-        personId: child.principal.personId,
-        versionId: waiver.versionId,
-        signedOn: new Date().toISOString().slice(0, 10),
-        typedName: "Fixture Parent Written",
+    for (const kid of [marked, child]) {
+      const paper = await paperFor(kid.principal.personId, {
         signedBy: "Fixture Parent Signer",
         note: "Fixture staff note",
-      },
-      staff(),
-    );
-    expect(await run("agreement.copy.preview", { acceptanceId: paper.id }, staff())).toMatchObject({
-      to: null,
-      refused: "minor",
-    });
-    const refused = await refusal(
-      run("agreement.copy.send", { acceptanceId: paper.id, confirmTo: child.email }, staff()),
-    );
-    expect(refused.details.rule).toBe("agreement_copy_minor");
-    expect(refused.message).toMatch(/parent or guardian/);
+      });
+      expect(
+        await run("agreement.copy.preview", { acceptanceId: paper.id }, staff()),
+      ).toMatchObject({ to: null, guardians: [], refused: "minor" });
+      for (const input of [
+        { acceptanceId: paper.id, confirmTo: kid.email },
+        { acceptanceId: paper.id, confirmTo: kid.email, guardianId: kid.principal.personId },
+      ]) {
+        const refused = await refusal(run("agreement.copy.send", input, staff()));
+        expect(refused.details.rule).toMatch(/agreement_copy_(minor|not_guardian)/);
+        expect(refused.message).toMatch(/parent or guardian/);
+      }
+      expect(await copyRow(paper.id)).toBeNull();
+    }
+    // The guardian with no address, picked anyway: no address.
+    const paper = await paperFor(child.principal.personId);
+    expect(
+      (
+        await refusal(
+          run(
+            "agreement.copy.send",
+            { acceptanceId: paper.id, confirmTo: "x@y.test", guardianId: silent },
+            staff(),
+          ),
+        )
+      ).details.rule,
+    ).toBe("agreement_copy_no_address");
     expect(await copyRow(paper.id)).toBeNull();
+  });
+
+  it("a child's paper form goes to the linked guardian staff pick, once, at the host's address for them", async () => {
+    const child = await createBuyer(admin, "gchild");
+    const childId = child.principal.personId;
+    // A: signed in (their account's address). B: no account, a primary address only. C: no
+    // address. D: a guardian whose link ended. E: an adult who is nobody's guardian here.
+    const a = await createBuyer(admin, "ga");
+    const bEmail = `${unique("gb").toLowerCase()}@family.example`;
+    const b = (
+      await run<{ id: string }>(
+        "person.create",
+        { givenName: unique("Bee"), emails: [{ email: bEmail }] },
+        staff(),
+      )
+    ).id;
+    const c = (await run<{ id: string }>("person.create", { givenName: unique("Cee") }, staff()))
+      .id;
+    const d = await createBuyer(admin, "gd");
+    const e = await createBuyer(admin, "ge");
+    const links = new Map<string, string>();
+    for (const guardianId of [a.principal.personId, b, c, d.principal.personId]) {
+      const link = await run<{ id: string }>(
+        "person.link.add",
+        { guardianId, dependantId: childId },
+        staff(),
+      );
+      links.set(guardianId, link.id);
+    }
+    const dLink = { id: links.get(d.principal.personId) };
+    await run("person.link.end", { id: dLink?.id }, staff());
+
+    const paper = await paperFor(childId, {
+      typedName: "Fixture Parent Written",
+      signedBy: "Fixture Parent Signer",
+      note: "Fixture staff note",
+    });
+    // Never an AI's act, never a member's without the permission.
+    for (const ai of AI_ACTORS) {
+      const refused = await refusal(
+        run(
+          "agreement.copy.preview",
+          { acceptanceId: paper.id },
+          staff(admin, {
+            ...ai,
+            ...(ai.actor === "mcp"
+              ? { grantedPermissions: ["records:read", "records:write"] }
+              : {}),
+          }),
+        ),
+      );
+      expect(refused.code, ai.actor).toBe("forbidden");
+      expect(
+        (
+          await refusal(
+            run(
+              "agreement.copy.send",
+              { acceptanceId: paper.id, guardianId: b, confirmTo: bEmail },
+              staff(admin, ai),
+            ),
+          )
+        ).code,
+        ai.actor,
+      ).toBe("forbidden");
+    }
+    expect(
+      (await refusal(run("agreement.copy.preview", { acceptanceId: paper.id }, staff(member))))
+        .code,
+    ).toBe("forbidden");
+
+    // The live guardians with an address, each with where it would go; never the child, C, D or E.
+    const preview = await run<{
+      to: string | null;
+      refused: string | null;
+      guardians: { personId: string; name: string; to: string }[];
+    }>("agreement.copy.preview", { acceptanceId: paper.id }, staff());
+    expect(preview.to).toBeNull();
+    expect(preview.refused).toBeNull();
+    expect(
+      preview.guardians
+        .map((g) => [g.personId, g.to])
+        .sort((x, y) => (x[0] ?? "").localeCompare(y[0] ?? "")),
+    ).toEqual(
+      [
+        [a.principal.personId, a.email],
+        [b, bEmail],
+      ].sort((x, y) => (x[0] ?? "").localeCompare(y[0] ?? "")),
+    );
+    expect(preview.guardians.every((g) => g.name.length > 0)).toBe(true);
+
+    const send = (input: Record<string, unknown>) =>
+      run<{ state: string }>("agreement.copy.send", { acceptanceId: paper.id, ...input }, staff());
+    const rule = async (input: Record<string, unknown>) =>
+      (await refusal(send(input))).details.rule;
+    // Who to send it to must be chosen; only a live guardian of the child may be.
+    expect(await rule({ confirmTo: bEmail })).toBe("agreement_copy_guardian_required");
+    expect(await rule({ guardianId: childId, confirmTo: child.email })).toBe(
+      "agreement_copy_not_guardian",
+    );
+    expect(await rule({ guardianId: d.principal.personId, confirmTo: d.email })).toBe(
+      "agreement_copy_not_guardian",
+    );
+    expect(await rule({ guardianId: e.principal.personId, confirmTo: e.email })).toBe(
+      "agreement_copy_not_guardian",
+    );
+    expect(await rule({ guardianId: c, confirmTo: "c@y.test" })).toBe("agreement_copy_no_address");
+    // The address is the host's for the guardian chosen: another's, the child's, or one typed is
+    // refused, and no input names one.
+    expect(await rule({ guardianId: b, confirmTo: a.email })).toBe(
+      "agreement_copy_address_changed",
+    );
+    expect(await rule({ guardianId: b, confirmTo: child.email })).toBe(
+      "agreement_copy_address_changed",
+    );
+    expect(
+      (await refusal(send({ guardianId: b, confirmTo: bEmail, to: "x@evil.test" }))).code,
+    ).toBe("invalid_input");
+    expect(await copyRow(paper.id)).toBeNull();
+
+    // B picked: sent once, to B's address.
+    expect((await send({ guardianId: b, confirmTo: bEmail.toUpperCase() })).state).toBe("sent");
+    expect(deliveredFor(paper.id).map((m) => m.to)).toEqual([[bEmail]]);
+    expect(await copyRow(paper.id)).toMatchObject({
+      to_address: bEmail,
+      guardian_id: b,
+      state: "sent",
+      send_key: `agreement-copy:${paper.id}`,
+    });
+    // What it says: the child's form recorded from paper, the child named in the file; never the
+    // name on the form, who signed it, staff's note, nor the other guardian.
+    const sent = JSON.stringify(deliveredFor(paper.id)[0]);
+    expect(sent).toContain("Recorded from paper");
+    expect(sent).toContain("for someone linked to you as their parent or guardian");
+    // Never as if they agreed (the review of PR #301).
+    const message = deliveredFor(paper.id)[0];
+    expect(message?.text).toMatch(/^This is a copy of "/);
+    expect(message?.text).toContain(
+      "If you think this was sent to you by mistake, reply to this email or tell",
+    );
+    expect(message?.text).not.toContain("If you did not agree");
+    expect(message?.subject).toContain(": a copy of ");
+    const childName = (
+      await env.DB.prepare("SELECT display_name FROM core_person WHERE id = ?")
+        .bind(childId)
+        .first<{ display_name: string }>()
+    )?.display_name;
+    expect(sent).toContain(childName);
+    const aName = preview.guardians.find((g) => g.personId === a.principal.personId)?.name ?? "";
+    for (const hidden of [
+      "Fixture Parent Written",
+      "Fixture Parent Signer",
+      "Fixture staff note",
+      a.email,
+      aName,
+      child.email,
+    ]) {
+      expect(sent).not.toContain(hidden);
+    }
+    // Asked again for the same guardian: how the first one went. For another: refused, naming
+    // nobody (the review of PR #301). Nothing more sent either way.
+    expect((await send({ guardianId: b, confirmTo: bEmail })).state).toBe("sent");
+    const other = await refusal(send({ guardianId: a.principal.personId, confirmTo: a.email }));
+    expect(other.details.rule).toBe("agreement_copy_already");
+    expect(other.message).not.toContain(bEmail);
+    expect(other.message).not.toContain(a.email);
+    expect(deliveredFor(paper.id)).toHaveLength(1);
+    expect(await copyRow(paper.id)).toMatchObject({ to_address: bEmail, guardian_id: b });
+
+    // A signed-in guardian: their account's address.
+    const second = await paperFor(childId);
+    expect(
+      (
+        await run<{ state: string }>(
+          "agreement.copy.send",
+          { acceptanceId: second.id, guardianId: a.principal.personId, confirmTo: a.email },
+          staff(),
+        )
+      ).state,
+    ).toBe("sent");
+    expect(deliveredFor(second.id).map((m) => m.to)).toEqual([[a.email]]);
+
+    // An adult's own paper form takes no guardian.
+    const adult = await paperFor(e.principal.personId);
+    expect(
+      (
+        await refusal(
+          run(
+            "agreement.copy.send",
+            { acceptanceId: adult.id, guardianId: a.principal.personId, confirmTo: a.email },
+            staff(),
+          ),
+        )
+      ).details.rule,
+    ).toBe("agreement_copy_not_guardian");
+    expect(await run("agreement.copy.preview", { acceptanceId: adult.id }, staff())).toMatchObject({
+      to: e.email,
+      guardians: [],
+      refused: null,
+    });
+    expect(await copyRow(adult.id)).toBeNull();
+
     // The guardian's (and the child's) own download says it was recorded from paper, without
     // the name on the form, who signed it or the note; staff's has all three.
-    for (const viewer of [parent, child]) {
+    for (const viewer of [a, child]) {
       const theirs = await run<{ document: AgreementPdf }>(
         "me.agreements.pdf",
         { acceptanceId: paper.id },
@@ -699,6 +929,39 @@ describe("the copy (criterion 10)", () => {
     for (const shown of ["Fixture Parent Written", "Fixture Parent Signer", "Fixture staff note"]) {
       expect(staffPdf).toContain(shown);
     }
+  });
+
+  it("a guardian whose link ends after the preview is refused at the send", async () => {
+    const child = await createBuyer(admin, "lchild");
+    const parent = await createBuyer(admin, "lparent");
+    const link = await run<{ id: string }>(
+      "person.link.add",
+      { guardianId: parent.principal.personId, dependantId: child.principal.personId },
+      staff(),
+    );
+    const paper = await paperFor(child.principal.personId);
+    const preview = await run<{ guardians: { personId: string; to: string }[] }>(
+      "agreement.copy.preview",
+      { acceptanceId: paper.id },
+      staff(),
+    );
+    expect(preview.guardians.map((g) => g.to)).toEqual([parent.email]);
+    await run("person.link.end", { id: link.id }, staff());
+    // No live link now: the child is no longer a dependant, and nobody is a guardian to pick.
+    const refused = await refusal(
+      run(
+        "agreement.copy.send",
+        {
+          acceptanceId: paper.id,
+          guardianId: parent.principal.personId,
+          confirmTo: parent.email,
+        },
+        staff(),
+      ),
+    );
+    expect(refused.details.rule).toBe("agreement_copy_not_guardian");
+    expect(await copyRow(paper.id)).toBeNull();
+    expect(deliveredFor(paper.id)).toHaveLength(0);
   });
 });
 
@@ -900,7 +1163,7 @@ describe("exactly once", () => {
       )
         .bind(new Date().toISOString(), done.id)
         .run(),
-    ).rejects.toThrow(/CHECK constraint failed/);
+    ).rejects.toThrow(/CHECK constraint failed|core_agreement_copy_fixed/);
     await expect(
       env.DB.prepare("UPDATE core_agreement_copy SET to_address = ? WHERE acceptance_id = ?")
         .bind(buyer.email, done.id)
@@ -1014,6 +1277,171 @@ describe("where a copy goes is the host's", () => {
         purpose: "orders",
       }),
     ).rejects.toThrow(/Invalid email/);
+  });
+
+  it("a child's paper copy: the database allows a live guardian's own address, and nothing wider (migration 0857)", async () => {
+    const child = await createBuyer(admin, "dbchild");
+    const childId = child.principal.personId;
+    const a = await createBuyer(admin, "dba");
+    const ended = await createBuyer(admin, "dbended");
+    const stranger = await createBuyer(admin, "dbstranger");
+    await run(
+      "person.link.add",
+      { guardianId: a.principal.personId, dependantId: childId },
+      staff(),
+    );
+    const endedLink = await run<{ id: string }>(
+      "person.link.add",
+      { guardianId: ended.principal.personId, dependantId: childId },
+      staff(),
+    );
+    await run("person.link.end", { id: endedLink.id }, staff());
+    const at = new Date().toISOString();
+    const insert = (
+      acceptanceId: string,
+      to: string,
+      guardianId: string | null,
+      extra: { erasedAt?: string } = {},
+    ) =>
+      env.DB.prepare(
+        "INSERT INTO core_agreement_copy (acceptance_id, to_address, state, send_key, attempts, queued_at, next_at, guardian_id, guardian_erased_at) VALUES (?, ?, 'queued', ?, 0, ?, ?, ?, ?)",
+      )
+        .bind(
+          acceptanceId,
+          to,
+          `agreement-copy:${acceptanceId}`,
+          at,
+          at,
+          guardianId,
+          extra.erasedAt ?? null,
+        )
+        .run();
+    const paper = await paperFor(childId);
+    // Each branch of the check, refused: another address for the guardian, the child's own, an
+    // ended guardian's, a stranger's, and the guardian's address with no guardian named (then
+    // only the child's own would do, as for an adult).
+    for (const [to, guardianId] of [
+      [stranger.email, a.principal.personId],
+      [child.email, a.principal.personId],
+      [ended.email, ended.principal.personId],
+      [stranger.email, stranger.principal.personId],
+      [a.email, null],
+      [a.email, childId],
+    ] as const) {
+      await expect(insert(paper.id, to, guardianId), `${to} ${guardianId}`).rejects.toThrow(
+        /core_agreement_copy_address/,
+      );
+    }
+    // Never written as already erased.
+    await expect(insert(paper.id, a.email, a.principal.personId, { erasedAt: at })).rejects.toThrow(
+      /core_agreement_copy_fixed/,
+    );
+    // Only on paper: a guardian's own acceptance for the child carries its own copy.
+    const consent = await run<{ id: string }>(
+      "me.agreements.accept",
+      {
+        versionId: guardianDoc.versionId,
+        typedName: "Fixture Name",
+        forPersonId: childId,
+        signature: SIGNATURE,
+      },
+      outside(a.principal, { events }),
+    );
+    await expect(insert(consent.id, a.email, a.principal.personId)).rejects.toThrow(
+      /core_agreement_copy_fixed/,
+    );
+    // One with no copy yet (as a guardian's made without an address would be): still not paper,
+    // so not this rule's.
+    const noCopy = `aga_nocopy${tag}`;
+    await env.DB.prepare(
+      `INSERT INTO core_agreement_acceptance (id, document_id, version_id, shown_hash, person_id,
+         agent_person_id, by, how, typed_name, channel, accepted_at, account_id, email)
+       SELECT ?, document_id, version_id, shown_hash, person_id, agent_person_id, by, how,
+         typed_name, channel, accepted_at, account_id, NULL
+       FROM core_agreement_acceptance WHERE id = ?`,
+    )
+      .bind(noCopy, consent.id)
+      .run();
+    expect(await copyRow(noCopy)).toBeNull();
+    await expect(insert(noCopy, a.email, a.principal.personId)).rejects.toThrow(
+      /core_agreement_copy_address/,
+    );
+    // The guardian's own address, in any case: allowed.
+    await insert(paper.id, a.email.toUpperCase(), a.principal.personId);
+    expect(await copyRow(paper.id)).toMatchObject({ guardian_id: a.principal.personId });
+    // And once written, fixed: no other address, no other guardian, no clearing while the
+    // guardian and the acceptance are there, no scrub owed, no replace.
+    const fixedUpdates: [string, ...(string | null)[]][] = [
+      ["UPDATE core_agreement_copy SET to_address = ? WHERE acceptance_id = ?", stranger.email],
+      [
+        "UPDATE core_agreement_copy SET guardian_id = ? WHERE acceptance_id = ?",
+        stranger.principal.personId,
+      ],
+      ["UPDATE core_agreement_copy SET guardian_id = ? WHERE acceptance_id = ?", null],
+      ["UPDATE core_agreement_copy SET guardian_erased_at = ? WHERE acceptance_id = ?", at],
+      [
+        "UPDATE core_agreement_copy SET to_address = NULL, state = 'cancelled', next_at = NULL, guardian_erased_at = ? WHERE acceptance_id = ?",
+        at,
+      ],
+      [
+        "UPDATE core_agreement_copy SET to_address = NULL, state = 'cancelled', next_at = NULL, guardian_id = NULL, guardian_erased_at = ? WHERE acceptance_id = ?",
+        at,
+      ],
+      [
+        "UPDATE core_agreement_copy SET to_address = NULL, state = 'cancelled', next_at = NULL WHERE acceptance_id = ?",
+      ],
+      [
+        "UPDATE core_agreement_copy SET scrub_due_at = ?, scrub_owed_since = ? WHERE acceptance_id = ?",
+        at,
+        at,
+      ],
+    ];
+    for (const [sqlText, ...values] of fixedUpdates) {
+      await expect(
+        env.DB.prepare(sqlText)
+          .bind(...values, paper.id)
+          .run(),
+        sqlText,
+      ).rejects.toThrow(/core_agreement_copy_fixed/);
+    }
+    await expect(
+      env.DB.prepare(
+        "INSERT OR REPLACE INTO core_agreement_copy (acceptance_id, to_address, state, send_key, attempts, queued_at, next_at, guardian_id) VALUES (?, ?, 'queued', ?, 0, ?, ?, ?)",
+      )
+        .bind(
+          paper.id,
+          stranger.email,
+          `agreement-copy:${paper.id}`,
+          at,
+          at,
+          stranger.principal.personId,
+        )
+        .run(),
+    ).rejects.toThrow(/core_agreement_copy_fixed/);
+    await expect(
+      env.DB.prepare(
+        "INSERT INTO core_agreement_copy (acceptance_id, to_address, state, send_key, attempts, queued_at, next_at, guardian_id) VALUES (?, ?, 'queued', ?, 0, ?, ?, ?) ON CONFLICT (acceptance_id) DO UPDATE SET to_address = excluded.to_address",
+      )
+        .bind(paper.id, stranger.email, `agreement-copy:${paper.id}`, at, at, a.principal.personId)
+        .run(),
+    ).rejects.toThrow(/core_agreement_copy_fixed/);
+    expect(await copyRow(paper.id)).toMatchObject({
+      to_address: a.email.toUpperCase(),
+      guardian_id: a.principal.personId,
+      guardian_erased_at: null,
+    });
+    // A guardian in the Trash is no live guardian: refused.
+    const trashed = await createBuyer(admin, "dbtrash");
+    await run(
+      "person.link.add",
+      { guardianId: trashed.principal.personId, dependantId: childId },
+      staff(),
+    );
+    await run("person.delete", { id: trashed.principal.personId }, staff());
+    const other = await paperFor(childId);
+    await expect(insert(other.id, trashed.email, trashed.principal.personId)).rejects.toThrow(
+      /core_agreement_copy_address/,
+    );
   });
 });
 

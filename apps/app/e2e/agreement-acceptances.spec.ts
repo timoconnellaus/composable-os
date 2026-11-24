@@ -1,5 +1,6 @@
 // Agreements, step 2 (stage 44, ADRs 0642 and 0643), one test per journey: a member agrees to a
-// document; a parent agrees for their child; staff record a paper form; and a health "yes" is
+// document; a parent agrees for their child; staff record a paper form; staff email a copy of a
+// child's paper form to the parent they pick (ADR 0648); and a health "yes" is
 // read by staff with the health permission while a coach sees only the mark. Members call the
 // host's HTTP surface as a client app would (the Agree block is step 5); the staff side is the
 // Person page's Agreements tab. Documents attach to a fixture extension's agreement point (the
@@ -223,6 +224,39 @@ test("staff record a paper form, shown as recorded from paper", async ({ page })
   await expect(history).toContainText("Recorded from paper by");
   await expect(history).not.toContainText("Agreed by themselves");
   await expect(row).toContainText("Agreed");
+});
+
+test("staff email a copy of a child's paper form to the parent they pick (ADR 0648)", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const doc = await document(page, "waiver");
+  const parent = await newMember(page, "copyparent");
+  const child = await op<{ id: string }>(page.request, "person.create", {
+    givenName: unique("CopyChild"),
+  });
+  await op(page.request, "person.link.add", { guardianId: parent.id, dependantId: child.id });
+  await op(page.request, "agreement.recordPaper", {
+    personId: child.id,
+    versionId: doc.versionId,
+    signedOn: new Date().toISOString().slice(0, 10),
+    typedName: "Fixture Paper Name",
+  });
+  const tab = await agreementsTab(page, child.id);
+  await tab.getByTestId("agreement-history").getByRole("button", { name: "Open" }).first().click();
+  await page.getByRole("button", { name: "Email a copy" }).click();
+  const dialog = page.getByTestId("email-copy");
+  await expect(dialog).toContainText("choose the parent or guardian");
+  await expect(dialog).toContainText(parent.email);
+  await expect(dialog.getByRole("button", { name: "Send the copy" })).toBeDisabled();
+  await dialog.getByRole("radio").first().click();
+  await expect(dialog).toContainText(`It goes to ${parent.given}`);
+  await dialog.getByRole("button", { name: "Send the copy" }).click();
+  await expect(page.getByText(/^Copy /).first()).toBeVisible();
+  // Asked once: the dialog now says how it went, and offers no second send.
+  await tab.getByTestId("agreement-history").getByRole("button", { name: "Open" }).first().click();
+  await expect(page.getByRole("button", { name: "Email a copy" })).toHaveCount(0);
+  await expect(page.getByRole("dialog")).toContainText("Copy ");
 });
 
 test("staff with the health permission read a health yes; a coach sees only the mark", async ({
