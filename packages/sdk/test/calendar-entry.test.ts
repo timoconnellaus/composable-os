@@ -45,10 +45,12 @@ function pack(booking: Obj = {}, entry: Obj = {}, more: Record<string, Obj> = {}
           endsAt: { type: "datetime", label: "Ends at" },
           notes: { type: "longText", label: "Notes" },
         },
+        // Its own title is the customer's only through their booking (it may name a member).
+        public: { read: ["kind", "room", "startsAt", "endsAt"] },
         customerVia: {
           from: "cal.booking",
           field: "klass",
-          read: ["title", "kind", "room", "startsAt", "endsAt"],
+          read: ["title", "kind", "room", "startsAt", "endsAt", "notes"],
         },
       },
       booking: {
@@ -122,15 +124,31 @@ describe("calendarEntry in one pack", () => {
   });
 
   it("a field further away that the customer does not read fails", () => {
-    // The class's notes are not in its customerVia; the class type's secret is not public.
-    const notes = issues(pack({}, { title: "klass.notes" }));
-    expect(notes.map((i) => i.path)).toEqual(["objects.booking.calendarEntry.title"]);
+    // The class type's secret is not public, nor readable any other way.
+    const notes = issues(pack({}, { starts: "kind.secret" }));
+    expect(notes.map((i) => i.path)).toEqual(["objects.booking.calendarEntry.starts"]);
     expect(notes[0]?.message).toContain("not a field a customer reads");
     expect(issues(pack({}, { title: "kind.secret" })).map((i) => i.path)).toEqual([
       "objects.booking.calendarEntry.title",
     ]);
     // Two relations away, only what the room makes public counts (no customerVia reaches there).
     expect(issues(pack({}, { place: "klass.kind.name" }))).toEqual([]);
+  });
+
+  // The review of PR #433, finding 1: a title or place is a public name, never a field the
+  // customer reads only through their own booking (a class's own title may name another member).
+  it("a title or place past its first field must be public, not only the customer's through customerVia", () => {
+    for (const key of ["title", "place"]) {
+      for (const path of ["klass.title", "klass.notes"]) {
+        const found = issues(pack({}, { [key]: path }));
+        expect(found.map((i) => i.path)).toEqual([`objects.booking.calendarEntry.${key}`]);
+        expect(found[0]?.message).toContain("not a public field of cal.klass");
+      }
+    }
+    // A time may be the customer's through their booking: it names nobody.
+    const timed = pack({}, { starts: "klass.startsAt" });
+    (timed.objects.klass as { public: { read: string[] } }).public.read = ["kind", "room"];
+    expect(issues(timed)).toEqual([]);
   });
 
   it("ends at the right kind of field", () => {

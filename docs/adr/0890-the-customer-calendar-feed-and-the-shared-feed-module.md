@@ -37,10 +37,12 @@ and bytes unchanged.
   `CUSTOMER_FEED_ADDRESS_RATE_LIMIT` (120 a minute per address), so the two feeds never share a
   bucket. The calendar is named "Bookings"; PRODID `-//Composable OS//Customer calendar feed//EN`.
 - **Checked on every fetch**: the token in `core_customer_feed`; its account `active` and
-  `linked` to a Person. Then the events are read as that customer through the visibility seam
+  `linked` to a Person (and `me.calendarFeed.rotate` refuses, `not_found`, for an account that no
+  longer is, so it never answers an address that opens nothing). Then the events are read as that customer through the visibility seam
   (ADR 0891): their own records and a live dependant's (the family link is read live, so ending
   it drops a child's events on the next fetch), the declared fields only. A dependant's event
-  starts with the child's first name ("Ava: Junior swim"), so a parent tells two children apart;
+  starts with the child's given name ("Ava: Junior swim"; else the display name's first word, else
+  "Child": never dropped for a blank name), so a parent tells two children apart;
   an event with no name is "Booking at <business>" (the organisation's name, else "Booking").
   `UID` is `<object>.<id>@<hostname>`: unique across every object a pack declares, so a moved
   booking (a new record) shows as itself and the old one drops.
@@ -67,8 +69,10 @@ more.
 
 ## Consequences
 - The spec named `people:write` for `customer.revokeCalendarFeed`; no such permission exists, so it
-  takes `users:manage` like the other `customer.*` operations. It is not kept to humans: an
-  assistant's call waits for a person under the policy, as the spec's table says.
+  takes `users:manage` like the other `customer.*` operations. It is `mcp: { expose: false }`, so
+  neither the in-app assistant (whose tools come over MCP) nor an MCP client can call it at all:
+  stricter than the spec's "waits for a person under Balanced", and only a person at the admin
+  revokes one.
 - The organisation's setting to show "Booking at <business>" instead of names (decision 10's
   switch) is step 2's; until then names show, and "Booking at" is only the fallback for an event
   with no name.

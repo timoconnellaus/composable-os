@@ -63,10 +63,11 @@ const fixture = manifestSchema.parse({
         startsAt: { type: "datetime", label: "Starts at", required: true },
         endsAt: { type: "datetime", label: "Ends at", required: true },
       },
+      public: { read: ["kind", "place", "startsAt", "endsAt"] },
       customerVia: {
         from: `${ext}.booking`,
         field: "klass",
-        read: ["kind", "place", "startsAt", "endsAt"],
+        read: ["title", "kind", "place", "startsAt", "endsAt"],
       },
     },
     booking: {

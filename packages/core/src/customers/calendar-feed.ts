@@ -17,7 +17,7 @@
 //   declared live states, out of the Trash;
 // - each record's declared start, end, title and place, read through the seam on every object the
 //   path passes, in the window from 14 days back to 120 days ahead, soonest first, at most 500;
-// - a dependant's event begins with the child's first name ("Ava: Junior swim"); an event with no
+// - a dependant's event begins with the child's given name ("Ava: Junior swim"); an event with no
 //   title is "Booking at <business>".
 // Nothing else: no other person, no price, no note, no order.
 //
@@ -39,7 +39,7 @@ import type { CustomerPrincipal } from "../principals.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import {
-  familyOf,
+  dependantFirstNames,
   ownReadSource,
   type Reader,
   visibleObject,
@@ -152,13 +152,21 @@ function entryQuery(
     return null;
   }
   const joins: RawBuilder<unknown>[] = [];
-  const hops = new Map<string, { alias: string; def: ObjectDefinition }>();
-  const compile = (path: string): Compiled | null => {
+  const hops = new Map<
+    string,
+    { alias: string; def: ObjectDefinition; shown: ReadonlySet<string> }
+  >();
+  // A title or a place past its first field shows only what the related object makes public or
+  // signedIn (ADR 0891), never what the customer reads only through their own record (a class's
+  // own title may name another member): the check refuses it, and this read holds it too.
+  const compile = (path: string, publicOnly = false): Compiled | null => {
     const segments = path.split(".");
     let alias = "r";
     let def = visible;
+    let shown: ReadonlySet<string> | null = null;
     let prefix = "";
     for (const [i, segment] of segments.entries()) {
+      if (publicOnly && shown && !shown.has(segment)) return null;
       const field = def.fields.find((f) => f.name === segment);
       const column = field ? viewColumnOf(field) : null;
       if (!field || !column) return null;
@@ -180,18 +188,23 @@ function entryQuery(
         joins.push(
           sql`LEFT JOIN ${visibleSource(reader, target, next)} ON ${sql.ref(`${next}.id`)} = ${sql.ref(`${alias}.${column}`)}`,
         );
-        hop = { alias: next, def };
+        hop = {
+          alias: next,
+          def,
+          shown: new Set([...(target.public?.read ?? []), ...(target.signedIn?.read ?? [])]),
+        };
         hops.set(prefix, hop);
       }
       alias = hop.alias;
       def = hop.def;
+      shown = hop.shown;
     }
     return null;
   };
   const starts = compile(entry.starts);
   const ends = compile(entry.ends);
-  const title = compile(entry.title);
-  const place = entry.place ? compile(entry.place) : null;
+  const title = compile(entry.title, true);
+  const place = entry.place ? compile(entry.place, true) : null;
   const state = compile(stateField);
   if (!starts || !ends || !title || !state || (entry.place && !place)) return null;
   const seconds = (c: Compiled) => sql`CAST(strftime('%s', ${c.sql}) AS INTEGER)`;
@@ -239,14 +252,11 @@ export async function customerFeedEvents(reader: Reader, now: Date): Promise<Cus
   const queries = objects
     .map((object) => ({ object, compiled: entryQuery(reader, object, window) }))
     .filter((q) => q.compiled !== null);
-  const [family, ...results] = await Promise.all([
-    familyOf(reader),
+  const [firstNames, ...results] = await Promise.all([
+    dependantFirstNames(reader),
     ...queries.map((q) => q.compiled?.query.execute(reader.db)),
   ]);
-  // A child's first name, so a parent tells two children's events apart.
-  const firstNames = new Map(
-    family.dependants.map((d) => [d.personId, d.name.trim().split(/\s+/)[0] ?? ""]),
-  );
+  // A child's first name (never blank), so a parent tells two children's events apart.
   let business: string | null | undefined;
   const fallback = async () => {
     if (business === undefined) business = (await loadGeneralSettings(reader.db)).orgName;
@@ -263,7 +273,7 @@ export async function customerFeedEvents(reader: Reader, now: Date): Promise<Cus
       // A record whose owner is neither the customer nor a live dependant cannot be in the seam's
       // own rows; skip it rather than show it under no name.
       const child = own ? null : firstNames.get(row.owner);
-      if (!own && !child) continue;
+      if (!own && child === undefined) continue;
       const name = shown(compiled.title.field, row.title) ?? (await fallback());
       out.push({
         object: q.object.name,

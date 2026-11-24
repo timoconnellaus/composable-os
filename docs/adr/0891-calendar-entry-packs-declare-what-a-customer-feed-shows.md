@@ -27,10 +27,13 @@ title may name another member, a room has a door code.
   of the object's `states`, out of the Trash, is an event; leaving the live states drops it.
 - **The contract** (`packages/sdk/src/calendar-entry.ts`, run by `cos ext check` and install):
   the object declares a `customer`; its customer's read list holds the states field and each
-  path's first field; every later field is one the customer reads of that object: its `public`
-  or `signedIn` read, or, one relation away, its `customerVia` read from this object (what the
-  seam's `via` scope reaches); a path never passes through another object that declares a
-  customer; `starts`, `ends` end at a datetime, `title`, `place` at text or a select (shown by its
+  path's first field; for `title` and `place`, every later field is one that object makes
+  `public` or `signedIn` (a public name: a class's own title, which the customer reads through
+  their booking, may name another member, and the feed is a bearer link that is forwarded and sits
+  on shared family calendars); for `starts` and `ends`, every later field is one the customer reads
+  of that object: `public`, `signedIn`, or, one relation away, its `customerVia` read from this
+  object (what the seam's `via` scope reaches: a time names nobody); a path never passes through
+  another object that declares a customer; `starts`, `ends` end at a datetime, `title`, `place` at text or a select (shown by its
   label). The SDK checks a path as far as the pack's own objects; a path into another pack's
   object (a booking's class type in Programs) is checked by the host against the registry with the
   same walker (`packages/core/src/customers/calendar-entry-check.ts`).
@@ -39,8 +42,9 @@ title may name another member, a room has a door code.
   shipped extensions.
 - **Read as the customer.** The host never trusts the check alone: the feed compiles each path
   against `visibleObject` and joins `visibleSource` for every object on the way, as that customer,
-  so a field the seam does not give them is not in the query at all, and an object whose path
-  names one is skipped (fails closed). Whose record it is comes from the seam too
+  so a field the seam does not give them is not in the query at all, and a title or place past its
+  first field must also be one the related object makes public or signedIn; an object whose path
+  breaks either is skipped (fails closed). Whose record it is comes from the seam too
   (`ownReadSource`: their own Person's and a live dependant's, never one only shared with every
   signed-in customer).
 - **A declared read, not a behaviour.** It hooks no write and keeps no table; nothing is copied

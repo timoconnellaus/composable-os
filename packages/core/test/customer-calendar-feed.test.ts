@@ -44,7 +44,7 @@ const BOOKING_STATES = [
   { value: "cancelled", label: "Cancelled" },
 ];
 
-function fixture(id: string): ExtensionManifest {
+function fixture(id: string, entry: Record<string, unknown> = {}): ExtensionManifest {
   return manifest(id, {
     objects: {
       kind: {
@@ -116,6 +116,7 @@ function fixture(id: string): ExtensionManifest {
           title: "kind.name",
           place: "klass.room.name",
           live: ["booked", "attended"],
+          ...entry,
         },
       },
     },
@@ -185,6 +186,7 @@ beforeAll(async () => {
   const strength = await create(KIND, { name: "Strength" });
   const swim = await create(KIND, { name: "Junior swim" });
   kinds.strength = strength;
+  kinds.swim = swim;
   const studio = await create(ROOM, { name: "Studio A", code: "4321" });
   const pool = await create(ROOM, { name: "Pool", code: "9876" });
   Object.assign(k, {
@@ -414,7 +416,105 @@ function toolCaller() {
   return { extension: ext, tool: "anything" };
 }
 
+// The review of PR #433, finding 1: a pack whose title is the class's own title (which the
+// customer reads through their booking, and a business may type a member's name into) is refused
+// by the check, and, were it installed anyway, the feed shows none of that object's events.
+describe("a title is a public name, never a field only the customer's through their booking", () => {
+  it("is refused by the check", async () => {
+    const id = extId("caltitle");
+    const result = await checkManifest(db.query, id, fixture(id, { title: "klass.title" }), at(0));
+    expect(result.issues).toEqual([
+      expect.objectContaining({
+        path: "objects.booking.calendarEntry.title",
+        message: expect.stringContaining("not a public field"),
+      }),
+    ]);
+  });
+
+  it("installed anyway, the feed shows nothing of it: the read holds the rule too", async () => {
+    const id = extId("caltitlerun");
+    await reconcile(fixture(id, { title: "klass.title" }));
+    await env.DB.prepare(
+      "INSERT INTO core_extensions (id, source, status, version, commit_oid, manifest, user_id, installed_at, updated_at) VALUES (?, 'shipped', 'active', '1.0.0', 'c1', ?, ?, ?, ?)",
+    )
+      .bind(id, JSON.stringify({ id, version: "1.0.0", tools: {} }), admin.id, at(0), at(0))
+      .run();
+    const buyer = await createBuyer(admin, "caltt");
+    const klassId = await create(`${id}.klass`, {
+      title: "Strength with Zed Member",
+      startsAt: at(2),
+      endsAt: plus(at(2)),
+    });
+    const booking = await create(`${id}.booking`, {
+      klass: klassId,
+      person: buyer.principal.personId,
+    });
+    const events = await feedOf(buyer);
+    expect(events.map((e) => e.id)).not.toContain(booking);
+    expect(JSON.stringify(events)).not.toContain("Zed");
+  });
+});
+
+// The review of PR #433, finding 3: a child is named by their given name, and a child with no
+// usable name is still shown, as "Child".
+describe("a dependant's prefix", () => {
+  it("is their given name, never the display name's first word; a blank name still shows", async () => {
+    const parent = await createBuyer(admin, "calp");
+    const named = await run<{ id: string }>(
+      "person.create",
+      { givenName: "Bea", familyName: "Fixture", displayName: "Fixture, Bea" },
+      context(admin),
+    );
+    const blank = await run<{ id: string }>(
+      "person.create",
+      { displayName: "Someone" },
+      context(admin),
+    );
+    for (const dependantId of [named.id, blank.id]) {
+      await run(
+        "person.link.add",
+        { guardianId: parent.principal.personId, dependantId },
+        context(admin),
+      );
+    }
+    await env.DB.prepare(
+      "UPDATE core_person SET display_name = ' ', given_name = NULL WHERE id = ?",
+    )
+      .bind(blank.id)
+      .run();
+    const beas = await create(BOOKING, {
+      klass: k.swim as string,
+      person: named.id,
+      kind: kinds.swim,
+    });
+    const blanks = await create(BOOKING, {
+      klass: k.swim as string,
+      person: blank.id,
+      kind: kinds.swim,
+    });
+    const events = await feedOf(parent);
+    expect(events.find((e) => e.id === beas)?.title).toBe("Bea: Junior swim");
+    expect(events.find((e) => e.id === blanks)?.title).toBe("Child: Junior swim");
+  });
+});
+
 describe("revoked with the account (criterion 4)", () => {
+  // The review of PR #433, finding 4: no address that would open nothing.
+  it("a rotate on an account no longer active is refused, and writes nothing", async () => {
+    const buyer = await createBuyer(admin, "calr");
+    await env.DB.prepare("UPDATE core_customer SET status = 'disabled' WHERE id = ?")
+      .bind(buyer.principal.customerId)
+      .run();
+    const refused = await refusal(run("me.calendarFeed.rotate", {}, outside(buyer.principal)));
+    expect(refused.code).toBe("not_found");
+    const left = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_customer_feed WHERE customer_id = ?",
+    )
+      .bind(buyer.principal.customerId)
+      .first<{ n: number }>();
+    expect(left?.n).toBe(0);
+  });
+
   it("disabling deletes it in the disable's batch; enabling brings nothing back", async () => {
     const buyer = await createBuyer(admin, "cald");
     const token = await rotate(buyer);
@@ -523,7 +623,7 @@ describe("calendarEntry at the host's check (criterion 6)", () => {
     expect(notes.issues).toEqual([
       expect.objectContaining({
         path: "objects.ticket.calendarEntry.title",
-        message: expect.stringContaining("not a field a customer reads"),
+        message: expect.stringContaining("not a public field"),
       }),
     ]);
     const title = await checkManifest(db.query, id, tickets("klass.title"), at(0));

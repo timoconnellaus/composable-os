@@ -93,10 +93,21 @@ export const meCalendarFeedRotate = defineOperation({
   redactResult: ["path"],
   async handler(_input, ctx) {
     const { customerId, personId } = customerOf(ctx);
+    // Never an address that would open nothing: an account no longer active (or no longer this
+    // Person's) gets no link, as me.deleteAccount answers for an account that is not theirs.
+    const account = await ctx.db
+      .selectFrom("core_customer")
+      .select("id")
+      .where("id", "=", customerId)
+      .where("person_id", "=", personId)
+      .where("status", "=", "active")
+      .where("link_state", "=", "linked")
+      .executeTakeFirst();
+    if (!account) throw new NotFoundError("customer account", customerId);
     const token = newCustomerFeedToken();
     const hash = await customerFeedTokenHash(token);
-    // Written only while the account is active and still the caller's Person's: a rotate racing a
-    // disable or a deletion (which delete the row in their batch) leaves no feed behind.
+    // And written only while it still is at commit: a rotate racing a disable or a deletion
+    // (which delete the row in their batch) leaves no feed behind.
     ctx.write(
       CompiledQuery.raw(
         "INSERT INTO core_customer_feed (customer_id, token_hash, created_at) SELECT id, ?, ? FROM core_customer WHERE id = ? AND person_id = ? AND status = 'active' AND link_state = 'linked' ON CONFLICT (customer_id) DO UPDATE SET token_hash = excluded.token_hash, created_at = excluded.created_at",

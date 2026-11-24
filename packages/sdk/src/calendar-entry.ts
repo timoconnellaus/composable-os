@@ -19,9 +19,11 @@ import type { ExtensionManifest, FieldManifest, ObjectManifest } from "./manifes
  *
  * The object declares a `customer` (whose feed it is in, and, where it opens to guardians, a live
  * guardian's too), and its customer's read list holds the states field and each path's first
- * field. A field one relation or more away must be one the customer reads of that object: what
- * it makes `public` or `signedIn`, or, one relation away, what its `customerVia` from this object
- * lists. A shipped pack's declaration only: a runtime extension declaring it fails the check.
+ * field. A field of `title` or `place` one relation or more away must be one that object makes
+ * `public` or `signedIn` (a class's own title may name another member: never in a bearer link). A
+ * field of `starts` or `ends` may also be, one relation away, what its `customerVia` from this
+ * object lists (a booking's class's times). A shipped pack's declaration only: a runtime extension
+ * declaring it fails the check.
  */
 export interface CalendarEntrySpec {
   starts: string;
@@ -54,6 +56,10 @@ export const CALENDAR_PATH_TYPES = {
   title: ["text", "select"],
   place: ["text", "select"],
 } as const satisfies Record<"starts" | "ends" | "title" | "place", readonly string[]>;
+
+/** The keys whose fields past the first must be public (shown text, never only a time). */
+export const CALENDAR_PUBLIC_ONLY_KEYS: ReadonlySet<string> = new Set(["title", "place"]);
+const PUBLIC_ONLY = CALENDAR_PUBLIC_ONLY_KEYS;
 
 /** One field, as the walker needs it. */
 export interface CalendarPathField {
@@ -93,6 +99,12 @@ export function walkCalendarPath(
   originRead: ReadonlySet<string>,
   path: string,
   lookup: (name: string) => CalendarPathObject | null | undefined,
+  /**
+   * Past the first field, only what the related object makes `public` or `signedIn` (a title or
+   * a place, ADR 0891): never a field the customer reads only through their own record, such as a
+   * class's own title, which may name another member. The feed is a bearer link.
+   */
+  publicOnly = false,
 ): CalendarPathResult {
   const segments = path.split(".");
   if (segments.length > CALENDAR_PATH_MAX_SEGMENTS || segments.some((s) => s === "")) {
@@ -116,7 +128,9 @@ export function walkCalendarPath(
         message:
           i === 0
             ? `"${segment}" must be in ${object.name}'s customer.read: the feed shows only what the customer reads`
-            : `"${segment}" is not a field a customer reads of ${object.name} (its public, signedIn or customerVia read)`,
+            : publicOnly
+              ? `"${segment}" is not a public field of ${object.name}: a title or place shows only what ${object.name} makes public or signedIn`
+              : `"${segment}" is not a field a customer reads of ${object.name} (its public, signedIn or customerVia read)`,
         foreign,
       };
     }
@@ -140,8 +154,10 @@ export function walkCalendarPath(
       };
     }
     // Only one relation away does a customerVia from the declaring object count (the seam's
-    // `via` scope reaches what the customer's own records point to, no further).
-    readable = next.readable(i === 0 ? origin.name : null, i === 0 ? segment : null);
+    // `via` scope reaches what the customer's own records point to, no further), and never for a
+    // title or a place.
+    const via = i === 0 && !publicOnly;
+    readable = next.readable(via ? origin.name : null, via ? segment : null);
     object = next;
   }
   return { ok: false, message: `"${path}" is empty`, foreign };
@@ -227,7 +243,7 @@ export function checkObjectCalendarEntry(
   for (const key of ["starts", "ends", "title", "place"] as const) {
     const declared = entry[key];
     if (declared === undefined) continue;
-    const result = walkCalendarPath(origin, read, declared, lookup);
+    const result = walkCalendarPath(origin, read, declared, lookup, PUBLIC_ONLY.has(key));
     if (result.ok === "deferred") continue;
     if (!result.ok) contract(`${at}.${key}`, result.message);
     else if (!(CALENDAR_PATH_TYPES[key] as readonly string[]).includes(result.type)) {

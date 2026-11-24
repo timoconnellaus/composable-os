@@ -1437,7 +1437,8 @@ by staff (`customer.revokeCalendarFeed`), and in the batch of `customer.disable`
 active and linked, then reads as that customer through the visibility seam every object a shipped,
 active pack declares a **`calendarEntry`** on (start, end, title, place as paths, the live states;
 checked by the SDK within a pack and by the host into another pack's objects: every field on the
-way one the customer reads), their own records and a live dependant's (`ownReadSource`), in the
+way one the customer reads, and past the first field a title's or place's only what the related
+object makes public or signedIn), their own records and a live dependant's (`ownReadSource`), in the
 window, one statement per declaring object.
 
 **Checklists** (stage 45 step 4b, [ADR 0650](adr/0650-checklists-templates-runs-ticks-and-a-done-run-kept-unchanged.md),

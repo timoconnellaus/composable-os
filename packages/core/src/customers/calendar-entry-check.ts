@@ -4,6 +4,7 @@
 // walker and the same rule: every field on the way is one the customer reads.
 import {
   CALENDAR_PATH_TYPES,
+  CALENDAR_PUBLIC_ONLY_KEYS,
   type CalendarPathObject,
   type ExtensionManifest,
   manifestPathObject,
@@ -64,7 +65,13 @@ export function calendarEntryHostIssues(m: ExtensionManifest): { path: string; m
     for (const key of ["starts", "ends", "title", "place"] as const) {
       const declared = entry[key];
       if (declared === undefined) continue;
-      const result = walkCalendarPath(origin, read, declared, lookup);
+      const result = walkCalendarPath(
+        origin,
+        read,
+        declared,
+        lookup,
+        CALENDAR_PUBLIC_ONLY_KEYS.has(key),
+      );
       // The SDK reports what stays inside the extension.
       if (result.ok === "deferred" || !result.foreign) continue;
       const at = `objects.${name}.calendarEntry.${key}`;

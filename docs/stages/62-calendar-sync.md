@@ -52,7 +52,10 @@ host's own feeds are written; the host never writes into anyone's calendar in th
   `people:write` does not exist). Revoked in the batch of `customer.disable`, `me.deleteAccount`,
   an erase and a merge that deletes the account. Left for step 2: packs declaring
   `calendarEntry`, the "Your calendar" section and the names setting (until then names always
-  show). Not tried in real calendar apps or on a live host.
+  show). Not tried in real calendar apps or on a live host. After the review of PR #433: a title or
+  place past its first field must be public or signedIn on the related object (checked, and held by
+  the read); a child's prefix is their given name and never drops an event; rotate refuses an
+  account no longer active.
 
 ## Goal
 

@@ -35,6 +35,7 @@ import { customerViaScope, type ViaScope, viaObject } from "./via.ts";
 
 export { type CustomerScope, customerProblems } from "./customer.ts";
 export {
+  dependantFirstNames,
   type Family,
   type FamilyMember,
   familyOf,
