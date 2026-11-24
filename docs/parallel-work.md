@@ -62,6 +62,7 @@ commit**, by editing this table. Use the next free block. Unused numbers in a bl
 | AY | — | 0650–0659 | Stage 45 step 4b, checklists (`feat/stage-45-checklists`): ADR 0650 (its migration, 0815, is block AV's) | in flight |
 | BA | 0890–0909 | 0660–0669 | Stage 47, Pack screens in the admin (spec `docs/stages/47-pack-screens.md`; AY is claimed on the checklists branch, AZ left free for the next claim in flight): ADR 0660; no migrations expected | specced |
 | BC | 0930–0949 | 0680–0689 | Stage 37, Shop (spec `docs/stages/37-shop.md`): the `stock` behaviour, `stockMoves`, goods and delivery on orders, `order.quote`, returns, the Shop pack; ADRs 0680 to 0688 named in the spec | specced |
+| BD | 0950–0969 | 0690–0699 | Stage 34, Price adjustments and Offers (spec `docs/stages/34-offers.md`). ADR 0694, an order paid another way, is shared with stage 35 and the till: if one of them builds that step first it writes the ADR in its own block and 0694 stays free | specced |
 
 **`core_write_guard` remakes come in order.** Each kind added drops and recreates the table and its
 trigger, carrying every earlier kind. Stage 44 step 2's remake (migration 0851, kind `agreements`)
