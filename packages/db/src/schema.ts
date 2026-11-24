@@ -2732,6 +2732,11 @@ export interface CorePublishVersionTable {
   requested_by: string | null;
   /** Migration 0520: for an approved request, the actor that asked (`mcp`, `assistant`, ...). */
   requested_via: string | null;
+  /**
+   * Migration 0971 (ADR 0702): on an acknowledged object, 1 when this version asks everyone who
+   * must read it to confirm again, 0 for a small fix; NULL on other objects.
+   */
+  read_again: ColumnType<number | null, number | null | undefined, never>;
 }
 
 /** `core_publish_schedule` (migration 0460): a publish a person scheduled (ADR 0441). */
@@ -2750,6 +2755,37 @@ export interface CorePublishScheduleTable {
   requested_by: string | null;
   /** Migration 0520: for an approved request, the actor that asked. */
   requested_via: string | null;
+  /** Migration 0971 (ADR 0702): the version's read-again choice, carried to it on publish. */
+  read_again: ColumnType<number | null, number | null | undefined, number | null>;
+}
+
+/**
+ * `core_published_text` (migration 0970, ADR 0700): one section of a record's current published
+ * version, as `content.search` finds it. Written only by content/published-text.ts.
+ */
+export interface CorePublishedTextTable {
+  id: Generated<number>;
+  object_type: string;
+  record_id: string;
+  version: number;
+  field: string;
+  section: number;
+  anchor: string | null;
+  heading: string;
+  body: string;
+}
+
+/**
+ * `core_publish_ack` (migration 0971, ADR 0702): a staff account confirmed it read and understood
+ * one published version. Insert only; a trigger refuses any change.
+ */
+export interface CorePublishAckTable {
+  object_type: string;
+  record_id: string;
+  version: number;
+  account_id: string;
+  confirmed_at: string;
+  how: ColumnType<"self", "self" | undefined, never>;
 }
 
 /** `core_slug_redirect` (migration 0460): an old slug of a published record (ADR 0442). */
@@ -3042,6 +3078,8 @@ export interface CoreDatabase {
   core_allowance_use: CoreAllowanceUseTable;
   core_publish_version: CorePublishVersionTable;
   core_publish_schedule: CorePublishScheduleTable;
+  core_published_text: CorePublishedTextTable;
+  core_publish_ack: CorePublishAckTable;
   core_slug_redirect: CoreSlugRedirectTable;
   core_preview_link: CorePreviewLinkTable;
   core_content_generation: CoreContentGenerationTable;

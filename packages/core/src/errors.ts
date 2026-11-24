@@ -286,6 +286,29 @@ export function toOperationError(error: unknown): OperationError {
       { reason: "published_meanwhile" },
     );
   }
+  // A confirmation (ADR 0702, migration 0971): of one version, once; of the current one only; by
+  // a live person; and never changed or deleted.
+  if (message.includes("UNIQUE constraint failed: core_publish_ack")) {
+    return new ConflictError("You have already confirmed this version", {
+      reason: "already_confirmed",
+    });
+  }
+  if (message.includes("core_publish_ack_not_current")) {
+    return new ConflictError(
+      "A newer version was published meanwhile: read it again and confirm that one",
+      { reason: "not_current" },
+    );
+  }
+  if (message.includes("core_publish_ack_not_a_person")) {
+    return new ForbiddenError("Only a person's own live account confirms", {
+      reason: "not_a_person",
+    });
+  }
+  if (message.includes("core_publish_ack_immutable")) {
+    return new ForbiddenError("A confirmation is never changed or deleted", {
+      reason: "immutable",
+    });
+  }
   // A batch planned from a read that changed before it committed (migration 0560's guard): a
   // series changed under a run, or a class was booked under a change to its series.
   if (message.includes("core_recurrence_stale")) {

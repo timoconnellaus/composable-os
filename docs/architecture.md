@@ -1416,6 +1416,34 @@ give one not-found for everything they do not show. Their answers are cached in 
 keyed by the object's generation (`core_content_generation`), which every committed change to a
 record of the object bumps in its own batch (`content/cache.ts`).
 
+**Search over published words** (stage 38, [ADR 0700](adr/0700-the-published-text-index-and-content-search.md),
+`packages/core/src/content/published-text.ts`). The published-text index (`core_published_text`
+and its FTS5 table, migration 0970) holds each current version's words, one row per section of a
+rich text field (split at its headings, each with its anchor: `headingAnchors` in
+`@composable-os/sdk/rich-text`, which both content renderers use for the heading's `id` and
+`nativeID`), for the content fields the public reads of objects the public reads. It is written in
+the publish batch (`publishWrites`: two statements whatever the length, the sections as one JSON
+parameter) and cleared in the unpublish one; erase remakes it from a scrubbed version; the minute
+cron's `content.reindex` catches it up when a declaration changes and fills it for what was
+published before it. `content.search { object, q, cursor? }` (public, customer and staff, read as
+the public, cached by the generation) matches every word as a prefix, keeps the best section of
+each record, reads the records through the public's seam, and answers slug, title, section
+(field, heading, anchor) and a snippet as plain and matching segments.
+
+**Read and understood** (stage 38, [ADR 0702](adr/0702-acknowledgements-read-again-and-a-confirmation-nobody-changes.md),
+`packages/core/src/records/acknowledge.ts`, `packages/core/src/operations/ack.ts`). A publishable
+object may declare `acknowledge: { who, manage }`: `who` a "must read" document field
+(`MUST_READ_SCHEMA`: everyone, or staff roles, pack roles and granted pack permissions), `manage`
+a restricted, grantable pack permission. Each version keeps its publisher's choice, read again or
+small fix (`read_again`, migration 0971; the first always asks; `record.publish` and
+`record.schedulePublish` take `readAgain`, an AI's request carries a suggestion and
+`approval.approve`/`approval.decide` take the approver's choice). `ack.confirm` writes a row of
+`core_publish_ack` (the person's own, the current version only, once; triggers refuse anything
+else and every update and delete); `ack.mine` lists what is to read and what was confirmed; both
+reach every pack role (`PACK_ROLE_OWN`). `ack.status` and `ack.overview` are for a person who is an
+admin or holds the object's `manage` grant. Who must read is a person's to change, and once a
+record is published a manager's. The confirmations are in no `rec_*` view.
+
 **Media** ([ADR 0444](adr/0444-media-the-editor-and-the-content-pack.md),
 `packages/core/src/operations/media.ts`, `packages/core/src/http/media.ts`). A base record,
 `media` (`core_media`, migration 0461): one original in R2 (`BLOBS`, `media/<id>`), its type read

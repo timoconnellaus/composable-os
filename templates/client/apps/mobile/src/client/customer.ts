@@ -61,6 +61,14 @@ export type Operations = {
     output: { object: string; id: string; values: Record<string, unknown>; kind: "preview" };
   };
   /**
+   * Search the published records of a content object (help pages, blog posts) by the words the public reads in them: their published versions only, never a draft or a working copy. Every word of two letters or more must match the start of a word, so partial input works. Best matches first, one result per record, each with its slug, title, the section the best match is in (its heading and anchor, to link to) and a highlighted snippet as plain and matching parts. Pass nextCursor back as cursor. Read-only.
+   */
+  "content.search": {
+    kind: "query";
+    input: { object: string; q: string; cursor?: string; limit?: number };
+    output: { items: ({ object: string; id: string; slug: string; title: (string) | (null); titleHighlight: { text: string; match: boolean }[]; version: number; section: { field: string; anchor: (string) | (null); heading: string; headingHighlight: { text: string; match: boolean }[] }; snippet: ({ text: string; match: boolean }[]) | (null) })[]; nextCursor: (string) | (null) };
+  };
+  /**
    * Agree to a version of a document, as a signed-in customer: for yourself, or with forPersonId for a child linked to you. Give the name you type, a signature for a document agreed to by drawing, and every answer for a health form. Recorded for good and never changed. Refused for yourself when a parent or guardian agrees for you.
    */
   "me.agreements.accept": {
@@ -311,6 +319,7 @@ export const operations = {
   "content.get": { kind: "query", invalidates: [] },
   "content.list": { kind: "query", invalidates: [] },
   "content.preview": { kind: "query", invalidates: [] },
+  "content.search": { kind: "query", invalidates: [] },
   "me.agreements.accept": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.family","me.get","me.sessions.list","my.get","my.list"] },
   "me.agreements.due": { kind: "query", invalidates: [] },
   "me.agreements.get": { kind: "query", invalidates: [] },
