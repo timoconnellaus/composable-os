@@ -1403,6 +1403,22 @@ them all; `record.versions`, `record.version`, `record.compareVersions` and
 `publishedAt`, `publishState` (draft, scheduled, published, unpublished: read from the versions
 and the schedule, never stored) and `publishAt`. `record.createMany` writes up to 50 records of
 one object in one batch, at 4 statements a record for an object with states (ADR 0448).
+`publishIn` ([ADR 0810](adr/0810-publishable-with-an-author.md)) names the states a record may
+be published in: a publish (or a scheduled one coming due) outside them is refused or dropped,
+and a write that moves the record out of them unpublishes it in its own batch.
+
+**Publishable with an author** ([ADR 0810](adr/0810-publishable-with-an-author.md),
+`packages/core/src/records/authored.ts`). A publishable object may declare a `customer`, its
+**author** (a review's writer), and `public` beside it: the author reads and writes their working
+copy through the customer scope; the public, and anyone reading as the public (`content.list`),
+read only the published version. Such an object has no slug, so it is listed only (`content.get`
+is not found), and its `public.read` never lists the author. The author's fields
+(`customer.write` but the state field) are refused to every staff-side caller (people, the
+assistant, MCP, automations, the extension's own code) in the record code every write goes
+through (`prepareValues`: record.create, record.update, record.createMany, import, restoring a
+version) and
+shown read-only in `schema.objects`; the author (through the seam) and platform code writing as
+the host pass. Staff still publish, unpublish and move its states.
 
 **What the public reads of content** ([ADR 0442](adr/0442-what-the-public-reads-of-content.md),
 [ADR 0443](adr/0443-preview-links.md), `packages/core/src/operations/content.ts`). A publishable
@@ -1410,7 +1426,8 @@ object that declares `public` gets a live view (`pub_x_<ext>_<object>`): one row
 with a current version, its content columns that version's values, its other own columns the
 record's (its slug, a state `when` tests). The public scope's source is that view, so a draft, an
 unpublished record and a deleted one are not in it. `content.get { object, slug }` (a record, or a
-`redirect` for an old slug), `content.list` and `content.preview` (with a preview link's token,
+`redirect` for an old slug; an object without a slug is listed only, ADR 0810), `content.list` and
+`content.preview` (with a preview link's token,
 the working copy's declared fields) are open to the public, read as the public whoever calls, and
 give one not-found for everything they do not show. Their answers are cached in the Worker's cache
 keyed by the object's generation (`core_content_generation`), which every committed change to a

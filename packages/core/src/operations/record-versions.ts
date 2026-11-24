@@ -41,6 +41,7 @@ import {
   DRAFT_KEY,
   draftFingerprint,
   dueSchedules,
+  inPublishableState,
   liveContent,
   nextVersion,
   type PublishableObject,
@@ -382,7 +383,8 @@ export const recordPublishDue = defineOperation({
   description:
     "Platform use only: publish the scheduled publishes whose time has come (the minute cron), " +
     "each as the snapshot the person who scheduled it took, in their name. A record deleted " +
-    "meanwhile loses its schedule. Returns the records published.",
+    "meanwhile, or no longer in a state it may be published in, loses its schedule. Returns " +
+    "the records published.",
   input: z.object({
     limit: z.number().int().min(1).max(PUBLISH_DUE_BATCH).default(PUBLISH_DUE_BATCH),
   }),
@@ -403,7 +405,9 @@ export const recordPublishDue = defineOperation({
     for (const due of await dueSchedules(ctx, ctx.now, input.limit)) {
       const object = getObject(due.object_type);
       const record = object?.publishable ? await loadRecord(ctx, object, due.record_id) : undefined;
-      if (!object?.publishable || !record) {
+      // A record deleted meanwhile, or moved out of the states it may be published in (ADR
+      // 0810): its schedule goes, and nothing is published.
+      if (!object?.publishable || !record || !inPublishableState(object, record.values)) {
         dropped += 1;
         ctx.write(clearScheduleWrite(due.object_type, due.record_id));
         continue;

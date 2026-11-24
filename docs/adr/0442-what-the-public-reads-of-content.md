@@ -116,3 +116,11 @@ Restoring a record from the Trash whose slug another live record took meanwhile 
 `conflict` naming the slug and the record holding it, checked before the write; the internal
 error this ADR listed under its consequences is gone. A picture in a published version is served
 to the public by `media.serve` (ADR 0444).
+
+## Amendment, 2026-11-24 (stage 54, ADR 0810)
+"`public.read` must list the slug" and "the object names `publishable.slug` and declares no
+`customer` or `customerVia`" are relaxed. A publishable object the public reads may have no slug:
+`content.list` lists it, and `content.get` (with `content.preview` and its links) answers it with
+the one not-found. One may declare a `customer`, its author, beside `public`: then it has no slug
+and `public.read` never lists the author. `customerVia` is still refused. When a slug is
+declared, `public.read` still lists it. See [ADR 0810](0810-publishable-with-an-author.md).

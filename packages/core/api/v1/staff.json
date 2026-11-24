@@ -49367,7 +49367,7 @@
     },
     {
       "name": "record.publishDue",
-      "description": "Platform use only: publish the scheduled publishes whose time has come (the minute cron), each as the snapshot the person who scheduled it took, in their name. A record deleted meanwhile loses its schedule. Returns the records published.",
+      "description": "Platform use only: publish the scheduled publishes whose time has come (the minute cron), each as the snapshot the person who scheduled it took, in their name. A record deleted meanwhile, or no longer in a state it may be published in, loses its schedule. Returns the records published.",
       "risk": "write",
       "audiences": [
         "staff"

@@ -1810,12 +1810,21 @@ refused if the record changed since it was asked for (ADR 0480). Stage 28 adds
 **scheduling** (the snapshot is taken when a person schedules, and the minute cron makes it
 current at the set time) and **unpublishing** (no version is current; the versions are kept). A
 record's **publish state** is read from its versions and its schedule: `draft` (never
-published), `scheduled`, `published`, `unpublished` (ADR 0441).
+published), `scheduled`, `published`, `unpublished` (ADR 0441). An object may publish only in
+some of its states (`publishIn`, ADR 0810): leaving them unpublishes the record.
 _Avoid_: go live (as a verb in code), release (a release is the platform's)
+
+**Author** (of a publishable record)
+The Person a publishable record belongs to, declared as its `customer` (ADR 0810): a review's
+writer. The author reads and writes the working copy; the public reads only the published
+version. The fields the author writes are **author-only**: no one on the staff side, and no AI,
+changes them, so what is published is the author's words; staff publish, unpublish and move it.
+_Avoid_: owner (a record's owner is a staff user), submitter
 
 **Content** (stage 28)
 Records of a publishable object the public reads: a blog post, an event page. The public reads
-only the current version, by the record's **slug**, with `content.get` and `content.list`; a
+only the current version, by the record's **slug**, with `content.get` and `content.list` (an
+object with no slug, such as reviews, is listed only, ADR 0810); a
 draft, an unpublished record and an unknown slug are one not-found (ADR 0442). Its prose is
 **rich text**.
 _Avoid_: page (pages are code), CMS entry

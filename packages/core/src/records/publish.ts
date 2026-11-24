@@ -198,6 +198,7 @@ export function snapshotOf(
   at: string,
 ): { content: Record<string, unknown>; bytes: number; fill: Record<string, unknown> } {
   const { content: fields, slug, date } = object.publishable;
+  assertPublishableState(object, record.values);
   if (slug && empty(record.values[slug])) {
     throw new ValidationError(`${object.label} needs an address (${slug}) to be published`, {
       field: slug,
@@ -221,6 +222,56 @@ export function snapshotOf(
     );
   }
   return { content, bytes, fill };
+}
+
+/**
+ * The state a record is in, when its object publishes only in some (`publishIn`, ADR 0810): null
+ * when it may be published in any.
+ */
+function stateOf(object: ObjectDefinition, values: Record<string, unknown>): string | null {
+  const field = object.states?.field;
+  const value = field ? values[field] : undefined;
+  return typeof value === "string" ? value : null;
+}
+
+/** Whether a record with `values` may be published: in one of the object's `publishIn` states. */
+export function inPublishableState(
+  object: ObjectDefinition,
+  values: Record<string, unknown>,
+): boolean {
+  const states = object.publishable?.publishIn;
+  if (!states) return true;
+  const state = stateOf(object, values);
+  return state !== null && states.includes(state);
+}
+
+/** Refuses a publish of a record outside the object's `publishIn` states (ADR 0810). */
+export function assertPublishableState(
+  object: ObjectDefinition,
+  values: Record<string, unknown>,
+): void {
+  if (inPublishableState(object, values)) return;
+  const states = object.publishable?.publishIn ?? [];
+  throw new ValidationError(
+    `This ${object.label.toLowerCase()} is ${stateOf(object, values) ?? "in no state"}: it can be published only when it is ${states.join(" or ")}`,
+    { field: object.states?.field ?? null, reason: "not_publishable_state", states },
+  );
+}
+
+/**
+ * The statements that unpublish a record its write moves out of the object's `publishIn` states
+ * (ADR 0810), in the write's batch: a withdrawn review leaves the public's reads at once. None
+ * when the write sets no state, or one it may be published in. Idempotent on a record that is not
+ * published, so the write need not read whether it is.
+ */
+export function leavingPublishWrites(
+  object: ObjectDefinition,
+  id: string,
+  written: Record<string, unknown>,
+): CompiledQuery[] {
+  const field = object.states?.field;
+  if (!object.publishable?.publishIn || !field || !Object.hasOwn(written, field)) return [];
+  return inPublishableState(object, written) ? [] : unpublishWrites(object.name, id);
 }
 
 /** The number the record's next version takes. */
