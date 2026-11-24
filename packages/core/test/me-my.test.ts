@@ -61,6 +61,9 @@ const OPENED = [
   // Stage 51 step 3 (ADR 0783): the caller's own check-in code and PIN.
   "me.code",
   "me.deleteAccount",
+  // Stage 48 (ADR 0712): changing the sign-in address.
+  "me.email.change",
+  "me.email.confirm",
   // Stage 31a step 6 (ADR 0540): the caller's own family links.
   "me.family",
   "me.get",
@@ -109,6 +112,8 @@ describe("what this step opens", () => {
           "me.calendarFeed.status",
           "me.code",
           "me.deleteAccount",
+          "me.email.change",
+          "me.email.confirm",
           "me.phone.check",
           "me.phone.startCheck",
           "me.pin.clear",

@@ -891,8 +891,9 @@ export async function customerAddresses(
 
 /**
  * A person's customer account (stage 22, ADR 0402): the accounts linked to them or signed up with
- * one of their addresses (one waiting for a merge included), every session of those accounts,
- * their calendar links, one-time sign-in codes sent to their addresses, invites for their addresses, and their erase
+ * one of their addresses (one waiting for a merge included; an address another identified Person
+ * holds now is not theirs, #302), every session and address change of those accounts, their
+ * calendar links, one-time sign-in codes sent to their addresses, invites for their addresses, and their erase
  * requests. All deleted, so nothing is left but the audit trail; an open request is closed as
  * `erased` in the audit first. Returns how many requests were closed.
  */
@@ -932,6 +933,8 @@ export async function queueEraseCustomers(ctx: HandlerContext, s: StoreSubject):
   for (const part of chunk(accountIds)) {
     ctx.write(
       ctx.db.deleteFrom("core_customer_session").where("customer_id", "in", part),
+      // Their sign-in address changes (stage 48): the subject already read their old addresses.
+      ctx.db.deleteFrom("core_customer_email_change").where("customer_id", "in", part),
       // Their calendar link (ADR 0890), before the account (the cascade would too).
       ctx.db.deleteFrom("core_customer_feed").where("customer_id", "in", part),
       ctx.db.deleteFrom("core_customer").where("id", "in", part),
@@ -1136,8 +1139,9 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
       .where(sql<SqlBool>`(${theirSubscription}) OR payer_person_id IN ${ids}`),
   );
   // On any checkout or subscription they are on (payer or holder), an address of their own goes;
-  // nothing else of the other Person's is touched. A live subscription whose payer is erased
-  // keeps billing as the provider runs it (ADR 0646: left for later).
+  // nothing else of the other Person's is touched here. A live subscription they are on is ended
+  // at the provider by person.erase itself (subscriptions/erase.ts, ADR 0533), and a checkout left
+  // open for a live payer makes nothing if its erased holder's is confirmed later (events.ts).
   const onIt = sql<SqlBool>`(payer_person_id IN ${ids} OR holder_person_id IN ${ids})
     AND email IS NOT NULL AND lower(email) IN ${addresses}`;
   ctx.write(

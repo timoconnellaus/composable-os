@@ -2135,6 +2135,14 @@ function outsideError(error: unknown): OperationError {
     return typed;
   }
   if (typed.code === "rate_limited") return typed;
+  // Their own address change, closed by another of their calls (or staff) meanwhile (migration
+  // 0990, ADR 0712): told so, and no more than that.
+  if (
+    typed.code === "conflict" &&
+    (typed.details as { rule?: unknown })?.rule === "email_change_closed"
+  ) {
+    return typed;
+  }
   // What must be agreed to changed while this was being planned (the `agreements` guard, stage
   // 44, ADR 0644): the caller looks again and is asked for what is due now. The counter is one
   // for the whole host, so this says nothing about any Person.

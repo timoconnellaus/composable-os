@@ -164,6 +164,15 @@ const localTime = (at: number, zone: string) =>
     hourCycle: "h23",
   }).format(new Date(at * 1000));
 
+/**
+ * A run's day is the date in its record, not where its window falls in today's zone: a run made
+ * before the business's zone was moved keeps the window it was made with, and is still that
+ * date's run (the one a tick finds by its record). Every zone's start of a date is within a day of
+ * any other's, so a read by the opening index two days either side finds them all.
+ */
+const ZONES_APART = 2 * 86_400;
+const dayOfRecord = sql<string>`substr(record_id, -10)`;
+
 /** The runs of `date` (one read, by the opening index). */
 async function runsOn(ctx: HandlerContext, date: string, zone: string): Promise<RunRow[]> {
   const w = window(date, null, zone);
@@ -171,8 +180,9 @@ async function runsOn(ctx: HandlerContext, date: string, zone: string): Promise<
     .selectFrom("core_checklist_run")
     .selectAll()
     .where("object_type", "=", DAY_OBJECT)
-    .where("opens", ">=", w.opens)
-    .where("opens", "<", w.closes)
+    .where("opens", ">=", w.opens - ZONES_APART)
+    .where("opens", "<", w.closes + ZONES_APART)
+    .where(dayOfRecord, "=", date)
     .orderBy("name")
     .limit(500)
     .execute();
@@ -482,9 +492,9 @@ export const checklistDayTick = defineOperation({
     run: z.string(),
     step: z.number().int(),
     state: z.enum(["done", "not_done", "clear"]),
-    ticked: z.number().int().describe("Steps ticked now, as this call saw them"),
+    ticked: z.number().int().describe("Steps ticked now, after this tick"),
     of: z.number().int(),
-    finished: z.boolean().describe("This tick finished it (every step ticked)"),
+    finished: z.boolean().describe("This tick finished it (its last step ticked)"),
   }),
   permission: "records:write",
   risk: "write",
@@ -581,19 +591,33 @@ export const checklistDayTick = defineOperation({
         .where("state", "=", "open")
         .where(everyStepTicked(false)),
     );
-    const now = new Map([...(latest ?? new Map())].map(([k, v]) => [k, ticked(v)]));
-    now.set(input.step, input.state !== "clear");
-    const count = [...now.values()].filter(Boolean).length;
-    return {
-      run: p.runId,
-      step: input.step,
-      state: input.state,
-      ticked: count,
-      of: p.steps.length,
-      finished: input.state !== "clear" && count === p.steps.length,
-    };
+    // Read back what was committed: the run may be the one the minute cron made meanwhile, and
+    // someone else's tick in the same moment may have been the last.
+    return ctx.afterCommit(async () => {
+      const after = await committedRun(ctx, input.template, p.standing.date);
+      return {
+        run: after.id ?? p.runId,
+        step: input.step,
+        state: input.state,
+        ticked: after.ticked,
+        of: p.steps.length,
+        finished: after.finishedBy(p.account, ctx.now),
+      };
+    });
   },
 });
+
+/** The day's run as committed: its id, how many steps are ticked, and who finished it when. */
+async function committedRun(ctx: HandlerContext, template: string, date: string) {
+  const run = await runOf(ctx.db, DAY_OBJECT, dayRecord(template, date));
+  const latest = run ? (await latestTicks(ctx.db, [run.id])).get(run.id) : undefined;
+  return {
+    id: run?.id ?? null,
+    ticked: [...(latest?.values() ?? [])].filter(ticked).length,
+    finishedBy: (account: string, at: string) =>
+      run?.state === "done" && run.closed_by === account && run.closed_at === at,
+  };
+}
 
 export const checklistDayDone = defineOperation({
   name: "checklist.dayDone",
@@ -642,7 +666,10 @@ export const checklistDayDone = defineOperation({
         .where("id", "=", runOfDay(input.template, p.standing.date))
         .where("state", "=", "open"),
     );
-    return { run: p.runId, state: "done" as const };
+    return ctx.afterCommit(async () => ({
+      run: (await committedRun(ctx, input.template, p.standing.date)).id ?? p.runId,
+      state: "done" as const,
+    }));
   },
 });
 
@@ -682,6 +709,10 @@ export const checklistDays = defineOperation({
           .describe("Finished for someone by someone who manages checklists: whom"),
         steps: z.number().int(),
         ticked: z.number().int(),
+        notDone: z
+          .number()
+          .int()
+          .describe("Steps whose latest tick is not done, with why (a done day may have some)"),
         onBehalf: z.number().int().describe("Ticks made for someone by someone else"),
         missed: z.array(z.string()).describe("The steps nobody ticked, when it was missed"),
       }),
@@ -715,8 +746,8 @@ export const checklistDays = defineOperation({
       throw new ValidationError(`At most ${DAYS_MAX} days at a time`, { field: "to" });
     }
     const { timezone } = await loadGeneralSettings(ctx.db);
-    const start = window(input.from, null, timezone).opens;
-    const end = window(input.to, null, timezone).closes;
+    const start = window(input.from, null, timezone).opens - ZONES_APART;
+    const end = window(input.to, null, timezone).closes + ZONES_APART;
     let q = ctx.db
       .selectFrom("core_checklist_run as r")
       .selectAll("r")
@@ -728,7 +759,9 @@ export const checklistDays = defineOperation({
       .where("r.object_type", "=", DAY_OBJECT)
       .where("r.opens", ">=", start)
       .where("r.opens", "<", end)
-      .orderBy("r.opens", "desc")
+      .where(sql<string>`substr(r.record_id, -10)`, ">=", input.from)
+      .where(sql<string>`substr(r.record_id, -10)`, "<=", input.to)
+      .orderBy(sql`substr(r.record_id, -10)`, "desc")
       .orderBy("r.name")
       .limit(DAYS_RUNS_MAX + 1);
     if (input.template) q = q.where("r.checklist_id", "=", input.template);
@@ -785,6 +818,8 @@ export const checklistDays = defineOperation({
               : null,
           steps: steps.length,
           ticked: [...(latest.get(r.id)?.values() ?? [])].filter(ticked).length,
+          notDone: [...(latest.get(r.id)?.values() ?? [])].filter((t) => t.state === "not_done")
+            .length,
           onBehalf: Number(r.behalf),
           missed: missed.map((i) => steps[i]?.text ?? `Step ${i + 1}`),
         };

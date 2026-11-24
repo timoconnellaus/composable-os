@@ -54,10 +54,18 @@ describe("core registry", () => {
         // may start a desk session, agreements:desk (ADR 0649).
         // The finance months and figures are read only with finance:read (stage 52, ADR 0794).
         // The booking system's copy, its lists and To match with bookingSystem:manage (stage 65,
-        // ADR 0922).
+        // ADR 0922). The invoice event log is read with invoices:payments (stage 35 decision 11,
+        // ADR 0730): what was paid, by which method, is that permission's. The accounting sync's
+        // settings and mapping with accounting:manage (stage 61).
+        // The shared inbox is read with inbox:read (ADR 0740).
+        // Whom a checklist done on its own can be for (checklist.whoChoices, ADR 0651: the
+        // grantable permissions among them) is read by whoever writes checklists.
         if (op.risk === "read") {
           expect([
+            "accounting:manage",
             "bookingSystem:manage",
+            "invoices:payments",
+            "checklists:write",
             "journeys:read",
             "journeys:manage",
             "agreements:desk",
@@ -65,6 +73,7 @@ describe("core registry", () => {
             "people:cards",
             "agreements:manage",
             "agreements:paper",
+            "inbox:read",
             "finance:read",
             "records:read",
             "audit:read",

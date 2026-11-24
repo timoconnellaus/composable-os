@@ -1,5 +1,12 @@
 // @composable-os/core: the operations registry and everything an operation needs. See README.md.
 
+export {
+  ACCOUNTING_MAP_KINDS,
+  type AccountingSettings,
+  accountingVendors,
+  loadAccountingSettings,
+  loadMapping,
+} from "./accounting/settings.ts";
 export * from "./adjudicator/agreement.ts";
 export * from "./adjudicator/review.ts";
 export * from "./adjudicator/reviewers.ts";
@@ -150,6 +157,16 @@ export * from "./integrations/outbound-check.ts";
 export * from "./integrations/outcome.ts";
 export * from "./integrations/runtime.ts";
 export * from "./invites.ts";
+export { eventStatement, INVOICE_EVENTS } from "./invoices/events.ts";
+export { formatNumber, numberStatements, SERIES } from "./invoices/numbering.ts";
+export { DEFAULT_INVOICE_SETTINGS, loadInvoiceSettings } from "./invoices/settings.ts";
+export {
+  depositShares,
+  documentTotals,
+  lineAmounts,
+  mulDivHalfUp,
+  unitPriceFromRecord,
+} from "./invoices/tax.ts";
 export * from "./invoke.ts";
 export * from "./journeys/birthday.ts";
 export * from "./journeys/signals.ts";

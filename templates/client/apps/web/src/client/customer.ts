@@ -165,12 +165,28 @@ export type Operations = {
     output: { codes: ({ givenName: (string) | (null); own: boolean; payload: string; secret: (string) | (null) })[]; refreshAt: string; algorithm: { kind: "totp"; hash: "SHA-1"; periodSeconds: number; digits: number } };
   };
   /**
-   * Delete your customer account and ask for your personal data to be erased. Without `confirm` it changes nothing and says what will happen: each subscription you pay ends when the period already paid for ends (nothing refunded, nothing more charged), or with a cooling off you asked for; one that cannot be ended that way (an end date set later, or waiting for payment, unpaid or paused) is left for staff and may charge until they end it. Your unpaid orders are cancelled, and your bookings, tickets and other records stay for staff to decide when they erase your data. With `confirm: true` and the preview's `expect` it does that: you are signed out everywhere at once and can no longer sign in, and staff erase your data, or tell you by email why some of it must be kept, by the due date returned. A preview that changed meanwhile is a conflict: ask for it again.
+   * Delete your customer account and ask for your personal data to be erased, signed in within the last 15 minutes (else sign_in_again, for the preview too). Without `confirm` it changes nothing and says what will happen: each subscription you pay ends when the period already paid for ends (nothing refunded, nothing more charged), or with a cooling off you asked for; one that cannot be ended that way (an end date set later, or waiting for payment, unpaid or paused) is left for staff and may charge until they end it. Your unpaid orders are cancelled, and your bookings, tickets and other records stay for staff to decide when they erase your data. With `confirm: true` and the preview's `expect` it does that: you are signed out everywhere at once and can no longer sign in, and staff erase your data, or tell you by email why some of it must be kept, by the due date returned. A preview that changed meanwhile is a conflict: ask for it again.
    */
   "me.deleteAccount": {
     kind: "mutation";
     input: { confirm?: boolean; expect?: string };
     output: ({ subscriptions: ({ id: string; title: string; amount: number; currency: string; interval: string; endsAt: (string) | (null); ending: ("period_end") | ("already") | ("cooling_off") })[]; orders: { id: string; total: number; currency: string; createdAt: string; lines: string[] }[]; leftForStaff: { records: { object: string; label: string; count: number }[]; partPaidOrders: number; moreUnpaidOrders: number; subscriptions: ({ id: string; title: string; state: string; why: ("end_date_later") | ("state") | ("more") })[]; dependantsWithoutGuardian: number }; eraseDueAt: string; expect: string; deleted: false }) | ({ deleted: true; disabled: true; sessionsEnded: number; subscriptionsEnding: number; ordersCancelled: number; eraseRequest: { requestedAt: string; dueAt: string } });
+  };
+  /**
+   * Ask to change the address you sign in with, as a signed-in customer who signed in within the last 15 minutes (else sign_in_again). A code is emailed to the new address; enter it with me.email.confirm within 15 minutes. Nothing changes until then. Asking again replaces the earlier request. The answer is the same whatever the address: whether it can be used is said only when the code is entered.
+   */
+  "me.email.change": {
+    kind: "mutation";
+    input: { email: string };
+    output: { newEmail: string; expiresAt: string };
+  };
+  /**
+   * Finish changing your sign-in address with the code emailed to the new address, as the signed-in customer it was asked for (by you, or by staff for you), signed in within the last 15 minutes (else sign_in_again; the code keeps working). From then on you sign in with the new address, which is also your primary email; the old one is removed from your details and told of the change; every other place you are signed in is signed out. A wrong code five times ends the request. Refused, changing nothing, when the new address is already in use at the business.
+   */
+  "me.email.confirm": {
+    kind: "mutation";
+    input: { code: string };
+    output: { signInEmail: string; sessionsEnded: number };
   };
   /**
    * Your family, as a signed-in customer: yourself, the dependants (children) the gym has linked to you, whom you may book for, and the guardians linked to you, each with their name and id. Only live links; the gym's staff make and end them. Read-only.
@@ -253,7 +269,7 @@ export type Operations = {
     output: { signedOut: boolean };
   };
   /**
-   * Change your own name or primary phone, as a signed-in customer. Only the fields you pass change; pass null to clear one. Your email cannot be changed here. Returns your Person.
+   * Change your own name or primary phone, as a signed-in customer. Only the fields you pass change; pass null to clear one. Your email cannot be changed here: change your sign-in address with me.email.change and me.email.confirm. Returns your Person.
    */
   "me.update": {
     kind: "mutation";
@@ -453,6 +469,8 @@ export const operations = {
   "me.calendarFeed.status": { kind: "query", invalidates: [] },
   "me.code": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
   "me.deleteAccount": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.email.change": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.email.confirm": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
   "me.family": { kind: "query", invalidates: [] },
   "me.get": { kind: "query", invalidates: [] },
   "me.phone.check": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },

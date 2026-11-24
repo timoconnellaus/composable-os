@@ -5,6 +5,7 @@
 import { syncOperations } from "../sync/ingest.ts";
 import { a2uiOperations } from "./a2ui.ts";
 import { accessOperations } from "./access.ts";
+import { accountingOperations } from "./accounting.ts";
 import { ackOperations } from "./ack.ts";
 import { activityOperations } from "./activity.ts";
 import { adjudicatorOperations } from "./adjudicator.ts";
@@ -49,9 +50,11 @@ import { fieldOptionsOperations } from "./field-options.ts";
 import { financeOperations } from "./finance.ts";
 import { importOperations } from "./import.ts";
 import { importRecordsOperations } from "./import-records.ts";
+import { inboxOperations } from "./inbox.ts";
 import { intakeOperations } from "./intake.ts";
 import { integrationOperations } from "./integration.ts";
 import { inviteOperations } from "./invite.ts";
+import { invoiceOperations } from "./invoice.ts";
 import { journeyOperations } from "./journey.ts";
 import { judgeOperations } from "./judge.ts";
 import { locationOperations } from "./location.ts";
@@ -138,6 +141,7 @@ export const coreOperations = [
   ...queryOperations,
   ...importOperations,
   ...importRecordsOperations,
+  ...inboxOperations,
   ...exportOperations,
   ...recordOperations,
   ...recordVersionOperations,
@@ -236,5 +240,7 @@ export const coreOperations = [
   ...agreementCopyOperations,
   ...agreementDeskOperations,
   ...agreementRetentionOperations,
+  ...invoiceOperations,
+  ...accountingOperations,
   ...journeyOperations,
 ] as const;

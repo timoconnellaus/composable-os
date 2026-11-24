@@ -19,6 +19,7 @@ import {
   newId,
   refreshSchemaRegistry,
   runChecklistDue,
+  toOperationError,
 } from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
@@ -266,10 +267,20 @@ describe("a checklist's standing schedule (Settings → Checklists)", () => {
     const choices = await run<{ roles: { role: string }[]; grants: { permission: string }[] }>(
       "checklist.whoChoices",
       {},
-      asUser(member),
+      staff(),
     );
     expect(choices.roles.map((r) => r.role)).toEqual(expect.arrayContaining(["admin", "member"]));
     expect(choices.grants.map((g) => g.permission)).toContain("checklists:write");
+    // They are the form's, for those who write checklists: the permissions an admin can grant are
+    // otherwise an admin's to read (user.grantablePermissions), and never an assistant's.
+    const viewer = await account(unique("Viewer Vi"), "viewer");
+    for (const ctx of [asUser(member), asUser(viewer), asAi(admin)]) {
+      expect((await refusal(run("checklist.whoChoices", {}, ctx))).code).toBe("forbidden");
+    }
+    await run("user.setPermissions", { id: member.id, permissions: ["checklists:write"] }, staff());
+    expect(
+      (await run<{ grants: unknown[] }>("checklist.whoChoices", {}, asUser(member))).grants.length,
+    ).toBeGreaterThan(0);
   });
 
   it("an assistant's scheduled checklist is not used until a person who may write checklists approves it", async () => {
@@ -464,16 +475,36 @@ describe("only someone allowed ticks, for every writer", () => {
         new Date().toISOString(),
       ),
     ).toMatch(/core_checklist_not_allowed/);
-    // And a finish by someone who may not do it.
-    expect(
-      await dbError(
-        "UPDATE core_checklist_run SET state = 'done', closed_at = ?, closed_by = ?, account_id = ? WHERE id = ?",
+    // And a finish by anyone else. Its required step ticked and an optional one left, so the
+    // refusal is this rule's and not migration 0815's (every required step ticked).
+    const finishing = await scheduled(
+      [{ text: "Count the float" }, { text: "Water the plants", required: false }],
+      { kind: "role", role: "member" },
+    );
+    await tick(member, finishing, 0);
+    const half = await runRow(finishing);
+    const other = await account(unique("Other Ot"));
+    const finish = (by: string, forWhom: string, why: string | null) =>
+      dbError(
+        "UPDATE core_checklist_run SET state = 'done', closed_at = ?, closed_by = ?, account_id = ?, closed_why = ? WHERE id = ?",
         new Date().toISOString(),
-        viewer.id,
-        viewer.id,
-        open?.id,
-      ),
-    ).toMatch(/core_checklist_(not_allowed|incomplete)/);
+        by,
+        forWhom,
+        why,
+        half?.id,
+      );
+    // A viewer, for themselves.
+    expect(await finish(viewer.id, viewer.id, null)).toMatch(/core_checklist_not_allowed/);
+    // An admin for themselves, on a checklist for members (they manage it but may not do it).
+    expect(await finish(admin.id, admin.id, null)).toMatch(/core_checklist_not_allowed/);
+    // A member who does not manage checklists, for another member, with why.
+    expect(await finish(member.id, other.id, "covering")).toMatch(/core_checklist_not_allowed/);
+    // Someone who may do it, for themselves: done.
+    expect(await finish(member.id, member.id, null)).toBeNull();
+    // The host answers this rule's refusal as one (a race: someone's role changed meanwhile).
+    const mapped = toOperationError(new Error("D1_ERROR: core_checklist_not_allowed: SQLITE"));
+    expect(mapped.code).toBe("forbidden");
+    expect((mapped.details as { rule?: string }).rule).toBe("checklist_not_allowed");
     // A day run's who and when are fixed while it is open.
     expect(
       await dbError(
@@ -481,6 +512,40 @@ describe("only someone allowed ticks, for every writer", () => {
         open?.id,
       ),
     ).toMatch(/core_checklist_fixed/);
+  });
+
+  it("the database holds when: a tick inside its day, missed only after it and by nobody", async () => {
+    const id = await scheduled([{ text: "Lock the back door" }]);
+    const person = await account(unique("Locker Lo"));
+    await cron();
+    const open = await runRow(id);
+    const at = (s: number) => new Date(s * 1000).toISOString();
+    const tickAt = (when: string) =>
+      dbError(
+        "INSERT INTO core_checklist_tick (id, run_id, position, state, ticked_by, ticked_for, on_behalf, ticked_at) VALUES (?, ?, 0, 'done', ?, ?, 0, ?)",
+        newId("checklistTick"),
+        open?.id,
+        person.id,
+        person.id,
+        when,
+      );
+    expect(await tickAt(at(Number(open?.closes)))).toMatch(/core_checklist_window/);
+    expect(await tickAt(at(Number(open?.opens) - 1))).toMatch(/core_checklist_window/);
+    const miss = (when: string, closer: string | null) =>
+      dbError(
+        "UPDATE core_checklist_run SET state = 'missed', closed_at = ?, closed_by = ? WHERE id = ?",
+        when,
+        closer,
+        open?.id,
+      );
+    // Missed before its day ends, or by someone: refused, and the host says so as a rule.
+    expect(await miss(new Date().toISOString(), null)).toMatch(/core_checklist_window/);
+    expect(await miss(at(Number(open?.closes)), person.id)).toMatch(/core_checklist_window/);
+    expect(toOperationError(new Error("D1_ERROR: core_checklist_window")).code).toBe("conflict");
+    expect((await runRow(id))?.state).toBe("open");
+    // Once its day has ended, by nobody: the minute cron's close.
+    await cron(new Date((Number(open?.closes) + 1) * 1000));
+    expect((await runRow(id))?.state).toBe("missed");
   });
 
   it("an AI never ticks or reads how a day went", async () => {
@@ -593,6 +658,21 @@ describe("those who manage checklists", () => {
       (await refusal(run("x.dailychecks.history", { from: today(), to: today() }, asUser(member))))
         .code,
     ).toBe("forbidden");
+    // Finished with every step ticked not done (each with why) is done, and the history says how
+    // many were not done.
+    const notDone = await scheduled([{ text: "Bins out" }, { text: "Hose the yard" }]);
+    for (const step of [0, 1]) {
+      await tick(person, notDone, step, { state: "not_done", why: "Rain" });
+    }
+    expect(
+      (
+        await run<{ days: { run: string; state: string; notDone: number }[] }>(
+          "x.dailychecks.history",
+          { from: today(), to: today(), template: notDone },
+          staff(),
+        )
+      ).days,
+    ).toMatchObject([{ state: "done", notDone: 2 }]);
     // Granted checklists:write, a member manages checklists.
     await run("user.setPermissions", { id: member.id, permissions: ["checklists:write"] }, staff());
     expect(
@@ -604,6 +684,71 @@ describe("those who manage checklists", () => {
         )
       ).days.map((d) => d.run),
     ).toContain(missed?.id);
+  });
+
+  it("every manager hears of a missed day, however many accounts hold other grants", async () => {
+    // More accounts with some other grant than a read of the managers once took (500), each
+    // before this manager in the order it read them (older ids).
+    const now = new Date().toISOString();
+    const ids = Array.from({ length: 520 }, (_, i) => newId("user", 1_000_000 + i));
+    await env.DB.prepare(
+      `INSERT INTO core_user (id, name, email, email_verified, created_at, updated_at, role, granted_permissions)
+       SELECT j.value, 'Granted ' || j.key, 'granted' || j.key || '@example.com', 1, ?1, ?1, 'member', '["records:publish"]' FROM json_each(?2) j`,
+    )
+      .bind(now, JSON.stringify(ids))
+      .run();
+    const manager = await account(unique("Zed Ze"));
+    await run(
+      "user.setPermissions",
+      { id: manager.id, permissions: ["checklists:write"] },
+      staff(),
+    );
+    const name = unique("Heard ");
+    const id = await scheduled([{ text: "Lights" }], undefined, { name });
+    await cron();
+    const open = await runRow(id);
+    await cron(new Date((Number(open?.closes) + 1) * 1000));
+    const told = await env.DB.prepare(
+      "SELECT user_id FROM core_notifications WHERE body LIKE ? AND user_id = ?",
+    )
+      .bind(`%${name}%`, manager.id)
+      .all();
+    expect(told.results).toHaveLength(1);
+  });
+});
+
+describe("after the business's time zone is moved", () => {
+  it("today's checklist is the run its day already has, so the screen never invites a tick the host refuses", async () => {
+    const id = await scheduled([{ text: "Sweep the porch" }]);
+    // Yesterday's run, made and then missed; today's, made.
+    await cron(new Date(Date.now() - DAY));
+    await cron();
+    const person = await account(unique("Mover Mo"));
+    try {
+      // West by most of a day: here it is now (most hours) the day that was just missed.
+      await run("settings.update", { timezone: "Pacific/Honolulu" }, staff());
+      const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Pacific/Honolulu" }).format(
+        new Date(),
+      );
+      const row = await runRow(id, date);
+      expect(row).not.toBeNull();
+      const item = await itemOf(person, id);
+      expect(item?.date ?? date).toBe(date);
+      expect(item).toMatchObject({ state: row?.state, canTick: row?.state === "open" });
+      expect(item?.run?.id).toBe(row?.id);
+      if (row?.state === "missed") {
+        expect(await rule(tick(person, id, 0, { date }))).toBe("checklist_closed");
+      }
+      // The history finds it by its day too.
+      const history = await run<{ days: { run: string; date: string }[] }>(
+        "x.dailychecks.history",
+        { from: date, to: date, template: id },
+        staff(),
+      );
+      expect(history.days.map((d) => d.run)).toEqual([row?.id]);
+    } finally {
+      await run("settings.update", { timezone: ZONE }, staff());
+    }
   });
 });
 

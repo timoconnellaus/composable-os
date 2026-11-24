@@ -65,6 +65,25 @@ question for the owner is open.
   ends with it, and one with a later end date at the provider is left for staff and said to
   charge. The recent sign-in before deleting is step 2's.
 
+- **Steps 2, 3 and 3b built** on `feat/stage-48-email-change` ([ADR
+  0712](../adr/0712-changing-the-sign-in-address-and-a-recent-sign-in.md), migration 0990). A
+  recent sign-in: `me.email.change` and `me.deleteAccount` refuse a session signed in more than 15
+  minutes ago (`sign_in_again`, HTTP 403), read from the session's own row; an app session
+  exchanged from a browser sign-in keeps its age. Changing the sign-in address:
+  `core_customer_email_change`, `me.email.change` (a code to the new address as the host's sign-in
+  mail, the same answer for any address, limited per account and per mailbox by a reservation
+  before the send), `me.email.confirm` (after a recent sign-in; five tries; a change closed by a
+  racing confirm, cancel or newer request fails whole, migration 0990's trigger; refused while another Person, account or the erased list holds the address; else
+  the account's address and the Person's primary email in one batch, other sessions ended, a
+  timeline activity naming no address; after the commit the notice to the old address and the
+  provider given the new one), staff `customer.changeEmail` and `customer.cancelEmailChange`
+  (human admins, never finishing a change), and `customer.list` showing an open change (masked) and
+  an open erase request. The email gatekeeper's sign-in kind takes the change's two fixed
+  templates. The payments gatekeeper's `updateCustomerEmail` (`payments.customer.email`, the
+  host's own call only). Erase reads the change records and takes a former address only while no
+  other identified Person holds it, here and for addresses staff moved (#302 closed). Not built
+  here: the blocks and the staff card's buttons (step 7), the delete preview (step 6).
+
 Vocabulary: "My account" is the customer's own area on the business's website and in its app.
 The draft called it the customer portal; "portal" stays only as the name of the manifest key and
 the operation (`portal`, `me.portal`). The payment provider's own page for a card is "the
@@ -396,7 +415,10 @@ None new for packs. The assistant gets no customer operation.
   end before the erase request is opened, so by the time staff erase within the due date it has
   ended or is ending. #293 stays open for what erase does to a subscription still running: erase
   staff start without the member deleting, a subscription paid by someone else, or one resumed
-  meanwhile. This stage does not decide it.
+  meanwhile. This stage does not decide it. _Settled 2026-11-24 outside this stage
+  ([ADR 0533](../adr/0533-erase-ends-a-subscription-at-the-end-of-the-period-paid-for.md),
+  `fix/issue-293-erased-payer`): erase applies decision 1 to every subscription the erased Person
+  pays for or holds, in all three cases. Step 6 still sets them to end at the deletion._
 
 ## Out of scope
 
@@ -408,7 +430,8 @@ None new for packs. The assistant gets no customer operation.
 - A timeline customers can see (#111); staff previewing as a customer (#113).
 - Passkeys and social sign-in (#114); a second sign-in address per account.
 - Organisations as customers (stage 35's question).
-- What erase does to a subscription still running (#293), beyond the member's own deletion.
+- What erase does to a subscription still running (#293), beyond the member's own deletion
+  (since settled by ADR 0533).
 
 ## Acceptance criteria
 

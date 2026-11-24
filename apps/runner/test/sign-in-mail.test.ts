@@ -139,6 +139,53 @@ describe("the host's sign-in mail", () => {
     expect(JSON.parse(audit?.origin ?? "{}")).toEqual(CUSTOMER_MAIL_ORIGIN);
   });
 
+  it("carries a sign-in address change: the code to the new address, the notice to the old (ADR 0712)", async () => {
+    await setSignInKind(true);
+    const old = `${unique("old")}@outside.test`.toLowerCase();
+    const next = `${unique("next")}@outside.test`.toLowerCase();
+    const person = await op<{ id: string }>(admin, "person.create", {
+      displayName: unique("Member"),
+      emails: [{ email: old }],
+    });
+    const customerId = `cus_${unique("c")}`;
+    const sessionId = `ses_${unique("s")}`;
+    const now = new Date().toISOString();
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT INTO core_customer (id, person_id, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
+      ).bind(customerId, person.id, old, now, now),
+      env.DB.prepare(
+        "INSERT INTO core_customer_session (id, customer_id, token, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+      ).bind(
+        sessionId,
+        customerId,
+        unique("token"),
+        new Date(Date.now() + 86_400_000).toISOString(),
+        now,
+        now,
+      ),
+    ]);
+    const asMember = {
+      principal: { kind: "customer" as const, customerId, personId: person.id },
+      db,
+      origin: { surface: "client" as const, sessionId },
+      integrations,
+    };
+    await invokeByName("me.email.change", { email: next }, asMember);
+    const [codeMessage] = await sentTo(next);
+    const code = /is (\d{6})\./.exec(codeMessage?.text ?? "")?.[1] ?? "";
+    expect(code).toMatch(/^\d{6}$/);
+    expect(await invokeByName("me.email.confirm", { code }, asMember)).toEqual({
+      signInEmail: next,
+      sessionsEnded: 0,
+    });
+    const notices = await sentTo(old);
+    expect(notices.map((m) => m.subject)).toEqual([
+      expect.stringMatching(/sign-in address was changed$/),
+    ]);
+    expect(notices[0]?.text).toContain(`${next.slice(0, 1)}•••@outside.test`);
+  });
+
   it("is not ready while the kind is reviewed, and a code sent anyway waits and is refused", async () => {
     await setSignInKind(false);
     expect((await signInMailState(db.query)).ready).toBe(false);

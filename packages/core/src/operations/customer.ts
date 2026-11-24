@@ -3,12 +3,22 @@
 // automation or extension may invite, disable or sign out a customer. Every write is audited.
 //
 // Customer accounts are not records: these read and write `core_customer`,
-// `core_customer_session` and `core_customer_invite`, never a Person. A customer's sign-in address
-// is the account's own, so nothing here needs to read people.
+// `core_customer_session`, `core_customer_invite` and `core_customer_email_change`, never a
+// Person. A customer's sign-in address is the account's own, so nothing here needs to read people.
+//
+// Staff may start a change of a member's sign-in address (stage 48, ADR 0712), for a member who
+// phones: the code goes to the new address and only the member, signed in, finishes it with
+// me.email.confirm. Staff never see the code and cannot finish it.
 import { sql } from "kysely";
 import { z } from "zod";
 import { inviteCustomerStatement } from "../customers/accounts.ts";
 import { revokeCustomerFeed } from "../customers/calendar-feed.ts";
+import {
+  cancelEmailChange,
+  EMAIL_CHANGE_CODE_MINUTES,
+  maskEmail,
+  startEmailChange,
+} from "../customers/email-change.ts";
 import { NotFoundError } from "../errors.ts";
 import { endCustomerDeviceSessions } from "../http/tokens.ts";
 import { decodeCursor, encodeCursor, pageSchema } from "../list.ts";
@@ -27,31 +37,70 @@ export const customerAccountSchema = z.object({
   lastSignInAt: z.string().nullable(),
   /** Sessions that have not expired. */
   sessions: z.number(),
+  /** A change of the sign-in address waiting for the member's code (stage 48), or null. */
+  emailChange: z
+    .object({
+      /** The new address, shown only in part: the member proves it, staff never need it. */
+      newEmail: z.string(),
+      startedBy: z.enum(["customer", "staff"]),
+      createdAt: z.string(),
+      expiresAt: z.string(),
+      expired: z.boolean(),
+    })
+    .nullable(),
+  /** The open erase request the member made by deleting the account, or null. */
+  eraseRequest: z.object({ requestedAt: z.string(), dueAt: z.string() }).nullable(),
 });
 export type CustomerAccountItem = z.infer<typeof customerAccountSchema>;
 
 const SORT = { field: "createdAt", direction: "desc" } as const;
 
 function accounts(ctx: HandlerContext) {
-  return ctx.db
-    .selectFrom("core_customer as c")
-    .select([
-      "c.id",
-      "c.person_id",
-      "c.email",
-      "c.status",
-      "c.link_state",
-      "c.created_at",
-      "c.last_sign_in_at",
-      sql<number>`(SELECT count(*) FROM core_customer_session s WHERE s.customer_id = c.id AND s.expires_at > ${ctx.now})`.as(
-        "sessions",
-      ),
-    ]);
+  return ctx.db.selectFrom("core_customer as c").select([
+    "c.id",
+    "c.person_id",
+    "c.email",
+    "c.status",
+    "c.link_state",
+    "c.created_at",
+    "c.last_sign_in_at",
+    sql<number>`(SELECT count(*) FROM core_customer_session s WHERE s.customer_id = c.id AND s.expires_at > ${ctx.now})`.as(
+      "sessions",
+    ),
+    // At most one open change per account (migration 0990's partial unique index).
+    sql<
+      string | null
+    >`(SELECT json_object('newEmail', x.new_email, 'startedBy', x.started_by, 'createdAt', x.created_at, 'expiresAt', x.expires_at) FROM core_customer_email_change x WHERE x.customer_id = c.id AND x.confirmed_at IS NULL AND x.ended_at IS NULL)`.as(
+      "email_change",
+    ),
+    sql<
+      string | null
+    >`(SELECT json_object('requestedAt', r.requested_at, 'dueAt', r.due_at) FROM core_erase_request r WHERE r.customer_id = c.id AND r.status = 'open' ORDER BY r.requested_at DESC LIMIT 1)`.as(
+      "erase_request",
+    ),
+  ]);
 }
 
 type AccountRow = Awaited<ReturnType<ReturnType<typeof accounts>["executeTakeFirstOrThrow"]>>;
 
-const toItem = (row: AccountRow): CustomerAccountItem => ({
+function emailChangeOf(value: string | null, now: string): CustomerAccountItem["emailChange"] {
+  if (!value) return null;
+  const change = JSON.parse(value) as {
+    newEmail: string;
+    startedBy: string;
+    createdAt: string;
+    expiresAt: string;
+  };
+  return {
+    newEmail: maskEmail(change.newEmail),
+    startedBy: change.startedBy === "customer" ? "customer" : "staff",
+    createdAt: change.createdAt,
+    expiresAt: change.expiresAt,
+    expired: change.expiresAt <= now,
+  };
+}
+
+const toItem = (row: AccountRow, now: string): CustomerAccountItem => ({
   id: row.id,
   personId: row.person_id,
   email: row.email,
@@ -60,6 +109,10 @@ const toItem = (row: AccountRow): CustomerAccountItem => ({
   createdAt: String(row.created_at),
   lastSignInAt: row.last_sign_in_at,
   sessions: Number(row.sessions),
+  emailChange: emailChangeOf(row.email_change, now),
+  eraseRequest: row.erase_request
+    ? (JSON.parse(row.erase_request) as { requestedAt: string; dueAt: string })
+    : null,
 });
 
 async function requireAccount(ctx: HandlerContext, id: string): Promise<AccountRow> {
@@ -72,9 +125,10 @@ export const customerList = defineOperation({
   name: "customer.list",
   description:
     "List the org's customer accounts (people outside the org who can sign in to a client app), " +
-    "newest first: address, linked Person, status, when they last signed in and how many " +
-    "sessions are open. Filter by personId (a Person's account) or status. Admins only. " +
-    "Read-only.",
+    "newest first: address, linked Person, status, when they last signed in, how many " +
+    "sessions are open, a change of the sign-in address waiting for the member's code (the new " +
+    "address shown only in part) and an open erase request. Filter by personId (a Person's " +
+    "account) or status. Admins only. Read-only.",
   input: z.object({
     personId: z.string().max(64).optional().describe("Only the account linked to this Person"),
     status: z.enum(["active", "disabled"]).optional(),
@@ -104,7 +158,7 @@ export const customerList = defineOperation({
     const page = rows.slice(0, input.limit);
     const last = page.at(-1);
     return {
-      items: page.map(toItem),
+      items: page.map((row) => toItem(row, ctx.now)),
       nextCursor:
         rows.length > input.limit && last
           ? encodeCursor({
@@ -186,7 +240,7 @@ async function setStatus(
     });
   }
   return {
-    ...toItem(before),
+    ...toItem(before, ctx.now),
     status,
     sessions: status === "disabled" ? 0 : Number(before.sessions),
     sessionsEnded: ended,
@@ -243,10 +297,68 @@ export const customerRevokeSessions = defineOperation({
   },
 });
 
+export const customerChangeEmail = defineOperation({
+  name: "customer.changeEmail",
+  description:
+    "Start changing a customer account's sign-in address, for a member who asks (by phone, at " +
+    "the desk). A code is emailed to the new address; nothing changes until the member, signed " +
+    `in to their account within the last 15 minutes, enters it on the website or in the app within ${EMAIL_CHANGE_CODE_MINUTES} ` +
+    "minutes. You never see the code. Replaces a change already waiting. Admins only, humans only.",
+  input: z.object({
+    id: customerId,
+    email: z.string().trim().min(3).max(320).describe("The member's new sign-in address"),
+  }),
+  output: z.object({ id: z.string(), newEmail: z.string(), expiresAt: z.string() }),
+  permission: "users:manage",
+  risk: "write",
+  actors: ["human"],
+  mcp: { expose: false },
+  async handler(input, ctx) {
+    await requireAccount(ctx, input.id);
+    const started = await startEmailChange(ctx, input.id, input.email, ctx.user.id);
+    ctx.recordChange({
+      object: "customer_email_change",
+      id: input.id,
+      action: "create",
+      after: { newEmail: started.newEmail, startedBy: ctx.user.id },
+    });
+    return { id: input.id, ...started };
+  },
+});
+
+export const customerCancelEmailChange = defineOperation({
+  name: "customer.cancelEmailChange",
+  description:
+    "Cancel a change of a customer account's sign-in address that waits for the member's code: " +
+    "the code stops working and the address stays as it is. Admins only, humans only.",
+  input: z.object({ id: customerId }),
+  output: z.object({ id: z.string(), cancelled: z.boolean() }),
+  permission: "users:manage",
+  risk: "write",
+  actors: ["human"],
+  mcp: { expose: false },
+  async handler(input, ctx) {
+    await requireAccount(ctx, input.id);
+    const cancelled = await cancelEmailChange(ctx, input.id);
+    if (cancelled) {
+      ctx.recordChange({
+        object: "customer_email_change",
+        id: input.id,
+        action: "update",
+        before: { status: "open" },
+        after: { status: "cancelled" },
+      });
+    }
+    return { id: input.id, cancelled: Boolean(cancelled) };
+  },
+});
+
 export const customerOperations = [
   customerList,
   customerInvite,
   customerDisable,
   customerEnable,
   customerRevokeSessions,
+  customerChangeEmail,
+  customerCancelEmailChange,
 ] as const;

@@ -21,7 +21,14 @@ import {
 } from "../src/index.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
 import { context, createUser, db } from "./helpers.ts";
-import { type Buyer, createBuyer, outside, refusal, run } from "./order-fixtures.ts";
+import {
+  type Buyer,
+  createBuyer,
+  outside,
+  refusal,
+  run,
+  signedInJustNow,
+} from "./order-fixtures.ts";
 
 const ext = extId("cal");
 const BOOKING = `${ext}.booking`;
@@ -542,11 +549,16 @@ describe("revoked with the account (criterion 4)", () => {
   it("deleting the account deletes it", async () => {
     const buyer = await createBuyer(admin, "caldel");
     const token = await rotate(buyer);
-    const preview = await run<{ expect: string }>("me.deleteAccount", {}, outside(buyer.principal));
+    const signedIn = await signedInJustNow(buyer);
+    const preview = await run<{ expect: string }>(
+      "me.deleteAccount",
+      {},
+      outside(buyer.principal, signedIn),
+    );
     await run(
       "me.deleteAccount",
       { confirm: true, expect: preview.expect },
-      outside(buyer.principal),
+      outside(buyer.principal, signedIn),
     );
     expect(await readCustomerFeed(db.query, token, NOW)).toBe(null);
     const left = await env.DB.prepare(

@@ -41,6 +41,7 @@ import {
   sha256Hex,
   toBase64,
 } from "@composable-os/release";
+import { writeBrand } from "./app.ts";
 import { lineDiff } from "./diff.ts";
 import { recordHostModules, STATE_FILE, upgradeHostModules } from "./host-modules.ts";
 import type { Io } from "./io.ts";
@@ -323,6 +324,10 @@ export async function generateClients(
     }
   }
   if (written.length) io.out(`Typed client: ${written.join(", ")}`);
+  // The app's brand from product.ts, beside its copied blocks (stage 63, ADR 0900).
+  const brand =
+    product.mobile && existsSync(join(root, product.mobile.dir)) ? writeBrand(root, product) : null;
+  if (brand) written.push(brand);
   return written;
 }
 
@@ -426,11 +431,6 @@ export function templateFiles(kit: ClientKit, values: Values): Map<string, strin
     const app = /^apps\/([^/]+)\/(package\.json|wrangler\.jsonc)$/.exec(rel);
     if (app?.[2] === "package.json")
       text = appPackage(text, `${values.id}-${app[1]}`, values.version);
-    if (rel === "apps/mobile/app.json") {
-      const config = JSON.parse(text) as { expo: Record<string, unknown> };
-      config.expo = { ...config.expo, name: values.label, slug: values.id, scheme: values.id };
-      text = `${JSON.stringify(config, null, 2)}\n`;
-    }
     if (app?.[2] === "wrangler.jsonc") {
       text = text
         .replace(/"name":\s*"client-web"/, `"name": "${values.id}-web"`)
@@ -448,6 +448,28 @@ function slug(name: string): string {
     .replace(/^-+|-+$/g, "")
     .slice(0, 40);
 }
+
+/** The template's workflow that builds the app and sends it to the stores' testing tracks. */
+const APP_WORKFLOW = ".github/workflows/app.yml";
+
+/** What `cos create --with-mobile` adds to product.ts: the app, and its identity to fill in. */
+const MOBILE_ENTRY = `  mobile: {
+    dir: "apps/mobile",
+    // The app's identity in the phone app stores (stage 63): app.config.ts and the app's brand are
+    // made from it. Fill it in before the first store build, then run \`pnpm cos app check\`.
+    // app: {
+    //   name: "Example", // under the icon, at most 30 characters
+    //   version: "1.0.0",
+    //   ids: { ios: "com.example.app", android: "com.example.app" }, // never change once published
+    //   icon: "apps/mobile/assets/icon.png", // 1024 by 1024, no transparency
+    //   splash: { image: "apps/mobile/assets/splash.png", background: "#ffffff" },
+    //   colours: { primary: "#18181b", background: "#ffffff", text: "#18181b" },
+    //   listing: "apps/mobile/store", // <locale>/name.txt, subtitle.txt, description.txt, …
+    //   purchases: "none",
+    // },
+    // A staging app installs beside the live one with its own name, ids and scheme:
+    // environments.staging.mobile: { scheme: "example-staging", app: { name, ids } }.
+  },`;
 
 export async function create(argv: string[], flags: Flags, deps: Deps): Promise<number> {
   const { io } = deps;
@@ -486,14 +508,13 @@ export async function create(argv: string[], flags: Flags, deps: Deps): Promise<
   // The mobile app is optional (--with-mobile): without it, its folder is left out and product.ts
   // names only the web app.
   const mobile = Boolean(flags["with-mobile"]);
+  // Without it, its folder and its CI workflow (stage 63) are left out and product.ts names only
+  // the web app.
   for (const path of [...files.keys()])
-    if (!mobile && path.startsWith("apps/mobile/")) files.delete(path);
+    if (!mobile && (path.startsWith("apps/mobile/") || path === APP_WORKFLOW)) files.delete(path);
   if (mobile) {
     const product = files.get("product.ts") as string;
-    files.set(
-      "product.ts",
-      product.replace(/(\n\s*web: \{[^\n]*\},)/, '$1\n  mobile: { dir: "apps/mobile" },'),
-    );
+    files.set("product.ts", product.replace(/(\n\s*web: \{[^\n]*\},)/, `$1\n${MOBILE_ENTRY}`));
   }
   for (const [path, text] of files) {
     mkdirSync(dirname(join(root, path)), { recursive: true });
@@ -639,7 +660,7 @@ export async function init(flags: Flags, deps: Deps): Promise<number> {
   };
   const guessWeb = wranglerConfig(root) ? "." : undefined;
   const guessMobile = ["mobile", "app", "apps/mobile"].find((d) =>
-    existsSync(join(root, d, "app.json")),
+    ["app.json", "app.config.ts", "app.config.js"].some((f) => existsSync(join(root, d, f))),
   );
   const webDir = str(flags, "web") ?? (await ask("Where is the web app (its Worker)?", guessWeb));
   const mobileDir = str(flags, "mobile") ?? (await ask("Where is the mobile app?", guessMobile));

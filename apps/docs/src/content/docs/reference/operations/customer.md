@@ -6,6 +6,58 @@ sidebar:
 editUrl: false
 ---
 
+## customer.cancelEmailChange
+
+Cancel a change of a customer account's sign-in address that waits for the member's code: the code stops working and the address stays as it is. Admins only, humans only.
+
+|  |  |
+| --- | --- |
+| Permission | `users:manage` |
+| Risk | `write` |
+| Audiences | `staff` |
+| Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes | min length 1, max length 64 | Customer account id (cus_…) |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes |   |   |
+| `cancelled` | boolean | yes |   |   |
+
+## customer.changeEmail
+
+Start changing a customer account's sign-in address, for a member who asks (by phone, at the desk). A code is emailed to the new address; nothing changes until the member, signed in to their account within the last 15 minutes, enters it on the website or in the app within 15 minutes. You never see the code. Replaces a change already waiting. Admins only, humans only.
+
+|  |  |
+| --- | --- |
+| Permission | `users:manage` |
+| Risk | `write` |
+| Audiences | `staff` |
+| Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes | min length 1, max length 64 | Customer account id (cus_…) |
+| `email` | string | yes | min length 3, max length 320 | The member's new sign-in address |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes |   |   |
+| `newEmail` | string | yes |   |   |
+| `expiresAt` | string | yes |   |   |
+
 ## customer.disable
 
 Disable a customer account: it can no longer sign in, every session it has ends at once and its calendar link stops working. Its Person and records are kept. Undo with customer.enable. Admins only, humans only.
@@ -36,6 +88,15 @@ Disable a customer account: it can no longer sign in, every session it has ends 
 | `createdAt` | string | yes |   |   |
 | `lastSignInAt` | string or null | yes |   |   |
 | `sessions` | number | yes |   |   |
+| `emailChange` | object or null | yes |   |   |
+| `emailChange.newEmail` | string | yes |   |   |
+| `emailChange.startedBy` | `"customer"`, `"staff"` | yes |   |   |
+| `emailChange.createdAt` | string | yes |   |   |
+| `emailChange.expiresAt` | string | yes |   |   |
+| `emailChange.expired` | boolean | yes |   |   |
+| `eraseRequest` | object or null | yes |   |   |
+| `eraseRequest.requestedAt` | string | yes |   |   |
+| `eraseRequest.dueAt` | string | yes |   |   |
 | `sessionsEnded` | number | yes |   |   |
 
 ## customer.enable
@@ -68,6 +129,15 @@ Enable a disabled customer account, so it can sign in again (with a new code). A
 | `createdAt` | string | yes |   |   |
 | `lastSignInAt` | string or null | yes |   |   |
 | `sessions` | number | yes |   |   |
+| `emailChange` | object or null | yes |   |   |
+| `emailChange.newEmail` | string | yes |   |   |
+| `emailChange.startedBy` | `"customer"`, `"staff"` | yes |   |   |
+| `emailChange.createdAt` | string | yes |   |   |
+| `emailChange.expiresAt` | string | yes |   |   |
+| `emailChange.expired` | boolean | yes |   |   |
+| `eraseRequest` | object or null | yes |   |   |
+| `eraseRequest.requestedAt` | string | yes |   |   |
+| `eraseRequest.dueAt` | string | yes |   |   |
 | `sessionsEnded` | number | yes |   |   |
 
 ## customer.invite
@@ -96,7 +166,7 @@ Invite an email address to sign up for a customer account while sign-up is invit
 
 ## customer.list
 
-List the org's customer accounts (people outside the org who can sign in to a client app), newest first: address, linked Person, status, when they last signed in and how many sessions are open. Filter by personId (a Person's account) or status. Admins only. Read-only.
+List the org's customer accounts (people outside the org who can sign in to a client app), newest first: address, linked Person, status, when they last signed in, how many sessions are open, a change of the sign-in address waiting for the member's code (the new address shown only in part) and an open erase request. Filter by personId (a Person's account) or status. Admins only. Read-only.
 
 |  |  |
 | --- | --- |
@@ -128,6 +198,15 @@ List the org's customer accounts (people outside the org who can sign in to a cl
 | `items[].createdAt` | string | yes |   |   |
 | `items[].lastSignInAt` | string or null | yes |   |   |
 | `items[].sessions` | number | yes |   |   |
+| `items[].emailChange` | object or null | yes |   |   |
+| `items[].emailChange.newEmail` | string | yes |   |   |
+| `items[].emailChange.startedBy` | `"customer"`, `"staff"` | yes |   |   |
+| `items[].emailChange.createdAt` | string | yes |   |   |
+| `items[].emailChange.expiresAt` | string | yes |   |   |
+| `items[].emailChange.expired` | boolean | yes |   |   |
+| `items[].eraseRequest` | object or null | yes |   |   |
+| `items[].eraseRequest.requestedAt` | string | yes |   |   |
+| `items[].eraseRequest.dueAt` | string | yes |   |   |
 | `nextCursor` | string or null | yes |   |   |
 
 ## customer.revokeCalendarFeed

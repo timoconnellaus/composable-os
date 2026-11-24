@@ -76,6 +76,8 @@ export const ID_PREFIXES = {
   subscriptionChange: "sbc",
   /** A native app's signed-in session on the HTTP surface (stage 23, ADR 0419). */
   deviceSession: "dvs",
+  /** A change of a customer account's sign-in address, waiting for its code (stage 48, ADR 0712). */
+  emailChange: "ech",
   /** Places claimed from a record's capacity (stage 26, ADR 0430). */
   capacityClaim: "clm",
   /** A movement in the stock ledger (stage 37, ADR 0680); a sale's is named after its claim. */
@@ -137,6 +139,19 @@ export const ID_PREFIXES = {
   checklistNote: "ckn",
   /** One tick of a checklist run's step, never changed (ADR 0650). */
   checklistTick: "ckt",
+  /** A quote, an invoice and a credit note, and their lines (stage 35, ADR 0730). */
+  quote: "qt",
+  quoteLine: "qtl",
+  invoice: "inv",
+  invoiceLine: "inl",
+  creditNote: "cn",
+  creditNoteLine: "cnl",
+  /** An entry in the accounting outbox, to send to the books once (stage 61). */
+  accountingPost: "acp",
+  /** A bill-to waiting for a person to choose its contact in the books (stage 61). */
+  accountingMatch: "acm",
+  /** A conversation in the shared inbox (stage 36, ADR 0740). */
+  conversation: "cnv",
   /** A journey: steps the host takes for one Person at a time (stage 53, ADR 0800). */
   journey: "jny",
   /** A published version of a journey, never changed (ADR 0800). */

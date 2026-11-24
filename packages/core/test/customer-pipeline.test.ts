@@ -109,6 +109,9 @@ describe("default closed (criterion 1)", () => {
       // Stage 51 step 3 (ADR 0783): their own check-in code (and their dependants'), and PIN.
       "me.code",
       "me.deleteAccount",
+      // Stage 48 (ADR 0712): changing their own sign-in address.
+      "me.email.change",
+      "me.email.confirm",
       // Stage 31a step 6 (ADR 0540): their own family, the children staff linked to them.
       "me.family",
       "me.get",
@@ -492,6 +495,9 @@ describe("the closed handler context (ADR 0413)", () => {
       // Stage 51 step 3 (ADR 0783): codes and PINs are core tables, for the caller's own sign-in.
       "me.code",
       "me.deleteAccount",
+      // Stage 48 (ADR 0712): the account's address change, its sessions and the Person's emails.
+      "me.email.change",
+      "me.email.confirm",
       // Stage 30 step 3 (ADR 0673): the check's own rows, and the code sent after the commit.
       "me.phone.check",
       "me.phone.startCheck",

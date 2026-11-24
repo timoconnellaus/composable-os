@@ -7,6 +7,7 @@ import type {
   PaymentsCancelSubscriptionInput,
   PaymentsChangeSubscriptionInput,
   PaymentsCheckoutInput,
+  PaymentsCustomerEmailInput,
   PaymentsEvent,
   PaymentsPauseSubscriptionInput,
   PaymentsPayment,
@@ -86,6 +87,11 @@ export interface PaymentProvider {
   voidPendingUpdate(input: PaymentsVoidUpdateInput): Promise<void>;
   /** Opens the customer portal for one customer: card, billing details and invoices only. */
   openPortal(input: PaymentsPortalInput): Promise<{ url: string }>;
+  /**
+   * Gives one customer a new email address (stage 48, ADR 0712). Throws as `cancelSubscription`
+   * does.
+   */
+  updateCustomerEmail(input: PaymentsCustomerEmailInput): Promise<void>;
   /**
    * Registers a card reader to the account at its address (stage 50, ADR 0774). Throws
    * `ActionApplyError` when the provider refused it (a wrong or used code) and registered nothing.

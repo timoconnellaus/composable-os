@@ -187,6 +187,30 @@ export function outside(
   return { principal, db, ...overrides };
 }
 
+/**
+ * A web session for `buyer` signed in just now, as the call's origin: deleting the account and
+ * changing its address need a recent sign-in (ADR 0712).
+ */
+export async function signedInJustNow(
+  buyer: Buyer,
+): Promise<{ origin: { surface: "client"; sessionId: string } }> {
+  const sessionId = `ses_${unique("s")}`;
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    "INSERT INTO core_customer_session (id, customer_id, token, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+  )
+    .bind(
+      sessionId,
+      buyer.principal.customerId,
+      unique("token"),
+      "9999-12-31T00:00:00.000Z",
+      now,
+      now,
+    )
+    .run();
+  return { origin: { surface: "client", sessionId } };
+}
+
 /** Calls an operation and returns its output; a refusal is thrown as the pipeline throws it. */
 export function run<T = Record<string, unknown>>(
   name: string,

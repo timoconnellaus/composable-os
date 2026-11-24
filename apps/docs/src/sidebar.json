@@ -522,6 +522,9 @@
             "slug": "reference/operations/access"
           },
           {
+            "slug": "reference/operations/accounting"
+          },
+          {
             "slug": "reference/operations/ack"
           },
           {
@@ -585,6 +588,9 @@
             "slug": "reference/operations/content"
           },
           {
+            "slug": "reference/operations/conversation"
+          },
+          {
             "slug": "reference/operations/customer"
           },
           {
@@ -633,6 +639,9 @@
             "slug": "reference/operations/import"
           },
           {
+            "slug": "reference/operations/inbox"
+          },
+          {
             "slug": "reference/operations/intake"
           },
           {
@@ -640,6 +649,9 @@
           },
           {
             "slug": "reference/operations/integrationevent"
+          },
+          {
+            "slug": "reference/operations/invoice"
           },
           {
             "slug": "reference/operations/jobchange"
@@ -661,6 +673,9 @@
           },
           {
             "slug": "reference/operations/memory"
+          },
+          {
+            "slug": "reference/operations/message"
           },
           {
             "slug": "reference/operations/messages"
@@ -703,6 +718,9 @@
           },
           {
             "slug": "reference/operations/query"
+          },
+          {
+            "slug": "reference/operations/quote"
           },
           {
             "slug": "reference/operations/record"

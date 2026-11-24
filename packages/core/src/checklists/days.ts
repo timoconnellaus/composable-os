@@ -253,7 +253,13 @@ export async function checklistManagers(db: Kysely<CoreDatabase>): Promise<strin
     .where("kind", "=", "human")
     .where("deactivated_at", "is", null)
     .where("pack_role", "is", null)
-    .where((eb) => eb.or([eb("role", "=", "admin"), eb("granted_permissions", "is not", null)]))
+    // Granted checklists:write itself, not any grant: the limit then counts managers only.
+    .where((eb) =>
+      eb.or([
+        eb("role", "=", "admin"),
+        sql<boolean>`json_valid(granted_permissions) AND EXISTS (SELECT 1 FROM json_each(granted_permissions) g WHERE g.value = 'checklists:write')`,
+      ]),
+    )
     .orderBy("id")
     .limit(500)
     .execute();

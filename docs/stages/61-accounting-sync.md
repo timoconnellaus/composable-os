@@ -26,6 +26,22 @@ and a reopen); `packages/gatekeeper-payments/src/`, `packages/core/src/integrati
 Status: **spec agreed** (owner interviewed 2026-11-24: decisions 1 to 8). Build may start with
 steps 1 to 4 and 8; summaries wait for stage 52, documents for stage 35.
 
+- **Step 2 built** (`feat/stage-61-accounting-core`, migration 1330, no ADR): the core tables
+  `core_accounting_settings`, `_map`, `_link`, `_post`, `_item` and `_match`, guarded by triggers
+  against every form of write, `UPDATE OR REPLACE` included (a post's id and reference never change;
+  a sent or skipped post never changes but for an erase clearing its `detail`, and is never deleted;
+  one being sent or of unknown outcome moves only as its outcome allows; a reference is queued once,
+  a link is unique both ways, an item once per source, one open question per bill-to; the start date
+  is fixed in the database once a post to those books may be in them); `accounting:manage` (admins,
+  grantable, never a pack role's); `packages/core/src/accounting/settings.ts` and
+  `accounting.settings.get`, `accounting.settings.update` (a human admin: the books, the start date,
+  fixed once a post to these books is sent, being sent or of unknown outcome, approval of 14 to 365
+  days and `restartApproval`, which starts the count again (an update writes only what it changes,
+  so a day counted meanwhile is kept), the settle delay of 1 to 14 days, on or off: on needs the
+  books, an active connection and a start date; the books change only while off) and
+  `accounting.map.set`, `accounting.map.clear` (a person, per connection). Left for later steps:
+  `accounting.options` and checking a mapped ref against the books' live lists and base currency
+  (they need purpose `accounting`, step 3); every other operation, the runner and the screens.
 - **Step 3 built** (`feat/stage-61-host-path`, ADR 0881, no migration): `callAsHost` purpose
   `accounting` (core `IntegrationRuntime`, the integration host and its queue): the system user's
   session on the books, its contacts and entries applied at once unless the deploy-time floor

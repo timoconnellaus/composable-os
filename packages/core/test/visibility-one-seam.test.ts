@@ -38,6 +38,13 @@ const RECORD_TABLES = [
   "core_order_line",
   // Stage 28 (ADR 0444): media items are records.
   "core_media",
+  // Stage 35 (ADR 0730): quotes, invoices and credit notes, and their lines.
+  "core_quote",
+  "core_quote_line",
+  "core_invoice",
+  "core_invoice_line",
+  "core_credit_note",
+  "core_credit_note_line",
 ];
 
 // `rec_user` is the staff directory, not a record: no object declares it, and it is read by
@@ -96,6 +103,18 @@ const WHY = {
    */
   agreements: "agreements: the Trash, minor and name facts of a Person the host was given",
   /**
+   * Quotes, invoices and credit notes (stage 35, ADR 0730), staff only: the issuing batch's
+   * check that the document is still a draft, and which tax rate keys documents' lines use
+   * (keys, never a document) when an admin changes the rates.
+   */
+  invoices: "invoices: host code for a document it is numbering, or the rate keys lines use",
+  /**
+   * The shared inbox (stage 36, ADR 0740): a conversation's own messages and notes, its Person's
+   * name, and what an erase or a sender's link moves, each read after the conversation itself
+   * passed the inbox's rule (private: admins and whoever has it). Staff only.
+   */
+  inbox: "inbox: a conversation's own messages and its Person's name, after its own rule",
+  /**
    * Check-in codes (stage 51 step 3, ADR 0783): whether a Person a code, card or PIN names is
    * live, and their names to compare with the name typed, answered to host code only; a member's
    * own and their dependants' given names for their own app; that a Person staff named exists.
@@ -139,9 +158,13 @@ type Why = (typeof WHY)[keyof typeof WHY];
  * test/audiences-isolation.test.ts proves the ones that are open read nothing of anyone else's.
  */
 const REMAINING: Record<string, [reads: number, why: Why]> = {
-  "ai/embedding.ts": [9, WHY.org],
+  // Stage 36 (ADR 0740): a conversation's activities queued in one statement when it is marked
+  // private or not.
+  "ai/embedding.ts": [10, WHY.org],
+  // Stage 36 (ADR 0740): a private mark deletes the summaries built from its conversation's
+  // activities, found by the conversation in one statement.
+  "ai/summaries.ts": [17, WHY.later],
   "finance/book.ts": [8, WHY.finance],
-  "ai/summaries.ts": [16, WHY.later],
   // Stage 32b (ADR 0493): a spend checks its Person is not in the Trash, in the write's own path.
   "agreements/due.ts": [2, WHY.agreements],
   // Stage 44 step 4 (ADR 0645): the signed PDF names whom it is for, and a paper copy goes to
@@ -185,6 +208,10 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "intake/person.ts": [3, WHY.intake],
   "intake/submit.ts": [2, WHY.intake],
   "integrations/outbound-check.ts": [2, WHY.org],
+  // Stage 35 (the review of PR #386): whether a bill-to's contact is at the organisation, both
+  // already read through the seam.
+  "invoices/drafts.ts": [1, WHY.part],
+  "invoices/numbering.ts": [1, WHY.invoices],
   "notifications/delivery.ts": [1, WHY.org],
   "notifications/digest-content.ts": [4, WHY.org],
   // Journeys (stage 53 step 3, ADR 0800): a manual entry reads whether each Person it is about to
@@ -202,9 +229,12 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "operations/agreement-acceptance.ts": [6, WHY.agreements],
   "operations/agreement.ts": [1, WHY.agreements],
   "operations/duplicate.ts": [3, WHY.later],
+  "operations/invoice.ts": [2, WHY.invoices],
   "operations/enrichment.ts": [8, WHY.write],
   "operations/erasure.ts": [2, WHY.write],
   "operations/import.ts": [8, WHY.write],
+  "operations/inbox.ts": [2, WHY.inbox],
+  "inbox/index.ts": [2, WHY.inbox],
   // Stage 44 (the review of PR #280): order.setPerson reads the People an order's address is
   // theirs (and merges of them) and the order's lines for their agreement points.
   "operations/order.ts": [4, WHY.host],
@@ -253,9 +283,12 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "records/erase-log.ts": [1, WHY.write],
   // Erase (and, ADR 0590, the marks of the erased person's orders).
   "records/erase-stores.ts": [2, WHY.write],
-  "records/erase-subject.ts": [6, WHY.write],
+  // And whether another Person holds a former address now (#302, ADR 0712).
+  "records/erase-subject.ts": [7, WHY.write],
   "records/erase.ts": [8, WHY.write],
   "records/links.ts": [10, WHY.part],
+  // A publish's guard that its record is still in a state it may be published in (ADR 0810).
+  "records/publish.ts": [2, WHY.write],
   "records/tags.ts": [1, WHY.part],
   "retention.ts": [1, WHY.org],
   // Routine mail (ADR 0590): the host reads the record it is about, its order, its person and
@@ -314,6 +347,9 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   // `samePeople` (ADR 0692): the ids of the People sharing a folded address with one the host
   // already has, for its own one-per-Person checks; never answered to a caller.
   "customers/accounts.ts": [5, WHY.org],
+  // Changing a sign-in address (stage 48, ADR 0712): whether another Person holds the new address,
+  // and the member's own emails the host is about to rewrite.
+  "customers/email-change.ts": [2, WHY.write],
   // The subscription access source's `covers: "all"`: only live ids (stage 32a review, ADR 0488).
   "subscriptions/access.ts": [1, WHY.access],
   // Continuation offers (stage 32a step 4, ADR 0491): the import matching an address to its one

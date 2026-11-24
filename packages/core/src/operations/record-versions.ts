@@ -27,7 +27,7 @@
 // person who approves must hold it too, and be a person (operations/approval.ts). The request
 // shows what would go live against what is live, and applies only while the working copy is
 // exactly what was asked for.
-import { sql } from "kysely";
+import { type CompiledQuery, sql } from "kysely";
 import { z } from "zod";
 import { NotFoundError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
@@ -52,6 +52,7 @@ import {
   scheduleOf,
   scheduleWrite,
   snapshotOf,
+  stillPublishableGuard,
   unpublishWrites,
 } from "../records/publish.ts";
 import type { StageCache } from "../records/stages.ts";
@@ -227,6 +228,7 @@ export const recordPublish = defineOperation({
     const note = input.note ?? null;
     const by = publisherOf(ctx);
     // Racing publishes take the same number: the second batch fails on the key, as a conflict.
+    // A record moved out of its publishIn states meanwhile fails it too (ADR 0810).
     ctx.write(
       ...publishWrites(object, input.id, version, snapshot, {
         at: ctx.now,
@@ -236,6 +238,7 @@ export const recordPublish = defineOperation({
         requestedVia: by.requestedVia,
         readAgain,
       }),
+      ...guarded(ctx, object, input.id),
     );
     return {
       version,
@@ -330,6 +333,7 @@ export const recordSchedulePublish = defineOperation({
         requestedVia: by.requestedVia,
         readAgain,
       }),
+      ...guarded(ctx, object, input.id),
     );
     return {
       publishAt,
@@ -409,6 +413,12 @@ export const recordUnpublish = defineOperation({
   },
 });
 
+/** The guard that the record is still in a state it may be published in, as a list. */
+function guarded(ctx: HandlerContext, object: ObjectDefinition, id: string): CompiledQuery[] {
+  const guard = stillPublishableGuard(ctx, object, id);
+  return guard ? [guard] : [];
+}
+
 export const recordPublishDue = defineOperation({
   name: "record.publishDue",
   description:
@@ -456,6 +466,8 @@ export const recordPublishDue = defineOperation({
             ? due.read_again === null || Number(due.read_again) === 1
             : null,
         }),
+        // Moved out meanwhile (ADR 0810): the whole run fails, and the next one drops it.
+        ...guarded(ctx, object, due.record_id),
       );
       ctx.recordChange({
         object: object.name,

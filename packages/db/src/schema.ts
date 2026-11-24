@@ -84,7 +84,8 @@ export interface CoreVerificationTable {
 // --- Stage 1 (migrations 0002-0007) ------------------------------------------------------------
 
 export type UserRole = "admin" | "member" | "viewer";
-export type ActivityType = "note" | "email" | "call" | "meeting" | "system";
+/** `chat`: a chat message in a conversation (migration 1050, stage 36). */
+export type ActivityType = "note" | "email" | "call" | "meeting" | "system" | "chat";
 export type ActivityAuthorActor = "human" | "assistant" | "mcp" | "automation" | "system";
 export type TaskStatus = "open" | "done";
 /** Who a staff-side call is made by: the actors the approval policy and the queue know. */
@@ -277,6 +278,8 @@ export interface CoreActivityTable extends RecordColumns {
   body_ref: Defaulted<string | null>;
   /** Migration 0111: what a synced activity discloses. */
   disclosure: Defaulted<"full" | "metadata" | null>;
+  /** Migration 1430: the conversation (core_conversation) a message or a staff note belongs to. */
+  conversation_id: Defaulted<string | null>;
   /** Migration 1230 (stage 56, ADR 0830): who may read a note. Only a note is not `staff`. */
   level: Defaulted<NoteLevel>;
   /** Migration 1230: the note's kind (core_note_kind, migration 1232). Every note has one. */
@@ -903,6 +906,29 @@ export interface CoreCustomerVerificationTable {
   created_at: DateColumn;
   updated_at: DateColumn;
 }
+
+/**
+ * Migration 0990 (stage 48, ADR 0712): a request to change an account's sign-in address, waiting
+ * for the code emailed to the new address. One open per account; the code only as a hash.
+ */
+export interface CoreCustomerEmailChangeTable {
+  id: string;
+  customer_id: string;
+  new_email: string;
+  /** The new address's mailbox (`mailboxKey`), for counting requests only. */
+  new_mailbox: string;
+  old_email: string;
+  /** `customer`, or the staff user id of the admin who started it. */
+  started_by: string;
+  code_hash: string;
+  expires_at: string;
+  tries_left: Defaulted<number>;
+  created_at: string;
+  confirmed_at: Defaulted<string | null>;
+  ended_at: Defaulted<string | null>;
+  end_reason: Defaulted<CustomerEmailChangeEnd | null>;
+}
+export type CustomerEmailChangeEnd = "replaced" | "cancelled" | "tries" | "in_use" | "unsent";
 
 /** Migration 0401: an address staff invited to sign up. */
 export interface CoreCustomerInviteTable {
@@ -1987,6 +2013,171 @@ export interface CoreStaffHoursTable {
 }
 
 /**
+ * Migration 1030 (stage 35 step 2, ADR 0730): a numbering series for quotes, invoices or credit
+ * notes. The next number only goes up; every change moves `version` by one (compare-and-set).
+ */
+export interface CoreDocumentCounterTable {
+  series: "quote" | "invoice" | "credit_note";
+  prefix: string;
+  next_number: number;
+  version: number;
+  updated_at: string | null;
+  updated_by: string | null;
+}
+
+/** The columns quotes, invoices and credit notes share (migration 1030, ADR 0730). */
+interface DocumentColumns {
+  id: string;
+  number: Defaulted<string | null>;
+  number_seq: Defaulted<number | null>;
+  currency: string;
+  tax_mode: "exclusive" | "inclusive";
+  person_id: Defaulted<string | null>;
+  organisation_id: Defaulted<string | null>;
+  bill_to_name: Defaulted<string | null>;
+  bill_to_address: Defaulted<string | null>;
+  bill_to_tax_number: Defaulted<string | null>;
+  bill_to_email: Defaulted<string | null>;
+  net_total: Defaulted<number>;
+  tax_total: Defaulted<number>;
+  total: Defaulted<number>;
+  tax_by_rate: Defaulted<string>;
+  created_at: string;
+  created_by: string;
+  updated_at: string;
+  updated_by: string;
+  version: Defaulted<number>;
+}
+
+/** Migration 1030: a quote. Once sent, the database refuses any change to what it says. */
+export interface CoreQuoteTable extends DocumentColumns {
+  state: Defaulted<"draft" | "sent" | "accepted" | "declined" | "expired" | "withdrawn">;
+  site_address: Defaulted<string | null>;
+  about_object: Defaulted<string | null>;
+  about_id: Defaulted<string | null>;
+  title: Defaulted<string | null>;
+  notes: Defaulted<string | null>;
+  valid_until: Defaulted<string | null>;
+  deposit_kind: Defaulted<"none" | "amount" | "percent">;
+  deposit_value: Defaulted<number | null>;
+  replaces_quote_id: Defaulted<string | null>;
+  acceptance_id: Defaulted<string | null>;
+  sent_at: Defaulted<string | null>;
+  accepted_at: Defaulted<string | null>;
+  declined_at: Defaulted<string | null>;
+  decline_reason: Defaulted<string | null>;
+  withdrawn_at: Defaulted<string | null>;
+  expired_at: Defaulted<string | null>;
+}
+
+/** Migration 1030: an invoice. Once issued, the database refuses any change to what it says. */
+export interface CoreInvoiceTable extends DocumentColumns {
+  state: Defaulted<"draft" | "issued" | "sent" | "part_paid" | "paid" | "credited" | "void">;
+  kind: Defaulted<"standard" | "deposit" | "final">;
+  site_address: Defaulted<string | null>;
+  about_object: Defaulted<string | null>;
+  about_id: Defaulted<string | null>;
+  title: Defaulted<string | null>;
+  notes: Defaulted<string | null>;
+  quote_id: Defaulted<string | null>;
+  order_id: Defaulted<string | null>;
+  payment_terms_days: number;
+  issued_on: Defaulted<string | null>;
+  due_on: Defaulted<string | null>;
+  issued_at: Defaulted<string | null>;
+  sent_at: Defaulted<string | null>;
+  allow_part_payments: Defaulted<number>;
+  reminders_paused: Defaulted<number>;
+  reminders_paused_reason: Defaulted<string | null>;
+  business: Defaulted<string | null>;
+}
+
+/** Migration 1030: a credit note against an invoice. Once issued, never changed. */
+export interface CoreCreditNoteTable extends DocumentColumns {
+  state: Defaulted<"draft" | "issued">;
+  invoice_id: string;
+  reason: Defaulted<string | null>;
+  settle: Defaulted<"reduce" | "refund" | "both">;
+  issued_on: Defaulted<string | null>;
+  issued_at: Defaulted<string | null>;
+  business: Defaulted<string | null>;
+}
+
+/** The columns every document line has (migration 1030). */
+interface DocumentLineColumns {
+  id: string;
+  position: number;
+  description: string;
+  quantity_milli: number;
+  unit: Defaulted<string | null>;
+  unit_price: number;
+  tax_key: Defaulted<string | null>;
+  tax_label: Defaulted<string | null>;
+  tax_rate: Defaulted<number>;
+  line_net: number;
+  line_tax: number;
+  line_total: number;
+  created_at: string;
+}
+
+/** The columns of a quote's or an invoice's line that a credit note's line does not have. */
+interface PricedLineColumns extends DocumentLineColumns {
+  discount_kind: Defaulted<"amount" | "percent" | null>;
+  discount_value: Defaulted<number | null>;
+  discount_reason: Defaulted<string | null>;
+  discount: Defaulted<number>;
+  source_object: Defaulted<string | null>;
+  source_id: Defaulted<string | null>;
+  source_category: Defaulted<string | null>;
+  source_price: Defaulted<number | null>;
+}
+
+/** Migration 1030: a quote's line; changed only while the quote is a draft. */
+export interface CoreQuoteLineTable extends PricedLineColumns {
+  quote_id: string;
+  source: "record" | "custom";
+}
+
+/** Migration 1030: an invoice's line; changed only while the invoice is a draft. */
+export interface CoreInvoiceLineTable extends PricedLineColumns {
+  invoice_id: string;
+  source: "record" | "custom" | "deduction";
+  deducts_invoice_id: Defaulted<string | null>;
+}
+
+/** Migration 1030: a credit note's line; changed only while the credit note is a draft. */
+export interface CoreCreditNoteLineTable extends DocumentLineColumns {
+  credit_note_id: string;
+  credits_line_id: Defaulted<string | null>;
+}
+
+/**
+ * Migration 1030 (decision 11 of stage 35): the document event log, read by `seq`. Insert only:
+ * the database refuses any update or delete, and a row below the newest.
+ */
+export interface CoreInvoiceEventTable {
+  seq: Generated<number>;
+  document_kind: "quote" | "invoice" | "credit_note";
+  document_id: string;
+  invoice_id: string | null;
+  event:
+    | "issued"
+    | "sent"
+    | "payment_applied"
+    | "payment_reversed"
+    | "credited"
+    | "refund_confirmed"
+    | "paid_back"
+    | "voided";
+  payment_id: string | null;
+  method: string | null;
+  amount: number | null;
+  currency: string | null;
+  at: string;
+  by_user: string | null;
+}
+
+/**
  * Migration 1270 (stage 58 step 1, ADR 0850): one stretch of time a staff member worked, the one
  * record of time worked. Times are unix seconds; `ends` is null while open. The database refuses
  * two overlapping entries of one account and a second open one.
@@ -2060,6 +2251,36 @@ export interface CoreStaffFeedTable {
   token_hash: string;
   tool: string;
   created_at: string;
+}
+
+/** Migration 1050 (stage 36, ADR 0740): a conversation in the shared inbox. */
+export interface CoreConversationTable {
+  id: string;
+  person_id: string | null;
+  sender_address: Defaulted<string | null>;
+  sender_hash: Defaulted<string | null>;
+  channel: "email" | "chat";
+  inbox_address: Defaulted<string | null>;
+  subject: Defaulted<string | null>;
+  status: Defaulted<"open" | "waiting" | "closed">;
+  assignee_id: Defaulted<string | null>;
+  category: Defaulted<string | null>;
+  about_object: Defaulted<string | null>;
+  about_id: Defaulted<string | null>;
+  private_at: Defaulted<Timestamp | null>;
+  private_by: Defaulted<string | null>;
+  sender_unverified: Defaulted<number>;
+  opened_at: Timestamp;
+  last_inbound_at: Defaulted<Timestamp | null>;
+  last_reply_at: Defaulted<Timestamp | null>;
+  first_reply_at: Defaulted<Timestamp | null>;
+  reply_due_at: Defaulted<Timestamp | null>;
+  snoozed_until: Defaulted<Timestamp | null>;
+  closed_at: Defaulted<Timestamp | null>;
+  closed_by: Defaulted<string | null>;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  version: Defaulted<number>;
 }
 
 /**
@@ -3857,6 +4078,133 @@ export interface CoreImportKeyTable {
   imported_by: string;
 }
 
+/** Migration 1330 (stage 61): accounting sync's one settings row (id 1). */
+export interface CoreAccountingSettingsTable {
+  id: number;
+  connection_id: Defaulted<string | null>;
+  resource: Defaulted<string | null>;
+  start_date: Defaulted<string | null>;
+  approved_days: Defaulted<number>;
+  approve_until: Defaulted<number>;
+  settle_days: Defaulted<number>;
+  enabled: Defaulted<number>;
+  automatic_told_at: Defaulted<Timestamp | null>;
+  updated_by: string;
+  updated_at: Timestamp;
+}
+
+export type AccountingMapKind =
+  | "category"
+  | "tax"
+  | "fees"
+  | "clearing"
+  | "bank"
+  | "method"
+  | "rounding"
+  | "refunds"
+  | "invoice_default";
+
+/** Migration 1330: which books account or tax rate each kind of host money goes to. */
+export interface CoreAccountingMapTable {
+  connection_id: string;
+  kind: AccountingMapKind;
+  /** A category key, tax code or recorded-payment kind; empty for the single kinds. */
+  host_key: Defaulted<string>;
+  books_ref: string;
+  books_name: string;
+  set_by: string;
+  set_at: Timestamp;
+}
+
+/** Migration 1330: a host object to the books' record it is, unique both ways per connection. */
+export interface CoreAccountingLinkTable {
+  connection_id: string;
+  object: "person" | "organisation" | "invoice" | "credit_note" | "payment" | "payout" | "summary";
+  object_id: string;
+  books_kind: "contact" | "document" | "payment" | "entry";
+  books_ref: string;
+  created_at: Timestamp;
+}
+
+export type AccountingPostState =
+  | "awaiting_approval"
+  | "queued"
+  | "sending"
+  | "sent"
+  | "retrying"
+  | "held"
+  | "unknown"
+  | "skipped";
+
+/** Migration 1330: the outbox, one entry to send to the books with its fixed reference. */
+export interface CoreAccountingPostTable {
+  id: string;
+  connection_id: string;
+  kind:
+    | "summary"
+    | "adjustment"
+    | "transfer"
+    | "contact"
+    | "invoice"
+    | "credit_note"
+    | "payment"
+    | "refund"
+    | "void";
+  source_kind: string;
+  source_id: string;
+  n: Defaulted<number>;
+  reference: string;
+  carries_date: string;
+  belongs_date: string;
+  amount: Defaulted<number>;
+  /** JSON array: the lines as sent. */
+  lines: Defaulted<JsonText>;
+  /** JSON: what a contact or document carried about its person (an erase may clear it). */
+  detail: Defaulted<JsonText | null>;
+  depends_on: Defaulted<string | null>;
+  state: AccountingPostState;
+  attempts: Defaulted<number>;
+  next_attempt_at: Defaulted<Timestamp | null>;
+  error_code: Defaulted<string | null>;
+  error_text: Defaulted<string | null>;
+  books_ref: Defaulted<string | null>;
+  sent_at: Defaulted<Timestamp | null>;
+  approved_by: Defaulted<string | null>;
+  approved_at: Defaulted<Timestamp | null>;
+  skipped_by: Defaulted<string | null>;
+  skipped_at: Defaulted<Timestamp | null>;
+  skip_reason: Defaulted<string | null>;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+/** Migration 1330: each money event to the entry it went in, unique by source. */
+export interface CoreAccountingItemTable {
+  source_kind: string;
+  source_id: string;
+  post_id: string;
+  belongs_date: string;
+  amount: number;
+  created_at: Timestamp;
+}
+
+/** Migration 1330: a bill-to waiting for a person to choose its contact in the books. */
+export interface CoreAccountingMatchTable {
+  id: string;
+  connection_id: string;
+  reason: "unsure" | "merged";
+  object: "person" | "organisation";
+  object_id: string;
+  post_id: Defaulted<string | null>;
+  /** JSON array, at most 10: ref, name, email, tax number, archived. */
+  candidates: Defaulted<JsonText>;
+  state: Defaulted<"open" | "linked" | "created" | "dismissed">;
+  chosen_ref: Defaulted<string | null>;
+  decided_by: Defaulted<string | null>;
+  decided_at: Defaulted<Timestamp | null>;
+  created_at: Timestamp;
+}
+
 /** `core_published_media` (migration 0461): media a record's current version references. */
 export interface CorePublishedMediaTable {
   media_id: string;
@@ -4004,6 +4352,7 @@ export interface CoreDatabase {
   core_field_options: CoreFieldOptionsTable;
   core_customer: CoreCustomerTable;
   core_customer_session: CoreCustomerSessionTable;
+  core_customer_email_change: CoreCustomerEmailChangeTable;
   core_customer_verification: CoreCustomerVerificationTable;
   core_customer_invite: CoreCustomerInviteTable;
   core_erase_request: CoreEraseRequestTable;
@@ -4058,6 +4407,14 @@ export interface CoreDatabase {
   core_leave_day: CoreLeaveDayTable;
   core_leave_balance_entry: CoreLeaveBalanceEntryTable;
   core_staff_hours: CoreStaffHoursTable;
+  core_document_counter: CoreDocumentCounterTable;
+  core_quote: CoreQuoteTable;
+  core_quote_line: CoreQuoteLineTable;
+  core_invoice: CoreInvoiceTable;
+  core_invoice_line: CoreInvoiceLineTable;
+  core_credit_note: CoreCreditNoteTable;
+  core_credit_note_line: CoreCreditNoteLineTable;
+  core_invoice_event: CoreInvoiceEventTable;
   core_time_entry: CoreTimeEntryTable;
   core_staff_feed: CoreStaffFeedTable;
   core_customer_feed: CoreCustomerFeedTable;
@@ -4065,6 +4422,7 @@ export interface CoreDatabase {
   core_person_pin: CorePersonPinTable;
   core_identify_lockout: CoreIdentifyLockoutTable;
   core_checklist: CoreChecklistTable;
+  core_conversation: CoreConversationTable;
   core_checklist_step: CoreChecklistStepTable;
   core_checklist_run: CoreChecklistRunTable;
   core_checklist_tick: CoreChecklistTickTable;
@@ -4101,6 +4459,12 @@ export interface CoreDatabase {
   core_published_media: CorePublishedMediaTable;
   core_media_caption: CoreMediaCaptionTable;
   core_import_key: CoreImportKeyTable;
+  core_accounting_settings: CoreAccountingSettingsTable;
+  core_accounting_map: CoreAccountingMapTable;
+  core_accounting_link: CoreAccountingLinkTable;
+  core_accounting_post: CoreAccountingPostTable;
+  core_accounting_item: CoreAccountingItemTable;
+  core_accounting_match: CoreAccountingMatchTable;
   core_journey: CoreJourneyTable;
   core_journey_version: CoreJourneyVersionTable;
   core_journey_entry: CoreJourneyEntryTable;

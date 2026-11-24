@@ -11,6 +11,30 @@ grantable), [0660](0660-pack-screens-in-the-admin.md) (pack screens) and
 [ADR 0652](0652-a-tool-for-every-staff-account-and-a-tool-held-to-a-core-permission.md) (the two
 tool declarations this needs). Migration 0816.
 
+Amended 2026-11-24, after the review of #383 (migration 0817):
+- **The database holds when, too.** A tick on an open day run is refused unless its `ticked_at` is
+  inside the run's day, and a day run is closed as missed only with a `closed_at` at or after its
+  `closes`, by nobody (no closer, person or why): `core_checklist_window`. The time judged is the
+  one the writer records, as every time in the host is the caller's clock (the minute cron is run
+  with a clock in tests): a run closed at noon by a host bug or a script is refused; a writer that
+  records a false time is not, as for any time it writes.
+- **A day's run is the date in its record.** Today's list and the history find runs by the date in
+  `record_id` (read by the opening index two days either side), not by where a run's window falls
+  in the zone now, so a run made before the business's zone was moved is still its date's (as a
+  tick finds it): never shown as not started while every tick on it is refused.
+- **Who it can be for** (`checklist.whoChoices`, which names the grantable permissions, otherwise
+  an admin's to read) is held to `checklists:write`, a person's own read, off MCP.
+- **The refusals are answered as refusals**: `core_checklist_not_allowed` (a race: an account's role
+  changed between the host's read and the write) is `forbidden`, `core_checklist_window` a conflict.
+- A tick and a finish answer the run as committed (the run the minute cron made meanwhile, and
+  finished only if this call finished it); the people told of a missed day are read as managers in
+  the query, not after a limit; the history counts the steps ticked not done, so a day done with
+  every step "not done, with why" shows as such.
+- Left as they were, consistent with ADR 0650: changing someone else's tick is a manager's, judged
+  by the host on its read (two first ticks at once both stand, the later counting); erasing a staff
+  account does not yet clear its ticks (ADR 0650's open item); a door account reaches Today's
+  checklists for everyone on staff (ADR 0652, for the owner to confirm).
+
 ## Context
 Until now a checklist run existed only on a record that declares `checklists`: Rostering's duty
 shift. A business with no roster (the first client: an opening, a closing and a cleaning checklist,

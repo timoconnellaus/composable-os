@@ -157,7 +157,7 @@ Open a note to read its text: a sensitive note is listed on timelines without it
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
 | `id` | string | yes |   |   |
-| `type` | `"note"`, `"email"`, `"call"`, `"meeting"`, `"system"` | yes |   |   |
+| `type` | `"note"`, `"email"`, `"call"`, `"meeting"`, `"system"`, `"chat"` | yes |   |   |
 | `subject` | string or null | yes |   |   |
 | `body` | string or null | yes |   |   |
 | `payload` | map of any | yes |   |   |
@@ -177,6 +177,7 @@ Open a note to read its text: a sensitive note is listed on timelines without it
 | `disclosure` | `"full"`, `"metadata"` or null |   |   |   |
 | `hasFullBody` | boolean |   |   |   |
 | `threadKey` | string or null |   |   |   |
+| `conversationId` | string or null |   |   |   |
 | `level` | `"coaches"`, `"sensitive"` |   |   |   |
 | `locked` | boolean |   |   |   |
 | `kind` | object |   |   |   |

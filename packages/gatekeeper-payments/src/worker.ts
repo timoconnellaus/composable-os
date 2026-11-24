@@ -60,6 +60,8 @@ import type {
   PaymentsChangeSubscriptionInput,
   PaymentsCheckout,
   PaymentsCheckoutInput,
+  PaymentsCustomerEmailInput,
+  PaymentsCustomerEmailReceipt,
   PaymentsEvent,
   PaymentsEventHook,
   PaymentsPauseSubscriptionInput,
@@ -95,6 +97,7 @@ import {
   parseCancelSubscriptionInput,
   parseChangeSubscriptionInput,
   parseCheckoutInput,
+  parseCustomerEmailInput,
   parsePauseSubscriptionInput,
   parsePortalInput,
   parsePresentInput,
@@ -195,6 +198,8 @@ type StoredChange = { provider: PaymentsProviderName; input: PaymentsChangeSubsc
 type StoredPause = { provider: PaymentsProviderName; input: PaymentsPauseSubscriptionInput };
 type StoredUnpause = { provider: PaymentsProviderName; input: PaymentsUnpauseSubscriptionInput };
 type StoredVoid = { provider: PaymentsProviderName; input: PaymentsVoidUpdateInput };
+/** A customer's new email, after a member proved it (stage 48, ADR 0712). */
+type StoredEmail = { provider: PaymentsProviderName; input: PaymentsCustomerEmailInput };
 /** A reader's registration and removal (stage 50, ADR 0774). */
 type StoredRegisterReader = { provider: PaymentsProviderName; input: PaymentsRegisterReaderInput };
 type StoredRemoveReader = { provider: PaymentsProviderName; input: PaymentsRemoveReaderInput };
@@ -208,6 +213,7 @@ type Actions = {
   pause: StoredPause;
   unpause: StoredUnpause;
   void_update: StoredVoid;
+  customer_email: StoredEmail;
 };
 
 const REFUND_KIND: ActionKind = { tag: "payments.refund", label: "Refund a payment" };
@@ -243,6 +249,10 @@ const UNPAUSE_KIND: ActionKind = {
   tag: "payments.subscription.unpause",
   label: "End a subscription's pause",
 };
+const CUSTOMER_EMAIL_KIND: ActionKind = {
+  tag: "payments.customer.email",
+  label: "Change a customer's email",
+};
 
 /** What the action handlers may do. Not the Durable Object: provider calls live behind approval. */
 type PaymentsHost = {
@@ -255,6 +265,7 @@ type PaymentsHost = {
   sendPause(change: StoredPause): Promise<void>;
   sendUnpause(change: StoredUnpause): Promise<void>;
   sendVoid(change: StoredVoid): Promise<void>;
+  sendEmail(change: StoredEmail): Promise<void>;
 };
 
 function describeCancel(change: StoredCancel) {
@@ -371,6 +382,24 @@ function describeVoid(change: StoredVoid) {
     .verbatim("Reason", input.reason);
   return {
     title: sanitizeTitle(`Withdraw the upgrade of subscription ${input.subscriptionId}`),
+    ...builder.finish(),
+    implementsRevert: false,
+  };
+}
+
+function describeEmail(change: StoredEmail) {
+  const { input } = change;
+  const builder = buildDescription(
+    `Gives customer ${input.customerRef} at ${PROVIDER_TITLES[change.provider]} a new email ` +
+      "address, the one the member proved by a code when they changed their sign-in address. " +
+      "The provider sends its receipts and its own emails there from now on. No money moves.",
+  )
+    .inline("Provider", PROVIDER_TITLES[change.provider])
+    .inline("Provider's customer", input.customerRef)
+    .inline("Address change", input.changeId)
+    .verbatim("New email", input.email);
+  return {
+    title: sanitizeTitle(`Change the email of customer ${input.customerRef}`),
     ...builder.finish(),
     implementsRevert: false,
   };
@@ -553,6 +582,19 @@ const actions = defineActions<PaymentsHost, Actions>(
       },
       reject: async () => {},
     },
+    // Where a customer's receipts go (stage 48, ADR 0712): never auto-approvable, and asked only by
+    // the host (below), which applies its own call at once after the member proved the address.
+    customer_email: {
+      kind: CUSTOMER_EMAIL_KIND,
+      autoApprovable: false,
+      delivery: "continue-with-simulation",
+      claimBeforeApply: true,
+      describe: (change) => describeEmail(change),
+      apply: async (change, host) => {
+        await host.sendEmail(change);
+      },
+      reject: async () => {},
+    },
   },
   // The provider's keys are this Worker's own, not a user's connection: nothing to fence on.
   { fence: "none", vendorId: "payments" },
@@ -572,6 +614,7 @@ type SessionBackend = {
   submitPause(queue: RpcStub<ApprovalQueue>, change: StoredPause): Promise<number>;
   submitUnpause(queue: RpcStub<ApprovalQueue>, change: StoredUnpause): Promise<number>;
   submitVoid(queue: RpcStub<ApprovalQueue>, change: StoredVoid): Promise<number>;
+  submitEmail(queue: RpcStub<ApprovalQueue>, change: StoredEmail): Promise<number>;
   submitRegisterReader(
     queue: RpcStub<ApprovalQueue>,
     change: StoredRegisterReader,
@@ -859,6 +902,26 @@ class PaymentsSessionImpl extends RpcTarget implements PaymentsSession {
     return provider.openPortal(parsed);
   }
 
+  async updateCustomerEmail(
+    input: PaymentsCustomerEmailInput,
+  ): Promise<PaymentsCustomerEmailReceipt> {
+    const parsed = parseCustomerEmailInput(input);
+    // A customer's billing email decides where the provider sends their receipts: only the host
+    // asks, for a member who proved the address (ADR 0712). Code Mode, an extension's tool, an
+    // automation and MCP reach this session through queues that answer no.
+    if (!(await isHostOrdersQueue(this.#queue))) {
+      throw new Error(
+        "A customer's email is changed only by the host, after the member proved the address.",
+      );
+    }
+    this.#backend.open();
+    const id = await this.#backend.submitEmail(this.#queue, {
+      provider: this.#backend.provider,
+      input: parsed,
+    });
+    return { status: this.#backend.wasApplied(id) ? "sent" : "pending", id };
+  }
+
   // --- Card readers (stage 50, ADR 0774) ------------------------------------------------------
   // The host's own call only: the host keeps which till a reader serves and the presentation it
   // matches the payment on, so a reader registered or a payment presented any other way (Code
@@ -970,6 +1033,8 @@ export class PaymentsGatekeeper
       (await this.#openForApply(change.provider)).unpauseSubscription(change.input),
     sendVoid: async (change) =>
       (await this.#openForApply(change.provider)).voidPendingUpdate(change.input),
+    sendEmail: async (change) =>
+      (await this.#openForApply(change.provider)).updateCustomerEmail(change.input),
   };
 
   /** The provider an approved action is sent through; a provider not set up sends nothing. */
@@ -1044,6 +1109,7 @@ export class PaymentsGatekeeper
       submitPause: (queue, change) => this.#actions().submit(queue, "pause", change),
       submitUnpause: (queue, change) => this.#actions().submit(queue, "unpause", change),
       submitVoid: (queue, change) => this.#actions().submit(queue, "void_update", change),
+      submitEmail: (queue, change) => this.#actions().submit(queue, "customer_email", change),
       submitRegisterReader: (queue, change) =>
         this.#actions().submit(queue, "register_reader", change),
       submitRemoveReader: (queue, change) => this.#actions().submit(queue, "remove_reader", change),

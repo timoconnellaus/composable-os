@@ -9,6 +9,7 @@ export type OperationErrorCode =
   | "denied"
   | "pending_approval"
   | "second_step_required"
+  | "sign_in_again"
   | "rate_limited"
   | "plan_limit"
   | "not_found"
@@ -141,6 +142,24 @@ export class PlanLimitError extends OperationError {
   override name = "PlanLimitError";
   constructor(message: string, details?: unknown) {
     super("plan_limit", message, details);
+  }
+}
+
+/**
+ * A sensitive act of a customer's (changing the sign-in address, deleting the account) needs a
+ * sign-in made within the last few minutes (stage 48, ADR 0712), and this call's session is older
+ * or unknown. The client sends the person through the code sign-in and back, then asks again.
+ */
+export class SignInAgainError extends OperationError {
+  override name = "SignInAgainError";
+  constructor(withinMinutes: number) {
+    super(
+      "sign_in_again",
+      `Sign in again first: this needs a sign-in within ${withinMinutes} minutes`,
+      {
+        withinMinutes,
+      },
+    );
   }
 }
 
@@ -357,6 +376,18 @@ export function toOperationError(error: unknown): OperationError {
       reason: "immutable",
     });
   }
+  // An address change confirmed, cancelled or replaced by another call while this one was being
+  // planned (migration 0990's trigger and its one-open-change index, ADR 0712): nothing applied.
+  if (
+    message.includes("core_email_change_closed") ||
+    message.includes("UNIQUE constraint failed: core_customer_email_change.customer_id")
+  ) {
+    return new ConflictError(
+      "This address change was confirmed, cancelled or replaced meanwhile, so nothing was " +
+        "changed. Look at the account again.",
+      { rule: "email_change_closed" },
+    );
+  }
   // A batch planned from a read that changed before it committed (migration 0560's guard): a
   // series changed under a run, or a class was booked under a change to its series.
   if (message.includes("core_recurrence_stale")) {
@@ -489,6 +520,27 @@ export function toOperationError(error: unknown): OperationError {
       { rule: "checklist_closed" },
     );
   }
+  // A day's checklist (migration 0816, ADR 0651) ticked or finished for someone who may not do it,
+  // or for someone by someone who does not manage checklists: the host reads this first, so here
+  // it is a race (an account deactivated, made a viewer or losing its role or grant meanwhile).
+  if (message.includes("core_checklist_not_allowed")) {
+    return new ForbiddenError(
+      "You may not tick or finish this checklist, so nothing was changed.",
+      {
+        rule: "checklist_not_allowed",
+      },
+    );
+  }
+  // A day's checklist ticked outside its day, or closed as missed before its day ended or by
+  // someone (migration 0817): the host reads its window first.
+  if (message.includes("core_checklist_window")) {
+    return new ConflictError(
+      "This checklist is ticked on its own day only, and missed only after it.",
+      {
+        rule: "checklist_window",
+      },
+    );
+  }
   if (message.includes("core_checklist_incomplete")) {
     return new ValidationError(
       "Not every required step of this checklist is ticked, so it was not marked done.",
@@ -533,6 +585,23 @@ export function toOperationError(error: unknown): OperationError {
     return new ConflictError(
       "This pay period, or one overlapping it, is already locked, so nothing was changed.",
       { rule: "pay_period_held" },
+    );
+  }
+  // The accounting outbox (migration 1330): an entry sent to the books, or skipped, never changes
+  // and is never deleted; a reference is queued once.
+  if (
+    message.includes("core_accounting_post_fixed") ||
+    message.includes("UNIQUE constraint failed: core_accounting_post")
+  ) {
+    return new ConflictError(
+      "An entry sent to the books, or skipped, never changes, and nothing is queued twice.",
+      { rule: "accounting_post_fixed" },
+    );
+  }
+  if (message.includes("core_accounting_start_fixed")) {
+    return new ConflictError(
+      "Entries were already sent from the start date, so it no longer changes",
+      { rule: "accounting_start_fixed" },
     );
   }
   if (message.includes("core_pay_period_fixed")) {
@@ -697,6 +766,38 @@ export function toOperationError(error: unknown): OperationError {
     return new ConflictError("A place came free meanwhile: claim it instead of waiting.", {
       rule: "waitlist",
       reason: "not_full",
+    });
+  }
+  // Quotes, invoices and credit notes (migration 1030, ADR 0730): an issued document nobody
+  // changes; a draft changed by someone else since it was read; a number given out of turn; a
+  // series changed meanwhile; the event log, insert only.
+  if (message.includes("core_document_immutable")) {
+    return new ForbiddenError(
+      "A sent quote, or an issued invoice or credit note, is never changed or deleted: withdraw the quote, or credit the invoice.",
+      { rule: "document_immutable" },
+    );
+  }
+  if (message.includes("core_document_stale") || message.includes("core_document_new")) {
+    return new ConflictError(
+      "The draft changed while you were changing it (someone else saved it). Look at it again; nothing was changed.",
+      { rule: "document_changed" },
+    );
+  }
+  if (
+    message.includes("core_document_number") ||
+    message.includes("core_document_counter_back") ||
+    message.includes("UNIQUE constraint failed: core_quote.number_seq") ||
+    message.includes("UNIQUE constraint failed: core_invoice.number_seq") ||
+    message.includes("UNIQUE constraint failed: core_credit_note.number_seq")
+  ) {
+    return new ConflictError(
+      "The numbering changed meanwhile (a number was given, or the series was changed). Look at it again; no number was used.",
+      { rule: "document_numbering" },
+    );
+  }
+  if (message.includes("core_invoice_event_immutable")) {
+    return new ForbiddenError("The invoice log is never changed: rows are only added.", {
+      rule: "invoice_event_immutable",
     });
   }
   // Agreement documents (migration 0850, ADR 0640): a version nobody changes; a publish of a

@@ -144,7 +144,27 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   Gateway calls turn payload logging off (self-hosted Workers AI too, over REST, ADR 0330), and
   errors reach Workers Logs masked (`errorForLog`). An organisation erase drops a shared email's
   body only when no person is left linked to it; otherwise it scrubs the organisation's terms
-  from it (ADR 0320 amendment).
+  from it (ADR 0320 amendment). A person erase ends every subscription the Person pays for or
+  holds as a member's own deletion does ([ADR 0533](adr/0533-erase-ends-a-subscription-at-the-end-of-the-period-paid-for.md),
+  issue #293, `subscriptions/erase.ts`): before its batch commits it asks the provider to end one
+  whose current period is paid when that period ends, and one past due, paused, unpaid or waiting
+  for its first payment at once; nothing is refunded or charged, and the record moves with the
+  provider's events. It asks once more after the commit for a checkout of theirs confirmed
+  meanwhile. The admins are told of one it could not ask and of one another live Person is on, and
+  `subscription.resume` and `.unpause` refuse one with a Person gone. A checkout the provider
+  confirms after the erase (or whose holder was erased) makes nothing and is asked to end the same
+  way.
+- **The shared inbox** ([ADR 0740](adr/0740-conversations-messages-as-activities-and-private-conversations.md),
+  stage 36): a **conversation** (`core_conversation`) is a core record with its person (or an
+  unknown sender's address), channel, status, assignee, what it is about and a private mark; its
+  messages are `email` and `chat` activities and its staff notes `note` activities, each carrying
+  `conversation_id` (migration 1430 rebuilt `core_activity` for the `chat` type, after the note
+  levels and kinds it carries forward). Only host code
+  writes messages (`inbox/index.ts`). A private conversation is read only by admins and its
+  assignee, through one rule every read path takes (the inbox's operations, timelines, activity
+  reads); search, the `rec_*` views, embeddings and summaries leave it out for everyone. `inbox:*`
+  permissions are core and never held by a pack role. An erase and the Trash purge delete a
+  Person's conversations whole; a merge moves them.
 - **Storage retention** ([ADR 0090](adr/0090-storage-retention.md)): D1 stops at 10 GB, so the same
   cron keeps growth bounded. Successful reads by AI, extensions and automations are counted per
   hour (`core_audit_read_counts`) rather than audited row by row. Write audits are kept forever by
@@ -1076,9 +1096,24 @@ As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
   staff. Who may sign up is a human admin's setting: invite only, also buyers (ADR 0458), or
   anyone; and, on top, anyone starting a subscription while a plan is on sale (ADR 0459).
 - **Open operations:** `me.get`, `me.update`, `me.family`, `me.signOut`, `me.sessions.*`,
-  `me.deleteAccount`, `me.attention` (stage 48, ADR 0711), `me.portal` (stage 48, ADR 0710),
-  `my.list`, `my.get`, and for tools only `my.create`, `my.update`, and `my.delete` (the Trash, only for an object whose
-  `customer.delete` says so: a logged set).
+  `me.email.change`, `me.email.confirm`, `me.deleteAccount`, `me.attention` (stage 48, ADR 0711),
+  `me.portal` (stage 48, ADR 0710), `my.list`, `my.get`, and for tools only `my.create`,
+  `my.update`, and `my.delete` (the Trash, only for an object whose `customer.delete` says so: a
+  logged set).
+- **A recent sign-in** (stage 48, [ADR 0712](adr/0712-changing-the-sign-in-address-and-a-recent-sign-in.md)):
+  asking for or confirming an address change and deleting the account (its preview
+  too) need a sign-in within 15 minutes, read
+  from the calling session's own row (`customers/recent-sign-in.ts`); otherwise `sign_in_again`.
+  A device session exchanged from a browser session starts at that sign-in.
+- **Changing the sign-in address** (ADR 0712, `customers/email-change.ts`,
+  `core_customer_email_change`, migration 0990): `me.email.change` emails a code to the new
+  address as the host's sign-in mail, answering the same for any address and reserving its row
+  under the limits before sending; `me.email.confirm` with the code (a closed change never
+  changes again, so racing calls apply once), refused while another Person, account or the erased list holds the address,
+  moves the account's address and the Person's primary email in one batch, ends the other
+  sessions, and after the commit tells the old address and gives the payment provider the new one
+  (`payments.customer.email`, the host's own call). Staff (`customer.changeEmail`,
+  `.cancelEmailChange`, human admins) start or cancel one and never finish it.
 - **A pack's tool called by a customer runs as that customer.** Its operation calls take the same
   outside path with the same principal. It may set an object's writable fields and the fields
   the tool lists in its manifest. A runtime extension can open nothing.
@@ -1093,12 +1128,14 @@ As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
   (`core_erase_request`, migration 0402; due after `customer.settings` `eraseDueDays`, default
   30; `eraseRequest.list` / `eraseRequest.decline`, shown under Settings → Storage; the daily
   maintenance cron reminds admins once a day about an overdue one.)
-- **Erase and merge:** `person.erase` deletes the person's customer account, its sessions and
-  sign-in codes, invites for their addresses and their erase requests, and lists the account's
-  address as erased. `person.merge` moves the account to the survivor, is refused while both
+- **Erase and merge:** `person.erase` deletes the person's customer account, its sessions,
+  sign-in codes and address changes, invites for their addresses and their erase requests, and
+  lists the account's address as erased. A former address (from the audit or an address change)
+  is the person's only while no other identified Person holds it now (#302, ADR 0712). `person.merge` moves the account to the survivor, is refused while both
   people have an active one, and links a `needs_merge` account the merge resolves.
 - **Limits:** a customer's calls per account and operation, and code requests per address asked
-  for (`customers/limits.ts`, Workers Rate Limiting). Per client address only at the edge, and no
+  for (`customers/limits.ts`, Workers Rate Limiting); address changes per account and per mailbox,
+  reserved by one conditional insert of their row. Per client address only at the edge, and no
   address is stored.
 
 The HTTP routes that mount customer sign-in and carry these calls are stage 23's.
@@ -1589,12 +1626,13 @@ run's person and people who roster, at the screen, never an AI; the tables are i
 `staffing.week` gives everyone a shift's checklist name and its state only to its person and
 rosterers. Notes and reasons are redacted from the audit log and never answered by a write.
 **Checklists on their own** ([ADR 0651](adr/0651-checklists-on-their-own-a-schedule-a-run-a-day-and-who-may-do-it.md),
-`checklists/days.ts`, `operations/checklist-days.ts`, migration 0816): a template may carry a
+`checklists/days.ts`, `operations/checklist-days.ts`, migrations 0816 and 0817): a template may carry a
 schedule (weekdays, a due time, who may do it: staff, a role or pack role, or a grant). Each due day
 gets one run in the same table (`object_type` `checklist.day`, `record_id` `<template>:<date>`),
 made by the same cron for the business's local day (`localDay`) and closed as missed when the day
 ends (the managers, holders of `checklists:write`, told); it copies who may do it, which triggers
-check on every tick and finish, on someone's behalf only by a manager. The tool-only
+check on every tick and finish, on someone's behalf only by a manager; a tick only inside its day,
+and missed only after it, by nobody (0817). A day's run is found by the date in its record. The tool-only
 `checklist.today`, `.day`, `.dayTick`, `.dayDone` and `.days` serve the Daily checklists pack
 (`packs/dailychecks`), whose tools are open to every staff account, pack roles included
 (`anyStaff`), or held to `checklists:write` (`corePermission`, ADR 0652). Rostering's checklist
@@ -1814,7 +1852,8 @@ and the schedule, never stored) and `publishAt`. `record.createMany` writes up t
 one object in one batch, at 4 statements a record for an object with states (ADR 0448).
 `publishIn` ([ADR 0810](adr/0810-publishable-with-an-author.md)) names the states a record may
 be published in: a publish (or a scheduled one coming due) outside them is refused or dropped,
-and a write that moves the record out of them unpublishes it in its own batch.
+and a write that moves the record out of them unpublishes it in its own batch; a publish whose
+record moved out after it was read fails at commit (a guard in its batch, `moved_meanwhile`).
 
 **Publishable with an author** ([ADR 0810](adr/0810-publishable-with-an-author.md),
 `packages/core/src/records/authored.ts`). A publishable object may declare a `customer`, its
@@ -1827,7 +1866,10 @@ assistant, MCP, automations, the extension's own code) in the record code every 
 through (`prepareValues`: record.create, record.update, record.createMany, import, restoring a
 version) and
 shown read-only in `schema.objects`; the author (through the seam) and platform code writing as
-the host pass. Staff still publish, unpublish and move its states.
+the host pass. Whose it is (the customer field) is refused to them too; the seam sets it, a
+person merge moves it. Once the record is in a final state (a withdrawn review) the author's
+fields are not written again, by the author either. `public.read` lists no field the author
+writes but as content. Staff still publish, unpublish and move its states.
 
 **What the public reads of content** ([ADR 0442](adr/0442-what-the-public-reads-of-content.md),
 [ADR 0443](adr/0443-preview-links.md), `packages/core/src/operations/content.ts`). A publishable
@@ -2560,6 +2602,53 @@ then one summary email goes to the member, claimed before it is sent. The minute
 asks the gatekeeper for each refund, which waits for a person with `orders:refund` (ADR 0429).
 Nothing refunds a card on its own.
 
+**Quotes, invoices and credit notes** (stage 35, ADRs
+[0730](adr/0730-quotes-invoices-and-credit-notes-as-core-records.md) and
+[0732](adr/0732-tax-worked-out-by-the-host-on-documents.md), `packages/core/src/invoices/`) are base
+records beside Order: `core_quote`, `core_invoice`, `core_credit_note` and their lines (migration
+1030), the base objects `quote`, `invoice` and `creditNote` in the field registry, staff only. A
+**draft** has no number; staff with `invoices:write` (and the assistant for them, through the gate)
+write it with `quote.*` and `invoice.*` (`create`, `update`, `addLine`, `updateLine`, `removeLine`,
+`delete`). A line is a record for sale, priced by the host with `priceLines` as an order's line is,
+or a typed line; every write moves the draft's `version` from the one read (compare-and-set) and
+recomputes its totals. The host works out the **tax** on each line from the business's own rates
+(the invoice settings), rounded half up, added on top or taken out as the document's amounts are
+typed; the document's tax is the sum of its lines', by rate (`invoices/tax.ts`). A **number** is
+given in the batch that sends or issues the document, by SQL against its series row
+(`core_document_counter`, `numberStatements`): consecutive, never shared, none used by a failed
+batch; a human admin sets a series' prefix and next number, which only goes up. Once sent or
+issued, triggers refuse any change to what the document says, raw SQL included; only its state and
+the host's bookkeeping fields move, and an erase only detaches the Person (`ON DELETE SET NULL`).
+The **document event log** (`core_invoice_event`) is append-only and read by cursor
+(`invoice.events`, `invoices:payments`): the steps that issue, send, apply payments and credit
+write it in their own batch. The **invoice settings** (`invoice.settings.*`, a human admin's) hold
+the business's details and bank details (a change tells every admin), the tax rates (a rate never
+changes, it is retired), terms, validity, reminders, the threshold for recorded payments, the footer
+and retention. `rec_quote`, `rec_invoice` and `rec_credit_note` carry numbers, states, dates,
+amounts and the bill-to's ids, never addresses, notes or bank details. Issuing as an order, recorded
+payments, credit notes, quotes' acceptance, sending and reminders, the customer's side and the
+Invoicing pack are the later steps (`docs/stages/35-invoices-quotes.md`).
+
+**Accounting sync** (stage 61, [spec](stages/61-accounting-sync.md)) sends the host's own money
+to the books a human admin connected, through the accounting contract (ADR 0880); core owns it
+(`packages/core/src/accounting/`), not a pack, and never names a system. Step 2 built its records
+(migration 1330), all core tables in no `rec_*` view: one settings row
+(`core_accounting_settings`: the books, an org connection of an `implements: "accounting"`
+gatekeeper and a resource bound on it; the start date; approval, `approved_days` of
+`approve_until`, 14 at least; the settle delay; on or off, which needs the books, an active
+connection and a start date), the mapping per connection (`core_accounting_map`: a category, tax
+code or recorded-payment kind, or one of fees, clearing, bank, rounding, refunds and the invoice
+default, to a books ref and its name as read), links (`core_accounting_link`, unique both ways per
+connection), the outbox (`core_accounting_post`: a unique `cos:` reference per entry that never changes;
+by trigger, a sent or skipped entry never changes, but for an erase clearing its `detail`, and
+is never deleted, and one being sent or of unknown outcome moves only as its outcome allows; the
+start date is fixed once an entry to those books may be in them), items (`core_accounting_item`, one
+per money event) and contact questions (`core_accounting_match`). `accounting:manage` is a core
+permission, admins by default and grantable, never to a pack role; `accounting.settings.get`
+reads with it, `accounting.map.set` and `.clear` write with it, a person only, and
+`accounting.settings.update` is a human admin's (`settings:manage`). Sending, the host-only
+connection, summaries, documents and the screens are later steps.
+
 Two reasons this is the centre of the design. Extension tools cannot run several writes as one
 transaction, so anything that must be atomic (take the last place and create the order) has to be
 the host's. And a rule in the host holds for a person, an MCP client, an import and a client app
@@ -2685,9 +2774,9 @@ As built so far (stage 24; ADRs [0420](adr/0420-packs-as-packages-as-built.md),
 
 - **`cos`** ([ADR 0422](adr/0422-client-repos-and-one-command-as-built.md)) is the one command:
   `create` (also `npm create composable-os`), `init`, `deploy`, `upgrade`, `add`, `diff`,
-  `client generate`, `ext`, and `install` for a product with no client repo. Everything a client
-  repo takes from the platform (the template, the skills, the blocks, the API contract) comes from
-  the **client kit** inside the verified release its `product.ts` names
+  `client generate`, `app` (the mobile app's way to the stores, stage 63), `ext`, and `install`
+  for a product with no client repo. Everything a client repo takes from the platform (the
+  template, the skills, the blocks, the API contract) comes from the **client kit** inside the verified release its `product.ts` names
   (`defineClientProduct({ platform: { version, release, repository }, packs, web, mobile })`).
 - **Deploying** (`cos deploy`): `cos ext check` on `extensions/` and a type check of the apps
   first; then the host from the release, with `COS_PACKS` from the product and the org's own
@@ -2717,6 +2806,18 @@ As built so far (stage 24; ADRs [0420](adr/0420-packs-as-packages-as-built.md),
   `live` keeps `<id>-app`), deployed with `cos deploy --env <name>`.
 - **The template** (`templates/client`): `apps/web` (TanStack Start, `src/host.ts` framework-free)
   and `apps/mobile` (Expo, `--with-mobile`; its `src/host.ts` signs in and keeps a device session).
+- **App publishing** (stage 63, ADRs [0900](adr/0900-the-apps-identity-brand-and-listing-from-product-ts.md),
+  [0901](adr/0901-publishing-from-the-clients-store-accounts-built-in-its-ci.md),
+  [0905](adr/0905-the-purchase-scan-over-a-clients-own-app-code.md); runbook
+  [`docs/app-publishing.md`](app-publishing.md)): the app's store identity is `mobile.app` in
+  `product.ts` (per environment where it differs); the template's `app.config.ts` reads it with
+  `appBuild` and `COS_ENV`, and `cos client generate` writes the app's `src/blocks/brand.ts`, which
+  the native base theme reads. `cos app check` refuses a store build that is not ready (ids,
+  icon, listing, buying in the app, no "Delete my account", a key in the repo). The template's
+  `.github/workflows/app.yml` builds and signs in the client repository's CI (Android on Linux,
+  iOS on macOS), sends to the stores' testing tracks behind protected CI environments a person
+  approves, and `cos app record` writes each build into the host's `core_app_build` over the deploy
+  path. A person releases to the public in each store's console.
 - **npm** ([ADR 0423](adr/0423-npm-packages-from-the-release-commit.md)): client, sdk, product,
   cli, each pack and `create-composable-os`, built from the release commit, dry-run on every
   release, published only when turned on.

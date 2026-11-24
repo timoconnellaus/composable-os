@@ -93,6 +93,12 @@ In `packages/core/test/order-tax.test.ts`:
 7. The setting is human-only: removing `actors: ["human"]` failed "only a human admin changes it
    or a code".
 
+> Amended 2026-11-24 ([ADR 0732](0732-tax-worked-out-by-the-host-on-documents.md), stage 35 step 2):
+> on quotes, invoices and credit notes the host works the tax out, from the business's own rates,
+> line by line, rounded half up; an invoice's order keeps that tax and asks the provider for none
+> (stage 35 step 3). For everything sold at checkout this decision stands: the host never
+> calculates a tax amount there, and a price on a record includes tax.
+
 ## Consequences
 - Prices, totals, what is owed, holds, grants, check-in and the order's states are unchanged; the
   stage 25, 26 and 27 tests pass unchanged with tax off.

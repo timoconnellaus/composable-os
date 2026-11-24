@@ -92,16 +92,26 @@ async function freshTokens(sessionId: string, now: Date) {
   };
 }
 
-/** Starts a session for a sign-in the adapter verified. */
+/**
+ * Starts a session for a sign-in the adapter verified. Its `created_at` is when that sign-in was
+ * made: now for a code sign-in, or `signedInAt`, the browser session's own sign-in, when a session
+ * is exchanged for tokens, so an exchange never makes an old sign-in recent (stage 48, ADR 0712:
+ * a recent sign-in reads it). A refresh never changes it.
+ */
 export async function issueDeviceSession(
   db: CrmDb,
   subject: DeviceSubject,
   deviceName: string,
   now: Date,
+  signedInAt?: Date,
 ): Promise<IssuedTokens> {
   const sessionId = newId("deviceSession");
   const t = await freshTokens(sessionId, now);
   const at = now.toISOString();
+  const started =
+    signedInAt && !Number.isNaN(signedInAt.getTime()) && signedInAt < now
+      ? signedInAt.toISOString()
+      : at;
   await db.batch([
     db.query.insertInto("core_device_session").values({
       id: sessionId,
@@ -112,7 +122,7 @@ export async function issueDeviceSession(
       access_hash: t.accessHash,
       access_expires_at: t.accessExpiresAt,
       refresh_hash: t.refreshHash,
-      created_at: at,
+      created_at: started,
       last_used_at: at,
     }),
   ]);

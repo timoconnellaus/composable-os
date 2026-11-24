@@ -275,6 +275,28 @@ export function leavingPublishWrites(
   return inPublishableState(object, written) ? [] : unpublishWrites(object.name, id);
 }
 
+/**
+ * The statement that fails a publish's batch at commit when the record is no longer in one of
+ * the object's `publishIn` states (ADR 0810): the state was read when the publish was planned,
+ * and a withdrawal or consent taken back committed in between would otherwise leave a version
+ * current outside them, which its unpublish never saw (the review of #367). It inserts an
+ * `unmoved` guard that can never hold (a history count is never -1), only when the record's
+ * state is not one of them, so the batch fails as migration 0670's guards do
+ * (`moved_meanwhile`, a conflict: look again). None when the object publishes in any state.
+ */
+export function stillPublishableGuard(
+  ctx: Pick<HandlerContext, "db">,
+  object: ObjectDefinition,
+  id: string,
+): CompiledQuery | null {
+  const states = object.publishable?.publishIn;
+  const column = object.fields.find((f) => f.name === object.states?.field)?.column;
+  if (!states?.length || !column) return null;
+  return sql`INSERT INTO core_write_guard (kind, object_type, record_id, expected) SELECT 'unmoved', ${object.name}, ${id}, -1 WHERE NOT EXISTS (SELECT 1 FROM ${sql.table(object.source)} WHERE id = ${id} AND ${sql.ref(column)} IN (${sql.join(states)}))`.compile(
+    ctx.db,
+  );
+}
+
 /** The number the record's next version takes. */
 export async function nextVersion(ctx: HandlerContext, object: string, id: string) {
   const latest = await sql<{ version: number | null }>`

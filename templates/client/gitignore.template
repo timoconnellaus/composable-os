@@ -4,3 +4,6 @@ dist
 .dev.vars
 .tanstack
 .expo
+# The native projects the app's build makes from app.config.ts (expo prebuild): never committed.
+/apps/mobile/android
+/apps/mobile/ios

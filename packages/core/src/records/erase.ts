@@ -14,6 +14,7 @@ import { queueEraseMemory } from "../assistant/memory.ts";
 import { queueEraseRoutines } from "../assistant/routines.ts";
 import { emailRef } from "../assistant/scrub.ts";
 import { queueEraseFinance } from "../finance/erase.ts";
+import { conversationsOf, eraseConversationStatements } from "../inbox/index.ts";
 import { eraseJourneyStatements } from "../journeys/entries.ts";
 import { queueEraseSignals } from "../journeys/signals.ts";
 import type { HandlerContext } from "../operation.ts";
@@ -29,6 +30,7 @@ import {
   queueEraseSync,
 } from "./erase-stores.ts";
 import {
+  addressesHeldByOthers,
   ERASED,
   MIN_TERM_LENGTH,
   mentionsSql,
@@ -176,7 +178,10 @@ export async function afterErase(
 export async function queueErase(ctx: HandlerContext, request: EraseRequest): Promise<EraseCounts> {
   const { object, recordId, recordIds } = request;
   // A person's customer sign-in addresses are theirs too (stage 22): redacted, and listed as erased.
-  const accountEmails = object === "person" ? await customerAddresses(ctx, recordIds) : [];
+  // Not one another identified Person holds now (#302, ADR 0712): staff may have moved it to them.
+  const signInEmails = object === "person" ? await customerAddresses(ctx, recordIds) : [];
+  const heldByOthers = await addressesHeldByOthers(ctx.db, signInEmails, recordIds);
+  const accountEmails = signInEmails.filter((email) => !heldByOthers.has(email));
   const terms = [
     ...new Set(
       [...recordIds, ...request.terms, ...accountEmails].map((t) => t.trim().toLowerCase()),
@@ -260,11 +265,20 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
   // (they could no longer apply), with everything depending on them.
   await queueRedactPending(ctx, object, recordIds, terms);
 
-  // 3. Activities and tasks that are about only these records.
-  const { activityIds, taskIds } = await findOwnedActivitiesAndTasks(ctx, object, recordIds);
-  for (const ids of chunk(activityIds)) {
+  // 3. Activities and tasks that are about only these records. A Person's conversations go
+  // whole (stage 36, ADR 0740): every message and note in them, whatever else they are linked
+  // to, and their bodies in R2 by trigger.
+  const owned = await findOwnedActivitiesAndTasks(ctx, object, recordIds);
+  const inbox =
+    object === "person"
+      ? await conversationsOf(ctx.db, recordIds, [...(request.addresses ?? []), ...accountEmails])
+      : { conversationIds: [], activityIds: [] };
+  const activityIds = [...new Set([...owned.activityIds, ...inbox.activityIds])];
+  const { taskIds } = owned;
+  for (const ids of chunk(owned.activityIds)) {
     ctx.write(ctx.db.deleteFrom("core_activity").where("id", "in", ids));
   }
+  ctx.write(...eraseConversationStatements(ctx.db, inbox));
   for (const ids of chunk(taskIds)) {
     ctx.write(ctx.db.deleteFrom("core_task").where("id", "in", ids));
   }

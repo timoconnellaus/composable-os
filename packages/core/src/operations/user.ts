@@ -401,6 +401,13 @@ export async function grantable(
     "agreements:health": "Read members' health form answers (every read is logged)",
     "agreements:desk": "Start a desk signing session for a member on an enrolled tablet",
     "checklists:write": "Write the checklists staff tick off (their steps, and which are in use)",
+    "invoices:write": "Draft quotes, invoices and credit notes",
+    "invoices:send": "Send quotes, and issue and send invoices",
+    "invoices:credit": "Issue credit notes and void invoices",
+    "invoices:payments":
+      "Record payments taken another way (transfer, cash, card machine), and read the invoice log",
+    "accounting:manage":
+      "Run the accounting sync: map the books' accounts, approve days, fix what is held",
     "notes:clients": "Read every client's notes kept to their coaches (every read is logged)",
     "notes:sensitive": "Read sensitive notes (every opening is logged)",
     "notes:manage": "Change and delete others' notes, and lower a note's level",
