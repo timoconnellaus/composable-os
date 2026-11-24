@@ -115,6 +115,52 @@ const computedRoles: PackRolesFile = {
   owner: { operations: ownerClientOperations(computed.staff) },
 };
 
+// Each carried pack's client entry, read as text for the hooks factory it exports (`cos add`
+// writes a client app's account sections with it, stage 48, ADR 0710).
+const packClients = import.meta.glob<string>("../../../packs/*/client/index.ts", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+});
+const hooksFactoryOf = (pack: string): string => {
+  const source = Object.entries(packClients).find(([path]) =>
+    path.endsWith(`/packs/${pack}/client/index.ts`),
+  )?.[1];
+  const found = [...(source ?? "").matchAll(/export function (create[A-Za-z]+Hooks)\b/g)].map(
+    (m) => m[1] as string,
+  );
+  if (found.length !== 1) {
+    throw new Error(
+      `packs/${pack}/client/index.ts must export one create<Name>Hooks for its account sections`,
+    );
+  }
+  return found[0] as string;
+};
+const portalPacks = releasePackExtensions
+  .map((extension) => toManifest(extension))
+  .filter((manifest) => manifest.portal && Object.keys(manifest.portal).length);
+if (portalPacks.length) {
+  computedRoles.portal = Object.fromEntries(
+    portalPacks.map((manifest) => [
+      manifest.id,
+      {
+        hooks: hooksFactoryOf(manifest.id),
+        sections: Object.fromEntries(
+          Object.entries(manifest.portal ?? {}).map(([key, s]) => [
+            key,
+            {
+              label: s.label,
+              order: s.order,
+              ...(s.web ? { web: s.web } : {}),
+              ...(s.native ? { native: s.native } : {}),
+            },
+          ]),
+        ),
+      },
+    ]),
+  );
+}
+
 // scripts/write-api-contract.mjs reads these lines (only it asks for them: they are large).
 if ((env as { PRINT_API_CONTRACT?: string }).PRINT_API_CONTRACT === "1") {
   for (const [audience, value] of Object.entries(computed)) {

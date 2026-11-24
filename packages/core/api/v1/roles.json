@@ -230,5 +230,92 @@
       "notification.unreadCount",
       "user.me"
     ]
+  },
+  "portal": {
+    "bookings": {
+      "hooks": "createBookingsHooks",
+      "sections": {
+        "bookings": {
+          "label": "Bookings",
+          "order": 10,
+          "web": {
+            "block": "bookings-timetable",
+            "export": "Timetable"
+          },
+          "native": {
+            "block": "bookings-native-timetable",
+            "export": "TimetableScreen"
+          }
+        }
+      }
+    },
+    "courses": {
+      "hooks": "createCoursesHooks",
+      "sections": {
+        "courses": {
+          "label": "My courses",
+          "order": 30,
+          "web": {
+            "block": "courses-my-courses",
+            "export": "MyCourses"
+          },
+          "native": {
+            "block": "courses-native-my-courses",
+            "export": "MyCoursesScreen"
+          }
+        }
+      }
+    },
+    "memberships": {
+      "hooks": "createMembershipsHooks",
+      "sections": {
+        "memberships": {
+          "label": "Memberships and passes",
+          "order": 20,
+          "web": {
+            "block": "memberships-mine",
+            "export": "MyMemberships"
+          },
+          "native": {
+            "block": "memberships-native-mine",
+            "export": "MyMembershipsScreen"
+          }
+        }
+      }
+    },
+    "programs": {
+      "hooks": "createProgramsHooks",
+      "sections": {
+        "training": {
+          "label": "Training",
+          "order": 50,
+          "web": {
+            "block": "programs-progress",
+            "export": "Progress"
+          },
+          "native": {
+            "block": "programs-native-progress",
+            "export": "ProgressScreen"
+          }
+        }
+      }
+    },
+    "ticketing": {
+      "hooks": "createTicketingHooks",
+      "sections": {
+        "tickets": {
+          "label": "My tickets",
+          "order": 40,
+          "web": {
+            "block": "ticketing-my-tickets",
+            "export": "MyTickets"
+          },
+          "native": {
+            "block": "ticketing-native-my-tickets",
+            "export": "MyTicketsScreen"
+          }
+        }
+      }
+    }
   }
 }

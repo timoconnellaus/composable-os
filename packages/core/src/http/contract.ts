@@ -81,6 +81,13 @@ export interface PackRolesFile {
    */
   requires?: Record<string, string[]>;
   /**
+   * Each carried pack's sections of My account (its manifest's `portal`, stage 48, ADR 0710),
+   * with the function its client entry (`@composable-os/pack-<id>/client`) exports to make the
+   * hooks its blocks take: `cos add web-account` copies the sections' blocks and writes the
+   * client app's `account-sections.gen.ts` from this.
+   */
+  portal?: Record<string, PortalPackFile>;
+  /**
    * The owner's client (stage 60, ADR 0872): the staff operations Today needs, as this release
    * serves them (`OWNER_CLIENT_OPERATIONS` less any it does not have yet). `mobile.owner: true`
    * writes `roles/owner.ts` from it. Absent from a release older than the owner's client.
@@ -117,6 +124,21 @@ export function ownerClientOperations(staff: ApiContract): string[] {
     staff.operations.filter((op) => op.audiences.includes("staff")).map((op) => op.name),
   );
   return OWNER_CLIENT_OPERATIONS.filter((name) => served.has(name)).sort();
+}
+
+/** One carried pack's sections of My account, as the release's roles file holds them. */
+export interface PortalPackFile {
+  /** The hooks factory its client entry exports: `createMembershipsHooks`. */
+  hooks: string;
+  sections: Record<
+    string,
+    {
+      label: string;
+      order: number;
+      web?: { block: string; export: string };
+      native?: { block: string; export: string };
+    }
+  >;
 }
 
 function jsonSchema(schema: z.ZodType, io: "input" | "output"): JsonSchema {

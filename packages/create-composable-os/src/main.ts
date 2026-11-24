@@ -543,9 +543,14 @@ function randomSecret(): string {
 const FAKE_PROVIDER_VAR = "PAYMENTS_FAKE_PROVIDER";
 const FAKE_SECRET = "FAKE_WEBHOOK_SECRET";
 
+/** Whether a gatekeeper's vars turn on its fake provider: payments' switch, or texts' (ADR 0672). */
+function fakeProviderOn(vars: Record<string, string> | undefined): boolean {
+  return vars?.[FAKE_PROVIDER_VAR] === "true" || vars?.TEXT_PROVIDER === "fake";
+}
+
 /**
- * Gives a gatekeeper that turns the fake payment provider on its own signing secret: generated
- * once, when none is stored on the Worker and none is supplied (`--secret`), never printed (the
+ * Gives a gatekeeper that turns a fake provider on (payments', or texts', ADR 0672) its own
+ * signing secret: generated once, when none is stored on the Worker and none is supplied (`--secret`), never printed (the
  * redactor hides it) and never written anywhere but the Worker. Later deploys keep the stored one
  * (`keep_bindings`). The default secret is public, so without this the fake runs on localhost
  * only. Which environments may turn the fake on is cos deploy's check (a live one may not).
@@ -566,7 +571,7 @@ export function generateFakePaymentsSecrets(
       const { [FAKE_SECRET]: _plain, ...rest } = vars[name];
       vars[name] = rest;
     }
-    if (vars[name]?.[FAKE_PROVIDER_VAR] !== "true") continue;
+    if (!fakeProviderOn(vars[name])) continue;
     if (stored.get(name)?.includes(FAKE_SECRET) || secrets[name]?.[FAKE_SECRET]) continue;
     const secret = randomSecret();
     redactor.add(secret);

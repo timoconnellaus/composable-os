@@ -595,6 +595,26 @@ export const MAX_TODAY_ITEMS = 8;
 /** A result column a Today item's rows name: `member`, `person_id`. */
 const COLUMN_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
 
+/** A block and the component it exports, as a portal section names them (ADR 0710). */
+const sectionBlockSchema = z
+  .object({ block: z.string().min(1).max(80), export: z.string().min(1).max(60) })
+  .strict();
+
+/** A shipped pack's section of My account (stage 48, ADR 0710): see `PortalSectionSpec`. */
+export const portalSectionManifestSchema = z
+  .object({
+    label: z.string().min(1).max(60),
+    web: sectionBlockSchema.optional(),
+    native: sectionBlockSchema.optional(),
+    order: z.number().int(),
+    has: z.array(z.string().max(81)).max(10),
+  })
+  .strict();
+export type PortalSectionManifest = z.infer<typeof portalSectionManifestSchema>;
+
+/** Where a pack's section may sit: before the base sections, which start at 60. */
+export const PORTAL_ORDER = { min: 1, max: 59 } as const;
+
 /** A screen's key, as a tool's: `desk`, `classList`. */
 export const SCREEN_NAME_RE = /^[a-z][a-zA-Z0-9]{0,39}$/;
 /** A block's name: lowercase words joined by hyphens (`bookings-desk`). */
@@ -669,6 +689,8 @@ export const manifestSchema = z.object({
     .optional(),
   /** A shipped pack's staff screens in the product's admin (stage 47, ADR 0660). */
   screens: z.record(z.string(), screenManifestSchema).optional(),
+  /** A shipped pack's sections of My account (stage 48, ADR 0710). */
+  portal: z.record(z.string(), portalSectionManifestSchema).optional(),
   /** A shipped pack's numbers on the owner's Today (stage 60, ADR 0870). */
   todayItems: z.record(z.string(), todayItemManifestSchema).optional(),
 });
@@ -971,6 +993,26 @@ export function toManifest(extension: Extension): ExtensionManifest {
                   : {}),
                 opens: [...item.opens],
                 ...(item.web ? { web: { screen: item.web.screen } } : {}),
+              },
+            ]),
+          ),
+        }
+      : {}),
+    ...(extension.portal && Object.keys(extension.portal).length
+      ? {
+          portal: Object.fromEntries(
+            Object.entries(extension.portal).map(([key, section]) => [
+              key,
+              {
+                label: section.label,
+                ...(section.web
+                  ? { web: { block: section.web.block, export: section.web.export } }
+                  : {}),
+                ...(section.native
+                  ? { native: { block: section.native.block, export: section.native.export } }
+                  : {}),
+                order: section.order,
+                has: [...section.has],
               },
             ]),
           ),
@@ -1362,6 +1404,84 @@ export function todayItemIssues(m: ExtensionManifest): { path: string; message: 
     if (item.web && !Object.hasOwn(m.screens ?? {}, item.web.screen)) {
       add(`${path}.web.screen`, `"${item.web.screen}" is not a screen this pack declares`);
     }
+  }
+  return issues;
+}
+
+/**
+ * A shipped pack's sections of My account (stage 48, ADR 0710), against its own manifest: each
+ * names a web block of this pack (never a native one) and a native block of this pack, at least
+ * one of the two, each with a component it exports; sits before the base sections; and shows on
+ * records of this pack's own objects that declare a customer (`has`, never empty). What the
+ * blocks are (their skin, their pack, that they call only what a customer or the public may) is
+ * read from their block.json by `cos ext check`; that only a shipped pack declares sections is the
+ * host's check (`cos ext check` and install refuse a runtime one).
+ */
+export function portalIssues(m: ExtensionManifest): { path: string; message: string }[] {
+  const issues: { path: string; message: string }[] = [];
+  const add = (path: string, message: string) => issues.push({ path, message });
+  for (const [key, section] of Object.entries(m.portal ?? {})) {
+    const path = `portal.${key}`;
+    if (!SCREEN_NAME_RE.test(key)) add(path, `Section key "${key}" must be camelCase`);
+    if (!section.web && !section.native) {
+      add(path, "A section names its web block, its native block, or both");
+    }
+    if (section.web) {
+      const { block } = section.web;
+      if (
+        !BLOCK_NAME_RE.test(block) ||
+        !block.startsWith(`${m.id}-`) ||
+        block.includes("-native-")
+      ) {
+        add(
+          `${path}.web.block`,
+          `"${block}" must be a web block of this pack (${m.id}-<name>, never a native one or another pack's)`,
+        );
+      }
+    }
+    if (section.native) {
+      const { block } = section.native;
+      if (!BLOCK_NAME_RE.test(block) || !block.startsWith(`${m.id}-native-`)) {
+        add(
+          `${path}.native.block`,
+          `"${block}" must be a native block of this pack (${m.id}-native-<name>, never a web one or another pack's)`,
+        );
+      }
+    }
+    for (const skin of ["web", "native"] as const) {
+      const named = section[skin]?.export;
+      if (named !== undefined && !COMPONENT_NAME_RE.test(named)) {
+        add(`${path}.${skin}.export`, `"${named}" must be the name of a component (PascalCase)`);
+      }
+    }
+    if (section.order < PORTAL_ORDER.min || section.order > PORTAL_ORDER.max) {
+      add(
+        `${path}.order`,
+        `A section's order is ${PORTAL_ORDER.min} to ${PORTAL_ORDER.max}: the base sections come after`,
+      );
+    }
+    if (!section.has.length) {
+      add(
+        `${path}.has`,
+        "A section names at least one object whose records are the customer's: a page anyone may open is a page the client links to, not a section",
+      );
+    }
+    const seen = new Set<string>();
+    section.has.forEach((object, i) => {
+      const at = `${path}.has.${i}`;
+      if (seen.has(object)) add(at, `"${object}" is named twice`);
+      seen.add(object);
+      const local = object.startsWith(`${m.id}.`) ? object.slice(m.id.length + 1) : null;
+      const own = local !== null && Object.hasOwn(m.objects, local) ? m.objects[local] : undefined;
+      if (!own) {
+        add(at, `"${object}" must be an object of this pack (${m.id}.<object>)`);
+      } else if (!own.customer) {
+        add(
+          at,
+          `"${object}" declares no customer: a section shows on records that are the customer's own`,
+        );
+      }
+    });
   }
   return issues;
 }
@@ -2552,6 +2672,7 @@ export function validateManifest(
   for (const issue of deviceRoleIssues(m)) contract(issue.path, issue.message);
 
   for (const issue of screenIssues(m)) contract(issue.path, issue.message);
+  for (const issue of portalIssues(m)) contract(issue.path, issue.message);
   for (const issue of todayItemIssues(m)) contract(issue.path, issue.message);
 
   for (const [name, view] of Object.entries(m.views)) {

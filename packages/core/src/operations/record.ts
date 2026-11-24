@@ -308,7 +308,7 @@ async function prepareValues(
     }
     if (!field.extension) {
       throw new ValidationError(
-        `${object.name}.${name} is a core field; change it with ${object.name}.update`,
+        `${object.name}.${name} is a core field; change it with ${field.setWith ?? `${object.name}.update`}`,
         { field: name },
       );
     }

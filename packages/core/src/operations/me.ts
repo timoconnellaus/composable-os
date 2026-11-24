@@ -7,6 +7,10 @@
 // person.update runs (the writer registered in operations/person.ts), so uniqueness, search, the
 // audit diff and timeline tracking hold as for staff.
 //
+// The birthday operations (stage 53, ADR 0803) are `hostInternal` too: a birthday is kept beside
+// the Person's row, in no `rec_*` view the seam reads, and they touch only the caller's own Person
+// (the principal's, never an input's). What the member sets is marked theirs (`customer`).
+//
 // The session operations and me.deleteAccount are account bookkeeping, not records, so they are
 // `hostInternal`: they keep `ctx.db` and touch only the caller's own account (taken from the
 // principal, never from input), its sessions and its erase request. A session token never leaves
@@ -29,7 +33,8 @@ import { loadEraseDueDays } from "../customers/settings.ts";
 import { ConflictError, NotFoundError, OperationError, ValidationError } from "../errors.ts";
 import { personObject } from "../fields/person.ts";
 import { endCustomerDeviceSessions } from "../http/tokens.ts";
-import { defineOperation, type HandlerContext } from "../operation.ts";
+import { birthdayOf, birthdaySchema, queueSetBirthday } from "../journeys/birthday.ts";
+import { defineOperation, type HandlerContext, recordHostChange } from "../operation.ts";
 import type { CustomerPrincipal } from "../principals.ts";
 
 /** The caller, who is always a customer here (every operation in this file is customer-only). */
@@ -135,6 +140,64 @@ export const meUpdate = defineOperation({
     );
     if (Object.keys(values).length) await ctx.records.update("person", personId, values);
     return ctx.afterCommit(() => myPerson(ctx));
+  },
+});
+
+// --- Birthday ---------------------------------------------------------------------------------
+
+const meBirthdaySchema = z.object({
+  birthday: birthdaySchema.nullable().describe("Day and month; null when none is recorded"),
+});
+
+/** The caller's own live Person's birthday. */
+async function myBirthday(ctx: HandlerContext) {
+  const { personId } = customerOf(ctx);
+  const row = await ctx.db
+    .selectFrom("core_person")
+    .select(["birth_day", "birth_month"])
+    .where("id", "=", personId)
+    .where("deleted_at", "is", null)
+    .executeTakeFirst();
+  if (!row) throw new NotFoundError("person", personId);
+  return birthdayOf(row);
+}
+
+export const meBirthdayGet = defineOperation({
+  name: "me.birthday.get",
+  description:
+    "Your birthday as the business has it, as a signed-in customer: day and month only, or null " +
+    "when none is recorded. Read-only.",
+  input: z.object({}).strict(),
+  output: meBirthdaySchema,
+  permission: "records:read",
+  risk: "read",
+  audiences: ["customer"],
+  hostInternal: true,
+  mcp: { expose: false },
+  async handler(_input, ctx) {
+    return { birthday: await myBirthday(ctx) };
+  },
+});
+
+export const meBirthdaySet = defineOperation({
+  name: "me.birthday.set",
+  description:
+    "Give your birthday, as a signed-in customer: day and month only, never a year; null " +
+    "removes it. The business may send you a message on the day. Returns your birthday.",
+  input: meBirthdaySchema.strict(),
+  output: meBirthdaySchema,
+  permission: "records:write",
+  risk: "write",
+  audiences: ["customer"],
+  hostInternal: true,
+  mcp: { expose: false },
+  async handler(input, ctx) {
+    const { personId } = customerOf(ctx);
+    const before = await myBirthday(ctx);
+    // The host writes the caller's own Person, named by the principal: not judged against the
+    // seam's customer fields, which hold no birthday (it is in no view).
+    queueSetBirthday(ctx, (c) => recordHostChange(ctx, c), personId, before, input.birthday);
+    return { birthday: input.birthday };
   },
 });
 
@@ -467,6 +530,8 @@ export const meDeleteAccount = defineOperation({
 export const meOperations = [
   meGet,
   meUpdate,
+  meBirthdayGet,
+  meBirthdaySet,
   meSessionsList,
   meSessionsRevoke,
   meSignOut,

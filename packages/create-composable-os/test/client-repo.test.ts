@@ -1237,6 +1237,57 @@ describe("blocks (criterion 10)", () => {
     ]);
   });
 
+  it("cos add web-account copies the packs' sections and writes the wiring; a pack added later adds its own (stage 48)", async () => {
+    await publish("1.0.0");
+    const dir = await created();
+    setPacks(dir, ["bookings", "memberships"]);
+    const added = await cos("add", "web-account");
+    expect(added.code, added.output).toBe(0);
+    const blocks = join(dir, "apps", "web", "src", "blocks");
+    // The shell, and each listed pack's section, and Programs' (Bookings and Memberships bring it).
+    for (const block of [
+      "web-account",
+      "bookings-timetable",
+      "memberships-mine",
+      "programs-progress",
+    ]) {
+      expect(existsSync(join(blocks, block, "LICENSE")), block).toBe(true);
+    }
+    const wiring = () => readFileSync(join(blocks, "account-sections.gen.ts"), "utf8");
+    expect(wiring()).toContain(
+      'import { createBookingsHooks } from "@composable-os/pack-bookings/client";',
+    );
+    expect(wiring()).toContain('import { Timetable } from "./bookings-timetable/timetable.tsx";');
+    expect(wiring()).toContain('import { MyMemberships } from "./memberships-mine/mine.tsx";');
+    expect(wiring()).toContain('import type { WebSectionEntry } from "./web-account/account.tsx";');
+    // In the host's order: Bookings 10, Memberships 20, Training 50.
+    expect([...wiring().matchAll(/key: "([^"]+)"/g)].map((m) => m[1])).toEqual([
+      "bookings.bookings",
+      "memberships.memberships",
+      "programs.training",
+    ]);
+    expect(wiring()).not.toContain("courses");
+    expect(added.output).toContain("account-sections.gen.ts");
+    const lock = JSON.parse(read(dir, "blocks.lock.json"));
+    expect(Object.keys(lock)).toEqual(
+      expect.arrayContaining(["web-account", "bookings-timetable", "memberships-mine"]),
+    );
+
+    // Courses added to product.ts: the next cos add copies its section and writes it in.
+    setPacks(dir, ["bookings", "memberships", "courses"]);
+    const again = await cos("add", "web-account");
+    expect(again.code, again.output).toBe(0);
+    expect(existsSync(join(blocks, "courses-my-courses", "my-courses.tsx"))).toBe(true);
+    expect(wiring()).toContain('import { MyCourses } from "./courses-my-courses/my-courses.tsx";');
+    expect(wiring()).toContain('key: "courses.courses"');
+
+    // cos upgrade writes it again.
+    writeFileSync(join(blocks, "account-sections.gen.ts"), "// stale\n");
+    const upgraded = await cos("upgrade");
+    expect(upgraded.output).toContain("My account's sections written again");
+    expect(wiring()).toContain('key: "courses.courses"');
+  });
+
   it("lists the release's blocks with their skin, pack and dependencies", async () => {
     await publish("1.0.0");
     await created();

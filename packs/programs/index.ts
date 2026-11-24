@@ -772,4 +772,15 @@ export default defineExtension({
       record: { object: "person", as: "personId" },
     },
   },
+  // Its section of My account (stage 48, ADR 0710): a member's progress, shown once they have a
+  // program or a logged set.
+  portal: {
+    training: {
+      label: "Training",
+      web: { block: "programs-progress", export: "Progress" },
+      native: { block: "programs-native-progress", export: "ProgressScreen" },
+      order: 50,
+      has: ["programs.assignment", "programs.log"],
+    },
+  },
 });

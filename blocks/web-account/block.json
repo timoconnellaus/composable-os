@@ -3,6 +3,7 @@
   "pack": null,
   "skin": "web",
   "operations": [
+    "me.portal",
     "me.get",
     "me.update",
     "me.sessions.list",

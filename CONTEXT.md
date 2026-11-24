@@ -1142,6 +1142,15 @@ shows is the host's answer; in the app, money opens the website (ADR 0714). "Por
 name of the manifest key and the operation (`portal`, `me.portal`).
 _Avoid_: customer portal, dashboard
 
+**Account section**
+One part of My account: a base one (orders, agreements, family, payment method, details, sign-in
+and devices) or a shipped pack's, declared under `portal` in its manifest with its web and native
+blocks and `has`, the objects whose records mean the customer has something there (ADR 0710). The
+host lists the sections a customer has (`me.portal`): a pack's only when they, or a child linked
+to them where the object opens to guardians, hold one of those records. `cos add` writes a client
+app's `account-sections.gen.ts`, naming the copied section blocks, so the page names no pack.
+_Avoid_: portal section, widget, tab
+
 **Needs your attention**
 The top of My account: what a customer, or a child they act for, has to do now, answered by the
 host (`me.attention`, ADR 0711) as items of eight kinds worked out in core from agreements, orders,
@@ -1258,8 +1267,29 @@ _Avoid_: do not disturb
 **Value mark**
 Who stands behind one value of a record (`core_value_mark`: a person, a customer, the public, a
 default, the host or an AI), with a hash of the value, written by the host in the batch that writes
-it; a copy carries its source's mark. Routine mail reads marks only (ADR 0590).
+it; a copy carries its source's mark. A Person's addresses and phone numbers are marked one by one
+(`emails:<address>`, `phones:<number>`). Routine mail reads marks only (ADR 0590).
 _Avoid_: provenance, taint
+
+**Textable number**
+The mobile number the host may text for a Person: their primary mobile in a country texts may go
+to, that a person (or a default) stands behind, or that this Person checked by a code sent to it
+(`me.phone.check`). Never a number an AI added (until its owner checks it), one another Person
+checked, or one that replied STOP. One text per recipient, to that number (ADR 0673).
+_Avoid_: verified number, SMS number
+
+**Text limit**
+The most a business's texts may cost in a month, in its own currency, set by a human admin with the
+price of one segment. Counted when each text is claimed (and each checking code), never passed: a
+text past it is `over_limit` and its email goes; admins are told once that day, and at 80% once that
+month. 0 sends no texts. The business pays its own text provider account (ADR 0672).
+_Avoid_: SMS budget, credits
+
+**Stop** (by text)
+A reply of STOP (or a usual synonym) to the business's texts: every text to that number stops,
+whoever it is on, until a START from it. Kept as a salted hash, past an erase. HELP gets a fixed
+answer with the business's name (ADR 0672).
+_Avoid_: opt-out, unsubscribe (by text)
 
 **Routine mail kind**
 One declared kind of routine message (`bookings.reminder`, or a host kind `core.<name>`), with its
@@ -1290,6 +1320,13 @@ it, the last time each Person had each signal (`core_person_signal`), with who s
 write and whether it was a bulk one; readable only as the Person is, in no view or export, gone
 with an erase (stage 53, ADR 0802).
 _Avoid_: event (Ticketing's), trigger (an automation's)
+
+**Birthday**
+A Person's day and month of birth, never a year: optional, given by the member in My account or
+recorded by staff, and the day a birthday journey starts on, in the business's time zone. It says
+nothing of age; a minor is still what the family link or the Minor mark says. In no view or export,
+gone with an erase; a merge keeps the survivor's unless it has none (stage 53, ADR 0803).
+_Avoid_: date of birth, DOB, age
 
 **Headless entry**
 A pack's functions and hooks over the typed client, with no markup (`<package>/headless`); the

@@ -160,6 +160,18 @@
       "hostInternal": true
     },
     {
+      "name": "me.birthday.get",
+      "audiences": ["customer"],
+      "risk": "read",
+      "hostInternal": true
+    },
+    {
+      "name": "me.birthday.set",
+      "audiences": ["customer"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
       "name": "me.calendarFeed.revoke",
       "audiences": ["customer"],
       "risk": "write",
@@ -200,6 +212,18 @@
       "risk": "read"
     },
     {
+      "name": "me.phone.check",
+      "audiences": ["customer"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
+      "name": "me.phone.startCheck",
+      "audiences": ["customer"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
       "name": "me.pin.clear",
       "audiences": ["customer"],
       "risk": "write",
@@ -209,6 +233,12 @@
       "name": "me.pin.set",
       "audiences": ["customer"],
       "risk": "write",
+      "hostInternal": true
+    },
+    {
+      "name": "me.portal",
+      "audiences": ["customer"],
+      "risk": "read",
       "hostInternal": true
     },
     {

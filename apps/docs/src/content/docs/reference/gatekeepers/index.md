@@ -24,6 +24,7 @@ Extension code runs with no network of its own. External access goes only throug
 | [payments](/reference/gatekeepers/payments/) |   | yes | Gatekeeper Worker for payments: opens the provider's hosted checkout, submits refunds as approval-queue actions and delivers verified payment events to a bound hook. |
 | [slack](/reference/gatekeepers/slack/) | `slack` | yes | Gatekeeper Worker for Slack (workspaces, conversations and threads). Vendored from cloudflare-os. |
 | [slack-post](/reference/gatekeepers/slack-post/) | `slack-post` | yes | Gatekeeper Worker that posts Slack messages and DMs with a bot token, each post an approval-queue action. Shares the Slack app with the vendored read-only Slack gatekeeper. |
+| [text](/reference/gatekeepers/text/) |   | yes | Gatekeeper Worker for text messages: sends the host's routine texts and checking codes through the business's own text provider account, and delivers verified receipts and STOP, START and HELP replies to the host. |
 | [webhook](/reference/gatekeepers/webhook/) | `webhook` | yes | Gatekeeper Worker for inbound webhooks: verifies provider signatures and delivers typed events to a bound hook. |
 | [websearch](/reference/gatekeepers/websearch/) | `websearch` | yes | Gatekeeper Worker for web search through Workers AI's websearch() and AI Gateway. Vendored from cloudflare-os. |
 | [zoominfo](/reference/gatekeepers/zoominfo/) | `zoominfo` | yes | Gatekeeper Worker for ZoomInfo (GTM API: lookup, search, enrich, Copilot, usage). Vendored from cloudflare-os. |

@@ -268,6 +268,56 @@ No fields.
 | `items[].currency` | string or null | yes |   |   |
 | `items[].usesLeft` | number or null | yes |   | A pass's uses left; null for other kinds |
 
+## me.birthday.get
+
+Your birthday as the business has it, as a signed-in customer: day and month only, or null when none is recorded. Read-only.
+
+|  |  |
+| --- | --- |
+| Permission | `records:read` |
+| Risk | `read` |
+| Audiences | `customer` |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+No fields.
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `birthday` | object or null | yes |   | Day and month; null when none is recorded |
+| `birthday.day` | integer | yes | ≥ 1, ≤ 31 | Day of the month, 1 to 31 |
+| `birthday.month` | integer | yes | ≥ 1, ≤ 12 | Month, 1 (January) to 12 (December) |
+
+## me.birthday.set
+
+Give your birthday, as a signed-in customer: day and month only, never a year; null removes it. The business may send you a message on the day. Returns your birthday.
+
+|  |  |
+| --- | --- |
+| Permission | `records:write` |
+| Risk | `write` |
+| Audiences | `customer` |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `birthday` | object or null | yes |   | Day and month; null when none is recorded |
+| `birthday.day` | integer | yes | ≥ 1, ≤ 31 | Day of the month, 1 to 31 |
+| `birthday.month` | integer | yes | ≥ 1, ≤ 12 | Month, 1 (January) to 12 (December) |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `birthday` | object or null | yes |   | Day and month; null when none is recorded |
+| `birthday.day` | integer | yes | ≥ 1, ≤ 31 | Day of the month, 1 to 31 |
+| `birthday.month` | integer | yes | ≥ 1, ≤ 12 | Month, 1 (January) to 12 (December) |
+
 ## me.calendarFeed.revoke
 
 Turn off your private calendar link, as a signed-in customer: it then answers as if it never existed (a calendar app subscribed to it keeps what it last fetched, and gets no more). Make a new one with me.calendarFeed.rotate.
@@ -445,6 +495,55 @@ No fields.
 | `signInEmail` | string | yes |   | The address you sign in with: the one the emailed code verified, lower-cased. Not the Person's contact email (primaryEmail), which staff can change. The only address to trust when linking records kept elsewhere to this customer. |
 | `signInEmailVerified` | boolean | yes |   | Whether signInEmail was verified by an emailed code. True for every signed-in customer. |
 
+## me.phone.check
+
+Checks the code a text sent to one of your own numbers (me.phone.startCheck). A match marks the number as checked: your routine texts may go to it.
+
+|  |  |
+| --- | --- |
+| Permission | `records:write` |
+| Risk | `write` |
+| Audiences | `customer` |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `number` | string | yes | min length 3, max length 40 | One of your own numbers, as it is in your details |
+| `code` | string | yes | pattern `^\d{4,10}$` |   |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `checked` | boolean | yes |   |   |
+
+## me.phone.startCheck
+
+Sends a code by text to one of your own mobile numbers, to check it is yours. Type it back with me.phone.check within 10 minutes. At most three codes a day.
+
+|  |  |
+| --- | --- |
+| Permission | `records:write` |
+| Risk | `write` |
+| Audiences | `customer` |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `number` | string | yes | min length 3, max length 40 | One of your own numbers, as it is in your details |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `started` | `true` | yes |   |   |
+| `number` | string | yes |   | The number the code went to, partly hidden |
+| `minutes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | How long the code may be typed back |
+
 ## me.pin.clear
 
 Remove your PIN, as a signed-in customer: nobody can then check in as you by name and PIN. Your check-in code and cards still work. Clearing when there is none changes nothing.
@@ -488,6 +587,38 @@ Choose your 4-digit PIN, as a signed-in customer, to check in at the gym's table
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
 | `set` | `true` | yes |   |   |
+
+## me.portal
+
+The sections of your account, as a signed-in customer, in the order they show: your orders, agreements, family, payment method (only when you pay a subscription), details and where you are signed in, and each installed pack's section (bookings, memberships and passes, courses, tickets, training) when you, or a child linked to you, have something there. `paysSubscription` says whether you pay a subscription. Read-only.
+
+|  |  |
+| --- | --- |
+| Permission | `records:read` |
+| Risk | `read` |
+| Audiences | `customer` |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+No fields.
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `sections` | array of object | yes |   |   |
+| `sections[].key` | string | yes |   | A base section's key (orders, agreements, family, payment, details, devices), or a pack's as &lt;pack&gt;.&lt;key&gt; |
+| `sections[].pack` | string or null | yes |   | The pack the section is from; null for a base section |
+| `sections[].label` | string | yes |   |   |
+| `sections[].order` | number | yes |   | Lower first: a pack's sections come before the base ones |
+| `sections[].web` | object or null | yes |   | The block of the client app that draws a pack's section, and its component |
+| `sections[].web.block` | string | yes |   |   |
+| `sections[].web.export` | string | yes |   |   |
+| `sections[].native` | object or null | yes |   | The block of the client app that draws a pack's section, and its component |
+| `sections[].native.block` | string | yes |   |   |
+| `sections[].native.export` | string | yes |   |   |
+| `paysSubscription` | boolean | yes |   | Whether you pay a subscription that has not ended |
 
 ## me.sessions.list
 

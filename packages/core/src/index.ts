@@ -95,6 +95,7 @@ export {
   readCustomerFeed,
 } from "./customers/calendar-feed.ts";
 export * from "./customers/index.ts";
+export { BASE_PORTAL_SECTIONS, type PortalSection } from "./customers/portal.ts";
 export * from "./dashboards/cache.ts";
 export * from "./dashboards/click-through.ts";
 export * from "./dashboards/describe.ts";
@@ -150,6 +151,7 @@ export * from "./integrations/outcome.ts";
 export * from "./integrations/runtime.ts";
 export * from "./invites.ts";
 export * from "./invoke.ts";
+export * from "./journeys/birthday.ts";
 export * from "./journeys/signals.ts";
 export * from "./judge/calibrated.ts";
 export * from "./judge/index.ts";
@@ -211,6 +213,7 @@ export * from "./operations/integration.ts";
 export * from "./operations/judge.ts";
 export * from "./operations/me.ts";
 export * from "./operations/me-attention.ts";
+export * from "./operations/me-portal.ts";
 export * from "./operations/media.ts";
 export * from "./operations/media-video.ts";
 export * from "./operations/memory.ts";
@@ -354,8 +357,10 @@ export * from "./routine-mail/host-kinds.ts";
 export * from "./routine-mail/host-send.ts";
 export * from "./routine-mail/index.ts";
 export { callerMarks, givenValues, toolRunStanding } from "./routine-mail/marks.ts";
+export { mobileInCountries, TEXT_COUNTRY_CODES } from "./routine-mail/numbers.ts";
 export * from "./routine-mail/quiet.ts";
 export * from "./routine-mail/reach.ts";
+export * from "./routine-mail/texts.ts";
 export {
   AI_SETTINGS,
   BASE_CURRENCY_SETTING,

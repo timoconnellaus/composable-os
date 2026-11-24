@@ -31,6 +31,7 @@ import {
   queueEventSink,
   refreshSchemaRegistry,
   resolveExtensionOperation,
+  sendReadyTexts,
   type TestSimulation,
   type TodayLimits,
   type ToolCascade,
@@ -47,7 +48,7 @@ import {
   gatekeeperErrorCode,
   routineMailConnection,
 } from "../integrations/code.ts";
-import { hostFor } from "../integrations/runtime.ts";
+import { hostFor, integrationRuntime } from "../integrations/runtime.ts";
 import { HOST_METHODS, type HostModule, isGatekeeperModule, isHostModule } from "./worker-code.ts";
 
 export const MAX_LOGS = 200;
@@ -691,6 +692,22 @@ export class RunHost extends RpcTarget {
         if (outcome.status === "sent") sent += 1;
         else if (outcome.status === "waiting") held += 1;
         else if (outcome.status === "off") off = true;
+      }
+      // Its texts (ADR 0672), through the text connection: those ready now, and held ones to put
+      // to a person. A text that did not go waits for the minute cron; the run is not failed.
+      try {
+        const texts = await sendReadyTexts(
+          { db, integrations: integrationRuntime(env) },
+          {
+            ids: prepared.phone
+              .filter((p) => p.channel === "text" && (p.status === "ready" || p.status === "held"))
+              .map((p) => p.id),
+          },
+        );
+        sent += texts.sent;
+        held += texts.waiting;
+      } catch (error) {
+        console.warn("routine texts:", error instanceof Error ? error.message : error);
       }
       return reply({ ok: true, value: { sent, held, off, none: prepared.none } });
     } catch (error) {

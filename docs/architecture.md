@@ -383,14 +383,31 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   140 characters), and say whether its email is essential, its purpose, whether it is urgent and its
   moment. Each recipient gets a row per channel, held for what its own words show; text and push
   are off per kind until a human admin switches them on, and a Person is reached through one seam
-  (`routine-mail/reach.ts`: a textable number, a registered device), which the text and push
-  gatekeepers fill (stage 30 steps 3 and 4; until then those rows are `no_channel`). Quiet hours
+  (`routine-mail/reach.ts`: a textable number, a registered device; until stage 30 step 4 nobody
+  has a device, so a push row is `no_channel`). Quiet hours
   ([ADR 0676](adr/0676-quiet-hours-and-urgent-messages.md)) hold texts and pushes, never email,
   until the business's window ends; the runner's minute cron releases them or marks them
   `expired`. **Host kinds** (`core.<name>`) are declared in core and asked for by host code
   (`sendHostRoutineMessage`) with an occasion, their email sent through the host's email channel
   (Settings → Notification delivery) on the same routine queue.
-- **Gatekeepers we wrote**: `gatekeeper-email-send`, `gatekeeper-slack-post`, `gatekeeper-webhook`.
+- **Texts** ([ADR 0672](adr/0672-the-text-gatekeeper.md),
+  [ADR 0673](adr/0673-which-number-is-textable.md), stage 30 step 3): a routine message's text
+  goes through `gatekeeper-text`, on the business's own text provider account (one provider
+  interface, a fake, the provider's keys only in the Worker's secrets). Only the host's own queues
+  use it: its routine messages (`routine-mail`: `text.routine`, applied by the host's decision, or
+  `text.send`, which a person reviews with the number partly masked), its phone check
+  (`phone-check`, `me.phone.startCheck` and `me.phone.check`) and its events hook (`text-events`);
+  every caller's queue is refused. A number is textable when it is a Person's primary mobile in a
+  country texts may go to and a person (or a default) stands behind it (`phones:<number>` marks,
+  as addresses), or this Person checked it by code; never one an AI added, nor one another Person
+  checked, nor one that replied STOP. `routine-mail/texts.ts` claims a text with its cost against
+  the month's limit in one statement on `core_text_spend` (past it, `over_limit`; admins told once
+  a day, and at 80% once a month) and within its number's five a day; the minute cron hands ready
+  texts over (one pool of 500 pending at the gatekeeper; a full pool leaves them ready). Verified
+  receipts settle a row `delivered` or `failed`; STOP and START, read at the gatekeeper, keep
+  `core_text_stop` (salted hashes, kept after erase).
+- **Gatekeepers we wrote**: `gatekeeper-email-send`, `gatekeeper-slack-post`, `gatekeeper-webhook`,
+  `gatekeeper-text` (texts, above).
   `gatekeeper-accounting` (stage 61, ADR 0880) is the **accounting contract** every accounting
   gatekeeper serves, not a gatekeeper of its own: the session's types and input checks, the shared
   facet (`AccountingGatekeeper`, which applies each write once by the host's reference, refuses
@@ -1059,8 +1076,8 @@ As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
   staff. Who may sign up is a human admin's setting: invite only, also buyers (ADR 0458), or
   anyone; and, on top, anyone starting a subscription while a plan is on sale (ADR 0459).
 - **Open operations:** `me.get`, `me.update`, `me.family`, `me.signOut`, `me.sessions.*`,
-  `me.deleteAccount`, `me.attention` (stage 48, ADR 0711), `my.list`, `my.get`, and for tools
-  only `my.create`, `my.update`, and `my.delete` (the Trash, only for an object whose
+  `me.deleteAccount`, `me.attention` (stage 48, ADR 0711), `me.portal` (stage 48, ADR 0710),
+  `my.list`, `my.get`, and for tools only `my.create`, `my.update`, and `my.delete` (the Trash, only for an object whose
   `customer.delete` says so: a logged set).
 - **A pack's tool called by a customer runs as that customer.** Its operation calls take the same
   outside path with the same principal. It may set an object's writable fields and the fields
@@ -1603,6 +1620,17 @@ keep the standing of their cause; archiving is a person's; the step log keeps no
 The four starter journeys are seeded as drafts. Nothing sends yet: the tick, the daily scan, exits
 and the send decision through stage 30's routine messages are step 4. The tables are in no `rec_*`
 view; erase and the Trash's purge delete a Person's entries and log.
+
+**Birthday** (stage 53 step 7, [ADR 0803](adr/0803-a-birthday-as-day-and-month-on-person.md),
+`packages/core/src/journeys/birthday.ts`, migration 1171): `core_person.birth_day` and
+`birth_month`, day and month only, both or neither, in no `rec_*` view. Staff set it with
+`person.setBirthday`, the member with `me.birthday.set` (and read it with `me.birthday.get`), both
+customer operations `hostInternal` on the caller's own row; each change is recorded under
+`birthday`, so its audit diff and value mark follow, and an AI may not change one the member gave.
+A merge keeps the survivor's unless it has none; erase deletes it with the row. The birthday entry
+rule (`birthdayPeople`) reads the People whose birthday is today in the business's zone (29
+February kept on the 28th in other years) through one indexed statement per page of 500, for step
+4's daily scan. My account's Your details blocks show it where the client holds `me.birthday.*`.
 
 `sellable.moves` ([ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md),
 `packages/core/src/orders/moves.ts` and `refund-due.ts`) is a paid line that moves a record that
@@ -2592,8 +2620,20 @@ sessions). Step 1 is built: the shells `web-account` and `native-account` with t
 over operations that already existed (`me.*`, `my.list` on `order` and `orderLine`,
 `subscription.*`). Orders is the one list of a customer's orders: a page of 20, then their lines in
 one `my.list` naming the page's orders. Payment method shows for a customer who pays a
-subscription that has not ended. The packs' sections are passed to the shell in `sections` for
-now; `me.portal`, the `portal` declaration and the generated wiring are later steps. Step 4 is
+subscription that has not ended. Step 5 is built ([ADR 0710](adr/0710-my-account-the-portal-declaration.md)):
+a shipped pack declares its sections under `portal` in its manifest (a label, its web and native
+block and export, an order before the base sections, and `has`, its customer objects whose records
+mean the customer has something there), checked by the contract (`portalIssues`) and, against the
+blocks' `block.json`, by `cos ext check`; a runtime extension's is refused. `me.portal`
+(`packages/core/src/customers/portal.ts`) lists the sections to show in order: the base ones, Payment
+method only for someone who pays a subscription, and a pack's when the caller or a child linked to
+them (where the object opens to guardians) holds one of its `has` records, read through the seam's
+`ownReadSource` in two statements whatever is installed. The release's `contract/roles.json` carries
+the declarations and each pack's hooks factory; once an app has a shell, `cos add` copies the
+listed packs' section blocks and writes `src/blocks/account-sections.gen.ts`, and `cos upgrade`
+writes it again; the shell renders it through `usePackSections` and shows what `me.portal` lists
+(`portalSections`). Bookings, Memberships, Courses, Ticketing and Programs declare one section
+each. Step 4 is
 built: **Needs your attention** is `me.attention`, one customer read worked out in core
 (`packages/core/src/customers/attention.ts`, [ADR 0711](adr/0711-needs-your-attention.md)) from
 agreements, orders, subscriptions and the `allowance` behaviour, never from a pack's code. Eight

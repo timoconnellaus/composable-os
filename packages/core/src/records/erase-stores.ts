@@ -1030,6 +1030,9 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
         ]),
       ),
   );
+  // The codes sent to their numbers (stage 30, ADR 0673): deleted. A number that replied STOP
+  // stays a salted hash in core_text_stop, tied to nobody, so it is not texted if entered again.
+  ctx.write(ctx.db.deleteFrom("core_phone_check").where("person_id", "in", ids));
   // Their continuation offers (stage 32a, ADR 0491): an address and a date, nothing the books
   // need. Deleted, by Person or by address.
   ctx.write(

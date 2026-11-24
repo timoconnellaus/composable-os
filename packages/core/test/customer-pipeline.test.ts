@@ -99,6 +99,9 @@ describe("default closed (criterion 1)", () => {
       "me.agreements.pdf",
       // Stage 48 step 4 (ADR 0711): what needs their attention, worked out in core.
       "me.attention",
+      // Stage 53 step 7 (ADR 0803): their own birthday.
+      "me.birthday.get",
+      "me.birthday.set",
       // Stage 62 step 1 (ADR 0890): their own calendar link, made by them alone.
       "me.calendarFeed.revoke",
       "me.calendarFeed.rotate",
@@ -109,8 +112,13 @@ describe("default closed (criterion 1)", () => {
       // Stage 31a step 6 (ADR 0540): their own family, the children staff linked to them.
       "me.family",
       "me.get",
+      // Stage 30 step 3 (ADR 0673): checking one of their own numbers by a code sent to it.
+      "me.phone.check",
+      "me.phone.startCheck",
       "me.pin.clear",
       "me.pin.set",
+      // Stage 48 step 5 (ADR 0710): which sections of My account they have.
+      "me.portal",
       "me.sessions.list",
       "me.sessions.revoke",
       "me.signOut",
@@ -474,6 +482,9 @@ describe("the closed handler context (ADR 0413)", () => {
       "me.agreements.pdf",
       // Stage 48 step 4 (ADR 0711): it reads the host's subscription, order and allowance rows.
       "me.attention",
+      // Stage 53 step 7 (ADR 0803): a birthday is in no view the seam reads; the caller's own.
+      "me.birthday.get",
+      "me.birthday.set",
       // Stage 62 step 1 (ADR 0890): the calendar link is a core table, the caller's own account's.
       "me.calendarFeed.revoke",
       "me.calendarFeed.rotate",
@@ -481,8 +492,14 @@ describe("the closed handler context (ADR 0413)", () => {
       // Stage 51 step 3 (ADR 0783): codes and PINs are core tables, for the caller's own sign-in.
       "me.code",
       "me.deleteAccount",
+      // Stage 30 step 3 (ADR 0673): the check's own rows, and the code sent after the commit.
+      "me.phone.check",
+      "me.phone.startCheck",
       "me.pin.clear",
       "me.pin.set",
+      // Stage 48 step 5 (ADR 0710): it reads the installed packs' declarations and the
+      // subscriptions the caller pays; their records only through the seam.
+      "me.portal",
       "me.sessions.list",
       "me.sessions.revoke",
       "me.signOut",

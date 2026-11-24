@@ -164,9 +164,11 @@ export interface IntegrationRuntime {
      * `scrubAgreementCopy` once the acceptance is erased (ADR 0646): the gatekeeper scrubs that
      * copy for this queue only. `accounting`: the sync's reads and entries on the connected books
      * (stage 61, ADR 0881), the only way into a connection whose gatekeeper implements accounting;
-     * a void it asks for still waits for a person.
+     * a void it asks for still waits for a person. `phone-check`: a checking code sent to, or
+     * checked for, a member's own number (ADR 0673); the text gatekeeper takes `startCheck` and
+     * `check` from this queue only.
      */
-    purpose: "orders" | "sign-in" | "agreements" | "accounting";
+    purpose: "orders" | "sign-in" | "agreements" | "accounting" | "phone-check";
     origin?: "system.customer-mail" | "system.staff-mail";
   }): Promise<IntegrationCallResult>;
   /**
@@ -177,6 +179,27 @@ export interface IntegrationRuntime {
    */
   sendRoutineMessage?(input: { connectionId: string; resource: string; id: string }): Promise<{
     status: "sent" | "waiting" | "denied" | "failed" | "skipped" | "off";
+    pendingActionId?: string;
+    error?: string;
+  }>;
+  /**
+   * Sends one text row of core_routine_mail through the text connection `connectionId` (ADR
+   * 0672): the integration host claims it (the month's limit, the number's day), and sends its
+   * own words through the routine-mail queue, where only the host's decision applies it. The
+   * caller passes only the row's id. Optional: a runtime without it sends no text.
+   */
+  sendRoutineText?(input: { connectionId: string; resource: string; id: string }): Promise<{
+    status:
+      | "sent"
+      | "waiting"
+      | "denied"
+      | "failed"
+      | "skipped"
+      | "off"
+      | "stopped"
+      | "over_limit"
+      | "expired"
+      | "held";
     pendingActionId?: string;
     error?: string;
   }>;

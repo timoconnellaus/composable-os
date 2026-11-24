@@ -1244,4 +1244,15 @@ export default defineExtension({
       record: { object: "bookings.class", as: "classId" },
     },
   },
+  // Its section of My account (stage 48, ADR 0710): shown to a member with a booking, or whose child
+  // linked to them has one (a booking opens to guardians), the timetable with their bookings.
+  portal: {
+    bookings: {
+      label: "Bookings",
+      web: { block: "bookings-timetable", export: "Timetable" },
+      native: { block: "bookings-native-timetable", export: "TimetableScreen" },
+      order: 10,
+      has: ["bookings.booking"],
+    },
+  },
 });

@@ -16,6 +16,7 @@ import {
 import { evaluateFiles, readExtensionFiles } from "./evaluate.ts";
 import { createLocalDb, type LocalDb } from "./local-db.ts";
 import { findPlatform, type Platform } from "./platform.ts";
+import { portalBlockIssues } from "./portal.ts";
 
 export interface LocatedIssue extends CheckIssue {
   /** The file to open: the issue's own for source issues, else where the path's key is written. */
@@ -177,7 +178,10 @@ export async function checkExtensionDir(
     }
     await refreshSchemaRegistry(local.db);
     const result = await checkEvaluated(local.db, id, evaluated, now, { installed: [...done] });
-    const issues = [...before, ...result.issues];
+    // A pack's sections of My account name blocks in its folder (stage 48, ADR 0710): read here,
+    // where the files are; the host has only the manifest.
+    const portal = result.manifest ? portalBlockIssues(root, result.manifest, platform.root) : [];
+    const issues = [...before, ...result.issues, ...portal];
     return {
       ...result,
       id,

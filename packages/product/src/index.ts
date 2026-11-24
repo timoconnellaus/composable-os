@@ -266,6 +266,23 @@ export interface GatekeeperSettings {
     /** The fake provider instead of Stripe: only in an environment marked `live: false`. */
     PAYMENTS_FAKE_PROVIDER?: boolean;
   };
+  /**
+   * Text messages (packages/gatekeeper-text, ADR 0672), through the business's own text provider
+   * account. Its webhook address, BASE_URL, is derived; the provider's keys are Worker secrets.
+   */
+  text?: {
+    /** The provider module texts go through; `fake` only in an environment marked `live: false`. */
+    TEXT_PROVIDER?: string;
+    /** The business's own sender number, in international form (`+61…`). */
+    TEXT_SENDER_NUMBER?: string;
+  };
+}
+
+/** Whether `settings` turn on a fake provider (payments' or texts'), which a live host may not. */
+export function turnsOnFakeProvider(settings: GatekeeperSettings): string | null {
+  if (settings.payments?.PAYMENTS_FAKE_PROVIDER === true) return "the fake payment provider";
+  if (settings.text?.TEXT_PROVIDER === "fake") return "the fake text provider";
+  return null;
 }
 
 /** Whether an environment of `product` (or the product without environments) is live. */
@@ -468,12 +485,10 @@ export function defineClientProduct(definition: ClientProductDefinition): Client
   }
   const deployments = environmentNames(definition);
   for (const env of deployments.length ? deployments : [undefined]) {
-    if (
-      gatekeeperSettings(definition, env).payments?.PAYMENTS_FAKE_PROVIDER === true &&
-      isLiveEnvironment(definition, env)
-    ) {
+    const fake = turnsOnFakeProvider(gatekeeperSettings(definition, env));
+    if (fake && isLiveEnvironment(definition, env)) {
       fail(
-        `${env ? `environment ${env}` : "the product"} is live and turns on the fake payment provider: only an environment marked live: false may`,
+        `${env ? `environment ${env}` : "the product"} is live and turns on ${fake}: only an environment marked live: false may`,
       );
     }
   }
