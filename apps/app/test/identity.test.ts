@@ -71,7 +71,12 @@ describe("with IDENTITY_PROVIDER=cloudflare-access", () => {
 });
 
 describe("with IDENTITY_PROVIDER=better-auth", () => {
-  const authEnv: IdentityEnv = { ...env, IDENTITY_PROVIDER: "better-auth" };
+  // Sign-up closed, as on a clean checkout, whatever a local .dev.vars says (`pnpm dev` opens it).
+  const authEnv: IdentityEnv = {
+    ...env,
+    IDENTITY_PROVIDER: "better-auth",
+    AUTH_ALLOW_SIGNUP: undefined,
+  };
 
   it("redirects a signed-out page request to sign-in", async () => {
     const result = await authorize(get("/status?x=1"), authEnv, page);
