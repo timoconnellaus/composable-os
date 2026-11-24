@@ -12,6 +12,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import {
   type ActingUser,
   coreRegistry,
+  holdRoleMine,
   invokeByName,
   loadStaffRights,
   type MineLimit,
@@ -343,6 +344,18 @@ describe("a call carrying the limit (a tool run the account started)", () => {
         code: "forbidden",
         details: { rule: "role_mine" },
       });
+    }
+  });
+
+  it("a published version's staff read passes only for an object it is not about (ADR 0701)", async () => {
+    const limit = await limitOf(crew);
+    for (const operation of ["content.staffGet", "content.staffList", "content.search"]) {
+      await expect(
+        holdRoleMine(db.query, limit, operation, { object: NOTE }, Date.now()),
+      ).resolves.toBeUndefined();
+      await expect(
+        holdRoleMine(db.query, limit, operation, { object: JOB }, Date.now()),
+      ).rejects.toMatchObject({ code: "forbidden", details: { rule: "role_mine" } });
     }
   });
 

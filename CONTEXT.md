@@ -470,9 +470,18 @@ The most recent installed version (commit) of an extension that completed a run 
 Extension code declared with `defineAutomation`: a **trigger**, optional declarative conditions,
 declared **steps** (with intents: what they read, write, notify and wait for) and a `run` handler
 shaped like a Cloudflare Workflow. The host renders its plain-English **summary** and **step
-diagram** from the declarations, never from AI. Enabled, disabled (an admin's choice) or paused (a
-safety rail tripped). Id `<extension>.<key>`, e.g. `deals.wonOnboarding`.
+diagram** from the declarations, never from AI. Enabled, disabled (an admin's choice), waiting (it
+runs **only with** an extension that is not installed and on) or paused (a safety rail tripped).
+Id `<extension>.<key>`, e.g. `deals.wonOnboarding`.
 _Avoid_: workflow (that is the Cloudflare primitive a run executes on), rule, flow
+
+**Only with**
+An automation's `onlyWith: ["<extension>"]` (ADR 0812): the other extensions it needs, when the
+rest of its own extension does not. The extension installs without them; the automation waits,
+starting no run and listed as waiting, until every one is installed and on; then, if it names an
+object of theirs that does not exist, it is listed as broken. Reviews' "after the Nth class" runs
+only with Bookings.
+_Avoid_: optional dependency, companion pack; `requires` is the whole extension's need
 
 **Trigger**
 What starts an automation's runs: a record event (`created`, `updated`, `deleted`, `restored`), a
@@ -1059,12 +1068,13 @@ customers and the public only, the caller decided from the customer's verified s
 never staff (stage 24, ADR 0421).
 
 **Audience**
-Who may call an operation: `staff`, `customer` or `public` (stage 22, ADR 0402). An operation
-lists its audiences, staff only when it lists none. A caller outside them gets the answer an
-unknown operation gets (ADR 0411).
+Who may call an operation: `staff`, `customer` or `public` (stage 22, ADR 0402), or `device`, an
+**enrolled device** holding a **device role**, alone (stage 51, ADR 0781). An operation lists its
+audiences, staff only when it lists none. A caller outside them gets the answer an unknown
+operation gets (ADR 0411).
 
 **Open operation**
-An operation that lists `customer` or `public`. It is a `read` or a `write`, never more, and is
+An operation that lists `customer`, `public` or `device`. It is a `read` or a `write`, never more, and is
 named in the generated `packages/core/open-operations.json` (ADR 0411).
 
 **Visibility seam**
@@ -1290,6 +1300,18 @@ object's `show` (stage 37, ADR 0680).
 One row of the stock ledger: a record, a place (one default place until stock is kept in several),
 a signed quantity, a kind (opening, received, sold, returned, written off, counted, adjusted, used),
 what made it (an order line, a record or a person), who and when. Never changed or deleted.
+
+**Stock move** (`stockMoves`)
+A record's state moving stock: a receipt entering received adds its quantity, a write-off removes
+it, a count line sets on hand to what was counted when its count is applied. Written by the host in
+the batch of the move, for every actor; what moved stock cannot change afterwards (stage 37,
+ADR 0681).
+
+**Reorder level** and **low stock**
+The number at or below which a stock record is low (the field `stock.reorderAt` names). When a
+write takes it there, the staff who keep stock (the pack's `stock.notify` permission, else the
+admins) are told once; again only after it has risen above and fallen again (one **crossing**)
+(ADR 0681).
 
 **Series** (of a recurring schedule)
 A record that declares `recurring`: a rule in local wall-clock time (weekdays, a time, a
@@ -1568,14 +1590,24 @@ _Avoid_: kiosk (a standing sign-in on a shared device, which this is not)
 
 **Enrolled device** (stage 51 step 1, built with stage 44 step 6: ADR 0780)
 A tablet or other browser a human admin enrolled as the business's own (`core_device`), for one
-**use**: desk signing, a **device role** a pack declares (stage 51's check-in tablet, not built
-yet), or a till (stage 50, not built yet). It holds one credential, a cookie on the desk origin
+**use**: desk signing, a **device role** a pack declares (stage 51's check-in tablet: the role
+and its calls are built, Bookings' role and the tablet's screen are not yet), or a till (stage 50,
+not built yet). It holds one credential, a cookie on the desk origin
 that alone opens almost nothing, rotated at least daily (and on every signing claim): the next
 one is issued and the current one stays good until the device presents it, then the old one is
 accepted 60 seconds more; a credential rotated away and used later revokes it as a clone, and 30
 days unused lapse it. Every admin is told when one is enrolled, changed or revoked (Settings, Devices).
 Not a **Device session**, which is a person's own app sign-in.
 _Avoid_: kiosk, terminal, registered device
+
+**Device role** (stage 51 step 2: ADR 0781)
+What a pack lets an **enrolled device** do with no person signed in (`deviceRoles` in its
+manifest, held as `core_device.role`, `<pack>.<role>`): exactly the pack's tools open to the
+`device` audience whose permission the role lists, and `device.heartbeat`, decided by the
+pipeline from the device's credential on every call. Its tools see `ctx.caller` as `{ kind:
+"device", deviceId, name }` and run as the extension. Only a shipped pack declares one. Not a
+**Pack role**, which a staff account holds.
+_Avoid_: kiosk role, device account
 
 **Desk origin** (stage 44 step 6: ADR 0649)
 The host's second hostname, `desk.` before its name (`DESK_HOSTNAME`, set by `cos deploy` on a
@@ -1714,6 +1746,17 @@ pack's permission. The format is the **calendar writer** (`@composable-os/calend
 the booking email's calendar file shares.
 _Avoid_: calendar sync, invite (the booking email's calendar file)
 
+**Customer calendar feed** and **Calendar entry** (stage 62, built in step 1: ADRs 0890, 0891)
+The same kind of private address for a customer account: their own live bookings, and those of the
+children they are a live guardian of (each prefixed with the child's first name), from 14 days back
+to 120 days ahead, each with its public name, place and times, nothing of anyone else. Made only by
+the customer, in My account; revoked by them or by staff, and when the account is disabled, deleted
+or erased. Both feeds share one **feed module** (token, hash, limits, headers, the one 404), but
+keep their tokens apart. Which records appear is a pack's **calendar entry** (`calendarEntry` on an
+object with a customer): its start, end, title and place as paths the customer may read, and the
+states in which a record shows; shipped packs only.
+_Avoid_: calendar sync (nothing is written into anyone's calendar), subscription (a paid plan)
+
 **Counted for pay** and **Pay period** (stage 45, built in step 6: ADR 0627)
 A staff member is counted **by time**, **by class** or not at all, from a date (no basis: not
 counted). A **pay period** (weekly, fortnightly by default, or monthly; Rostering's setting) totals,
@@ -1816,7 +1859,8 @@ What someone is buying and its state: `pending`, `part_paid`, `paid`, `cancelled
 `refunded`. One order has lines, each a record that is for sale with the price the host read from
 it when the order started. Amounts are integers in the currency's minor unit, and every order is
 in the deployment's one currency. Only a payment the provider confirmed and the gatekeeper
-verified makes an order paid or part paid (ADR 0427); no operation does. A paid line grants
+verified, or a payment the host applies when it is paid another way, makes an order paid or part
+paid (ADRs 0427, 0694); no operation's input does. A paid line grants
 something (a ticket, later a pass). A base record from stage 25, with its own `order.*`
 operations. With tax at checkout on, its amounts include tax: it keeps the provider's tax per
 payment, per line and in total, and what is owed does not change (ADR 0479). Each paid period of a
@@ -1839,6 +1883,17 @@ reason (`order.adjust`). Within the limit a human admin sets it applies at once;
 always when an AI asks, it waits in Approvals for a human admin, and the order cannot be paid
 until it is decided (ADR 0691).
 _Avoid_: comp, override, markdown
+
+**Paid another way** (an order's)
+An order paid, in whole or part, by something other than the provider's verified payment: today a
+**recorded payment**, money a person with `orders:payments` says they received (a bank transfer,
+cash, a cheque, a card machine: `order.recordPayment`, a person only, never more than is owed);
+later a gift voucher or stored value the host applies. Each is a payment row with its **method**
+(`provider`, `recorded`, `voucher`, `stored_value`), applied by the host through
+`applyOtherPayment` (ADR 0694). A recorded payment entered in error is **reversed**
+(`order.reversePayment`): a second row takes it back off and a paid order is part paid again.
+_Avoid_: manual payment, offline payment, mark as paid (a spender's "paid another way" above is a
+mark on a booking, not money on an order: ADR 0506)
 
 **Sellable**
 The behaviour of an object whose records can be put on an order (stage 27, ADR 0435): its price
@@ -2017,9 +2072,11 @@ A payment the provider confirmed for an order that had already expired or been c
 never makes the order paid by itself: staff honour it or refund it (ADR 0429).
 
 **Refund**
-Money sent back to the buyer on one of an order's payments. Staff with the refund permission ask;
-a person approves it in the Approvals inbox (never an AI); the order shows it once the provider
-confirms (ADR 0429).
+Money sent back to the buyer on one of an order's payments, the way it came. On the provider's
+payment: staff with the refund permission ask; a person approves it in the Approvals inbox (never
+an AI); the order shows it once the provider confirms (ADR 0429). On a recorded payment: a person
+with the refund permission pays it back and records how (`order.recordRefund`); nothing is sent
+(ADR 0694).
 
 **Event** (Ticketing)
 Something tickets are sold for: a camp, a workshop, a night, with its times, its own time zone,
@@ -2083,7 +2140,7 @@ A client the company's mobile app may hold beside its role clients (`mobile.owne
 `roles/owner.ts`): only the operations the owner's Today needs (Today, the approvals, the notice
 inbox, who is signed in). Not a pack role: any staff account may sign in with it and the host
 decides every call, so a coach sees only what their rights allow. A change to how the system is set
-up is never approved from the app: the host refuses it on a device session ("review on a
+up is never made or approved from the app: the host refuses it on a device session ("review on a
 computer"). Its hooks and words are `@composable-os/client`'s `createOwnerHooks`, shared by the
 native block and the web Today.
 _Avoid_: admin app, staff app, owner role
@@ -2208,10 +2265,18 @@ _Avoid_: slug (a record's address), id (records have ids)
 
 **Published-text index** (stage 38, ADR 0700)
 The words of each record's current published version, one row per section, for
-`content.search`: only content fields the public reads, of objects the public reads, written in
+`content.search`: the content fields the public reads, of objects the public reads, and every text
+content field of an object staff read (ADR 0701; a search matches only its reader's), written in
 the batch of every publish and unpublish and caught up by the minute cron when a declaration
 changes. Never the working copy. Not a `rec_*` view.
 _Avoid_: search index (that is `core_search`, over working copies, for staff), FTS table
+
+**Staff read** (of a publishable object; stage 38, ADR 0701)
+What an object that declares `publishable.staffRead` gives every staff account, pack roles (a
+cleaner, a coach, the door) included: its records' current published versions, their content and
+slug, through `content.staffGet`, `content.staffList` and `content.search`. Never the working copy
+being edited, never a draft or an unpublished record, never the public or a customer.
+_Avoid_: staff view (a saved view of records), internal (a note's level)
 
 **Confirmation** (read and understood; stage 38, ADR 0702)
 A staff account saying, with one tap, that it has read and understood one published version of a

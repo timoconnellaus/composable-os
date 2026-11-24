@@ -50,6 +50,7 @@ import { contentGenerationWrites } from "./content/cache.ts";
 import { loadCustomerSignIn } from "./customers/accounts.ts";
 import { checkOutsideRateLimit } from "./customers/limits.ts";
 import type { WidgetCache } from "./dashboards/cache.ts";
+import { type DeviceCall, resolveDeviceCall } from "./devices/caller.ts";
 import type { DeskHost } from "./devices/devices.ts";
 import { diffRecords, type FieldDiff } from "./diff.ts";
 import {
@@ -122,6 +123,8 @@ import {
   ACTORS,
   type ActingUser,
   type Actor,
+  type DeviceCaller,
+  type DevicePrincipal,
   type Origin,
   type OutsideActor,
   type OutsidePrincipal,
@@ -622,9 +625,13 @@ function activityStatements(
       occurred_at: activity.occurredAt ?? now,
       author_user_id: author.userId,
       // core_activity.author_actor predates the extension actor; extension posts are `system`,
-      // and so are posts from a customer's or the public's call (no staff user wrote them).
+      // and so are posts from a customer's, the public's or a device's call (no staff user wrote
+      // them).
       author_actor:
-        author.actor === "extension" || author.actor === "customer" || author.actor === "public"
+        author.actor === "extension" ||
+        author.actor === "customer" ||
+        author.actor === "public" ||
+        author.actor === "device"
           ? "system"
           : author.actor,
       created_at: now,
@@ -816,6 +823,27 @@ async function invokeOnce<O extends AnyOperation>(
       at: now,
       pendingActionId: ctx.approval?.actionId ?? null,
       gate: gate.decision,
+      outcome: "forbidden",
+      error,
+    });
+    throw error;
+  }
+  // A change to how the system is set up (an extension, a schema change) is made in the web admin,
+  // never from a device session such as the company's app on a phone (stage 60 decision 8, ADR
+  // 0872): neither by approving one (approval.approve's own check) nor by calling it directly.
+  if (ctx.origin.staffDevice && (op.risk === "extension" || op.risk === "schema")) {
+    const error = new ForbiddenError(`Do ${op.name} on a computer: it changes the setup`, {
+      operation: op.name,
+      reason: "review_on_computer",
+    });
+    await auditAlone({
+      id: newId("audit"),
+      op,
+      ctx,
+      input: rawInput,
+      at: now,
+      pendingActionId: ctx.approval?.actionId ?? null,
+      gate: "deny",
       outcome: "forbidden",
       error,
     });
@@ -1946,7 +1974,19 @@ export interface OutsideInvocationContext {
   actor?: undefined;
 }
 
-export type AnyInvocationContext = InvocationContext | OutsideInvocationContext;
+/**
+ * A call by an enrolled device holding a device role (ADR 0781), made only by the desk origin's
+ * own handler, with the request (`desk.request`). The adapter says only `{ kind: "device" }`: the
+ * pipeline resolves which device from its credential.
+ */
+export type DeviceInvocationContext = Omit<OutsideInvocationContext, "principal"> & {
+  principal: DeviceCaller;
+};
+
+export type AnyInvocationContext =
+  | InvocationContext
+  | OutsideInvocationContext
+  | DeviceInvocationContext;
 
 /** The plain members of a host context, without its throwing getters. */
 function pick(host: HandlerContext) {
@@ -1967,7 +2007,9 @@ function pick(host: HandlerContext) {
   };
 }
 
-function isOutside(ctx: AnyInvocationContext): ctx is OutsideInvocationContext {
+function isOutside(
+  ctx: AnyInvocationContext,
+): ctx is OutsideInvocationContext | DeviceInvocationContext {
   const c = ctx as { principal?: unknown; user?: unknown; actor?: unknown };
   if (c.principal === undefined) return false;
   // Fail closed on a context that claims both: it is never treated as staff.
@@ -1980,9 +2022,11 @@ function isOutside(ctx: AnyInvocationContext): ctx is OutsideInvocationContext {
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** The principal as a plain, frozen value of a known kind, or a refusal. */
-function outsidePrincipal(value: unknown): OutsidePrincipal {
+function outsidePrincipal(value: unknown): OutsidePrincipal | DeviceCaller {
   const p = (value ?? {}) as { kind?: unknown; customerId?: unknown; personId?: unknown };
   if (p.kind === "public") return Object.freeze({ kind: "public" });
+  // Which device is the pipeline's to say, from the credential (ADR 0781): nothing else is read.
+  if (p.kind === "device") return Object.freeze({ kind: "device" });
   if (
     p.kind === "customer" &&
     typeof p.customerId === "string" &&
@@ -2121,7 +2165,7 @@ interface OutsideAudit {
   id: string;
   op: AnyOperation;
   actor: OutsideActor;
-  /** The customer account, or null for the public. */
+  /** The customer account, the enrolled device (dev_…), or null for the public. */
   subjectId: string | null;
   origin: Origin;
   input: unknown;
@@ -2156,6 +2200,38 @@ function outsideAuditInsert(db: CrmDb, row: OutsideAudit): Compilable {
 }
 
 /**
+ * A device's call outside its role (ADR 0781), audited as that device's before it is refused, as
+ * a pack role's refusal is. Its input is not kept: it was never looked at.
+ */
+async function auditDeviceRefusal(
+  db: CrmDb,
+  op: AnyOperation,
+  origin: Origin | undefined,
+  at: string,
+  deviceId: string,
+  error: OperationError,
+): Promise<void> {
+  try {
+    await db.batch([
+      outsideAuditInsert(db, {
+        id: newId("audit"),
+        op,
+        actor: "device",
+        subjectId: deviceId,
+        origin: originSchema.parse(origin ?? { surface: "client" }),
+        input: undefined,
+        at,
+        gate: "deny",
+        outcome: "forbidden",
+        error,
+      }),
+    ]);
+  } catch (failure) {
+    console.error("failed to write audit row", op.name, errorForLog(failure));
+  }
+}
+
+/**
  * Runs one operation for a customer or the public:
  *
  *   audience → validate → gate (allow or refuse) → handler → write check at the seam → audit
@@ -2171,19 +2247,38 @@ function outsideAuditInsert(db: CrmDb, row: OutsideAudit): Compilable {
 async function invokeOutside<O extends AnyOperation>(
   op: O,
   rawInput: unknown,
-  ctx: OutsideInvocationContext,
+  ctx: OutsideInvocationContext | DeviceInvocationContext,
 ): Promise<OperationOutput<O>> {
-  const principal = outsidePrincipal(ctx.principal);
+  const given = outsidePrincipal(ctx.principal);
   const now = (ctx.clock?.() ?? new Date()).toISOString();
   // The same answer as a name that is not registered, before the input is looked at.
-  if (!allowsAudience(op, principal)) throw new UnknownOperationError(op.name);
+  if (!allowsAudience(op, given)) throw new UnknownOperationError(op.name);
   // Some operations exist for a customer only inside a tool they called (ADR 0414).
   if (op.toolOnly && !ctx.tool) throw new UnknownOperationError(op.name);
-  // The desk origin's calls exist only for its own handler, and that handler reaches nothing
-  // else (ADR 0649): a desk request on any other operation is told it does not exist.
-  if (Boolean(op.deskOnly) !== Boolean(ctx.desk?.request) || (op.deskOnly && ctx.tool)) {
+  if (given.kind === "device") {
+    // A device calls only from the desk origin's own handler, and never from inside a tool: a
+    // tool it started makes its own calls as the extension (ADR 0781).
+    if (!ctx.desk?.request || op.deskOnly || ctx.tool) throw new UnknownOperationError(op.name);
+  } else if (Boolean(op.deskOnly) !== Boolean(ctx.desk?.request) || (op.deskOnly && ctx.tool)) {
+    // The desk origin's calls exist only for its own handler, and that handler reaches nothing
+    // else (ADR 0649): a desk request on any other operation is told it does not exist.
     throw new UnknownOperationError(op.name);
   }
+  // The pipeline's device check (ADR 0781): which enrolled device, from its credential, and
+  // whether its device role reaches this operation, before the input is looked at. A refusal
+  // outside its role is audited, as a pack role's is.
+  let device: DeviceCall | null = null;
+  if (given.kind === "device") {
+    const call = await resolveDeviceCall(ctx.db.query, ctx.desk, ctx.desk?.request, op, now);
+    if ("refused" in call) {
+      await auditDeviceRefusal(ctx.db, op, ctx.origin, now, call.deviceId, call.refused);
+      throw call.refused;
+    }
+    device = call;
+  }
+  const principal: OutsidePrincipal | DevicePrincipal = device
+    ? device.principal
+    : (given as OutsidePrincipal);
   // A call made by a pack's tool: what the tool may do comes from its installed manifest. A tool
   // that is not installed, not shipped or not open to this caller can make no call at all, and a
   // tool does not start another tool.
@@ -2237,7 +2332,12 @@ async function invokeOutside<O extends AnyOperation>(
   }
   const actor: OutsideActor = principal.kind;
   // Mutable only by `anonymise` (ADR 0725): an anonymous form's submission names no account.
-  let subjectId = principal.kind === "customer" ? principal.customerId : null;
+  let subjectId =
+    principal.kind === "customer"
+      ? principal.customerId
+      : principal.kind === "device"
+        ? principal.deviceId
+        : null;
   const origin = originSchema.parse(ctx.origin ?? { surface: "client" });
   // `{ $relative: "me" }` in a customer's filter is their own Person.
   const me = principal.kind === "customer" ? principal.personId : "";
@@ -2465,7 +2565,8 @@ async function invokeOutside<O extends AnyOperation>(
     output = checked.data;
   }
 
-  const statements: (Compilable | CompiledQuery)[] = [...writes];
+  // What records a device's call on the device (last seen, a rotation): the call's own batch.
+  const statements: (Compilable | CompiledQuery)[] = [...writes, ...(device?.statements ?? [])];
   const changeRows: { o: string; r: string; a: string; d: string }[] = [];
   const marked: MarkedChange[] = [];
   for (const change of changes) {

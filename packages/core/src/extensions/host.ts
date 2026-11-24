@@ -28,6 +28,12 @@ export interface ToolCaller {
    */
   principal?: OutsidePrincipal;
   /**
+   * Set when an enrolled device holding a device role called the tool (ADR 0781): who started
+   * it, for the tool to record (`ctx.caller`). The run's operation calls are the extension's, as
+   * for staff, and no account is "me" in them.
+   */
+  device?: { deviceId: string; name: string };
+  /**
    * The staff caller's pack role limit to today (ADR 0553), from the pipeline's read of the
    * account: the run's record reads and writes of these objects reach today's records only.
    */

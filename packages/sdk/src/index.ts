@@ -8,6 +8,7 @@ export * from "./agreements.ts";
 export * from "./allowance.ts";
 export * from "./automation.ts";
 export * from "./automation-check.ts";
+export * from "./calendar-entry.ts";
 export * from "./capacity.ts";
 export * from "./checklists.ts";
 export * from "./contract.ts";

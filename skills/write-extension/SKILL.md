@@ -141,7 +141,21 @@ extension declares it; it never implements it. Each behaviour the platform has i
   read-only `onHand`, `held` and `available`, so don't declare fields with those names, and never
   write a count field of your own: an order's line holds and sells in its batch, and staff record
   opening stock and corrections with `stock.opening` and `stock.adjust`. A shipped pack only. See
-  `StockSpec` in `packages/sdk/src/stock.ts` and ADR 0680.
+  `StockSpec` in `packages/sdk/src/stock.ts` and ADR 0680. `stock.notify: "<ext>:<word>"` (a
+  permission of one of your tools, with `reorderAt`) names who the host tells when a record falls
+  to its reorder level, once per crossing; without it the admins are told. Never send that notice
+  from a tool or an automation. The object must be sellable, or moved by a `stockMoves`.
+- **`stockMoves`** on an object whose records move stock (a receipt, a write-off, a count line):
+  `stockMoves: { move: "add" | "remove" | "set", on: "<relation to a stock object>", quantity:
+  "<number field>", when: "<state>", through?: "<relation to the record whose state it is>",
+  kind?, unitCost?, note? }`. Entering `when` (a state no move leaves) writes the movement in that
+  write's batch; with `through`, a count's `applied` moves all its lines at once (`set`: on hand
+  becomes the number counted). Declare every move into `when` as `by: ["host"], tools: [...]`
+  with the pack's `humanOnly` or `personApproves` tools carrying its stock permission, and never
+  `create.in` the state (make the record, then move it through the tool): moving stock is a
+  person's act, and an AI's waits for one. Never change stock from a tool otherwise: move the
+  record. What moved stock cannot be edited afterwards. A shipped pack only. See
+  `StockMovesSpec` and ADR 0681.
 - **`unique`** on an object: `unique: [{ fields: [<up to 4 fields>], states?: [<states>] }]`, no
   two live records in those states share the fields (one active booking per Person per class).
   The database refuses the second, however many write at once (`conflict`, `rule: "unique"`).
@@ -227,6 +241,17 @@ extension declares it; it never implements it. Each behaviour the platform has i
   `title: "<a text or select field, or relation.field of one of your objects>"` (never the
   client's name; left out, the object's label). See `OccupiesSpec` in
   `packages/sdk/src/occupies.ts` and ADRs 0765 and 0844.
+- **`calendarEntry`** (shipped packs only) on an object with a `customer` whose records are a
+  customer's appointments (a booking, a ticket): `calendarEntry: { starts, ends: "<datetime
+  paths>", title, place?: "<text paths>", live: [<states in which it shows>] }`. A path is a
+  field, or up to two relations and a field (`klass.startsAt`, `klass.room.name`). Its first field
+  and the states field must be in `customer.read`. Further on, a `title` or `place` field must be
+  one that object makes `public` or `signedIn` (never a class's own title, which may name a
+  member); a `starts` or `ends` field may also be, one relation away, its `customerVia` from this
+  object. The host then shows the records, read as the customer, in their private calendar feed
+  (and a live dependant's in their guardian's). Never put a name, note or price there that the
+  customer cannot already read. See `CalendarEntrySpec` in `packages/sdk/src/calendar-entry.ts`
+  and ADR 0891.
 - **`intake`** when the public or customers send answers (a form, its submissions, a record a
   form may also make): `intake: { role: "form", questions: "<document field with
   QUESTIONS_SCHEMA, in publishable.content>", answeredBy: "<select: public, customers, links,
@@ -419,6 +444,14 @@ and `read`, objects of its own (`<id>.<object>`) the holder may open and list. A
 it to a staff account; while it is held it, and the pack permissions granted to the account, are
 all that account may do, on every operation. Use a role only for that; ordinary staff need none. Only a pack or the org's own extension may declare
 one. See Ticketing: `roles` in `packs/ticketing/index.ts`.
+
+A shipped pack may also declare **device roles** (`deviceRoles`, `DeviceRoleSpec` in
+`contract.ts`, ADR 0781) for the business's own enrolled device, signed in as nobody (a check-in
+tablet by the door): `{ label, description, permissions, screen: { block, export } }`. Its
+permissions are those of tools declared `audiences: ["device"]` and nothing else's (no staff
+role, grant or restriction names them); the tool reads as the extension, returns only what its
+output declares (never a Person id or a reason for the room), and records who ticked from
+`ctx.caller` (`{ kind: "device", deviceId, name }`). The screen is a web block of the pack.
 
 To let some staff call one tool their role does not reach (a viewer at the door), declare its
 permission **grantable** instead (`grantable: ["<id>:<word>"]`, ADR 0449): a human admin grants it

@@ -51,7 +51,7 @@ export const originSchema = z.object({
    * A staff call over a device session (ADR 0455), not a browser's: the company's app on a phone
    * (a role client or the owner's client, on the device's one staff session, ADR 0451) or the
    * command line's import door. Set by the HTTP surface from the session, never from the request;
-   * recorded in the audit row. A setup change is never approved from it (stage 60, ADR 0872).
+   * recorded in the audit row. A setup change is never made or approved from it (stage 60, ADR 0872).
    */
   staffDevice: z.boolean().optional(),
 });
@@ -121,6 +121,10 @@ export type Role = (typeof ROLES)[number];
  *   (stage 34, ADR 0691). Admins by default, grantable as `orders:refund` is. Within the limit a
  *   human admin sets it applies at once; above it, and always for an AI, it waits for a human
  *   admin's approval.
+ * - `orders:payments` record a payment taken another way (a bank transfer, cash, a cheque, a card
+ *   machine) on an order, and reverse one entered in error (stage 34, ADR 0694). Admins by
+ *   default; grantable and restricted as `notes:clients` is; a person only whatever is granted
+ *   (`actors: ["human"]`): never an AI, an MCP client, an automation or an extension.
  * - `people:cards` issue, revoke and list the check-in cards a business gives its members (stage
  *   51, ADR 0783). Admins and members by default, grantable to any staff account (a fixed-role
  *   one included, ADR 0600). A person only whatever is granted (`actors: ["human"]`).
@@ -159,6 +163,7 @@ export const PERMISSIONS = [
   "journeys:manage",
   "journeys:publish",
   "orders:discount",
+  "orders:payments",
   "people:cards",
   "stock:adjust",
   "finance:read",
@@ -207,6 +212,7 @@ export const GRANTABLE_PERMISSIONS = [
   "journeys:manage",
   "journeys:publish",
   "orders:discount",
+  "orders:payments",
   "people:cards",
   "stock:adjust",
   "finance:read",
@@ -222,6 +228,7 @@ export const RESTRICTED_CORE_PERMISSIONS: readonly Permission[] = [
   "notes:clients",
   "notes:sensitive",
   "notes:manage",
+  "orders:payments",
 ];
 
 /**
@@ -259,9 +266,12 @@ export const MCP_SCOPES = ["read", "write", "admin"] as const;
 export type McpScope = (typeof MCP_SCOPES)[number];
 
 export const SCOPE_PERMISSIONS: Record<McpScope, readonly Permission[]> = {
-  read: ["records:read", "journeys:read"],
+  // `finance:read` (stage 52, ADR 0794 amended): reading the figures over MCP, for an account
+  // that holds it (by role or grant: the scope only intersects); never closing or downloading.
+  read: ["records:read", "journeys:read", "finance:read"],
   write: [
     "records:read",
+    "finance:read",
     "records:write",
     "records:publish",
     "journeys:read",
@@ -301,10 +311,11 @@ export interface ActingUser {
 }
 
 /**
- * Who a call is made for (ADR 0402): the three audiences as principals.
+ * Who a call is made for (ADR 0402): the audiences as principals.
  * - `staff`: a user of the org, every `ActingUser`.
  * - `customer`: a Person who signed in to their own account. Never a `core_user`, never a role.
  * - `public`: a caller with no account.
+ * - `device`: an enrolled device holding a device role (ADR 0781, `DevicePrincipal` below).
  * The visibility seam and the audience check read nothing else about the caller.
  */
 export interface StaffPrincipal {
@@ -326,7 +337,38 @@ export interface PublicPrincipal {
 }
 
 export type OutsidePrincipal = CustomerPrincipal | PublicPrincipal;
-export type Principal = StaffPrincipal | OutsidePrincipal;
+
+/**
+ * An enrolled device holding a device role (stage 51, ADR 0781): the business's own tablet, signed
+ * in as nobody. Resolved by the pipeline from the device's credential on the desk origin, never
+ * given by an adapter: the adapter says only `{ kind: "device" }` (`DeviceCaller`). It reads no
+ * record through the seam, and calls only its role's tools and `device.heartbeat`.
+ */
+export interface DevicePrincipal {
+  readonly kind: "device";
+  /** The enrolled device (dev_…). */
+  readonly deviceId: string;
+  /** The name an admin gave it ("Front door tablet"). */
+  readonly name: string;
+  /** The device role it holds (`<pack>.<role>`). */
+  readonly role: string;
+}
+
+/** What the desk origin's handler says of a device call: the pipeline resolves the rest. */
+export interface DeviceCaller {
+  readonly kind: "device";
+}
+
+export type Principal = StaffPrincipal | OutsidePrincipal | DevicePrincipal;
+
+/**
+ * Who placed an order or a checkout (`placed_as`): staff, a customer or the public. An enrolled
+ * device places none (ADR 0781): its role's tools reach no checkout, and this holds if one did.
+ */
+export function placedAs(principal: Principal): "staff" | "customer" | "public" {
+  if (principal.kind === "device") throw new Error("An enrolled device places no order");
+  return principal.kind;
+}
 
 export function staffPrincipal(user: Pick<ActingUser, "id" | "role">): StaffPrincipal {
   return Object.freeze({ kind: "staff", userId: user.id, role: user.role });
@@ -335,9 +377,9 @@ export function staffPrincipal(user: Pick<ActingUser, "id" | "role">): StaffPrin
 /**
  * The actors of calls from outside the org, as the audit log records them. They are not in
  * `ACTORS`: the approval policy, the queue and an operation's `actors` are about staff-side
- * callers, and a customer's or the public's call is never queued.
+ * callers, and a customer's, the public's or an enrolled device's call is never queued.
  */
-export const OUTSIDE_ACTORS = ["customer", "public"] as const;
+export const OUTSIDE_ACTORS = ["customer", "public", "device"] as const;
 export type OutsideActor = (typeof OUTSIDE_ACTORS)[number];
 /** Every actor a handler can be called by and the audit log can hold. */
 export const ALL_ACTORS = [...ACTORS, ...OUTSIDE_ACTORS] as const;

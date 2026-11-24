@@ -218,6 +218,12 @@ session. A grant of it opens exactly the core operations whose permission it is 
 `agreement.desk.*` staff operations) and nothing else; enrolling or revoking a device stays an
 admin's.
 
+**Amended 2026-11-24** (stage 38 step 2,
+[ADR 0701](0701-staff-read-of-published-versions-and-its-reach-for-pack-roles.md)): the pack role
+itself (not a grant) now reaches `content.staffGet`, `content.staffList` and `content.search` on an
+object that declares `staffRead`. A grant still opens only pack tools and `FIXED_ROLE_CORE_GRANTS`'
+operations; it adds nothing to these reads and they add nothing to it.
+
 **Amended 2026-11-24** (stage 39 step 3, [ADR 0755](0755-the-mine-reach-for-pack-roles.md)):
 the role's "mine" reach (`roleMineFor`) travels as its other limits do: only on a call the role
 allows, never on one a grant of the tool's permission allows, and not on another pack's tool.

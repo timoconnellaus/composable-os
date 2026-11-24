@@ -24,7 +24,7 @@ import { type Kysely, type RawBuilder, type SqlBool, sql } from "kysely";
 import { ForbiddenError, NotFoundError } from "./errors.ts";
 import { getObject } from "./fields/index.ts";
 import type { ObjectDefinition } from "./fields/types.ts";
-import { PACK_ROLE_CORE_READS, PACK_ROLE_OWN } from "./pack-roles.ts";
+import { PACK_ROLE_CORE_READS, PACK_ROLE_OWN, PACK_ROLE_STAFF_READS } from "./pack-roles.ts";
 import { viewColumnOf } from "./records/columns.ts";
 
 /** The record operations the limit understands: a list, a get, an update and a create. */
@@ -242,6 +242,13 @@ export async function holdRoleMine(
       operation,
       ...details,
     });
+  // A published version every staff account reads (ADR 0701): of an object the limit is about,
+  // refused (fail closed); of any other, it reads nobody's record (as ADR 0889's limit holds it).
+  if (PACK_ROLE_STAFF_READS.includes(operation)) {
+    const object = (input as { object?: unknown } | null)?.object;
+    if (typeof object === "string" && !Object.hasOwn(limit.reach, object)) return;
+    throw refuse("it reaches only the records that name its holder");
+  }
   // Fail closed: under the limit, only the record operations it checks, a tool (its own calls are
   // held in turn), and the account's own core operations run. Anything else, whatever key its
   // input names a record by (`links`, `refs`, a batch, a count), is refused.

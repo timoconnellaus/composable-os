@@ -25,19 +25,19 @@ Questions the business asks, published as versions: an enquiry, a sign-up, a sur
 | Field | Type | Label | Required | Details | Description |
 | --- | --- | --- | --- | --- | --- |
 | `title` | `text` | Title | yes |   |   |
-| `slug` | `slug` | Address |   |   | How a link or a QR code names the form. Made from the title. |
+| `slug` | `slug` | Address |   | a person's to change | How a link or a QR code names the form. Made from the title. Changed after publishing, the old address still finds the form. |
 | `kind` | `select` | Kind |   | one of `enquiry`, `signup`, `survey`, `feedback`, `staff`; default `"enquiry"` | What the form is for. A staff form (an incident report) is answered by staff only: set who may answer to Staff. |
 | `questions` | `document` | Questions |   |   | What the form asks. No health questions, signatures or waivers: those are agreements. |
 | `thanks` | `longText` | Thank-you words |   |   | Shown once the answers are sent. |
 | `answeredBy` | `select` | Who may answer |   | one of `public`, `customers`, `links`, `staff`; default `"public"` | Read from the version published: a change counts once it is published. |
 | `anonymous` | `boolean` | Anonymous |   |   | Keeps no link to whoever answers: no person, no account, no receipt and no record made elsewhere. It cannot ask for an email that fills in a person. |
-| `destination` | `select` | Also make |   | one of `leads.lead` | A record of another pack each answer also makes. Only a pack that is installed can be chosen; never on an anonymous form. |
-| `notify` | `user` | Who is told |   |   | Told of each answer and of a low rating. Left empty, the admins. |
+| `destination` | `text` | Also make |   |   | A record of another pack each answer also makes, named as &lt;pack&gt;.&lt;object&gt;. Only an installed pack whose record takes a form's answers can be named (none yet); never on an anonymous form. |
+| `notify` | `user` | Who is told |   |   | Told of each answer. Left empty, the admins. |
 | `receipt` | `boolean` | Send a receipt |   | default `true` | The sender gets a short email saying the answers arrived, with nothing they typed in it. Never on an anonymous form. |
-| `lowRating` | `number` | Tell at a rating of |   | min 0; max 10 | A first rating answer at or under this tells the person told (or the admins). Left empty, no notice. |
-| `opensAt` | `datetime` | Open from |   |   |   |
-| `closesAt` | `datetime` | Open until |   |   |   |
-| `dailyCap` | `number` | Answers a day, at most |   | min 1 | Left empty, no limit of its own. |
+| `lowRating` | `number` | Tell at a rating of |   | min 0; max 10 | A first rating answer at or under this tells the answers' owner (or the admins). Left empty, no notice. |
+| `opensAt` | `datetime` | Open from |   | a person's to change |   |
+| `closesAt` | `datetime` | Open until |   | a person's to change |   |
+| `dailyCap` | `number` | Answers a day, at most |   | min 1; a person's to change | Left empty, no limit of its own. |
 | `status` | `select` | Status |   | one of `draft`, `open`, `closed`; a person's to change |   |
 
 ### Behaviour declarations

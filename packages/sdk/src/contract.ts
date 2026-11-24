@@ -5,6 +5,7 @@ import type { z } from "zod";
 import type { AgreementsSpec, HealthNotesSpec } from "./agreements.ts";
 import type { AllowanceSpec } from "./allowance.ts";
 import type { AutomationSpec } from "./automation.ts";
+import type { CalendarEntrySpec } from "./calendar-entry.ts";
 import type { CapacitySpec, ClaimsSpec } from "./capacity.ts";
 import type { ChecklistsSpec } from "./checklists.ts";
 import type { DocumentPathSpec, DocumentSchema } from "./document.ts";
@@ -18,7 +19,7 @@ import type { RoutineMailModule, RoutineMailSpec } from "./routine-mail.ts";
 import type { SellableSpec } from "./sellable.ts";
 import type { StaffedSpec } from "./staffed.ts";
 import type { StatesSpec } from "./states.ts";
-import type { StockSpec } from "./stock.ts";
+import type { StockMovesSpec, StockSpec } from "./stock.ts";
 import type { TeamSpec } from "./team.ts";
 import type { UniqueSpec } from "./unique.ts";
 import type { WorkedOnSpec } from "./worked-on.ts";
@@ -275,6 +276,8 @@ export interface ObjectSpec {
   sellable?: SellableSpec;
   /** Things counted on a shelf, sold from a ledger the host keeps (see StockSpec, ADR 0680). */
   stock?: StockSpec;
+  /** A record's state moves stock: received adds, a write-off removes, a count sets (see StockMovesSpec, ADR 0681). */
+  stockMoves?: StockMovesSpec;
   /**
    * Uses a record holds (a pass, a membership), or a record that spends one (a booking): see
    * AllowanceSpec, ADRs 0493 and 0494. The host counts and refuses a spend past the limit.
@@ -330,6 +333,13 @@ export interface ObjectSpec {
    * record on the same thing at an overlapping time, whatever object it is.
    */
   occupies?: OccupiesSpec;
+  /**
+   * Events in the customer's private calendar feed (see CalendarEntrySpec, ADR 0891): the record's
+   * start, end, public title and place as paths the customer may read, and the states in which it
+   * shows. The host reads them as the customer, through the visibility seam, and shows a live
+   * dependant's to their guardian. Only shipped extensions may declare it.
+   */
+  calendarEntry?: CalendarEntrySpec;
   /**
    * The public-write door (see IntakeSpec, ADR 0720): a form the public answers, the submission
    * the host makes from the answers, or another pack's record a form may also make. Only the
@@ -667,7 +677,8 @@ export interface ToolSpec<In extends z.ZodType = z.ZodType, Out extends z.ZodTyp
    */
   recordAction?: RecordActionSpec;
   /**
-   * Who may call the tool: a non-empty subset of `staff`, `customer`, `public`. Left out, staff
+   * Who may call the tool: a non-empty subset of `staff`, `customer`, `public`, or `device` alone
+   * (an enrolled device whose device role holds the tool's `permission`, ADR 0781). Left out, staff
    * only. A tool open to `customer` or `public` must have risk `read` or `write`. Called by a
    * customer, the tool runs as that customer: `ctx.ops` reaches only their own records, through
    * `my.list`, `my.get`, `my.create` and `my.update`. Only shipped extensions and an org's own
@@ -685,7 +696,8 @@ export interface ToolSpec<In extends z.ZodType = z.ZodType, Out extends z.ZodTyp
    * a role of this extension to hold (`roles`, ADR 0436). Admins and members hold it as they hold
    * any tool (a viewer only when the tool's risk is `read`); a staff account given one of this
    * extension's roles holds it only when the role lists it. Only shipped extensions and an org's
-   * own may declare it.
+   * own may declare it. A tool open to `device` names the permission a device role holds
+   * (`deviceRoles`, ADR 0781), and no staff role, grant or restriction names it.
    *
    * Or a list: any one of them opens the tool (ADR 0600). Bookings' day view is the coach's and
    * the desk's (`["bookings:coach", "bookings:desk"]`): a coach reaches it through the role, held
@@ -797,18 +809,45 @@ export interface RoleSpec {
 }
 
 /**
+ * A device role an extension declares (ADR 0781): what an enrolled device given it may do, with
+ * no person signed in. A human admin enrols a device for the role (`device.enrol { use: "role",
+ * role: "<id>.<name>" }`); its credential then calls exactly the tools whose permission the role
+ * lists (each open to `device` only) and `device.heartbeat`, and nothing else. It reads no
+ * record: its tools return only what their outputs declare. Bookings' check-in tablet:
+ * `{ permissions: ["bookings:checkin"], screen: { block: "bookings-checkin-tablet", export:
+ * "CheckInTablet" } }`. Only a shipped pack may declare one: a runtime extension's fails `cos ext
+ * check` and install, and is ignored at run time.
+ */
+export interface DeviceRoleSpec {
+  label: string;
+  /** What the device is for, shown to the admin who enrols it. */
+  description: string;
+  /** Permissions of this extension's device tools (`<id>:<word>`) the role holds. */
+  permissions: readonly string[];
+  /** The device's screen: a web block of this pack and the component it exports. */
+  screen: { block: string; export: string };
+}
+
+/**
  * Who started a tool (ADR 0436), set by the host from the session it verified and never from the
- * input: a staff user, a signed-in customer or the public. A tool's own operation calls run as
- * the extension (or as the customer, ADR 0414); this is for recording who asked, such as who
- * checked a ticket in. Absent in automations and in a manifest evaluation.
+ * input: a staff user, a signed-in customer, the public, or an enrolled device holding one of
+ * this extension's device roles (ADR 0781: the device's id and the name an admin gave it, "Front
+ * door tablet"). A tool's own operation calls run as the extension (or as the customer, ADR
+ * 0414); this is for recording who asked, such as who checked a ticket in, or that a booking was
+ * ticked at the door. Absent in automations and in a manifest evaluation.
  */
 export type StartedBy =
   | { readonly kind: "staff"; readonly userId: string; readonly name: string }
   | { readonly kind: "customer" }
-  | { readonly kind: "public" };
+  | { readonly kind: "public" }
+  | { readonly kind: "device"; readonly deviceId: string; readonly name: string };
 
-/** Who may call a tool. `staff` when nothing is declared (ADR 0402). */
-export const TOOL_AUDIENCES = ["staff", "customer", "public"] as const;
+/**
+ * Who may call a tool. `staff` when nothing is declared (ADR 0402). `device` (ADR 0781): an
+ * enrolled device whose device role holds the tool's permission, on the desk origin only; a tool
+ * open to `device` is open to nobody else.
+ */
+export const TOOL_AUDIENCES = ["staff", "customer", "public", "device"] as const;
 export type ToolAudience = (typeof TOOL_AUDIENCES)[number];
 
 /**
@@ -927,6 +966,14 @@ export interface PublishableSpec {
    * customer reads.
    */
   acknowledge?: { who: string; manage: string };
+  /**
+   * Staff read (stage 38, ADR 0701): every staff account reads the current published version,
+   * never the working copy, through `content.staffGet`, `content.staffList` and `content.search`,
+   * pack-role accounts (a coach, a cleaner, the door) included, which read nothing else outside
+   * their own pack. What they read is the `content` fields and the slug. Editors still edit the
+   * working copy on the record's page.
+   */
+  staffRead?: boolean;
 }
 
 /** An object's customer: see `ObjectSpec.customer`. */
@@ -1060,6 +1107,11 @@ export interface ExtensionSpec {
   automations?: Record<string, AutomationSpec<any>>;
   /** Fixed staff roles an admin can give to a staff account (ADR 0436). */
   roles?: Record<string, RoleSpec>;
+  /**
+   * Device roles an admin can enrol a device for (ADR 0781): the business's own tablet, signed in
+   * as nobody, calling only the tools the role holds (`audiences: ["device"]`).
+   */
+  deviceRoles?: Record<string, DeviceRoleSpec>;
   /**
    * Permissions of this extension's tools (`<id>:<word>`) a human admin may grant to a staff
    * account one by one (ADR 0449), on top of its role: a coach who is a member granted the

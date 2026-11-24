@@ -59,7 +59,10 @@ gift cards to be built.
   staff names in a file are read when it is downloaded; discounts show once, with an order's first
   payment; the late scan reads every earlier source's index entry. The hand-worked fixture is
   written to the order tables, plus one order paid through the order code; the full fixture of
-  acceptance criterion 1 (memberships, passes, payouts) waits for steps 4 to 6.
+  acceptance criterion 1 (memberships, passes, payouts) waits for steps 4 to 6. The review of PR #423
+  (ADR 0796 and 0794 amended): no guest address in a closed row, an erase racing the close fails
+  it, refunds looked up by their order's payments, `finance:read` in the MCP `read` and `write`
+  scopes, a closed file byte for byte the same after a reopen (names read at download excepted).
 
 **This is not accounting or tax advice, and the platform gives none.** The host reports what the
 payment provider confirmed and what the host recorded. How a figure is treated in the business's

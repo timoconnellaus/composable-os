@@ -22,7 +22,8 @@ coordinator, recorded below; no interview was needed and none is open). Builds a
 public-write door and personal links, and after stage 30's preferences and one-tap stop. Number
 54.
 
-Built so far (see "Built" at the end): step 1 (P1, publishable with an author).
+Built so far (see "Built" at the end): step 1 (P1, publishable with an author), step 2 (P2,
+restricted fields), step 3 (P3, `onlyWith` automations).
 
 ## Goal
 
@@ -490,3 +491,21 @@ the trades' moment and review sites are to be checked with each business during 
   erase and purge delete the author's values and scrub others that name them; dropping the field
   drops them. Proof: `packages/core/test/restricted-fields.test.ts`. Left for step 4: Reviews'
   `privateFeedback` and its `reviews.feedback` tool; stage 29's door writes through the same seam.
+- **Step 3 (P3), 2026-11-24.** [ADR 0812](../adr/0812-an-automation-that-runs-only-with-another-pack.md).
+  No migration (nothing is stored for the wait; 1190 stays P2's). `onlyWith: ["<extension>"]` on
+  `defineAutomation` (`packages/sdk`: the contract, its manifest form, `automation-check.ts`): the
+  extension installs without them, and while one is not installed that automation's trigger,
+  step objects and the extension's `permissions.read` / `write` may name its objects; they are
+  checked at its next install or upgrade while it is installed. `cos ext check` installs the
+  named packs from beside it first. The host reads `waitingFor` (`automations/registry.ts`, one
+  read of `core_extensions` by id, only when a matched automation names one) before starting a
+  new run: trigger matching and the cron, `automation.run`, `automation.retry` and `.replay`
+  (refused), runs held back by the rate rail (kept queued, counted as waiting). `automation.list`
+  / `.get` show status `waiting` and `waitingFor`, or, once the other is installed, `broken` and
+  `unknownObjects` for an object of it that does not exist; the automations screens say which.
+  Tests: `apps/runner/test/automations-only-with.test.ts` (installs without the other, waits,
+  runs once it is installed, waits again while it is disabled, retry and replay refused, held runs
+  kept and then drained, a misspelt object listed broken, the extra read),
+  `packages/sdk/test/automation.test.ts`, `packages/extension-check/test/check.test.ts` (fixture
+  `onlywith/`). Not done: field checks of another extension's object, which a deployment's check
+  does not make today (ADR 0812, Consequences).
