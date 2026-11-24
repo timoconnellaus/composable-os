@@ -9,6 +9,7 @@ import type { CapacitySpec, ClaimsSpec } from "./capacity.ts";
 import type { ChecklistsSpec } from "./checklists.ts";
 import type { DocumentPathSpec, DocumentSchema } from "./document.ts";
 import type { FieldTypeName } from "./field-types.ts";
+import type { JourneySignalSpec } from "./journey-signals.ts";
 import type { OccupiesSpec } from "./occupies.ts";
 import type { RecurringScheduleSpec } from "./recurring.ts";
 import type { RoutineMailModule, RoutineMailSpec } from "./routine-mail.ts";
@@ -1009,6 +1010,14 @@ export interface ExtensionSpec {
    * declare it, and only their automations send it (`ctx.routineMail.send`).
    */
   routineMail?: Record<string, RoutineMailSpec>;
+  /**
+   * Journey signals (stage 53, ADR 0802): moments about a Person that a journey can start or stop
+   * on, each a record of this extension's objects created or entering a state, and the field
+   * naming its Person (`started: { label: "Membership started", object: "membership" }`). The
+   * host records the last time each Person had each one, in the write's own batch. Only shipped
+   * extensions may declare them.
+   */
+  journeySignals?: Record<string, JourneySignalSpec>;
   /**
    * What each grantable permission gives, in plain words, shown to the admin who ticks it
    * (`{ "bookings:desk": "Works the front desk: ..." }`). Absent: the tools it opens are listed.

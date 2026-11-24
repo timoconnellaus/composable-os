@@ -304,6 +304,16 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
       message: `A runtime extension cannot declare routine mail. ${why}`,
     });
   }
+  // A journey signal is recorded by the host in every write's batch and starts journeys that mail
+  // members (stage 53, ADR 0802): only a shipped extension's reviewed declaration says what is one.
+  for (const name of Object.keys(manifest.journeySignals ?? {})) {
+    issues.push({
+      stage: "contract",
+      code: "outside_audience",
+      path: `journeySignals.${name}`,
+      message: `A runtime extension cannot declare journey signals. ${why}`,
+    });
+  }
   manifest.permissions.modules.forEach((module, i) => {
     if (module === "routine-mail") {
       issues.push({

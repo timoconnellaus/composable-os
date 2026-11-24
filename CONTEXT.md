@@ -1123,6 +1123,15 @@ _Avoid_: provenance, taint
 One declared email of a pack (`bookings.reminder`), with its messages: what an admin turns on or
 off in Settings → Routine email.
 
+**Signal**
+A moment about a Person that a shipped pack declares in its manifest (`journeySignals`) and a
+journey can start or stop on: a record of one of its objects created, or entering one of its states
+(`memberships.started`, `bookings.attended`). The host records, in the batch of the write that made
+it, the last time each Person had each signal (`core_person_signal`), with who stood behind that
+write and whether it was a bulk one; readable only as the Person is, in no view or export, gone
+with an erase (stage 53, ADR 0802).
+_Avoid_: event (Ticketing's), trigger (an automation's)
+
 **Headless entry**
 A pack's functions and hooks over the typed client, with no markup (`<package>/headless`); the
 base layer's are in the client runtime itself (`@composable-os/client`: agreements, My account). Blocks

@@ -37,7 +37,12 @@ import { type Kysely, sql } from "kysely";
 import { setDeclaredUniqueKeys } from "../errors.ts";
 import { FIELD_TYPE_REGISTRY, formulaFilterType } from "../fields/field-types.ts";
 import { CORE_OBJECTS, setExtensionObjects } from "../fields/index.ts";
-import type { FieldDefinition, FieldType, ObjectDefinition } from "../fields/types.ts";
+import type {
+  FieldDefinition,
+  FieldType,
+  ObjectDefinition,
+  ObjectSignal,
+} from "../fields/types.ts";
 import {
   CORE_TARGETS,
   type CoreTarget,
@@ -82,6 +87,8 @@ export interface ObjectDefinitionJson {
   /** A health-note list (stage 44, ADR 0643), as declared. */
   healthNotes?: { list: string; person: string };
   states?: StatesManifest;
+  /** The journey signals declared on it (stage 53, ADR 0802), resolved. */
+  signals?: ObjectSignal[];
   claims?: ClaimsManifest;
   unique?: UniqueManifest;
   recurring?: RecurringScheduleManifest;
@@ -1234,6 +1241,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...(object.definition.agreements ? { agreements: object.definition.agreements } : {}),
       ...(object.definition.healthNotes ? { healthNotes: object.definition.healthNotes } : {}),
       ...(object.definition.states ? { states: object.definition.states } : {}),
+      ...(object.definition.signals?.length ? { signals: object.definition.signals } : {}),
       ...claimsDefinition(object, own),
       ...(object.definition.unique?.length ? { unique: object.definition.unique } : {}),
       ...recurringDefinition(object),

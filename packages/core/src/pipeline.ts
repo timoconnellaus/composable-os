@@ -80,6 +80,7 @@ import {
 import { findProvisionalIds, newId } from "./ids.ts";
 import type { BlobStore, IntegrationRuntime } from "./integrations/runtime.ts";
 import type { HostMail } from "./invites.ts";
+import { signalStatements } from "./journeys/signals.ts";
 import type { Judge } from "./judge/types.ts";
 import { errorForLog } from "./log.ts";
 import type { ModelRunner } from "./models.ts";
@@ -1302,6 +1303,12 @@ async function invokeOnce<O extends AnyOperation>(
         now,
         ctx.markGiven,
       )),
+      // And the journey signals the write made (stage 53, ADR 0802), standing as its marks do.
+      ...signalStatements({ db: ctx.db.query }, changes, {
+        standing: staffStanding(ctx),
+        bulk: isBulkOperation(op.name, bulkSize),
+        now,
+      }),
     );
   }
   statements.push(...activities);
@@ -2275,6 +2282,11 @@ async function invokeOutside<O extends AnyOperation>(
         principal.kind === "customer" ? principal.customerId : null,
         now,
       )),
+      ...signalStatements({ db: ctx.db.query }, changes, {
+        standing: principal.kind === "customer" ? "customer" : "public",
+        bulk: false,
+        now,
+      }),
     );
   }
   statements.push(...activities);
