@@ -9,7 +9,9 @@
     "subscription.cancel",
     "subscription.resume",
     "subscription.change",
-    "subscription.portal"
+    "subscription.portal",
+    "subscription.coolingOff",
+    "subscription.coolOff"
   ],
   "files": ["mine.tsx", "LICENSE"],
   "dependsOn": ["ui-button", "ui-card"],

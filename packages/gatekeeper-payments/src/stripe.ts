@@ -382,7 +382,11 @@ export class StripeProvider implements PaymentProvider {
 
   async cancelSubscription(input: PaymentsCancelSubscriptionInput): Promise<void> {
     const path = `/v1/subscriptions/${encodeURIComponent(input.subscriptionRef)}`;
-    const key = `cos-cancel-${input.subscriptionId}-${input.when}`;
+    // One key per subscription and `when` (staff's "end it now"), or per ask when the caller
+    // gives one (a cooling off's: a member trying again is a new request, not a replay).
+    const key = input.askKey
+      ? `cos-cancel-${input.subscriptionId}-${input.when}-${input.askKey}`
+      : `cos-cancel-${input.subscriptionId}-${input.when}`;
     if (input.when === "now") {
       // Nothing is invoiced or credited for the rest of the period: a refund is its own step.
       const form = new URLSearchParams();
