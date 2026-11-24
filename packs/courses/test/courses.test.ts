@@ -453,6 +453,27 @@ describe("the tools", () => {
     expect(none.courses).toEqual([]);
   });
 
+  it("myCourses: reads each bundle once and a published course from the listing", async () => {
+    const enrolment = { holder: "per_student", bundle: "rec_bundle", status: "active" };
+    const host = hostWith({
+      held: ["rec_course"],
+      enrolments: [
+        { id: "rec_e1", ...enrolment, source: "purchase" },
+        { id: "rec_e2", ...enrolment, source: "staff" },
+      ],
+    });
+    const out = await host.runTool<{ courses: { id: string; why: string }[] }>(
+      "myCourses",
+      {},
+      { caller: STUDENT },
+    );
+    expect(out.courses).toEqual([expect.objectContaining({ id: "rec_course", why: "bundle" })]);
+    const calls = host.calls.map((c) => c.operation);
+    expect(calls.filter((c) => c === "public.get")).toHaveLength(1);
+    expect(calls.filter((c) => c === "access.check")).toHaveLength(1);
+    expect(calls).not.toContain("my.get");
+  });
+
   it("myCourses: asks the host about every course, 100 at a time (access.check's most)", async () => {
     const ids = Array.from({ length: 101 }, (_, i) => `rec_c${String(i).padStart(3, "0")}`);
     const host = hostWith({
