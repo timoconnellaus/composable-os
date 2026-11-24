@@ -155,6 +155,7 @@ export function rolesSummary(
             permissions: string[];
             read: string[];
             looksAfter?: Record<string, string>;
+            mine?: Record<string, { through: string }>;
           }
         >;
         grantable?: string[];
@@ -190,6 +191,10 @@ export function rolesSummary(
               // Limited to the People its holder looks after (ADR 0889).
               (role.looksAfter && Object.keys(role.looksAfter).length
                 ? `; only the people its holder looks after on ${Object.keys(role.looksAfter).join(", ")}`
+                : "") +
+              // Reaching only the records that name its holder (ADR 0755).
+              (role.mine && Object.keys(role.mine).length
+                ? `; only through the ${[...new Set(Object.values(role.mine).map((m) => m.through))].join(", ")} records naming its holder on ${Object.keys(role.mine).join(", ")}`
                 : ""),
           ),
         ]

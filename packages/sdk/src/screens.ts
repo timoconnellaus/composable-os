@@ -82,6 +82,8 @@ export function screenGateFingerprint(m: Partial<ExtensionManifest>): string | n
             today: r.today ?? null,
             // Left out when absent, so a role without it keeps its fingerprint (ADR 0889).
             looksAfter: r.looksAfter,
+            // Left out when absent too (ADR 0755).
+            mine: r.mine,
           },
         ]),
     ),
