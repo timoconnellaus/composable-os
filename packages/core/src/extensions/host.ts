@@ -45,6 +45,11 @@ export interface ToolCaller {
    * record reads and writes of these objects reach those People's records only.
    */
   roleLooksAfter?: import("../pack-role-looks-after.ts").LooksAfterLimit;
+  /**
+   * The staff caller's pack role reach through the records that name it (ADR 0755): the run's
+   * record reads and writes of these objects reach only those records.
+   */
+  roleMine?: import("../pack-role-mine.ts").MineLimit;
   /** The person who approved this call, when another actor's call was approved (ADR 0552). */
   approvedBy?: string;
   /**

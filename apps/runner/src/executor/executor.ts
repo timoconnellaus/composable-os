@@ -350,6 +350,8 @@ export class Executor {
         : {}),
       // And its limit to the People it looks after (ADR 0889).
       ...(input.caller.roleLooksAfter ? { roleLooksAfter: input.caller.roleLooksAfter } : {}),
+      // And its reach through the records that name it (ADR 0755).
+      ...(input.caller.roleMine ? { roleMine: input.caller.roleMine } : {}),
       // Which tool this run is, from the installed manifest (ADR 0513): a move only named tools
       // may make, and a holder's terms, read it from the run's calls.
       tool: {
