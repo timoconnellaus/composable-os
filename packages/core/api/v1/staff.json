@@ -48480,7 +48480,7 @@
     },
     {
       "name": "personCode.issueCard",
-      "description": "Give a person a check-in card or key tag: scan or type the card's code (at least 8 characters) and a label to tell it apart. The card then checks them in at the check-in tablet until it is revoked. The code is never stored or shown again (only a keyed hash), and a code already on someone's live card is refused. Only a person on the staff with people:cards can do this: never the assistant, an MCP client or code. Audited.",
+      "description": "Give a person a check-in card or key tag: scan or type the card's code (at least 8 characters; a tag numbered in sequence can be guessed from its neighbour, so use cards with random codes) and a label to tell it apart. The card then checks them in at the check-in tablet until it is revoked. The code is never stored or shown again (only a keyed hash), and a code already on someone's live card is refused. Only a person on the staff with people:cards can do this: never the assistant, an MCP client or code. Audited.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -48491,9 +48491,7 @@
         "properties": {
           "personId": {
             "type": "string",
-            "maxLength": 64,
-            "format": "starts_with",
-            "pattern": "^per_.*",
+            "pattern": "^per_[0-9A-HJKMNP-TV-Z]{26}$",
             "description": "Who the card is for (per_…)"
           },
           "code": {
@@ -48589,9 +48587,7 @@
         "properties": {
           "personId": {
             "type": "string",
-            "maxLength": 64,
-            "format": "starts_with",
-            "pattern": "^per_.*",
+            "pattern": "^per_[0-9A-HJKMNP-TV-Z]{26}$",
             "description": "The person (per_…)"
           }
         },
