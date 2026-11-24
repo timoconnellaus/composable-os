@@ -4,20 +4,11 @@
 // here shows what anyone paid with. "Health note" marks a yes on someone's current health form
 // (stage 44, decision 18): the host gives the mark only, never the form, and only to a person.
 import type { BookingsHooks, MarkResult } from "@composable-os/pack-bookings/client";
-import { classTime } from "@composable-os/pack-bookings/client";
+import { classTime, todayIn } from "@composable-os/pack-bookings/client";
 import { useState } from "react";
 import { Button } from "../ui-button/button.tsx";
 
 type Hooks = Pick<BookingsHooks, "useRoster" | "useMarkAttended" | "useUndoAttended">;
-
-/** Today's date (YYYY-MM-DD) in `timeZone`. */
-const todayIn = (timeZone: string) =>
-  new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
 
 /**
  * A class's list as the product's admin shows it (stage 47): on a class's page, that class's

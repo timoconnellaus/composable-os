@@ -1,7 +1,9 @@
-# ADR 0881: A pack role limited to the People its holder looks after, and Programs' coach role
+# ADR 0889: A pack role limited to the People its holder looks after, and Programs' coach role
 
 Status: accepted, 2026-11-24 (stage 41, found while putting the first client's app on the
-platform). Builds on [ADR 0436](0436-pack-roles-and-the-door-role.md) (pack roles),
+platform; amended at review the same day: the coach is a person's choice, and the limit fails
+closed). Its number is the last of 0870 to 0889, the numbers this work was given, which other
+blocks' ADR ranges overlap. Builds on [ADR 0436](0436-pack-roles-and-the-door-role.md) (pack roles),
 [ADR 0451](0451-role-clients-staff-in-the-mobile-app-and-browser-calls.md) (a role's own client),
 [ADR 0448](0448-programs-the-layout-assignments-and-the-log.md) (Programs),
 [ADR 0453](0453-pack-hooks-over-the-clients-operations.md) (pack hooks) and
@@ -29,7 +31,8 @@ although `my.list` already serves `programs.classtype` to every signed-in member
 ## Decision
 
 **A team on an object** (`team` in the SDK's `ObjectSpec`, `TeamSpec`): `{ person, staff, live }`:
-`person` a relation (one record) to `person`, `staff` up to four `user` fields, `live` the states
+`person` a relation (one record) to `person`, `staff` up to four `user` fields, each declared
+`personApproves` (the check refuses one that is not), `live` the states
 of the object's `states` in which a record counts (left out: every record not in the Trash). It
 gives nothing by itself. Only shipped packs and an org's own extensions declare it: a runtime
 extension is refused (`outside_audience`), as for every declaration of who reaches what.
@@ -53,7 +56,13 @@ operation runs:
 - `record.get` and `record.update`: the stored record must be about one of them, else not found;
   an update pointing it at another Person must point it at one of them;
 - `record.create`: the new record's Person must be one of them, else not found;
-- any other operation naming a limited object (count, `createMany`, delete, batch): refused.
+- a tool runs (its own calls are held in turn), and so do the account's own core operations
+  (`screens.mine`, `ack.mine`, `ack.confirm`); **every other operation is refused**, whatever key
+  its input names records by (an activity's links, a task's refs, `createMany`, a batch, a
+  count), so the limit fails closed for an operation it does not understand.
+The limit is the role's own pack's: another pack's tool the role reaches (Daily checklists'
+`anyStaff` tools, ADR 0652) runs without it, and its host operations decide what it may do; held
+there, failing closed would refuse them.
 The limit is held before the gate, the agent's grant and the queue, so a call on someone else's
 record is not even queued. Nothing is cached: when the record ends or names another coach, the
 reach changes on the next call. A grant that opens a tool (ADR 0600) lifts the limit on that call,
@@ -62,8 +71,13 @@ as it lifts today's; Programs declares no grantable permission.
 **Programs' coach role** (`programs.coach`): `permissions: ["programs:coach"]`, on `today`,
 `sessionGet`, `logAdd`, `logUpdate`, `sessionComplete`, `history` and `progress`; `read:
 ["programs.assignment", "programs.session"]`; `looksAfter` on assignments, sessions and logged sets
-by `person`. The assignment gains `coach` (a `user` field) and declares `team: { person: "person",
-staff: ["coach"], live: ["generating", "active"] }`; `x.programs.assign` takes `coachId`. So a
+by `person`. The assignment gains `coach` (a `user` field, `personApproves`) and declares `team: {
+person: "person", staff: ["coach"], live: ["generating", "active"] }`. **Who a client's coach is,
+is a person's choice**: a member of staff names it on the assignment; the assistant's, an MCP
+client's, an automation's or extension code's write of it waits for a person's approval (ADR
+0507's `personApproves`, which the gate holds for `record.create`, `record.update`,
+`record.createMany` and `record.import`). `x.programs.assign` does not take a coach: its own
+write of one would be extension code's, and wait. So a
 coach-role account lists and opens its clients' assignments and sessions, reads a session with its
 last times, logs and changes sets and marks sessions for them (the set records the coach), and
 reads their history and progress. Nothing else: no other client's anything, no class session (it
@@ -93,11 +107,14 @@ the hooks may call (the admin's screen client holds them all, and so reads with 
   operations it understands.
 
 ## Consequences
-- Who a client's coach is, is an ordinary staff write of the assignment's `coach` (a member, or an
-  assistant's write through the gate as any write); it opens that client's training to the coach
-  role's account only, never notes or the Person. Stage 56 makes "looks after" a person's choice
-  (`people:link`, human only); when it lands, the assignment's coach should either become a
-  person's choice too or be read alongside `core_person_carer`. Recorded as a follow-up.
+- Who a client's coach is, is a person's choice (`personApproves` on the field; first built as an
+  ordinary write, closed at review because an assistant could widen a coach's reach on its own).
+  Any member of staff may make it, as any member edits an assignment; stage 56's
+  `core_person_carer` (`people:link`, admins) is narrower about who, and can join the same
+  predicate when it lands.
+- The check and the write are two statements (as for today's limit, ADR 0553): an assignment
+  ended or given another coach between them lets one write already checked land. One write, by an
+  account that was the coach a moment before; not closed here.
 - One more statement on each role call that gets, updates or creates a limited record; none on
   anyone else's calls. A list's predicate rides in its own query.
 - The admin: the coach role passes the gate of Programs' client tab (`programs/client`, it opens
@@ -116,8 +133,13 @@ empty; the whole registry walked with empty input lets through only the role's o
 forbidden; the reach follows a change of coach and ends when the assignment ends; a member's call
 carrying the limit (as a tool run does) is held to it, and `record.count`, `createMany` and
 `delete` are refused, a create about someone else and an update pointing at them not found; the
-list's predicate binds three values. The manifest checks name a bad team and a bad `looksAfter`,
-and a runtime extension's team is refused. Removing the list's predicate fails four of its tests.
+list's predicate binds three values; under the limit, a `task.create` (linking a session or not),
+`person.list` and `record.count` are refused, so an operation naming records another way cannot
+pass. The assistant's or an MCP client's write of `coach` (update, or a create with one) waits for
+a person and changes nothing meanwhile; a member's applies. The manifest checks name a bad team, a
+staff field a person does not approve and a bad `looksAfter`, and a runtime extension's team is
+refused. Removing the list's predicate fails four of its tests; dropping `personApproves` from
+`coach` (and the check), or letting other operations through, fails the tests for each.
 `apps/runner/test/programs-hooks.test.ts`: a member's client (the customer contract's operations)
 has `useClassTypes` over `my.list`; staff's reads with `record.list`; the coach role's client has
 the coach screens' hooks and not `useAssign`, `usePeople`, `usePublish`, `useDraft` or

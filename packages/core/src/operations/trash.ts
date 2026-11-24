@@ -7,6 +7,7 @@ import { queueEraseAgreements } from "../agreements/people.ts";
 import { queueEraseAllowances } from "../allowance/people.ts";
 import { ValidationError } from "../errors.ts";
 import { mediaObject } from "../fields/media.ts";
+import { eraseJourneyStatements } from "../journeys/entries.ts";
 import { queueEraseSignals } from "../journeys/signals.ts";
 import { decodeCursor, encodeCursor } from "../list.ts";
 import { defineOperation } from "../operation.ts";
@@ -88,7 +89,11 @@ export const trashList = defineOperation({
           .select([
             sql<TrashListObject>`'activity'`.as("object"),
             "id",
-            sql<string>`coalesce(nullif(trim(subject), ''), substr(body, 1, 120), type)`.as("name"),
+            // A note kept from the whole staff is named by its type, never its text: its text
+            // is read on its timeline, a sensitive one with note.open (stage 56, ADR 0830).
+            sql<string>`CASE WHEN level != 'staff' THEN type ELSE coalesce(nullif(trim(subject), ''), substr(body, 1, 120), type) END`.as(
+              "name",
+            ),
             "deleted_at",
             "deleted_by",
             sql<string | null>`null`.as("merged_into_id"),
@@ -274,6 +279,12 @@ export const trashPurge = defineOperation({
       ctx,
       purged.filter((r) => r.object === "person").map((r) => r.id),
     );
+    // And their journey entries and step log, as an erased Person's (ADR 0800).
+    const journeys = eraseJourneyStatements(
+      ctx.db,
+      purged.filter((r) => r.object === "person").map((r) => r.id),
+    );
+    if (journeys.length) ctx.write(...journeys);
     // Duplicate pairs have no foreign key: a purged record's pairs (dismissed ones too) go with it.
     for (const object of ["person", "organisation"] as const) {
       const ids = purged.filter((r) => r.object === object).map((r) => r.id);

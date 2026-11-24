@@ -5,6 +5,7 @@ import { releaseAssetNames } from "./bundle.ts";
 import {
   bareVersion,
   type Channel,
+  channelOf,
   compareVersions,
   isVersion,
   visibleOnChannel,
@@ -99,7 +100,7 @@ export async function githubJson<T>(path: string, options: RequestOptions): Prom
 function toInfo(release: GitHubRelease, product: string): ReleaseInfo | null {
   const version = bareVersion(release.tag_name);
   if (release.draft || !isVersion(version)) return null;
-  const channel: Channel = version.includes("-") ? "beta" : "stable";
+  const channel = channelOf(version);
   // A tag and its prerelease flag must agree; a mismatch is not a release we offer.
   if (release.prerelease !== (channel === "beta")) return null;
   const names = releaseAssetNames(product, version);

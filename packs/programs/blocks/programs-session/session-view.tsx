@@ -182,7 +182,11 @@ function ItemToDo({
   const levels = item.kind === "levels" ? item.levels : [];
   const level: Level | undefined =
     levels.find((l) => l.level === chosen) ?? (levels.length === 1 ? levels[0] : undefined);
-  const prescriptions = item.kind === "all" ? item.exercises : level ? levelExercises(level) : [];
+  // Everyone's exercises (beside the levels, if any), then the level's.
+  const prescriptions =
+    item.kind === "all"
+      ? item.exercises
+      : [...(item.exercises ?? []), ...(level ? levelExercises(level) : [])];
   return (
     <div
       className="grid gap-2 rounded-md border p-3"

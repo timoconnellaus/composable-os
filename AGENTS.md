@@ -34,6 +34,8 @@ Read the skill in full before starting the work it names.
 - Loading a company's existing posts into its host: [`skills/import-content/SKILL.md`](skills/import-content/SKILL.md).
 - Moving a studio's courses, videos and students from a course platform:
   [`skills/import-courses/SKILL.md`](skills/import-courses/SKILL.md).
+- Moving a gym's exercise bank, programs and past training:
+  [`skills/import-programs/SKILL.md`](skills/import-programs/SKILL.md).
 
 - Any work on the site (`apps/marketing`): the `landing-page-generator` skill
   ([`.claude/skills/landing-page-generator/SKILL.md`](.claude/skills/landing-page-generator/SKILL.md),

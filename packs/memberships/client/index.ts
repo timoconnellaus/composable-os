@@ -9,7 +9,7 @@
 // Whether a member may cool off (stage 44 step 7) is the host's: a block asks, and never works
 // the window out on the device.
 // Whether a change is an upgrade (now, prorated) or a downgrade (next period) is the host's.
-import { type ClientHolding, type PackClient, packHooks } from "@composable-os/client";
+import { type ClientHolding, formatMinor, type PackClient, packHooks } from "@composable-os/client";
 import type { z } from "@composable-os/sdk";
 import type { buy, givePass, holdings, mine, passTypes, plans, voidPass } from "../tools.ts";
 
@@ -420,16 +420,7 @@ export function changeRefusalWords(details: { rule?: unknown } | undefined): str
 }
 
 /** A price in minor units as the host gave it (`1999` AUD is `$19.99`). Display only. */
-export function formatMinor(amount: number, currency: string): string {
-  try {
-    const digits =
-      new Intl.NumberFormat(undefined, { style: "currency", currency }).resolvedOptions()
-        .maximumFractionDigits ?? 2;
-    return formatPrice(amount / 10 ** digits, currency);
-  } catch {
-    return `${amount} ${currency}`;
-  }
-}
+export { formatMinor };
 
 /** A `YYYY-MM-DD` day as a reader sees it (`3 Dec 2026`), never shifted by the reader's zone. */
 export function localDay(date: string | null | undefined): string {

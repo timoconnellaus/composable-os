@@ -25,7 +25,7 @@
 //   times in UTC, nothing else (packages/core/src/staffing/feed.ts).
 import { addressKey } from "@composable-os/auth";
 import { writeCalendar } from "@composable-os/calendar-file";
-import { type RateLimitBinding, rateLimit, readStaffFeed } from "@composable-os/core";
+import { type RateLimitBinding, rateLimit, readStaffFeed, sha256Hex } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 
 export interface StaffFeedEnv {
@@ -79,11 +79,6 @@ function limited(seconds: number): Response {
       },
     },
   );
-}
-
-async function sha256Hex(value: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /** Serves one request under the feed's prefix. */

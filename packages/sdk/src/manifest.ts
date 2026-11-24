@@ -39,6 +39,7 @@ import {
 } from "./document.ts";
 import { FIELD_TYPES, type FieldTypeName, formulaTypeOf } from "./field-types.ts";
 import { checkFormula, type FormulaFieldRef } from "./formula/compile.ts";
+import { checkObjectIntake, intakeManifestSchema } from "./intake.ts";
 import { journeySignalIssues, journeySignalsManifestSchema } from "./journey-signals.ts";
 import { checkObjectOccupies, occupiesManifestSchema } from "./occupies.ts";
 import { checkObjectRecurring, recurringManifestSchema } from "./recurring.ts";
@@ -47,6 +48,7 @@ import { routineMailIssues, routineMailManifestSchema } from "./routine-mail.ts"
 import { checkObjectSellable, sellableManifestSchema } from "./sellable.ts";
 import { checkObjectStaffed, staffedManifestSchema } from "./staffed.ts";
 import { checkObjectStates, resolveFieldPath, statesManifestSchema } from "./states.ts";
+import { checkObjectStock, stockManifestSchema } from "./stock.ts";
 import { checkObjectTeam, teamManifestSchema } from "./team.ts";
 import { checkObjectUnique, uniqueManifestSchema } from "./unique.ts";
 import { checkObjectWorkedOn, workedOnManifestSchema } from "./worked-on.ts";
@@ -215,6 +217,7 @@ export const objectManifestSchema = z.object({
   stages: stagesManifestSchema.optional(),
   capacity: capacityManifestSchema.optional(),
   sellable: sellableManifestSchema.optional(),
+  stock: stockManifestSchema.optional(),
   allowance: allowanceManifestSchema.optional(),
   agreements: agreementsManifestSchema.optional(),
   healthNotes: healthNotesManifestSchema.optional(),
@@ -226,6 +229,7 @@ export const objectManifestSchema = z.object({
   workedOn: workedOnManifestSchema.optional(),
   team: teamManifestSchema.optional(),
   occupies: occupiesManifestSchema.optional(),
+  intake: intakeManifestSchema.optional(),
   checklists: checklistsManifestSchema.optional(),
   owner: z.string().max(40).optional(),
   customer: z
@@ -395,7 +399,7 @@ export const roleManifestSchema = z.object({
       ]),
     )
     .optional(),
-  /** Objects whose records the role reaches only for the People its holder looks after (ADR 0881). */
+  /** Objects whose records the role reaches only for the People its holder looks after (ADR 0889). */
   looksAfter: z.record(z.string().max(80), z.string().max(40)).optional(),
 });
 export type RoleManifest = z.infer<typeof roleManifestSchema>;
@@ -1273,6 +1277,7 @@ export function validateManifest(
     checkObjectBehaviour(m, name, object, contract);
     checkObjectCapacity(m, name, object, contract);
     checkObjectSellable(m, name, object, contract);
+    checkObjectStock(m, name, object, contract);
     checkObjectAllowance(m, name, object, contract);
     checkObjectAgreements(m, name, object, contract);
     checkObjectHealthNotes(m, name, object, contract);
@@ -1284,6 +1289,7 @@ export function validateManifest(
     checkObjectWorkedOn(m, name, object, contract);
     checkObjectTeam(m, name, object, contract);
     checkObjectOccupies(m, name, object, contract);
+    checkObjectIntake(m, name, object, contract);
     checkObjectChecklists(m, name, object, contract);
     object.requireOneOf?.forEach((group, i) => {
       for (const field of group) {
@@ -2185,7 +2191,7 @@ export function validateManifest(
         }
       }
     }
-    // A role limited to the People its holder looks after (ADR 0881): each object its own, each
+    // A role limited to the People its holder looks after (ADR 0889): each object its own, each
     // path its relation to person, and a team of this extension's to say who looks after whom.
     const looksAfter = Object.entries(role.looksAfter ?? {});
     if (looksAfter.length && !Object.values(m.objects).some((o) => o.team)) {

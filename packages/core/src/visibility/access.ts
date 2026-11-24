@@ -41,6 +41,7 @@ export type {
 } from "../fields/types.ts";
 
 import { viewColumnOf } from "../records/columns.ts";
+import { jsonList } from "../records/common.ts";
 import type { Reader } from "./index.ts";
 
 /** What a source of one kind is asked. */
@@ -78,7 +79,7 @@ export function registerAccessSource(kind: string, implementation: AccessSourceK
 
 /** Whether the host provides a kind of access source. */
 export function hasAccessSourceKind(kind: string): boolean {
-  return kind === "record" || kinds.has(kind);
+  return implementationOf(kind) !== undefined;
 }
 
 /** Removes a kind added with `registerAccessSource` (tests). */
@@ -87,6 +88,7 @@ export function unregisterAccessSource(kind: string): void {
 }
 
 const kindOf = (source: AccessSource) => source.kind ?? "record";
+const implementationOf = (kind: string) => (kind === "record" ? RECORD_KIND : kinds.get(kind));
 
 /** What is wrong with an object's `access` declaration (empty when nothing is). */
 export function accessProblems(object: ObjectDefinition): string[] {
@@ -96,7 +98,7 @@ export function accessProblems(object: ObjectDefinition): string[] {
   const problems: string[] = [];
   declared.sources.forEach((source, i) => {
     const kind = kindOf(source);
-    const implementation = kind === "record" ? RECORD_KIND : kinds.get(kind);
+    const implementation = implementationOf(kind);
     if (!implementation) {
       problems.push(`access.sources.${i}: the host has no source of kind "${kind}"`);
       return;
@@ -138,13 +140,14 @@ export async function holdsAccess(
   };
   const held = new Set<string>();
   for (const source of declared.sources) {
-    const kind = kindOf(source);
-    const implementation = kind === "record" ? RECORD_KIND : kinds.get(kind);
+    // Every kind is known: accessProblems refused the declaration otherwise.
+    const implementation = implementationOf(kindOf(source));
     if (!implementation) continue;
     const left = query.ids.filter((id) => !held.has(id));
     if (!left.length) break;
+    const asked = new Set(left);
     for (const id of await implementation.holders({ ...query, ids: left }, source)) {
-      if (left.includes(id)) held.add(id);
+      if (asked.has(id)) held.add(id);
     }
   }
   return held;
@@ -241,9 +244,7 @@ function pointersSql(
     sql`${sql.ref(resolved.pointer)} IS NOT NULL`,
   ];
   if (resolved.state) {
-    conditions.push(
-      sql`${sql.ref(resolved.state.column)} IN (${sql.join(resolved.state.values.map((v) => sql`${v}`))})`,
-    );
+    conditions.push(sql`${sql.ref(resolved.state.column)} IN ${jsonList(resolved.state.values)}`);
   }
   if (resolved.until) {
     // A date's last day still gives access; a datetime until its moment.
@@ -270,9 +271,9 @@ const RECORD_KIND: AccessSourceKind = {
     if (typeof resolved === "string") return new Set();
     const pointers = pointersSql(resolved, query);
     if (!resolved.through) {
-      const rows = await sql<{ id: string }>`SELECT id FROM (${pointers}) WHERE id IN (${sql.join(
-        query.ids.map((id) => sql`${id}`),
-      )})`.execute(query.db);
+      const rows = await sql<{ id: string }>`SELECT id FROM (${pointers}) WHERE id IN ${jsonList(
+        query.ids,
+      )}`.execute(query.db);
       return new Set(rows.rows.map((r) => String(r.id)));
     }
     // Through a record that lists them (a bundle): read what each one the caller holds lists.

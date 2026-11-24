@@ -67,6 +67,8 @@ export interface EventOrigin {
   sessionId?: string;
   /** The operation touched more records than the bulk threshold (imports, *Many, backfills). */
   bulk: boolean;
+  /** Written by the import door (`record.import`): starts no automation, sends no message. */
+  imported?: true;
 }
 
 /**

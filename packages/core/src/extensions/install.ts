@@ -420,6 +420,16 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
         message: `A runtime extension cannot make ${name} something customers and the public can buy. ${why}`,
       });
     }
+    // Stock is sold to customers and the public from a ledger the host keeps (ADR 0680): a
+    // reviewed change, as sellable is.
+    if (object.stock) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.stock`,
+        message: `A runtime extension cannot give ${name} stock the host sells from. ${why}`,
+      });
+    }
     // Who works when feeds pay, and claims staff accounts' time (ADR 0621): a reviewed change.
     if (object.staffed) {
       issues.push({
@@ -438,13 +448,22 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
         message: `A runtime extension cannot declare ${name} something staff record their time against. ${why}`,
       });
     }
-    // Who looks after whom opens a pack role's reach to a Person's records (ADRs 0831, 0881).
+    // Who looks after whom opens a pack role's reach to a Person's records (ADRs 0831, 0889).
     if (object.team) {
       issues.push({
         stage: "contract",
         code: "outside_audience",
         path: `objects.${name}.team`,
         message: `A runtime extension cannot declare who on the staff looks after the People ${name} is about. ${why}`,
+      });
+    }
+    // The public-write door (ADR 0720): what the public may create is a reviewed change.
+    if (object.intake) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.intake`,
+        message: `A runtime extension cannot open ${name} to the public's answers. ${why}`,
       });
     }
     // Who ticks what is a staff record, read by the person and rosterers only (ADR 0650).

@@ -204,7 +204,7 @@ function rawValue(value: unknown): string {
 function nodeFromFilter(object: ObjectDefinition, filter: Filter): DraftNode {
   if ("and" in filter || "or" in filter) {
     const mode: GroupMode = "and" in filter ? "and" : "or";
-    const children = "and" in filter ? filter.and : (filter as { or: Filter[] }).or;
+    const children = "and" in filter ? filter.and : filter.or;
     return {
       kind: "group",
       id: draftId(),

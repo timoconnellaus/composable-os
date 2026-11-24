@@ -1,6 +1,7 @@
 // The organisation details editor's form model: a draft built from an Organisation, and the
 // minimal organisation.update input for what changed. Pure, so it is unit-tested.
 import type { CoreInput, Organisation } from "@composable-os/core";
+import { orNull, same, withOnePrimary } from "#/lib/draft";
 
 export interface AddressDraft {
   label: string;
@@ -60,18 +61,6 @@ export function toDraft(org: Organisation): OrganisationDraft {
     description: org.description ?? "",
   };
 }
-
-/** Exactly one primary among the kept rows: the flagged one, else the first. */
-function withOnePrimary<T extends { primary: boolean }>(rows: T[]): T[] {
-  const index = Math.max(
-    0,
-    rows.findIndex((row) => row.primary),
-  );
-  return rows.map((row, i) => ({ ...row, primary: i === index }));
-}
-
-const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-const orNull = (value: string) => (value.trim() ? value.trim() : null);
 
 /** `https://www.Acme.com/about` → `acme.com` (the server normalises too; this keeps diffs quiet). */
 export function cleanDomain(value: string): string {

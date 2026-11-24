@@ -15,7 +15,7 @@
 // Record notes are not sent: a line that repeats a record note is a fact about a customer, and the
 // first question refuses it as one. Sending notes would make this a record-content placement,
 // off by default and on hosted deployments (ADR 0342 amendment, 2026-11-06).
-import { choice } from "../questions.ts";
+import { choice, clip } from "../questions.ts";
 import { failureOf, type Judge, type JudgeUnavailableReason } from "../types.ts";
 
 export const MEMORY_WRITE_PLACEMENT = "memory.write" as const;
@@ -102,11 +102,6 @@ const KIND_WORDS: Record<string, string> = {
   style: "something about writing",
   conditional: "something to remember on some records only",
   team: "something for the team's assistants to remember",
-};
-
-const clip = (text: string, max: number) => {
-  const flat = text.replace(/\s+/g, " ").trim();
-  return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`;
 };
 
 export function memoryWriteState(input: {

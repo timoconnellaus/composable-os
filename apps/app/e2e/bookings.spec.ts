@@ -513,6 +513,19 @@ test("staff link a parent to their child, and the parent books the child a class
     await expect(timetable.getByRole("button", { name: `Cancel ${klass.name}` })).toBeVisible();
     await timetable.getByLabel("Booking for").selectOption({ label: "Me" });
     await expect(timetable.getByRole("button", { name: `Book ${klass.name}` })).toBeVisible();
+    // A cancel the parent starts for themselves is not carried over to the child's booking of
+    // the same class: switching whom they book for asks again.
+    await op(page.request, "record.create", {
+      object: "bkfixture.pass",
+      values: { name: unique("Parent pass "), person: parent.id, uses: 3, per: "total" },
+    });
+    await timetable.getByRole("button", { name: `Book ${klass.name}` }).click();
+    await expect(timetable.getByRole("status")).toContainText(`Booked: ${klass.name}`);
+    await timetable.getByRole("button", { name: `Cancel ${klass.name}` }).click();
+    await expect(timetable.getByRole("button", { name: "Confirm cancel" })).toBeVisible();
+    await timetable.getByLabel("Booking for").selectOption({ label: childName });
+    await expect(timetable.getByRole("button", { name: `Cancel ${klass.name}` })).toBeVisible();
+    await expect(timetable.getByRole("button", { name: "Confirm cancel" })).toHaveCount(0);
     await member.close();
   } finally {
     await op(

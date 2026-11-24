@@ -128,3 +128,10 @@ passes the check (`BASE_AUTOMATION_FIELDS` in `packages/sdk/src/automation-check
 the extension lists `order.get` in `permissions.operations`, since the run reads the order. Only
 the trigger: no other part of a manifest may name `order`. Ticketing's "tickets by email" is the
 first (from `pending` or `expired` to `paid` or `part_paid`: the first payment, once).
+
+## Amendment, 2026-11-24 (stage 34 step 1, ADR 0690): the total is after adjustments
+An order's `total` is now what is owed after its adjustments (money off, `core_order_adjustment`),
+and each line keeps its price beside its share of them. The host still prices every order from the
+records; the only amount a caller names is a staff discount's (`order.adjust`, ADR 0691), given by
+a person with `orders:discount` within a limit a human admin set, or approved by one. The
+amount-match rule is unchanged: it compares against the total, which is the net.

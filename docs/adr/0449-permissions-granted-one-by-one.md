@@ -104,3 +104,10 @@ account (`user.setPermissions` refuses it, `rule: "self_grant"`), since they wou
 a member. `user.grantablePermissions` marks each `restricted`. Granting stays a human admin's,
 never an assistant's, an MCP client's, an automation's or a member's. See
 [ADR 0625](0625-restricted-pack-permissions.md).
+
+## Amendment, 2026-11-24 (stage 53 step 3, ADR 0800)
+`journeys:manage` (write journeys, set them live, pause them, add people to them) and
+`journeys:publish` (approve a journey's wording by publishing it) join the grantable core
+permissions. Going live and resuming stay a person's whatever is granted (`actors: ["human"]`); an
+AI acting for an account that holds `journeys:publish` may only ask, and a person who holds it too
+approves. See [ADR 0800](0800-journeys-as-a-host-primitive.md).

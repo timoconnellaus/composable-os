@@ -23,7 +23,9 @@ which this stage closes) and [#118](https://github.com/timoconnellaus/composable
 
 Status: **spec agreed** (no interview was held: the ten questions were decided by the coordinator
 on 2026-11-24 under the owner's standing rule that best-practice answers are decided, not asked;
-decisions 1 to 10 below, each open to override). Roadmap stage 51. Build may start with step 1.
+decisions 1 to 10 below, each open to override). Roadmap stage 51. Step 1, the enrolled device,
+built on `feat/stage-44-desk-signing` together with stage 44's step 6 (migration 1130, ADR 0780;
+build notes at the end).
 
 **Shared piece owned here.** This stage defines the **enrolled device** (a tablet or other device a
 human admin enrols as the business's own, what it may do, and how it is revoked) once. Desk signing
@@ -649,6 +651,29 @@ may override any of them.
 
 One bullet per build step, written by that step (CONTRIBUTING.md, Working in parallel).
 
+- **Step 1, the enrolled device** (built 2026-11-24 on `feat/stage-44-desk-signing`, with stage
+  44's step 6, which built `core_device` general from the start as [What stage 44 step 6 takes
+  from this](#what-stage-44-step-6-takes-from-this) says): migration 1130 (`core_device`: its use
+  `signing`, `role` with its device role, or `till`; the enrolment code and the credential as
+  HMACs under `DESK_SECRET`; the previous credential and its rotation time; the browser and
+  network at the claim and each rotation, and the flags; the wrong-code lock-out; who revoked it
+  and why; triggers that keep a revoked device revoked and end its signing session on a
+  revocation or a change of use), ADR 0780. `device.enrol`, `device.setUse`, `device.revoke`
+  (users:manage, a person; every admin told in the host), `device.list`, `device.claim` (the desk
+  origin's /enrol), `desk.status`; rotation at least daily and on every signing claim, confirmed by use, with
+  the 60-second grace, a rotated-away credential presented later revoking the device as a clone (every
+  admin told), lapsing after 30 days; the desk origin (`DESK_HOSTNAME`, its own handler,
+  `cos deploy` adds the hostname on a custom domain) and Settings → Devices.
+  - Deviations: the `role` use is refused until a pack declares a device role (step 2 adds the
+    declaration), and `till` is refused at enrolment (stage 50); `device.heartbeat` (a device
+    role's) comes with step 2. Admins are told in the host, and by email as their notification
+    preferences route it (see stage 44's step 6 notes).
+  - Acceptance criteria this step meets: 1 (enrol, every admin told, a member, a coach and the AI
+    refused and audited; for the `signing` use), 2 (one Settings → Devices; a device of another
+    use cannot claim a signing session), 3 (rotation, the grace, the clone, 30 days), 14 in part
+    (a desk call without an enrolled credential, from another origin or with a staff session is
+    refused; a revoked device at its next call), 20 in part (e2e: an admin enrols and revokes a
+    tablet). The rest are steps 2 to 6.
 - **Step 3, the person's code and PIN** (branch `feat/stage-51-person-code`; migration 1135, ADR
   [0783](../adr/0783-a-persons-code-the-rotating-app-code-cards-and-the-pin.md), ADR 0600 amended).
   Built:

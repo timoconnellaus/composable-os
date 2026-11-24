@@ -7,6 +7,7 @@
 //   (`order.honourLate`) or it is refunded.
 // - Once a day admins are told about late payments still undecided and balances past due.
 import type { CrmDb } from "@composable-os/db";
+import type { Compilable } from "kysely";
 import { enforcePurchase, pointsOfObjects } from "../agreements/enforce.ts";
 import { ConflictError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
@@ -180,42 +181,41 @@ export async function runOrderNotices(
   const day = now.slice(0, 10);
   const late = await paidLate(db);
   const overdue = await overdueOrders(db, now);
-  const statements = [];
-  if (late.length) {
+  const statements: Compilable[] = [];
+  // `list`: the order list the notice opens; `kind`: its once-a-day key.
+  const tell = async (list: string, kind: string, title: string, body: string) => {
     const plan = await notifyStatements(
       db,
       {
         to: [{ role: "admin" }],
         type: "system.message",
-        title: `${late.length} late ${late.length === 1 ? "payment needs" : "payments need"} a decision`,
-        body:
-          "A payment arrived after its order had closed. Honour it (the order becomes paid) or " +
-          "refund it. It stays on the paid-late list until one happens.",
-        link: { kind: "record", object: "order", id: "paid-late" },
-        dedupeKey: `order.paid_late_daily:${day}`,
+        title,
+        body,
+        link: { kind: "record", object: "order", id: list },
+        dedupeKey: `order.${kind}:${day}`,
         source: { actor: "system" },
       },
       now,
     );
     statements.push(...plan.statements);
+  };
+  if (late.length) {
+    await tell(
+      "paid-late",
+      "paid_late_daily",
+      `${late.length} late ${late.length === 1 ? "payment needs" : "payments need"} a decision`,
+      "A payment arrived after its order had closed. Honour it (the order becomes paid) or " +
+        "refund it. It stays on the paid-late list until one happens.",
+    );
   }
   if (overdue.length) {
-    const plan = await notifyStatements(
-      db,
-      {
-        to: [{ role: "admin" }],
-        type: "system.message",
-        title: `${overdue.length} ${overdue.length === 1 ? "balance is" : "balances are"} past due`,
-        body:
-          "Part-paid orders whose balance was due before today. Nothing happens by itself: " +
-          "extend the date, cancel the order, or wait for the buyer to pay.",
-        link: { kind: "record", object: "order", id: "overdue" },
-        dedupeKey: `order.overdue_daily:${day}`,
-        source: { actor: "system" },
-      },
-      now,
+    await tell(
+      "overdue",
+      "overdue_daily",
+      `${overdue.length} ${overdue.length === 1 ? "balance is" : "balances are"} past due`,
+      "Part-paid orders whose balance was due before today. Nothing happens by itself: " +
+        "extend the date, cancel the order, or wait for the buyer to pay.",
     );
-    statements.push(...plan.statements);
   }
   if (statements.length) await crm.batch(statements);
   return { paidLate: late.length, overdue: overdue.length };

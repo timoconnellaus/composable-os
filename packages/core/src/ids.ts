@@ -62,6 +62,8 @@ export const ID_PREFIXES = {
   /** An order and one of its lines (stage 25, ADR 0426). */
   order: "ord",
   orderLine: "orl",
+  /** Money off an order (stage 34, ADR 0690). */
+  orderAdjustment: "oad",
   /** A refund of an order's payment (stage 25, ADR 0429). */
   refund: "rfd",
   /** A subscription the payment provider runs (stage 32a, ADR 0485). */
@@ -74,6 +76,8 @@ export const ID_PREFIXES = {
   deviceSession: "dvs",
   /** Places claimed from a record's capacity (stage 26, ADR 0430). */
   capacityClaim: "clm",
+  /** A movement in the stock ledger (stage 37, ADR 0680); a sale's is named after its claim. */
+  stockMovement: "stm",
   /** A use spent from an allowance holder by a spender (stage 32b, ADR 0493). */
   allowanceUse: "alu",
   /** A Person's one purchase of something sold once per Person (stage 32b, ADR 0512). */
@@ -84,6 +88,8 @@ export const ID_PREFIXES = {
   media: "med",
   /** A family link: a guardian and a dependant (stage 31a, ADR 0540). */
   personLink: "pln",
+  /** Stage 56 (ADR 0831): a staff account that looks after a Person. */
+  personCarer: "pcr",
   /** A Person's check-in code: an app code or a card (stage 51, ADR 0783). */
   personCode: "pc",
   refundDue: "rdu",
@@ -95,6 +101,10 @@ export const ID_PREFIXES = {
   agreementVersion: "agv",
   /** One record that a person agreed to one version, never changed (stage 44, ADR 0642). */
   agreementAcceptance: "aga",
+  /** A desk signing session on the business's enrolled tablet (stage 44 step 6, ADR 0649). */
+  agreementDeskSession: "ads",
+  /** A device a human admin enrolled as the business's own (stage 51, ADR 0780). */
+  device: "dev",
   /** A shift offered for someone else to take (stage 45, ADR 0623). */
   staffOffer: "sfo",
   /** A time a staff member said they cannot work (stage 45, ADR 0622). */
@@ -105,6 +115,12 @@ export const ID_PREFIXES = {
   payPeriod: "ppe",
   /** A stretch of time a staff member worked (stage 58, ADR 0850). */
   timeEntry: "tme",
+  /** A kind of leave the business offers (stage 58 step 4, ADR 0853). */
+  leaveType: "lvt",
+  /** An ask for time off, approved, declined or cancelled (ADR 0853). */
+  leaveRequest: "lvr",
+  /** One entry of a leave balance's ledger, never changed (ADR 0853). */
+  leaveBalanceEntry: "lvb",
   /** A checklist template (stage 45 step 4b, ADR 0650). */
   checklist: "ckl",
   /** A run of a checklist on one record, never changed once closed (ADR 0650). */
@@ -113,6 +129,14 @@ export const ID_PREFIXES = {
   checklistNote: "ckn",
   /** One tick of a checklist run's step, never changed (ADR 0650). */
   checklistTick: "ckt",
+  /** A journey: steps the host takes for one Person at a time (stage 53, ADR 0800). */
+  journey: "jny",
+  /** A published version of a journey, never changed (ADR 0800). */
+  journeyVersion: "jnv",
+  /** One Person on one journey (ADR 0800). */
+  journeyEntry: "jne",
+  /** What happened at one step of a journey entry (ADR 0800). */
+  journeyStepLog: "jnl",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

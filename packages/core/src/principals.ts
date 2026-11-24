@@ -86,13 +86,40 @@ export type Role = (typeof ROLES)[number];
  * - `agreements:health` read a health form's answers (stage 44, ADR 0643): health information.
  *   Admins by default, grantable; a person only whatever is granted, and every read is audited.
  *   No AI actor reads them, with any grant.
+ * - `agreements:desk` start and end a desk signing session for a named Person on a tablet an
+ *   admin enrolled (stage 44 step 6, ADR 0649): it shows the titles of what that Person has due
+ *   and nothing else of their record, and records no acceptance itself (the member signs).
+ *   Admins by default, grantable, and the one core permission grantable to a fixed-role account
+ *   (a coach at the desk, `FIXED_ROLE_CORE_GRANTS`, ADR 0600 amended). A person only.
  * - `checklists:write` write the business's checklist templates (stage 45 step 4b, ADR 0650).
  *   Admins by default, grantable as `orders:refund` is. An AI acting for an account that holds it
  *   may draft one; its write always waits for a person who holds it too, so a checklist staff are
  *   asked to follow is always one a person approved.
+ * - `notes:clients` read notes kept to a client's coaches (level `coaches`) of every client
+ *   (stage 56, ADR 0832): how a business's managers read them. Admins by default; grantable,
+ *   restricted (never to oneself, never to a pack role's account), and nothing for an AI actor.
+ * - `notes:sensitive` read sensitive notes (level `sensitive`), every opening audited. Admins by
+ *   default; grantable and restricted as `notes:clients` is.
+ * - `notes:manage` change and delete others' notes it can read, and lower a note's level (a
+ *   person only). Admins by default; grantable and restricted as `notes:clients` is.
+ * - `journeys:read` read journeys, their versions, previews, entries and step log (stage 53,
+ *   ADR 0800). Admins and members.
+ * - `journeys:manage` write a journey's working copy, archive it, set it live, pause and resume
+ *   it, and add people to it (ADR 0800). Admins by default, grantable. Going live and resuming
+ *   are a person's whatever is granted (`actors: ["human"]`); an AI may draft and pause.
+ * - `journeys:publish` publish a journey's version: the approval of its wording (decision 3).
+ *   Admins by default, grantable. An AI acting for an account that holds it may ask; its request
+ *   always waits for a person who holds it too (ADR 0480), never the adjudicator.
+ * - `orders:discount` give money off a pending order with a reason, and take it off again
+ *   (stage 34, ADR 0691). Admins by default, grantable as `orders:refund` is. Within the limit a
+ *   human admin sets it applies at once; above it, and always for an AI, it waits for a human
+ *   admin's approval.
  * - `people:cards` issue, revoke and list the check-in cards a business gives its members (stage
  *   51, ADR 0783). Admins and members by default, grantable to any staff account (a fixed-role
  *   one included, ADR 0600). A person only whatever is granted (`actors: ["human"]`).
+ * - `stock:adjust` record a record's opening stock and correct it (stage 37, ADR 0680). Admins by
+ *   default, grantable as `orders:refund` is. An AI acting for an account that holds it may ask,
+ *   never make one: its call always waits for a person who holds it too.
  */
 export const PERMISSIONS = [
   "records:read",
@@ -111,8 +138,17 @@ export const PERMISSIONS = [
   "agreements:manage",
   "agreements:paper",
   "agreements:health",
+  "agreements:desk",
   "checklists:write",
+  "notes:clients",
+  "notes:sensitive",
+  "notes:manage",
+  "journeys:read",
+  "journeys:manage",
+  "journeys:publish",
+  "orders:discount",
   "people:cards",
+  "stock:adjust",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -127,7 +163,7 @@ export const CORE_PERMISSION_NAMESPACES: readonly string[] = [
 
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   viewer: ["records:read"],
-  member: ["records:read", "records:write", "people:cards"],
+  member: ["records:read", "records:write", "journeys:read", "people:cards"],
   admin: PERMISSIONS,
 };
 
@@ -149,9 +185,28 @@ export const GRANTABLE_PERMISSIONS = [
   "agreements:manage",
   "agreements:paper",
   "agreements:health",
+  "agreements:desk",
   "checklists:write",
+  "notes:clients",
+  "notes:sensitive",
+  "notes:manage",
+  "journeys:manage",
+  "journeys:publish",
+  "orders:discount",
   "people:cards",
+  "stock:adjust",
 ] as const;
+
+/**
+ * Core grantable permissions that are restricted (stage 56, ADR 0832, extending ADR 0625 to core
+ * permissions): held by admins and by a human admin's grant only, never granted to oneself, never
+ * to an account with a pack's fixed role, and never anything for an AI actor.
+ */
+export const RESTRICTED_CORE_PERMISSIONS: readonly Permission[] = [
+  "notes:clients",
+  "notes:sensitive",
+  "notes:manage",
+];
 
 /**
  * The core permissions a human admin may also grant to an account holding a pack's fixed role
@@ -159,7 +214,7 @@ export const GRANTABLE_PERMISSIONS = [
  * account needs, never a record read, list or search. Every other core permission counts for
  * nothing beside a pack role.
  */
-export const FIXED_ROLE_CORE_GRANTS: readonly Permission[] = ["people:cards"];
+export const FIXED_ROLE_CORE_GRANTS: readonly Permission[] = ["people:cards", "agreements:desk"];
 
 /**
  * The account's role, or a permission granted to it (ADR 0449), allows `permission`. A pack role
@@ -188,8 +243,15 @@ export const MCP_SCOPES = ["read", "write", "admin"] as const;
 export type McpScope = (typeof MCP_SCOPES)[number];
 
 export const SCOPE_PERMISSIONS: Record<McpScope, readonly Permission[]> = {
-  read: ["records:read"],
-  write: ["records:read", "records:write", "records:publish"],
+  read: ["records:read", "journeys:read"],
+  write: [
+    "records:read",
+    "records:write",
+    "records:publish",
+    "journeys:read",
+    "journeys:manage",
+    "journeys:publish",
+  ],
   admin: PERMISSIONS,
 };
 

@@ -34,7 +34,7 @@
 //      end is checked for it before anything is written, so nothing here ever fails the recording
 //      of a subscription's end; the bookings are released by a step of their own after it.
 //   G. Every state has an exit for the member (ADR 0647 lists them).
-import type { CoreSubscriptionCoolOffTable, CrmDb } from "@composable-os/db";
+import type { CoreDatabase, CoreSubscriptionCoolOffTable, CrmDb } from "@composable-os/db";
 import { type Kysely, type RawBuilder, type Selectable, sql } from "kysely";
 import { DEFAULT_APPROVAL_EXPIRY_DAYS } from "../approvals/queue.ts";
 import type { EventSink } from "../automations/types.ts";
@@ -54,6 +54,7 @@ import { updateRecordAsHost } from "../operations/record.ts";
 import { callSubscriptionGatekeeper, paymentsTarget, sendHostEmail } from "../orders/gateway.ts";
 import { formatMoney } from "../orders/orders.ts";
 import { viewColumnOf } from "../records/columns.ts";
+import { chunk } from "../records/common.ts";
 import { extensionSettingValues } from "../records/windows.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import { addLocalDays, localParts, wallClockToIso } from "../time/local.ts";
@@ -62,7 +63,7 @@ import { orgReader, visibleSource } from "../visibility/index.ts";
 import { loadSubscriptionRow, type SubscriptionRow } from "./events.ts";
 
 export type CoolOffRow = Selectable<CoreSubscriptionCoolOffTable>;
-type Db = Kysely<import("@composable-os/db").CoreDatabase>;
+type Db = Kysely<CoreDatabase>;
 
 /** The longest cooling-off period the host keeps (the SDK's MAX_COOLING_OFF_DAYS). */
 export const MAX_COOLING_OFF_DAYS = 90;
@@ -82,7 +83,7 @@ export const COOL_OFF_SWEEP_BATCH = 10;
 /** The bookings ahead one release step moves (its own batch, never the end's). */
 export const COOL_OFF_RELEASE_STEP = 15;
 /** Release steps one minute tick runs: one, so the tick's statements stay bounded. */
-export const COOL_OFF_RELEASES_A_TICK = 1;
+const COOL_OFF_RELEASES_A_TICK = 1;
 /** Uses read per page by a release step; it reads pages until it has a step's worth to release. */
 const RELEASE_PAGE = 200;
 /** The most pages one step reads (its statements stay far under D1's 1,000). */
@@ -200,13 +201,13 @@ export function coolingOffWindow(
 }
 
 /** The deadline of a cooling off asked at `askedAt` (rule A). */
-export const coolOffDeadline = (askedAt: string) => iso(at(askedAt) + COOL_OFF_OPEN_DAYS * DAY);
+const coolOffDeadline = (askedAt: string) => iso(at(askedAt) + COOL_OFF_OPEN_DAYS * DAY);
 
 /**
  * Whether an end at `end` is an open cooling off's (rule B): not before its ask (less the clock
  * tolerance) and not after its deadline. Nothing else is read.
  */
-export function endIsCoolOffs(own: Pick<CoolOffRow, "asked_at" | "deadline_at">, end: string) {
+function endIsCoolOffs(own: Pick<CoolOffRow, "asked_at" | "deadline_at">, end: string) {
   const t = at(end);
   return t >= at(own.asked_at) - CLOCK_TOLERANCE_MS && t <= at(own.deadline_at);
 }
@@ -272,7 +273,7 @@ interface CoolOffAction {
 /** Every cancel the cooling offs of `ids` ever waited on, with its approval (chunked). */
 async function actionsOf(db: Db, ids: readonly string[]): Promise<CoolOffAction[]> {
   const out: CoolOffAction[] = [];
-  for (const part of chunks(ids)) {
+  for (const part of chunk(ids, CHUNK)) {
     out.push(
       ...(await db
         .selectFrom("core_subscription_cool_off_action as a")
@@ -498,7 +499,7 @@ export async function coolOffOpen(db: Db, subscriptionId: string, now: string): 
 }
 
 /** The words a member or staff are told when cooling off is refused (no other person named). */
-export function notOfferedWords(why: NotOffered, until: string | null): string {
+function notOfferedWords(why: NotOffered, until: string | null): string {
   switch (why) {
     case "not_covered":
       return "Cooling off does not apply to this plan.";
@@ -1071,6 +1072,22 @@ export async function followCoolOff(ctx: HandlerContext, row: SubscriptionRow): 
     .where("subscription_id", "=", row.id)
     .executeTakeFirst();
   if (!own) return;
+  const tell = async (kind: StuckKind | "cooled_off" | "finished", title: string, body: string) => {
+    const plan = await notifyStatements(
+      ctx.db,
+      {
+        to: [{ role: "admin" }],
+        type: "system.message",
+        title,
+        body,
+        link: { kind: "record", object: "subscription", id: row.id },
+        dedupeKey: `subscription.cool_off:${kind}:${row.id}`,
+        source: { actor: "system" },
+      },
+      ctx.now,
+    );
+    ctx.write(...plan.statements);
+  };
   if (own.state === "lapsed") {
     // Only a finish still under way: a stuck one (admins told) is not finished by a later end,
     // months on, until staff finish it again.
@@ -1084,23 +1101,13 @@ export async function followCoolOff(ctx: HandlerContext, row: SubscriptionRow): 
           .where("subscription_id", "=", row.id)
           .where("state", "=", "lapsed"),
       );
-      const used = await notifyStatements(
-        ctx.db,
-        {
-          to: [{ role: "admin" }],
-          type: "system.message",
-          title: "A cooling off did not count: the member had used theirs",
-          body:
-            `Subscription ${row.id} (${row.plan_title}) has ended, but its lapsed cooling off ` +
-            "cannot be finished: the member has already cooled off another membership (once " +
-            "per member). Nothing is owed as cooled off; the end is recorded as any end.",
-          link: { kind: "record", object: "subscription", id: row.id },
-          dedupeKey: `subscription.cool_off:used:${row.id}`,
-          source: { actor: "system" },
-        },
-        ctx.now,
+      await tell(
+        "used",
+        "A cooling off did not count: the member had used theirs",
+        `Subscription ${row.id} (${row.plan_title}) has ended, but its lapsed cooling off ` +
+          "cannot be finished: the member has already cooled off another membership (once " +
+          "per member). Nothing is owed as cooled off; the end is recorded as any end.",
       );
-      ctx.write(...used.statements);
       return;
     }
     ctx.write(...finishStatements(ctx.db, row, own, end, ctx.now));
@@ -1109,24 +1116,14 @@ export async function followCoolOff(ctx: HandlerContext, row: SubscriptionRow): 
       from: null,
       to: null,
     });
-    const plan = await notifyStatements(
-      ctx.db,
-      {
-        to: [{ role: "admin" }],
-        type: "system.message",
-        title: "A cooling off was finished",
-        body:
-          `Subscription ${row.id} (${row.plan_title}) has ended, and its lapsed cooling off is ` +
-          `finished as staff asked: what was paid in the period (${formatMoney(owed, row.currency)}) ` +
-          "is owed back, each refund waiting in Approvals for a person who may refund. The " +
-          "bookings ahead it paid for are being cancelled by the business.",
-        link: { kind: "record", object: "subscription", id: row.id },
-        dedupeKey: `subscription.cool_off:finished:${row.id}`,
-        source: { actor: "system" },
-      },
-      ctx.now,
+    await tell(
+      "finished",
+      "A cooling off was finished",
+      `Subscription ${row.id} (${row.plan_title}) has ended, and its lapsed cooling off is ` +
+        `finished as staff asked: what was paid in the period (${formatMoney(owed, row.currency)}) ` +
+        "is owed back, each refund waiting in Approvals for a person who may refund. The " +
+        "bookings ahead it paid for are being cancelled by the business.",
     );
-    ctx.write(...plan.statements);
     return;
   }
   if (own.state === "ended") {
@@ -1148,22 +1145,6 @@ export async function followCoolOff(ctx: HandlerContext, row: SubscriptionRow): 
         .where("subscription_id", "=", row.id)
         .where("state", "=", "asked"),
     );
-  const tell = async (kind: StuckKind | "cooled_off", title: string, body: string) => {
-    const plan = await notifyStatements(
-      ctx.db,
-      {
-        to: [{ role: "admin" }],
-        type: "system.message",
-        title,
-        body,
-        link: { kind: "record", object: "subscription", id: row.id },
-        dedupeKey: `subscription.cool_off:${kind}:${row.id}`,
-        source: { actor: "system" },
-      },
-      ctx.now,
-    );
-    ctx.write(...plan.statements);
-  };
   if (!endIsCoolOffs(own, end)) {
     lapse("end_time");
     await tell(
@@ -1247,12 +1228,6 @@ function spenderColumns(object: ObjectDefinition) {
   };
 }
 
-const chunks = <T>(items: readonly T[]) => {
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += CHUNK) out.push(items.slice(i, i + CHUNK));
-  return out;
-};
-
 /**
  * The bookings ahead a cooled-off membership paid for (the owner's decision 1), at most `limit`
  * in this batch, ordered by when they are: each record that spent a use of the subscription's
@@ -1262,7 +1237,7 @@ const chunks = <T>(items: readonly T[]) => {
  * into its object's `released` state (Bookings' `cancelled_by_us`). `left` counts only what could
  * be released, so a step always ends.
  */
-export async function releaseBookingsAhead(
+async function releaseBookingsAhead(
   ctx: HandlerContext,
   row: SubscriptionRow,
   limit: number,
@@ -1287,7 +1262,7 @@ export async function releaseBookingsAhead(
       const object = getObject(type);
       const cols = object ? spenderColumns(object) : null;
       if (!object || !cols) continue;
-      for (const part of chunks(ids)) {
+      for (const part of chunk(ids, CHUNK)) {
         const got = (await db
           .selectFrom(visibleSource(orgReader(ctx.db), object))
           .select(["id", `${cols.state} as state`])
@@ -1378,7 +1353,7 @@ export async function releaseBookingsAhead(
       );
       const relIds = [...new Set(payable.map((w) => w.rel).filter((r): r is string => !!r))];
       const times = new Map<string, string | null>();
-      for (const part of chunks(relIds)) {
+      for (const part of chunk(relIds, CHUNK)) {
         const got = (await db
           .selectFrom(visibleSource(orgReader(ctx.db), target))
           .select(["id", `${timeCol} as time`])
@@ -1398,8 +1373,8 @@ export async function releaseBookingsAhead(
   releasable.sort((a, b) => at(a.time) - at(b.time));
   let released = 0;
   for (const r of releasable.slice(0, limit)) {
-    const object = getObject(r.type) as ObjectDefinition;
-    const cols = spenderColumns(object);
+    const object = getObject(r.type);
+    const cols = object ? spenderColumns(object) : null;
     if (!cols) continue;
     await updateRecordAsHost(ctx, r.type, r.id, { [cols.stateField]: cols.into });
     released += 1;

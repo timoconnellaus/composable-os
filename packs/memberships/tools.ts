@@ -5,10 +5,10 @@
 // count (`allowance.get`). A tool asks, and reports what the host answered.
 import { defineTool, type ExtensionContext, OpsCallError, z } from "@composable-os/sdk";
 
-export const PLAN = "memberships.plan";
-export const MEMBERSHIP = "memberships.membership";
-export const PASSTYPE = "memberships.passtype";
-export const PASS = "memberships.pass";
+const PLAN = "memberships.plan";
+const MEMBERSHIP = "memberships.membership";
+const PASSTYPE = "memberships.passtype";
+const PASS = "memberships.pass";
 
 interface RecordShape {
   id: string;
@@ -53,6 +53,17 @@ const limitsOf = (v: Record<string, unknown>) => ({
 
 // --- What is on sale -----------------------------------------------------------------------------
 
+/** What a plan and a pass type on sale both say of themselves. */
+const onSale = (p: RecordShape) => ({
+  id: p.id,
+  title: text(p.values.title),
+  summary: text(p.values.summary),
+  description: text(p.values.description),
+  price: num(p.values.price),
+  uses: num(p.values.uses),
+  ...limitsOf(p.values),
+});
+
 export const plans = defineTool({
   description:
     "The membership plans on sale: each plan's title, a line on what it gives, description, " +
@@ -86,16 +97,10 @@ export const plans = defineTool({
     });
     return {
       plans: page.items.map((p) => ({
-        id: p.id,
-        title: text(p.values.title),
-        summary: text(p.values.summary),
-        description: text(p.values.description),
-        price: num(p.values.price),
-        uses: num(p.values.uses),
+        ...onSale(p),
         per:
           p.values.per === "month" ? ("month" as const) : p.values.per ? ("week" as const) : null,
         trialDays: num(p.values.trialDays),
-        ...limitsOf(p.values),
       })),
       currency: page.currency ?? null,
     };
@@ -135,15 +140,9 @@ export const passTypes = defineTool({
     });
     return {
       passTypes: page.items.map((p) => ({
-        id: p.id,
-        title: text(p.values.title),
-        summary: text(p.values.summary),
-        description: text(p.values.description),
-        price: num(p.values.price),
-        uses: num(p.values.uses),
+        ...onSale(p),
         validDays: num(p.values.validDays),
         onePerPerson: p.values.onePerPerson === true,
-        ...limitsOf(p.values),
       })),
       currency: page.currency ?? null,
     };
@@ -244,13 +243,12 @@ const HOLDINGS_MAX = 50;
 async function holdingsOf(
   ctx: ExtensionContext,
   read: "my.list" | "record.list",
-  personId: string | null,
+  personId: string,
 ): Promise<Holding[]> {
-  const filter = personId ? { filter: { field: "person", op: "eq", value: personId } } : {};
   const list = (object: string) =>
     ctx.ops.call<ListShape>(read, {
       object,
-      ...filter,
+      filter: { field: "person", op: "eq", value: personId },
       sort: { field: "from", direction: "desc" },
       limit: HOLDINGS_MAX,
     });

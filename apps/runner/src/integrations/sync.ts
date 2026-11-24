@@ -54,19 +54,44 @@ export interface SyncAdapter {
 }
 
 /** Reconciliation reads at most this many ids per window. */
-export const RECONCILE_MAX = 2000;
+const RECONCILE_MAX = 2000;
 
+/** Empty pages in a row after which a cursor that never says `null` is given up on. */
+const MAX_EMPTY_PAGES = 20;
+
+/**
+ * Up to `max` entries of a gatekeeper cursor, and whether it ended. It ends on `null` only: an
+ * empty page is one `next()` running out of budget with results still ahead (the vendors' Cursor
+ * contract).
+ */
+async function read<T>(
+  cursor: { next(): Promise<T[] | null> },
+  max: number,
+): Promise<{ items: T[]; ended: boolean }> {
+  const items: T[] = [];
+  let empty = 0;
+  while (items.length < max) {
+    const page = await cursor.next();
+    if (!page) return { items, ended: true };
+    empty = page.length ? 0 : empty + 1;
+    if (empty >= MAX_EMPTY_PAGES) break;
+    items.push(...page);
+  }
+  return { items: items.slice(0, max), ended: false };
+}
+
+/** Up to `max` entries of a gatekeeper cursor. */
+async function drain<T>(cursor: { next(): Promise<T[] | null> }, max: number): Promise<T[]> {
+  return (await read(cursor, max)).items;
+}
+
+/** Up to `max` entries, and whether that was all of them (reading one past `max` tells). */
 async function drainAll<T>(
   cursor: { next(): Promise<T[] | null> },
   max: number,
 ): Promise<{ items: T[]; complete: boolean }> {
-  const items: T[] = [];
-  for (;;) {
-    const page = await cursor.next();
-    if (!page?.length) return { items, complete: true };
-    items.push(...page);
-    if (items.length > max) return { items: items.slice(0, max), complete: false };
-  }
+  const { items, ended } = await read(cursor, max + 1);
+  return { items: items.slice(0, max), complete: ended && items.length <= max };
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: gatekeeper sessions are RPC stubs typed by each vendor's .d.ts, which cos-runner does not import.
@@ -97,14 +122,21 @@ function addresses(list: unknown): { email: string; name?: string }[] {
   return out.slice(0, 200);
 }
 
+type MailItem = Extract<SyncItem, { kind: "email"; op: "upsert" }>;
+
+/** A pass's result before it has read anything. */
+function emptyPull(cursor: string | null, more: boolean): PullResult {
+  return { items: [], bodies: new Map(), cursor, more, restricted: 0 };
+}
+
 /** One raw message as a sync.ingest item (and its full body). */
-export function normaliseMail(raw: RawMail): { item: SyncItem; body: string } | null {
+function normaliseMail(raw: RawMail): { item: MailItem; body: string } {
   const messageId = raw.messageId ?? `provider.${raw.providerId}`;
   const from = raw.from ? (addresses([raw.from])[0] ?? null) : null;
   const bounce = isBounce(from?.email ?? null, raw.subject)
     ? { failedRecipients: failedRecipients(raw.headers, raw.text) }
     : null;
-  const item: SyncItem = {
+  const item: MailItem = {
     kind: "email",
     op: "upsert",
     providerId: raw.providerId,
@@ -125,7 +157,13 @@ export function normaliseMail(raw: RawMail): { item: SyncItem; body: string } | 
 
 // --- The fake provider (tests and development) -------------------------------------------------
 
-export const fakeMailAdapter: SyncAdapter = {
+/** A page of the fake provider's change feed. */
+interface ChangePage {
+  items: { id: string; op: "upsert" | "delete" }[];
+  next: string | null;
+}
+
+const fakeMailAdapter: SyncAdapter = {
   kind: "mail",
   // The fake has a change feed, and also lists by window so delete reconciliation is tested.
   async listIds(session: Session, from, to) {
@@ -133,17 +171,8 @@ export const fakeMailAdapter: SyncAdapter = {
     return { ids, complete: true };
   },
   async pull(session: Session, cursor, ctx) {
-    const page = (await session.listChanges(cursor, ctx.limit)) as {
-      items: { id: string; op: "upsert" | "delete" }[];
-      next: string | null;
-    };
-    const result: PullResult = {
-      items: [],
-      bodies: new Map(),
-      cursor: page.next,
-      more: page.items.length >= ctx.limit,
-      restricted: 0,
-    };
+    const page = (await session.listChanges(cursor, ctx.limit)) as ChangePage;
+    const result = emptyPull(page.next, page.items.length >= ctx.limit);
     for (const change of page.items) {
       if (change.op === "delete") {
         result.items.push({ kind: "email", op: "delete", providerId: change.id });
@@ -173,7 +202,7 @@ export const fakeMailAdapter: SyncAdapter = {
         continue;
       }
       if (message.sentAt < ctx.since) continue;
-      const normalised = normaliseMail({
+      const { item, body } = normaliseMail({
         providerId: message.id,
         messageId: normaliseMessageId(message.messageId),
         inReplyTo: message.inReplyTo ?? null,
@@ -190,11 +219,8 @@ export const fakeMailAdapter: SyncAdapter = {
           Object.entries(message.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v]),
         ),
       });
-      if (!normalised) continue;
-      result.items.push(normalised.item);
-      if (normalised.item.kind === "email" && normalised.item.op === "upsert") {
-        result.bodies.set(`email:${normalised.item.messageId}`, normalised.body);
-      }
+      result.items.push(item);
+      result.bodies.set(`email:${item.messageId}`, body);
     }
     return result;
   },
@@ -203,20 +229,11 @@ export const fakeMailAdapter: SyncAdapter = {
   },
 };
 
-export const fakeCalendarAdapter: SyncAdapter = {
+const fakeCalendarAdapter: SyncAdapter = {
   kind: "calendar",
   async pull(session: Session, cursor, ctx) {
-    const page = (await session.listChanges(cursor, ctx.limit)) as {
-      items: { id: string; op: "upsert" | "delete" }[];
-      next: string | null;
-    };
-    const result: PullResult = {
-      items: [],
-      bodies: new Map(),
-      cursor: page.next,
-      more: page.items.length >= ctx.limit,
-      restricted: 0,
-    };
+    const page = (await session.listChanges(cursor, ctx.limit)) as ChangePage;
+    const result = emptyPull(page.next, page.items.length >= ctx.limit);
     for (const change of page.items) {
       if (change.op === "delete") {
         result.items.push({ kind: "meeting", op: "delete", providerId: change.id });
@@ -292,26 +309,24 @@ function windowOf(
   return { from, to, next: JSON.stringify({ from: nextFrom.toISOString() }), more };
 }
 
+/** Gmail's search for mail in [from, to), to the second. */
+function gmailWindowQuery(from: Date, to: Date): string {
+  return `after:${Math.floor(from.getTime() / 1000)} before:${Math.ceil(to.getTime() / 1000)}`;
+}
+
 export const gmailAdapter: SyncAdapter = {
   kind: "mail",
   async pull(session: Session, cursor, ctx) {
     const w = windowOf(cursor, ctx);
-    const query = `after:${Math.floor(w.from.getTime() / 1000)} before:${Math.ceil(w.to.getTime() / 1000)}`;
-    const result: PullResult = {
-      items: [],
-      bodies: new Map(),
-      cursor: w.next,
-      more: w.more,
-      restricted: 0,
-    };
-    const entries = await session.searchMessages(query);
+    const result = emptyPull(w.next, w.more);
+    const entries = await session.searchMessages(gmailWindowQuery(w.from, w.to));
     let read = 0;
-    for (;;) {
+    pages: for (;;) {
       const page = (await entries.next()) as
         | {
             info: {
               id: string;
-              from: unknown;
+              from: { address: string; name?: string } | null;
               to: unknown;
               cc: unknown;
               subject: string;
@@ -322,7 +337,8 @@ export const gmailAdapter: SyncAdapter = {
         | null;
       if (!page) break;
       for (const entry of page) {
-        if (read >= ctx.limit * 4) break;
+        // Enough for one pass: the rest of the cursor is not read.
+        if (read >= ctx.limit * 4) break pages;
         read += 1;
         ctx.tracker.reset();
         const [headers, content] = await Promise.all([
@@ -335,17 +351,13 @@ export const gmailAdapter: SyncAdapter = {
         }
         const h = Object.fromEntries(headers.map((x) => [x.name.toLowerCase(), x.value]));
         const text = content.text ?? (content.html ? htmlToText(content.html) : "");
-        const normalised = normaliseMail({
+        const { from } = entry.info;
+        const { item, body } = normaliseMail({
           providerId: entry.info.id,
           messageId: normaliseMessageId(h["message-id"]),
           inReplyTo: h["in-reply-to"] ?? null,
           references: parseMessageIds(h.references),
-          from: (entry.info.from as { address: string; name?: string } | null)
-            ? {
-                email: (entry.info.from as { address: string }).address,
-                name: (entry.info.from as { name?: string }).name ?? "",
-              }
-            : null,
+          from: from ? { email: from.address, name: from.name ?? "" } : null,
           to: addresses(entry.info.to),
           cc: addresses(entry.info.cc),
           subject: entry.info.subject,
@@ -353,11 +365,8 @@ export const gmailAdapter: SyncAdapter = {
           sentAt: new Date(entry.info.timestamp).toISOString(),
           headers: h,
         });
-        if (!normalised) continue;
-        result.items.push(normalised.item);
-        if (normalised.item.kind === "email" && normalised.item.op === "upsert") {
-          result.bodies.set(`email:${normalised.item.messageId}`, normalised.body);
-        }
+        result.items.push(item);
+        result.bodies.set(`email:${item.messageId}`, body);
       }
     }
     return result;
@@ -366,9 +375,8 @@ export const gmailAdapter: SyncAdapter = {
     await session.subscribeNewMessages(hook);
   },
   async listIds(session: Session, from, to) {
-    const query = `after:${Math.floor(from.getTime() / 1000)} before:${Math.ceil(to.getTime() / 1000)}`;
     const { items, complete } = await drainAll<{ info: { id: string } }>(
-      await session.searchMessages(query),
+      await session.searchMessages(gmailWindowQuery(from, to)),
       RECONCILE_MAX,
     );
     return { ids: items.map((e) => e.info.id), complete };
@@ -404,15 +412,7 @@ export const googleCalendarAdapter: SyncAdapter = {
       attendees?: { email: string; displayName?: string; organizer?: boolean }[];
     }[];
     // One listEvents call is one observation: restricted means none of it is written.
-    if (ctx.tracker.restricted) {
-      return {
-        items: [],
-        bodies: new Map(),
-        cursor: w.next,
-        more: w.more,
-        restricted: events.length,
-      };
-    }
+    if (ctx.tracker.restricted) return { ...emptyPull(w.next, w.more), restricted: events.length };
     const items: SyncItem[] = events.slice(0, 500).map((e) => {
       const attendees = (e.attendees ?? []).map((a) => ({ email: a.email, name: a.displayName }));
       const organizer = e.attendees?.find((a) => a.organizer);
@@ -432,7 +432,7 @@ export const googleCalendarAdapter: SyncAdapter = {
         cancelled: e.status === "cancelled",
       };
     });
-    return { items, bodies: new Map(), cursor: w.next, more: w.more, restricted: 0 };
+    return { ...emptyPull(w.next, w.more), items };
   },
   async listIds(session: Session, from, to) {
     const events = (await session.listEvents({ timeMin: from, timeMax: to })) as { id: string }[];
@@ -450,16 +450,6 @@ async function shortHash(text: string): Promise<string> {
     .join("");
 }
 
-async function drain<T>(cursor: { next(): Promise<T[] | null> }, max: number): Promise<T[]> {
-  const out: T[] = [];
-  while (out.length < max) {
-    const page = await cursor.next();
-    if (!page?.length) break;
-    out.push(...page);
-  }
-  return out.slice(0, max);
-}
-
 /**
  * Outlook exposes no RFC Message-ID, and its message ids differ per mailbox. The dedupe key is a
  * hash of sender, send time and subject, which is the same in every mailbox holding the message.
@@ -468,13 +458,7 @@ export const outlookAdapter: SyncAdapter = {
   kind: "mail",
   async pull(session: Session, cursor, ctx) {
     const w = windowOf(cursor, ctx);
-    const result: PullResult = {
-      items: [],
-      bodies: new Map(),
-      cursor: w.next,
-      more: w.more,
-      restricted: 0,
-    };
+    const result = emptyPull(w.next, w.more);
     const list = (await drain(
       await session.listMessages({ since: w.from.toISOString(), pageSize: 50 }),
       ctx.limit * 4,
@@ -500,7 +484,7 @@ export const outlookAdapter: SyncAdapter = {
         continue;
       }
       const key = await shortHash(`${info.from?.address ?? ""}|${sent}|${info.subject}`);
-      const normalised = normaliseMail({
+      const { item, body } = normaliseMail({
         providerId: info.id,
         messageId: `outlook.${key}`,
         inReplyTo: null,
@@ -513,11 +497,10 @@ export const outlookAdapter: SyncAdapter = {
         sentAt: new Date(sent).toISOString(),
         headers: {},
       });
-      if (normalised?.item.kind !== "email" || normalised.item.op !== "upsert") continue;
       // Outlook's conversation id is per mailbox: threads group within one mailbox only.
-      normalised.item.threadKey = `thread:outlook.${info.conversationId}`;
-      result.items.push(normalised.item);
-      result.bodies.set(`email:${normalised.item.messageId}`, normalised.body);
+      item.threadKey = `thread:outlook.${info.conversationId}`;
+      result.items.push(item);
+      result.bodies.set(`email:${item.messageId}`, body);
     }
     return result;
   },
@@ -560,15 +543,7 @@ export const outlookCalendarAdapter: SyncAdapter = {
       organizer?: { address: string; name?: string };
       attendees?: { address?: string; email?: string; name?: string }[];
     }[];
-    if (ctx.tracker.restricted) {
-      return {
-        items: [],
-        bodies: new Map(),
-        cursor: w.next,
-        more: w.more,
-        restricted: events.length,
-      };
-    }
+    if (ctx.tracker.restricted) return { ...emptyPull(w.next, w.more), restricted: events.length };
     const items: SyncItem[] = [];
     for (const e of events) {
       // An event its owner marked private stays out of the CRM.
@@ -588,7 +563,7 @@ export const outlookCalendarAdapter: SyncAdapter = {
         cancelled: e.cancelled === true,
       });
     }
-    return { items, bodies: new Map(), cursor: w.next, more: w.more, restricted: 0 };
+    return { ...emptyPull(w.next, w.more), items };
   },
   async listIds(session: Session, from, to) {
     const { items, complete } = await drainAll<{ id: string }>(

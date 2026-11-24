@@ -370,6 +370,7 @@ export async function startHeld(ctx: HandlerContext, input: StartHeldInput): Pro
     quantity: 1,
     unitPrice,
     total: unitPrice,
+    discount: 0,
     deposit: null,
   };
   const started = await createOrder(ctx, {

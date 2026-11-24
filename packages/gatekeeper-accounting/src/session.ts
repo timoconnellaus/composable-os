@@ -24,6 +24,7 @@ import {
 } from "@composable-os/gatekeeper-kit/actions";
 import { type AccountingWrite, applyWrite } from "./apply.js";
 import { describeWrite, type StoredWrite } from "./describe.js";
+import { refuse } from "./refusal.js";
 import type { AccountingSystem } from "./system.js";
 import type {
   AccountingAccount,
@@ -275,9 +276,7 @@ export abstract class AccountingGatekeeper<P extends object = object>
         system = this.system();
       } catch (error) {
         // Checked before anything is sent, so nothing was written.
-        throw new ActionApplyError(
-          `[accounting:unavailable] ${error instanceof Error ? error.message : String(error)}`,
-        );
+        throw refuse("unavailable", error instanceof Error ? error.message : String(error));
       }
       this.#lastRef = await applyWrite(system, stored.write);
     },

@@ -3,7 +3,7 @@
 // first delivery did not, and tell staff of subscriptions with no event: stage 32a).
 import {
   applyPendingPaymentEvents,
-  invokeByName,
+  invoke,
   orderExpiryDue,
   type PaymentEventDeps,
   parseFloor,
@@ -39,7 +39,7 @@ export async function runOrdersTick(env: Env, at: Date) {
   const events = await applyPendingPaymentEvents(deps);
   // Through the pipeline only when an order is due: a quiet minute writes no audit row.
   const expired = (await orderExpiryDue(deps.crm.query, at.toISOString()))
-    ? ((await invokeByName(
+    ? await invoke(
         "order.expireDue",
         {},
         {
@@ -51,7 +51,7 @@ export async function runOrdersTick(env: Env, at: Date) {
           ...(deps.events ? { events: deps.events } : {}),
           ...(deps.floor ? { floor: deps.floor } : {}),
         },
-      )) as { expired: string[] })
+      )
     : { expired: [] };
   // Subscriptions with no event (stage 32a): past due too long every minute (an indexed read);
   // events not arriving, and offers whose plan has gone, once an hour: no index holds their

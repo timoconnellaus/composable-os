@@ -2,6 +2,7 @@
 // that set its threshold, keyed by a hash of its wording and shape and the model. A unit test
 // hashes every calibrated question and fails where its current hash has no record, so a reworded
 // question cannot ship uncalibrated. `pnpm eval:calibrate` (evals/judge) writes the records.
+import { sha256Hex } from "../digest.ts";
 import calibration from "./calibration.json" with { type: "json" };
 import { JEV_MODEL } from "./jev.ts";
 import type { Question } from "./types.ts";
@@ -55,11 +56,6 @@ function sorted(value: unknown): unknown {
 
 /** JSON with every object's keys sorted, so one value always gives one text. */
 export const canonicalJson = (value: unknown): string => JSON.stringify(sorted(value));
-
-async function sha256Hex(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
 
 /** The hash a calibration record is kept under: the question's wording and shape, and the model. */
 export function questionHash(question: Question, model: string = JEV_MODEL): Promise<string> {
