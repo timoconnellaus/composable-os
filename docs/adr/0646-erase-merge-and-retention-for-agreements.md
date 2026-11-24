@@ -209,3 +209,13 @@ of a copy that was waiting for a person.
   ended a subscription) and is left for later: what erasing a paying Person should do to their
   running subscriptions (cancel at the provider, tell staff, refund) is a decision for stage 32's
   owner.
+
+## Amended 2026-11-24: issue #293
+- **A live subscription whose payer is erased no longer keeps billing** (ADR 0533): erase asks the
+  provider to end every subscription the erased Person pays for or holds when the period already
+  paid for ends (one past due, paused, unpaid or waiting for its first payment at once), nothing refunded,
+  and tells the admins of one it could not ask or that another live Person is on. This narrows the
+  round 2 note above for running subscriptions: one the erased Person holds and another pays ends
+  too. A checkout the provider confirms after the erase still makes nothing (nor does a live
+  payer's whose holder was erased), and is now asked to end by the same rule; staff refund it with the provider only if the business owes it. A pass or
+  ticket order paid after erase cancelled it stays on the paid-late list.

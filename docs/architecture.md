@@ -144,7 +144,16 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   Gateway calls turn payload logging off (self-hosted Workers AI too, over REST, ADR 0330), and
   errors reach Workers Logs masked (`errorForLog`). An organisation erase drops a shared email's
   body only when no person is left linked to it; otherwise it scrubs the organisation's terms
-  from it (ADR 0320 amendment).
+  from it (ADR 0320 amendment). A person erase ends every subscription the Person pays for or
+  holds as a member's own deletion does ([ADR 0533](adr/0533-erase-ends-a-subscription-at-the-end-of-the-period-paid-for.md),
+  issue #293, `subscriptions/erase.ts`): before its batch commits it asks the provider to end one
+  whose current period is paid when that period ends, and one past due, paused, unpaid or waiting
+  for its first payment at once; nothing is refunded or charged, and the record moves with the
+  provider's events. It asks once more after the commit for a checkout of theirs confirmed
+  meanwhile. The admins are told of one it could not ask and of one another live Person is on, and
+  `subscription.resume` and `.unpause` refuse one with a Person gone. A checkout the provider
+  confirms after the erase (or whose holder was erased) makes nothing and is asked to end the same
+  way.
 - **The shared inbox** ([ADR 0740](adr/0740-conversations-messages-as-activities-and-private-conversations.md),
   stage 36): a **conversation** (`core_conversation`) is a core record with its person (or an
   unknown sender's address), channel, status, assignee, what it is about and a private mark; its

@@ -35,6 +35,7 @@ import {
   upgradeNeedsAction,
 } from "./changes.ts";
 import { followCoolOff } from "./cooling-off.ts";
+import { askEraseEnd, eraseEndFor } from "./erase.ts";
 import { followSubscriptionGrant } from "./grants.ts";
 import { type PeriodTerms, recordPaidPeriod } from "./periods.ts";
 import { useTrial } from "./trial.ts";
@@ -494,15 +495,43 @@ async function createFromCheckout(
     );
     return { refused: "unknown_subscription" };
   }
-  // Its Person or address was erased before the provider confirmed it (ADR 0646): nothing of
-  // theirs is made again. Staff cancel it with the provider; the notice names nobody.
-  if (checkout.erased_at) {
+  // Its Person or address was erased before the provider confirmed it (ADR 0646), or a Person on
+  // it no longer exists (every checkout is opened with both: an erased holder whose payer is
+  // live, ADR 0533): nothing is made. It is ended as erase ends any subscription: at the end of the
+  // period paid for, or at once when nothing of it is paid; nothing refunded by the host. Asked
+  // again on a later event while the provider's read does not show it ending. The notice names
+  // nobody.
+  if (checkout.erased_at || !checkout.payer_person_id || !checkout.holder_person_id) {
+    const when = eraseEndFor({
+      state: STATE_OF[read.status],
+      cancelAtPeriodEnd: read.cancelAtPeriodEnd,
+      cancelAt: read.cancelAt,
+      currentPeriodEnd: read.currentPeriodEnd,
+    });
+    const asked = when
+      ? await askEraseEnd(ctx, { id: checkout.id, provider: event.provider, ref: read.ref }, when)
+      : null;
+    const livePayer = !checkout.erased_at && checkout.payer_person_id !== null;
+    const ending =
+      asked === null
+        ? "It already ends at the provider, so nothing more is asked here. "
+        : !asked
+          ? "The provider could not be asked to end it, or the request waits for an approval: " +
+            "cancel it with the provider. "
+          : when === "now"
+            ? "The provider was asked to end it at once, so nothing more is charged. "
+            : "The provider was asked to end it when the period paid for ends, so nothing more is " +
+              "charged. ";
     await tellStaff(
       ctx,
       "A subscription was confirmed for someone who was erased",
-      `The ${event.provider} subscription ${read.ref} was started by a person since erased, before ` +
-        "the provider confirmed it. Nothing was made here. Cancel it, and refund it, with the " +
-        "provider.",
+      `The ${event.provider} subscription ${read.ref} was started ${
+        livePayer ? "for a person" : "by a person"
+      } since erased, before the provider confirmed it. Nothing was made here. ${ending}` +
+        "Nothing is refunded: refund it with the provider only if the business owes it." +
+        (livePayer
+          ? " The person paying for it is still a customer: tell them, and they can start a new one."
+          : ""),
       null,
       `subscription.erased:${event.provider}:${read.ref}`,
     );
