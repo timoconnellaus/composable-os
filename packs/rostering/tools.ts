@@ -31,7 +31,8 @@ const localTime = z.string().regex(/^[0-2]\d:[0-5]\d$/, "a time, HH:MM");
 const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 
 const warning = z.object({
-  code: z.enum(["unavailable", "not_qualified", "uncovered"]),
+  // The last two only for a shift booked at free times (an appointment, ADR 0763).
+  code: z.enum(["unavailable", "not_qualified", "uncovered", "outside_hours", "client_busy"]),
   object: z.string(),
   id: z.string(),
   account: z.string().nullable(),

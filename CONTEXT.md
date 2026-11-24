@@ -1639,6 +1639,18 @@ kind of session or for some only (assessments on Saturdays). Set by the person o
 are not open is time off (unavailable), never a "closed" entry.
 _Avoid_: availability, slot, schedule (say open hours)
 
+**Free time** (stage 49, built in step 4: ADRs 0762 and 0763)
+A start time at which a session of a service can be booked now, with whoever is free then: inside
+a qualified provider's open hours for the whole session, not over their time off or another of
+their shifts (buffers included), with one of the service's rooms free, on no closure, not over
+the client's own sessions, on the service's step (every 30 minutes by default, from local
+midnight) and, for a customer or a visitor, inside the booking window. Worked out by the host
+when asked (`staffing.free`), never stored; it never says why a time is not free. A customer's
+or visitor's booking must be on one (**the customer's check**, refused `not_free_time`); staff
+may book outside open hours or over the client's own, warned (`outside_hours`, `client_busy`),
+never over a clash.
+_Avoid_: slot, availability, opening
+
 **Offer** and **Take** (stage 45, built in step 3: ADR 0623)
 A shift's person **offers** it (or a rosterer offers an uncovered one), to everyone eligible or to
 one named person; a qualified, free person **takes** it, with nobody approving, and rosterers are

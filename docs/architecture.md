@@ -1250,7 +1250,8 @@ upserts, `UPDATE OR REPLACE` and id updates. A read before the write names the o
 series' generation makes a clashing date uncovered (kept as a field exception) rather than fail; a
 series change that would double-book on any date is refused naming the dates; a reconcile over
 shifts that clash and have not ended is refused (`staffed_conflict`; past clashes are skipped and reported, and admins are told of a refused shipped upgrade). A live shift must end after it starts, and a coach profile on shifts not yet ended cannot go to the Trash. Writes answer **warnings** they are
-made with (`unavailable`, `not_qualified`, `uncovered` within 14 days), which the audit row
+made with (`unavailable`, `not_qualified`, `uncovered` within 14 days; `outside_hours` and
+`client_busy` for a shift booked at free times, below), which the audit row
 records; `staffing.check` (tool-only) is the same answer first. Qualifications and unavailability
 are core tables in no `rec_*` view (`core_staff_qualification`, `core_staff_away`). Bookings' class
 declares it. **Claim margins** (stage 49 step 1, [ADR 0760](adr/0760-claim-margins-and-a-required-account-on-staffed.md)):
@@ -1330,7 +1331,31 @@ hours, each for every kind of work or for some kinds only (a service). Read by w
 fly (`openRanges`, `openCovers`), merged where they touch; "not open" is time off, never an entry.
 Set, changed and removed by the person or a rosterer through the tool-only `staffing.hours.set`,
 `.clear` and `.list`; an AI's change waits for a person; at most 50 entries a person;
-`user.deactivate` removes a leaver's. Free times (step 4) subtract time off, claims and rooms.
+`user.deactivate` removes a leaver's.
+
+**Free times and the customer's check** (stage 49 step 4, ADRs
+[0762](adr/0762-open-hours-and-free-times.md) and
+[0763](adr/0763-the-customers-check-on-a-free-time.md), `packages/core/src/staffing/free.ts`,
+`operations/staffing-free.ts`; no migration). A staffed object booked at free times declares
+`staffed.open: { length, step?, rooms?, client?, closedBy?, customer? }` (the kind's length, step
+and rooms as `kind.field` paths, the record's client, a closures object). `freeTimes` works out,
+at read time, the start times of one kind: on the step from the organisation's local midnight,
+where a qualified, active provider's open hours for the kind cover the whole shift, their time off
+does not touch it, its claim with the kind's margins overlaps none of theirs (what the batch has
+queued counted), the first of the kind's rooms is free (an unclaimed room always is), no closure
+covers its dates, the client has no live shift of the object over it, and for a customer or the
+public the create rules' window and staff-only flag allow it. Bounded to 31 days and 20 providers,
+in a fixed number of reads (15 for 31 days of 20 busy coaches); answered by the tool-only
+`staffing.free`, open through a shipped pack's tool to staff, customers and the public (a
+customer's client is themselves or a live dependant; the public names nobody), never saying why a
+time is not free. **The customer's check** (`staffed.open.customer`): a customer's or the public's
+create or move of such a shift, by every door (the transition engine's place, and
+`assertCreateRules` for a record the host makes for them), must be on a time `freeTimes` answers
+for its provider, with the kind's length and one of its free rooms (`conflict`,
+`rule: "not_free_time"`); the triggers still decide a race. Staff writes are made with
+`outside_hours` and `client_busy` warnings instead. A customer's write of such a shift names its
+provider without being a rosterer's, and is answered with no staff warnings and tells the roster
+nobody.
 
 **Time entries** (stage 58 step 1, [ADR 0850](adr/0850-time-entries-the-hosts-clock-overlaps-refused-and-worked-on.md),
 `packages/core/src/staffing/time.ts`, `operations/staffing-time.ts`, migration 1270): the one

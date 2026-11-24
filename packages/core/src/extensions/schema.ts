@@ -941,6 +941,21 @@ function staffedDefinition(
         ...(declared.who.account ? { account: declared.who.account, object: holder } : {}),
       },
       live: [...declared.live],
+      ...(declared.open
+        ? {
+            open: {
+              ...declared.open,
+              ...(declared.open.closedBy
+                ? {
+                    closedBy: {
+                      ...declared.open.closedBy,
+                      object: `${object.extensionId}.${declared.open.closedBy.object}`,
+                    },
+                  }
+                : {}),
+            },
+          }
+        : {}),
       ...(declared.evidence
         ? {
             evidence: {
