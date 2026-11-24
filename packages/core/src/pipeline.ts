@@ -811,6 +811,27 @@ async function invokeOnce<O extends AnyOperation>(
     });
     throw error;
   }
+  // A change to how the system is set up (an extension, a schema change) is made in the web admin,
+  // never from a device session such as the company's app on a phone (stage 60 decision 8, ADR
+  // 0872): neither by approving one (approval.approve's own check) nor by calling it directly.
+  if (ctx.origin.staffDevice && (op.risk === "extension" || op.risk === "schema")) {
+    const error = new ForbiddenError(`Do ${op.name} on a computer: it changes the setup`, {
+      operation: op.name,
+      reason: "review_on_computer",
+    });
+    await auditAlone({
+      id: newId("audit"),
+      op,
+      ctx,
+      input: rawInput,
+      at: now,
+      pendingActionId: ctx.approval?.actionId ?? null,
+      gate: "deny",
+      outcome: "forbidden",
+      error,
+    });
+    throw error;
+  }
   if (!parsed.success) {
     throw new ValidationError(`Invalid input for ${op.name}`, { issues: parsed.error.issues });
   }
