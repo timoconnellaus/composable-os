@@ -8,12 +8,13 @@
 // has none (`mergedBirthday`). The birthday entry rule reads it through one indexed query a page
 // (`birthdayPeople`), for the daily scan to enter (step 4).
 import type { CoreDatabase } from "@composable-os/db";
-import { type Kysely, sql } from "kysely";
+import type { Kysely } from "kysely";
 import { z } from "zod";
 import { ForbiddenError } from "../errors.ts";
 import type { HandlerContext } from "../operation.ts";
 import { valueHash } from "../routine-mail/marks.ts";
 import { localParts } from "../time/local.ts";
+import { orgReader, visibleTable } from "../visibility/index.ts";
 
 /** The field a birthday is recorded and marked under. */
 export const BIRTHDAY_FIELD = "birthday";
@@ -142,11 +143,18 @@ export async function birthdayPeople(
 ): Promise<{ ids: string[]; next: string | null }> {
   const { month, days } = birthdaysOn(input.now, input.zone);
   const limit = Math.min(Math.max(input.limit ?? BIRTHDAY_PAGE, 1), BIRTHDAY_PAGE);
-  const { rows } = await sql<{ id: string }>`SELECT id FROM core_person
-    WHERE birth_month = ${month} AND birth_day IN (${sql.join(days)})
-      AND deleted_at IS NULL AND merged_into_id IS NULL
-      AND id > ${input.after ?? ""}
-    ORDER BY id LIMIT ${limit}`.execute(db);
+  // Work with no caller (the daily scan): the org's view of People, through the seam.
+  const rows = await db
+    .selectFrom(visibleTable(orgReader(db), "person"))
+    .select("id")
+    .where("birth_month", "=", month)
+    .where("birth_day", "in", days)
+    .where("deleted_at", "is", null)
+    .where("merged_into_id", "is", null)
+    .where("id", ">", input.after ?? "")
+    .orderBy("id")
+    .limit(limit)
+    .execute();
   const ids = rows.map((r) => r.id);
   return { ids, next: ids.length === limit ? (ids[ids.length - 1] ?? null) : null };
 }
