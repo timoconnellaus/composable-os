@@ -9,6 +9,7 @@
 // video and where it is shown, and the app asks `media.play` for it (ADR 0478: the signing key
 // stays in cos-app).
 import { defineTool, type ExtensionContext, OpsCallError, z } from "@composable-os/sdk";
+import { WEEK } from "./dashboards.ts";
 import {
   asOutline,
   completion,
@@ -779,7 +780,7 @@ FROM rec_x_courses_course c ${only} ORDER BY c.title`,
       params,
     });
     const weeks = await ctx.ops.call<{ rows: Record<string, unknown>[] }>("query.sql", {
-      sql: `SELECT date(p.done_at, '-' || ((strftime('%w', p.done_at) + 6) % 7) || ' days') AS week,
+      sql: `SELECT ${WEEK("p.done_at")} AS week,
   count(*) AS done
 FROM rec_x_courses_progress p WHERE p.state = 'done' AND p.done_at IS NOT NULL
 ${input.courseId ? "AND p.course = :course" : ""}
