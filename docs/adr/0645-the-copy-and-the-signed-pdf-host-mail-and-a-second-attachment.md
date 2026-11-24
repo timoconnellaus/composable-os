@@ -195,3 +195,10 @@ child that staff pick, at the address the host holds for them (their linked sign
 their primary address). Staff are refused, and download the PDF, only when no linked guardian has
 an address. Migration 0857 records the guardian on the copy row and checks their address and live
 link in the database.
+
+## Amended 2026-11-24: the writer is shared ([ADR 0737](0737-the-shared-pdf-writer-the-invoice-attachment-and-host-mail-purpose-invoices.md), stage 35 step 1)
+`packages/agreement-pdf` is now `packages/pdf` (`@composable-os/pdf`, its estimate at
+`@composable-os/pdf/estimate`). Its safe core (fonts, encoding, pages, the file) is `core.ts`; the
+agreement renderer is `agreement.ts` on it, beside a table layout and the invoice and receipt
+renderers. Everything above about the writer still holds for every renderer. The agreement's
+bytes did not change: a golden test pins them.

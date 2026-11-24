@@ -18,11 +18,11 @@
 // Nothing here puts a name typed, a signature or an answer in a log, an error or the approval
 // card; the error column holds a category, never the gatekeeper's or the provider's words.
 
-import type { AgreementPdf } from "@composable-os/agreement-pdf";
+import type { CoreDatabase } from "@composable-os/db";
+import type { AgreementPdf } from "@composable-os/pdf";
 // The PDF's page estimate only (a few hundred bytes); the writer is the gatekeeper's and the
 // download route's, never core's.
-import { AGREEMENT_PDF_PAGE_LIMIT, fitsAgreementPdf } from "@composable-os/agreement-pdf/estimate";
-import type { CoreDatabase } from "@composable-os/db";
+import { AGREEMENT_PDF_PAGE_LIMIT, fitsAgreementPdf } from "@composable-os/pdf/estimate";
 import { productName } from "@composable-os/product";
 import { product } from "@composable-os/products/active";
 import { type Kysely, sql } from "kysely";
@@ -125,7 +125,7 @@ export const AGREEMENT_PDF_MAX_PAGES = AGREEMENT_PDF_PAGE_LIMIT;
  * Whether a version with these words surely fits the signed PDF, with the longest record and
  * answers an acceptance of it may carry: every question answered yes with the longest note, a
  * full record and a signature (after the reviews of PR #283). A cheap upper bound
- * (`@composable-os/agreement-pdf/estimate`), never below what the writer draws: the host's core
+ * (`@composable-os/pdf/estimate`), never below what the writer draws: the host's core
  * does not carry the writer.
  */
 export function fitsSignedPdf(draft: {

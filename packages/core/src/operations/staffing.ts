@@ -265,7 +265,7 @@ async function assertBeforeCutoff(ctx: HandlerContext, s: StoredShift): Promise<
 }
 
 /** A staff account (a person, not deactivated), or not found. */
-async function requireAccount(ctx: HandlerContext, account: string): Promise<void> {
+export async function requireAccount(ctx: HandlerContext, account: string): Promise<void> {
   const row = await ctx.db
     .selectFrom("core_user")
     .select("id")
@@ -322,7 +322,7 @@ export const staffingCheck = defineOperation({
 // --- Qualifications -------------------------------------------------------------------------------
 
 /** A kind object some staffed object's shifts are of (a class type, a duty), or the refusal. */
-function requireKindObject(name: string): void {
+export function requireKindObject(name: string): void {
   if (!listObjects().some((o) => kindObjectOf(o) === name)) {
     throw new ValidationError(`${name} is not a kind of work any shift is of`, {
       field: "kind.object",
@@ -488,7 +488,7 @@ const awaySchema = z.object({
 });
 
 /** A local `YYYY-MM-DDTHH:MM` in `zone` as unix seconds. */
-function instantOf(local: string, zone: string): number {
+export function instantOf(local: string, zone: string): number {
   const [date, time] = local.split("T") as [string, string];
   const d = parseLocalDate(date);
   const minutes = parseLocalTime(time);

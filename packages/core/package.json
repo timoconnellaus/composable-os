@@ -53,7 +53,7 @@
     "@composable-os/agent-a2ui": "workspace:*",
     "@composable-os/agent-core": "workspace:*",
     "@composable-os/db": "workspace:*",
-    "@composable-os/agreement-pdf": "workspace:*",
+    "@composable-os/pdf": "workspace:*",
     "@composable-os/product": "workspace:*",
     "@composable-os/products": "workspace:*",
     "@composable-os/release": "workspace:*",
