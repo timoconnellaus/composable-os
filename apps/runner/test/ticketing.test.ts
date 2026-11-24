@@ -1470,6 +1470,10 @@ describe("the door role (criterion 6b, ADR 0436)", () => {
     // Every pack role's own read-and-understood list and confirmations (ADR 0702).
     "ack.confirm",
     "ack.mine",
+    // The published versions every staff account reads (ADR 0701), on a staff-read object only.
+    "content.search",
+    "content.staffGet",
+    "content.staffList",
   ]);
 
   it("can check in and list an event's tickets", async () => {

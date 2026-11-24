@@ -303,6 +303,7 @@ export const objectManifestSchema = z.object({
         .object({ who: z.string().max(40), manage: z.string().max(80) })
         .strict()
         .optional(),
+      staffRead: z.boolean().optional(),
     })
     .strict()
     .optional(),

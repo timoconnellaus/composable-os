@@ -137,6 +137,7 @@ export interface ObjectDefinitionJson {
     date?: string | undefined;
     publishIn?: string[] | undefined;
     acknowledge?: { who: string; manage: string } | undefined;
+    staffRead?: boolean | undefined;
   };
   navigationOrder?: number;
   requireOneOf?: string[][];
@@ -1375,6 +1376,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
                     },
                   }
                 : {}),
+              ...(publishable.staffRead ? { staffRead: true } : {}),
             },
           }
         : {}),

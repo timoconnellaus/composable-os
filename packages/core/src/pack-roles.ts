@@ -8,6 +8,9 @@
 //   - `record.get` and `record.list` on the objects of that pack the role lists, and
 //   - `screens.mine`, the screens of the admin it may open (stage 47, ADR 0660),
 //   - its own read-and-understood list and confirmations (`ack.mine`, `ack.confirm`, ADR 0702),
+//   - the published versions of objects every staff account reads (`staffRead`: a procedure),
+//     through `content.staffGet`, `content.staffList` and `content.search` (ADR 0701), and of no
+//     other object,
 //   - a shipped pack's tools open to every staff account (`anyStaff`, ADR 0652), whose host
 //     operation decides by its own rule (Daily checklists: the checklist's "who may do it"),
 // and is refused every other operation, by the pipeline, before its input is looked at. Its own
@@ -29,6 +32,7 @@
 import type { CoreDatabase, CrmDb } from "@composable-os/db";
 import type { ExtensionManifest, RoleManifest } from "@composable-os/sdk";
 import { type Kysely, sql } from "kysely";
+import { getObject } from "./fields/index.ts";
 import type { AnyOperation } from "./operation.ts";
 import type { LooksAfter, LooksAfterLimit, LooksAfterTeam } from "./pack-role-looks-after.ts";
 import { FIXED_ROLE_CORE_GRANTS, holdsPermission, type Role } from "./principals.ts";
@@ -65,6 +69,24 @@ export const PACK_ROLE_CORE_READS: readonly string[] = ["screens.mine"];
  * own list of what to read, and confirming it read one. Each acts only for the calling person.
  */
 export const PACK_ROLE_OWN: readonly string[] = ["ack.mine", "ack.confirm"];
+
+/**
+ * The reads every pack role reaches of an object that declares `staffRead` (stage 38, ADR 0701):
+ * its current published versions, never a working copy. Each names its object in the input, and
+ * the role is allowed it only when that object declares staff read (`packRoleAllows`): a search
+ * of a public object, a blog post, is not opened by it.
+ */
+export const PACK_ROLE_STAFF_READS: readonly string[] = [
+  "content.staffGet",
+  "content.staffList",
+  "content.search",
+];
+
+/** Whether `input` names an object every staff account reads the published version of. */
+function namesStaffRead(input: unknown): boolean {
+  const object = (input as { object?: unknown } | null)?.object;
+  return typeof object === "string" && getObject(object)?.publishable?.staffRead === true;
+}
 
 /** `<extension>.<role>`. */
 export const PACK_ROLE_NAME_RE = /^([a-z][a-z0-9]{1,29})\.([a-z][a-zA-Z0-9]{0,39})$/;
@@ -216,6 +238,7 @@ export function packRoleReaches(role: HeldPackRole, op: AnyOperation): boolean {
   // what, by a rule of its own (a checklist's "who may do it").
   if (op.packAnyStaff === true) return true;
   if (op.packPermissions === undefined && PACK_ROLE_OWN.includes(op.name)) return true;
+  if (op.packPermissions === undefined && PACK_ROLE_STAFF_READS.includes(op.name)) return true;
   if (op.packPermissions !== undefined) {
     return op.packPermissions.some((p) => role.permissions.includes(p));
   }
@@ -346,6 +369,8 @@ export function packRoleAllows(role: HeldPackRole, op: AnyOperation, input: unkn
     return true;
   // The account's own screens (ADR 0660): its input is empty, and its answer is the account's.
   if (PACK_ROLE_CORE_READS.includes(op.name)) return true;
+  // A published version every staff account reads (ADR 0701): only of a staff-read object.
+  if (PACK_ROLE_STAFF_READS.includes(op.name)) return namesStaffRead(input);
   // record.get and record.list name their object in the input.
   const object = (input as { object?: unknown } | null)?.object;
   return typeof object === "string" && role.read.includes(object);

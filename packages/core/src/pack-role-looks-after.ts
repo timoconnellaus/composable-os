@@ -11,14 +11,16 @@
 //     that points the record at another Person must point it at one they look after;
 //   - record.create: the new record's Person must be one they look after, else not found;
 //   - a tool runs (its own calls are held in turn), and so do the account's own core operations
-//     (`screens.mine`, `ack.*`); every other operation is refused, whatever it names, so one that
+//     (`screens.mine`, `ack.*`) and the staff reads of published versions (`content.staffGet`,
+//     `content.staffList`, `content.search`, ADR 0701) of an object the limit does not name;
+//   - every other operation is refused, whatever it names, so one that
 //     names records under another key (an activity's links, a task's refs, a batch) cannot pass.
 // Nobody else is limited, and nothing is cached: ending the record ends the reach on the next call.
 import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, type RawBuilder, type SqlBool, sql } from "kysely";
 import { ForbiddenError, NotFoundError } from "./errors.ts";
 import { getObject } from "./fields/index.ts";
-import { PACK_ROLE_CORE_READS, PACK_ROLE_OWN } from "./pack-roles.ts";
+import { PACK_ROLE_CORE_READS, PACK_ROLE_OWN, PACK_ROLE_STAFF_READS } from "./pack-roles.ts";
 import { viewColumnOf } from "./records/columns.ts";
 
 /** The record operations the limit understands: a list, a get, an update and a create. */
@@ -149,6 +151,16 @@ export async function holdRoleLooksAfter(
   input: unknown,
 ): Promise<void> {
   if (!limit) return;
+  // A published version every staff account reads (ADR 0701): of an object whose records the
+  // limit is about, refused (fail closed); of any other, it reads no one's record.
+  if (PACK_ROLE_STAFF_READS.includes(operation)) {
+    const object = (input as { object?: unknown } | null)?.object;
+    if (typeof object === "string" && !Object.hasOwn(limit.reach, object)) return;
+    throw new ForbiddenError(
+      `${operation} is not open to this role: it reaches the records of the people its holder looks after only`,
+      { rule: "role_looks_after", operation },
+    );
+  }
   // Fail closed: under the limit, only the record operations it checks, a tool (its own calls are
   // held in turn), and the account's own core operations run. Anything else, whatever key its input
   // names a record by (`links`, `refs`, a batch), is refused.
