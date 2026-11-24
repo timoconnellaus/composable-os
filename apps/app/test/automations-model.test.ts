@@ -15,6 +15,7 @@ import {
   runOutcome,
   statusTone,
   testReportLines,
+  unknownObjectsText,
   waitingText,
 } from "../src/components/automations/model.ts";
 
@@ -196,6 +197,11 @@ describe("display helpers", () => {
       "Runs only with bookings and courses, which are not installed and on",
     );
     expect(statusTone("waiting")).toBe("muted");
+    expect(unknownObjectsText([])).toBeNull();
+    expect(unknownObjectsText(["bookings.bookng"])).toBe(
+      "Names bookings.bookng, which does not exist: correct the extension and install it again",
+    );
+    expect(statusTone("broken")).toBe("fail");
   });
 
   it("formats durations", () => {

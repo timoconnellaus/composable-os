@@ -19172,6 +19172,7 @@
               "active",
               "disabled",
               "waiting",
+              "broken",
               "paused",
               "killed",
               "removed"
@@ -19226,6 +19227,7 @@
               "active",
               "disabled",
               "waiting",
+              "broken",
               "paused",
               "killed",
               "removed"
@@ -19360,6 +19362,7 @@
               "active",
               "disabled",
               "waiting",
+              "broken",
               "paused",
               "killed",
               "removed"
@@ -19372,6 +19375,12 @@
             ]
           },
           "waitingFor": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "unknownObjects": {
             "type": "array",
             "items": {
               "type": "string"
@@ -19681,6 +19690,7 @@
           "status",
           "pausedReason",
           "waitingFor",
+          "unknownObjects",
           "lastRunAt",
           "lastRunStatus",
           "runs7d",
@@ -19810,6 +19820,7 @@
                     "active",
                     "disabled",
                     "waiting",
+                    "broken",
                     "paused",
                     "killed",
                     "removed"
@@ -19822,6 +19833,12 @@
                   ]
                 },
                 "waitingFor": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "unknownObjects": {
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -19901,6 +19918,7 @@
                 "status",
                 "pausedReason",
                 "waitingFor",
+                "unknownObjects",
                 "lastRunAt",
                 "lastRunStatus",
                 "runs7d",

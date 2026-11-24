@@ -567,8 +567,9 @@ _Avoid_: workflow (that is the Cloudflare primitive a run executes on), rule, fl
 
 An automation's `onlyWith: ["<extension>"]` (ADR 0812): the other extensions it needs, when the
 rest of its own extension does not. The extension installs without them; the automation waits,
-starting no run and listed as waiting, until every one is installed and on. Reviews' "after the
-Nth class" runs only with Bookings.
+starting no run and listed as waiting, until every one is installed and on; then, if it names an
+object of theirs that does not exist, it is listed as broken. Reviews' "after the Nth class" runs
+only with Bookings.
 _Avoid_: optional dependency, companion pack; `requires` is the whole extension's need
 
 ### Trigger

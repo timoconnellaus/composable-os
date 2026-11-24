@@ -46,7 +46,12 @@ export type AutomationHostEnv = DispatchEnv & ConstructorParameters<typeof Execu
 async function loadDefinition(
   env: { DB: D1Database },
   automationId: string,
-): Promise<{ definition: AutomationDefinition; enabled: boolean } | null> {
+): Promise<{
+  definition: AutomationDefinition;
+  enabled: boolean;
+  /** The extensions it runs only with that are not installed and on (ADR 0812). */
+  waitingFor: string[];
+} | null> {
   const row = await createCrmDb(env.DB)
     .query.selectFrom("core_automations")
     .selectAll()
@@ -65,6 +70,7 @@ async function loadDefinition(
       spec,
     },
     enabled: row.enabled === 1 && !row.paused_reason && !row.removed_at && !waiting.length,
+    waitingFor: waiting,
   };
 }
 
@@ -521,6 +527,13 @@ async function rerun(
   if (waiting) return { runId: waiting.id, deferred: true };
   const found = await loadDefinition(env, run.automation_id);
   if (!found) throw new Error(`No automation ${run.automation_id}`);
+  // A retry or replay is a run too: none while it waits for an extension (ADR 0812).
+  if (found.waitingFor.length) {
+    throw new Error(
+      `This automation runs only with ${found.waitingFor.join(" and ")}, which is not installed ` +
+        "and on, so it cannot run again until it is",
+    );
+  }
   const trigger = JSON.parse(run.trigger) as {
     /** Set when an erase redacted the run (ADR 0320): its record and inputs are gone. */
     erased?: boolean;

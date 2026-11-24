@@ -23,26 +23,40 @@ nothing).
 **It installs without them.** While an extension named in an automation's `onlyWith` is not
 installed (no object of it is known to the check), that automation's trigger object, the objects
 its steps read and write, and the extension's `permissions.read` / `permissions.write` may name
-objects of it: they are checked once it is installed, as any other extension's objects are. Once it
-is installed, a misspelt object of it is unknown as usual. `cos ext check` installs the named
+objects of it, and the check cannot tell whether they exist. They are checked at this extension's
+next install or upgrade made while the other is installed: then a misspelt object of it is unknown
+as usual. Installing the other extension does not check again the extensions that wait for it.
+What a person sees instead is below ("Listed as broken"). `cos ext check` installs the named
 extensions from the directories beside it first (as for `requires` and objects it names), so a
-pack in `packs/` is checked against them.
+pack in `packs/` is checked against them in CI; the exposure is an extension written in the
+workspace, or checked without the other beside it.
 
 **It waits until they are installed and on.** Nothing is stored for the wait: the host reads it
 when it would start a run. `waitingFor(spec, active)` (`packages/core/src/automations/registry.ts`)
-is the extensions of `onlyWith` that are not `active` in `core_extensions`; while it is not empty
-the automation starts no run, on every path that starts one: trigger matching and the cron
-(`loadEnabledAutomations`), a manual start from a button or a list (`automation.run`), and runs
-held back by the runs-per-minute rail ([ADR 0573](0573-runs-over-the-rate-rail-wait-their-turn.md)), which stay queued. The read is one query of
-`core_extensions` by primary key, made only when a matched automation names `onlyWith`, so
-automations without it cost nothing more. It runs again the moment the other extension is
-installed or enabled, and waits again while it is disabled or quarantined.
+is the extensions of `onlyWith` that are not `active` in `core_extensions`. While it is not empty
+the automation starts no new run: not from trigger matching or the cron
+(`loadEnabledAutomations`), a manual start from a button or a list (`automation.run`), a retry or
+a replay (`automation.retry`, `automation.replay`, refused with words, and by the runner too), or
+the drain of runs held back by the runs-per-minute rail
+([ADR 0573](0573-runs-over-the-rate-rail-wait-their-turn.md)), which stay queued and are counted
+as waiting. The read is one query of `core_extensions` by primary key, made only when a matched
+automation names `onlyWith`, so automations without it cost nothing more. It runs again the
+moment the other extension is installed or enabled, and waits again while it is disabled or
+quarantined. A run already started carries on (see Consequences).
 
 **Listed as waiting.** `automation.list` and `automation.get` show status `waiting` and
 `waitingFor` (the ids) for such an automation; a manual one is not offered as a button while it
 waits. A person's on or off is kept: a disabled automation shows `disabled`; enabling one that
-waits leaves it `waiting`. Retrying or replaying a run is not refused (as for a disabled
-automation); the run's calls into the missing extension fail as calls to it would.
+waits leaves it `waiting`.
+
+**Listed as broken.** Once every extension it runs only with is installed and on, the list reads
+what the automation names of them (its trigger object, its steps' reads and writes, and its
+extension's `permissions.read` / `write`) against the schema registry. Any that does not exist is
+in `unknownObjects`, and the status is `broken` ("Needs a fix" on the automations screens, with
+the objects): its extension must be corrected and installed again, which checks it in full. The
+runtime is not gated on it (the dispatch path does not read the schema registry, and a stale one
+would hold back a sound automation): a trigger on an object that does not exist never fires, and a
+step calling one fails and is recorded in the run.
 
 ## Consequences
 - Reviews can ship one pack for gyms and trades; its "after the Nth class" automation is off,
@@ -50,8 +64,11 @@ automation); the run's calls into the missing extension fail as calls to it woul
 - Field checks of another extension's object (a trigger's field, a condition) were, and stay, made
   only where the host is given that object's fields (the SDK's `objectFields`); a deployment's
   check does not pass them today. `onlyWith` does not change that.
-- A run already in progress when the other extension is disabled carries on; its calls into that
-  extension fail and the run records it.
+- A run already in progress when the other extension is disabled carries on, including one woken
+  by an approval; its calls into that extension fail and the run records it.
+- Amended 2026-11-24 (review of PR #420): the first draft said a misspelt object is checked once
+  the other extension is installed, and did not refuse retry and replay. Neither held; the
+  decision above now says what is checked when, adds `broken`, and refuses retry and replay.
 
 ## Rejected
 - **A companion pack** (`reviews-bookings`): a second install for one automation, and the stage's

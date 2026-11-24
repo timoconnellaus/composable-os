@@ -58,6 +58,11 @@ export const automationStatusSchema = z.enum([
   "disabled",
   /** It runs only with an extension that is not installed and on (ADR 0812): `waitingFor`. */
   "waiting",
+  /**
+   * It runs only with an installed extension and names objects that extension does not have
+   * (ADR 0812): `unknownObjects`. Its extension must be corrected and installed again.
+   */
+  "broken",
   "paused",
   "killed",
   "removed",
@@ -78,6 +83,8 @@ export const automationListItemSchema = z.object({
   pausedReason: z.string().nullable(),
   /** The extensions it runs only with (`onlyWith`) that are not installed and on (ADR 0812). */
   waitingFor: z.array(z.string()),
+  /** Objects of those extensions, once installed, that it names and that do not exist (ADR 0812). */
+  unknownObjects: z.array(z.string()),
   lastRunAt: z.string().nullable(),
   lastRunStatus: z.enum(RUN_STATUSES).nullable(),
   /** Runs in the last 7 days, and failed ones among them. */

@@ -657,6 +657,7 @@ export async function runDeferredDue(
       "a.spec",
       "a.owner_user_id",
       sql<string>`min(r.started_at)`.as("oldest"),
+      sql<number>`count(*)`.as("queued"),
     ])
     .where("r.status", "=", "queued")
     .where("r.status_reason", "=", DEFERRED_REASON)
@@ -674,15 +675,19 @@ export async function runDeferredDue(
     db,
     [...specs.values()].filter((spec) => spec !== null),
   );
+  // Their runs stay queued and count as waiting.
+  let held = 0;
   due = due.filter((a) => {
     const spec = specs.get(a.automation_id);
-    return spec && !waitingFor(spec, active).length;
+    const runs = Boolean(spec && !waitingFor(spec, active).length);
+    if (!runs) held += Number(a.queued);
+    return runs;
   });
-  if (!due.length) return { started: 0, waiting: 0 };
+  if (!due.length) return { started: 0, waiting: held };
   const share = Math.max(1, Math.ceil(perTick / due.length));
   const instances: { id: string; params: AutomationRunParams }[] = [];
   const startedIds: string[] = [];
-  let waiting = 0;
+  let waiting = held;
   for (const automation of due) {
     const spec = JSON.parse(automation.spec) as AutomationDefinition["spec"];
     const rows = await db

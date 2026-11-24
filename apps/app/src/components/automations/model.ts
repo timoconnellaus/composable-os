@@ -20,12 +20,16 @@ export const STATUS_LABELS: Record<AutomationStatus, string> = {
   active: "Active",
   disabled: "Disabled",
   waiting: "Waiting",
+  broken: "Needs a fix",
   paused: "Paused",
   killed: "Killed",
   removed: "Removed",
 };
 
-/** Pill colours: active green, paused/disabled amber, killed red, waiting and removed grey. */
+/**
+ * Pill colours: active green, paused/disabled amber, killed and broken red, waiting and removed
+ * grey.
+ */
 export type Tone = "ok" | "fail" | "pause" | "muted";
 
 /**
@@ -38,11 +42,23 @@ export function waitingText(waitingFor: readonly string[]): string | null {
   return `Runs only with ${names}, which ${waitingFor.length > 1 ? "are" : "is"} not installed and on`;
 }
 
+/**
+ * What an automation names of an installed extension it runs only with that does not exist
+ * (ADR 0812), e.g. "Names bookings.bookng, which does not exist: correct the extension and install
+ * it again"; null when it names none.
+ */
+export function unknownObjectsText(objects: readonly string[]): string | null {
+  if (!objects.length) return null;
+  const one = objects.length === 1;
+  return `Names ${joinNames(objects)}, which ${one ? "does" : "do"} not exist: correct the extension and install it again`;
+}
+
 export function statusTone(status: AutomationStatus): Tone {
   switch (status) {
     case "active":
       return "ok";
     case "killed":
+    case "broken":
       return "fail";
     case "paused":
     case "disabled":

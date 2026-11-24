@@ -7,12 +7,16 @@
 import { env } from "cloudflare:workers";
 import {
   type ActingUser,
+  type AutomationDefinition,
   type AutomationListItem,
   loadEnabledAutomations,
+  memoryRateLimit,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
-import { dispatch, runWorkflows, tasksOn, withEvents } from "./automation-fixture.ts";
+import { runDeferredDue, startRuns } from "../src/automations/dispatch.ts";
+import { automationHost } from "../src/automations/host.ts";
+import { dispatch, runsOf, runWorkflows, tasksOn, withEvents } from "./automation-fixture.ts";
 import { call, createAdmin, db, install } from "./helpers.ts";
 
 // The extension the automation runs only with (as Bookings is for Reviews).
@@ -119,6 +123,9 @@ export default defineExtension({
 };
 
 let admin: ActingUser;
+/** A completed run of byHand, made once the other extension is installed. */
+let byHandRun = "";
+const MINUTE = 60_000;
 
 async function listed(): Promise<Record<string, AutomationListItem>> {
   const { items } = await call<{ items: AutomationListItem[] }>(admin, "automation.list", {
@@ -197,10 +204,15 @@ describe("onlyWith (ADR 0812)", () => {
     const visit = await attendedVisit("Sam");
     expect(await tasksOn(visit)).toEqual(["Thank Sam"]);
     const id = await person();
-    await runWorkflows(() =>
-      call(admin, "automation.run", { id: `${USER}.byHand`, object: "person", recordIds: [id] }),
+    const done = await runWorkflows(() =>
+      call<{ runIds: string[] }>(admin, "automation.run", {
+        id: `${USER}.byHand`,
+        object: "person",
+        recordIds: [id],
+      }),
     );
     expect(await tasksOn(id)).toEqual(["Thank by hand"]);
+    byHandRun = done.runIds[0] as string;
   });
 
   it("waits again while the other extension is disabled, and keeps a person's on or off", async () => {
@@ -234,6 +246,56 @@ describe("onlyWith (ADR 0812)", () => {
     expect((await listed()).afterVisit?.status).toBe("active");
   });
 
+  it("refuses a retry or a replay while it waits (review of PR #420)", async () => {
+    await call(admin, "extension.disable", { id: BASE });
+    try {
+      for (const name of ["automation.replay", "automation.retry"]) {
+        const refused = await withEvents(admin, name, { runId: byHandRun }).catch(
+          (error: { code?: string; message?: string }) => error,
+        );
+        expect(refused).toMatchObject({
+          code: "invalid_input",
+          message: expect.stringContaining(`runs only with ${BASE}`),
+        });
+      }
+      // The runner refuses too, for a caller that reaches it without the operation.
+      await expect(automationHost(env).replayRun(byHandRun)).rejects.toThrow(
+        `runs only with ${BASE}`,
+      );
+      expect((await runsOf(`${USER}.byHand`)).length).toBe(1);
+    } finally {
+      await call(admin, "extension.enable", { id: BASE });
+    }
+  });
+
+  it("keeps runs held by the rate rail queued, counted as waiting, until the other is on", async () => {
+    const byHand = (await loadEnabledAutomations(db.query, ["manual"])).find(
+      (a) => a.id === `${USER}.byHand`,
+    ) as AutomationDefinition;
+    const ids = [await person(), await person()];
+    const held = await startRuns(
+      { ...env, AUTOMATION_RATE_LIMIT: memoryRateLimit(0) },
+      ids.map((id, i) => ({
+        automation: byHand,
+        idempotencyKey: `onlywith-held:${i}`,
+        record: { object: "person", id },
+      })),
+      { depth: 0, chain: [], rootEventId: "ow", eventId: "ow", at: new Date().toISOString() },
+    );
+    expect(held.deferred).toBe(2);
+    const allowAll = { ...env, AUTOMATION_RATE_LIMIT: memoryRateLimit(100_000) };
+    const later = new Date(Date.now() + 2 * MINUTE);
+    await call(admin, "extension.disable", { id: BASE });
+    try {
+      expect(await runDeferredDue(allowAll, later)).toEqual({ started: 0, waiting: 2 });
+    } finally {
+      await call(admin, "extension.enable", { id: BASE });
+    }
+    const drained = await runWorkflows(() => runDeferredDue(allowAll, later));
+    expect(drained).toEqual({ started: 2, waiting: 0 });
+    for (const id of ids) expect(await tasksOn(id)).toEqual(["Thank by hand"]);
+  });
+
   it("costs one more read, by primary key, only when a matched automation names onlyWith", async () => {
     const statements: string[] = [];
     const metered = createCrmDb(
@@ -256,5 +318,56 @@ describe("onlyWith (ADR 0812)", () => {
     await loadEnabledAutomations(metered.query, ["fieldChanged"], [VISIT]);
     expect(statements).toHaveLength(2);
     expect(statements[1]).toMatch(/from "core_extensions" where "id" in/);
+  });
+});
+
+// Review of PR #420, finding 1: an extension checked while the other was not installed may name
+// an object the other does not have. Nothing checks it again when the other is installed, so the
+// list says so instead of calling it active.
+const BAD_BASE = "owbadbase";
+const BAD_USER = "owbaduser";
+
+describe("onlyWith naming an object the other extension does not have (ADR 0812)", () => {
+  it("is listed as broken, with the objects, once the other extension is installed", async () => {
+    await install(admin, BAD_USER, {
+      "index.ts": (USER_FILES["index.ts"] as string)
+        .replaceAll(USER, BAD_USER)
+        .replaceAll(`${BASE}.visit"`, `${BAD_BASE}.visits"`)
+        .replaceAll(`"${BASE}"`, `"${BAD_BASE}"`)
+        .replace('write: ["task"]', `write: ["task", "${BAD_BASE}.nosuch"]`),
+    });
+    const before = await call<{ items: AutomationListItem[] }>(admin, "automation.list", {
+      extensionId: BAD_USER,
+    });
+    expect(before.items.find((i) => i.key === "afterVisit")).toMatchObject({
+      status: "waiting",
+      unknownObjects: [],
+    });
+    await install(admin, BAD_BASE, {
+      "index.ts": (BASE_FILES["index.ts"] as string).replaceAll(BASE, BAD_BASE),
+    });
+    const { items } = await call<{ items: AutomationListItem[] }>(admin, "automation.list", {
+      extensionId: BAD_USER,
+    });
+    const byKey = Object.fromEntries(items.map((i) => [i.key, i]));
+    expect(byKey.afterVisit).toMatchObject({
+      status: "broken",
+      waitingFor: [],
+      unknownObjects: [`${BAD_BASE}.nosuch`, `${BAD_BASE}.visits`],
+    });
+    // byHand names none of them itself, but its extension's permissions do.
+    expect(byKey.byHand).toMatchObject({
+      status: "broken",
+      unknownObjects: [`${BAD_BASE}.nosuch`, `${BAD_BASE}.visits`],
+    });
+    expect(byKey.always).toMatchObject({ status: "active", unknownObjects: [] });
+    const detail = await call<AutomationListItem>(admin, "automation.get", {
+      id: `${BAD_USER}.afterVisit`,
+    });
+    expect(detail.status).toBe("broken");
+    const enabled = await call<{ status: string }>(admin, "automation.enable", {
+      id: `${BAD_USER}.afterVisit`,
+    });
+    expect(enabled.status).toBe("broken");
   });
 });

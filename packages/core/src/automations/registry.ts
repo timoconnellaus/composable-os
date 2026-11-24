@@ -174,6 +174,42 @@ export async function activeOnlyWith(
 }
 
 /**
+ * Objects of the installed extensions an automation runs only with that it names (its trigger, its
+ * steps' reads and writes, its extension's `permissions.read` / `write`) and that do not exist
+ * (ADR 0812). Its extension was checked while they were not installed, so a misspelt one passed;
+ * nothing checks it again until its extension is installed again. `exists` is the schema
+ * registry's answer.
+ */
+export function unknownOnlyWithObjects(
+  spec: AutomationManifest,
+  permissions: { read?: readonly string[]; write?: readonly string[] } | null | undefined,
+  active: ReadonlySet<string>,
+  exists: (object: string) => boolean,
+): string[] {
+  const installed = (spec.onlyWith ?? []).filter((id) => active.has(id));
+  if (!installed.length) return [];
+  const t = spec.trigger;
+  const named = [
+    "object" in t && typeof t.object === "string" ? t.object : null,
+    ...spec.steps.flatMap((step) =>
+      step.kind === undefined || step.kind === "do"
+        ? [...(step.reads ?? []), ...(step.writes ?? []).map((w) => w.object)]
+        : [],
+    ),
+    ...(permissions?.read ?? []),
+    ...(permissions?.write ?? []),
+  ];
+  return [
+    ...new Set(
+      named.filter(
+        (object): object is string =>
+          object !== null && installed.some((id) => object.startsWith(`${id}.`)) && !exists(object),
+      ),
+    ),
+  ].sort();
+}
+
+/**
  * The extensions an automation runs only with that are not installed and on, of `active` (from
  * `activeOnlyWith`): while any is, it is listed as waiting and starts no run (ADR 0812).
  */

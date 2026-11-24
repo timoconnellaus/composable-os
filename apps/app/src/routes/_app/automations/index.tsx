@@ -7,7 +7,12 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { WorkflowIcon } from "lucide-react";
 import { type AutomationItem, useAutomations } from "#/components/automations/hooks";
 import { KillSwitchBanner } from "#/components/automations/kill-switch-banner";
-import { compactRelative, RUN_STATUS_LABELS, waitingText } from "#/components/automations/model";
+import {
+  compactRelative,
+  RUN_STATUS_LABELS,
+  unknownObjectsText,
+  waitingText,
+} from "#/components/automations/model";
 import { StatusPill } from "#/components/automations/parts";
 import { EmptyState, ErrorState } from "#/components/empty-state";
 import { type InfiniteSource, VirtualFeed } from "#/components/layout/infinite";
@@ -98,6 +103,7 @@ function AutomationRow({ item }: { item: AutomationItem }) {
           {item.extensionLabel ?? item.extensionId} extension
           {item.pausedReason ? ` · ${item.pausedReason}` : ""}
           {item.waitingFor.length ? ` · ${waitingText(item.waitingFor)}` : ""}
+          {item.unknownObjects.length ? ` · ${unknownObjectsText(item.unknownObjects)}` : ""}
         </span>
       </div>
       <dl className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground sm:justify-end sm:text-right">

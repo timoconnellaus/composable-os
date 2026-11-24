@@ -21,6 +21,7 @@ import {
   loadAutomationSettings,
   parseSpec,
   triggerObject,
+  unknownOnlyWithObjects,
   waitingFor,
 } from "../automations/registry.ts";
 import {
@@ -50,7 +51,7 @@ import {
   ValidationError,
 } from "../errors.ts";
 import { refreshSchemaRegistry } from "../extensions/schema.ts";
-import { getObject } from "../fields/index.ts";
+import { getObject, listObjects } from "../fields/index.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { jsonList } from "../records/common.ts";
 import { loadRecordTitles } from "../records/links.ts";
@@ -97,10 +98,27 @@ export function summaryContext(timezone: string): SummaryContext {
 
 type Status = AutomationListItem["status"];
 
-function statusOf(row: AutomationRow, killSwitch: boolean, waiting: readonly string[]): Status {
+/** What `spec` names of its installed `onlyWith` extensions that does not exist (ADR 0812). */
+function unknownObjects(
+  spec: AutomationManifest,
+  manifest: Partial<ExtensionManifest> | null,
+  active: ReadonlySet<string>,
+): string[] {
+  if (!spec.onlyWith?.length) return [];
+  const names = new Set(listObjects().map((o) => o.name));
+  return unknownOnlyWithObjects(spec, manifest?.permissions, active, (o) => names.has(o));
+}
+
+function statusOf(
+  row: AutomationRow,
+  killSwitch: boolean,
+  waiting: readonly string[],
+  unknown: readonly string[] = [],
+): Status {
   if (row.removed_at) return "removed";
   if (!row.enabled) return "disabled";
   if (waiting.length) return "waiting";
+  if (unknown.length) return "broken";
   if (killSwitch) return "killed";
   if (row.paused_reason) return "paused";
   return "active";
@@ -195,8 +213,9 @@ function listItem(
   stats: ReturnType<typeof runStats> extends Promise<Map<string, infer V>> ? V | undefined : never,
   active: ReadonlySet<string>,
 ): AutomationListItem {
-  const waiting = waitingFor(spec, active);
   const manifest = parse<Partial<ExtensionManifest> | null>(row.manifest ?? null, null);
+  const waiting = waitingFor(spec, active);
+  const unknown = unknownObjects(spec, manifest, active);
   const t = spec.trigger;
   return {
     id: row.id,
@@ -208,9 +227,10 @@ function listItem(
     triggerType: t.type,
     triggerObject: triggerObject(spec),
     triggerText: triggerText(spec, summary),
-    status: statusOf(row, killSwitch, waiting),
+    status: statusOf(row, killSwitch, waiting, unknown),
     pausedReason: row.paused_reason,
     waitingFor: waiting,
+    unknownObjects: unknown,
     lastRunAt: stats?.lastRunAt ?? null,
     lastRunStatus: stats?.lastRunStatus ?? null,
     runs7d: stats?.runs7d ?? 0,
@@ -479,10 +499,13 @@ function statusOperation(name: "automation.enable" | "automation.disable") {
           .where("id", "=", input.id),
       );
       const settings = await loadAutomationSettings(ctx.db);
+      const active = await activeOnlyWith(ctx.db, [spec]);
+      if (spec.onlyWith?.length) await refreshSchemaRegistry(ctx.db);
       const status = statusOf(
         { ...row, enabled: enable ? 1 : 0, paused_reason: enable ? null : row.paused_reason },
         settings.killSwitch,
-        waitingFor(spec, await activeOnlyWith(ctx.db, [spec])),
+        waitingFor(spec, active),
+        unknownObjects(spec, parse(row.manifest ?? null, null), active),
       );
       return { id: input.id, status };
     },
@@ -718,12 +741,23 @@ function runOperation(
     risk: "write",
     async handler(input, ctx) {
       const run = await ctx.db
-        .selectFrom("core_automation_runs")
-        .select(["id", "status"])
-        .where("id", "=", input.runId)
-        .where("extension_id", "!=", ROUTINE_EXTENSION)
+        .selectFrom("core_automation_runs as r")
+        .leftJoin("core_automations as a", "a.id", "r.automation_id")
+        .select(["r.id", "r.status", "a.spec"])
+        .where("r.id", "=", input.runId)
+        .where("r.extension_id", "!=", ROUTINE_EXTENSION)
         .executeTakeFirst();
       if (!run) throw new NotFoundError("automation run", input.runId);
+      // A retry or a replay starts a run: none while it waits for an extension (ADR 0812).
+      const spec = name === "automation.cancel" || !run.spec ? null : parseSpec(run.spec);
+      const waiting = spec ? waitingFor(spec, await activeOnlyWith(ctx.db, [spec])) : [];
+      if (waiting.length) {
+        throw new ValidationError(
+          `This automation runs only with ${waiting.join(" and ")}, which is not installed and ` +
+            "on, so it cannot run again until it is",
+          { runId: input.runId, waitingFor: waiting },
+        );
+      }
       return call(host(ctx), input.runId);
     },
   });

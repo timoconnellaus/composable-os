@@ -96,8 +96,10 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    that needs another pack the rest of the extension does not (a review ask after the Nth
    attended booking) says `onlyWith: ["bookings"]`: the extension installs without it, the
    automation is listed as waiting and starts no run until that pack is installed and on, and
-   its trigger, steps and `permissions` may name that pack's objects (ADR 0812). When the whole
-   extension needs the pack, use `requires` instead.
+   its trigger, steps and `permissions` may name that pack's objects (ADR 0812). Spell them
+   exactly: without the pack the host cannot check them, and a wrong one shows the automation
+   as broken once the pack is installed. Run `cos ext check` with the pack beside yours. When the
+   whole extension needs the pack, use `requires` instead.
 5. **Declare every step and its intents.** A camelCase `name` each. A `do` step lists `reads`
    (objects), `writes` (`WriteIntent`: object, action, count, titles, assignee), `notifies`
    (recipient and the message as written) and `calls` (other operations, such as `query.sql`).

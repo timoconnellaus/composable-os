@@ -18,7 +18,12 @@ import {
   useSetEnabled,
 } from "#/components/automations/hooks";
 import { KillSwitchBanner } from "#/components/automations/kill-switch-banner";
-import { asTestReport, provenanceLine, waitingText } from "#/components/automations/model";
+import {
+  asTestReport,
+  provenanceLine,
+  unknownObjectsText,
+  waitingText,
+} from "#/components/automations/model";
 import { OverviewTab } from "#/components/automations/overview";
 import { StatusPill } from "#/components/automations/parts";
 import { RunsTab } from "#/components/automations/runs-tab";
@@ -156,6 +161,13 @@ function AutomationView({ detail }: { detail: AutomationDetailData }) {
             );
           }}
         />
+      ) : detail.unknownObjects.length ? (
+        <p
+          className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm dark:border-red-400/40 dark:bg-red-500/10"
+          role="status"
+        >
+          {unknownObjectsText(detail.unknownObjects)}. It cannot run as declared until then.
+        </p>
       ) : detail.waitingFor.length ? (
         <p className="rounded-md border bg-muted px-4 py-3 text-sm" role="status">
           {waitingText(detail.waitingFor)}. It starts no run until then.
