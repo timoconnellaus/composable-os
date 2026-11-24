@@ -19,6 +19,7 @@ import {
   invokeByName,
   PendingApprovalError,
 } from "../src/index.ts";
+import { agreementBody as body, publishAgreement } from "./agreement-fixtures.ts";
 import { testRunner } from "./ai-helpers.ts";
 import { outside } from "./customer-fixtures.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
@@ -28,10 +29,6 @@ let admin: ActingUser;
 let member: ActingUser;
 const POINT = `pa${Date.now().toString(36)}`;
 const OTHER = `pb${Date.now().toString(36)}`;
-
-const body = (text: string) => ({
-  blocks: [{ type: "paragraph", content: [{ type: "text", text }] }],
-});
 
 beforeAll(async () => {
   admin = await createUser("admin");
@@ -83,32 +80,15 @@ async function liveDocument(
     askAgainMonths?: number;
   } = {},
 ) {
-  const { id } = await invoke("agreement.create", { title: unique("Doc"), kind }, context(admin));
-  const saved = await invoke(
-    "agreement.draft.save",
-    {
-      id,
-      body: body("Fixture text: not a real document."),
-      tickLabel: "I have read this fixture",
-      ...(options.how ? { how: options.how } : {}),
-      ...(options.forWhom ? { forWhom: options.forWhom } : {}),
-      ...(kind === "health"
-        ? { questions: QUESTIONS, askAgainMonths: options.askAgainMonths ?? null }
-        : {}),
-    },
-    context(admin),
-  );
-  const { version } = await invoke(
-    "agreement.publish",
-    { documentId: id, draftHash: saved.hash, draftRev: saved.rev, number: 1, change: "small" },
-    context(admin),
-  );
-  await invoke(
-    "agreement.attach",
-    { documentId: id, points: options.points ?? [POINT] },
-    context(admin),
-  );
-  return { id: id as string, versionId: version.id as string };
+  return publishAgreement((name, input) => invokeByName(name, input, context(admin)), kind, {
+    title: unique("Doc"),
+    points: options.points ?? [POINT],
+    ...(options.how ? { how: options.how } : {}),
+    ...(options.forWhom ? { forWhom: options.forWhom } : {}),
+    ...(kind === "health"
+      ? { questions: QUESTIONS, askAgainMonths: options.askAgainMonths ?? null }
+      : {}),
+  });
 }
 
 /** A new version of a live document, as "agree again" or a small change. */
