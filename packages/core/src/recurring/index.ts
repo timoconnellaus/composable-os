@@ -29,6 +29,7 @@ import { addDaysToDate } from "../automations/cron.ts";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { getObject, listObjects } from "../fields/index.ts";
 import type { ObjectDefinition, RecurringDefinition } from "../fields/types.ts";
+import { thingNotApplied, thingsTaken, withoutThings } from "../occupies/index.ts";
 import type { HandlerContext } from "../operation.ts";
 import { followersOn } from "../records/follows.ts";
 import type { Mover } from "../records/transitions.ts";
@@ -436,12 +437,20 @@ export async function generateSeries(
         : null;
     const uncovered = clash !== null;
     if (uncovered && who) values[who] = null;
+    // Nor on a room another record takes then (ADR 0765): the date is made without it, kept as
+    // its own, and the rosterers are told.
+    const thing = generated.occupies?.thing;
+    const taken = thing ? await thingsTaken(ctx, generated, { ...planned, ...values }) : [];
+    if (thing && taken.length) values[thing] = withoutThings(generated, values, taken);
     const record = await records().create(ctx, generated, values, {
       by: "host",
       copied: occurrenceSources(def, object.name, id, series, Object.keys(values)),
     });
     // The rosterers are told the date and why (stage 45 step 3, ADR 0624).
     if (clash) await patternNotApplied(ctx, generated, record, occurrence.date, planned, clash);
+    if (taken.length) {
+      await thingNotApplied(ctx, generated, record, occurrence.date, planned, taken);
+    }
     ctx.write(
       occurrenceStatement({
         seriesObject: object.name,
@@ -454,6 +463,9 @@ export async function generateSeries(
     );
     if (uncovered && who && Object.hasOwn(def.copy, who)) {
       writeException(ctx, generated.name, record, who, true);
+    }
+    if (taken.length && thing && Object.hasOwn(def.copy, thing)) {
+      writeException(ctx, generated.name, record, thing, true);
     }
   }
   const more = due.length > batch.length;

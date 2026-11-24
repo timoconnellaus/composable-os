@@ -9,6 +9,7 @@ import type { CapacitySpec, ClaimsSpec } from "./capacity.ts";
 import type { ChecklistsSpec } from "./checklists.ts";
 import type { DocumentPathSpec, DocumentSchema } from "./document.ts";
 import type { FieldTypeName } from "./field-types.ts";
+import type { OccupiesSpec } from "./occupies.ts";
 import type { RecurringScheduleSpec } from "./recurring.ts";
 import type { RoutineMailModule, RoutineMailSpec } from "./routine-mail.ts";
 import type { SellableSpec } from "./sellable.ts";
@@ -304,6 +305,12 @@ export interface ObjectSpec {
    * write with its warnings (away, not qualified, no one on it).
    */
   staffed?: StaffedSpec;
+  /**
+   * A claim on a thing (see OccupiesSpec, ADR 0765): while live, the record takes the room (or
+   * chair, or hall) it names for its time. The host refuses, in the database, a second live
+   * record on the same thing at an overlapping time, whatever object it is.
+   */
+  occupies?: OccupiesSpec;
   /**
    * A checklist the record's person ticks off (see ChecklistsSpec, ADR 0650): a run of the
    * template its `template` field names, made by the host, ticked by the person (or by someone who

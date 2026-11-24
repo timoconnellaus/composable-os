@@ -70,7 +70,7 @@ commit**, by editing this table. Use the next free block. Unused numbers in a bl
 | BH | 1030–1049 | 0730–0739 | Stage 35, Invoices and quotes (spec `docs/stages/35-invoices-quotes.md`) | specced |
 | BI | 1050–1069 | 0740–0749 | Stage 36, Shared inbox (spec `docs/stages/36-inbox.md`) | specced |
 | BJ | 1070–1089 | 0750–0759 | Stage 39, Jobs and projects (spec `docs/stages/39-jobs.md`) | specced |
-| BK | 1090–1109 | 0760–0769 | Stage 49, Appointments (spec `docs/stages/49-appointments.md`) | specced |
+| BK | 1090–1109 | 0760–0769 | Stage 49, Appointments (spec `docs/stages/49-appointments.md`). Step 3, open hours: migrations 1090–1094, ADRs 0760–0764 (its own branch). Step 2, `occupies` and `core_thing_time` (`feat/stage-49-occupies`): migration 1095, ADR 0765 (the spec's "0761"); the later steps take theirs from 1096 and 0766 | in flight |
 | BL | 1110–1129 | 0770–0779 | Stage 50, Till (spec `docs/stages/50-till.md`) | specced |
 | BM | 1130–1149 | 0780–0789 | Stage 51, Kiosk check-in (spec `docs/stages/51-kiosk-check-in.md`) | specced |
 | BN | 1150–1169 | 0790–0799 | Stage 52, Finance reports (spec `docs/stages/52-finance-reports.md`) | specced |

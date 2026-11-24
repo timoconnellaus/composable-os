@@ -303,6 +303,14 @@ export function toOperationError(error: unknown): OperationError {
       { rule: "double_booked" },
     );
   }
+  // Two live records in one thing at once (a room marked "one booking at a time", migration
+  // 1095, ADR 0765): refused by the database for every writer, naming no other record (who else
+  // is in the room is not the writer's to know).
+  if (message.includes("core_thing_double_booked")) {
+    return new ConflictError("That room is already taken at that time, so nothing was changed.", {
+      rule: "room_taken",
+    });
+  }
   // An offer of a shift left `open` meanwhile (migration 0812, ADR 0623): taken by someone else a
   // moment before, withdrawn, cancelled or lapsed. Of the writes racing for it exactly one landed.
   if (message.includes("core_staff_offer_closed")) {
@@ -400,6 +408,15 @@ export function toOperationError(error: unknown): OperationError {
     return new ValidationError("A shift must end after it starts, so nothing was changed.", {
       rule: "staffed_time",
     });
+  }
+  // A live record in a room whose end is not after its start (ADR 0765).
+  if (message.includes("core_thing_time_backwards")) {
+    return new ValidationError(
+      "A booking of a room must end after it starts, so nothing was changed.",
+      {
+        rule: "occupies_time",
+      },
+    );
   }
   // A claimant took a place after it was read as holding none (ADR 0501).
   if (message.includes("core_claim_live")) {
