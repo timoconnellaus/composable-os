@@ -236,3 +236,10 @@ listed path, no query, fragment or user; never `localhost`. See
 - `/native/staff-sign-in` no longer issues a code on GET: it shows a confirm page, and the code is
   issued on the confirmed, same-origin POST carrying a one-time token bound to the account and the
   request (issue #165).
+
+## Amended 2026-11-24 (stage 60 step 6, ADR 0872): a device session's calls are marked
+A staff call made with a device session carries `origin.staffDevice: true`, set by the HTTP surface
+from the session (never from the request) and kept in the audit row's origin. `approval.approve`
+refuses an `extension` or `schema` action under it, for an admin too (`details.reason:
+"review_on_computer"`): a change to how the system is set up is reviewed in the web admin. The
+routes, the tokens and the session table are unchanged.

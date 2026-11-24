@@ -48,6 +48,18 @@ gift cards to be built.
   `at_date` on `event.startsAt`), Bookings (drop-in `at_date` on `class.startsAt`) and Courses
   (course and bundle `at_sale`; the course plan `over_period`, as a plan). No migration; ADR 0792
   (0435 amended). The ADR numbers of 0792 and 0793 in the table below are swapped from the draft.
+- **Step 3 built** (`feat/stage-52-day-summaries`): the day summaries (one `day` entry per business
+  day money moved, filling `periodBook`), Sales, Tax and Refunds (`finance/book.ts`, each payment
+  and refund shared over its order's lines by net, its tax by the lines' tax; a one-off refund's tax
+  estimated in proportion and marked), late sources from closed months in `late` entries,
+  `finance.report` (a closed version, a month's preview or any span up to 366 days),
+  `finance.entries` (closed versions only, paged) and `finance.export` (one CSV per report, a
+  person's). Migration 1153 (indexes on the dates counted; 1151 and 1152 stay the spec's for steps
+  4 and 5); ADR 0796. Left: a closed Refunds row keeps no staff reason (it could not be redacted);
+  staff names in a file are read when it is downloaded; discounts show once, with an order's first
+  payment; the late scan reads every earlier source's index entry. The hand-worked fixture is
+  written to the order tables, plus one order paid through the order code; the full fixture of
+  acceptance criterion 1 (memberships, passes, payouts) waits for steps 4 to 6.
 
 **This is not accounting or tax advice, and the platform gives none.** The host reports what the
 payment provider confirmed and what the host recorded. How a figure is treated in the business's

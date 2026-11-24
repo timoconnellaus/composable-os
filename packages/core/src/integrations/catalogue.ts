@@ -159,6 +159,19 @@ export function catalogueEntry(vendor: string): CatalogueEntry | undefined {
   return CATALOGUE.find((entry) => entry.vendor === vendor);
 }
 
+/**
+ * The host-only rule (stage 61, ADR 0881): a connection whose gatekeeper implements accounting
+ * writes the business's books, so only the host's own accounting call (`callAsHost`, purpose
+ * `accounting`) reaches it. `integration.call`, Code Mode and an extension's gatekeeper call are
+ * refused with this rule, whoever the caller is.
+ */
+export const ACCOUNTING_HOST_ONLY = "accounting_host_only";
+
+/** Whether a vendor's gatekeeper keeps books (implements the accounting contract). */
+export function keepsBooks(vendor: string): boolean {
+  return catalogueEntry(vendor)?.implements === "accounting";
+}
+
 /** `GATEKEEPER_<NAME>`: the cos-runner service binding of a vendor. */
 export function vendorBinding(vendor: string): string {
   return `GATEKEEPER_${vendor.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`;

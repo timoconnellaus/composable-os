@@ -24,6 +24,7 @@ import { UploadIcon } from "lucide-react";
 import { useId, useMemo, useState } from "react";
 import { RecordPicker } from "#/components/record-picker";
 import { useOp } from "#/lib/query";
+import { ALL_USERS_INPUT } from "#/lib/users-adapter";
 import { ActionButton, Body, CardLink, Footer, Frame, Header } from "./parts.tsx";
 
 type Value = string | number | boolean | null;
@@ -76,7 +77,8 @@ function UserSelect({
   value: string;
   onChange: (value: string) => void;
 }) {
-  const users = useOp("user.list", { limit: 200 }, { staleTime: 60_000 });
+  // The same read and cache entry as useUsers, which needs the /_app route a card may render outside.
+  const users = useOp("user.list", ALL_USERS_INPUT, { staleTime: 60_000 });
   const known = users.data?.items ?? [];
   const current = value && !known.some((u) => u.id === value);
   return (

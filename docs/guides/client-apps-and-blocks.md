@@ -34,3 +34,9 @@ whoever could call the tools that open them. Each pack's are on its Screens page
 
 A staff role on a phone (a coach, the rostered team) gets a client holding only its role's
 operations and its grants ([ADR 0451](../adr/0451-role-clients-staff-in-the-mobile-app-and-browser-calls.md)).
+
+`mobile.owner: true` adds the **owner's client** (`roles/owner.ts`): only the operations the
+owner's Today needs (Today, the approvals, the notice inbox, who is signed in). It is not a pack
+role: any staff account may sign in with it, and the host decides every call. `createOwnerHooks`
+in `@composable-os/client` gives it hooks the web and native screens share
+([ADR 0872](../adr/0872-the-owners-client.md)).

@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import { callOp } from "#/lib/operations";
 import { errorMessage, useOp } from "#/lib/query";
 import { ChangePreview } from "../../approvals/change-preview.tsx";
-import { actionTitle, groupPreview, outboundTitle } from "../../approvals/describe.ts";
+import { groupPreview, pendingActionTitle } from "../../approvals/describe.ts";
 import { decide, useRecordNames, useRefreshAfterDecision } from "../../approvals/hooks.ts";
 import { useCardHost } from "./host.tsx";
 import { Body, Facts, Footer, Frame, Header, LinkButton, Pill, TwoStepButton } from "./parts.tsx";
@@ -285,12 +285,6 @@ export function AgentGrantComponent({ props }: RendererProps<"agentGrant">) {
   );
 }
 
-function titleOf(action: Action): string {
-  return action.outbound
-    ? outboundTitle(action.outbound)
-    : actionTitle(action.operation, action.preview, action.input, action.bulkSize);
-}
-
 function ReviewRow({
   action,
   names,
@@ -325,7 +319,7 @@ function ReviewRow({
             <Button
               size="icon-xs"
               variant="outline"
-              aria-label={`Approve: ${titleOf(action)}`}
+              aria-label={`Approve: ${pendingActionTitle(action)}`}
               disabled={busy}
               onClick={() => onDecide("approve")}
             >
@@ -335,7 +329,7 @@ function ReviewRow({
           <Button
             size="icon-xs"
             variant="outline"
-            aria-label={`Reject: ${titleOf(action)}`}
+            aria-label={`Reject: ${pendingActionTitle(action)}`}
             disabled={busy}
             onClick={() => onDecide("reject")}
           >

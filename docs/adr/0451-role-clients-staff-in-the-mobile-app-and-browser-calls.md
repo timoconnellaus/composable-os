@@ -124,3 +124,11 @@ still decides every call. A grant of a pack the product does not list, a grant t
 have, and a role listed twice are refused. The generated client also carries the host it talks to
 (`baseUrl`), which a screen uses to show an address on that host (the calendar feed's), never one
 from the page.
+
+## Amended 2026-11-24 (stage 60 step 6, ADR 0872): the owner's client
+"The whole staff client is never written into a client repo" stands; a second short list is added
+beside the role clients. `product.ts`'s `mobile.owner: true` makes `cos client generate` write
+`roles/owner.ts` (`createOwnerClient`) with only the operations the owner's Today needs, from
+`roles.json`'s `owner` (Today, the four approval operations, the notice inbox's three, `user.me`).
+It is not a pack role: any staff account may sign in with it, on the device's one staff session,
+and the host decides every call.

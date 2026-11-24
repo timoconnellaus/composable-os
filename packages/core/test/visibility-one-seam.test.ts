@@ -114,6 +114,12 @@ const WHY = {
    */
   intake: "the public-write door: its counts, and a Person the host matched",
   /**
+   * Finance (stage 52, ADRs 0794 and 0796): the business's own figures, read org-wide from
+   * orders, their lines and the name of whose order a refund was, answered only to an account
+   * holding `finance:read`, never to a customer or the public.
+   */
+  finance: "finance: the business's figures, org-wide, for finance:read holders only",
+  /**
    * A birthday (stage 53, ADR 0803): the caller's own Person's day and month, kept in no view the
    * seam's customer fields read, for `me.birthday.get` and `me.birthday.set` only.
    */
@@ -128,6 +134,7 @@ type Why = (typeof WHY)[keyof typeof WHY];
  */
 const REMAINING: Record<string, [reads: number, why: Why]> = {
   "ai/embedding.ts": [9, WHY.org],
+  "finance/book.ts": [5, WHY.finance],
   "ai/summaries.ts": [16, WHY.later],
   // Stage 32b (ADR 0493): a spend checks its Person is not in the Trash, in the write's own path.
   "agreements/due.ts": [2, WHY.agreements],
@@ -180,6 +187,9 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "journeys/entries.ts": [3, WHY.write],
   "notifications/routes.ts": [2, WHY.org],
   "notifications/send.ts": [2, WHY.org],
+  // The room calendar (stage 57 step 1, ADR 0844): each occupant's times, state and declared
+  // title, by id, for the claims in a range; never a Person, a hirer or money.
+  "occupancy/index.ts": [1, WHY.host],
   "operations/activity.ts": [1, WHY.part],
   "operations/affiliation.ts": [5, WHY.part],
   // and agreement.listHealthNotes: the list's own record and the People on the declared list.

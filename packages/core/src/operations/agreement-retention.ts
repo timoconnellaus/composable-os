@@ -31,6 +31,7 @@ import {
   purgeCutoff,
 } from "../agreements/retention.ts";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
+import { escapeLike } from "../filter.ts";
 import { defineOperation } from "../operation.ts";
 import { holdsPermission } from "../principals.ts";
 import { jsonList } from "../records/common.ts";
@@ -211,7 +212,7 @@ export const agreementKeptFind = defineOperation({
       .where("a.erased_at", "is not", null);
     if (input.email) query = query.where(sql<boolean>`lower(a.email) = ${input.email}`);
     if (input.name) {
-      const pattern = `%${input.name.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+      const pattern = `%${escapeLike(input.name.toLowerCase())}%`;
       query = query.where(sql<boolean>`lower(a.typed_name) LIKE ${pattern} ESCAPE '\\'`);
     }
     const rows = await query.orderBy("a.erased_at", "desc").limit(input.limit).execute();

@@ -45,6 +45,19 @@ import {
   type Reader,
   visibleTable,
 } from "../visibility/index.ts";
+import {
+  assertKindLevel,
+  assertNoRequiredSections,
+  DEFAULT_NOTE_KIND,
+  type FilledSection,
+  filledSectionInput,
+  filledSectionSchema,
+  fillTemplate,
+  LEVEL_RANK,
+  loadNoteKind,
+  type NoteKind,
+  requireUsableKind,
+} from "./note-kind.ts";
 import { TRASH_RETENTION_DAYS } from "./person.ts";
 
 // --- Schemas -----------------------------------------------------------------------------------
@@ -124,12 +137,31 @@ const levelSchema = z
       "coaches or sensitive is about exactly one Person. Notes only.",
   );
 
+const kindIdSchema = z
+  .string()
+  .startsWith("nkd_")
+  .max(64)
+  .describe("The kind of note (note.kinds.list). Default: Note");
+const sectionsSchema = z
+  .array(filledSectionInput)
+  .max(12)
+  .describe(
+    "A note from its kind's template: each section's key and text. The body is made from them; " +
+      "give one or the other. A kind with a required section takes its sections.",
+  );
+
 const logInputSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("note"),
     ...commonLogFields,
     payload: activityPayloadSchemas.note.default({}),
-    level: levelSchema.default("staff"),
+    kindId: kindIdSchema.optional(),
+    sections: sectionsSchema.optional(),
+    level: levelSchema
+      .optional()
+      .describe(
+        `${levelSchema.description} Default: the kind's own; never below the kind's lowest.`,
+      ),
   }),
   z.object({ type: z.literal("email"), ...commonLogFields, payload: activityPayloadSchemas.email }),
   z.object({
@@ -172,6 +204,10 @@ export const activitySchema = z.object({
   level: z.enum(["coaches", "sensitive"]).optional(),
   /** A sensitive note listed without its text: open it with note.open (every opening recorded). */
   locked: z.boolean().optional(),
+  /** A note's kind (stage 56, ADR 0833). */
+  kind: z.object({ id: z.string(), name: z.string() }).optional(),
+  /** A note written from its kind's template: the sections filled in, as their labels were. */
+  sections: z.array(filledSectionSchema).nullable().optional(),
 });
 export type Activity = z.infer<typeof activitySchema>;
 
@@ -196,6 +232,9 @@ type ActivityRow = {
   disclosure: "full" | "metadata" | null;
   thread_key: string | null;
   level: NoteLevel;
+  kind_id: string | null;
+  kind_name: string | null;
+  sections: string | null;
 };
 
 /** Private activities are visible only to the user they were made private for. */
@@ -204,29 +243,42 @@ export function visibleTo(userId: string) {
 }
 
 function activityQuery(reader: Reader) {
-  return reader.db
-    .selectFrom(visibleTable(reader, "activity", "a"))
-    .leftJoin("core_user as u", "u.id", "a.author_user_id")
-    .select([
-      "a.id",
-      "a.type",
-      "a.subject",
-      "a.body",
-      "a.payload",
-      "a.occurred_at",
-      "a.author_user_id",
-      "a.author_actor",
-      "u.name as author_name",
-      "a.created_at",
-      "a.updated_at",
-      "a.deleted_at",
-      "a.external_key",
-      "a.private_to",
-      "a.body_ref",
-      "a.disclosure",
-      "a.thread_key",
-      "a.level",
-    ]);
+  return (
+    reader.db
+      .selectFrom(visibleTable(reader, "activity", "a"))
+      .leftJoin("core_user as u", "u.id", "a.author_user_id")
+      // A note held from before kinds, or written by a path that names none, is a Note.
+      .leftJoin("core_note_kind as k", (join) =>
+        join.on(
+          "k.id",
+          "=",
+          sql<string>`coalesce(a.kind_id, CASE WHEN a.type = 'note' THEN ${DEFAULT_NOTE_KIND} END)`,
+        ),
+      )
+      .select([
+        "a.id",
+        "a.type",
+        "a.subject",
+        "a.body",
+        "a.payload",
+        "a.occurred_at",
+        "a.author_user_id",
+        "a.author_actor",
+        "u.name as author_name",
+        "a.created_at",
+        "a.updated_at",
+        "a.deleted_at",
+        "a.external_key",
+        "a.private_to",
+        "a.body_ref",
+        "a.disclosure",
+        "a.thread_key",
+        "a.level",
+        "k.id as kind_id",
+        "k.name as kind_name",
+        "a.sections",
+      ])
+  );
 }
 
 /**
@@ -247,7 +299,7 @@ async function toActivities(
     const locked = row.level === "sensitive" && !unlock;
     return {
       ...activityOf(row, links.get(row.id) ?? []),
-      ...(locked ? { subject: null, body: null, payload: {}, locked: true } : {}),
+      ...(locked ? { subject: null, body: null, payload: {}, sections: null, locked: true } : {}),
     };
   });
 }
@@ -273,6 +325,10 @@ function activityOf(row: ActivityRow, links: Activity["links"]): Activity {
     hasFullBody: row.body_ref !== null,
     threadKey: row.thread_key,
     ...(row.level !== "staff" ? { level: row.level } : {}),
+    ...(row.kind_id && row.kind_name ? { kind: { id: row.kind_id, name: row.kind_name } } : {}),
+    ...(row.type === "note"
+      ? { sections: row.sections ? (JSON.parse(row.sections) as FilledSection[]) : null }
+      : {}),
   };
 }
 
@@ -350,8 +406,6 @@ function restrictedChange(
   }
   return { diff, restricted: true };
 }
-
-const LEVEL_RANK: Record<NoteLevel, number> = { staff: 0, coaches: 1, sensitive: 2 };
 
 /** A note at `coaches` or `sensitive` is about exactly one Person, so "whose" has one answer. */
 function assertOnePerson(level: NoteLevel, links: readonly { object: string }[]): void {
@@ -444,6 +498,42 @@ function requireContent(type: string, subject: string | null, body: string | nul
   }
 }
 
+/**
+ * A note's kind, level and text from what was given (ADR 0833): the kind given (or Note), a level
+ * given or the kind's own and never below its lowest, and the body made from the template's
+ * sections when they are given. A kind with a required section takes its sections.
+ */
+async function noteOfKind(
+  ctx: HandlerContext,
+  input: {
+    kindId?: string | undefined;
+    level?: NoteLevel | undefined;
+    sections?: { key: string; text: string }[] | undefined;
+    body?: string | null | undefined;
+  },
+): Promise<{
+  kind: NoteKind;
+  level: NoteLevel;
+  sections: FilledSection[] | null;
+  body: string | null;
+}> {
+  const kind = await requireUsableKind(ctx, input.kindId ?? DEFAULT_NOTE_KIND);
+  const level = input.level ?? kind.defaultLevel;
+  assertKindLevel(kind, level);
+  if (input.sections) {
+    if (input.body?.trim()) {
+      throw new ValidationError("A note from a template is written in its sections, not a body", {
+        field: "body",
+        rule: "note_sections_or_body",
+      });
+    }
+    const filled = fillTemplate(kind, input.sections);
+    return { kind, level, sections: filled.sections, body: filled.body || null };
+  }
+  assertNoRequiredSections(kind);
+  return { kind, level, sections: null, body: input.body?.trim() ? input.body : null };
+}
+
 // --- Operations --------------------------------------------------------------------------------
 
 export const activityLog = defineOperation({
@@ -452,22 +542,25 @@ export const activityLog = defineOperation({
     "Log a note, email, call or meeting on one or more records' timelines (people, " +
     "organisations, tasks). Each type takes a typed payload: email needs a direction and " +
     "optional from/to/cc; call takes direction, durationSeconds and outcome; meeting takes " +
-    "startsAt/endsAt, location, url and attendees; note takes none. Notes need a body. " +
-    "occurredAt defaults to now. System activities cannot be logged; the CRM posts them itself. " +
-    "Returns the activity with its links.",
+    "startsAt/endsAt, location, url and attendees; note takes none. A note has a kind " +
+    "(note.kinds.list; default Note) and a level (default the kind's, never below its lowest); " +
+    "a kind with a template takes its sections instead of a body. Notes need a body or " +
+    "sections. occurredAt defaults to now. System activities cannot be logged; the CRM posts " +
+    "them itself. Returns the activity with its links.",
   input: logInputSchema,
   output: activitySchema,
   permission: "records:write",
   risk: "write",
   // The text is in the change's diff for a staff note, and in no audit row for any other level.
-  auditRedact: ["subject", "body"],
+  auditRedact: ["subject", "body", "sections"],
   mcp: { curated: true },
   async handler(input, ctx) {
     const subject = input.subject?.trim() || null;
-    const body = input.body?.trim() ? input.body : null;
+    const note = input.type === "note" ? await noteOfKind(ctx, input) : null;
+    const body = note ? note.body : input.body?.trim() ? input.body : null;
     requireContent(input.type, subject, body);
     const links = uniqueRefs(input.links);
-    const level: NoteLevel = input.type === "note" ? input.level : "staff";
+    const level: NoteLevel = note?.level ?? "staff";
     if (level !== "staff" && ctx.actor !== "human") {
       // An AI drafts a note with activity.proposeNote; a note kept from the staff is a person's.
       throw new ForbiddenError(
@@ -494,6 +587,13 @@ export const activityLog = defineOperation({
         author_user_id: ctx.user.id,
         author_actor: ctx.actor === "extension" ? "system" : ctx.actor,
         level,
+        ...(note
+          ? {
+              kind_id: note.kind.id,
+              sections: note.sections ? JSON.stringify(note.sections) : null,
+              evidence: note.kind.evidence ? 1 : 0,
+            }
+          : {}),
         created_at: ctx.now,
         updated_at: ctx.now,
       }),
@@ -502,6 +602,7 @@ export const activityLog = defineOperation({
     const after = {
       type: input.type,
       ...activitySnapshot({ subject, body, payload, occurredAt }, linkKeys(links)),
+      ...(note ? { kind: note.kind.id } : {}),
       ...(level !== "staff" ? { level } : {}),
     };
     ctx.recordChange({
@@ -567,10 +668,11 @@ export const activityUpdate = defineOperation({
   name: "activity.update",
   description:
     "Edit a note, email, call or meeting: subject, body, occurredAt, payload (validated for the " +
-    "activity's type, replacing the old payload), links (replacing the list) or a note's level. " +
-    "The type cannot change. System activities cannot be edited. A note is changed by its author " +
-    "or someone allowed to manage notes; lowering a level is a person's, with that permission. " +
-    "Returns the updated activity.",
+    "activity's type, replacing the old payload), links (replacing the list), or a note's level, " +
+    "kind (kindId) and template sections (which remake its body). The type cannot change. " +
+    "System activities cannot be edited. A note is changed by its author or someone allowed to " +
+    "manage notes; lowering a level is a person's, with that permission, and never below the " +
+    "kind's lowest. Returns the updated activity.",
   input: z.object({
     id: activityId,
     subject: commonLogFields.subject,
@@ -579,11 +681,13 @@ export const activityUpdate = defineOperation({
     payload: z.record(z.string(), z.unknown()).optional().describe("Typed by the activity's type"),
     links: commonLogFields.links.optional(),
     level: levelSchema.optional(),
+    kindId: kindIdSchema.optional(),
+    sections: sectionsSchema.optional(),
   }),
   output: activitySchema,
   permission: "records:write",
   risk: "write",
-  auditRedact: ["subject", "body"],
+  auditRedact: ["subject", "body", "sections"],
   async handler(input, ctx) {
     const before = await requireActivity(ctx, input.id, { unlock: true });
     if (before.type === "system") {
@@ -612,8 +716,47 @@ export const activityUpdate = defineOperation({
         });
       }
     }
+    if (before.type !== "note" && (input.kindId !== undefined || input.sections !== undefined)) {
+      throw new ValidationError("Only a note has a kind and sections", { field: "kindId" });
+    }
+    // A note is held to its kind (ADR 0833): a kind it moves to is one in use, its level never
+    // below the kind's lowest, and sections given remake its body from the kind's template.
+    const beforeKindId = before.kind?.id ?? DEFAULT_NOTE_KIND;
+    const kindId = input.kindId ?? beforeKindId;
+    const kind =
+      before.type !== "note"
+        ? null
+        : kindId !== beforeKindId
+          ? await requireUsableKind(ctx, kindId)
+          : level !== beforeLevel || input.sections !== undefined
+            ? await loadNoteKind(ctx, kindId)
+            : null;
+    if (kind && (kindId !== beforeKindId || level !== beforeLevel)) assertKindLevel(kind, level);
+    let sections: FilledSection[] | null | undefined;
+    let templateBody: string | null | undefined;
+    if (input.sections !== undefined && kind) {
+      if (input.body?.trim()) {
+        throw new ValidationError("A note from a template is written in its sections, not a body", {
+          field: "body",
+          rule: "note_sections_or_body",
+        });
+      }
+      const filled = fillTemplate(kind, input.sections);
+      sections = filled.sections;
+      templateBody = filled.body || null;
+    } else if (input.body !== undefined && before.sections?.length) {
+      // A body written over a template note is the note now: its sections no longer say it.
+      sections = null;
+    }
     const subject = input.subject === undefined ? before.subject : input.subject?.trim() || null;
-    const body = input.body === undefined ? before.body : input.body?.trim() ? input.body : null;
+    const body =
+      templateBody !== undefined
+        ? templateBody
+        : input.body === undefined
+          ? before.body
+          : input.body?.trim()
+            ? input.body
+            : null;
     requireContent(before.type, subject, body);
     let payload = before.payload;
     if (input.payload !== undefined) {
@@ -649,6 +792,13 @@ export const activityUpdate = defineOperation({
           payload: JSON.stringify(payload),
           occurred_at: occurredAt,
           ...(level !== beforeLevel ? { level } : {}),
+          ...(kind && kindId !== beforeKindId
+            ? // Evidence is copied from the kind at write and never taken away (step 7).
+              { kind_id: kindId, evidence: sql<0 | 1>`max(evidence, ${kind.evidence ? 1 : 0})` }
+            : {}),
+          ...(sections !== undefined
+            ? { sections: sections ? JSON.stringify(sections) : null }
+            : {}),
           updated_at: ctx.now,
         })
         .where("id", "=", input.id),
@@ -656,10 +806,12 @@ export const activityUpdate = defineOperation({
     if (level !== beforeLevel) ctx.write(...levelChangeStatements(ctx, input.id, beforeLevel));
     const beforeSnapshot = {
       ...activitySnapshot(before, beforeLinks),
+      ...(before.type === "note" ? { kind: beforeKindId } : {}),
       ...(beforeLevel !== "staff" ? { level: beforeLevel } : {}),
     };
     const afterSnapshot = {
       ...activitySnapshot({ subject, body, payload, occurredAt }, afterLinks),
+      ...(before.type === "note" ? { kind: kindId } : {}),
       ...(level !== "staff" ? { level } : {}),
     };
     ctx.recordChange({
