@@ -2,8 +2,8 @@
 import { env } from "cloudflare:workers";
 import { ACCESS_JWT_HEADER, awaitingFirstUser, type IdentityEnv } from "@composable-os/auth";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { AUD, createAccessKeys, TEAM } from "../../../packages/auth/test/access-jwt.ts";
 import { authorize, isPublicPath } from "../src/server/identity.ts";
-import { AUD, createAccessKeys, TEAM } from "./access-jwt.ts";
 
 const ORIGIN = "https://crm.example.com";
 const page = { handlerType: "router" } as const;
