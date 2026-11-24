@@ -821,6 +821,8 @@ packages/
                        and `cos ext check`; and the Node side of `cos ext check` / `cos ext test`
   ui/                  shared shadcn/ui components and the view-spec renderer
   config/              shared tsconfig, biome and vitest presets
+  pdf/                 the PDF writer, no dependencies: a safe core (standard fonts, every text a hex
+                       string), a table layout, the agreement, invoice and receipt renderers (ADRs 0645, 0737)
   agent-core/, agent-a2ui/, agent-voice/, agent-plugins/
                        the assistant's general machinery, MIT, no CRM imports (ADR 0350; agent-core is
                        real since stage 17 W1, the others are placeholders for later waves)
@@ -1787,8 +1789,8 @@ with `agreements:paper`); no caller names an address and none can be changed. Er
 denies it, with a system origin so no AI's outbound check reads it, and the idempotency key
 `agreement-copy:<id>` (a crashed send is retried with the same key; a new key only after a try
 the gatekeeper proved was not sent; an unknown outcome is never retried). The email gatekeeper
-attaches `agreement.pdf`, made by the PDF writer (`packages/agreement-pdf`, a package of its own: standard fonts, every
-text a hex string, deterministic) from checked values (`validate.ts`), only for the host's
+attaches `agreement.pdf`, made by the PDF writer (`packages/pdf`, a package of its own: standard fonts, every
+text a hex string, deterministic; shared since stage 35 with the invoice and receipt renderers, ADR 0737) from checked values (`validate.ts`), only for the host's
 agreements queue (`isHostAgreementMail`) and only in the copy's shape; health answers have no
 field there (the copy says they are in the app). The same writer draws the downloads
 (`apps/app/src/server/http/agreement-pdf.ts`): `me.agreements.pdf` (a customer, their own and a

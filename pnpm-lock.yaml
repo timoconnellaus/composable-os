@@ -32,9 +32,6 @@ importers:
       '@composable-os/agent-voice':
         specifier: workspace:*
         version: link:../../packages/agent-voice
-      '@composable-os/agreement-pdf':
-        specifier: workspace:*
-        version: link:../../packages/agreement-pdf
       '@composable-os/auth':
         specifier: workspace:*
         version: link:../../packages/auth
@@ -65,6 +62,9 @@ importers:
       '@composable-os/pack-ticketing':
         specifier: workspace:*
         version: link:../../packs/ticketing
+      '@composable-os/pdf':
+        specifier: workspace:*
+        version: link:../../packages/pdf
       '@composable-os/product':
         specifier: workspace:*
         version: link:../../packages/product
@@ -583,21 +583,6 @@ importers:
         specifier: 5.1.0
         version: 5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.4)(yaml@2.9.1))
 
-  packages/agreement-pdf:
-    devDependencies:
-      '@composable-os/config':
-        specifier: workspace:*
-        version: link:../config
-      '@types/node':
-        specifier: 24.19.2
-        version: 24.19.2
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
-      vitest:
-        specifier: 5.1.0
-        version: 5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.4)(yaml@2.9.1))
-
   packages/auth:
     dependencies:
       '@composable-os/core':
@@ -737,12 +722,12 @@ importers:
       '@composable-os/agent-core':
         specifier: workspace:*
         version: link:../agent-core
-      '@composable-os/agreement-pdf':
-        specifier: workspace:*
-        version: link:../agreement-pdf
       '@composable-os/db':
         specifier: workspace:*
         version: link:../db
+      '@composable-os/pdf':
+        specifier: workspace:*
+        version: link:../pdf
       '@composable-os/product':
         specifier: workspace:*
         version: link:../product
@@ -963,9 +948,6 @@ importers:
 
   packages/gatekeeper-email-send:
     dependencies:
-      '@composable-os/agreement-pdf':
-        specifier: workspace:*
-        version: link:../agreement-pdf
       '@composable-os/calendar-file':
         specifier: workspace:*
         version: link:../calendar-file
@@ -978,6 +960,9 @@ importers:
       '@composable-os/gatekeeper-kit':
         specifier: workspace:*
         version: link:../gatekeeper-kit
+      '@composable-os/pdf':
+        specifier: workspace:*
+        version: link:../pdf
       zod:
         specifier: 4.6.7
         version: 4.6.7
@@ -1443,6 +1428,21 @@ importers:
       typescript6:
         specifier: npm:typescript@6.0.3
         version: typescript@6.0.3
+      vitest:
+        specifier: 5.1.0
+        version: 5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.4)(yaml@2.9.1))
+
+  packages/pdf:
+    devDependencies:
+      '@composable-os/config':
+        specifier: workspace:*
+        version: link:../config
+      '@types/node':
+        specifier: 24.19.2
+        version: 24.19.2
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
       vitest:
         specifier: 5.1.0
         version: 5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.4)(yaml@2.9.1))
