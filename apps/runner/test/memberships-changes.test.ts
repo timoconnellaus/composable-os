@@ -16,7 +16,6 @@ import {
   type ExtensionHost,
   extensionDashboardId,
   type InvocationContext,
-  invokeByName,
   memoryWidgetCache,
   type OutsideInvocationContext,
   refreshSchemaRegistry,
@@ -25,7 +24,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { signatureHeader } from "../../../packages/gatekeeper-payments/src/signature.ts";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, newCustomer, refusal, unique } from "./helpers.ts";
+import { createAdmin, db, host, newCustomer, refusal, run, unique } from "./helpers.ts";
 import { filesByName, packFiles } from "./pack-files.ts";
 
 const files: Record<string, Record<string, string>> = {
@@ -84,14 +83,6 @@ const staff = (user: ActingUser, extra: Partial<InvocationContext> = {}): Invoca
 });
 const as = (principal: CustomerPrincipal) =>
   ({ principal, db, integrations, extensionHost: shippedHost }) as OutsideInvocationContext;
-
-function run<T = Record<string, unknown>>(
-  name: string,
-  input: unknown,
-  ctx: InvocationContext | OutsideInvocationContext,
-): Promise<T> {
-  return invokeByName(name, input, ctx) as Promise<T>;
-}
 
 const create = async (object: string, values: Record<string, unknown>) =>
   (await run<{ id: string }>("record.create", { object, values }, staff(admin))).id;

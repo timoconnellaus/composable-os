@@ -21,7 +21,6 @@ import {
   coreRegistry,
   type ExtensionHost,
   type InvocationContext,
-  invokeByName,
   loadExtensionOperations,
   newId,
   objectTableOf,
@@ -31,7 +30,7 @@ import {
 import { beforeAll, describe, expect, it } from "vitest";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, refusal, unique } from "./helpers.ts";
+import { createAdmin, db, host, refusal, run, unique } from "./helpers.ts";
 import { packFiles } from "./pack-files.ts";
 
 const files: Record<string, Record<string, string>> = {
@@ -187,8 +186,6 @@ const staff = (extra: Partial<InvocationContext> = {}): InvocationContext => ({
 });
 const asUser = (user: ActingUser, extra: Partial<InvocationContext> = {}) =>
   staff({ user, ...extra });
-const run = <T = Record<string, unknown>>(name: string, input: unknown, ctx: InvocationContext) =>
-  invokeByName(name, input, ctx) as Promise<T>;
 const create = async (object: string, values: Record<string, unknown>) =>
   (await run<{ id: string }>("record.create", { object, values }, staff())).id;
 const get = async (object: string, id: string) =>

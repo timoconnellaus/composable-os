@@ -20,7 +20,6 @@ import {
   type ExtensionHost,
   getObject,
   type InvocationContext,
-  invokeByName,
   type OutsideInvocationContext,
   refreshSchemaRegistry,
   setVideoHost,
@@ -35,7 +34,7 @@ import type { Outline } from "../../../packs/courses/outline.ts";
 import { automationHost } from "../src/automations/host.ts";
 import { blobStore, integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, newCustomer, refusal } from "./helpers.ts";
+import { createAdmin, db, host, newCustomer, refusal, run } from "./helpers.ts";
 import { packFiles } from "./pack-files.ts";
 
 const files = {
@@ -101,14 +100,6 @@ const as = (principal: CustomerPrincipal, extra: Partial<OutsideInvocationContex
     extensionHost: shippedHost,
     ...extra,
   }) as OutsideInvocationContext;
-
-function run<T = Record<string, unknown>>(
-  name: string,
-  input: unknown,
-  ctx: InvocationContext | OutsideInvocationContext,
-): Promise<T> {
-  return invokeByName(name, input, ctx) as Promise<T>;
-}
 
 const create = async (object: string, values: Record<string, unknown>) =>
   (await run<{ id: string }>("record.create", { object, values }, staff(admin))).id;

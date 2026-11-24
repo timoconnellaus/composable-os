@@ -15,7 +15,6 @@ import {
   type ActingUser,
   type ExtensionHost,
   type InvocationContext,
-  invokeByName,
   newId,
   refreshSchemaRegistry,
   runChecklistDue,
@@ -23,7 +22,7 @@ import {
 import { beforeAll, describe, expect, it } from "vitest";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, queriesOf, refusal, unique } from "./helpers.ts";
+import { createAdmin, db, host, queriesOf, refusal, run, unique } from "./helpers.ts";
 import { packFiles } from "./pack-files.ts";
 
 const files: Record<string, Record<string, string>> = {
@@ -100,8 +99,6 @@ const asUser = (user: ActingUser, extra: Partial<InvocationContext> = {}) =>
   staff({ user, ...extra });
 const asAi = (user: ActingUser) =>
   asUser(user, { actor: "assistant", origin: { surface: "assistant" } });
-const run = <T = Record<string, unknown>>(name: string, input: unknown, ctx: InvocationContext) =>
-  invokeByName(name, input, ctx) as Promise<T>;
 const create = async (object: string, values: Record<string, unknown>) =>
   (await run<{ id: string }>("record.create", { object, values }, staff())).id;
 const rule = async (promise: Promise<unknown>) => {

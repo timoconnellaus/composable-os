@@ -18,14 +18,13 @@ import {
   type ExtensionHost,
   getObject,
   type InvocationContext,
-  invokeByName,
   type OutsideInvocationContext,
   refreshSchemaRegistry,
 } from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { Layout } from "../../../packs/programs/layout.ts";
 import { listedPacks } from "../src/extensions/shipped-list.ts";
-import { createAdmin, db, host, newCustomer, unique } from "./helpers.ts";
+import { createAdmin, db, host, newCustomer, run, unique } from "./helpers.ts";
 import { packFiles } from "./pack-files.ts";
 
 const files = packFiles("programs");
@@ -77,14 +76,6 @@ const guest: OutsideInvocationContext = {
   db,
   extensionHost: shippedHost,
 };
-
-function run<T = Record<string, unknown>>(
-  name: string,
-  input: unknown,
-  ctx: InvocationContext | OutsideInvocationContext,
-): Promise<T> {
-  return invokeByName(name, input, ctx) as Promise<T>;
-}
 
 /** What a call was refused with: its code, message and the host's details (unwrapped from a tool's). */
 async function refusal(call: Promise<unknown>) {

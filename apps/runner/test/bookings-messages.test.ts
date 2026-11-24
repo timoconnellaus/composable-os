@@ -20,7 +20,6 @@ import {
   type EventSink,
   type ExtensionHost,
   type InvocationContext,
-  invokeByName,
   memoryEventSink,
   memoryRateLimit,
   type OutsideInvocationContext,
@@ -33,7 +32,7 @@ import { dispatchAutomationMessages, runDeferredDue } from "../src/automations/d
 import { runMomentDateRelative } from "../src/automations/schedule.ts";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
 import { dispatch, setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, newCustomer, unique } from "./helpers.ts";
+import { createAdmin, db, host, newCustomer, run, unique } from "./helpers.ts";
 import { packFiles } from "./pack-files.ts";
 
 const files: Record<string, Record<string, string>> = {
@@ -109,11 +108,6 @@ const as = (principal: CustomerPrincipal): OutsideInvocationContext => ({
   extensionHost: shippedHost,
   events: sink,
 });
-const run = <T = Record<string, unknown>>(
-  name: string,
-  input: unknown,
-  ctx: InvocationContext | OutsideInvocationContext,
-) => invokeByName(name, input, ctx) as Promise<T>;
 const create = async (object: string, values: Record<string, unknown>) =>
   (await run<{ id: string }>("record.create", { object, values }, staff())).id;
 const get = async (object: string, id: string) =>

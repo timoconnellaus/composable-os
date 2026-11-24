@@ -7,6 +7,7 @@ import {
   type InvocationContext,
   invokeByName,
   newId,
+  type OutsideInvocationContext,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { automationHost } from "../src/automations/host.ts";
@@ -171,4 +172,13 @@ export async function queriesOf(
   } finally {
     d1.prepare = prepare;
   }
+}
+
+/** Calls an operation in `ctx`, staff or outside, and returns its output as `T`. */
+export function run<T = Record<string, unknown>>(
+  name: string,
+  input: unknown,
+  ctx: InvocationContext | OutsideInvocationContext,
+): Promise<T> {
+  return invokeByName(name, input, ctx) as Promise<T>;
 }

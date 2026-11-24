@@ -1,15 +1,17 @@
+// What the Programs tests share: the pack installed as shipped, callers, and a small layout.
 import {
   type ActingUser,
   type CustomerPrincipal,
   type ExtensionHost,
   type InvocationContext,
-  invokeByName,
   type OutsideInvocationContext,
   refreshSchemaRegistry,
 } from "@composable-os/core";
 import type { Layout } from "../../../packs/programs/layout.ts";
-import { db, host, newCustomer } from "./helpers.ts";
+import { db, host, newCustomer, run } from "./helpers.ts";
 import { packFiles } from "./pack-files.ts";
+
+export { run };
 
 const files = packFiles("programs");
 
@@ -52,14 +54,6 @@ export const as = (principal: CustomerPrincipal): OutsideInvocationContext => ({
   db,
   extensionHost: shippedHost,
 });
-
-export function run<T = Record<string, unknown>>(
-  name: string,
-  input: unknown,
-  ctx: InvocationContext | OutsideInvocationContext,
-): Promise<T> {
-  return invokeByName(name, input, ctx) as Promise<T>;
-}
 
 /** What a call was refused with: its code, message and the inner code of a tool's refusal. */
 export async function refusal(call: Promise<unknown>) {
