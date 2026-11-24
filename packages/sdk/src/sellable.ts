@@ -114,6 +114,63 @@ export interface SellableSpec {
    * `grants`, `deposit`, `recurring`, `onePerPerson`, `maxPerOrder` or `saleWindow`.
    */
   moves?: MovesSpec;
+  /**
+   * What kind of sale this is in the finance reports, and when its money is earned (stage 52,
+   * ADR 0792), see FinanceSpec. Left out: category `other`, earned `at_sale`.
+   */
+  finance?: FinanceSpec;
+}
+
+/** How a sale's money is earned (ADR 0792), as the Unearned report reads it. */
+export const EARNED = ["at_sale", "over_period", "per_use", "at_date"] as const;
+export type Earned = (typeof EARNED)[number];
+
+/**
+ * What kind of sale a sellable object is in the finance reports (stage 52, ADR 0792). It only
+ * labels the object's own sales: it prices nothing, grants nothing and moves no money. Which way
+ * the books treat a sale is the business's accountant's call; this says what the reports show.
+ *
+ * - `category`: the kind of sale its lines are counted under in Sales, Tax, Refunds and the book
+ *   entries' `sales:<key>` and `refunds:<key>` headings. `key` is stable (lower case, digits and
+ *   `_`); `label` is what the reports call it until an admin renames it. Two objects with the same
+ *   key are one category, so this extension gives them one label.
+ * - `earned`: when the money is earned, for the Unearned report (cash is counted when it moved,
+ *   whatever this says):
+ *   - `at_sale`: when it is paid (a course, goods);
+ *   - `over_period`: day by day over the order's period, from its start to its end (a plan's
+ *     paid period); only on a plan (`recurring`);
+ *   - `per_use`: as the uses of what a paid line grants are spent, the rest when it expires (a
+ *     class pass); only when `grants` grants an object that holds uses (`allowance.holds`);
+ *   - `at_date`: on the date in `at` (an event's start).
+ * - `at`: with `at_date`, a date or datetime field of this object, or `<relation>.<field>` through
+ *   up to two relations (`event.startsAt`, `class.startsAt`).
+ *
+ * A line whose object issues stored value or a voucher (stage 34) is held for customers, not a
+ * sale, whatever it declares.
+ */
+export interface FinanceSpec {
+  category?: { key: string; label: string };
+  earned?: Earned;
+  at?: string;
+}
+
+/** What `sellable.finance` comes to when it, or a part of it, is left out (ADR 0792). */
+export const FINANCE_DEFAULTS = {
+  category: { key: "other", label: "Other" },
+  earned: "at_sale",
+} as const satisfies Required<Omit<FinanceSpec, "at">>;
+
+/** A sellable object's finance declaration with its defaults filled (ADR 0792). */
+export function sellableFinance(finance: FinanceSpec | undefined): {
+  category: { key: string; label: string };
+  earned: Earned;
+  at?: string;
+} {
+  return {
+    category: finance?.category ?? FINANCE_DEFAULTS.category,
+    earned: finance?.earned ?? FINANCE_DEFAULTS.earned,
+    ...(finance?.at !== undefined ? { at: finance.at } : {}),
+  };
 }
 
 /**
@@ -387,6 +444,20 @@ export const sellableManifestSchema = z
       })
       .strict()
       .optional(),
+    finance: z
+      .object({
+        category: z
+          .object({
+            key: z.string().regex(/^[a-z][a-z0-9_]{0,39}$/, "Lower case letters, digits and _"),
+            label: z.string().min(1).max(60),
+          })
+          .strict()
+          .optional(),
+        earned: z.enum(EARNED).optional(),
+        at: z.string().max(130).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type SellableManifest = z.infer<typeof sellableManifestSchema>;
@@ -537,6 +608,9 @@ export function checkObjectSellable(
   }
   if (sellable.grants) checkGrants(m, name, object, sellable.grants, `${path}.grants`, contract);
   if (sellable.moves) checkMoves(m, name, object, sellable.moves, `${path}.moves`, contract);
+  if (sellable.finance) {
+    checkFinance(m, name, object, sellable.finance, `${path}.finance`, contract);
+  }
   const place = sellable.tax?.place;
   if (place) {
     let holder: ObjectManifest | undefined = object;
@@ -569,6 +643,71 @@ export function checkObjectSellable(
         if (!field || field.type !== "text" || field.many) {
           contract(`${path}.tax.place.${key}`, `"${local}" must be a text field of ${holderName}`);
         }
+      }
+    }
+  }
+}
+
+/**
+ * Checks `sellable.finance` (ADR 0792): each way of earning names what the host reads to work it
+ * out, and one category key has one label across this extension.
+ */
+function checkFinance(
+  m: ExtensionManifest,
+  name: string,
+  object: ObjectManifest,
+  finance: NonNullable<SellableManifest["finance"]>,
+  path: string,
+  contract: (path: string, message: string) => void,
+): void {
+  const sellable = object.sellable as SellableManifest;
+  const earned = finance.earned ?? FINANCE_DEFAULTS.earned;
+  if (earned === "at_date") {
+    if (finance.at === undefined) {
+      contract(`${path}.at`, "at_date names its date: at, a date or datetime field");
+    } else {
+      const at = resolveFieldPath(m, object, finance.at);
+      if (!at || at.many || !DATES.has(at.type)) {
+        contract(
+          `${path}.at`,
+          `"${finance.at}" must be a date or datetime field of ${name}, or <relation>.<field> through up to two relations, every field on the way declared by this extension`,
+        );
+      }
+    }
+  } else if (finance.at !== undefined) {
+    contract(`${path}.at`, "at is the date of at_date: declare earned: at_date, or remove at");
+  }
+  if (earned === "over_period" && !sellable.recurring) {
+    contract(
+      `${path}.earned`,
+      "over_period is earned over a paid period: only a plan (recurring) has one",
+    );
+  }
+  if (earned === "per_use") {
+    const grants = sellable.grants;
+    const local = grants?.object.startsWith(`${m.id}.`)
+      ? grants.object.slice(m.id.length + 1)
+      : grants?.object;
+    const granted =
+      local !== undefined && Object.hasOwn(m.objects, local) ? m.objects[local] : undefined;
+    if (!granted?.allowance || !("holds" in granted.allowance)) {
+      contract(
+        `${path}.earned`,
+        "per_use is earned as uses are spent: grants must grant an object that holds uses (allowance.holds)",
+      );
+    }
+  }
+  const category = finance.category;
+  if (category) {
+    for (const [other, o] of Object.entries(m.objects)) {
+      if (other === name) continue;
+      const theirs = o.sellable?.finance?.category;
+      if (theirs?.key === category.key && theirs.label !== category.label) {
+        contract(
+          `${path}.category.label`,
+          `${other} names category "${category.key}" "${theirs.label}": one category has one label`,
+        );
+        break;
       }
     }
   }

@@ -73,6 +73,7 @@ const CONTEXT_KEYS = {
   grantedPermissions: "data",
   permissionGrants: "data",
   roleToday: "data",
+  roleLooksAfter: "data",
   markStanding: "data",
   markGiven: "data",
   reason: "data",
@@ -114,6 +115,8 @@ const CONTEXT_KEYS = {
   hostMail: "runtime",
   // The desk's secret and origin (ADR 0649): configuration the handler is given, not a store.
   desk: "data",
+  // Key arithmetic only (an HMAC, sealing and opening a secret): it cannot act (ADR 0783).
+  personCodes: "data",
 } as const satisfies Record<keyof HandlerContext, "database" | "runtime" | "data">;
 
 type RuntimeKey = {

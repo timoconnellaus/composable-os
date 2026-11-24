@@ -647,6 +647,8 @@ may override any of them.
 
 ## Status
 
+One bullet per build step, written by that step (CONTRIBUTING.md, Working in parallel).
+
 - **Step 1, the enrolled device** (built 2026-11-24 on `feat/stage-44-desk-signing`, with stage
   44's step 6, which built `core_device` general from the start as [What stage 44 step 6 takes
   from this](#what-stage-44-step-6-takes-from-this) says): migration 1130 (`core_device`: its use
@@ -656,8 +658,8 @@ may override any of them.
   and why; triggers that keep a revoked device revoked and end its signing session on a
   revocation or a change of use), ADR 0780. `device.enrol`, `device.setUse`, `device.revoke`
   (users:manage, a person; every admin told in the host), `device.list`, `device.claim` (the desk
-  origin's /enrol), `desk.status`; rotation at least daily and on every signing claim with the
-  60-second grace, a rotated-away credential presented later revoking the device as a clone (every
+  origin's /enrol), `desk.status`; rotation at least daily and on every signing claim, confirmed by use, with
+  the 60-second grace, a rotated-away credential presented later revoking the device as a clone (every
   admin told), lapsing after 30 days; the desk origin (`DESK_HOSTNAME`, its own handler,
   `cos deploy` adds the hostname on a custom domain) and Settings → Devices.
   - Deviations: the `role` use is refused until a pack declares a device role (step 2 adds the
@@ -670,3 +672,21 @@ may override any of them.
     (a desk call without an enrolled credential, from another origin or with a staff session is
     refused; a revoked device at its next call), 20 in part (e2e: an admin enrols and revokes a
     tablet). The rest are steps 2 to 6.
+- **Step 3, the person's code and PIN** (branch `feat/stage-51-person-code`; migration 1135, ADR
+  [0783](../adr/0783-a-persons-code-the-rotating-app-code-cards-and-the-pin.md), ADR 0600 amended).
+  Built:
+  - `core_person_code` (app codes tied to one sign-in, cards by HMAC), `core_person_pin` and
+    `core_identify_lockout`;
+  - `me.code`, `me.pin.set` and `me.pin.clear` (customer, `hostInternal`, in
+    `open-operations.json`);
+  - `personCode.issueCard`, `revokeCard` and `list` with the new core permission `people:cards`
+    (admins and members, grantable, to a fixed-role account too: `FIXED_ROLE_CORE_GRANTS`);
+  - `identifyPerson` (`packages/core/src/people-codes/identify.ts`): host code with the lock-outs
+    and one answer for every miss; erase and merge.
+  - Keys come from `BETTER_AUTH_SECRET` (HKDF), passed as `ctx.personCodes`.
+  - Deviations, in the ADR: it is ADR 0783 (the spec said 0782; block BM gave this step 0783 and
+    0784); `me.code` is risk `write` (it makes the code on a sign-in's first call); a name is
+    compared by the indexed name key of the Person's listed name.
+  - Left: the host path from step 4's `doorNow` to `identifyPerson` (steps 2 and 4); the door
+    log's and handles' erase (step 4); Cards on the Person page (step 6); the member's blocks
+    (step 5).

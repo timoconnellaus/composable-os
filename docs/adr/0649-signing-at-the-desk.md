@@ -27,7 +27,7 @@ reaches every member's documents). The spec settled the design; this records wha
      sign for. The host answers an 8-character code from an alphabet with no look-alikes, single
      use, good for 2 minutes until claimed, kept only as its HMAC under `DESK_SECRET`.
 - **`agreements:desk`** is a core permission: admins hold it, a human admin grants it, and it is
-  the one core permission grantable to an account holding a pack role (`FIXED_ROLE_GRANTABLE`;
+  the one core permission grantable to an account holding a pack role (`FIXED_ROLE_CORE_GRANTS`;
   ADR 0600 amended), so a coach at the desk may start a session. It shows the titles of what the
   Person and their children have due (`agreement.desk.prepare`), people by name only
   (`agreement.desk.find`), the signing devices (`agreement.desk.devices`), the session's state
@@ -112,7 +112,7 @@ reaches every member's documents). The spec settled the design; this records wha
   desk origin's own handler, left out of the HTTP contract and manifest, and listed in
   `open-operations.json` as such. It must also be `hostInternal`.
 - **ADR 0600** (2026-11-24): core declares `agreements:desk` grantable to a fixed-role account
-  (`FIXED_ROLE_GRANTABLE`); a grant of it opens exactly the core operations whose permission it
+  (`FIXED_ROLE_CORE_GRANTS`); a grant of it opens exactly the core operations whose permission it
   is. No other core permission is.
 - **ADR 0660** (2026-11-24): `screens.mine` also lists core's own screens (`pack: "core"`,
   `CORE_SCREENS`), each gated by core operations as a pack's by its tools; the admin holds their

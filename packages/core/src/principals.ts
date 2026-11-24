@@ -90,11 +90,14 @@ export type Role = (typeof ROLES)[number];
  *   admin enrolled (stage 44 step 6, ADR 0649): it shows the titles of what that Person has due
  *   and nothing else of their record, and records no acceptance itself (the member signs).
  *   Admins by default, grantable, and the one core permission grantable to a fixed-role account
- *   (a coach at the desk, `FIXED_ROLE_GRANTABLE`, ADR 0600 amended). A person only.
+ *   (a coach at the desk, `FIXED_ROLE_CORE_GRANTS`, ADR 0600 amended). A person only.
  * - `checklists:write` write the business's checklist templates (stage 45 step 4b, ADR 0650).
  *   Admins by default, grantable as `orders:refund` is. An AI acting for an account that holds it
  *   may draft one; its write always waits for a person who holds it too, so a checklist staff are
  *   asked to follow is always one a person approved.
+ * - `people:cards` issue, revoke and list the check-in cards a business gives its members (stage
+ *   51, ADR 0783). Admins and members by default, grantable to any staff account (a fixed-role
+ *   one included, ADR 0600). A person only whatever is granted (`actors: ["human"]`).
  */
 export const PERMISSIONS = [
   "records:read",
@@ -115,6 +118,7 @@ export const PERMISSIONS = [
   "agreements:health",
   "agreements:desk",
   "checklists:write",
+  "people:cards",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -129,7 +133,7 @@ export const CORE_PERMISSION_NAMESPACES: readonly string[] = [
 
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   viewer: ["records:read"],
-  member: ["records:read", "records:write"],
+  member: ["records:read", "records:write", "people:cards"],
   admin: PERMISSIONS,
 };
 
@@ -153,17 +157,16 @@ export const GRANTABLE_PERMISSIONS = [
   "agreements:health",
   "agreements:desk",
   "checklists:write",
+  "people:cards",
 ] as const;
 
 /**
- * The core permissions a human admin may also grant to an account holding a pack role (stage 44
- * step 6, ADR 0600 amended): a fixed-role account otherwise holds only its pack's tools and the
- * pack permissions granted to it. Each one is justified in its ADR and is small: `agreements:desk`
- * starts a desk signing session for a named Person on an enrolled tablet, showing the titles of
- * what is due and nothing else of their record (ADR 0649). Enrolment and revocation stay
- * admin-only.
+ * The core permissions a human admin may also grant to an account holding a pack's fixed role
+ * (ADR 0600, amended by ADR 0783): each opens a few person-scoped core operations a desk or door
+ * account needs, never a record read, list or search. Every other core permission counts for
+ * nothing beside a pack role.
  */
-export const FIXED_ROLE_GRANTABLE: readonly Permission[] = Object.freeze(["agreements:desk"]);
+export const FIXED_ROLE_CORE_GRANTS: readonly Permission[] = ["people:cards", "agreements:desk"];
 
 /**
  * The account's role, or a permission granted to it (ADR 0449), allows `permission`. A pack role

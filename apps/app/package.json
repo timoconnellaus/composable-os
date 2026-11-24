@@ -27,6 +27,7 @@
     "@composable-os/calendar-file": "workspace:*",
     "@composable-os/pack-bookings": "workspace:*",
     "@composable-os/pack-courses": "workspace:*",
+    "@composable-os/pack-dailychecks": "workspace:*",
     "@composable-os/pack-memberships": "workspace:*",
     "@composable-os/pack-programs": "workspace:*",
     "@composable-os/pack-rostering": "workspace:*",

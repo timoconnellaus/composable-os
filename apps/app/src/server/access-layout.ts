@@ -206,6 +206,8 @@ export const GATEKEEPER_ROUTES: Readonly<Record<string, readonly string[]>> = {
   fake: [],
   // The fake accounting books (stage 61): development and tests only, and it serves no routes.
   "accounting-fake": [],
+  // The fake booking system (stage 65): development and tests only, and it serves no routes.
+  "booking-system-fake": [],
 };
 
 /** Whether `pathname` matches a layout pattern. */

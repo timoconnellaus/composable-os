@@ -24,6 +24,7 @@ import type { HostMail } from "./invites.ts";
 import type { Judge } from "./judge/types.ts";
 import type { ModelRunner } from "./models.ts";
 import type { VoiceRuntime } from "./operations/voice.ts";
+import type { PersonCodeKeys } from "./people-codes/keys.ts";
 import {
   ACTORS,
   type ActingUser,
@@ -164,6 +165,11 @@ export interface HandlerContext {
    * account on this call; absent when it holds no such role. A tool's run carries it on.
    */
   readonly roleToday?: import("./pack-role-today.ts").TodayLimits | undefined;
+  /**
+   * The staff caller's pack role limit to the People they look after (ADR 0881), with the
+   * account it is for; absent when it holds no such role. A tool's run carries it on.
+   */
+  readonly roleLooksAfter?: import("./pack-role-looks-after.ts").LooksAfterLimit | undefined;
   /** The caller's reason for the change, when it gave one (MCP). */
   readonly reason?: string | undefined;
   /**
@@ -287,6 +293,11 @@ export interface HandlerContext {
    * staff operations and to `hostInternal` ones, never to extension code.
    */
   readonly desk?: DeskHost;
+  /**
+   * The keys of people's check-in codes and PINs (stage 51, ADR 0783). Absent: codes, cards and
+   * PINs are refused. On a customer's call only a `hostInternal` core operation gets it.
+   */
+  readonly personCodes?: PersonCodeKeys;
 }
 
 /**
@@ -463,6 +474,12 @@ export interface OperationDefinition<
    * has no pack permissions and so is an admin's only.
    */
   packRestricted?: boolean;
+  /**
+   * Extension tools only (ADR 0652): every staff account may call the tool, a pack role included
+   * (a cleaner, a coach, the door), with no role or grant naming it. The host operation it calls
+   * holds the rule of who may do what. A shipped pack's or the org's own; a person's own.
+   */
+  packAnyStaff?: boolean;
   risk: RiskClass;
   /**
    * Core operations only, and only ones open to customers or the public: the handler keeps the
@@ -644,6 +661,14 @@ export function operationProblems(op: AnyOperation): string[] {
     }
   } else if (op.packGrantable !== undefined) {
     problems.push("packGrantable needs packPermissions");
+  }
+  if (op.packAnyStaff !== undefined) {
+    if (!/^x\.[a-z][a-z0-9]{1,29}\./.test(op.name ?? "")) {
+      problems.push("packAnyStaff is for extension tools only");
+    }
+    if (op.packPermissions !== undefined || op.packRestricted) {
+      problems.push("packAnyStaff names no pack permission");
+    }
   }
   if (!RISK_CLASSES.includes(op.risk)) problems.push("risk class missing or unknown");
   if (op.actors && (op.actors.length === 0 || op.actors.some((a) => !ACTORS.includes(a)))) {

@@ -9,10 +9,11 @@ import {
   type ActingUser,
   type AnyOperation,
   coreRegistry,
-  FIXED_ROLE_GRANTABLE,
+  FIXED_ROLE_CORE_GRANTS,
   GRANTABLE_PERMISSIONS,
   type HeldPackRole,
   invoke,
+  type Permission,
   type Role,
   roleLimitsFor,
   type StaffRights,
@@ -329,13 +330,17 @@ describe("a pack role and its grants add up, each call by one authority (ADR 060
   });
 
   it("a core grant, or a role-held permission as a grant, changes nothing beside a pack role", () => {
-    // But the few core permissions grantable to a fixed-role account (FIXED_ROLE_GRANTABLE,
-    // agreements:desk: test/agreement-desk.test.ts walks the registry for it).
-    const notForRoles = GRANTABLE_PERMISSIONS.filter((p) => !FIXED_ROLE_GRANTABLE.includes(p));
-    for (const granted of [...notForRoles, "deskpack:coach", "records:write"]) {
+    for (const granted of [...GRANTABLE_PERMISSIONS, "deskpack:coach", "records:write"]) {
       const rights: StaffRights = { packRole: role, grants: [granted] };
       for (const op of all) {
         const input = inputFor(op);
+        // The few core grants a fixed role's account may hold open their own operations, and
+        // nothing else (ADR 0783: people:cards, the card operations; ADR 0649: agreements:desk,
+        // the desk session operations).
+        if (FIXED_ROLE_CORE_GRANTS.includes(granted as Permission) && op.permission === granted) {
+          expect(staffAuthority(viewer, rights, op, input), `${granted} ${op.name}`).toBe("grant");
+          continue;
+        }
         expect(staffAuthority(viewer, rights, op, input), `${granted} ${op.name}`).toEqual(
           staffAuthority(viewer, coachOnly, op, input),
         );

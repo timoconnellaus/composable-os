@@ -8,6 +8,8 @@
 //   - `record.get` and `record.list` on the objects of that pack the role lists, and
 //   - `screens.mine`, the screens of the admin it may open (stage 47, ADR 0660),
 //   - its own read-and-understood list and confirmations (`ack.mine`, `ack.confirm`, ADR 0702),
+//   - a shipped pack's tools open to every staff account (`anyStaff`, ADR 0652), whose host
+//     operation decides by its own rule (Daily checklists: the checklist's "who may do it"),
 // and is refused every other operation, by the pipeline, before its input is looked at. Its own
 // `role` grants nothing while the pack role is held.
 //
@@ -18,16 +20,18 @@
 //
 // Roles and grants add up (ADR 0600): an account holding a pack role may also be granted pack
 // permissions a pack declares grantable (Bookings' `bookings:desk`), and the few core permissions
-// core declares grantable to such an account (`FIXED_ROLE_GRANTABLE`: `agreements:desk`, stage 44
-// step 6), never another core permission.
+// core declares grantable to such an account (`FIXED_ROLE_CORE_GRANTS`: `people:cards`,
+// `agreements:desk`), never another core permission.
 // Each call is allowed by one authority, decided here (`staffAuthority`): a grant that opens the
-// tool, else the pack role. The role's limits (today's records only, ADR 0553) bind what the role
-// gives and nothing else, and the pipeline carries them only on a call the role allowed.
+// tool, else the pack role. The role's limits (today's records only, ADR 0553; the People its
+// holder looks after, ADR 0881) bind what the role gives and nothing else, and the pipeline
+// carries them only on a call the role allowed.
 import type { CoreDatabase, CrmDb } from "@composable-os/db";
 import type { ExtensionManifest, RoleManifest } from "@composable-os/sdk";
 import { type Kysely, sql } from "kysely";
 import type { AnyOperation } from "./operation.ts";
-import { FIXED_ROLE_GRANTABLE, holdsPermission, type Role } from "./principals.ts";
+import type { LooksAfter, LooksAfterLimit, LooksAfterTeam } from "./pack-role-looks-after.ts";
+import { FIXED_ROLE_CORE_GRANTS, holdsPermission, type Role } from "./principals.ts";
 
 /** A pack role as an account holds it. */
 export interface HeldPackRole {
@@ -41,6 +45,8 @@ export interface HeldPackRole {
   readonly read: readonly string[];
   /** Objects reached only on the organisation's local today, by the datetime path (ADR 0553). */
   readonly today?: import("./pack-role-today.ts").TodayLimits;
+  /** Objects reached only for the People the holder looks after, and the teams saying so (ADR 0881). */
+  readonly looksAfter?: LooksAfter;
 }
 
 /** The reads a pack role's `read` opens, on the objects it lists. Nothing else reads for it. */
@@ -63,16 +69,45 @@ export const PACK_ROLE_OWN: readonly string[] = ["ack.mine", "ack.confirm"];
 /** `<extension>.<role>`. */
 export const PACK_ROLE_NAME_RE = /^([a-z][a-z0-9]{1,29})\.([a-z][a-zA-Z0-9]{0,39})$/;
 
-/** The roles an installed manifest declares, if its extension may declare any (shipped). */
-function rolesOf(
-  row: { manifest: string | null; status: string | null; source: string | null } | undefined,
-): Record<string, RoleManifest> {
-  if (!row?.manifest || row.status !== "active" || row.source !== "shipped") return {};
-  const manifest = JSON.parse(row.manifest) as Partial<ExtensionManifest>;
-  return manifest.roles ?? {};
+type ManifestRow = { manifest: string | null; status: string | null; source: string | null };
+
+/** The installed manifest, if its extension may declare roles (active and shipped). */
+function manifestOf(row: ManifestRow | undefined): Partial<ExtensionManifest> | null {
+  if (!row?.manifest || row.status !== "active" || row.source !== "shipped") return null;
+  return JSON.parse(row.manifest) as Partial<ExtensionManifest>;
 }
 
-function held(name: string, role: RoleManifest | undefined): HeldPackRole {
+/** The roles an installed manifest declares, if its extension may declare any (shipped). */
+function rolesOf(row: ManifestRow | undefined): Record<string, RoleManifest> {
+  return manifestOf(row)?.roles ?? {};
+}
+
+/** The objects of the manifest that say who looks after whom (`team`, ADR 0831). */
+function teamsOf(extension: string, manifest: Partial<ExtensionManifest> | null): LooksAfterTeam[] {
+  return Object.entries(manifest?.objects ?? {}).flatMap(([local, object]) => {
+    if (!object.team) return [];
+    const live =
+      object.team.live && object.states
+        ? { field: object.states.field, states: Object.freeze([...object.team.live]) }
+        : undefined;
+    // `live` names states the object no longer has: it counts nothing (fail closed).
+    if (object.team.live && !live) return [];
+    return [
+      Object.freeze({
+        object: `${extension}.${local}`,
+        person: object.team.person,
+        staff: Object.freeze([...object.team.staff]),
+        ...(live ? { live: Object.freeze(live) } : {}),
+      }),
+    ];
+  });
+}
+
+function held(
+  name: string,
+  role: RoleManifest | undefined,
+  manifest: Partial<ExtensionManifest> | null = null,
+): HeldPackRole {
   const extension = PACK_ROLE_NAME_RE.exec(name)?.[1] ?? "";
   // Fail closed: a role that cannot be found holds nothing.
   return Object.freeze({
@@ -82,6 +117,14 @@ function held(name: string, role: RoleManifest | undefined): HeldPackRole {
     permissions: Object.freeze([...(role?.permissions ?? [])]),
     read: Object.freeze([...(role?.read ?? [])]),
     ...(role?.today ? { today: Object.freeze({ ...role.today }) } : {}),
+    ...(role?.looksAfter
+      ? {
+          looksAfter: Object.freeze({
+            teams: Object.freeze(teamsOf(extension, manifest)),
+            reach: Object.freeze({ ...role.looksAfter }),
+          }),
+        }
+      : {}),
   });
 }
 
@@ -129,7 +172,8 @@ export async function loadStaffRights(
   const grants = parseGrants(row?.granted_permissions ?? null);
   if (!row?.pack_role) return { packRole: null, grants };
   const local = PACK_ROLE_NAME_RE.exec(row.pack_role)?.[2] ?? "";
-  return { packRole: held(row.pack_role, rolesOf(row)[local]), grants };
+  const manifest = manifestOf(row);
+  return { packRole: held(row.pack_role, manifest?.roles?.[local], manifest), grants };
 }
 
 /** The stored grants: a JSON list of permission names; anything else is none (fail closed). */
@@ -156,7 +200,7 @@ export async function availablePackRoles(
     .execute();
   return rows.flatMap((row) =>
     Object.entries(rolesOf(row)).map(([local, role]) => ({
-      ...held(`${row.id}.${local}`, role),
+      ...held(`${row.id}.${local}`, role, manifestOf(row)),
       description: role.description,
     })),
   );
@@ -168,6 +212,9 @@ export async function availablePackRoles(
  * learns nothing about any other operation, not even whether its input was valid.
  */
 export function packRoleReaches(role: HeldPackRole, op: AnyOperation): boolean {
+  // A pack's tool open to every staff account (ADR 0652): its host operation decides who may do
+  // what, by a rule of its own (a checklist's "who may do it").
+  if (op.packAnyStaff === true) return true;
   if (op.packPermissions === undefined && PACK_ROLE_OWN.includes(op.name)) return true;
   if (op.packPermissions !== undefined) {
     return op.packPermissions.some((p) => role.permissions.includes(p));
@@ -178,19 +225,15 @@ export function packRoleReaches(role: HeldPackRole, op: AnyOperation): boolean {
 
 /**
  * Whether a permission granted to the account opens the pack tool `op`: one of the tool's
- * permissions its installed pack still declares grantable (ADR 0449). Never a core operation, so
- * for an account holding a pack role a grant opens exactly the tools naming the granted
- * permission, and no record read, list, search or setting (ADR 0600).
+ * permissions its installed pack still declares grantable (ADR 0449), or a core operation whose
+ * permission is one of FIXED_ROLE_CORE_GRANTS (ADRs 0783 and 0649). So for an account holding a pack role a
+ * grant opens exactly the tools naming the granted permission and those few core operations, and
+ * no record read, list, search or setting (ADR 0600).
  */
 export function grantOpens(grants: readonly string[], op: AnyOperation): boolean {
-  if ((op.packGrantable ?? []).some((p) => grants.includes(p))) return true;
-  // The few core permissions grantable to a fixed-role account (ADR 0600 amended, stage 44 step
-  // 6): a core operation, never a pack's tool, whose own permission is one of them and granted.
-  return (
-    !op.name.startsWith("x.") &&
-    FIXED_ROLE_GRANTABLE.includes(op.permission) &&
-    grants.includes(op.permission)
-  );
+  // The few core permissions a fixed role's account may be granted (ADRs 0783 and 0649).
+  if (FIXED_ROLE_CORE_GRANTS.includes(op.permission) && grants.includes(op.permission)) return true;
+  return (op.packGrantable ?? []).some((p) => grants.includes(p));
 }
 
 /**
@@ -256,6 +299,21 @@ export function roleLimitsFor(
 }
 
 /**
+ * The pack role's limit to the People its holder looks after a call of `op` holds (ADR 0881): as
+ * for today's (`roleLimitsFor`), the role's unless a grant opens the operation. `userId` is the
+ * account itself, whose People they are.
+ */
+export function roleLooksAfterFor(
+  rights: StaffRights,
+  op: AnyOperation,
+  userId: string,
+): LooksAfterLimit | undefined {
+  const looksAfter = rights.packRole?.looksAfter;
+  if (!looksAfter) return undefined;
+  return grantOpens(rights.grants, op) ? undefined : { userId, ...looksAfter };
+}
+
+/**
  * Whether a staff account may call `op` (with this parsed input), by what it holds
  * (`staffAuthority`): a pack role and the pack permissions granted to it (ADRs 0436, 0600); or
  * its role, or a permission granted to it that is still grantable (ADR 0449): a core one by
@@ -275,7 +333,12 @@ export function staffMayCall(
 /** Whether the role allows `op` with this (parsed) input. */
 export function packRoleAllows(role: HeldPackRole, op: AnyOperation, input: unknown): boolean {
   if (!packRoleReaches(role, op)) return false;
-  if (op.packPermissions !== undefined || PACK_ROLE_OWN.includes(op.name)) return true;
+  if (
+    op.packPermissions !== undefined ||
+    op.packAnyStaff === true ||
+    PACK_ROLE_OWN.includes(op.name)
+  )
+    return true;
   // The account's own screens (ADR 0660): its input is empty, and its answer is the account's.
   if (PACK_ROLE_CORE_READS.includes(op.name)) return true;
   // record.get and record.list name their object in the input.

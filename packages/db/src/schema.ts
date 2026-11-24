@@ -155,6 +155,11 @@ export interface CorePersonEmailsTable {
   position: Defaulted<number>;
   /** Maintained by triggers from the person's deleted_at; never written by operations. */
   live: Defaulted<number>;
+  /**
+   * The address with its `+tag` dropped, for one-per-Person rules only (migration 0955, ADR 0692).
+   * Maintained by triggers from `email`; never written by operations.
+   */
+  folded: Defaulted<string | null>;
   created_at: Timestamp;
 }
 
@@ -1358,6 +1363,20 @@ export interface CoreValueMarkTable {
   at: string;
 }
 
+/**
+ * Migration 1175 (stage 53, ADR 0802): the last time a Person had a journey signal, one row per
+ * Person and signal, written by the host in the write's batch.
+ */
+export interface CorePersonSignalTable {
+  person_id: string;
+  signal: string;
+  last_at: string;
+  object_type: string;
+  record_id: string;
+  standing: "person" | "customer" | "public" | "default" | "host" | "ai";
+  bulk: number;
+}
+
 /** Migration 0650: a guardian's write's guard; its trigger stores nothing. */
 export interface CorePersonLinkGuardTable {
   guardian_id: string;
@@ -1424,9 +1443,12 @@ export interface CoreStaffTimeTable {
   object_type: string;
   record_id: string;
   account_id: string;
-  /** Unix seconds, half-open. */
+  /** Unix seconds, half-open, widened by the margins. */
   starts: number;
   ends: number;
+  /** Migration 1091 (ADR 0760): seconds the claim was widened by before and after the shift. */
+  margin_before: Generated<number>;
+  margin_after: Generated<number>;
 }
 
 /**
@@ -1495,6 +1517,38 @@ export interface CoreStaffHoursTable {
 }
 
 /**
+ * Migration 1270 (stage 58 step 1, ADR 0850): one stretch of time a staff member worked, the one
+ * record of time worked. Times are unix seconds; `ends` is null while open. The database refuses
+ * two overlapping entries of one account and a second open one.
+ */
+export interface CoreTimeEntryTable {
+  id: string;
+  account_id: string;
+  starts: number;
+  ends: number | null;
+  break_minutes: Generated<number>;
+  zone: string;
+  local_date: string;
+  against_object: string | null;
+  against_record: string | null;
+  how: "clocked" | "entered" | "by_approver";
+  how_why: string | null;
+  state: "open" | "waiting" | "approved" | "rejected";
+  finish_missing: Generated<number>;
+  recorded_starts: number | null;
+  recorded_ends: number | null;
+  recorded_break_minutes: number | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  rejected_why: string | null;
+  note: string | null;
+  start_key: string | null;
+  made_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
  * Migration 0812 (stage 45, ADR 0623): a shift offered for someone else to take. It leaves `open`
  * once; the database refuses every later move, so exactly one take wins.
  */
@@ -1530,6 +1584,49 @@ export interface CoreStaffFeedTable {
   created_at: string;
 }
 
+/**
+ * Migration 1135 (stage 51 step 3, ADR 0783): what identifies a Person at a check-in tablet. An
+ * `app` code's secret (encrypted, for one sign-in) or a `card`'s code (an HMAC only). Never in a
+ * rec_* view.
+ */
+export interface CorePersonCodeTable {
+  id: string;
+  person_id: string;
+  kind: "app" | "card";
+  code_hmac: string | null;
+  label: string | null;
+  issued_by: string | null;
+  secret_enc: string | null;
+  device_session_id: string | null;
+  customer_session_id: string | null;
+  guardian_id: string | null;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+  revoked_by: string | null;
+}
+
+/** Migration 1135: a Person's PIN, as a slow hash, and its wrong tries over a day. */
+export interface CorePersonPinTable {
+  person_id: string;
+  hash: string;
+  salt: string;
+  iterations: number;
+  set_at: string;
+  failed_count: Generated<number>;
+  failed_since: string | null;
+  disabled_at: string | null;
+}
+
+/** Migration 1135: a device's failed identifications this minute, per entry. No Person. */
+export interface CoreIdentifyLockoutTable {
+  device_id: string;
+  entry: "name" | "code";
+  window_started_at: string;
+  failures: number;
+  locked_until: string | null;
+}
+
 /** Migration 0815 (stage 45 step 4b, ADR 0650): a checklist template. Not personal. */
 export interface CoreChecklistTable {
   id: string;
@@ -1541,6 +1638,18 @@ export interface CoreChecklistTable {
   created_at: string;
   updated_by: string;
   updated_at: string;
+  /**
+   * Migration 0816 (ADR 0651): its standing schedule, if it has one: the ISO weekdays it is due
+   * (JSON, 1 Monday … 7 Sunday), the local time it is due by (HH:MM), and who may do it.
+   */
+  days: ColumnType<string | null, string | null | undefined, string | null>;
+  due_by: ColumnType<string | null, string | null | undefined, string | null>;
+  doers_kind: ColumnType<
+    "staff" | "role" | "grant" | null,
+    "staff" | "role" | "grant" | null | undefined,
+    "staff" | "role" | "grant" | null
+  >;
+  doers_value: ColumnType<string | null, string | null | undefined, string | null>;
 }
 
 /** Migration 0815: a template's steps as they are now (position from 0). */
@@ -1577,6 +1686,15 @@ export interface CoreChecklistRunTable {
   closed_by: string | null;
   closed_why: string | null;
   missed_steps: string | null;
+  /** Migration 0816 (ADR 0651): a day run's copy of who may do it; null on a record's run. */
+  doers_kind: ColumnType<
+    "staff" | "role" | "grant" | null,
+    "staff" | "role" | "grant" | null | undefined,
+    "staff" | "role" | "grant" | null
+  >;
+  doers_value: ColumnType<string | null, string | null | undefined, string | null>;
+  /** A day run's due-by time (unix seconds), or null. */
+  due_at: ColumnType<number | null, number | null | undefined, number | null>;
 }
 
 /**
@@ -3202,6 +3320,7 @@ export interface CoreDatabase {
   core_sellable_refund_due: CoreSellableRefundDueTable;
   core_routine_mail: CoreRoutineMailTable;
   core_value_mark: CoreValueMarkTable;
+  core_person_signal: CorePersonSignalTable;
   core_recurrence_series: CoreRecurrenceSeriesTable;
   core_recurrence_occurrence: CoreRecurrenceOccurrenceTable;
   core_recurrence_exception: CoreRecurrenceExceptionTable;
@@ -3211,7 +3330,11 @@ export interface CoreDatabase {
   core_staff_qualification: CoreStaffQualificationTable;
   core_staff_away: CoreStaffAwayTable;
   core_staff_hours: CoreStaffHoursTable;
+  core_time_entry: CoreTimeEntryTable;
   core_staff_feed: CoreStaffFeedTable;
+  core_person_code: CorePersonCodeTable;
+  core_person_pin: CorePersonPinTable;
+  core_identify_lockout: CoreIdentifyLockoutTable;
   core_checklist: CoreChecklistTable;
   core_checklist_step: CoreChecklistStepTable;
   core_checklist_run: CoreChecklistRunTable;

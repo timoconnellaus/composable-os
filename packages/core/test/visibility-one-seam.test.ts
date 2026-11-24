@@ -95,6 +95,18 @@ const WHY = {
    * their display name for staff. Never a list of anyone else.
    */
   agreements: "agreements: the Trash, minor and name facts of a Person the host was given",
+  /**
+   * Check-in codes (stage 51 step 3, ADR 0783): whether a Person a code, card or PIN names is
+   * live, and their names to compare with the name typed, answered to host code only; a member's
+   * own and their dependants' given names for their own app; that a Person staff named exists.
+   */
+  codes:
+    "check-in codes: a Person a code names is live, names compared, given names for their own app",
+  /**
+   * A pack role's limit (ADR 0881): which People the staff account looks after, read to narrow
+   * what its role reaches, never answered to anyone.
+   */
+  role: "a pack role's limit: the People its holder looks after, to narrow a staff read",
 } as const;
 type Why = (typeof WHY)[keyof typeof WHY];
 
@@ -165,6 +177,7 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "operations/order.ts": [4, WHY.host],
   "operations/organisation.ts": [9, WHY.write],
   "operations/person.ts": [7, WHY.write],
+  "operations/person-code.ts": [2, WHY.codes],
   "operations/setup.ts": [1, WHY.write],
   "operations/suggestions.ts": [6, WHY.write],
   "orders/checkout.ts": [1, WHY.host],
@@ -177,7 +190,11 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "orders/moves.ts": [9, WHY.host],
   // ADR 0560: an owed refund's order, read by the minute cron to settle the row.
   "orders/refund-due.ts": [1, WHY.host],
+  // Programs' coach role (ADR 0881): the People an account looks after (its team's live records)
+  // and whether a record is one of theirs; it only narrows what a staff read reaches.
+  "pack-role-looks-after.ts": [4, WHY.role],
   "orders/orders.ts": [2, WHY.host],
+  "people-codes/identify.ts": [3, WHY.codes],
   "records/erase-log.ts": [1, WHY.write],
   // Erase (and, ADR 0590, the marks of the erased person's orders).
   "records/erase-stores.ts": [2, WHY.write],
@@ -207,6 +224,9 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   // holders' accounts, their kinds' names and set-up minutes, and the evidence object's marker
   // only (who took a class list, never a booking's person), for someone who handles pay.
   "staffing/pay.ts": [7, WHY.host],
+  // Time entries (stage 58, ADR 0850): a workedOn record's state, title and Trash mark, by id, and
+  // the titles of what a person's own entries are against, by id; nothing of a Person.
+  "staffing/time.ts": [2, WHY.host],
   // The calendar feed (ADR 0628): the token's own shifts, by id from their time claims.
   "staffing/feed.ts": [1, WHY.host],
   // Checklists (stage 45 step 4b, ADR 0650): a record's person, opening and closing times, state,
@@ -226,7 +246,9 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   // host.
   "subscriptions/cooling-off.ts": [4, WHY.host],
   // `hasBought` (ADR 0458, #221): whose address it is, before anyone has signed in (no caller).
-  "customers/accounts.ts": [2, WHY.org],
+  // `samePeople` (ADR 0692): the ids of the People sharing a folded address with one the host
+  // already has, for its own one-per-Person checks; never answered to a caller.
+  "customers/accounts.ts": [5, WHY.org],
   // The subscription access source's `covers: "all"`: only live ids (stage 32a review, ADR 0488).
   "subscriptions/access.ts": [1, WHY.access],
   // Continuation offers (stage 32a step 4, ADR 0491): the import matching an address to its one

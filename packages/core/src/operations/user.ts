@@ -10,7 +10,7 @@ import { listInputSchema, pageQuery, pageSchema, selectFields } from "../list.ts
 import { defineOperation } from "../operation.ts";
 import { availablePackRoles, PACK_ROLE_NAME_RE, parseGrants } from "../pack-roles.ts";
 import {
-  FIXED_ROLE_GRANTABLE,
+  FIXED_ROLE_CORE_GRANTS,
   GRANTABLE_PERMISSIONS,
   holdsPermission,
   PERMISSIONS,
@@ -257,7 +257,8 @@ export async function checkPackRole(
  * Refuses permissions that cannot be granted (ADR 0449); returns the list sorted, once each. An
  * account holding a pack role (`packRole`) may be granted pack permissions only, never a core one
  * (ADR 0600): a core permission opens a core operation over every record, which is not what a
- * fixed role's account is for, and it would count for nothing beside the role.
+ * fixed role's account is for, and it would count for nothing beside the role. The exceptions are
+ * FIXED_ROLE_CORE_GRANTS (ADR 0783): `people:cards`, for a desk account issuing members' cards.
  */
 export async function checkGrants(
   ctx: Pick<Parameters<typeof userPackRoles.handler>[1], "db">,
@@ -317,7 +318,7 @@ export const userSetPackRole = defineOperation({
       const core = parseGrants(before.granted_permissions).filter(
         (p) =>
           (GRANTABLE_PERMISSIONS as readonly string[]).includes(p) &&
-          !(FIXED_ROLE_GRANTABLE as readonly string[]).includes(p),
+          !(FIXED_ROLE_CORE_GRANTS as readonly string[]).includes(p),
       );
       if (core.length) {
         throw new ConflictError(
@@ -399,14 +400,15 @@ export async function grantable(
     "agreements:health": "Read members' health form answers (every read is logged)",
     "agreements:desk": "Start a desk signing session for a member on an enrolled tablet",
     "checklists:write": "Write the checklists staff tick off (their steps, and which are in use)",
+    "people:cards": "Issue and revoke members' check-in cards",
   };
   return [
     ...GRANTABLE_PERMISSIONS.map((permission) => ({
       permission,
       label: labels[permission],
       from: "core",
-      // The few core permissions a fixed-role account may hold too (ADR 0600 amended).
-      forFixedRole: (FIXED_ROLE_GRANTABLE as readonly string[]).includes(permission),
+      // A few core permissions open person-scoped operations a desk account needs (ADR 0783).
+      forFixedRole: FIXED_ROLE_CORE_GRANTS.includes(permission),
       restricted: false,
     })),
     ...packs,
