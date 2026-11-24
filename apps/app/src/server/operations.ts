@@ -28,6 +28,7 @@ import {
 import { createCrmDb } from "@composable-os/db";
 import { getAgentByName } from "agents";
 import { type AiAppEnv, aiContextFor } from "./ai.ts";
+import { approvalExpiryDays } from "./approval-expiry.ts";
 import { type AssistantAgent, threadName } from "./assistant/agent.ts";
 import { type AgentJob, jobName } from "./assistant/job.ts";
 import { type DeskEnv, deskHostFor } from "./desk.ts";
@@ -277,7 +278,7 @@ export async function staffContext(
     // Check-in codes, cards and PINs (stage 51, ADR 0783).
     ...personCodeKeysEntry(env),
     ...aiContextFor(env, db),
-    approvalExpiryDays: Number.parseInt(env.APPROVAL_EXPIRY_DAYS ?? "", 10) || undefined,
+    approvalExpiryDays: approvalExpiryDays(env.APPROVAL_EXPIRY_DAYS),
   };
 }
 
