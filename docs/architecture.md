@@ -1205,8 +1205,9 @@ account). `staffing.week` is the roster read across every staffed object: times,
 who is on each and its open offer, and for a rosterer its warnings; never a booking, a place count
 or a Person. A leave note reaches only a person, never an assistant or the audit log. Where a pack
 declares who rosters, a caller's write of who works a shift (a shift's person, a pattern's person,
-a coach profile's account), by any path, is a rosterer's (`assertRosterWrite`); an AI's such change,
-or its call of a restricted tool, is approved only by someone who could make it.
+a coach profile's account), by any path, is a rosterer's (`assertRosterWrite`); an AI's such change
+(a restore from the Trash or of a version included), or its call of a restricted tool, is approved
+only by someone who could make it.
 
 **Open hours** (stage 49 step 3, [ADR 0762](adr/0762-open-hours-and-free-times.md),
 `packages/core/src/staffing/hours.ts`, `operations/staffing-hours.ts`, migration 1090): when

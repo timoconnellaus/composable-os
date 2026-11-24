@@ -24,6 +24,7 @@ import {
   invokeByName,
   loadExtensionOperations,
   newId,
+  objectTableOf,
   readStaffFeed,
   refreshSchemaRegistry,
 } from "@composable-os/core";
@@ -1140,6 +1141,62 @@ describe("an AI's roster change is approved only by someone who could make it (t
     expect((await get(CLASS, k)).coach).toBe(a.profile);
     await run("approval.approve", { actionIds: [id] }, asUser(rosterer));
     expect((await get(CLASS, k)).coach).toBe(b.profile);
+  });
+
+  it("an AI's restore of a shift or a series with someone on it: a member's approval is refused, a rosterer's applies (issue #285)", async () => {
+    const rosterer = await account("Rosterer Rae", "member");
+    await grant(rosterer, [MANAGE]);
+    const plain = await account("Plain Pip", "member");
+    const on = await account("On Shift Oli", "member");
+    const assistant = staff({ actor: "assistant", origin: { surface: "assistant" } });
+    // A restore waits for a person when the policy asks for writes to (the cautious preset).
+    const restoreOf = async (object: string, id: string) => {
+      await run("record.delete", { object, id }, staff());
+      await setPreset("cautious");
+      try {
+        return await pendingId(run("record.restore", { object, id }, assistant));
+      } finally {
+        await setPreset("balanced");
+      }
+    };
+    const trashed = async (object: string, id: string) =>
+      (
+        await env.DB.prepare(`SELECT deleted_at FROM ${objectTableOf(object)} WHERE id = ?`)
+          .bind(id)
+          .first<{ deleted_at: string | null }>()
+      )?.deleted_at;
+    // A shift with its person.
+    const shift = await dutyShift(92 * DAY, on.id);
+    const shiftAction = await restoreOf(SHIFT, shift);
+    expect(
+      (await refusal(run("approval.approve", { actionIds: [shiftAction] }, asUser(plain)))).code,
+    ).toBe("forbidden");
+    expect(await trashed(SHIFT, shift)).not.toBeNull();
+    await run("approval.approve", { actionIds: [shiftAction] }, asUser(rosterer));
+    expect((await get(SHIFT, shift)).staff).toBe(on.id);
+    // A series with its regular person.
+    const series = await create(SERIES, {
+      duty,
+      weekdays: ["mon"],
+      time: "05:30",
+      length: 30,
+      firstDate: localDate(120 * DAY),
+      timezone: ZONE,
+      staff: on.id,
+    });
+    const seriesAction = await restoreOf(SERIES, series);
+    expect(
+      (await refusal(run("approval.approve", { actionIds: [seriesAction] }, asUser(plain)))).code,
+    ).toBe("forbidden");
+    expect(await trashed(SERIES, series)).not.toBeNull();
+    await run("approval.approve", { actionIds: [seriesAction] }, asUser(rosterer));
+    expect(await trashed(SERIES, series)).toBeNull();
+    await run("record.update", { object: SERIES, id: series, values: { state: "ended" } }, staff());
+    // With nobody on it, it says nothing of who works it: anyone who may approve applies it.
+    const empty = await dutyShift(93 * DAY, null);
+    const emptyAction = await restoreOf(SHIFT, empty);
+    await run("approval.approve", { actionIds: [emptyAction] }, asUser(plain));
+    expect(await trashed(SHIFT, empty)).toBeNull();
   });
 });
 
