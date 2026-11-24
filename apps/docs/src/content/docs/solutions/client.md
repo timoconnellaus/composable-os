@@ -13,6 +13,7 @@ A company's own product lives in its own repository, made with `cos create` or a
 | [Courses](/packs/courses/) | Video courses sold one at a time or in bundles, watched lesson by lesson, with progress. |
 | [Daily checklists](/packs/dailychecks/) | Checklists done on their own: opening, closing and cleaning, due on set days by a set time, ticked off by whoever may do them, with how each day went for those who manage them. |
 | [Deals](/packs/deals/) | Deals moving through pipelines of stages, with stage rules, probabilities, stage history and the people involved. |
+| [Forms](/packs/forms/) | Forms the business builds and publishes (enquiries, sign-ups, surveys, feedback, staff reports), and every answer in one inbox, linked to the person who sent it. |
 | [Leads](/packs/leads/) | Inbound interest linked to a person and an organisation, worked from a leads inbox, qualified or disqualified, and converted into deals. |
 | [Lifecycle stage](/packs/lifecycle/) | A lifecycle stage on every person (subscriber, lead, marketing qualified, sales qualified, opportunity, customer, evangelist, other), tracked on the timeline, with a board of people by stage. |
 | [Memberships](/packs/memberships/) | Membership plans paid every month and class passes bought once, with what each allows and what a member has left. |

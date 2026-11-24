@@ -2,6 +2,7 @@
 // (members with a live subscription first), and every acceptance by document and by how it was
 // made (paper marked). Titles, people and dates only: a name typed, a signature and health answers
 // open from the Person page, one at a time.
+import type { CoreInput } from "@composable-os/core";
 import { Badge } from "@composable-os/ui/components/badge";
 import { Button } from "@composable-os/ui/components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@composable-os/ui/components/card";
@@ -26,9 +27,11 @@ export const Route = createFileRoute("/_app/settings/agreements/acceptances")({
 });
 
 const ALL = "all";
-const BY_LABELS: Record<string, string> = {
+type By = NonNullable<CoreInput<"agreement.acceptances">["by"]>;
+const BY_LABELS: Record<By, string> = {
   self: "By themselves",
   guardian: "By a parent or guardian",
+  guest: "With an order",
   paper: "Recorded from paper",
 };
 const REASONS: Record<string, string> = {
@@ -55,7 +58,7 @@ function AcceptancesPage() {
   const due = useOp("agreement.due.list", filter);
   const list = useOp("agreement.acceptances", {
     ...filter,
-    ...(by === ALL ? {} : { by: by as "self" | "guardian" | "paper" }),
+    ...(by === ALL ? {} : { by: by as By }),
     ...(where === "desk" ? { channel: "desk" as const } : {}),
     ...(mark === ALL
       ? {}
@@ -199,7 +202,7 @@ function AcceptancesPage() {
                     {a.title}, version {a.versionNumber}
                   </span>
                   <Badge variant={a.by === "paper" ? "outline" : "secondary"}>
-                    {BY_LABELS[a.by] ?? a.by}
+                    {BY_LABELS[a.by]}
                   </Badge>
                   <span className="text-muted-foreground text-sm">
                     {formatDateTime(a.acceptedAt)}

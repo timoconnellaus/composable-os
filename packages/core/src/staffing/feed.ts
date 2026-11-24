@@ -27,6 +27,7 @@
 // `FEED_MAX_SHIFTS` shifts, then each object's rows by id, their kinds' and places' names.
 import type { CoreDatabase } from "@composable-os/db";
 import { type Compilable, CompiledQuery, type Kysely, sql } from "kysely";
+import { base64url, sha256Hex } from "../digest.ts";
 import { objectTableOf, refreshSchemaRegistry } from "../extensions/schema.ts";
 import { resolveExtensionOperation } from "../extensions/tools.ts";
 import { getObject } from "../fields/index.ts";
@@ -66,16 +67,12 @@ export function feedPath(token: string): string {
 
 /** A new token: 32 random bytes, base64url. */
 export function newFeedToken(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return base64url(crypto.getRandomValues(new Uint8Array(32)));
 }
 
 /** SHA-256 of the token, lowercase hex: all the host keeps of it. */
-export async function feedTokenHash(token: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+export function feedTokenHash(token: string): Promise<string> {
+  return sha256Hex(token);
 }
 
 /** Two strings of the same length compared in time that does not depend on where they differ. */
@@ -159,13 +156,8 @@ export async function feedRevocations(
     .executeTakeFirst();
   // A feed made (or rotated by another tool) after this read fails the change whole, so a rotate
   // racing it never leaves a feed the change would have revoked (the review of PR #295).
-  const guard = CompiledQuery.raw(
-    "INSERT INTO core_staff_guard (expected, actual) SELECT ?, count(*) FROM core_staff_feed WHERE account_id = ? AND tool IS ?",
-    [row ? 1 : 0, account, row?.tool ?? null],
-  );
   if (!row) {
-    // No feed now: one made meanwhile is refused by the guard (the tool is null, so count 0 only
-    // while there is none).
+    // No feed now: one made meanwhile is refused by the guard.
     return [
       CompiledQuery.raw(
         "INSERT INTO core_staff_guard (expected, actual) SELECT 0, count(*) FROM core_staff_feed WHERE account_id = ?",
@@ -173,6 +165,10 @@ export async function feedRevocations(
       ),
     ];
   }
+  const guard = CompiledQuery.raw(
+    "INSERT INTO core_staff_guard (expected, actual) SELECT 1, count(*) FROM core_staff_feed WHERE account_id = ? AND tool IS ?",
+    [account, row.tool],
+  );
   if (await mayHoldFeed(db, account, row.tool, after)) return [guard];
   return [guard, revokeFeed(db, account)];
 }

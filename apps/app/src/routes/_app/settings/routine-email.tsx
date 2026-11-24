@@ -20,7 +20,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { LockIcon } from "lucide-react";
 import type { FormEvent } from "react";
 import { toast } from "sonner";
-import { EmptyState } from "#/components/empty-state";
+import { ErrorState } from "#/components/empty-state";
 import { PageLayout } from "#/components/layout/page-layout";
 import { formatDateTime } from "#/lib/format";
 import { errorMessage, useOp, useOpMutation } from "#/lib/query";
@@ -71,7 +71,11 @@ function KindsCard() {
   if (state.isPending) return <Skeleton className="h-48" />;
   if (state.isError) {
     return (
-      <EmptyState title="Could not load routine email" description={errorMessage(state.error)} />
+      <ErrorState
+        title="Could not load routine email"
+        error={state.error}
+        onRetry={() => void state.refetch()}
+      />
     );
   }
   const { kinds, sendsOnItsOwn } = state.data;

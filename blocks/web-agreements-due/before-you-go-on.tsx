@@ -2,16 +2,10 @@
 // something is due (me.agreements.due). Each due document in turn, the member's own first, then
 // each child's linked to them; "Not now" goes on to their account. It is a convenience: the host
 // refuses a booking or a purchase while anything it needs is due, whatever this screen did.
-import {
-  type AgreementsHooks,
-  copyWords,
-  dueReasonWords,
-  dueSteps,
-  forgetAfter,
-} from "@composable-os/client";
+import { type AgreementsHooks, copyWords, dueSteps, forgetAfter } from "@composable-os/client";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../ui-button/button.tsx";
-import { Agree } from "../web-agree/agree.tsx";
+import { Agree, GuardianAgrees } from "../web-agree/agree.tsx";
 
 /** No account page to go on to (the block mounted on its own): stay here. */
 const stay = () => {};
@@ -99,13 +93,7 @@ export function BeforeYouGoOn({
           }}
         />
       ) : (
-        <div className="grid gap-2" data-agreement-guardian>
-          <h2 className="text-lg font-semibold">{item.title}</h2>
-          <p>{dueReasonWords("guardian")}</p>
-          <p className="text-sm">
-            A parent or guardian linked to you agrees to it from their own account, or the business
-            records a paper form they signed.
-          </p>
+        <GuardianAgrees title={item.title}>
           <div className="flex flex-wrap gap-2">
             <Button type="button" onClick={() => setPassed([...passed, key])}>
               Next
@@ -114,7 +102,7 @@ export function BeforeYouGoOn({
               Not now
             </Button>
           </div>
-        </div>
+        </GuardianAgrees>
       )}
     </section>
   );

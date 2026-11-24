@@ -5,6 +5,7 @@ import { z } from "zod";
 import { ValidationError } from "./errors.ts";
 import type { FieldDefinition, ObjectDefinition } from "./fields/types.ts";
 import { compileFilter, filterSchema } from "./filter.ts";
+import { jsonList } from "./records/common.ts";
 import { type Reader, visibleObject, visibleSource } from "./visibility/index.ts";
 
 export const sortSchema = z.object({
@@ -163,9 +164,7 @@ async function pageByIds<DB, TB extends keyof DB, Row extends { id: string }>(
   if (!keys.length) return [];
   const ids = keys.map((k) => k.id);
   const rows = await base
-    .where(
-      sql<SqlBool>`${sql.ref(`${alias}.id`)} IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`,
-    )
+    .where(sql<SqlBool>`${sql.ref(`${alias}.id`)} IN ${jsonList(ids)}`)
     .execute();
   const byId = new Map(rows.map((row) => [row.id, row]));
   return ids.flatMap((id) => {

@@ -4,7 +4,9 @@
 // (cos add web-agree), which does the same with the base layer's look.
 //
 // What a person types, draws and answers stays in this component's memory until "Agree", and is
-// forgotten after it. It decides nothing: the host checks all of it again.
+// forgotten after it, and when they leave the page or the browser brings it back from its
+// back-forward cache (as the web-agree block does). It decides nothing: the host checks all of it
+// again.
 import {
   type AgreeInput,
   type AgreementVersion,
@@ -19,7 +21,7 @@ import {
   StrokeRecorder,
   strokePath,
 } from "@composable-os/client";
-import { type FormEvent, useRef, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 
 export function AgreeForm({
   version,
@@ -37,6 +39,26 @@ export function AgreeForm({
   const [problems, setProblems] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const forget = () => {
+    setForm(emptyAgreeForm(version));
+    recorder.current.clear();
+    setProblems([]);
+    setDrawn((n) => n + 1);
+  };
+  const latestForget = useRef(forget);
+  latestForget.current = forget;
+  useEffect(() => {
+    const hide = () => latestForget.current();
+    const show = (event: PageTransitionEvent) => {
+      if (event.persisted) latestForget.current();
+    };
+    window.addEventListener("pagehide", hide);
+    window.addEventListener("pageshow", show);
+    return () => {
+      window.removeEventListener("pagehide", hide);
+      window.removeEventListener("pageshow", show);
+    };
+  }, []);
 
   const at = (event: { clientX: number; clientY: number }) => {
     const rect = pad.current?.getBoundingClientRect();
@@ -55,8 +77,7 @@ export function AgreeForm({
     setBusy(true);
     try {
       await onAgree(agreeInput(version, form, signature));
-      setForm(emptyAgreeForm(version));
-      recorder.current.clear();
+      forget();
     } catch (e) {
       setError(agreeErrorWords(e));
     } finally {

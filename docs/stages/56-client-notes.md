@@ -49,6 +49,18 @@ may start. A new stage, numbered 56.
   restricted: never self-granted). Not in step 1: kinds and templates and every admin screen
   (step 2), the shipped pack's `team` key (with Jobs), merge moving looks-after rows (step 7),
   the digest needed nothing (it reads no activities).
+- **Step 2 built** (branch `feat/stage-56-note-kinds`, ADR 0833; migration 1232):
+  `core_note_kind` with the four kinds seeded (Note stays `staff` and is never retired) and
+  `note.kinds.list`, `.save`, `.retire` (`notes:manage`; an AI drafts a kind's name and template
+  only, waiting for a person who holds it); every note has a kind (old notes are Notes), starts at
+  its kind's level and is never below its lowest (operations and triggers); a template's sections
+  make the note's body, kept with their labels; Settings → Notes; the admin timeline's composer
+  picks a kind, fills its template and sets the level, and the timeline shows kind and level, a
+  sensitive note locked and opened with `note.open`; the "Looks after" card on the Person (step 1's
+  operations); the composer blocks `web-note-composer` and `native-note-composer` over
+  `@composable-os/client`'s notes entry. Not in step 2: the kind's files (step 3), evidence and
+  retention settings (step 7, with the typed count), client uploads and storage totals (steps 3
+  and 6); existing notes keep their level when a kind's lowest is raised.
 
 These notes can hold health and injury details. This stage is exact about who reads each note,
 records every read of a restricted one, and deletes them on erase. **It is not a clinical record**:

@@ -59,6 +59,7 @@ import { Route as AppSettingsDuplicatesRouteImport } from './routes/_app/setting
 import { Route as AppSettingsExtensionsRouteImport } from './routes/_app/settings/extensions'
 import { Route as AppSettingsGeneralRouteImport } from './routes/_app/settings/general'
 import { Route as AppSettingsIntegrationsRouteImport } from './routes/_app/settings/integrations'
+import { Route as AppSettingsNotesRouteImport } from './routes/_app/settings/notes'
 import { Route as AppSettingsNotificationDeliveryRouteImport } from './routes/_app/settings/notification-delivery'
 import { Route as AppSettingsNotificationRoutesRouteImport } from './routes/_app/settings/notification-routes'
 import { Route as AppSettingsNotificationsRouteImport } from './routes/_app/settings/notifications'
@@ -340,6 +341,11 @@ const AppSettingsIntegrationsRoute = AppSettingsIntegrationsRouteImport.update({
   path: '/settings/integrations',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsNotesRoute = AppSettingsNotesRouteImport.update({
+  id: '/settings/notes',
+  path: '/settings/notes',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsNotificationDeliveryRoute =
   AppSettingsNotificationDeliveryRouteImport.update({
     id: '/settings/notification-delivery',
@@ -524,6 +530,7 @@ export interface FileRoutesByFullPath {
   '/settings/extensions': typeof AppSettingsExtensionsRoute
   '/settings/general': typeof AppSettingsGeneralRoute
   '/settings/integrations': typeof AppSettingsIntegrationsRoute
+  '/settings/notes': typeof AppSettingsNotesRoute
   '/settings/notification-delivery': typeof AppSettingsNotificationDeliveryRoute
   '/settings/notification-routes': typeof AppSettingsNotificationRoutesRoute
   '/settings/notifications': typeof AppSettingsNotificationsRoute
@@ -601,6 +608,7 @@ export interface FileRoutesByTo {
   '/settings/extensions': typeof AppSettingsExtensionsRoute
   '/settings/general': typeof AppSettingsGeneralRoute
   '/settings/integrations': typeof AppSettingsIntegrationsRoute
+  '/settings/notes': typeof AppSettingsNotesRoute
   '/settings/notification-delivery': typeof AppSettingsNotificationDeliveryRoute
   '/settings/notification-routes': typeof AppSettingsNotificationRoutesRoute
   '/settings/notifications': typeof AppSettingsNotificationsRoute
@@ -680,6 +688,7 @@ export interface FileRoutesById {
   '/_app/settings/extensions': typeof AppSettingsExtensionsRoute
   '/_app/settings/general': typeof AppSettingsGeneralRoute
   '/_app/settings/integrations': typeof AppSettingsIntegrationsRoute
+  '/_app/settings/notes': typeof AppSettingsNotesRoute
   '/_app/settings/notification-delivery': typeof AppSettingsNotificationDeliveryRoute
   '/_app/settings/notification-routes': typeof AppSettingsNotificationRoutesRoute
   '/_app/settings/notifications': typeof AppSettingsNotificationsRoute
@@ -759,6 +768,7 @@ export interface FileRouteTypes {
     | '/settings/extensions'
     | '/settings/general'
     | '/settings/integrations'
+    | '/settings/notes'
     | '/settings/notification-delivery'
     | '/settings/notification-routes'
     | '/settings/notifications'
@@ -836,6 +846,7 @@ export interface FileRouteTypes {
     | '/settings/extensions'
     | '/settings/general'
     | '/settings/integrations'
+    | '/settings/notes'
     | '/settings/notification-delivery'
     | '/settings/notification-routes'
     | '/settings/notifications'
@@ -914,6 +925,7 @@ export interface FileRouteTypes {
     | '/_app/settings/extensions'
     | '/_app/settings/general'
     | '/_app/settings/integrations'
+    | '/_app/settings/notes'
     | '/_app/settings/notification-delivery'
     | '/_app/settings/notification-routes'
     | '/_app/settings/notifications'
@@ -1316,6 +1328,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsIntegrationsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings/notes': {
+      id: '/_app/settings/notes'
+      path: '/settings/notes'
+      fullPath: '/settings/notes'
+      preLoaderRoute: typeof AppSettingsNotesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings/notification-delivery': {
       id: '/_app/settings/notification-delivery'
       path: '/settings/notification-delivery'
@@ -1536,6 +1555,7 @@ interface AppRouteChildren {
   AppSettingsExtensionsRoute: typeof AppSettingsExtensionsRoute
   AppSettingsGeneralRoute: typeof AppSettingsGeneralRoute
   AppSettingsIntegrationsRoute: typeof AppSettingsIntegrationsRoute
+  AppSettingsNotesRoute: typeof AppSettingsNotesRoute
   AppSettingsNotificationDeliveryRoute: typeof AppSettingsNotificationDeliveryRoute
   AppSettingsNotificationRoutesRoute: typeof AppSettingsNotificationRoutesRoute
   AppSettingsNotificationsRoute: typeof AppSettingsNotificationsRoute
@@ -1600,6 +1620,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSettingsExtensionsRoute: AppSettingsExtensionsRoute,
   AppSettingsGeneralRoute: AppSettingsGeneralRoute,
   AppSettingsIntegrationsRoute: AppSettingsIntegrationsRoute,
+  AppSettingsNotesRoute: AppSettingsNotesRoute,
   AppSettingsNotificationDeliveryRoute: AppSettingsNotificationDeliveryRoute,
   AppSettingsNotificationRoutesRoute: AppSettingsNotificationRoutesRoute,
   AppSettingsNotificationsRoute: AppSettingsNotificationsRoute,

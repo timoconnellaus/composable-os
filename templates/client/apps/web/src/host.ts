@@ -3,12 +3,8 @@
 // from the customer's session cookie, which it set on this app's hostname at sign-in.
 //
 // This file has no framework in it, so it works the same in any Worker. src/server.ts uses it.
-import {
-  ApiError,
-  CUSTOMER_AUTH_PATH,
-  customerSession,
-  keepCustomerSignedIn,
-} from "@composable-os/client";
+import { CUSTOMER_AUTH_PATH, customerSession, keepCustomerSignedIn } from "@composable-os/client";
+import { signedOut } from "./agreements.ts";
 import { createCustomerClient, operations } from "./client/customer.ts";
 
 export interface HostEnv {
@@ -34,7 +30,7 @@ export async function signedInCustomer(env: HostEnv, request: Request) {
     return await customerApi(env, request).call("me.get", {});
   } catch (error) {
     // me.get is open to customers only: the public gets the unknown-operation answer.
-    if (error instanceof ApiError && error.code === "unknown_operation") return null;
+    if (signedOut(error)) return null;
     throw error;
   }
 }

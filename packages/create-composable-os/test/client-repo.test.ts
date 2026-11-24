@@ -490,6 +490,33 @@ describe("a pack role's client in the mobile app (ADR 0451)", () => {
     expect(refused.output).toContain("no grantable permission rostering:nothing");
   });
 
+  it("mobile.owner writes the owner's client: only its listed operations (stage 60, ADR 0872)", async () => {
+    await publish("1.0.0");
+    const dir = await created();
+    setPacks(dir, ["bookings", "memberships", "rostering"]);
+    writeFileSync(
+      join(dir, "product.ts"),
+      read(dir, "product.ts").replace(
+        /(\n\s*web: \{[^\n]*\},)/,
+        '$1\n  mobile: { dir: "apps/mobile", owner: true },',
+      ),
+    );
+    const generated = await cos("client", "generate");
+    expect(generated.code, generated.output).toBe(0);
+    expect(generated.output).toContain("roles/owner.ts");
+    const owner = read(dir, "apps/mobile/src/client/roles/owner.ts");
+    expect(owner).toContain("createOwnerClient");
+    for (const name of ["approval.approve", "approval.list", "notification.list", "user.me"]) {
+      expect(owner).toContain(`"${name}"`);
+    }
+    // No other staff operation, and no pack's: the host's Today names the packs' numbers.
+    for (const name of ["record.list", "person.list", "approval.decide", "x.bookings.roster"]) {
+      expect(owner).not.toContain(`"${name}"`);
+    }
+    // The customer client is unchanged by it.
+    expect(read(dir, "apps/mobile/src/client/customer.ts")).not.toContain('"approval.list"');
+  });
+
   it("refuses a role of a pack the product does not list", async () => {
     await publish("1.0.0");
     const dir = await created();

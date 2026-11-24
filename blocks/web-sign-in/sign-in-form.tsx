@@ -32,6 +32,9 @@ export function SignInForm({ onSignedIn }: { onSignedIn: () => void }) {
         else setError("We could not send a code. Try again in a moment.");
       } else if (await post("/auth/sign-in", { email, code })) onSignedIn();
       else setError("That code did not work. Check it, or ask for a new one.");
+    } catch {
+      // The web app could not be reached (offline): say so; the button stays to try again.
+      setError("We could not reach the business just now. Check your connection and try again.");
     } finally {
       setBusy(false);
     }

@@ -9,6 +9,7 @@
 import { unroutineText, unroutineWords } from "@composable-os/sdk";
 import { z } from "zod";
 import { canonicalJson } from "../agreements/documents.ts";
+import { sha256Hex } from "../digest.ts";
 
 export const JOURNEY_KINDS = ["service", "promotional"] as const;
 export type JourneyKind = (typeof JOURNEY_KINDS)[number];
@@ -497,7 +498,5 @@ export async function journeyHash(kind: JourneyKind, definitionJson: string): Pr
   } catch {
     definition = definitionJson;
   }
-  const bytes = new TextEncoder().encode(canonicalJson({ kind, definition }));
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
-  return [...digest].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return sha256Hex(canonicalJson({ kind, definition }));
 }

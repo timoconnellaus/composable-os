@@ -15,22 +15,21 @@ import { jsonList } from "../records/common.ts";
 import { isTimezone, loadGeneralSettings } from "../settings.ts";
 import { HOURS_MAX, type KindRef, onlyForOf, WEEKDAYS } from "../staffing/hours.ts";
 import { actingAccount, mayRoster } from "../staffing/rosterers.ts";
+import { namesOf } from "../staffing/sets.ts";
 import { localParts } from "../time/local.ts";
 import {
+  accountId,
   assertPersonApplies,
   assertRosterer,
   assertShippedToolRun,
   instantOf,
+  localDate,
+  localDateTime,
+  localTime,
   requireAccount,
   requireKindObject,
 } from "./staffing.ts";
 
-const accountId = z.string().min(1).max(64);
-const localDateTime = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, "a local date and time, YYYY-MM-DDTHH:MM");
-const localDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date, YYYY-MM-DD");
-const localTime = z.string().regex(/^[0-2]\d:[0-5]\d$/, "a time, HH:MM");
 const kindRef = z.object({ object: z.string().min(1).max(81), id: z.string().min(1).max(64) });
 
 /** The longest extra hours one entry gives: hours on a date, overnight at most. */
@@ -113,16 +112,6 @@ function itemOf(r: Omit<CoreStaffHoursTable, "set_by" | "set_at">, name: string)
     zone: r.zone,
     onlyFor: onlyForOf(r) ?? [],
   };
-}
-
-async function namesOf(ctx: HandlerContext, accounts: string[]): Promise<Map<string, string>> {
-  if (!accounts.length) return new Map();
-  const users = await ctx.db
-    .selectFrom("core_user")
-    .select(["id", "name", "email"])
-    .where("id", "in", jsonList([...new Set(accounts)]))
-    .execute();
-  return new Map(users.map((u) => [u.id, u.name || u.email]));
 }
 
 export const staffingHoursSet = defineOperation({
