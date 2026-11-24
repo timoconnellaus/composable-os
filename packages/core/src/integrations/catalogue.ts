@@ -125,6 +125,16 @@ export const CATALOGUE: readonly CatalogueEntry[] = [
     scopes: ["org"],
   },
   {
+    vendor: "text",
+    title: "Text messages",
+    description:
+      "Send members' routine texts and checking codes from the business's own number, through " +
+      "its own text provider account. Keys stay in the gatekeeper; nothing but the host's " +
+      "routine messages can send a text.",
+    connect: "auto",
+    scopes: ["org"],
+  },
+  {
     vendor: "accounting-fake",
     title: "Fake books (development)",
     description:

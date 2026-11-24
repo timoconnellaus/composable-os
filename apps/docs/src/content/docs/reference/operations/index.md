@@ -57,6 +57,7 @@ Every operation in the core registry, grouped by the first part of its name. Any
 - [`me`](/reference/operations/me/)
 - [`media`](/reference/operations/media/)
 - [`memory`](/reference/operations/memory/)
+- [`messages`](/reference/operations/messages/)
 - [`my`](/reference/operations/my/)
 - [`note`](/reference/operations/note/)
 - [`notification`](/reference/operations/notification/)

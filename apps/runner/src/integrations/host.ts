@@ -17,11 +17,13 @@ import {
   ACCOUNTING_HOST_ONLY,
   type ActingUser,
   applyStoredPaymentEvent,
+  applyTextEvent,
   type BoundResource,
   type ConnectRedeemed,
   type ConnectStart,
   catalogueEntry,
   claimRoutineMail,
+  claimRoutineText,
   errorForLog,
   type IntegrationCaller,
   type IntegrationCallResult,
@@ -39,6 +41,7 @@ import {
   type SyncConfig,
   type SyncItem,
   settleRoutineMail,
+  settleRoutineText,
   sha256Hex,
   siteOriginOf,
   syncedInWindow,
@@ -101,7 +104,7 @@ interface FacetRecord {
 interface HookRecord {
   id: string;
   facetKey: string;
-  purpose: "sync" | "webhook" | "payments" | "agent";
+  purpose: "sync" | "webhook" | "payments" | "text-events" | "agent";
   title: string;
   description: string;
   enabled: boolean;
@@ -275,6 +278,23 @@ export class PaymentSink extends RpcTarget {
       // Stored: the minute cron applies it.
       console.error("payments: event stored, not yet applied", key.eventId, errorForLog(error));
     }
+  }
+}
+
+/**
+ * The text gatekeeper's verified receipts and replies (stage 30, ADR 0672): a receipt settles its
+ * routine message's row, a STOP stops every text to the number, a START lifts it. Applied at once;
+ * a failure is thrown, so the gatekeeper's delivery queue tries again.
+ */
+export class TextSink extends RpcTarget {
+  readonly #env: Env;
+  constructor(env: Env) {
+    super();
+    this.#env = env;
+  }
+  async receiveEvent(event: unknown): Promise<void> {
+    const done = await applyTextEvent(createCrmDb(this.#env.DB).query, event);
+    if (done === "ignored") console.warn("text: a delivered event was not one this host applies");
   }
 }
 
@@ -657,6 +677,18 @@ export class IntegrationHost extends DurableObject<Env> {
         (s) => s.subscribe(new PaymentSink(this.env, meta.connectionId)),
       );
     }
+    // The text sender delivers its verified receipts and replies from the moment it is bound.
+    if (meta.vendor === "text") {
+      await this.#withSession(
+        key,
+        {
+          kind: "system",
+          purpose: "text-events",
+          user: await loadUser(this.env, meta.ownerUserId),
+        },
+        (s) => s.subscribe(new TextSink(this.env)),
+      );
+    }
     // A webhook endpoint delivers into the CRM's event log from the moment it is bound.
     if (meta.vendor === "webhook") {
       await this.#withSession(
@@ -847,7 +879,7 @@ export class IntegrationHost extends DurableObject<Env> {
     resource: string;
     method: string;
     args: unknown[];
-    purpose: "orders" | "sign-in" | "agreements" | "accounting";
+    purpose: "orders" | "sign-in" | "agreements" | "accounting" | "phone-check";
     origin?: string;
   }): Promise<IntegrationCallResult> {
     const meta = await this.#meta();
@@ -856,7 +888,8 @@ export class IntegrationHost extends DurableObject<Env> {
       input.purpose !== "orders" &&
       input.purpose !== "sign-in" &&
       input.purpose !== "agreements" &&
-      input.purpose !== "accounting"
+      input.purpose !== "accounting" &&
+      input.purpose !== "phone-check"
     ) {
       throw new Error("Not a purpose the host calls for");
     }
@@ -885,6 +918,14 @@ export class IntegrationHost extends DurableObject<Env> {
       // host records, by the system user. Its posts apply at once unless the floor denies them; a
       // void always waits for an admin (ALWAYS_REVIEWED_KINDS).
       caller = { kind: "system", purpose: "accounting", user: SYSTEM_USER };
+    } else if (input.purpose === "phone-check") {
+      // A member's number checked by code (ADR 0673): one code sent, or one checked, by the
+      // system user. The text gatekeeper takes either from this queue only.
+      if (input.method !== "startCheck" && input.method !== "check") {
+        throw new Error("A phone check sends a code or checks one");
+      }
+      if (meta.vendor !== "text") throw new Error("A phone check goes through the text connection");
+      caller = { kind: "system", purpose: "phone-check", user: SYSTEM_USER };
     } else {
       caller = {
         kind: "system",
@@ -980,6 +1021,128 @@ export class IntegrationHost extends DurableObject<Env> {
     return { status: "waiting" };
   }
 
+  /**
+   * Sends one routine text (ADR 0672): the text row of core_routine_mail `id`, claimed here (its
+   * kind and text still on, its number not stopped, its cost within the month's limit, its
+   * number's day) and sent with the row's own words, never a caller's, through the routine-mail
+   * queue, which tells the gate and the text gatekeeper whether the host decided it routine. A held
+   * one is put to a person. Only the runner's send step calls this. The text connection only.
+   */
+  async sendRoutineText(input: { id: string; resource: string }): Promise<{
+    status:
+      | "sent"
+      | "waiting"
+      | "denied"
+      | "failed"
+      | "skipped"
+      | "off"
+      | "stopped"
+      | "over_limit"
+      | "expired"
+      | "held";
+    pendingActionId?: string;
+    error?: string;
+  }> {
+    const meta = await this.#meta();
+    if (meta.scope !== "org" || meta.vendor !== "text") {
+      throw new Error("Routine texts go out through the org text connection only");
+    }
+    const db = createCrmDb(this.env.DB).query;
+    const claimed = await claimRoutineText(db, input.id, meta.connectionId);
+    if (!claimed) return { status: "skipped" };
+    if (claimed.status !== "send") return { status: claimed.status };
+    const row = claimed.row;
+    const settings = await loadRoutineMailSettings(db);
+    const caller: QueueCaller = {
+      kind: "system",
+      purpose: "routine-mail",
+      user: await loadUser(this.env, meta.ownerUserId),
+      routine: {
+        id: row.id,
+        kind: row.kind,
+        routine: row.routine,
+        ordinary: false,
+        heldReason: row.heldReason,
+        automationId: row.automationId,
+        runId: row.runId,
+        extensionId: row.extensionId,
+        siteOrigin: siteOriginOf(settings.siteOrigin),
+        channel: "text",
+      },
+    };
+    let queue: HostQueue;
+    let receipt: unknown;
+    try {
+      ({ queue, value: receipt } = await this.#withSession(
+        input.resource,
+        caller,
+        async (session) =>
+          toJson(
+            await session.send({
+              to: row.to,
+              text: row.text,
+              business: row.business,
+              idempotencyKey: `routine:${row.id}`,
+            }),
+          ),
+      ));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // The gatekeeper refused the text itself (its shape, a STOP): it never goes, so it is not
+      // tried again every minute (the review of PR #435).
+      if (/^(Invalid text|Refused)/.test(message)) {
+        await settleRoutineText(db, row, { status: "failed", error: message, refund: true });
+        return { status: "failed", error: message };
+      }
+      // Not handed over (a full pending pool, a failure on the way): back as it was, to retry.
+      await settleRoutineText(db, row, { status: "back", error: message });
+      throw error;
+    }
+    const pending = queue.pending[0];
+    if (pending) {
+      await settleRoutineText(db, row, { status: "waiting", pendingActionId: pending.actionId });
+      return { status: "waiting", pendingActionId: pending.actionId };
+    }
+    const failed = queue.failed[0];
+    if (failed) {
+      await settleRoutineText(db, row, { status: "failed", error: failed.message });
+      return { status: "failed", error: failed.message };
+    }
+    if (queue.denied.length) {
+      await settleRoutineText(db, row, { status: "denied" });
+      return { status: "denied" };
+    }
+    const sent =
+      queue.applied.length > 0 || (receipt as { status?: unknown } | null)?.status === "sent";
+    if (sent) {
+      await settleRoutineText(db, row, { status: "sent" });
+      return { status: "sent" };
+    }
+    // The gatekeeper answered with an earlier try's send (its key), still waiting: that try's
+    // approval, which the row did not record when the host stopped (the review of PR #435).
+    const action = (receipt as { id?: unknown } | null)?.id;
+    const earlier =
+      typeof action === "number"
+        ? await db
+            .selectFrom("core_pending_action")
+            .select("id")
+            .where("connection_id", "=", meta.connectionId)
+            .where("gk_action", "=", action)
+            .where("status", "=", "pending")
+            .executeTakeFirst()
+        : undefined;
+    if (earlier) {
+      await settleRoutineText(db, row, { status: "waiting", pendingActionId: earlier.id });
+      return { status: "waiting", pendingActionId: earlier.id };
+    }
+    // Decided since without being sent (turned down, or expired): it does not go.
+    await settleRoutineText(db, row, {
+      status: "failed",
+      error: "an earlier try of this text was turned down or expired",
+    });
+    return { status: "failed", error: "an earlier try of this text was turned down or expired" };
+  }
+
   /** A session stub for code (Code Mode, extension tools) acting as `caller`. */
   async openSession(input: { resource: string; caller: IntegrationCaller }): Promise<Stub> {
     const meta = await this.#meta();
@@ -1015,7 +1178,7 @@ export class IntegrationHost extends DurableObject<Env> {
   async #enableHook(
     id: string,
     facetKey: string,
-    purpose: "sync" | "webhook" | "payments",
+    purpose: "sync" | "webhook" | "payments" | "text-events",
     d: { title: string; description: string },
   ): Promise<void> {
     const meta = await this.#meta();
@@ -1042,14 +1205,18 @@ export class IntegrationHost extends DurableObject<Env> {
     const { record } = await this.#facetFor(hook.facetKey);
     const user = await loadUser(this.env, meta.ownerUserId);
     const purpose =
-      hook.purpose === "webhook" || hook.purpose === "payments" ? hook.purpose : "sync";
+      hook.purpose === "webhook" || hook.purpose === "payments" || hook.purpose === "text-events"
+        ? hook.purpose
+        : "sync";
     const queue = new HostQueue(this.#queueHost(meta, record), { kind: "system", purpose, user });
     const callback =
       hook.purpose === "webhook"
         ? new WebhookSink(this.env, meta.connectionId)
         : hook.purpose === "payments"
           ? new PaymentSink(this.env, meta.connectionId)
-          : new SyncHookTarget(() => this.syncSoon());
+          : hook.purpose === "text-events"
+            ? new TextSink(this.env)
+            : new SyncHookTarget(() => this.syncSoon());
     return { callback, approvalQueue: queue };
   }
 

@@ -173,6 +173,22 @@ export type Operations = {
     output: { id: string; displayName: string; givenName: (string) | (null); familyName: (string) | (null); primaryEmail: (string) | (null); primaryPhone: (string) | (null); signInEmail: string; signInEmailVerified: boolean };
   };
   /**
+   * Checks the code a text sent to one of your own numbers (me.phone.startCheck). A match marks the number as checked: your routine texts may go to it.
+   */
+  "me.phone.check": {
+    kind: "mutation";
+    input: { number: string; code: string };
+    output: { checked: boolean };
+  };
+  /**
+   * Sends a code by text to one of your own mobile numbers, to check it is yours. Type it back with me.phone.check within 10 minutes. At most three codes a day.
+   */
+  "me.phone.startCheck": {
+    kind: "mutation";
+    input: { number: string };
+    output: { started: true; number: string; minutes: number };
+  };
+  /**
    * Remove your PIN, as a signed-in customer: nobody can then check in as you by name and PIN. Your check-in code and cards still work. Clearing when there is none changes nothing.
    */
   "me.pin.clear": {
@@ -413,6 +429,8 @@ export const operations = {
   "me.deleteAccount": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.calendarFeed.status","me.family","me.get","me.sessions.list","my.get","my.list"] },
   "me.family": { kind: "query", invalidates: [] },
   "me.get": { kind: "query", invalidates: [] },
+  "me.phone.check": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.calendarFeed.status","me.family","me.get","me.sessions.list","my.get","my.list"] },
+  "me.phone.startCheck": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.calendarFeed.status","me.family","me.get","me.sessions.list","my.get","my.list"] },
   "me.pin.clear": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.calendarFeed.status","me.family","me.get","me.sessions.list","my.get","my.list"] },
   "me.pin.set": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.calendarFeed.status","me.family","me.get","me.sessions.list","my.get","my.list"] },
   "me.sessions.list": { kind: "query", invalidates: [] },

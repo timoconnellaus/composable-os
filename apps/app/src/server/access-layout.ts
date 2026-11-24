@@ -72,6 +72,12 @@ export const ACCESS_BYPASS: readonly BypassedPath[] = [
     authenticates: "The payment provider's webhook, checked against STRIPE_WEBHOOK_SECRET.",
   },
   {
+    path: "/gatekeeper/text/in/*",
+    when: "if-used",
+    authenticates:
+      "The text provider's webhook (receipts and STOP, START and HELP replies), checked against the provider's signing secret.",
+  },
+  {
     path: "/gatekeeper/webhook/in/*",
     when: "if-used",
     authenticates: "Inbound webhooks, each signed with its own endpoint's secret.",
@@ -219,6 +225,7 @@ export const GATEKEEPER_ROUTES: Readonly<Record<string, readonly string[]>> = {
   websearch: [],
   webhook: ["/gatekeeper/webhook/in/*"],
   payments: ["/gatekeeper/payments/in/*", "/gatekeeper/payments/fake/pay/*"],
+  text: ["/gatekeeper/text/in/*"],
   fake: [],
   // The fake accounting books (stage 61): development and tests only, and it serves no routes.
   "accounting-fake": [],

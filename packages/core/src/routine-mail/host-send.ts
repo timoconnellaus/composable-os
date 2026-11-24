@@ -1,7 +1,7 @@
 // A host kind's send from host code (ADR 0670): prepare its rows, then hand each email to the
 // integration host, through the org email connection an admin picked in Settings → Notification
-// delivery (the one the host's own mail uses, ADR 0429). Texts and pushes are their gatekeepers'
-// (later steps); here they are only prepared and logged.
+// delivery (the one the host's own mail uses, ADR 0429), and each text to the text connection
+// (ADR 0672). Pushes are their gatekeeper's (a later step); here they are only prepared and logged.
 import type { CoreDatabase } from "@composable-os/db";
 import type { RoutineSendResult } from "@composable-os/sdk";
 import type { Kysely } from "kysely";
@@ -9,6 +9,7 @@ import type { IntegrationRuntime } from "../integrations/runtime.ts";
 import { resolveChannelTarget } from "../notifications/channels.ts";
 import { loadDeliverySettings } from "../notifications/preferences.ts";
 import { type PrepareHostRoutineMailInput, prepareHostRoutineMail } from "./index.ts";
+import { sendReadyTexts } from "./texts.ts";
 
 /**
  * Sends a host kind's message about one record. Never throws for a send that cannot go (no email
@@ -53,6 +54,19 @@ export async function sendHostRoutineMessage(
         `host routine message ${row.id}: ${error instanceof Error ? error.message : error}`,
       );
     }
+  }
+  // Its texts (ADR 0672): those ready now, and held ones to put to a person. Never throws: a row
+  // that did not go waits for the minute cron.
+  try {
+    const texts = await sendReadyTexts(deps, {
+      ids: prepared.phone
+        .filter((p) => p.channel === "text" && (p.status === "ready" || p.status === "held"))
+        .map((p) => p.id),
+    });
+    sent += texts.sent;
+    held += texts.waiting;
+  } catch (error) {
+    console.warn(`host routine texts: ${error instanceof Error ? error.message : error}`);
   }
   return { sent, held, off, none: prepared.none };
 }

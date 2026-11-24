@@ -58,6 +58,7 @@ import { locationOperations } from "./location.ts";
 import { meOperations } from "./me.ts";
 import { meAttentionOperations } from "./me-attention.ts";
 import { meCalendarFeedOperations } from "./me-calendar-feed.ts";
+import { mePhoneOperations } from "./me-phone.ts";
 import { mediaOperations } from "./media.ts";
 import { mediaVideoOperations } from "./media-video.ts";
 import { memoryOperations } from "./memory.ts";
@@ -196,6 +197,7 @@ export const coreOperations = [
   ...deviceSessionOperations,
   ...customerOperations,
   ...meOperations,
+  ...mePhoneOperations,
   ...meAttentionOperations,
   ...personLinkOperations,
   ...noteOperations,

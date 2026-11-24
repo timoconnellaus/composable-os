@@ -1187,12 +1187,15 @@ export function gatekeeperPlan(
       }
       vars[worker.name] = { ...vars[worker.name], [key]: String(value) };
     }
-    if (
-      vars[worker.name]?.PAYMENTS_FAKE_PROVIDER === "true" &&
-      isLiveEnvironment(product, environment)
-    ) {
+    const fake =
+      vars[worker.name]?.PAYMENTS_FAKE_PROVIDER === "true"
+        ? "the fake payment provider"
+        : vars[worker.name]?.TEXT_PROVIDER === "fake"
+          ? "the fake text provider"
+          : null;
+    if (fake && isLiveEnvironment(product, environment)) {
       return {
-        problem: `${where} is live and turns on the fake payment provider: only an environment marked live: false may.`,
+        problem: `${where} is live and turns on ${fake}: only an environment marked live: false may.`,
       };
     }
   }

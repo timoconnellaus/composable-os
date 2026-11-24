@@ -157,6 +157,20 @@ describe("a client product's environments (ADR 0450)", () => {
     expect(() =>
       defineClientProduct({ ...gym, environments: undefined, gatekeepers: fake }),
     ).toThrow(/the product is live/);
+    // The fake text provider likewise (ADR 0672): a live host texts through a real account only.
+    const fakeText = { text: { TEXT_PROVIDER: "fake", TEXT_SENDER_NUMBER: "+61400000999" } };
+    expect(() =>
+      defineClientProduct({
+        ...gym,
+        environments: { staging: { gatekeepers: fakeText }, live: {} },
+      }),
+    ).toThrow(/environment staging is live and turns on the fake text provider/);
+    expect(
+      defineClientProduct({
+        ...gym,
+        environments: { staging: { live: false, gatekeepers: fakeText }, live: {} },
+      }),
+    ).toBeTruthy();
     expect(() => defineClientProduct({ ...gym, environments: { live: { live: false } } })).toThrow(
       /cannot be marked live: false/,
     );

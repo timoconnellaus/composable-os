@@ -59,6 +59,9 @@ No fields.
 | `quietHours.end` | string | yes | pattern `^([01]\d\|2[0-3]):[0-5]\d$` |   |
 | `quietZone` | string or null | yes |   | The time zone quiet hours are read in; no text or push goes until it is set |
 | `senderName` | string or null | yes |   | The name every text begins with; no text goes until it is set |
+| `textLimitMinor` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | The month's text limit in minor units of the business's currency; 0 sends no texts |
+| `textSegmentPriceMinor` | integer or null | yes |   | What one text segment costs, in minor units; no text goes until it is set |
+| `textCountries` | array of `"AU"`, `"NZ"`, `"GB"`, `"IE"`, `"US"`, `"CA"` | yes |   | The countries texts may go to, the business's own first; none sends no texts |
 | `sendsOnItsOwn` | `"auto"`, `"review"`, `"deny"` | yes |   | What the approval policy and the deploy floor do with routine mail now: auto (it sends on its own), review (each waits for a person: the Cautious policy, or a floor of review on outbound) or deny (a floor refuses outbound) |
 
 ## routineMail.log
@@ -110,7 +113,7 @@ The routine email log (ADR 0590), newest first: each email a shipped pack's auto
 
 ## routineMail.settings.update
 
-Turn a pack's routine email on (packs: { bookings: true }: its kinds then send without approval; off, each is an ordinary send the policy decides), turn one kind on or off (kinds: { 'bookings.reminder': false }: off sends nothing and queues nothing), or set the business's own site, the only place routine email links to (siteOrigin, an https origin; null removes the links), the organisation's daily limit (orgDailyCap) or how long the log is kept (retentionMonths). Switch a kind's text or push on (channels: { 'bookings.reminder': { push: true } }, only channels the kind declares), whether a member reached by push is also texted (textOnlyWithoutApp), or quiet hours, when texts and pushes wait (quietHours: { start: '21:00', end: '07:00' }; the same start and end: none) and the time zone they are read in (quietZone, e.g. 'Europe/London'), or the name every text begins with (senderName, at most 30 characters). A text or push cannot be switched on until quietZone is set, nor a text until senderName is. Only what you pass changes. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.
+Turn a pack's routine email on (packs: { bookings: true }: its kinds then send without approval; off, each is an ordinary send the policy decides), turn one kind on or off (kinds: { 'bookings.reminder': false }: off sends nothing and queues nothing), or set the business's own site, the only place routine email links to (siteOrigin, an https origin; null removes the links), the organisation's daily limit (orgDailyCap) or how long the log is kept (retentionMonths). Switch a kind's text or push on (channels: { 'bookings.reminder': { push: true } }, only channels the kind declares), whether a member reached by push is also texted (textOnlyWithoutApp), or quiet hours, when texts and pushes wait (quietHours: { start: '21:00', end: '07:00' }; the same start and end: none) and the time zone they are read in (quietZone, e.g. 'Europe/London'), or the name every text begins with (senderName, at most 30 characters). A text or push cannot be switched on until quietZone is set, nor a text until senderName is. Texts: the month's limit (textLimitMinor, in minor units of the business's currency; 0 sends none), what one segment costs (textSegmentPriceMinor, from the provider's price list), and the countries texts may go to (textCountries, ISO codes, the business's own first). Only what you pass changes. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.
 
 |  |  |
 | --- | --- |
@@ -136,6 +139,9 @@ Turn a pack's routine email on (packs: { bookings: true }: its kinds then send w
 | `quietHours.end` | string | yes | pattern `^([01]\d\|2[0-3]):[0-5]\d$` |   |
 | `quietZone` | string or null |   |   |   |
 | `senderName` | string or null |   |   |   |
+| `textLimitMinor` | integer |   | ≥ 0, ≤ 100000000 |   |
+| `textSegmentPriceMinor` | integer or null |   |   |   |
+| `textCountries` | array of `"AU"`, `"NZ"`, `"GB"`, `"IE"`, `"US"`, `"CA"` |   | at most 6 |   |
 
 ### Output
 
@@ -153,3 +159,6 @@ Turn a pack's routine email on (packs: { bookings: true }: its kinds then send w
 | `quietHours.end` | string | yes | pattern `^([01]\d\|2[0-3]):[0-5]\d$` |   |
 | `quietZone` | string or null | yes |   |   |
 | `senderName` | string or null | yes |   |   |
+| `textLimitMinor` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `textSegmentPriceMinor` | integer or null | yes |   |   |
+| `textCountries` | array of `"AU"`, `"NZ"`, `"GB"`, `"IE"`, `"US"`, `"CA"` | yes |   |   |

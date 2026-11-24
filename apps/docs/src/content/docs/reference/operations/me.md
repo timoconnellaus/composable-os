@@ -445,6 +445,55 @@ No fields.
 | `signInEmail` | string | yes |   | The address you sign in with: the one the emailed code verified, lower-cased. Not the Person's contact email (primaryEmail), which staff can change. The only address to trust when linking records kept elsewhere to this customer. |
 | `signInEmailVerified` | boolean | yes |   | Whether signInEmail was verified by an emailed code. True for every signed-in customer. |
 
+## me.phone.check
+
+Checks the code a text sent to one of your own numbers (me.phone.startCheck). A match marks the number as checked: your routine texts may go to it.
+
+|  |  |
+| --- | --- |
+| Permission | `records:write` |
+| Risk | `write` |
+| Audiences | `customer` |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `number` | string | yes | min length 3, max length 40 | One of your own numbers, as it is in your details |
+| `code` | string | yes | pattern `^\d{4,10}$` |   |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `checked` | boolean | yes |   |   |
+
+## me.phone.startCheck
+
+Sends a code by text to one of your own mobile numbers, to check it is yours. Type it back with me.phone.check within 10 minutes. At most three codes a day.
+
+|  |  |
+| --- | --- |
+| Permission | `records:write` |
+| Risk | `write` |
+| Audiences | `customer` |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `number` | string | yes | min length 3, max length 40 | One of your own numbers, as it is in your details |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `started` | `true` | yes |   |   |
+| `number` | string | yes |   | The number the code went to, partly hidden |
+| `minutes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | How long the code may be typed back |
+
 ## me.pin.clear
 
 Remove your PIN, as a signed-in customer: nobody can then check in as you by name and PIN. Your check-in code and cards still work. Clearing when there is none changes nothing.

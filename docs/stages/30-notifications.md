@@ -39,6 +39,16 @@ coordinator as best practice the same day). Build may start.
   and 0676 (ADR 0590 amended). The name a text begins with and the zone of quiet hours are human
   admins' routine settings (`senderName`, `quietZone`). Left: nothing reaches a phone until steps
   3 to 5; step 2 takes migration 0915 for the subscription's card expiry and sent markers.
+- Step 3, texts (`feat/stage-30-text`): built. `packages/gatekeeper-text`: one provider interface,
+  the fake (refused in a live environment), the business's sender number; only the host's queues
+  (`routine-mail`, `phone-check`, `text-events`), every caller's refused; `text.routine` or a held
+  text reviewed with the number masked; one pool of 500; verified receipts, STOP, START and HELP.
+  Marks on phone numbers, the textable number, `me.phone.startCheck` / `me.phone.check`, the
+  month's limit counted at claim with the 80% and limit notices, five texts a day per number, the
+  routine settings `textLimitMinor`, `textSegmentPriceMinor`, `textCountries`, `messages.textSpend`.
+  Migration 0911 (`core_text_spend`, `core_phone_check`, `core_text_stop`), ADRs 0672 and 0673.
+  Not built: a real provider module (with the first business's account, step 8); STOP is kept in
+  `core_text_stop`, which step 5's suppression list reads for texts.
 
 ## Goal
 
