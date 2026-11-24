@@ -191,7 +191,7 @@ Stop preview links of one record of a content object working now: one by its id 
 
 ## content.search
 
-Search the published records of a content object (help pages, blog posts) by the words the public reads in them: their published versions only, never a draft or a working copy. Every word of two letters or more must match the start of a word, so partial input works. Best matches first, one result per record, each with its slug, title, the section the best match is in (its heading and anchor, to link to) and a highlighted snippet as plain and matching parts. Pass nextCursor back as cursor. Read-only.
+Search the published records of a content object (help pages, blog posts) by the words the public reads in them: their published versions only, never a draft or a working copy. Staff searching an object they read as published (procedures) search all its published words. Every word of two letters or more must match the start of a word, so partial input works. Best matches first, one result per record, each with its slug, title, the section the best match is in (its heading and anchor, to link to) and a highlighted snippet as plain and matching parts. Pass nextCursor back as cursor. Read-only.
 
 |  |  |
 | --- | --- |
@@ -232,4 +232,67 @@ Search the published records of a content object (help pages, blog posts) by the
 | `items[].snippet` | array of object or null | yes |   | A short excerpt of the matching words, as plain and matching parts (no HTML) |
 | `items[].snippet.text` | string | yes |   |   |
 | `items[].snippet.match` | boolean | yes |   |   |
+| `nextCursor` | string or null | yes |   |   |
+
+## content.staffGet
+
+Read one published record (a procedure) of an object staff read as published, by id or by slug: its current published version, never the working copy being edited, with its content fields, its slug, the version number and when it was published. A draft, an unpublished record and an unknown id or slug are all not found. Every staff account may read it, pack roles included. Read-only.
+
+|  |  |
+| --- | --- |
+| Permission | `records:read` |
+| Risk | `read` |
+| Audiences | `staff` |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `object` | string | yes | min length 1, max length 80 | A publishable object staff read the published version of, e.g. `knowledge.procedure` |
+| `id` | string |   | min length 1, max length 64 | Record id |
+| `slug` | string |   | min length 1, max length 200 | The record's address, e.g. `summer-launch` |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `object` | string | yes |   |   |
+| `id` | string | yes |   |   |
+| `values` | map of any | yes |   |   |
+| `version` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | The published version these values are |
+| `publishedAt` | string | yes |   | When that version was published |
+| `redirect` | string or null | yes |   | Read by an old slug: the slug the record has now; else null |
+
+## content.staffList
+
+A page of the published records (procedures) of an object staff read as published: current published versions only, never a working copy, each with its content fields, its slug, its version number and when it was published. Filter and sort on those fields (and publishedVersion, publishedAt); pass nextCursor back as cursor. Every staff account may read it, pack roles included. Read-only.
+
+|  |  |
+| --- | --- |
+| Permission | `records:read` |
+| Risk | `read` |
+| Audiences | `staff` |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `object` | string | yes | min length 1, max length 80 | A publishable object staff read the published version of, e.g. `knowledge.procedure` |
+| `filter` | any |   |   |   |
+| `sort` | object |   |   |   |
+| `sort.field` | string | yes | min length 1, max length 64 |   |
+| `sort.direction` | `"asc"`, `"desc"` |   | default `"asc"` |   |
+| `cursor` | string |   | max length 1000 |   |
+| `limit` | integer |   | ≥ 1, ≤ 200, default `50` |   |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `items` | array of object | yes |   |   |
+| `items[].object` | string | yes |   |   |
+| `items[].id` | string | yes |   |   |
+| `items[].values` | map of any | yes |   |   |
+| `items[].version` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | The published version these values are |
+| `items[].publishedAt` | string | yes |   | When that version was published |
 | `nextCursor` | string or null | yes |   |   |

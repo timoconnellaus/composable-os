@@ -187,3 +187,11 @@ installed): Daily checklists' `today`, `day`, `tick` and `done`, whose host oper
 only the checklists the account may do (ADR 0651). Nothing else is opened: the registry walk in
 `packages/core/test/screens.test.ts` lists exactly these beside each role's own tools, its reads
 and `screens.mine`, and `api/v1/roles.json` lists them for each role's client.
+
+## Amendment, 2026-11-24 (stage 38 step 2, ADR 0701)
+Every pack role also reaches three reads of published versions: `content.staffGet`,
+`content.staffList` and `content.search`, allowed only when the input names an object that
+declares `publishable.staffRead` (a procedure). They read the current published version's content
+and slug, never a working copy, and through them a role reaches no other object.
+`PACK_ROLE_STAFF_READS` in `pack-roles.ts`; `roles.json` lists them for each role. See
+[ADR 0701](0701-staff-read-of-published-versions-and-its-reach-for-pack-roles.md).

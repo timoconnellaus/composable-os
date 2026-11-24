@@ -1726,6 +1726,16 @@ the public, cached by the generation) matches every word as a prefix, keeps the 
 each record, reads the records through the public's seam, and answers slug, title, section
 (field, heading, anchor) and a snippet as plain and matching segments.
 
+**Staff read** (stage 38, [ADR 0701](adr/0701-staff-read-of-published-versions-and-its-reach-for-pack-roles.md),
+`packages/core/src/visibility/staff-read.ts`). A publishable object may declare `staffRead: true`:
+every staff account then reads its current published version, never the working copy, through
+`content.staffGet { object, id | slug }` and `content.staffList` (the live view's content fields and
+slug, with the version and when it was published; a draft or an unpublished record is not found),
+and a staff caller's `content.search` on it matches every text content field (the index holds them
+beside what the public reads; a public search still matches only the public's fields). Every pack
+role reaches the three (`PACK_ROLE_STAFF_READS`), allowed only on a `staffRead` object, so a cleaner
+reads published procedures and nothing else new. The public and customers never reach them.
+
 **Read and understood** (stage 38, [ADR 0702](adr/0702-acknowledgements-read-again-and-a-confirmation-nobody-changes.md),
 `packages/core/src/records/acknowledge.ts`, `packages/core/src/operations/ack.ts`). A publishable
 object may declare `acknowledge: { who, manage }`: `who` a "must read" document field

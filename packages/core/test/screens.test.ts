@@ -431,6 +431,9 @@ describe("a pack role reaches screens.mine, the every-staff tools and nothing el
       // Beside it, every pack role's own read-and-understood list and confirmations (stage 38,
       // ADR 0702).
       const own = ["ack.confirm", "ack.mine"];
+      // And the published versions every staff account reads (stage 38, ADR 0701), allowed only
+      // on an object that declares staff read.
+      const staffReads = ["content.search", "content.staffGet", "content.staffList"];
       // And since ADR 0652, the tools a shipped pack opens to every staff account (Daily
       // checklists' today, day, tick and done: the host answers with what the account may do).
       const anyStaff = everything.filter((op) => op.packAnyStaff === true).map((op) => op.name);
@@ -440,11 +443,18 @@ describe("a pack role reaches screens.mine, the every-staff tools and nothing el
         "x.dailychecks.tick",
         "x.dailychecks.today",
       ]);
-      expect(reached.sort()).toEqual([...before, ...anyStaff, "screens.mine", ...own].sort());
+      expect(reached.sort()).toEqual(
+        [...before, ...anyStaff, "screens.mine", ...own, ...staffReads].sort(),
+      );
       // And no core operation but those.
       const core = reached.filter((n) => !n.startsWith("x."));
       expect(core.sort()).toEqual(
-        [...(role.read.length ? PACK_ROLE_READS : []), "screens.mine", ...own].sort(),
+        [
+          ...(role.read.length ? PACK_ROLE_READS : []),
+          "screens.mine",
+          ...own,
+          ...staffReads,
+        ].sort(),
       );
       // Through the pipeline: the role's account calls it, and gets its own screens.
       await expect(invoke("screens.mine", {}, context(user))).resolves.toHaveProperty("screens");

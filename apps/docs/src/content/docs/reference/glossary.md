@@ -2717,10 +2717,21 @@ _Avoid_: slug (a record's address), id (records have ids)
 (stage 38, ADR 0700)
 
 The words of each record's current published version, one row per section, for
-`content.search`: only content fields the public reads, of objects the public reads, written in
+`content.search`: the content fields the public reads, of objects the public reads, and every text
+content field of an object staff read (ADR 0701; a search matches only its reader's), written in
 the batch of every publish and unpublish and caught up by the minute cron when a declaration
 changes. Never the working copy. Not a `rec_*` view.
 _Avoid_: search index (that is `core_search`, over working copies, for staff), FTS table
+
+### Staff read
+
+(of a publishable object; stage 38, ADR 0701)
+
+What an object that declares `publishable.staffRead` gives every staff account, pack roles (a
+cleaner, a coach, the door) included: its records' current published versions, their content and
+slug, through `content.staffGet`, `content.staffList` and `content.search`. Never the working copy
+being edited, never a draft or an unpublished record, never the public or a customer.
+_Avoid_: staff view (a saved view of records), internal (a note's level)
 
 ### Confirmation
 

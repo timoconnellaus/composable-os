@@ -168,6 +168,10 @@ describe("the committed roles file", () => {
       // Every pack role's own read-and-understood list and confirmations (ADR 0702).
       "ack.confirm",
       "ack.mine",
+      // The published versions every staff account reads (ADR 0701), on a staff-read object only.
+      "content.search",
+      "content.staffGet",
+      "content.staffList",
       "record.get",
       "record.list",
       // The screens of the admin it may open (stage 47, ADR 0660): every pack role reaches it.

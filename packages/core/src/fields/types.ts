@@ -268,6 +268,11 @@ export interface PublishableDefinition {
    * restricted, grantable permission whose holders (and admins) read who has confirmed.
    */
   readonly acknowledge?: { readonly who: string; readonly manage: string };
+  /**
+   * Staff read (ADR 0701): every staff account, pack roles included, reads the current published
+   * version's content and slug through `content.staffGet`, `content.staffList` and `content.search`.
+   */
+  readonly staffRead?: boolean;
 }
 
 /**

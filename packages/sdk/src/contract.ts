@@ -915,6 +915,14 @@ export interface PublishableSpec {
    * customer reads.
    */
   acknowledge?: { who: string; manage: string };
+  /**
+   * Staff read (stage 38, ADR 0701): every staff account reads the current published version,
+   * never the working copy, through `content.staffGet`, `content.staffList` and `content.search`,
+   * pack-role accounts (a coach, a cleaner, the door) included, which read nothing else outside
+   * their own pack. What they read is the `content` fields and the slug. Editors still edit the
+   * working copy on the record's page.
+   */
+  staffRead?: boolean;
 }
 
 /** An object's customer: see `ObjectSpec.customer`. */
