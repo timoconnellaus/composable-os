@@ -1601,6 +1601,18 @@ email never says they agreed. A paper copy with no guardian is refused for a min
 One e2e journey (`apps/app/e2e/agreement-acceptances.spec.ts`): staff email a copy of a child's
 paper form to the parent they pick.
 
+### Step 4: idempotency keys per caller (issue #286, `fix/issue-286-idempotency-classes`, 2026-11-24)
+
+- The email gatekeeper keeps an ordinary caller's idempotency keys apart per caller, not in one
+  space for every caller: the integration host's queue names who is calling (`callerKeySpace`: a
+  person, the assistant or an agent job by actor and person; an MCP app by person and connected
+  app; an automation by its id; extension code by its extension) and the gatekeeper keeps that
+  caller's keys under a hash of it (`keySpaceOf` in `queue-class.ts`, the fake outbox too), each
+  space pruned by its own volume. A queue that names no caller keeps its callers together, as
+  before. ADR 0574 and ADR 0645 amended.
+- The read of keys from before keys were kept per class (`idem:<key>`) is gone. No release carried
+  them: the keys (ADR 0574) and the fallback both came after v0.1.0-beta.11, the last release.
+
 ## Step 5: build notes (`feat/stage-44-blocks`, 2026-11-24)
 
 Built: the headless entry `packages/client/src/agreements.ts` (exported by `@composable-os/client`):
