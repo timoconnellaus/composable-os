@@ -150,6 +150,24 @@ describe("the Stripe provider", () => {
     expect((await open.stripe.getPayment("cs_3")).status).toBe("open");
   });
 
+  it("ends a subscription now under one key per subscription, or one per ask when given (a cooling off's)", async () => {
+    const { stripe, requests } = provider(() => ok({ id: "sub_1", status: "canceled" }));
+    const base = {
+      subscriptionId: "sbs_1",
+      subscriptionRef: "sub_1",
+      when: "now",
+      reason: "x",
+    } as const;
+    await stripe.cancelSubscription(base);
+    await stripe.cancelSubscription({ ...base, askKey: "cool-off-1" });
+    await stripe.cancelSubscription({ ...base, askKey: "cool-off-2" });
+    expect(requests.map((r) => r.headers.get("idempotency-key"))).toEqual([
+      "cos-cancel-sbs_1-now",
+      "cos-cancel-sbs_1-now-cool-off-1",
+      "cos-cancel-sbs_1-now-cool-off-2",
+    ]);
+  });
+
   it("refunds with the documented fields, the refund id as idempotency key", async () => {
     const { stripe, requests } = provider(() => ok({ id: "re_1", status: "succeeded" }), {
       account: "acct_org",

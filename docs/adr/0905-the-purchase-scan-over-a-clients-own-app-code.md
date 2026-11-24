@@ -15,9 +15,9 @@ block a client has edited, were held to nothing.
 - **`cos app check` scans the client's app code** (every script file in the mobile app's folder,
   copied blocks included, but not the generated client or the native projects the build makes)
   and refuses a buying or billing operation named as a string (`order.start`, `order.checkout`,
-  `order.cancel`, the subscription's `start`, `cancel`, `resume`, `portal`, `change` and `pause`,
-  a pack's `buy`, `orderStart`, `checkout` and `subscribe`) and a buying hook called in code
-  (`useBuy…`, `useCheckout…`, `useOrderStart`, `useSubscribe` and the subscription's billing
+  `order.cancel`, the subscription's `start`, `cancel`, `resume`, `portal`, `change`, `pause` and
+  `coolOff`, a pack's `buy`, `orderStart`, `checkout` and `subscribe`) and a buying hook called in
+  code (`useBuy…`, `useCheckout…`, `useOrderStart`, `useSubscribe` and the subscription's billing
   hooks). Reading what a person holds (`order.get`, `subscription.list`) and showing it, prices of
   what was bought included, is fine; a word in a comment or in copy is not code.
 - **One set of rules for both checks**: the operation patterns, the billing hooks and the reader

@@ -45,18 +45,18 @@ export function codeOnly(source: string): string {
 
 /** An operation that buys, or changes what a subscription charges. */
 export const PURCHASE_OPERATION =
-  /^(?:order\.(?:start|checkout|cancel)|subscription\.(?:start|cancel|resume|portal|change|pause)|x\.[a-z0-9]+\.(?:buy|orderStart|checkout|subscribe))$/;
+  /^(?:order\.(?:start|checkout|cancel)|subscription\.(?:start|cancel|resume|portal|change|pause|coolOff)|x\.[a-z0-9]+\.(?:buy|orderStart|checkout|subscribe))$/;
 
 /** A subscription's billing operations: never in a native block (stage 32a, ADR 0490). */
-export const BILLING_OPERATION = /^subscription\.(?:start|cancel|resume|portal|change|pause)$/;
+export const BILLING_OPERATION = /^subscription\.(?:start|cancel|resume|portal|change|pause|coolOff)$/;
 
 /** The hooks that change a subscription's billing (the client's and the packs'). */
 export const BILLING_HOOK =
-  /\b(?:useSubscribe|useCancelSubscription|useResumeSubscription|useBillingPortal)\b/;
+  /\b(?:useSubscribe|useCancelSubscription|useResumeSubscription|useBillingPortal|useCoolOff)\b/;
 
 /** The hooks that buy or change billing, as code (not in a comment or a string). */
 const BUY_HOOK =
-  /\b(?:useBuy\w*|useCheckout\w*|useOrderStart|useSubscribe|useCancelSubscription|useResumeSubscription|useBillingPortal)\b/;
+  /\b(?:useBuy\w*|useCheckout\w*|useOrderStart|useSubscribe|useCancelSubscription|useResumeSubscription|useBillingPortal|useCoolOff)\b/;
 
 /** An operation's name as a string: `"order.start"`, `'x.courses.buy'`. */
 const OPERATION_STRING = /["'`]((?:order|subscription|x\.[a-z0-9]+)\.[a-zA-Z]+)["'`]/g;

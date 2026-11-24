@@ -47,11 +47,14 @@ function isPublicContent(object: string): boolean {
 /** The generation bumps for the objects `changes` touch that the public reads as content. */
 export function contentGenerationWrites(changes: readonly RecordChange[], now: string) {
   const objects = [...new Set(changes.map((c) => c.object))].filter(isPublicContent);
-  return objects.map((object) =>
-    CompiledQuery.raw(
-      "INSERT INTO core_content_generation (object_type, generation, epoch, changed_at) VALUES (?, 1, lower(hex(randomblob(16))), ?) ON CONFLICT (object_type) DO UPDATE SET generation = core_content_generation.generation + 1, changed_at = excluded.changed_at",
-      [object, now],
-    ),
+  return objects.map((object) => generationWrite(object, now));
+}
+
+/** Bumps one object's generation: what the public read of it before is not read again. */
+export function generationWrite(object: string, now: string): CompiledQuery {
+  return CompiledQuery.raw(
+    "INSERT INTO core_content_generation (object_type, generation, epoch, changed_at) VALUES (?, 1, lower(hex(randomblob(16))), ?) ON CONFLICT (object_type) DO UPDATE SET generation = core_content_generation.generation + 1, changed_at = excluded.changed_at",
+    [object, now],
   );
 }
 

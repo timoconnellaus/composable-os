@@ -85,12 +85,14 @@ export async function decide(
   decision: "approve" | "reject",
   target: { changeSetId: string } | { actionIds: string[] },
   confirm?: string,
+  readAgain?: Record<string, boolean>,
 ) {
   const out = await callOp("approval.decide", {
     ...target,
     decision,
     via: "tap",
     ...(confirm ? { confirm } : {}),
+    ...(decision === "approve" && readAgain && Object.keys(readAgain).length ? { readAgain } : {}),
   });
   if (out.status !== "decided") throw new Error(out.message);
   return out;

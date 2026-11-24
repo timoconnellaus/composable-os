@@ -60,7 +60,7 @@ export const RULES = [
 
 /** What a `noPurchase` block may not name in its code: buying, and any price. */
 const PURCHASE_CODE =
-  /\b(?:price|prices|useBuy\w*|checkout|orderStart|formatPrice|formatMinor|useSubscribe|useCancelSubscription|useResumeSubscription|useBillingPortal)\b/;
+  /\b(?:price|prices|useBuy\w*|checkout|orderStart|formatPrice|formatMinor|useSubscribe|useCancelSubscription|useResumeSubscription|useBillingPortal|useCoolOff)\b/;
 const NATIVE_BILLING =
   "is a native block that changes a subscription: in the app a subscription is read only; billing is on the web";
 const NO_PURCHASE =
@@ -93,7 +93,7 @@ export function lintNativeBilling(source) {
 }
 
 /** A billing operation named in a string, read in the raw source (strings are not blanked). */
-const BILLING_NAME = /["'`]subscription\.(?:start|cancel|resume|portal|change|pause)["'`]/;
+const BILLING_NAME = /["'`]subscription\.(?:start|cancel|resume|portal|change|pause|coolOff)["'`]/;
 
 /** A native block that names a subscription's billing operation as a string: `{ line, … }`. */
 export function lintBillingNames(source) {
