@@ -10,8 +10,12 @@ import type {
   PaymentsInterval,
   PaymentsPauseSubscriptionInput,
   PaymentsPortalInput,
+  PaymentsPresentInput,
   PaymentsProviderName,
+  PaymentsReaderAddress,
   PaymentsRefundInput,
+  PaymentsRegisterReaderInput,
+  PaymentsRemoveReaderInput,
   PaymentsResumeSubscriptionInput,
   PaymentsSubscriptionCheckoutInput,
   PaymentsTaxLine,
@@ -504,6 +508,92 @@ export function parsePortalInput(value: unknown): PaymentsPortalInput {
   return {
     customerRef: assertProviderRef(input.customerRef, "customerRef"),
     returnUrl: assertReturnUrl(input.returnUrl),
+  };
+}
+
+// --- In-person payments (stage 50, ADR 0774) ---------------------------------------------------
+
+const READER_ID = /^[A-Za-z0-9_-]{1,64}$/;
+/** A reader's pairing code: the provider's are words and digits joined by hyphens. */
+const REGISTRATION_CODE = /^[A-Za-z0-9-]{1,100}$/;
+
+export function assertReaderRef(value: unknown): string {
+  return assertProviderRef(value, "readerRef");
+}
+
+function singleLineOf(value: unknown, name: string, max: number): string {
+  return singleLine(boundedString(value, name, max), name);
+}
+
+/** A reader's address: the provider requires the street, city and postcode, and the country. */
+export function parseReaderAddress(value: unknown): PaymentsReaderAddress {
+  const input = record(value, "address");
+  refuseUnknownKeys(input, ["country", "line1", "city", "postcode", "region"]);
+  return {
+    country: matching(input.country, "address.country", COUNTRY, "two upper-case letters"),
+    line1: singleLineOf(input.line1, "address.line1", 200),
+    city: singleLineOf(input.city, "address.city", 100),
+    postcode: singleLineOf(input.postcode, "address.postcode", 20),
+    ...(input.region !== undefined
+      ? { region: singleLineOf(input.region, "address.region", 100) }
+      : {}),
+  };
+}
+
+export function parseRegisterReaderInput(value: unknown): PaymentsRegisterReaderInput {
+  const input = record(value, "The reader registration input");
+  refuseUnknownKeys(input, ["readerId", "registrationCode", "label", "locationName", "address"]);
+  return {
+    readerId: matching(
+      input.readerId,
+      "readerId",
+      READER_ID,
+      "1 to 64 characters of [A-Za-z0-9_-]",
+    ),
+    registrationCode: matching(
+      input.registrationCode,
+      "registrationCode",
+      REGISTRATION_CODE,
+      "1 to 100 characters of [A-Za-z0-9-]",
+    ),
+    label: singleLineOf(input.label, "label", 64),
+    locationName: singleLineOf(input.locationName, "locationName", 100),
+    address: parseReaderAddress(input.address),
+  };
+}
+
+export function parseRemoveReaderInput(value: unknown): PaymentsRemoveReaderInput {
+  const input = record(value, "The reader removal input");
+  refuseUnknownKeys(input, ["readerId", "readerRef", "reason"]);
+  return {
+    readerId: matching(
+      input.readerId,
+      "readerId",
+      READER_ID,
+      "1 to 64 characters of [A-Za-z0-9_-]",
+    ),
+    readerRef: assertReaderRef(input.readerRef),
+    reason: boundedString(input.reason, "reason", 500),
+  };
+}
+
+export function parsePresentInput(value: unknown): PaymentsPresentInput {
+  const input = record(value, "The presentation input");
+  refuseUnknownKeys(input, [
+    "orderId",
+    "amount",
+    "currency",
+    "description",
+    "readerRef",
+    "idempotencyKey",
+  ]);
+  return {
+    orderId: assertOrderId(input.orderId),
+    amount: assertAmount(input.amount),
+    currency: assertCurrency(input.currency),
+    description: singleLineOf(input.description, "description", 200),
+    readerRef: assertReaderRef(input.readerRef),
+    idempotencyKey: singleLineOf(input.idempotencyKey, "idempotencyKey", 200),
   };
 }
 

@@ -309,3 +309,224 @@ describe("money", () => {
     expect(formatMinor(9_007_199_254_740_991, "AUD")).toBe("90071992547409.91 AUD");
   });
 });
+
+describe("the Stripe provider's card readers (stage 50, ADR 0774)", () => {
+  const registration = {
+    readerId: "rdr_1",
+    registrationCode: "simulated-code",
+    label: "Front desk",
+    locationName: "The studio",
+    address: { country: "AU", line1: "1 Example Street", city: "Exampleton", postcode: "3000" },
+  };
+  const present = {
+    orderId: "ord_1",
+    amount: 450,
+    currency: "AUD",
+    description: "A drink",
+    readerRef: "tmr_1",
+    idempotencyKey: "present-ord_1-1",
+  };
+  const refused = (code: string) =>
+    new Response(JSON.stringify({ error: { type: "invalid_request_error", code } }), {
+      status: 400,
+    });
+
+  it("registers a reader at a Location made once per address", async () => {
+    const store = new Map<string, string>();
+    const requests: Recorded[] = [];
+    const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const recorded: Recorded = {
+        url: String(input),
+        method: init?.method ?? "GET",
+        headers: new Headers(init?.headers),
+        form: new URLSearchParams(typeof init?.body === "string" ? init.body : ""),
+      };
+      requests.push(recorded);
+      return recorded.url.endsWith("/v1/terminal/locations")
+        ? ok({ id: "tml_1" })
+        : ok({
+            id: "tmr_1",
+            label: "Front desk",
+            location: "tml_1",
+            status: "online",
+            device_type: "simulated_wisepos_e",
+            metadata: { cos_reader: "rdr_1" },
+          });
+    }) as typeof fetch;
+    const stripe = new StripeProvider({
+      secretKey: "sk_test_key",
+      webhookSecret: "whsec_x",
+      apiBase: "https://stripe.test",
+      account: "",
+      fetch: fakeFetch,
+      store: { get: (k) => store.get(k), put: (k, v) => void store.set(k, v) },
+    });
+    expect(await stripe.registerReader(registration)).toEqual({
+      provider: "stripe",
+      ref: "tmr_1",
+      readerId: "rdr_1",
+      label: "Front desk",
+      locationRef: "tml_1",
+      status: "online",
+      deviceType: "simulated_wisepos_e",
+    });
+    const [location, reader] = requests;
+    expect(location?.form.get("display_name")).toBe("The studio");
+    expect(location?.form.get("address[postal_code]")).toBe("3000");
+    expect(location?.headers.get("idempotency-key")).toMatch(/^[0-9a-f]{64}$/);
+    expect(reader?.url).toBe("https://stripe.test/v1/terminal/readers");
+    expect(reader?.form.get("registration_code")).toBe("simulated-code");
+    expect(reader?.form.get("location")).toBe("tml_1");
+    expect(reader?.form.get("metadata[cos_reader]")).toBe("rdr_1");
+    expect(reader?.headers.get("idempotency-key")).toBe("cos-reader-rdr_1");
+    await stripe.registerReader({ ...registration, readerId: "rdr_2" });
+    expect(requests.filter((r) => r.url.endsWith("/v1/terminal/locations"))).toHaveLength(1);
+  });
+
+  it("a refused code registered nothing; a reader already gone is removed", async () => {
+    const { stripe } = provider(() => refused("invalid_request"));
+    await expect(stripe.registerReader(registration)).rejects.toBeInstanceOf(ActionApplyError);
+    const gone = provider(() => refused("resource_missing"));
+    await gone.stripe.removeReader({ readerId: "rdr_1", readerRef: "tmr_1", reason: "Replaced" });
+    expect(gone.requests[0]?.method).toBe("DELETE");
+    const other = provider(() => failing(500));
+    await expect(
+      other.stripe.removeReader({ readerId: "rdr_1", readerRef: "tmr_1", reason: "Replaced" }),
+    ).rejects.not.toBeInstanceOf(ActionApplyError);
+  });
+
+  it("presents a card_present PaymentIntent on the reader, keyed by the presentation", async () => {
+    const { stripe, requests } = provider((r) =>
+      r.url.endsWith("/v1/payment_intents")
+        ? ok({ id: "pi_1", status: "requires_payment_method" })
+        : ok({ id: "tmr_1" }),
+    );
+    expect(await stripe.presentPayment(present)).toEqual({
+      ref: "pi_1",
+      readerRef: "tmr_1",
+      status: "presented",
+    });
+    const [intent, process] = requests;
+    expect(intent?.form.get("amount")).toBe("450");
+    expect(intent?.form.get("currency")).toBe("aud");
+    expect(intent?.form.get("payment_method_types[0]")).toBe("card_present");
+    expect(intent?.form.get("capture_method")).toBe("automatic");
+    expect(intent?.form.get("metadata[order_id]")).toBe("ord_1");
+    expect(intent?.headers.get("idempotency-key")).toBe("present-ord_1-1:intent");
+    expect(process?.url).toBe(
+      "https://stripe.test/v1/terminal/readers/tmr_1/process_payment_intent",
+    );
+    expect(process?.form.get("payment_intent")).toBe("pi_1");
+    expect(process?.headers.get("idempotency-key")).toBeNull();
+  });
+
+  it("a retry after a timeout charges once: paid is answered paid, on the reader is presented", async () => {
+    const paid = provider(() => ok({ id: "pi_1", status: "succeeded" }));
+    expect((await paid.stripe.presentPayment(present)).status).toBe("paid");
+    expect(paid.requests).toHaveLength(1);
+
+    const onReader = provider((r) => {
+      if (r.url.endsWith("/v1/payment_intents"))
+        return ok({ id: "pi_1", status: "requires_payment_method" });
+      if (r.url.endsWith("/process_payment_intent")) return refused("terminal_reader_busy");
+      return ok({
+        id: "tmr_1",
+        action: {
+          type: "process_payment_intent",
+          status: "in_progress",
+          process_payment_intent: { payment_intent: "pi_1" },
+        },
+      });
+    });
+    expect((await onReader.stripe.presentPayment(present)).status).toBe("presented");
+
+    const busy = provider((r) => {
+      if (r.url.endsWith("/v1/payment_intents"))
+        return ok({ id: "pi_1", status: "requires_payment_method" });
+      if (r.url.endsWith("/process_payment_intent")) return refused("terminal_reader_busy");
+      if (r.url.includes("/v1/payment_intents/pi_1"))
+        return ok({ id: "pi_1", status: "requires_payment_method" });
+      return ok({
+        id: "tmr_1",
+        action: {
+          type: "process_payment_intent",
+          status: "in_progress",
+          process_payment_intent: { payment_intent: "pi_other" },
+        },
+      });
+    });
+    await expect(busy.stripe.presentPayment(present)).rejects.toThrow(/busy with another payment/);
+  });
+
+  it("clears the reader with cancel_action", async () => {
+    const { stripe, requests } = provider(() => ok({ id: "tmr_1" }));
+    await stripe.cancelPresented("tmr_1");
+    expect(requests[0]?.url).toBe("https://stripe.test/v1/terminal/readers/tmr_1/cancel_action");
+    expect(requests[0]?.method).toBe("POST");
+  });
+
+  it("maps a card-present PaymentIntent's success, and ignores a web checkout's", () => {
+    const intent = (types: string[]) => ({
+      type: "payment_intent.succeeded",
+      created: 1_800_000_000,
+      data: {
+        object: {
+          id: "pi_1",
+          amount: 450,
+          amount_received: 450,
+          currency: "aud",
+          payment_method_types: types,
+          metadata: { order_id: "ord_1" },
+        },
+      },
+    });
+    expect(mapStripeEvent(intent(["card_present"]), "evt_1")).toEqual({
+      kind: "payment",
+      provider: "stripe",
+      eventId: "evt_1",
+      orderId: "ord_1",
+      checkoutRef: "pi_1",
+      amount: 450,
+      currency: "AUD",
+      paymentRef: "pi_1",
+      occurredAt: new Date(1_800_000_000 * 1000).toISOString(),
+    });
+    expect(mapStripeEvent(intent(["card"]), "evt_2")).toBeNull();
+  });
+
+  it("maps a reader's failed action as a reader event: declined or cancelled", () => {
+    const failed = (code: string | null) => ({
+      type: "terminal.reader.action_failed",
+      created: 1_800_000_000,
+      data: {
+        object: {
+          id: "tmr_1",
+          action: {
+            type: "process_payment_intent",
+            status: "failed",
+            failure_code: code,
+            failure_message: "The card holder is buyer@customer.test",
+            process_payment_intent: { payment_intent: "pi_1" },
+          },
+        },
+      },
+    });
+    expect(mapStripeEvent(failed("card_declined"), "evt_3")).toEqual({
+      kind: "reader",
+      provider: "stripe",
+      eventId: "evt_3",
+      readerRef: "tmr_1",
+      checkoutRef: "pi_1",
+      outcome: "failed",
+      failureCode: "card_declined",
+      occurredAt: new Date(1_800_000_000 * 1000).toISOString(),
+    });
+    expect(mapStripeEvent(failed("customer_canceled"), "evt_4")).toMatchObject({
+      outcome: "cancelled",
+    });
+    // The provider's message is never carried: it is free text.
+    expect(JSON.stringify(mapStripeEvent(failed("card_declined"), "evt_5"))).not.toContain(
+      "customer.test",
+    );
+  });
+});

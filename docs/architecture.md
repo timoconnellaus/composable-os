@@ -1666,6 +1666,17 @@ provider confirms. The host's own calls (a checkout, the confirmation email) use
 `IntegrationRuntime.callAsHost`. An order's move hook confirms and releases its places
 (`orders/holds.ts`), and each move posts on its Person's timeline.
 
+**Card readers** (stage 50, [ADR 0774](adr/0774-card-on-a-reader.md)). The gatekeeper also takes
+cards in person on readers driven from the server: `registerReader` and `removeReader` are its
+actions `payments.reader.register` and `.remove`, which a person approves; `presentPayment` puts
+an order's amount on a named reader (an observation, keyed per presentation so a retry charges
+once) and `cancelPresented` clears it. All but `listReaders` are the host's own call only. A
+payment on a reader arrives as the same verified `payment` event (its reference as both
+`checkoutRef` and `paymentRef`); a reader's action that took no payment is a `reader` event. The
+fake provider has fake readers with a page each (Tap card, Decline, Cancel). The host's half (the
+operations, the `reader` checkout kind it matches on, the till) is the stage's later steps; until
+then the host ignores `reader` events.
+
 **Tax at checkout** ([ADR 0479](adr/0479-tax-at-checkout.md), `orders/tax.ts`). Prices are
 tax-inclusive. When a human admin has turned it on and the lines' objects declare a product tax
 code (`sellable.tax`, overridable per object in Settings → Orders), `openCheckout` splits the
