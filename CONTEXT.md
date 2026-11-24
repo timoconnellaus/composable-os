@@ -1152,6 +1152,22 @@ _Avoid_: provenance, taint
 One declared email of a pack (`bookings.reminder`), with its messages: what an admin turns on or
 off in Settings → Routine email.
 
+**Journey**
+A named set of steps the host takes for one Person at a time, because of what they did or stopped
+doing: an entry rule, conditions, messages with waits between them, simple branches, staff tasks,
+exit rules and a re-entry rule. **Service** (about something the member has or did) or
+**promotional** (needs the Person's recorded yes; never about a child). Data the business edits,
+run by the host; a person approves its wording once by publishing it (ADR 0800).
+_Avoid_: sequence, campaign, drip, routine, enrolment
+
+**Journey version**
+A published snapshot of a journey's steps and words, which nobody can change. Only a published
+version runs; it was published by a person, or an AI asked and a person who may publish approved.
+
+**Entry** (journey entry)
+One Person on one journey: the version it started on, the step it is at, its state (active,
+waiting, held, finished, stopped) and the standing of what put them on it.
+
 **Signal**
 A moment about a Person that a shipped pack declares in its manifest (`journeySignals`) and a
 journey can start or stop on: a record of one of its objects created, or entering one of its states

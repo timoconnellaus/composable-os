@@ -162,6 +162,10 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "integrations/outbound-check.ts": [2, WHY.org],
   "notifications/delivery.ts": [1, WHY.org],
   "notifications/digest-content.ts": [4, WHY.org],
+  // Journeys (stage 53 step 3, ADR 0800): a manual entry reads whether each Person it is about to
+  // add exists, is a minor, has an erased address or is already on it, and erase deletes their
+  // entries.
+  "journeys/entries.ts": [3, WHY.write],
   "notifications/routes.ts": [2, WHY.org],
   "notifications/send.ts": [2, WHY.org],
   "operations/activity.ts": [1, WHY.part],

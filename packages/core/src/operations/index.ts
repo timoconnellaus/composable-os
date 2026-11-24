@@ -49,6 +49,7 @@ import { importRecordsOperations } from "./import-records.ts";
 import { intakeOperations } from "./intake.ts";
 import { integrationOperations } from "./integration.ts";
 import { inviteOperations } from "./invite.ts";
+import { journeyOperations } from "./journey.ts";
 import { judgeOperations } from "./judge.ts";
 import { meOperations } from "./me.ts";
 import { mediaOperations } from "./media.ts";
@@ -205,4 +206,5 @@ export const coreOperations = [
   ...agreementAcceptanceOperations,
   ...agreementCopyOperations,
   ...agreementRetentionOperations,
+  ...journeyOperations,
 ] as const;

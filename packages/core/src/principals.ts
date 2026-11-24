@@ -97,6 +97,14 @@ export type Role = (typeof ROLES)[number];
  *   default; grantable and restricted as `notes:clients` is.
  * - `notes:manage` change and delete others' notes it can read, and lower a note's level (a
  *   person only). Admins by default; grantable and restricted as `notes:clients` is.
+ * - `journeys:read` read journeys, their versions, previews, entries and step log (stage 53,
+ *   ADR 0800). Admins and members.
+ * - `journeys:manage` write a journey's working copy, archive it, set it live, pause and resume
+ *   it, and add people to it (ADR 0800). Admins by default, grantable. Going live and resuming
+ *   are a person's whatever is granted (`actors: ["human"]`); an AI may draft and pause.
+ * - `journeys:publish` publish a journey's version: the approval of its wording (decision 3).
+ *   Admins by default, grantable. An AI acting for an account that holds it may ask; its request
+ *   always waits for a person who holds it too (ADR 0480), never the adjudicator.
  * - `people:cards` issue, revoke and list the check-in cards a business gives its members (stage
  *   51, ADR 0783). Admins and members by default, grantable to any staff account (a fixed-role
  *   one included, ADR 0600). A person only whatever is granted (`actors: ["human"]`).
@@ -122,6 +130,9 @@ export const PERMISSIONS = [
   "notes:clients",
   "notes:sensitive",
   "notes:manage",
+  "journeys:read",
+  "journeys:manage",
+  "journeys:publish",
   "people:cards",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
@@ -137,7 +148,7 @@ export const CORE_PERMISSION_NAMESPACES: readonly string[] = [
 
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   viewer: ["records:read"],
-  member: ["records:read", "records:write", "people:cards"],
+  member: ["records:read", "records:write", "journeys:read", "people:cards"],
   admin: PERMISSIONS,
 };
 
@@ -163,6 +174,8 @@ export const GRANTABLE_PERMISSIONS = [
   "notes:clients",
   "notes:sensitive",
   "notes:manage",
+  "journeys:manage",
+  "journeys:publish",
   "people:cards",
 ] as const;
 
@@ -212,8 +225,15 @@ export const MCP_SCOPES = ["read", "write", "admin"] as const;
 export type McpScope = (typeof MCP_SCOPES)[number];
 
 export const SCOPE_PERMISSIONS: Record<McpScope, readonly Permission[]> = {
-  read: ["records:read"],
-  write: ["records:read", "records:write", "records:publish"],
+  read: ["records:read", "journeys:read"],
+  write: [
+    "records:read",
+    "records:write",
+    "records:publish",
+    "journeys:read",
+    "journeys:manage",
+    "journeys:publish",
+  ],
   admin: PERMISSIONS,
 };
 

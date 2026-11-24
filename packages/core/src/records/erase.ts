@@ -13,6 +13,7 @@ import { queueScrubConversations } from "../assistant/erase.ts";
 import { queueEraseMemory } from "../assistant/memory.ts";
 import { queueEraseRoutines } from "../assistant/routines.ts";
 import { emailRef } from "../assistant/scrub.ts";
+import { eraseJourneyStatements } from "../journeys/entries.ts";
 import { queueEraseSignals } from "../journeys/signals.ts";
 import type { HandlerContext } from "../operation.ts";
 import { queueErasePersonCodes } from "../people-codes/people.ts";
@@ -381,6 +382,11 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
   await queueEraseOrders(ctx, subject);
   // Their passes' and memberships' uses, and the uses they spent (stage 32b, ADR 0494).
   if (subject.object === "person") queueEraseAllowances(ctx, [...recordIds]);
+  // Their journey entries and step log (stage 53, ADR 0800).
+  if (subject.object === "person") {
+    const journeys = eraseJourneyStatements(ctx.db, [...recordIds]);
+    if (journeys.length) ctx.write(...journeys);
+  }
   // Their journey signals: when they last did each thing (stage 53, ADR 0802).
   if (subject.object === "person") queueEraseSignals(ctx, [...recordIds]);
   // Their check-in codes, cards and PIN, and the dependants' codes on their app (stage 51, ADR 0783).

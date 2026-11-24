@@ -403,6 +403,8 @@ export async function grantable(
     "notes:clients": "Read every client's notes kept to their coaches (every read is logged)",
     "notes:sensitive": "Read sensitive notes (every opening is logged)",
     "notes:manage": "Change and delete others' notes, and lower a note's level",
+    "journeys:manage": "Write journeys, set them live, pause them and add people to them",
+    "journeys:publish": "Approve a journey's wording by publishing it",
     "people:cards": "Issue and revoke members' check-in cards",
   };
   return [

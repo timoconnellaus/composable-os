@@ -34971,6 +34971,2681 @@
       "invalidates": []
     },
     {
+      "name": "journey.archive",
+      "description": "Archive a journey: it stops for good, every entry on it is stopped, and it no longer changes; it cannot be undone. Its versions and log are kept. Sends nothing. A person only: an AI may pause a journey, never archive one. Needs journeys:manage. Audited.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The journey's id (jny_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "stopped": {
+            "type": "number",
+            "description": "Entries stopped"
+          }
+        },
+        "required": [
+          "id",
+          "stopped"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "journey.entries",
+        "journey.get",
+        "journey.list",
+        "journey.log",
+        "journey.preview",
+        "journey.settings",
+        "journey.version"
+      ]
+    },
+    {
+      "name": "journey.create",
+      "description": "Start a new journey as a draft: its name, kind (service: about something the member has or did; promotional: needs the Person's recorded yes, never about a child; fixed once made), and optionally its owner and a first working copy. Nothing is sent and nobody enters until a person publishes it and sets it live. The reply-to must be an address a human admin allowed. The assistant may create one for someone who holds journeys:manage.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "service",
+              "promotional"
+            ]
+          },
+          "ownerId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "definition": {
+            "type": "object",
+            "properties": {
+              "entry": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "signal"
+                      },
+                      "signal": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9]{1,29}\\.[a-z][a-zA-Z0-9]{0,39}$",
+                        "description": "A signal a shipped pack declares, as <pack>.<name> (memberships.started)"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "signal"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "quiet"
+                      },
+                      "signal": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9]{1,29}\\.[a-z][a-zA-Z0-9]{0,39}$",
+                        "description": "A signal a shipped pack declares, as <pack>.<name> (memberships.started)"
+                      },
+                      "days": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 365,
+                        "description": "Days with no newer signal"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "signal",
+                      "days"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "birthday"
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "manual"
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ]
+                  }
+                ]
+              },
+              "conditions": {
+                "default": [],
+                "maxItems": 5,
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "test": {
+                          "type": "string",
+                          "const": "liveMembership",
+                          "description": "The Person holds a live membership"
+                        },
+                        "not": {
+                          "default": false,
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "test"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "test": {
+                          "type": "string",
+                          "const": "signalSinceEntry",
+                          "description": "The Person had the signal since entering"
+                        },
+                        "signal": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9]{1,29}\\.[a-z][a-zA-Z0-9]{0,39}$",
+                          "description": "A signal a shipped pack declares, as <pack>.<name> (memberships.started)"
+                        },
+                        "not": {
+                          "default": false,
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "test",
+                        "signal"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "test": {
+                          "type": "string",
+                          "const": "promotionalConsent",
+                          "description": "The Person has a recorded yes to promotional messages on the channel"
+                        },
+                        "channel": {
+                          "type": "string",
+                          "enum": [
+                            "email"
+                          ]
+                        },
+                        "not": {
+                          "default": false,
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "test",
+                        "channel"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "exits": {
+                "default": [],
+                "description": "Signals that take a Person off it",
+                "maxItems": 10,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9]{1,29}\\.[a-z][a-zA-Z0-9]{0,39}$",
+                  "description": "A signal a shipped pack declares, as <pack>.<name> (memberships.started)"
+                }
+              },
+              "reentry": {
+                "default": {
+                  "rule": "once"
+                },
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "rule": {
+                        "type": "string",
+                        "const": "once",
+                        "description": "Once ever"
+                      }
+                    },
+                    "required": [
+                      "rule"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "rule": {
+                        "type": "string",
+                        "const": "after",
+                        "description": "Not again within `days` of entering"
+                      },
+                      "days": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 3650
+                      }
+                    },
+                    "required": [
+                      "rule",
+                      "days"
+                    ]
+                  }
+                ]
+              },
+              "includeBulk": {
+                "default": false,
+                "description": "Whether a signal from a bulk write (an import, a bulk change) enters anyone",
+                "type": "boolean"
+              },
+              "replyTo": {
+                "default": null,
+                "description": "Where replies go: one of the addresses a human admin allowed",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 254
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "steps": {
+                "minItems": 1,
+                "maxItems": 40,
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9_]{0,23}$",
+                          "description": "The step's id within the journey: branches name it"
+                        },
+                        "type": {
+                          "type": "string",
+                          "const": "send"
+                        },
+                        "channel": {
+                          "type": "string",
+                          "enum": [
+                            "email"
+                          ]
+                        },
+                        "subject": {
+                          "type": "string",
+                          "maxLength": 150,
+                          "description": "One line, with slots from the fixed list"
+                        },
+                        "body": {
+                          "type": "string",
+                          "maxLength": 4000,
+                          "description": "Plain text lines with slots; must hold {unsubscribe}"
+                        },
+                        "guardian": {
+                          "description": "What a dependant's live guardians get instead (service journeys only)",
+                          "type": "object",
+                          "properties": {
+                            "subject": {
+                              "type": "string",
+                              "maxLength": 150,
+                              "description": "One line, with slots from the fixed list"
+                            },
+                            "body": {
+                              "type": "string",
+                              "maxLength": 4000,
+                              "description": "Plain text lines with slots; must hold {unsubscribe}"
+                            }
+                          },
+                          "required": [
+                            "subject",
+                            "body"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "type",
+                        "channel",
+                        "subject",
+                        "body"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9_]{0,23}$",
+                          "description": "The step's id within the journey: branches name it"
+                        },
+                        "type": {
+                          "type": "string",
+                          "const": "wait"
+                        },
+                        "days": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 365
+                        },
+                        "hours": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 23
+                        },
+                        "until": {
+                          "description": "Then until this time of day in the business's zone",
+                          "type": "string",
+                          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                        },
+                        "weekdaysOnly": {
+                          "default": false,
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "type"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9_]{0,23}$",
+                          "description": "The step's id within the journey: branches name it"
+                        },
+                        "type": {
+                          "type": "string",
+                          "const": "branch"
+                        },
+                        "condition": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "test": {
+                                  "type": "string",
+                                  "const": "liveMembership",
+                                  "description": "The Person holds a live membership"
+                                },
+                                "not": {
+                                  "default": false,
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "test"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "test": {
+                                  "type": "string",
+                                  "const": "signalSinceEntry",
+                                  "description": "The Person had the signal since entering"
+                                },
+                                "signal": {
+                                  "type": "string",
+                                  "pattern": "^[a-z][a-z0-9]{1,29}\\.[a-z][a-zA-Z0-9]{0,39}$",
+                                  "description": "A signal a shipped pack declares, as <pack>.<name> (memberships.started)"
+                                },
+                                "not": {
+                                  "default": false,
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "test",
+                                "signal"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "test": {
+                                  "type": "string",
+                                  "const": "promotionalConsent",
+                                  "description": "The Person has a recorded yes to promotional messages on the channel"
+                                },
+                                "channel": {
+                                  "type": "string",
+                                  "enum": [
+                                    "email"
+                                  ]
+                                },
+                                "not": {
+                                  "default": false,
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "test",
+                                "channel"
+                              ]
+                            }
+                          ]
+                        },
+                        "goTo": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9_]{0,23}$",
+                          "description": "The step to go to when the condition holds (a later one)"
+                        },
+                        "otherwise": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9_]{0,23}$",
+                          "description": "The step to go to when it does not (a later one)"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "type",
+                        "condition",
+                        "goTo",
+                        "otherwise"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9_]{0,23}$",
+                          "description": "The step's id within the journey: branches name it"
+                        },
+                        "type": {
+                          "type": "string",
+                          "const": "task"
+                        },
+                        "title": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "assignee": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "description": "\"owner\" (the journey's owner) or a staff user id"
+                        },
+                        "dueDays": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 60
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "type",
+                        "title",
+                        "assignee"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9_]{0,23}$",
+                          "description": "The step's id within the journey: branches name it"
+                        },
+                        "type": {
+                          "type": "string",
+                          "const": "end"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "type"
+                      ]
+                    }
+                  ]
+                }
+              }
+            },
+            "required": [
+              "entry",
+              "steps"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "draftRev": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "draftRev"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "journey.entries",
+        "journey.get",
+        "journey.list",
+        "journey.log",
+        "journey.preview",
+        "journey.settings",
+        "journey.version"
+      ]
+    },
+    {
+      "name": "journey.enter",
+      "description": "Add people to a live journey by hand (one, a selection, or a saved view's people; up to 500 at a time), at its first step on the newest version. Leaves out, and says why, anyone not found or in the trash, a minor on a promotional journey, anyone already on it, and anyone its re-entry rule keeps off. A bulk write: an AI's call waits for review under Balanced, and its entries' messages are held for a person unless a person approved it.",
+      "risk": "bulk-write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The journey's id (jny_…)"
+          },
+          "personIds": {
+            "minItems": 1,
+            "maxItems": 500,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        },
+        "required": [
+          "id",
+          "personIds"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "entered": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "personId": {
+                  "type": "string"
+                },
+                "entryId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "personId",
+                "entryId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "excluded": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "personId": {
+                  "type": "string"
+                },
+                "why": {
+                  "type": "string",
+                  "enum": [
+                    "not_found",
+                    "minor",
+                    "erased_address",
+                    "already_on",
+                    "once",
+                    "too_soon"
+                  ]
+                }
+              },
+              "required": [
+                "personId",
+                "why"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "entered",
+          "excluded"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "journey.entries",
+        "journey.get",
+        "journey.list",
+        "journey.log",
+        "journey.preview",
+        "journey.settings",
+        "journey.version"
+      ]
+    },
+    {
+      "name": "journey.entries",
+      "description": "The entries of a journey (journeyId) or of a Person (personId): who is on it, at which step, when they are next looked at, how they entered and whether they finished or were stopped. A Person's entries for anyone who reads the Person; a journey's for journeys:read. Newest first, at most 100. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "journeyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The journey's id (jny_…)"
+          },
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "waiting",
+              "held",
+              "finished",
+              "stopped"
+            ]
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "journeyId": {
+                  "type": "string"
+                },
+                "journeyName": {
+                  "type": "string"
+                },
+                "versionNumber": {
+                  "type": "number"
+                },
+                "personId": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "active",
+                    "waiting",
+                    "held",
+                    "finished",
+                    "stopped"
+                  ]
+                },
+                "step": {
+                  "type": "string"
+                },
+                "nextAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "enteredAt": {
+                  "type": "string"
+                },
+                "enteredBy": {
+                  "type": "string",
+                  "enum": [
+                    "signal",
+                    "scan",
+                    "birthday",
+                    "person"
+                  ]
+                },
+                "causeStanding": {
+                  "type": "string",
+                  "enum": [
+                    "person",
+                    "host",
+                    "ai"
+                  ]
+                },
+                "endedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "stoppedBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "stopReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "journeyId",
+                "journeyName",
+                "versionNumber",
+                "personId",
+                "state",
+                "step",
+                "nextAt",
+                "enteredAt",
+                "enteredBy",
+                "causeStanding",
+                "endedAt",
+                "stoppedBy",
+                "stopReason"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "journey.get",
+      "description": "One journey: its summary, the working copy (entry rule, conditions, exits, re-entry rule, reply-to and steps with their words), its rev and hash, whether an AI wrote it since the last publish, what stops it from being published, the plain-words summary, and its versions, newest first, without their steps (journey.version reads one). Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The journey's id (jny_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "service",
+              "promotional"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "live",
+              "paused",
+              "archived"
+            ]
+          },
+          "ownerId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "starter": {
+            "description": "The starter the host seeded it from, if any",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "current": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "number": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "id",
+                  "number"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The newest published version: new entries start on it"
+          },
+          "unpublishedChanges": {
+            "type": "boolean",
+            "description": "The working copy differs from the newest version"
+          },
+          "counts": {
+            "type": "object",
+            "properties": {
+              "active": {
+                "type": "number"
+              },
+              "waiting": {
+                "type": "number"
+              },
+              "held": {
+                "type": "number"
+              },
+              "finished": {
+                "type": "number"
+              },
+              "stopped": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "active",
+              "waiting",
+              "held",
+              "finished",
+              "stopped"
+            ],
+            "additionalProperties": false,
+            "description": "Entries by state"
+          },
+          "draftUpdatedAt": {
+            "type": "string"
+          },
+          "draft": {
+            "description": "The working copy (null when it cannot be read)"
+          },
+          "draftRev": {
+            "type": "number"
+          },
+          "draftHash": {
+            "type": "string"
+          },
+          "draftUpdatedBy": {
+            "type": "string"
+          },
+          "draftUpdatedVia": {
+            "type": "string"
+          },
+          "draftedByAssistant": {
+            "type": "boolean",
+            "description": "An AI wrote the working copy since the last publish"
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "message"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Why it cannot be published yet (empty: it can)"
+          },
+          "summary": {
+            "description": "The working copy in plain words",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "journeyId": {
+                  "type": "string"
+                },
+                "number": {
+                  "type": "number"
+                },
+                "hash": {
+                  "type": "string"
+                },
+                "intact": {
+                  "type": "boolean",
+                  "description": "The hash recomputed from the stored definition matches"
+                },
+                "draftedBy": {
+                  "type": "string",
+                  "enum": [
+                    "person",
+                    "assistant"
+                  ]
+                },
+                "publishedAt": {
+                  "type": "string"
+                },
+                "publishedBy": {
+                  "type": "string"
+                },
+                "requestedBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "requestedVia": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "journeyId",
+                "number",
+                "hash",
+                "intact",
+                "draftedBy",
+                "publishedAt",
+                "publishedBy",
+                "requestedBy",
+                "requestedVia"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "status",
+          "ownerId",
+          "starter",
+          "current",
+          "unpublishedChanges",
+          "counts",
+          "draftUpdatedAt",
+          "draft",
+          "draftRev",
+          "draftHash",
+          "draftUpdatedBy",
+          "draftUpdatedVia",
+          "draftedByAssistant",
+          "problems",
+          "summary",
+          "versions"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "journey.goLive",
+      "description": "Set a published journey live: from now on, people who meet its entry rule enter it (nobody who already qualified before is added; add them with journey.enter if you choose). Every signal it names must be one an installed pack declares. A person only: an AI may never set a journey live. Needs journeys:manage. Audited.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The journey's id (jny_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "live",
+              "paused",
+              "archived"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "journey.entries",
+        "journey.get",
+        "journey.list",
+        "journey.log",
+        "journey.preview",
+        "journey.settings",
+        "journey.version"
+      ]
+    },
+    {
+      "name": "journey.list",
+      "description": "List the business's journeys (messages that go out on their own to one person at a time: a welcome series, a nudge when someone stops coming): each with its kind (service or promotional), status (draft, live, paused, archived), newest published version, whether the working copy has unpublished changes, and how many entries are active, waiting, held, finished and stopped. The four starter journeys are seeded as drafts. 100 a page (nextCursor). Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "archived": {
+            "default": false,
+            "description": "Include archived journeys",
+            "type": "boolean"
+          },
+          "cursor": {
+            "description": "The previous page's nextCursor",
+            "type": "string",
+            "maxLength": 200
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "service",
+                    "promotional"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "draft",
+                    "live",
+                    "paused",
+                    "archived"
+                  ]
+                },
+                "ownerId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "starter": {
+                  "description": "The starter the host seeded it from, if any",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "current": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "number": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "number"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The newest published version: new entries start on it"
+                },
+                "unpublishedChanges": {
+                  "type": "boolean",
+                  "description": "The working copy differs from the newest version"
+                },
+                "counts": {
+                  "type": "object",
+                  "properties": {
+                    "active": {
+                      "type": "number"
+                    },
+                    "waiting": {
+                      "type": "number"
+                    },
+                    "held": {
+                      "type": "number"
+                    },
+                    "finished": {
+                      "type": "number"
+                    },
+                    "stopped": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "active",
+                    "waiting",
+                    "held",
+                    "finished",
+                    "stopped"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Entries by state"
+                },
+                "draftUpdatedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "kind",
+                "status",
+                "ownerId",
+                "starter",
+                "current",
+                "unpublishedChanges",
+                "counts",
+                "draftUpdatedAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "description": "Pass it back for the next page; null: no more",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "journey.log",
+      "description": "What happened at each step of one journey entry, in order: entered, sent (with the message row), held, skipped and why, waited until, the branch taken, the task made. Never the words: the message log keeps what it keeps. For journeys:read, or anyone who reads the Person when they name them. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "entryId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "entryId"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "step": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string"
+                },
+                "what": {
+                  "type": "string"
+                },
+                "detail": {}
+              },
+              "required": [
+                "step",
+                "at",
+                "what",
+                "detail"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "journey.pause",
+      "description": "Pause a live journey: nobody enters it and its entries wait where they are until a person resumes it. The assistant may pause one. Sends nothing.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The journey's id (jny_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "live",
+              "paused",
+              "archived"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "journey.entries",
+        "journey.get",
+        "journey.list",
+        "journey.log",
+        "journey.preview",
+        "journey.settings",
+        "journey.version"
+      ]
+    },
+    {
+      "name": "journey.preview",
+      "description": "Render every message of a journey for a sample Person, as the publish dialog shows them: the working copy (or a published version by number), each send step's subject and body filled in for the Person (and, where the step has one, the guardian's version), with what would hold a message for a person; the plain-words summary; what stops it from being published; whether an AI drafted it; and the draftHash, draftRev and number to pass to journey.publish. personId left out: sample values. Sends nothing. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The journey's id (jny_…)"
+          },
+          "version": {
+            "description": "A published version's number",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "personId": {
+            "description": "The sample Person (per_…)",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "record": {
+            "description": "A sample record for {record} (the record whose signal started the entry)",
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "object",
+              "id"
+            ]
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "number": {
+            "type": "number",
+            "description": "The version a publish now would make, or the one shown"
+          },
+          "draftHash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "draftRev": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "draftedByAssistant": {
+            "type": "boolean"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "person": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "step": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "number"
+                },
+                "member": {
+                  "type": "object",
+                  "properties": {
+                    "subject": {
+                      "type": "string"
+                    },
+                    "body": {
+                      "type": "string"
+                    },
+                    "holds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Why this message would be held for a person (empty: none)"
+                    }
+                  },
+                  "required": [
+                    "subject",
+                    "body",
+                    "holds"
+                  ],
+                  "additionalProperties": false
+                },
+                "guardian": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "subject": {
+                          "type": "string"
+                        },
+                        "body": {
+                          "type": "string"
+                        },
+                        "holds": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "description": "Why this message would be held for a person (empty: none)"
+                        }
+                      },
+                      "required": [
+                        "subject",
+                        "body",
+                        "holds"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "step",
+                "position",
+                "member",
+                "guardian"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "number",
+          "draftHash",
+          "draftRev",
+          "draftedByAssistant",
+          "summary",
+          "problems",
+          "person",
+          "messages"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "journey.publish",
+      "description": "Publish a journey's working copy as its next version: the approval of its wording. Only a published version runs, and its messages then go out without anyone approving each send (once a human admin turned journeys on). draftHash, draftRev and number are journey.preview's: a copy changed since is refused. moveEntries moves people already on it to the new version where their step is still in it; otherwise they carry on with the version they started on. Needs journeys:publish. An AI's call (the assistant, an MCP client) is a request that always waits for a person who holds journeys:publish; the adjudicator never approves one. Audited.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The journey's id (jny_…)"
+          },
+          "draftHash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "draftRev": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "number": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991,
+            "description": "The version number the preview showed"
+          },
+          "moveEntries": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "draftHash",
+          "draftRev",
+          "number"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "journeyId": {
+                "type": "string"
+              },
+              "number": {
+                "type": "number"
+              },
+              "definition": {},
+              "summary": {
+                "type": "string"
+              },
+              "hash": {
+                "type": "string"
+              },
+              "intact": {
+                "type": "boolean",
+                "description": "The hash recomputed from the stored definition matches"
+              },
+              "draftedBy": {
+                "type": "string",
+                "enum": [
+                  "person",
+                  "assistant"
+                ]
+              },
+              "publishedAt": {
+                "type": "string"
+              },
+              "publishedBy": {
+                "type": "string"
+              },
+              "requestedBy": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "requestedVia": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "journeyId",
+              "number",
+              "definition",
+              "summary",
+              "hash",
+              "intact",
+              "draftedBy",
+              "publishedAt",
+              "publishedBy",
+              "requestedBy",
+              "requestedVia"
+            ],
+            "additionalProperties": false
+          },
+          "moved": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "version",
+          "moved"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "journey.entries",
+        "journey.get",
+        "journey.list",
+        "journey.log",
+        "journey.preview",
+        "journey.settings",
+        "journey.version"
+      ]
+    },
+    {
+      "name": "journey.resume",
+      "description": "Resume a paused journey: its entries carry on and people enter it again. A person only: an AI may never resume one. Needs journeys:manage. Audited.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The journey's id (jny_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "live",
+              "paused",
+              "archived"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "journey.entries",
+        "journey.get",
+        "journey.list",
+        "journey.log",
+        "journey.preview",
+        "journey.settings",
+        "journey.version"
+      ]
+    },
+    {
+      "name": "journey.settings",
+      "description": "Journeys' settings: whether journeys send on their own (off until a human admin turns it on), the cap per Person (at most 3 a week and 1 a day), and the addresses a journey's replies may go to (staff accounts' addresses: for those who write journeys). Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "sendOnOwn": {
+            "type": "boolean",
+            "description": "Journeys send on their own (off on deploy until a human admin turns it on)"
+          },
+          "weekCap": {
+            "type": "number",
+            "description": "Journey messages a Person gets in 7 days, across journeys"
+          },
+          "dayCap": {
+            "type": "number",
+            "description": "Journey messages a Person gets in a day (fixed at 1)"
+          },
+          "replyTo": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "address": {
+                  "type": "string"
+                },
+                "userId": {
+                  "type": "string"
+                },
+                "current": {
+                  "type": "boolean",
+                  "description": "The account still has this address and is active"
+                }
+              },
+              "required": [
+                "address",
+                "userId",
+                "current"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "sendOnOwn",
+          "weekCap",
+          "dayCap",
+          "replyTo"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "journey.settings.update",
+      "description": "Change journeys' settings: whether they send on their own, the weekly cap (1 to 3), and which staff accounts' addresses a journey's replies may go to (replyToUserIds, given whole). A human admin only, never an AI, not on MCP. Audited.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "sendOnOwn": {
+            "type": "boolean"
+          },
+          "weekCap": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3
+          },
+          "replyToUserIds": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "sendOnOwn": {
+            "type": "boolean",
+            "description": "Journeys send on their own (off on deploy until a human admin turns it on)"
+          },
+          "weekCap": {
+            "type": "number",
+            "description": "Journey messages a Person gets in 7 days, across journeys"
+          },
+          "dayCap": {
+            "type": "number",
+            "description": "Journey messages a Person gets in a day (fixed at 1)"
+          },
+          "replyTo": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "address": {
+                  "type": "string"
+                },
+                "userId": {
+                  "type": "string"
+                },
+                "current": {
+                  "type": "boolean",
+                  "description": "The account still has this address and is active"
+                }
+              },
+              "required": [
+                "address",
+                "userId",
+                "current"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "sendOnOwn",
+          "weekCap",
+          "dayCap",
+          "replyTo"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "journey.entries",
+        "journey.get",
+        "journey.list",
+        "journey.log",
+        "journey.preview",
+        "journey.settings",
+        "journey.version"
+      ]
+    },
+    {
+      "name": "journey.stop",
+      "description": "Stop a Person's journey: one entry (entryId), or every journey they are on (personId, optionally only journeyId's). They get nothing more from it; what was sent stays in the log. Anyone who may update the Person; the assistant may stop one.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "entryId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "journeyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The journey's id (jny_…)"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 200
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "stopped": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The entries stopped"
+          }
+        },
+        "required": [
+          "stopped"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "journey.entries",
+        "journey.get",
+        "journey.list",
+        "journey.log",
+        "journey.preview",
+        "journey.settings",
+        "journey.version"
+      ]
+    },
+    {
+      "name": "journey.update",
+      "description": "Change a journey: its name, its owner (who gets tasks assigned to the owner; a person only), or its working copy, given whole: entry rule, conditions, exits, re-entry rule, includeBulk, the reply-to (an address a human admin allowed) and the steps (send, wait, branch, task, end) with their words. It changes no published version and sends nothing: a person publishes. draftRev, when given, is the copy's rev the change was made against: a copy saved since is refused. The assistant may write it for someone who holds journeys:manage; the publish dialog then says it was drafted by the assistant.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The journey's id (jny_…)"
+          },
+          "draftRev": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "ownerId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "definition": {
+            "type": "object",
+            "properties": {
+              "entry": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "signal"
+                      },
+                      "signal": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9]{1,29}\\.[a-z][a-zA-Z0-9]{0,39}$",
+                        "description": "A signal a shipped pack declares, as <pack>.<name> (memberships.started)"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "signal"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "quiet"
+                      },
+                      "signal": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9]{1,29}\\.[a-z][a-zA-Z0-9]{0,39}$",
+                        "description": "A signal a shipped pack declares, as <pack>.<name> (memberships.started)"
+                      },
+                      "days": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 365,
+                        "description": "Days with no newer signal"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "signal",
+                      "days"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "birthday"
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "manual"
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ]
+                  }
+                ]
+              },
+              "conditions": {
+                "default": [],
+                "maxItems": 5,
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "test": {
+                          "type": "string",
+                          "const": "liveMembership",
+                          "description": "The Person holds a live membership"
+                        },
+                        "not": {
+                          "default": false,
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "test"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "test": {
+                          "type": "string",
+                          "const": "signalSinceEntry",
+                          "description": "The Person had the signal since entering"
+                        },
+                        "signal": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9]{1,29}\\.[a-z][a-zA-Z0-9]{0,39}$",
+                          "description": "A signal a shipped pack declares, as <pack>.<name> (memberships.started)"
+                        },
+                        "not": {
+                          "default": false,
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "test",
+                        "signal"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "test": {
+                          "type": "string",
+                          "const": "promotionalConsent",
+                          "description": "The Person has a recorded yes to promotional messages on the channel"
+                        },
+                        "channel": {
+                          "type": "string",
+                          "enum": [
+                            "email"
+                          ]
+                        },
+                        "not": {
+                          "default": false,
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "test",
+                        "channel"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "exits": {
+                "default": [],
+                "description": "Signals that take a Person off it",
+                "maxItems": 10,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9]{1,29}\\.[a-z][a-zA-Z0-9]{0,39}$",
+                  "description": "A signal a shipped pack declares, as <pack>.<name> (memberships.started)"
+                }
+              },
+              "reentry": {
+                "default": {
+                  "rule": "once"
+                },
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "rule": {
+                        "type": "string",
+                        "const": "once",
+                        "description": "Once ever"
+                      }
+                    },
+                    "required": [
+                      "rule"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "rule": {
+                        "type": "string",
+                        "const": "after",
+                        "description": "Not again within `days` of entering"
+                      },
+                      "days": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 3650
+                      }
+                    },
+                    "required": [
+                      "rule",
+                      "days"
+                    ]
+                  }
+                ]
+              },
+              "includeBulk": {
+                "default": false,
+                "description": "Whether a signal from a bulk write (an import, a bulk change) enters anyone",
+                "type": "boolean"
+              },
+              "replyTo": {
+                "default": null,
+                "description": "Where replies go: one of the addresses a human admin allowed",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 254
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "steps": {
+                "minItems": 1,
+                "maxItems": 40,
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9_]{0,23}$",
+                          "description": "The step's id within the journey: branches name it"
+                        },
+                        "type": {
+                          "type": "string",
+                          "const": "send"
+                        },
+                        "channel": {
+                          "type": "string",
+                          "enum": [
+                            "email"
+                          ]
+                        },
+                        "subject": {
+                          "type": "string",
+                          "maxLength": 150,
+                          "description": "One line, with slots from the fixed list"
+                        },
+                        "body": {
+                          "type": "string",
+                          "maxLength": 4000,
+                          "description": "Plain text lines with slots; must hold {unsubscribe}"
+                        },
+                        "guardian": {
+                          "description": "What a dependant's live guardians get instead (service journeys only)",
+                          "type": "object",
+                          "properties": {
+                            "subject": {
+                              "type": "string",
+                              "maxLength": 150,
+                              "description": "One line, with slots from the fixed list"
+                            },
+                            "body": {
+                              "type": "string",
+                              "maxLength": 4000,
+                              "description": "Plain text lines with slots; must hold {unsubscribe}"
+                            }
+                          },
+                          "required": [
+                            "subject",
+                            "body"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "type",
+                        "channel",
+                        "subject",
+                        "body"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9_]{0,23}$",
+                          "description": "The step's id within the journey: branches name it"
+                        },
+                        "type": {
+                          "type": "string",
+                          "const": "wait"
+                        },
+                        "days": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 365
+                        },
+                        "hours": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 23
+                        },
+                        "until": {
+                          "description": "Then until this time of day in the business's zone",
+                          "type": "string",
+                          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                        },
+                        "weekdaysOnly": {
+                          "default": false,
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "type"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9_]{0,23}$",
+                          "description": "The step's id within the journey: branches name it"
+                        },
+                        "type": {
+                          "type": "string",
+                          "const": "branch"
+                        },
+                        "condition": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "test": {
+                                  "type": "string",
+                                  "const": "liveMembership",
+                                  "description": "The Person holds a live membership"
+                                },
+                                "not": {
+                                  "default": false,
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "test"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "test": {
+                                  "type": "string",
+                                  "const": "signalSinceEntry",
+                                  "description": "The Person had the signal since entering"
+                                },
+                                "signal": {
+                                  "type": "string",
+                                  "pattern": "^[a-z][a-z0-9]{1,29}\\.[a-z][a-zA-Z0-9]{0,39}$",
+                                  "description": "A signal a shipped pack declares, as <pack>.<name> (memberships.started)"
+                                },
+                                "not": {
+                                  "default": false,
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "test",
+                                "signal"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "test": {
+                                  "type": "string",
+                                  "const": "promotionalConsent",
+                                  "description": "The Person has a recorded yes to promotional messages on the channel"
+                                },
+                                "channel": {
+                                  "type": "string",
+                                  "enum": [
+                                    "email"
+                                  ]
+                                },
+                                "not": {
+                                  "default": false,
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "test",
+                                "channel"
+                              ]
+                            }
+                          ]
+                        },
+                        "goTo": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9_]{0,23}$",
+                          "description": "The step to go to when the condition holds (a later one)"
+                        },
+                        "otherwise": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9_]{0,23}$",
+                          "description": "The step to go to when it does not (a later one)"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "type",
+                        "condition",
+                        "goTo",
+                        "otherwise"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9_]{0,23}$",
+                          "description": "The step's id within the journey: branches name it"
+                        },
+                        "type": {
+                          "type": "string",
+                          "const": "task"
+                        },
+                        "title": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "assignee": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "description": "\"owner\" (the journey's owner) or a staff user id"
+                        },
+                        "dueDays": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 60
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "type",
+                        "title",
+                        "assignee"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9_]{0,23}$",
+                          "description": "The step's id within the journey: branches name it"
+                        },
+                        "type": {
+                          "type": "string",
+                          "const": "end"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "type"
+                      ]
+                    }
+                  ]
+                }
+              }
+            },
+            "required": [
+              "entry",
+              "steps"
+            ]
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "draftRev": {
+            "type": "number"
+          },
+          "draftHash": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "draftRev",
+          "draftHash"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "journey.entries",
+        "journey.get",
+        "journey.list",
+        "journey.log",
+        "journey.preview",
+        "journey.settings",
+        "journey.version"
+      ]
+    },
+    {
+      "name": "journey.version",
+      "description": "One published version of a journey, exactly as it runs: its steps and words, the plain-words summary its publisher was shown, who published it (and, for an AI's request, who asked), and whether an AI drafted it. A version never changes. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The version's id (jnv_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "journeyId": {
+            "type": "string"
+          },
+          "number": {
+            "type": "number"
+          },
+          "definition": {},
+          "summary": {
+            "type": "string"
+          },
+          "hash": {
+            "type": "string"
+          },
+          "intact": {
+            "type": "boolean",
+            "description": "The hash recomputed from the stored definition matches"
+          },
+          "draftedBy": {
+            "type": "string",
+            "enum": [
+              "person",
+              "assistant"
+            ]
+          },
+          "publishedAt": {
+            "type": "string"
+          },
+          "publishedBy": {
+            "type": "string"
+          },
+          "requestedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "requestedVia": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "journeyId",
+          "number",
+          "definition",
+          "summary",
+          "hash",
+          "intact",
+          "draftedBy",
+          "publishedAt",
+          "publishedBy",
+          "requestedBy",
+          "requestedVia"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "judge.get",
       "description": "The judge (Jev): whether it has a key, where the key is held and where calls go (never the key), the pinned model, each placement with its switch, fail mode, the data it sends and its spend over the last 30 days, and the policy adjudicator's reviewer. Admins only, people only. Read-only.",
       "risk": "read",

@@ -1022,6 +1022,41 @@ async function approveActions(
       );
     }
   }
+  // An AI's journey publish (stage 53, ADR 0800): the approval of the wording members get without
+  // anyone approving each send, so only a person who may publish journeys approves it.
+  const journeyPublish = targets.find((t) => t.operation === "journey.publish");
+  if (journeyPublish) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError("A journey is published by a person, never by an AI actor", {
+        actionId: journeyPublish.id,
+        actor: ctx.actor,
+      });
+    }
+    if (!holdsPermission(ctx.user, ctx.permissionGrants, "journeys:publish")) {
+      throw new ForbiddenError(
+        "Approving a journey's publish needs the journeys publish permission (journeys:publish)",
+        { actionId: journeyPublish.id, permission: "journeys:publish" },
+      );
+    }
+  }
+  // An AI's manual journey entry (ADR 0800): the entry counts as a person's (its messages are
+  // not held for the AI's cause) only because a person approved it, so the approver must be one
+  // who could have added those people themselves.
+  const journeyEnter = targets.find((t) => t.operation === "journey.enter");
+  if (journeyEnter) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError("People are added to a journey by a person, never by an AI actor", {
+        actionId: journeyEnter.id,
+        actor: ctx.actor,
+      });
+    }
+    if (!holdsPermission(ctx.user, ctx.permissionGrants, "journeys:manage")) {
+      throw new ForbiddenError(
+        "Approving people added to a journey needs the journeys permission (journeys:manage)",
+        { actionId: journeyEnter.id, permission: "journeys:manage" },
+      );
+    }
+  }
   // A roster change (stage 45, ADRs 0625 and 0626): a restricted tool's call is approved only by
   // someone who holds the tool, and a write of who works a shift only by someone who rosters.
   await assertRosterApprover(ctx, ctx.db, targets);

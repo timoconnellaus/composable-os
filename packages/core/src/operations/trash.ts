@@ -7,6 +7,7 @@ import { queueEraseAgreements } from "../agreements/people.ts";
 import { queueEraseAllowances } from "../allowance/people.ts";
 import { ValidationError } from "../errors.ts";
 import { mediaObject } from "../fields/media.ts";
+import { eraseJourneyStatements } from "../journeys/entries.ts";
 import { queueEraseSignals } from "../journeys/signals.ts";
 import { decodeCursor, encodeCursor } from "../list.ts";
 import { defineOperation } from "../operation.ts";
@@ -278,6 +279,12 @@ export const trashPurge = defineOperation({
       ctx,
       purged.filter((r) => r.object === "person").map((r) => r.id),
     );
+    // And their journey entries and step log, as an erased Person's (ADR 0800).
+    const journeys = eraseJourneyStatements(
+      ctx.db,
+      purged.filter((r) => r.object === "person").map((r) => r.id),
+    );
+    if (journeys.length) ctx.write(...journeys);
     // Duplicate pairs have no foreign key: a purged record's pairs (dismissed ones too) go with it.
     for (const object of ["person", "organisation"] as const) {
       const ids = purged.filter((r) => r.object === object).map((r) => r.id);

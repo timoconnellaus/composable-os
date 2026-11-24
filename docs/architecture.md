@@ -1414,6 +1414,27 @@ check on every tick and finish, on someone's behalf only by a manager. The tool-
 (`anyStaff`), or held to `checklists:write` (`corePermission`, ADR 0652). Rostering's checklist
 operations never see a day run.
 
+**Journeys** (stage 53 step 3, [ADR 0800](adr/0800-journeys-as-a-host-primitive.md),
+`packages/core/src/journeys/`, `operations/journey.ts`, migration 1170): messages the host sends on
+its own to one Person at a time because of what they did or stopped doing, as a host primitive, not
+automations and not a pack. A journey (`core_journey`, kind `service` or `promotional`, status
+`draft`, `live`, `paused` or `archived`) has a working copy: one JSON document with its entry rule,
+conditions, exits, re-entry rule, `includeBulk`, reply-to and steps (send, wait, branch, task,
+end), written with `journeys:manage` (the assistant may draft it). A person with `journeys:publish`
+publishes it as a version (`core_journey_version`) of the copy at the rev the editor showed
+(`journey.preview` renders every message for a sample Person); an AI's publish is a request only a
+person who holds the permission approves, never the adjudicator, reading every message's words in
+the request; triggers refuse any change of a version and any version not made
+from the reviewed copy. The words follow routine mail's rules (no typed link, address or phone
+number; links only through `{site:/path}`; `{unsubscribe}` in every body); the reply-to is an
+address a human admin allowed (`journey.settings.update`). Entries (`core_journey_entry`, one live
+per Person per journey) are added by hand with `journey.enter` (up to 500, a `bulk-write`, minors
+kept off promotional journeys; an AI's approved only by someone who holds `journeys:manage`) and
+keep the standing of their cause; archiving is a person's; the step log keeps no words.
+The four starter journeys are seeded as drafts. Nothing sends yet: the tick, the daily scan, exits
+and the send decision through stage 30's routine messages are step 4. The tables are in no `rec_*`
+view; erase and the Trash's purge delete a Person's entries and log.
+
 `sellable.moves` ([ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md),
 `packages/core/src/orders/moves.ts` and `refund-due.ts`) is a paid line that moves a record that
 already exists: `order.startHeld` (a tool's only) makes the record in its `held` state (a drop-in
