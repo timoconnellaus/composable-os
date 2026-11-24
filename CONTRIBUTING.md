@@ -138,6 +138,15 @@ edits. Do not edit:
 - A stage's row in `docs/roadmap.md`, or a block's row in `docs/parallel-work.md`, per build
   step. A roadmap row gives the stage's state when its spec was agreed; a block's row is written
   once, when the block is claimed.
+- A rows-read budget, to make room for a migration's tables. A cold call scans `sqlite_master`
+  once (the schema cache; query.sql's guard and erase read it too). It has no index, so the scan
+  reads a row for every table, index and trigger in the database, and every migration makes it
+  longer. Budgets leave that scan out: measure with `packages/core/test/rows-read-meter.ts`
+  (`rows` is the path's own rows, `schemaScans` counts the scans apart, and a test bounds it),
+  warm the cache unmetered first (`refreshSchemaRegistry`), or derive the bound from
+  `SELECT count(*) FROM sqlite_master` (`deals.test.ts`, the runner's `stage6b-rows-read.test.ts`).
+  A budget that fails after you add a migration is measuring the schema: fix the test, don't
+  raise the number.
 
 Progress is recorded in the stage spec (`docs/stages/NN-*.md`), in its Status section: each build
 step adds a bullet of its own under it, saying what it built (the branch or PR, the migrations and

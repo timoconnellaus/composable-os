@@ -25,6 +25,16 @@ import { releaseAllClaimsStatements } from "../capacity/claimants.ts";
 import { backfillCounters, dropCapacityStatements } from "../capacity/records.ts";
 import { FIELD_TYPE_REGISTRY } from "../fields/field-types.ts";
 import { getObject } from "../fields/index.ts";
+import {
+  createOccupiesTriggers,
+  dropOccupiesTriggers,
+  dropClaims as dropThingClaims,
+  type OccupiesTables,
+  occupiesIndexColumns,
+  resyncClaims as resyncThingClaims,
+  type ThingClashRow,
+  clashQuery as thingClashQuery,
+} from "../occupies/sql.ts";
 import { dropRecurringStatements } from "../recurring/bookkeeping.ts";
 import { loadGeneralSettings, ORG_TIMEZONE_SETTING } from "../settings.ts";
 import {
@@ -97,7 +107,8 @@ export interface ReconcileIssue {
     | "unique_conflict"
     | "claims_conflict"
     | "grants_conflict"
-    | "staffed_conflict";
+    | "staffed_conflict"
+    | "occupies_conflict";
   path: string;
   message: string;
   suggestion?: string;
@@ -279,6 +290,32 @@ async function dataIssues(
         });
       }
     }
+    // A claim on a thing over records that already share one at once (ADR 0765): refused for
+    // records not yet ended, naming them; past ones are reported and claim nothing.
+    const occupies = occupiesTables(next, object);
+    if (occupies && occupiesColumnsExist(current, occupies)) {
+      const seconds = Math.floor(Date.parse(at) / 1000);
+      const clash = await sql.raw<ThingClashRow>(thingClashQuery(occupies, seconds)).execute(db);
+      const named = async (r: ThingClashRow) =>
+        `${await shiftLabel(db, r.object_type, r.record_id, r.starts)} and ${await shiftLabel(db, r.other_object, r.other, r.other_starts)}`;
+      const live = clash.rows.filter((r) => Math.max(r.ends, r.other_ends) > seconds);
+      if (live.length) {
+        const names = await Promise.all(live.map(named));
+        issues.push({
+          code: "occupies_conflict",
+          path: `objects.${object.localName}.occupies`,
+          message: `${object.name}: these records take one ${getObject(occupies.holder.object)?.label.toLowerCase() ?? "thing"} at once: ${names.join("; ")}. Change their ${occupies.thing} or time first.`,
+        });
+      } else if (clash.rows.length) {
+        const names = await Promise.all(clash.rows.map(named));
+        const total = Number(clash.rows[0]?.total ?? clash.rows.length);
+        plan.changes.push({
+          kind: "skip_claims",
+          object: object.name,
+          detail: `${total} past record(s) shared a ${occupies.thing} with another at once and claim it for no time: ${names.join("; ")}${total > names.length ? "; …" : ""}`,
+        });
+      }
+    }
     // What a plan's subscriptions grant (ADR 0510) cannot be dropped or changed while a
     // subscription still running holds a record of it: its records would stop following it and
     // keep what they give for good. End those first, or keep the declaration.
@@ -408,6 +445,7 @@ export function planFromState(
       ...(object.recurring ? { recurring: object.recurring } : {}),
       ...(object.staffed ? { staffed: object.staffed } : {}),
       ...(object.workedOn ? { workedOn: object.workedOn } : {}),
+      ...(object.occupies ? { occupies: object.occupies } : {}),
       ...(object.checklists ? { checklists: object.checklists } : {}),
       ...(object.owner ? { owner: object.owner } : {}),
       ...(object.customer ? { customer: object.customer } : {}),
@@ -788,6 +826,15 @@ export function planFromState(
         `CREATE INDEX IF NOT EXISTS ${name} ON ${ident(object.tableName)} (${ident(staffed.who)}) WHERE deleted_at IS NULL`,
       );
     }
+    // What a claim on a thing is found by (ADR 0765): its thing, and its margins' records.
+    const occupies = occupiesTables(next, object);
+    for (const column of occupies ? occupiesIndexColumns(occupies) : []) {
+      const name = ident(`${object.tableName}__occupies_${column}`);
+      wanted.set(
+        name,
+        `CREATE INDEX IF NOT EXISTS ${name} ON ${ident(object.tableName)} (${ident(column)}) WHERE deleted_at IS NULL`,
+      );
+    }
     const existing = (current.indexes ?? []).filter(
       (index) => index.table === object.tableName && index.name.startsWith(`${object.tableName}__`),
     );
@@ -805,16 +852,19 @@ export function planFromState(
 
   // The time claim (ADR 0621): the triggers keeping each shift's claim are dropped before the
   // table changes and built again after them, and every claim is derived again from the records.
+  // The claim on a thing (ADR 0765) the same way.
   const staffed = staffedPlan(current, next, ext);
+  const occupies = occupiesPlan(current, next, ext, now);
   return finishPlan(
     db,
     ext,
     current,
     next,
-    [...staffed.drops, ...tableDdl, ...staffed.creates],
+    [...staffed.drops, ...occupies.drops, ...tableDdl, ...staffed.creates, ...occupies.creates],
     [
       ...dataStatements,
       ...staffed.statements,
+      ...occupies.statements,
       ...seedWrites,
       ...capacityBackfill(next, ext, now),
       ...allowanceBackfill(next, ext, orgZone, now),
@@ -1256,6 +1306,113 @@ function staffedPlan(current: SchemaState, next: SchemaState, ext: string) {
   }
   for (const object of was) {
     if (!now.has(object.name)) statements.push(dropClaims(object.name));
+  }
+  return { drops, creates, statements };
+}
+
+/**
+ * The tables and columns an occupying object's claims are derived from (occupies/sql.ts), from a
+ * schema state, or null when the object declares no `occupies` or a field it names has no column.
+ */
+function occupiesTables(state: SchemaState, object: ObjectState): OccupiesTables | null {
+  const declared = object.definition.occupies;
+  const states = object.definition.states;
+  if (!declared || !states) return null;
+  const field = (o: ObjectState, local: string) =>
+    state.fields.find(
+      (f) =>
+        f.object === o.name &&
+        f.extensionId === o.extensionId &&
+        f.localName === local &&
+        f.tableName === o.tableName &&
+        f.status === "active",
+    );
+  const active = (name: string | undefined) =>
+    state.objects.find((o) => o.name === name && o.status === "active");
+  const thing = field(object, declared.thing);
+  const holder = active(thing?.definition.to);
+  const starts = field(object, declared.starts)?.columnName;
+  const ends = field(object, declared.ends)?.columnName;
+  const stateColumn = field(object, states.field)?.columnName;
+  if (!thing?.columnName || !holder || !starts || !ends || !stateColumn) return null;
+  const only = declared.only ? field(holder, declared.only)?.columnName : undefined;
+  if (declared.only && !only) return null;
+  const margin = (m: { field: string } | undefined): OccupiesTables["before"] | null => {
+    if (!m) return undefined;
+    const [first, second] = m.field.split(".") as [string, string | undefined];
+    const own = field(object, first);
+    if (!own?.columnName) return null;
+    if (second === undefined) return { column: own.columnName };
+    const source = active(own.definition.to);
+    const column = source ? field(source, second)?.columnName : undefined;
+    if (!source || !column) return null;
+    return { column, via: { column: own.columnName, table: source.tableName } };
+  };
+  const before = margin(declared.before);
+  const after = margin(declared.after);
+  if (before === null || after === null) return null;
+  return {
+    object: object.name,
+    table: object.tableName,
+    thing: thing.columnName,
+    many: thing.definition.many === true,
+    holder: { object: holder.name, table: holder.tableName, ...(only ? { only } : {}) },
+    starts,
+    ends,
+    state: stateColumn,
+    live: [...declared.live],
+    ...(before ? { before } : {}),
+    ...(after ? { after } : {}),
+  };
+}
+
+/** Whether every column `t` reads exists already (a field added in this plan has no records). */
+function occupiesColumnsExist(current: SchemaState, t: OccupiesTables): boolean {
+  const has = (table: string, column: string) =>
+    current.fields.some((f) => f.tableName === table && f.columnName === column);
+  const margins = [t.before, t.after].flatMap((m) =>
+    !m
+      ? []
+      : m.via
+        ? [
+            [t.table, m.via.column],
+            [m.via.table, m.column],
+          ]
+        : [[t.table, m.column]],
+  ) as [string, string][];
+  return (
+    [t.thing, t.starts, t.ends, t.state].every((c) => has(t.table, c)) &&
+    (!t.holder.only || has(t.holder.table, t.holder.only)) &&
+    margins.every(([table, column]) => has(table, column))
+  );
+}
+
+/**
+ * What a reconcile of `ext` does to the claims on things (ADR 0765), as staffedPlan does to the
+ * time claim: drop the triggers of every object that declared `occupies`, build them again for
+ * every active object that declares it, derive its claims again, and drop the claims of objects
+ * that no longer do.
+ */
+function occupiesPlan(current: SchemaState, next: SchemaState, ext: string, at: string) {
+  const drops: string[] = [];
+  const creates: string[] = [];
+  const statements: CompiledQuery[] = [];
+  const was = current.objects.filter((o) => o.extensionId === ext && o.definition.occupies);
+  for (const object of was) {
+    const t = occupiesTables(current, object);
+    if (t) drops.push(...dropOccupiesTriggers(t));
+  }
+  const now = new Set<string>();
+  for (const object of next.objects) {
+    if (object.extensionId !== ext || object.status !== "active") continue;
+    const t = occupiesTables(next, object);
+    if (!t) continue;
+    now.add(object.name);
+    creates.push(...createOccupiesTriggers(t));
+    statements.push(...resyncThingClaims(t, Math.floor(Date.parse(at) / 1000)));
+  }
+  for (const object of was) {
+    if (!now.has(object.name)) statements.push(dropThingClaims(object.name));
   }
   return { drops, creates, statements };
 }

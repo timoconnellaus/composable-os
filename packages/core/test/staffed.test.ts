@@ -951,6 +951,40 @@ describe("warnings", () => {
     await update(DUTY, duty.id as string, { endsAt: at("14", "06:00") });
   });
 
+  // The review of PR #336, finding 1: a time no clock can read claimed nothing, so the shift could
+  // sit over another of its person's. Refused at write, and by the trigger past the operations.
+  it("refuses a live shift whose time cannot be read, whoever writes it", async () => {
+    const user = await createUser("member");
+    await create(DUTY, {
+      name: "Held",
+      staff: user.id,
+      startsAt: at("16", "07:00"),
+      endsAt: at("16", "08:00"),
+    });
+    await expect(
+      create(DUTY, {
+        name: "Unreadable",
+        staff: user.id,
+        startsAt: at("16", "07:10"),
+        endsAt: "2026-06-16T99:00:00Z",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+    const duty = await create(DUTY, {
+      name: "Later",
+      staff: user.id,
+      startsAt: at("16", "09:00"),
+      endsAt: at("16", "10:00"),
+    });
+    await expect(
+      env.DB.prepare(
+        `UPDATE ${table(DUTY)} SET ${column(DUTY, "startsAt")} = ?, ${column(DUTY, "endsAt")} = ? WHERE id = ?`,
+      )
+        .bind(at("16", "07:10"), "2026-06-16T09:75Z", duty.id)
+        .run(),
+    ).rejects.toThrow(/core_staff_time_unreadable/);
+    expect(await claims(user.id)).toHaveLength(2);
+  });
+
   it("checks a regular unavailability by wall clock, across a clock change", () => {
     const rule = {
       weekdays: "wed",

@@ -150,6 +150,8 @@ export interface ObjectDefinition {
   staffed?: StaffedDefinition;
   /** Extension objects: time can be recorded against the record (stage 58, ADR 0850). */
   workedOn?: WorkedOnDefinition;
+  /** Extension objects: a claim on a thing (a room) for the record's time (stage 49, ADR 0765). */
+  occupies?: OccupiesDefinition;
   /** A checklist its person ticks off (stage 45 step 4b, ADR 0650), with registry names. */
   checklists?: ChecklistsDefinition;
   /**
@@ -573,6 +575,29 @@ export interface StaffedDefinition {
   payAfter?: { field: string } | undefined;
   /** What shows a shift was worked (ADR 0627): `object` is the evidence object's registry name. */
   evidence?: { object: string; link: string; by: string } | undefined;
+}
+
+/**
+ * The SDK's OccupiesSpec (ADR 0765) with registry names: fields are the object's own, `thingObject`
+ * is the registry name of what `thing` names, and a margin read through a relation (`via`) names
+ * its object (`viaObject`) and that object's number field (`field`).
+ */
+export interface OccupiesDefinition {
+  thing: string;
+  thingObject: string;
+  starts: string;
+  ends: string;
+  live: readonly string[];
+  before?: OccupiesMargin | undefined;
+  after?: OccupiesMargin | undefined;
+  only?: string | undefined;
+}
+
+/** A margin of a claim on a thing, in minutes: a field of the record, or of what `via` names. */
+export interface OccupiesMargin {
+  field: string;
+  via?: string | undefined;
+  viaObject?: string | undefined;
 }
 
 /**
