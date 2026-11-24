@@ -1,0 +1,22 @@
+{
+  "name": "@composable-os/pdf",
+  "version": "0.0.0",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "type": "module",
+  "description": "The platform's PDF writer (ADR 0645, generalised by stage 35, ADR 0737): a safe core of standard fonts and hex-string text, a table layout, and renderers for a signed agreement, a quote, an invoice, a credit note and a receipt, shared by the email gatekeeper and the host's downloads; and a cheap page estimate the host's core asks at publish. No dependencies.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./estimate": "./src/estimate.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@composable-os/config": "workspace:*",
+    "@types/node": "24.19.2",
+    "typescript": "6.0.3",
+    "vitest": "5.1.0"
+  }
+}

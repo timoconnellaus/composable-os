@@ -18,7 +18,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@composable-os/agreement-pdf": "workspace:*",
+    "@composable-os/pdf": "workspace:*",
     "@composable-os/calendar-file": "workspace:*",
     "@composable-os/gatekeeper-configurator-ui": "workspace:*",
     "@composable-os/gatekeeper-interface": "workspace:*",

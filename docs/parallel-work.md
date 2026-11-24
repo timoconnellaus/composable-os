@@ -67,7 +67,7 @@ commit**, by editing this table. Use the next free block. Unused numbers in a bl
 | BF | 0990–1009 | 0710–0719 | Stage 48, My account (spec `docs/stages/48-my-account.md`): `core_customer_email_change` (migration 0990), `me.portal`, `me.attention`, changing the sign-in address, deleting an account's consequences; ADRs 0710 to 0714 named in the spec | specced |
 | BB | 0910–0929 | 0670–0679 | Stage 30, Notifications (spec `docs/stages/30-notifications.md`) | specced |
 | BG | 1010–1029 | 0720–0729 | Stage 29, Forms (spec `docs/stages/29-forms.md`) | specced |
-| BH | 1030–1049 | 0730–0739 | Stage 35, Invoices and quotes (spec `docs/stages/35-invoices-quotes.md`) | specced |
+| BH | 1030–1049 | 0730–0739 | Stage 35, Invoices and quotes (spec `docs/stages/35-invoices-quotes.md`). Step 1, the PDF writer generalised (`feat/stage-35-pdf-writer`): ADR 0737, no migrations | in flight |
 | BI | 1050–1069 | 0740–0749 | Stage 36, Shared inbox (spec `docs/stages/36-inbox.md`) | specced |
 | BJ | 1070–1089 | 0750–0759 | Stage 39, Jobs and projects (spec `docs/stages/39-jobs.md`) | specced |
 | BK | 1090–1109 | 0760–0769 | Stage 49, Appointments (spec `docs/stages/49-appointments.md`) | specced |
