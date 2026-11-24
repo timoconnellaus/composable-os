@@ -6,6 +6,7 @@ import {
   type AutomationHost,
   type AutomationTestInput,
   type AutomationTestReport,
+  activeOnlyWith,
   createTestSimulation,
   extensionPrincipalId,
   idsMatchingConditions,
@@ -19,6 +20,7 @@ import {
   type SampleApproval,
   type StartRunInput,
   sampleApproval,
+  waitingFor,
   zonedTime,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
@@ -52,6 +54,8 @@ async function loadDefinition(
     .executeTakeFirst();
   const spec = row ? parseSpec(row.spec) : null;
   if (!row || !spec) return null;
+  // One that runs only with an extension that is not installed and on starts nothing (ADR 0812).
+  const waiting = waitingFor(spec, await activeOnlyWith(createCrmDb(env.DB).query, [spec]));
   return {
     definition: {
       id: row.id,
@@ -60,7 +64,7 @@ async function loadDefinition(
       commit: row.commit_oid,
       spec,
     },
-    enabled: row.enabled === 1 && !row.paused_reason && !row.removed_at,
+    enabled: row.enabled === 1 && !row.paused_reason && !row.removed_at && !waiting.length,
   };
 }
 

@@ -461,9 +461,17 @@ The most recent installed version (commit) of an extension that completed a run 
 Extension code declared with `defineAutomation`: a **trigger**, optional declarative conditions,
 declared **steps** (with intents: what they read, write, notify and wait for) and a `run` handler
 shaped like a Cloudflare Workflow. The host renders its plain-English **summary** and **step
-diagram** from the declarations, never from AI. Enabled, disabled (an admin's choice) or paused (a
-safety rail tripped). Id `<extension>.<key>`, e.g. `deals.wonOnboarding`.
+diagram** from the declarations, never from AI. Enabled, disabled (an admin's choice), waiting (it
+runs **only with** an extension that is not installed and on) or paused (a safety rail tripped).
+Id `<extension>.<key>`, e.g. `deals.wonOnboarding`.
 _Avoid_: workflow (that is the Cloudflare primitive a run executes on), rule, flow
+
+**Only with**
+An automation's `onlyWith: ["<extension>"]` (ADR 0812): the other extensions it needs, when the
+rest of its own extension does not. The extension installs without them; the automation waits,
+starting no run and listed as waiting, until every one is installed and on. Reviews' "after the
+Nth class" runs only with Bookings.
+_Avoid_: optional dependency, companion pack; `requires` is the whole extension's need
 
 **Trigger**
 What starts an automation's runs: a record event (`created`, `updated`, `deleted`, `restored`), a

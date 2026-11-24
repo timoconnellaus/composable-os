@@ -7,6 +7,7 @@ import {
   defineAutomation,
   defineExtension,
   notificationInput,
+  toManifest,
   validateManifest,
 } from "../src/index.ts";
 import { createTestHost } from "../src/testing.ts";
@@ -321,6 +322,97 @@ describe("automation contract checks", () => {
       },
     );
     expect(found).toEqual([]);
+  });
+});
+
+describe("onlyWith (ADR 0812)", () => {
+  const attended: Partial<AutomationManifest> = {
+    trigger: { type: "fieldChanged", object: "bookings.booking", field: "state", to: "attended" },
+    steps: [{ name: "count", reads: ["bookings.booking"], writes: [{ object: "task" }] }],
+  };
+  const reads = {
+    permissions: {
+      read: ["bookings.booking"],
+      write: ["task"],
+      operations: [],
+      modules: ["ops"],
+    },
+  };
+
+  it("names objects of an extension that is not installed; without it they are unknown", () => {
+    expect(issues({ ...attended, onlyWith: ["bookings"] }, reads)).toEqual([]);
+    expect(issues(attended, reads)).toEqual([
+      'automations.thing.trigger.object: Unknown object "bookings.booking". Use a core object (person, organisation, task, activity) or <extension>.<object>',
+      'automations.thing.steps.0.reads: Unknown object "bookings.booking"',
+      'permissions.read.0: Unknown object "bookings.booking"',
+    ]);
+  });
+
+  it("checks the fields once the extension is installed", () => {
+    const { issues: found } = validateManifest(
+      {
+        ...base,
+        ...reads,
+        automations: { thing: { ...good, ...attended, onlyWith: ["bookings"] } },
+      },
+      {
+        knownObjects: ["bookings.booking"],
+        objectFields: (object) => (object === "bookings.booking" ? { status: "select" } : null),
+      },
+    );
+    expect(found.map((i) => i.path)).toEqual(["automations.thing.trigger.field"]);
+  });
+
+  it("names only objects that exist once the extension is installed", () => {
+    const { issues: found } = validateManifest(
+      {
+        ...base,
+        ...reads,
+        automations: {
+          thing: {
+            ...good,
+            ...attended,
+            trigger: { ...attended.trigger, object: "bookings.bookng" } as never,
+            onlyWith: ["bookings"],
+          },
+        },
+      },
+      { knownObjects: ["bookings.booking"] },
+    );
+    expect(found.map((i) => i.message)).toEqual([
+      'Unknown object "bookings.bookng". Use a core object (person, organisation, task, activity) or <extension>.<object>',
+    ]);
+  });
+
+  it("covers only the extensions it names", () => {
+    expect(issues({ ...attended, onlyWith: ["courses"] }, reads)).toContain(
+      'automations.thing.steps.0.reads: Unknown object "bookings.booking"',
+    );
+  });
+
+  it("names neither its own extension, one twice, nor one the extension requires", () => {
+    expect(issues({ onlyWith: ["acme", "bookings", "bookings"] })).toEqual([
+      "automations.thing.onlyWith.0: An automation of an extension always runs with it",
+      'automations.thing.onlyWith.2: "bookings" is listed twice',
+    ]);
+    expect(issues({ onlyWith: ["programs"] }, { requires: ["programs"] })).toEqual([
+      "automations.thing.onlyWith.0: The extension requires programs, so it is always installed: remove it here",
+    ]);
+    expect(issues({ onlyWith: ["Bookings"] })).toHaveLength(1);
+  });
+
+  it("is kept by defineExtension's manifest", () => {
+    const ext = defineExtension({
+      ...(base as unknown as Parameters<typeof defineExtension>[0]),
+      automations: {
+        thing: defineAutomation({
+          ...(good as AutomationManifest & { trigger: { type: "fieldChanged" } }),
+          onlyWith: ["bookings"],
+          async run() {},
+        } as Parameters<typeof defineAutomation>[0]),
+      },
+    });
+    expect(toManifest(ext as never).automations.thing?.onlyWith).toEqual(["bookings"]);
   });
 });
 

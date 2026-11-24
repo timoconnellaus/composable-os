@@ -12,7 +12,7 @@ import {
 } from "./agreements.ts";
 import { allowanceManifestSchema, checkObjectAllowance } from "./allowance.ts";
 import { automationManifestSchema } from "./automation.ts";
-import { checkAutomation } from "./automation-check.ts";
+import { checkAutomation, laterObject } from "./automation-check.ts";
 import { checkObjectBehaviour } from "./behaviour.ts";
 import {
   capacityManifestSchema,
@@ -813,6 +813,7 @@ export function toManifest(extension: Extension): ExtensionManifest {
           ...(automation.rails ? { rails: automation.rails } : {}),
           ...(automation.connections?.length ? { connections: automation.connections } : {}),
           ...(automation.enabled === false ? { enabled: false } : {}),
+          ...(automation.onlyWith?.length ? { onlyWith: [...automation.onlyWith] } : {}),
         },
       ]),
     ),
@@ -2313,12 +2314,17 @@ export function validateManifest(
   }
 
   const perms = m.permissions;
+  // What an automation running only with another extension reads and writes of it (ADR 0812) is
+  // checked when that extension is installed.
+  const later = [...new Set(Object.values(m.automations).flatMap((a) => a.onlyWith ?? []))];
   for (const [key, list] of [
     ["read", perms.read],
     ["write", perms.write],
   ] as const) {
     list.forEach((object, i) => {
-      if (!known.has(object)) contract(`permissions.${key}.${i}`, `Unknown object "${object}"`);
+      if (!known.has(object) && !laterObject(later, known, object)) {
+        contract(`permissions.${key}.${i}`, `Unknown object "${object}"`);
+      }
     });
   }
   perms.operations.forEach((operation, i) => {

@@ -19,13 +19,24 @@ export type AutomationStatus = AutomationListItem["status"];
 export const STATUS_LABELS: Record<AutomationStatus, string> = {
   active: "Active",
   disabled: "Disabled",
+  waiting: "Waiting",
   paused: "Paused",
   killed: "Killed",
   removed: "Removed",
 };
 
-/** Pill colours: active green, paused/disabled amber, killed red, removed grey. */
+/** Pill colours: active green, paused/disabled amber, killed red, waiting and removed grey. */
 export type Tone = "ok" | "fail" | "pause" | "muted";
+
+/**
+ * What an automation that runs only with other extensions waits for (ADR 0812), e.g. "Runs only
+ * with bookings, which is not installed and on"; null when it waits for none.
+ */
+export function waitingText(waitingFor: readonly string[]): string | null {
+  if (!waitingFor.length) return null;
+  const names = joinNames(waitingFor);
+  return `Runs only with ${names}, which ${waitingFor.length > 1 ? "are" : "is"} not installed and on`;
+}
 
 export function statusTone(status: AutomationStatus): Tone {
   switch (status) {

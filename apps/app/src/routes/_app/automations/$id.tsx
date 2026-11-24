@@ -18,7 +18,7 @@ import {
   useSetEnabled,
 } from "#/components/automations/hooks";
 import { KillSwitchBanner } from "#/components/automations/kill-switch-banner";
-import { asTestReport, provenanceLine } from "#/components/automations/model";
+import { asTestReport, provenanceLine, waitingText } from "#/components/automations/model";
 import { OverviewTab } from "#/components/automations/overview";
 import { StatusPill } from "#/components/automations/parts";
 import { RunsTab } from "#/components/automations/runs-tab";
@@ -156,6 +156,10 @@ function AutomationView({ detail }: { detail: AutomationDetailData }) {
             );
           }}
         />
+      ) : detail.waitingFor.length ? (
+        <p className="rounded-md border bg-muted px-4 py-3 text-sm" role="status">
+          {waitingText(detail.waitingFor)}. It starts no run until then.
+        </p>
       ) : (
         detail.pausedReason &&
         detail.status === "paused" && (

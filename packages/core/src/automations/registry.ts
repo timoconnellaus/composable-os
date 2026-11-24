@@ -146,7 +146,39 @@ export async function loadEnabledAutomations(
     q = q.where("a.trigger_object", "in", jsonList([...new Set(objects)]));
   }
   const rows = await q.execute();
-  return rows.map(toDefinition).filter((d): d is AutomationDefinition => d !== null);
+  const definitions = rows.map(toDefinition).filter((d): d is AutomationDefinition => d !== null);
+  const active = await activeOnlyWith(
+    db,
+    definitions.map((d) => d.spec),
+  );
+  return definitions.filter((d) => !waitingFor(d.spec, active).length);
+}
+
+/**
+ * The extensions the `onlyWith` of `specs` name (ADR 0812) that are installed and on: one read by
+ * primary key, none when no spec has one.
+ */
+export async function activeOnlyWith(
+  db: Kysely<CoreDatabase>,
+  specs: readonly AutomationManifest[],
+): Promise<ReadonlySet<string>> {
+  const ids = [...new Set(specs.flatMap((spec) => spec.onlyWith ?? []))];
+  if (!ids.length) return new Set();
+  const rows = await db
+    .selectFrom("core_extensions")
+    .select("id")
+    .where("id", "in", jsonList(ids))
+    .where("status", "=", "active")
+    .execute();
+  return new Set(rows.map((r) => r.id));
+}
+
+/**
+ * The extensions an automation runs only with that are not installed and on, of `active` (from
+ * `activeOnlyWith`): while any is, it is listed as waiting and starts no run (ADR 0812).
+ */
+export function waitingFor(spec: AutomationManifest, active: ReadonlySet<string>): string[] {
+  return (spec.onlyWith ?? []).filter((id) => !active.has(id));
 }
 
 export interface AutomationSettings {

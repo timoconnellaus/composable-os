@@ -294,6 +294,13 @@ How stage 5 runs automations ([ADR 0130](adr/0130-automation-runtime.md), test m
 
 - **Registry.** `extension.install` syncs `core_automations` from the manifest; the consumer and
   cron load enabled automations through `core_automations_trigger_idx`.
+- **Only with** ([ADR 0812](adr/0812-an-automation-that-runs-only-with-another-pack.md)). An
+  automation that declares `onlyWith: ["<extension>"]` installs with its extension whether or
+  not those are installed; what it names of them is checked once they are. While any is not
+  installed and on, it starts no run (trigger matching, cron, a manual start, a run held back by
+  a rail: `waitingFor` in `automations/registry.ts`, one read of `core_extensions` by id, only
+  when an automation names one) and `automation.list` shows it `waiting` with `waitingFor`.
+  Nothing is stored for it: it runs again the moment the other extension is on.
 - **Replay.** Each advance replays the extension's `run` with the journal of finished steps in the
   extension's tool worker; one new `step.do` runs per advance, sleeps and waits are Workflow
   sleeps and waits. Steps act as actor `automation` under the extension principal, with cascade

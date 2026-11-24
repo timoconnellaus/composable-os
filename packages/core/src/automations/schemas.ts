@@ -53,7 +53,15 @@ export const automationRailsViewSchema = z.object({
   selfRetrigger: z.literal(false),
 });
 
-export const automationStatusSchema = z.enum(["active", "disabled", "paused", "killed", "removed"]);
+export const automationStatusSchema = z.enum([
+  "active",
+  "disabled",
+  /** It runs only with an extension that is not installed and on (ADR 0812): `waitingFor`. */
+  "waiting",
+  "paused",
+  "killed",
+  "removed",
+]);
 
 export const automationListItemSchema = z.object({
   id: z.string(),
@@ -68,6 +76,8 @@ export const automationListItemSchema = z.object({
   triggerText: z.string(),
   status: automationStatusSchema,
   pausedReason: z.string().nullable(),
+  /** The extensions it runs only with (`onlyWith`) that are not installed and on (ADR 0812). */
+  waitingFor: z.array(z.string()),
   lastRunAt: z.string().nullable(),
   lastRunStatus: z.enum(RUN_STATUSES).nullable(),
   /** Runs in the last 7 days, and failed ones among them. */

@@ -12,6 +12,7 @@ import {
   type AutomationDefinition,
   type AutomationQueueMessage,
   type AutomationSettings,
+  activeOnlyWith,
   automationsFullyBound,
   effectiveRails,
   FAN_OUT_BUDGET,
@@ -24,12 +25,14 @@ import {
   messageObjects,
   newId,
   notifyStatements,
+  parseSpec,
   type RateLimitBinding,
   type RunCandidate,
   refreshSchemaRegistry,
   registerTriggerSource,
   triggerSourceFor,
   WORKFLOW_BATCH_MAX,
+  waitingFor,
   workflowInstanceId,
 } from "@composable-os/core";
 import { type CrmDb, createCrmDb } from "@composable-os/db";
@@ -645,7 +648,7 @@ export async function runDeferredDue(
   const now = at.toISOString();
   const settings = await loadAutomationSettings(db);
   if (settings.killSwitch) return { started: 0, waiting: 0 };
-  const due = await db
+  let due = await db
     .selectFrom("core_automation_runs as r")
     .innerJoin("core_automations as a", "a.id", "r.automation_id")
     .select([
@@ -664,6 +667,17 @@ export async function runDeferredDue(
     .groupBy(["r.automation_id", "a.key", "a.spec", "a.owner_user_id"])
     .orderBy("oldest")
     .execute();
+  if (!due.length) return { started: 0, waiting: 0 };
+  // Runs queued before an extension an automation runs only with went off wait for it (ADR 0812).
+  const specs = new Map(due.map((a) => [a.automation_id, parseSpec(a.spec)]));
+  const active = await activeOnlyWith(
+    db,
+    [...specs.values()].filter((spec) => spec !== null),
+  );
+  due = due.filter((a) => {
+    const spec = specs.get(a.automation_id);
+    return spec && !waitingFor(spec, active).length;
+  });
   if (!due.length) return { started: 0, waiting: 0 };
   const share = Math.max(1, Math.ceil(perTick / due.length));
   const instances: { id: string; params: AutomationRunParams }[] = [];

@@ -19171,6 +19171,7 @@
             "enum": [
               "active",
               "disabled",
+              "waiting",
               "paused",
               "killed",
               "removed"
@@ -19224,6 +19225,7 @@
             "enum": [
               "active",
               "disabled",
+              "waiting",
               "paused",
               "killed",
               "removed"
@@ -19357,6 +19359,7 @@
             "enum": [
               "active",
               "disabled",
+              "waiting",
               "paused",
               "killed",
               "removed"
@@ -19367,6 +19370,12 @@
               "string",
               "null"
             ]
+          },
+          "waitingFor": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "lastRunAt": {
             "type": [
@@ -19671,6 +19680,7 @@
           "triggerText",
           "status",
           "pausedReason",
+          "waitingFor",
           "lastRunAt",
           "lastRunStatus",
           "runs7d",
@@ -19736,7 +19746,7 @@
     },
     {
       "name": "automation.list",
-      "description": "List the automations installed extensions declare, with their status (active, disabled, paused by a rail, stopped by the kill switch, removed), trigger in plain English, last run and 7-day run and error counts. `manualFor` lists the manual automations of one object (the buttons on its record pages and bulk actions on its lists). Read-only.",
+      "description": "List the automations installed extensions declare, with their status (active, disabled, waiting for an extension it runs only with (`waitingFor`), paused by a rail, stopped by the kill switch, removed), trigger in plain English, last run and 7-day run and error counts. `manualFor` lists the manual automations of one object (the buttons on its record pages and bulk actions on its lists). Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -19799,6 +19809,7 @@
                   "enum": [
                     "active",
                     "disabled",
+                    "waiting",
                     "paused",
                     "killed",
                     "removed"
@@ -19809,6 +19820,12 @@
                     "string",
                     "null"
                   ]
+                },
+                "waitingFor": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
                 },
                 "lastRunAt": {
                   "type": [
@@ -19883,6 +19900,7 @@
                 "triggerText",
                 "status",
                 "pausedReason",
+                "waitingFor",
                 "lastRunAt",
                 "lastRunStatus",
                 "runs7d",

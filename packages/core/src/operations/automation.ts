@@ -15,11 +15,13 @@ import { type Kysely, sql } from "kysely";
 import type { z } from "zod";
 import {
   type AutomationRow,
+  activeOnlyWith,
   effectiveRails,
   isTimeZone,
   loadAutomationSettings,
   parseSpec,
   triggerObject,
+  waitingFor,
 } from "../automations/registry.ts";
 import {
   type AutomationListItem,
@@ -95,9 +97,10 @@ export function summaryContext(timezone: string): SummaryContext {
 
 type Status = AutomationListItem["status"];
 
-function statusOf(row: AutomationRow, killSwitch: boolean): Status {
+function statusOf(row: AutomationRow, killSwitch: boolean, waiting: readonly string[]): Status {
   if (row.removed_at) return "removed";
   if (!row.enabled) return "disabled";
+  if (waiting.length) return "waiting";
   if (killSwitch) return "killed";
   if (row.paused_reason) return "paused";
   return "active";
@@ -190,7 +193,9 @@ function listItem(
   killSwitch: boolean,
   summary: SummaryContext,
   stats: ReturnType<typeof runStats> extends Promise<Map<string, infer V>> ? V | undefined : never,
+  active: ReadonlySet<string>,
 ): AutomationListItem {
+  const waiting = waitingFor(spec, active);
   const manifest = parse<Partial<ExtensionManifest> | null>(row.manifest ?? null, null);
   const t = spec.trigger;
   return {
@@ -203,8 +208,9 @@ function listItem(
     triggerType: t.type,
     triggerObject: triggerObject(spec),
     triggerText: triggerText(spec, summary),
-    status: statusOf(row, killSwitch),
+    status: statusOf(row, killSwitch, waiting),
     pausedReason: row.paused_reason,
+    waitingFor: waiting,
     lastRunAt: stats?.lastRunAt ?? null,
     lastRunStatus: stats?.lastRunStatus ?? null,
     runs7d: stats?.runs7d ?? 0,
@@ -218,7 +224,8 @@ export const automationList = defineOperation({
   name: "automation.list",
   description:
     "List the automations installed extensions declare, with their status (active, disabled, " +
-    "paused by a rail, stopped by the kill switch, removed), trigger in plain English, last run " +
+    "waiting for an extension it runs only with (`waitingFor`), paused by a rail, stopped by " +
+    "the kill switch, removed), trigger in plain English, last run " +
     "and 7-day run and error counts. `manualFor` lists the manual automations of one object (the " +
     "buttons on its record pages and bulk actions on its lists). Read-only.",
   input: S["automation.list"].input,
@@ -249,11 +256,16 @@ export const automationList = defineOperation({
       ctx.now,
     );
     const summary = summaryContext(settings.timezone);
+    const specs = new Map(rows.map((row) => [row.id, parseSpec(row.spec)]));
+    const active = await activeOnlyWith(
+      ctx.db,
+      [...specs.values()].filter((spec): spec is AutomationManifest => spec !== null),
+    );
     const items: AutomationListItem[] = [];
     for (const row of rows) {
-      const spec = parseSpec(row.spec);
+      const spec = specs.get(row.id);
       if (!spec) continue;
-      const item = listItem(row, spec, settings.killSwitch, summary, stats.get(row.id));
+      const item = listItem(row, spec, settings.killSwitch, summary, stats.get(row.id), active);
       if (input.manualFor && item.status !== "active") continue;
       items.push(item);
     }
@@ -313,8 +325,9 @@ export const automationGet = defineOperation({
     ]);
     const rails = effectiveRails(spec, settings);
     const operations = permissions?.operations ?? [];
+    const active = await activeOnlyWith(ctx.db, [spec]);
     return {
-      ...listItem(row, spec, settings.killSwitch, summary, stats.get(row.id)),
+      ...listItem(row, spec, settings.killSwitch, summary, stats.get(row.id), active),
       version: row.version ?? null,
       commit: row.commit_oid,
       provenance: {
@@ -469,6 +482,7 @@ function statusOperation(name: "automation.enable" | "automation.disable") {
       const status = statusOf(
         { ...row, enabled: enable ? 1 : 0, paused_reason: enable ? null : row.paused_reason },
         settings.killSwitch,
+        waitingFor(spec, await activeOnlyWith(ctx.db, [spec])),
       );
       return { id: input.id, status };
     },
