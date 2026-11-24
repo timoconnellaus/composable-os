@@ -1759,6 +1759,16 @@ viewer does not hold its tools through their role, no pack role holds it, no aut
 extension's code calls them, and nobody grants it to themselves. Rostering's `rostering:manage`.
 _Avoid_: admin-only (it can be granted), private
 
+**Restricted field**
+A pack's text field only those holding one of its restricted permissions read (ADR 0811),
+`restricted: "<pack>:<word>"`: its value is kept by the host apart from the record
+(`core_restricted_value`), so it is in no `rec_*` view, list, search, export, dashboard, summary
+or audit row. The record's customer, its author, writes it and reads their own; staff read it
+only through the pack's own person-only tool that names the permission, every read audited.
+Reviews' private feedback.
+_Avoid_: private field (a document's `private` parts are another thing), hidden field (a removed
+field kept for 30 days)
+
 **Through their own records** (`customerVia`)
 What a customer reads of a record one of their own records points to (ADR 0439): the fields an
 object declares, of the records a record of theirs points to (a ticket's event, whatever its

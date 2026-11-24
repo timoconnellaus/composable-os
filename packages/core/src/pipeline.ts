@@ -125,6 +125,7 @@ import type { RateLimitBinding } from "./rate-limit.ts";
 import type { MediaStore } from "./records/media.ts";
 import { touchesPersonApproves } from "./records/person-approves.ts";
 import { ALWAYS_REVIEWED_PUBLISHERS } from "./records/publish.ts";
+import { restrictedInputKeys } from "./records/restricted.ts";
 import { resolveInputFilter } from "./relative.ts";
 import { type MarkedChange, markStatements, type Standing } from "./routine-mail/marks.ts";
 import { loadApprovalPolicy } from "./settings.ts";
@@ -359,6 +360,16 @@ export function redactInput(value: unknown, extra: readonly string[] = []): unkn
 }
 
 /**
+ * The input keys an audit row leaves out: the operation's own `redact`, and the restricted fields
+ * of the object it names (ADR 0811), so no row holds an author's restricted words, even a refused
+ * write's.
+ */
+function auditRedactions(op: AnyOperation, input: unknown): readonly string[] {
+  const restricted = restrictedInputKeys(input);
+  return restricted.length ? [...(op.redact ?? []), ...restricted] : (op.redact ?? []);
+}
+
+/**
  * Reads by humans are not audited; every write, refusal and non-human call is. A non-human read
  * that succeeds is counted in core_audit_read_counts instead of getting its own row (ADR 0090);
  * one that fails or is refused still gets a full audit row.
@@ -458,7 +469,7 @@ function auditInsert(db: CrmDb, row: AuditRow): Compilable {
     actor: row.ctx.actor,
     user_id: row.ctx.user.id,
     origin: JSON.stringify(originSchema.parse(row.ctx.origin)),
-    input: JSON.stringify(redactInput(row.input, row.op.redact) ?? null),
+    input: JSON.stringify(redactInput(row.input, auditRedactions(row.op, row.input)) ?? null),
     result:
       row.result === undefined
         ? null
@@ -1976,7 +1987,7 @@ function outsideAuditInsert(db: CrmDb, row: OutsideAudit): Compilable {
     actor: row.actor,
     user_id: row.subjectId,
     origin: JSON.stringify(row.origin),
-    input: JSON.stringify(redactInput(row.input, row.op.redact) ?? null),
+    input: JSON.stringify(redactInput(row.input, auditRedactions(row.op, row.input)) ?? null),
     result:
       row.result === undefined
         ? null

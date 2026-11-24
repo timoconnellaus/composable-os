@@ -16,6 +16,7 @@ import {
   type FieldTypeName,
   formulaTypeOf,
   isDocumentType,
+  isRestrictedField,
   RECURRING_HORIZON_DAYS,
   type RecurringScheduleManifest,
   type SellableManifest,
@@ -35,7 +36,12 @@ import { type Kysely, sql } from "kysely";
 import { setDeclaredUniqueKeys } from "../errors.ts";
 import { FIELD_TYPE_REGISTRY, formulaFilterType } from "../fields/field-types.ts";
 import { CORE_OBJECTS, setExtensionObjects } from "../fields/index.ts";
-import type { FieldDefinition, FieldType, ObjectDefinition } from "../fields/types.ts";
+import type {
+  FieldDefinition,
+  FieldType,
+  ObjectDefinition,
+  RestrictedFieldDefinition,
+} from "../fields/types.ts";
 import {
   CORE_TARGETS,
   type CoreTarget,
@@ -434,6 +440,8 @@ function liveViewSql(object: ObjectState, own: FieldState[], capacity: boolean):
   const content = new Set(publishable.content);
   const columns = ["t.id", "t.created_at", "pub.published_at AS updated_at", "t.created_by"];
   for (const field of own) {
+    // A restricted value is in no view (ADR 0811), this one least of all.
+    if (isRestrictedField(field.definition)) continue;
     const as = viewColumnName(object.extensionId, object.name, field.localName);
     if (field.type === "formula" || !field.columnName) {
       columns.push(`NULL AS ${as}`);
@@ -1116,7 +1124,26 @@ const SYSTEM_FIELDS: FieldDefinition[] = [
 /** Builds the registry's extension objects (and extended core objects) from schema state. */
 export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition> {
   const map = new Map<string, ObjectDefinition>();
-  const active = state.fields.filter((f) => f.status === "active");
+  // A restricted field is never a registry field (ADR 0811): no list, filter, sort, search,
+  // export or record read knows it. Its object names it apart, for the seam and its one read.
+  const active = state.fields.filter(
+    (f) => f.status === "active" && !isRestrictedField(f.definition),
+  );
+  const restrictedOf = (object: ObjectState): RestrictedFieldDefinition[] =>
+    state.fields
+      .filter(
+        (f) =>
+          f.status === "active" &&
+          f.object === object.name &&
+          f.extensionId === object.extensionId &&
+          isRestrictedField(f.definition),
+      )
+      .map((f) => ({
+        name: f.name,
+        label: f.definition.label,
+        permission: f.definition.restricted as string,
+        fieldType: f.type === "longText" ? "longText" : "text",
+      }));
   for (const [name, core] of Object.entries(CORE_OBJECTS)) {
     const extra = active
       .filter((f) => f.object === name)
@@ -1137,6 +1164,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
     const sellable = sellableDefinition(object, own);
     const allowance = allowanceDefinition(object);
     const publishable = object.definition.publishable;
+    const restricted = restrictedOf(object);
     const fields = [
       ...SYSTEM_FIELDS,
       ...own.map((f) => registryField(f, object.name)),
@@ -1167,6 +1195,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...(allowance ? { allowance } : {}),
       ...(object.definition.agreements ? { agreements: object.definition.agreements } : {}),
       ...(object.definition.healthNotes ? { healthNotes: object.definition.healthNotes } : {}),
+      ...(restricted.length ? { restricted } : {}),
       ...(object.definition.states ? { states: object.definition.states } : {}),
       ...claimsDefinition(object, own),
       ...(object.definition.unique?.length ? { unique: object.definition.unique } : {}),
@@ -1250,7 +1279,8 @@ export async function refreshSchemaRegistry(db: Kysely<CoreDatabase>): Promise<v
   const objects = buildRegistry(state);
   const storage = new Map<string, FieldStorage>();
   for (const f of state.fields) {
-    if (f.status !== "active") continue;
+    // A restricted field has no storage a record operation writes (ADR 0811).
+    if (f.status !== "active" || isRestrictedField(f.definition)) continue;
     const owner = state.objects.find((o) => o.name === f.object);
     storage.set(`${f.object}|${f.name}`, {
       extension: f.extensionId,

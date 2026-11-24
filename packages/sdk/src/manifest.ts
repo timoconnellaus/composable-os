@@ -40,6 +40,7 @@ import { FIELD_TYPES, type FieldTypeName, formulaTypeOf } from "./field-types.ts
 import { checkFormula, type FormulaFieldRef } from "./formula/compile.ts";
 import { checkObjectRecurring, recurringManifestSchema } from "./recurring.ts";
 import { renamedMessage } from "./renamed.ts";
+import { checkRestrictedFields, isRestrictedField } from "./restricted-fields.ts";
 import { routineMailIssues, routineMailManifestSchema } from "./routine-mail.ts";
 import { checkObjectSellable, sellableManifestSchema } from "./sellable.ts";
 import { checkObjectStaffed, staffedManifestSchema } from "./staffed.ts";
@@ -117,6 +118,8 @@ export const fieldManifestSchema = z.object({
   default: z.union([z.string().max(1000), z.number(), z.boolean()]).optional(),
   defaultSetting: z.string().max(40).optional(),
   personApproves: z.boolean().optional(),
+  // Stage 54 step 2 (ADR 0811): only those granted this restricted permission of the pack read it.
+  restricted: z.string().max(80).optional(),
   to: z.string().max(80).optional(),
   many: z.boolean().optional(),
   expression: z.string().max(2000).optional(),
@@ -946,6 +949,8 @@ export function formulaFields(
 ): Record<string, FormulaFieldRef> {
   const env: Record<string, FormulaFieldRef> = {};
   for (const [name, field] of Object.entries(fields)) {
+    // A restricted value is in no view, so no formula reads it (ADR 0811).
+    if (isRestrictedField(field)) continue;
     if (field.type === "formula") {
       env[name] = { expression: field.expression ?? "" };
       continue;
@@ -1537,6 +1542,9 @@ export function validateManifest(
     }
   }
 
+  // Restricted fields (ADR 0811): an author's words only a named grant reads.
+  checkRestrictedFields(m, contract);
+
   // Fields a customer sets only when they make the record (ADR 0507): each one of its write list.
   for (const [name, object] of Object.entries(m.objects)) {
     for (const fieldName of object.customer?.createOnly ?? []) {
@@ -1815,6 +1823,19 @@ export function validateManifest(
       const properties = (tool.inputSchema.properties ?? {}) as Record<string, unknown>;
       if (!Object.hasOwn(properties, field)) {
         contract(`tools.${name}.redact`, `"${field}" is not a field of the tool's input`);
+      }
+    }
+    // A tool that takes a restricted field's value by its name keeps it out of the audit (ADR
+    // 0811): it lists it in `redact`.
+    for (const field of Object.keys(tool.inputSchema.properties ?? {})) {
+      const restrictedField = Object.values(m.objects).some((object) =>
+        Object.entries(object.fields).some(([n, f]) => n === field && isRestrictedField(f)),
+      );
+      if (restrictedField && !(tool.redact ?? []).includes(field)) {
+        contract(
+          `tools.${name}.redact`,
+          `"${field}" is a restricted field's name: list it in redact, so no audit row keeps it`,
+        );
       }
     }
     // Answer keys the host never keeps (ADR 0628): each a key of the tool's answer.

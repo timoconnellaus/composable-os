@@ -246,6 +246,17 @@ extension declares it; it never implements it. Each behaviour the platform has i
   Only a shipped or repository extension may declare the operation. See Bookings:
   `objects.booking.healthNotes`.
 
+- **`restricted`** on a field: words only some staff may read (a review's private feedback; stage
+  54, ADR 0811). `restricted: "<id>:<word>"` on a `text` or `longText` field of an object that
+  declares a `customer` who reads and writes it, naming one of the pack's restricted permissions
+  (below). The host keeps the value apart from the record: no view, list, filter, search, export,
+  dashboard, formula or timeline has it, and nothing else of the object may name it (title,
+  indexes, `unique`, `public`, `publishable`, seeds). The customer writes it with `my.create` /
+  `my.update` and reads their own; staff read it only from a `humanOnly` tool of yours that names
+  the permission, calling `record.readRestricted { object, field, ids }` (up to 50; every read
+  audited). A tool whose input takes it by name lists it in `redact`. Shipped and repository
+  extensions only.
+
 - **`public`** on an object: what the public may read (ADR 0438), `public: { read: [fields],
   when?: { field, in } | { via, field, in } }`: the fields, of the records whose state (a select
   field of the record, or of the one its `via` relation points to) is one of `in`. Left without

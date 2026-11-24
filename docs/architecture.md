@@ -1623,6 +1623,14 @@ A pack may declare a tool permission **restricted**
 held by admins and by a grant of it, never by a member's or viewer's own role or by a pack role,
 and is never called by an automation or another extension's code (Rostering's `rostering:manage`;
 pay in step 6). A human admin grants it, never to their own account.
+A pack's text field may be **restricted** to one of its restricted permissions
+([ADR 0811](adr/0811-restricted-fields.md), stage 54 step 2): it gets no column and is no registry
+field, its value is kept in `core_restricted_value` (migration 1190, `records/restricted.ts`), so
+no `rec_*` view, list, search, export, dashboard, summary, timeline or audit row holds it. The
+record's customer writes it and reads their own through the seam (`visibility/writes.ts`,
+`visibility/records.ts`); staff read it only with `record.readRestricted`, from the declaring
+pack's `humanOnly` tool that names the permission, called by a person, every read audited. Erase
+and purge delete the author's values; `extension.dropHidden` drops a dropped field's.
 
 **Permission grants** ([ADR 0449](adr/0449-permissions-granted-one-by-one.md)). A human admin
 grants a staff account named permissions on top of its role (`user.setPermissions`,

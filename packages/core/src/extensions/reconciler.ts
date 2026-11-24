@@ -17,6 +17,7 @@ import {
   type FieldManifest,
   type FieldTypeName,
   isLosslessChange,
+  isRestrictedField,
   type ObjectManifest,
 } from "@composable-os/sdk";
 import { CompiledQuery, type Kysely, sql } from "kysely";
@@ -97,7 +98,8 @@ export interface ReconcileIssue {
     | "unique_conflict"
     | "claims_conflict"
     | "grants_conflict"
-    | "staffed_conflict";
+    | "staffed_conflict"
+    | "restricted_change";
   path: string;
   message: string;
   suggestion?: string;
@@ -145,6 +147,14 @@ function sameDefinition(a: FieldManifest, b: FieldManifest): boolean {
   const { resultType: _a, ...left } = a as FieldManifest & { resultType?: string };
   const { resultType: _b, ...right } = b as FieldManifest & { resultType?: string };
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+/**
+ * Whether a field has a column of its own: not a formula (computed in the view) and not a
+ * restricted field, whose value the host keeps in core_restricted_value (ADR 0811).
+ */
+function hasColumn(field: FieldManifest): boolean {
+  return field.type !== "formula" && !isRestrictedField(field);
 }
 
 function sameStorage(a: FieldTypeName, b: FieldTypeName): boolean {
@@ -478,7 +488,7 @@ export function planFromState(
     }
     const table = objectTable(ext, local);
     const columns = Object.entries(object.fields)
-      .filter(([, field]) => field.type !== "formula")
+      .filter(([, field]) => hasColumn(field))
       .map(
         ([field, spec]) => columnDdl(columnName(field), spec.type) + stateDefault(object, field),
       );
@@ -517,7 +527,7 @@ export function planFromState(
         localName: field,
         name: field,
         tableName: table,
-        columnName: spec.type === "formula" ? null : columnName(field),
+        columnName: hasColumn(spec) ? columnName(field) : null,
         type: spec.type,
         definition: storedDefinition(spec),
         status: "active",
@@ -607,6 +617,17 @@ export function planFromState(
         }
       }
       if (existing) {
+        // A value moves between the record's table and the restricted store only by a person's
+        // copy (ADR 0811): never by changing the declaration.
+        if (isRestrictedField(existing.definition) !== isRestrictedField(spec)) {
+          issues.push({
+            code: "restricted_change",
+            path: `${path}.restricted`,
+            message: `${target}.${name} cannot become ${isRestrictedField(spec) ? "restricted" : "unrestricted"}: its values are kept ${isRestrictedField(spec) ? "with the record" : "apart from the record"}`,
+            suggestion: "Add a new field instead, and remove this one",
+          });
+          continue;
+        }
         if (existing.status === "hidden") {
           if (
             !sameStorage(existing.type, spec.type) ||
@@ -659,7 +680,7 @@ export function planFromState(
         continue;
       }
       // A new field.
-      const column = spec.type === "formula" ? null : columnName(local);
+      const column = hasColumn(spec) ? columnName(local) : null;
       if (column) {
         if (!own && !knownTables.has(table)) {
           tableDdl.push(`CREATE TABLE ${table} (id TEXT PRIMARY KEY NOT NULL)`);
@@ -1007,13 +1028,34 @@ export async function planDropHidden(
       ? [CompiledQuery.raw("DELETE FROM core_subscription_grant WHERE object_type = ?", [o.name])]
       : []),
   ]);
+  // A dropped object's or restricted field's values in the restricted store (ADR 0811).
+  const restrictedDrops = [
+    ...droppedObjects.map((o) =>
+      CompiledQuery.raw("DELETE FROM core_restricted_value WHERE object_type = ?", [o.name]),
+    ),
+    ...droppedFields
+      .filter((f) => !droppedTables.has(f.tableName) && isRestrictedField(f.definition))
+      .map((f) =>
+        CompiledQuery.raw("DELETE FROM core_restricted_value WHERE object_type = ? AND field = ?", [
+          f.object,
+          f.name,
+        ]),
+      ),
+  ];
   return finishPlan(
     db,
     ext,
     current,
     next,
     tableDdl,
-    [...capacityDrops, ...claimantDrops, ...recurringDrops, ...allowanceDrops, ...grantDrops],
+    [
+      ...capacityDrops,
+      ...claimantDrops,
+      ...recurringDrops,
+      ...allowanceDrops,
+      ...grantDrops,
+      ...restrictedDrops,
+    ],
     changes,
     [],
   );

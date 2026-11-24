@@ -25,6 +25,7 @@ import {
   subjectMatcher,
   mentionsSql as termsMentioned,
 } from "./erase-subject.ts";
+import { queueEraseRestricted } from "./restricted.ts";
 
 export interface StoreSubject {
   object: "person" | "organisation";
@@ -243,6 +244,10 @@ export async function queueEraseExtensions(ctx: HandlerContext, s: StoreSubject)
   const exec = (query: Compiled) => ctx.db.executeQuery<Record<string, unknown>>(query);
   const handled = new Set<string>();
 
+  // 0. Restricted values (ADR 0811) of the records a Person wrote as their customer: read before
+  // step 2 clears or deletes those records, and gone whatever becomes of them.
+  if (s.object === "person") rows += await queueEraseRestricted(ctx, s.recordIds);
+
   // 1. Side tables: extensions' fields on the erased records themselves.
   const sideTables = [
     ...new Set(
@@ -431,6 +436,36 @@ export async function queueEraseExtensions(ctx: HandlerContext, s: StoreSubject)
             ]),
           );
         }
+      }
+    }
+    // Restricted values (ADR 0811) that mention a term, as free text is: someone else's words
+    // about the subject lose them, and one that is their address or id alone goes.
+    const restricted = await ctx.db
+      .selectFrom("core_restricted_value")
+      .select(["object_type", "record_id", "field", "value"])
+      .where(mentionsSql(termsJson, sql`value`))
+      .execute();
+    for (const row of restricted) {
+      const next = scrubField(row.value, "text", m, termOnly);
+      if (next === row.value) continue;
+      rows += 1;
+      if (next === null) {
+        ctx.write(
+          ctx.db
+            .deleteFrom("core_restricted_value")
+            .where("object_type", "=", row.object_type)
+            .where("record_id", "=", row.record_id)
+            .where("field", "=", row.field),
+        );
+      } else {
+        ctx.write(
+          ctx.db
+            .updateTable("core_restricted_value")
+            .set({ value: next })
+            .where("object_type", "=", row.object_type)
+            .where("record_id", "=", row.record_id)
+            .where("field", "=", row.field),
+        );
       }
     }
     // Published versions (ADR 0446) are snapshots of records' content: one that mentions a term

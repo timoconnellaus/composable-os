@@ -462,3 +462,17 @@ the trades' moment and review sites are to be checked with each business during 
 - **Money:** none.
 - **Needs a real client:** the Nth class and the wording; the website block with real quotes; the
   bot check on a real site; routine mail on a real email connection.
+
+## Status
+
+- **Step 2, P2: restricted fields** (`feat/stage-54-restricted-fields`, migration 1190, ADR 0811):
+  built. A pack's `text` or `longText` field may declare `restricted: "<pack>:<word>"` (one of its
+  restricted permissions) on an object whose customer reads and writes it; the contract refuses
+  any other use of it (`packages/sdk/src/restricted-fields.ts`). The host keeps the value in
+  `core_restricted_value`, never in the `x_*` table, the registry or any view; the customer writes
+  it and reads their own through the seam (`my.create`, `my.update`, `my.get`, `my.list`); staff
+  read it only with `record.readRestricted`, from the declaring pack's `humanOnly` tool naming the
+  permission, called by a person, every read audited without values; no audit row holds a value;
+  erase and purge delete the author's values and scrub others that name them; dropping the field
+  drops them. Proof: `packages/core/test/restricted-fields.test.ts`. Left for step 4: Reviews'
+  `privateFeedback` and its `reviews.feedback` tool; stage 29's door writes through the same seam.
