@@ -315,7 +315,11 @@ export async function planMembers(db: Db, data: MembersData, meta: ListMeta): Pr
   // Live by the business's day, as the list's age is.
   const today = await businessToday(db, meta.now);
   const byPerson = new Map<string, BookingSystemMembership[]>();
-  for (const m of data.memberships) byPerson.set(m.person, [...(byPerson.get(m.person) ?? []), m]);
+  for (const m of data.memberships) {
+    const held = byPerson.get(m.person);
+    if (held) held.push(m);
+    else byPerson.set(m.person, [m]);
+  }
   const live = (m: BookingSystemMembership) =>
     m.status === "live" && (m.until === null || m.until >= today);
 
