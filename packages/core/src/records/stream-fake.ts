@@ -13,10 +13,9 @@
 //
 // Its state is in memory, in the isolate that made it: a test makes its own, and `vite dev` keeps
 // one for the dev server's life. Never configured in a deployment (STREAM_FAKE is for dev).
-import { toHex } from "../digest.ts";
+import { fromBase64url, toHex } from "../digest.ts";
 import {
   BASIC_UPLOAD_MAX_BYTES,
-  fromBase64url,
   type StreamCaption,
   type StreamPlayback,
   type StreamProvider,
