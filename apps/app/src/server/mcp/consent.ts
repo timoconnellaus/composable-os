@@ -10,6 +10,7 @@ import { grantableScopes, MCP_SCOPES, type McpScope, resolveActingUser } from "@
 import { createCrmDb } from "@composable-os/db";
 import { productName } from "@composable-os/product";
 import { product } from "@composable-os/products/active";
+import { escapeHtml } from "../html.ts";
 import { type OperationsEnv, runOperation } from "../operations.ts";
 import { staffCookieAllowed } from "../staff-origin.ts";
 
@@ -20,12 +21,6 @@ export interface McpProps {
   connectionId: string;
   userId: string;
 }
-
-const escapeHtml = (value: unknown) =>
-  String(value ?? "").replace(
-    /[&<>"']/g,
-    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] ?? c,
-  );
 
 const SCOPE_LABEL: Record<McpScope, string> = {
   read: "Read",
