@@ -30,6 +30,12 @@ Things counted on a shelf, sold from a ledger the host keeps (see StockSpec, ADR
 
 Declared as `stock: StockSpec` on an object. Declared by: no shipped pack.
 
+## stockMoves
+
+A record's state moves stock: received adds, a write-off removes, a count sets (see StockMovesSpec, ADR 0681).
+
+Declared as `stockMoves: StockMovesSpec` on an object. Declared by: no shipped pack.
+
 ## allowance
 
 Uses a record holds (a pass, a membership), or a record that spends one (a booking): see AllowanceSpec, ADRs 0493 and 0494. The host counts and refuses a spend past the limit.
