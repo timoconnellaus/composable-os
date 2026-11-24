@@ -261,6 +261,8 @@ export const contentSearch = defineOperation({
   description:
     "Search the published records of a content object (help pages, blog posts) by the words " +
     "the public reads in them: their published versions only, never a draft or a working copy. " +
+    "Staff searching an object they read as published (procedures) search all its published " +
+    "words. " +
     "Every word of two letters or more must match the start of a word, so partial input works. " +
     "Best matches first, " +
     "one result per record, each with its slug, title, the section the best match is in (its " +

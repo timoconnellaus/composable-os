@@ -58,7 +58,10 @@ other object: not a blog post's search, not a record's working copy, not `record
 `search.global`. A grant changes nothing here (a grant opens a pack tool, ADR 0600). Under a
 looks-after limit (ADR 0889) they pass for an object the limit does not name and are refused for
 one it does (fail closed); a today limit (ADR 0553) already refuses an operation it does not know
-on an object it limits. `roles.json` in the API contract lists them for each role.
+on an object it limits. `roles.json` in the API contract lists them for each role. As with
+`ack.mine` and `ack.confirm` (ADR 0702), they do not depend on the role's pack being installed: an
+account whose role holds nothing of its pack is still a staff account, and reads published
+procedures (an MCP client acting for it is described these three reads and nothing else).
 
 **Not in this step.** Pictures in a procedure are served by `media.serve`, which a pack-role
 account does not reach: a cleaner reads a procedure's words and not its pictures until a reach of
