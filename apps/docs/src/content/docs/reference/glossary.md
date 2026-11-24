@@ -2460,11 +2460,22 @@ A fixed staff role a pack declares (ADR 0436): the permissions of its own tools 
 its own an account given it may read. A human admin gives at most one to a staff account; while
 it is held, it and the pack permissions granted to the account (ADR 0600) are all that account may
 do, on every operation; the role's limits bind only the calls the role allows (today only, ADR
-0553; only the People its holder looks after, through a pack's team, ADR 0889). It also reaches a
+0553; only the People its holder looks after, through a pack's team, ADR 0889; only through the
+records of its pack naming its holder, its "mine" reach, ADR 0755). It also reaches a
 shipped pack's tools open to every staff account (`anyStaff`, ADR 0652: Daily checklists' today
 and tick), whose host operation decides what it may do. The door role is Ticketing's.
 Stage 14a's roles and teams will extend it.
 _Avoid_: role (alone, it means admin, member or viewer), team, scope
+
+### Mine reach
+
+A pack role's limit to the records of its pack that name its holder (`mine`, ADR 0755): by object,
+the record naming the account (`through`, its user field `who`), the relations from it to the
+object (`path`), the states in which it counts (`live`) and a window around its datetimes
+(`within`); any other record is not found. Made for Jobs' crew (stage 39; the pack is not built
+yet): the jobs, visits and sites of its own crew places, from a week before the visit to a week
+after. The fields that decide it are a person's to change.
+_Avoid_: my jobs (a screen's words), assigned to (a task's), looks after (a team's, ADR 0889)
 
 ### Door role
 
