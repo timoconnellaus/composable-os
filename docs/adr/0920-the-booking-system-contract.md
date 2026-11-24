@@ -1,4 +1,4 @@
-# ADR 0920: The booking-system contract: one read-only session, no outbound action, a Worker per system, a shared fake and conformance suite
+# ADR 0920: The booking-system contract: one read-only session, no outbound action, a fake, a file source and a conformance suite
 
 Status: accepted, 2026-11-24 (stage 65 build, step 1). Builds on ADRs
 [0007](0007-integrations-are-gatekeepers.md), [0050](0050-integration-host-and-connections.md),
@@ -10,7 +10,14 @@ Status: accepted, 2026-11-24 (stage 65 build, step 1). Builds on ADRs
 Stage 65 reads a business's members, memberships, timetable and bookings from the booking system it
 keeps for a while, beside the new system. Core must never name a booking system, and nothing may
 ever be written back (decision 2). Each booking system has its own key, staff sign-in, call limits
-and terms, so each is its own gatekeeper Worker, as each accounting system is (ADR 0880).
+and terms, so a system read through its API would be its own gatekeeper Worker, as each accounting
+system is (ADR 0880).
+
+On 2026-11-24, while this step was being built, the owner decided that the booking system the spec
+names for the first connector cannot be used: its developer terms bar use in a competing product.
+There is no named connector. The contract, the fake and the conformance suite stay as planned, no
+outside product is named anywhere, and a **file source** is added beside the fake: the same
+contract read from files a business exports from its booking system and a member of staff loads.
 
 ## Decision
 
@@ -56,11 +63,44 @@ the gatekeeper holds), so the host can always show the counter. Taking hints is 
 arrived as webhooks and are held by the gatekeeper. A hint names what to read again, never the
 data: a person, a membership's person, a class, a booking's class, a staff member, or the site.
 
-**A Worker per system.** Each booking system is its own gatekeeper Worker,
-`packages/gatekeeper-booking-system-<system>`, with its own secrets, installed only where it is
-used, implementing `BookingSystem` (`system.ts`) and extending `BookingSystemGatekeeper`; the
-catalogue marks it `implements: "booking-system"`. Core imports the contract's types, codes and
-checks from `@composable-os/gatekeeper-booking-system` and never names a system.
+**A Worker per system, if one is ever read through its API.** It would be its own gatekeeper
+Worker, `packages/gatekeeper-booking-system-<system>`, with its own secrets, implementing
+`BookingSystem` (`system.ts`) and extending `BookingSystemGatekeeper`, marked
+`implements: "booking-system"` in the catalogue. None is planned (the owner's decision above).
+Core imports the contract's types, codes and checks from `@composable-os/gatekeeper-booking-system`
+and never names a system.
+
+**Where the answer came from: `offers.source`.** `api` for a system's API, a copy the host keeps
+for 48 hours at most; `file` for loaded files, which make no calls and are kept until replaced (the
+spec's "member list from a file", now the first source).
+
+**The file source** (`file-source.ts`). A people file is required: one row per membership or
+pass, with the person's id (or, without one, the address is the ref), address, names, member
+status, active, and the membership's type, kind, status, dates, uses and whether it renews. A class
+timetable is optional: title, start, end or length, type, room, coach, places, booked, waiting,
+cancelled. `parseCsv` reads RFC 4180 CSV (comma, semicolon or tab; a byte-order mark dropped). Each
+field is mapped to a column by its header (`PeopleFileMapping`, `TimetableFileMapping`); values are
+mapped to the contract's words, the common ones understood without a mapping and the file's own
+given in `values`; dates are `YYYY-MM-DD`, `DD/MM/YYYY` or `MM/DD/YYYY`; a time without an offset
+is in the site's time zone (the offset in force at that time, across a daylight-saving change).
+`loadFiles` refuses a file it cannot read at all (`invalid`: no header, a mapped column missing,
+over 5 MB, over 20,000 people rows or 5,000 timetable rows) and otherwise leaves out each row it
+cannot use, naming it with its row number and why. Without a status column a person with a live
+membership (not a pass) is a member. `dryRunFiles` says what would be loaded (counts, the refused
+rows, a sample) and, given the host's matching context, who would be linked. `FileBookingSystem`
+serves the contract over a load: no `modifiedSince` (refused), no hints, no bookings or visits (a
+timetable says how many are booked, never who), no calls. It passes the conformance suite. Where
+the files are kept, the operation that loads them (a human admin's, `actors: ["human"]`) and its
+screen are later steps (core, step 4 on).
+
+**The matching rules are one pure function** (`match.ts`, `matchPeople`), so the host's pass and a
+file's dry run decide alike, by the spec's rules: a suppressed ref or an erased address keeps
+nothing; a staff link is kept whatever the address, a link by address while its Person still has
+the address; exactly one live Person with the address, and no other kept outside person sharing it,
+links (how `address`, nothing on the Person changed); several Persons wait as `several_people`,
+several outside people on one address as `shared_address`, no address as `no_address`; no Person
+leaves them unlinked. The host supplies what only it knows: its normaliser, who has an address,
+the erased list, the suppressed refs and the links it holds.
 
 **A fake and a conformance suite every implementation passes.** `FakeBookingSystem` (`fake.ts`)
 keeps an invented site (people at `example.com`, one with no address; live, paused, ended and
@@ -91,6 +131,9 @@ resource, `booking-system-fake://site/<name>`, is its own site in its own Durabl
   connector whose API takes fewer splits the read into several calls, each counted.
 - `describeSite` may answer from what the gatekeeper last read; a connector re-reads the site at
   connect and on the nightly pass, and says in its README which of its fields are cached.
+- The spec still names the system the owner ruled out, its connector (step 9), the naming rule's
+  allowance for it (step 2) and ADR 0927; those need the spec amended. This ADR, the package and
+  the catalogue name no outside product.
 - The host's own path to the session (the sync kind `booking-system`, hints from
   `core_integration_event`) and the rule that no other caller reaches a booking-system resource
   (`booking_system_host_only`) are step 3 (ADR 0922). Until then the fake is reachable like any

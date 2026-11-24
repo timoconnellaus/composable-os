@@ -8,6 +8,11 @@
 
 /** What kinds the system can say changed, and how it sends hints. */
 export interface BookingSystemOffers {
+  /**
+   * `api`: read from the system's API, a copy the host keeps for 48 hours at most. `file`: read
+   * from files a business exported and a member of staff loaded; no calls, kept until replaced.
+   */
+  source: "api" | "file";
   /** Whether `listPeople` and `listClasses` take `modifiedSince`. Without it, it is refused. */
   modifiedSince: { people: boolean; classes: boolean };
   /** `webhooks`: `takeHints` answers what the system said changed. `none`: always empty. */

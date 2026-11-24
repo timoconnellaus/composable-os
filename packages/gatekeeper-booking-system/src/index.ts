@@ -1,6 +1,6 @@
 // The booking-system contract (stage 65, ADR 0920) as the host and each booking-system gatekeeper
 // import it: the types, the refusal codes, the input checks and the contract's shape, the fake
-// booking system and the conformance suite. A gatekeeper's facet extends `BookingSystemGatekeeper`
+// booking system, the file source, the matching rules and the conformance suite. A gatekeeper's facet extends `BookingSystemGatekeeper`
 // from `./session`.
 
 export {
@@ -27,6 +27,30 @@ export {
   type FakeOptions,
   fakeBookingSystemState,
 } from "./fake.js";
+export {
+  dryRunFiles,
+  FILE_PAGE,
+  FileBookingSystem,
+  type FileDateFormat,
+  type FileDryRun,
+  type FileIssue,
+  type FileLoad,
+  type FileSourceInput,
+  loadFiles,
+  MAX_FILE_CHARS,
+  MAX_PEOPLE_ROWS,
+  MAX_TIMETABLE_ROWS,
+  type PeopleFileMapping,
+  parseCsv,
+  type TimetableFileMapping,
+} from "./file-source.js";
+export {
+  type HeldLink,
+  type MatchContext,
+  type MatchOutcome,
+  type MatchWhy,
+  matchPeople,
+} from "./match.js";
 export { checkedReads, type ReadNote } from "./reads.js";
 export {
   EXPIRING_REFUSALS,

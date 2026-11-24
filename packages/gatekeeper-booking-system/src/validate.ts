@@ -209,6 +209,7 @@ export function shapeSite(site: BookingSystemSite): BookingSystemSite {
     timeZone: site.timeZone,
     locations: site.locations.map((l) => ({ ref: l.ref, name: cut(l.name) })),
     offers: {
+      source: site.offers.source === "file" ? "file" : "api",
       modifiedSince: {
         people: site.offers.modifiedSince.people === true,
         classes: site.offers.modifiedSince.classes === true,

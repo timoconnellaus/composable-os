@@ -387,6 +387,7 @@ export class FakeBookingSystem implements BookingSystem {
       timeZone: this.state.site.timeZone,
       locations: structuredClone(this.state.site.locations),
       offers: {
+        source: "api",
         modifiedSince: { people: true, classes: true },
         hints: this.state.hints,
         largestPage: this.state.pageSize,

@@ -257,7 +257,12 @@ export const CONFORMANCE_CHECKS: readonly ConformanceCheck[] = [
         `an IANA time zone, not ${site.timeZone}`,
       );
       for (const l of site.locations) keys(l, ["name", "ref"], "a location");
-      keys(site.offers, ["hints", "largestPage", "modifiedSince"], "what the site offers");
+      keys(
+        site.offers,
+        ["hints", "largestPage", "modifiedSince", "source"],
+        "what the site offers",
+      );
+      check(["api", "file"].includes(site.offers.source), "the source is api or file");
       keys(site.offers.modifiedSince, ["classes", "people"], "modifiedSince");
       check(["webhooks", "none"].includes(site.offers.hints), "hints are webhooks or none");
       check(
@@ -576,13 +581,17 @@ export const CONFORMANCE_CHECKS: readonly ConformanceCheck[] = [
     },
   },
   {
-    name: "counts its calls: a read adds to this month's count",
+    name: "counts its calls: a read adds to this month's count, and a file makes none",
     async run(ctx, control) {
       const before = (await ctx.session.describeSite()).calls;
       await ctx.session.listStaff();
       await ctx.session.listClassTypes();
       const after = (await ctx.session.describeSite()).calls;
       if (after.month !== before.month) throw new Skip("the month turned during the check");
+      if (ctx.site.offers.source === "file") {
+        same(after.used, before.used, "a file source makes no calls");
+        return;
+      }
       check(after.used >= before.used + 2, "two reads are at least two calls");
       if (ctx.target.control) {
         same(after.used, before.used + 2, "one call a read, at the fake");

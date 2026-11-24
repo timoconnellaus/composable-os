@@ -2,8 +2,9 @@
 
 The booking-system contract (stage 65, [ADR 0920](../../docs/adr/0920-the-booking-system-contract.md)):
 what every booking-system gatekeeper serves, whatever system a business's members book in. Read
-only: no write, no outbound action, nothing to approve. Not a gatekeeper of its own. Each system is
-its own Worker (`packages/gatekeeper-booking-system-<system>`) built on this.
+only: no write, no outbound action, nothing to approve. Not a gatekeeper of its own. It is read from
+a system's API (a gatekeeper Worker built on this; none is planned) or from files a business
+exported and a member of staff loads (the file source, below).
 
 | File | What |
 | --- | --- |
@@ -13,12 +14,40 @@ its own Worker (`packages/gatekeeper-booking-system-<system>`) built on this.
 | `src/reads.ts` | `checkedReads`: each input checked, each answer shaped, before a read is recorded |
 | `src/session.ts` | `BookingSystemGatekeeper`, the facet a gatekeeper extends: each read an observation, no action kind |
 | `src/system.ts` | `BookingSystem`, what a gatekeeper implements to talk to its system |
+| `src/file-source.ts` | `parseCsv`, `loadFiles`, `dryRunFiles` and `FileBookingSystem`: the contract over loaded files |
+| `src/match.ts` | `matchPeople`: an outside person to one Person by address, never merged, as the host and the dry run decide |
 | `src/fake.ts` | `FakeBookingSystem`: an invented site in one plain state, with the controls a test needs |
 | `src/conformance.ts` | The suite every implementation passes |
 | `src/direct.ts` | The session's rules without a Worker, to run the suite against a system object |
 | `src/fake-worker.ts`, `wrangler.fake.jsonc` | `cos-gatekeeper-booking-system-fake`, development and tests only, never released |
 
-## A new booking system
+## The file source
+
+A people file (one row per membership or pass) and, optionally, a class timetable, each a CSV with
+its columns mapped by header:
+
+```ts
+const input = {
+  site: { name: "Studio", timeZone: "Australia/Sydney" },
+  people: {
+    text: peopleCsv,
+    mapping: {
+      columns: { ref: "Client ID", email: "Email", givenName: "First", familyName: "Last",
+        memberStatus: "Status", membershipType: "Plan", from: "Start", until: "End" },
+      dateFormat: "DD/MM/YYYY",
+    },
+  },
+  timetable: { text: timetableCsv, mapping: { columns: { title: "Class", startsAt: "Starts" } } },
+};
+const run = dryRunFiles(input, matchContext); // counts, refused rows, a sample, who would link
+const session = directSession(new FileBookingSystem(loadFiles(input)));
+```
+
+Values are mapped onto the contract's words (common ones without a mapping; the file's own in
+`mapping.values`). A row that cannot be used is left out and named; a file that cannot be read is
+refused `invalid`. `describeSite().offers.source` is `file`: no calls, no hints, no change times.
+
+## A system read through its API
 
 1. A package `packages/gatekeeper-booking-system-<system>` with its own `wrangler.jsonc`,
    `deploy-inputs.json` (its secrets, set by a person) and a catalogue entry with

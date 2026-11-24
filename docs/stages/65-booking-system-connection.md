@@ -54,6 +54,18 @@ says so.
   `TEST_BOOKING_SYSTEM`) and the CRM's dev server; the catalogue has `implements:
   "booking-system"` and the dev-only entry. Left for later steps: the Settings → Integrations
   heading and the one-connection rule (with step 3 or 6), the host path (step 3), everything else.
+- **Owner's change of plan (2026-11-24, during step 1)**: the booking system this spec names for the
+  first connector cannot be used (its developer terms bar use in a competing product), so there is
+  no named connector, and no outside product is named in code, tests, docs or the catalogue. Step 1
+  added, beside the fake, a **file source** in the same package (`file-source.ts`: `parseCsv`,
+  `loadFiles`, `dryRunFiles`, `FileBookingSystem`): the read-only contract from a people file
+  (each person with their membership or pass, its status and dates) and an optional timetable a
+  business exports and a member of staff loads, with column mapping by header, value mapping, row
+  issues named by row, local times in the site's zone, and a dry run; it passes the conformance
+  suite. The matching-by-address rules of "Matching" are `matchPeople` (`match.ts`), used by the
+  dry run and meant for the host's pass. The contract gained `offers.source` (`api` or `file`).
+  Not done: amending this spec (steps 2 and 9, ADR 0927 and the names in it are moot), and
+  storing and loading files through an operation and a screen (with step 4 on).
 
 ## Goal
 
