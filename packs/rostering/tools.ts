@@ -473,6 +473,17 @@ export const assign = defineTool({
   handler: async (input, ctx) => (await ctx.ops.call("staffing.assign", input)) as never,
 });
 
+/** The shift putting someone on another would clash with (refused), if any. */
+const clash = z
+  .object({
+    object: z.string(),
+    id: z.string(),
+    title: z.string(),
+    startsAt: z.string(),
+    endsAt: z.string(),
+  })
+  .nullable();
+
 export const check = defineTool({
   description:
     "What putting someone (account; null for nobody; left out for the shift as it is) on a " +
@@ -484,15 +495,7 @@ export const check = defineTool({
   }),
   output: z.object({
     warnings: z.array(warning),
-    clash: z
-      .object({
-        object: z.string(),
-        id: z.string(),
-        title: z.string(),
-        startsAt: z.string(),
-        endsAt: z.string(),
-      })
-      .nullable(),
+    clash,
   }),
   risk: "read",
   permission: MANAGE,
@@ -505,15 +508,7 @@ const candidate = z.object({
   eligible: z.boolean().describe("Qualified, free and available: could take it"),
   noProfile: z.boolean().describe("The shift cannot name them (a class needs a coach profile)"),
   warnings: z.array(warning),
-  clash: z
-    .object({
-      object: z.string(),
-      id: z.string(),
-      title: z.string(),
-      startsAt: z.string(),
-      endsAt: z.string(),
-    })
-    .nullable(),
+  clash,
 });
 
 export const candidates = defineTool({
