@@ -314,6 +314,8 @@ export default defineExtension({
         enter: ["valid"],
         keeps: ["valid", "used"],
         person: "holder",
+        // The same point as buying one, so the checkout's step answers it too (issue #292).
+        inlineStep: true,
       },
       // The holder reads their ticket's event, type, code and state, and changes nothing.
       customer: { field: "holder", read: ["event", "tickettype", "code", "state"], write: [] },

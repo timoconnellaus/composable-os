@@ -348,6 +348,8 @@ export default defineExtension({
         enter: ["active"],
         person: "holder",
         importMovesOver: true,
+        // The same point as buying one, so the course page's step answers it too (issue #292).
+        inlineStep: true,
       },
       customer: {
         field: "holder",
