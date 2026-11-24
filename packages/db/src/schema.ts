@@ -1196,6 +1196,19 @@ export interface CoreAgreementCopyTable {
   scrubbed_at: Defaulted<string | null>;
   /** The gatekeepers a send reached, as a JSON list of `<connection id> <resource key>`. */
   via: Defaulted<string | null>;
+  /**
+   * Migration 0857 (ADR 0648): a child's paper form, sent to the parent or guardian staff picked
+   * (a live guardian of the child at the insert; the address is theirs). Null for every other
+   * copy, and once that guardian is erased.
+   */
+  guardian_id: Defaulted<string | null>;
+  /** When that guardian was erased: their address left the row then. */
+  guardian_erased_at: Defaulted<string | null>;
+  /**
+   * When the guardian's link to the child stopped being live before the copy went (ended, or
+   * either Person to the Trash): it was cancelled and its address cleared then.
+   */
+  guardian_ended_at: Defaulted<string | null>;
 }
 
 /**

@@ -133,20 +133,20 @@ and the cron promoting a waiter, and the waiter's next booking asked.
 
 ## Amended 2026-11-23: the review of PR #280
 
-- **A minor never pays where the payer must agree.** A Person who is a minor (marked, or a live
+- **A minor never pays where the payer must agree** (the owner's decision of 2026-11-24). A Person who is a minor (marked, or a live
   dependant) and would be the payer at a point with a payer document is refused by
   `enforcePurchase` (`order.start`, `order.startHeld`, `subscription.start`, `order.honourLate`,
   `order.setPerson`): `agreements_due` with `reason: "minor_payer"` and "a parent or guardian needs
   to buy this for you". Nothing the child does satisfies it (`minorPayerDocuments` in
   `agreements/due.ts`, the one place to relax it if the owner decides a guardian's earlier
   agreement may let it through).
-- **A guest's acceptance counts only for its own purchase** (coordinator decision, **owner to
-  confirm**). It is checked in its buying call and settled to the matched Person as the evidence
+- **A guest's acceptance counts only for its own purchase** (the owner's decision of
+  2026-11-24). It is checked in its buying call and settled to the matched Person as the evidence
   of that purchase, and it never counts for that Person at a later point
   (`guestAcceptanceCountsLater` in `agreements/due.ts`, one place). So a stranger's guest purchase
   with a member's address never stands in for the member's own agreement, a booking's waiver or a
   moved member's continuation offer.
-- **A guest's purchase with a minor's address** (coordinator decision, **owner to confirm**): it
+- **A guest's purchase with a minor's address** (the owner's decision of 2026-11-24): it
   stands (refusing at checkout would say the address is a child's). The child stays due (reason
   `guardian`: a guest's never counts, nor a minor's own). In the batch that settles it (the
   verified payment, a guest's drop-in matched at payment, `order.setPerson`, a confirmed
