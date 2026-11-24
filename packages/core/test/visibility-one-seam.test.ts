@@ -142,6 +142,9 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "integrations/outbound-check.ts": [2, WHY.org],
   "notifications/delivery.ts": [1, WHY.org],
   "notifications/digest-content.ts": [4, WHY.org],
+  // Journeys (stage 53 step 3, ADR 0800): a manual entry reads whether each Person it is about to
+  // add exists, is a minor or is already on it, and erase deletes their entries.
+  "journeys/entries.ts": [2, WHY.write],
   "notifications/routes.ts": [2, WHY.org],
   "notifications/send.ts": [2, WHY.org],
   "operations/activity.ts": [1, WHY.part],
@@ -195,6 +198,9 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "operations/staffing-screens.ts": [2, WHY.host],
   // Open hours (stage 49 step 3, ADR 0762): that the kinds an entry is for exist, by id only.
   "operations/staffing-hours.ts": [1, WHY.host],
+  // Journeys (stage 53 step 3, ADR 0800): the preview's guardian of a Person read through the
+  // seam (their first name, for the guardian's version), a part of that Person.
+  "operations/journey.ts": [1, WHY.part],
   "staffing/sets.ts": [1, WHY.host],
   // Pay periods (step 6, ADR 0627): a period's shifts (person, times, kind, title, place), their
   // holders' accounts, their kinds' names and set-up minutes, and the evidence object's marker

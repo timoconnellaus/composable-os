@@ -109,6 +109,14 @@ export const ID_PREFIXES = {
   checklistNote: "ckn",
   /** One tick of a checklist run's step, never changed (ADR 0650). */
   checklistTick: "ckt",
+  /** A journey: steps the host takes for one Person at a time (stage 53, ADR 0800). */
+  journey: "jny",
+  /** A published version of a journey, never changed (ADR 0800). */
+  journeyVersion: "jnv",
+  /** One Person on one journey (ADR 0800). */
+  journeyEntry: "jne",
+  /** What happened at one step of a journey entry (ADR 0800). */
+  journeyStepLog: "jnl",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

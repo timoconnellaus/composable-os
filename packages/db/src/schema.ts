@@ -1044,6 +1044,83 @@ export interface CorePersonLinkTable {
   end_reason: Defaulted<string | null>;
 }
 
+/** Migration 1170 (stage 53 step 3, ADR 0800): a journey and its working copy. */
+export interface CoreJourneyTable {
+  id: string;
+  name: string;
+  kind: "service" | "promotional";
+  status: Defaulted<"draft" | "live" | "paused" | "archived">;
+  owner_id: Defaulted<string | null>;
+  /** The working copy: JSON, checked by the host (`journeys/definition.ts`). */
+  draft: string;
+  draft_rev: Defaulted<number>;
+  draft_updated_at: string;
+  draft_updated_by: string;
+  draft_updated_via: Defaulted<string>;
+  draft_ai: Defaulted<number>;
+  current_version_id: Defaulted<string | null>;
+  starter: Defaulted<string | null>;
+  created_at: string;
+  created_by: string;
+  status_at: Defaulted<string | null>;
+  status_by: Defaulted<string | null>;
+}
+
+/** Migration 1170 (ADR 0800): a published version; the database refuses any update or delete. */
+export interface CoreJourneyVersionTable {
+  id: string;
+  journey_id: string;
+  number: number;
+  definition: string;
+  summary: string;
+  hash: string;
+  draft_rev: number;
+  drafted_by: "person" | "assistant";
+  published_at: string;
+  published_by: string;
+  requested_by: Defaulted<string | null>;
+  requested_via: Defaulted<string | null>;
+}
+
+/** Migration 1170 (ADR 0800): one Person on one journey. */
+export interface CoreJourneyEntryTable {
+  id: string;
+  journey_id: string;
+  version_id: string;
+  person_id: string;
+  state: Defaulted<"active" | "waiting" | "held" | "finished" | "stopped">;
+  step: string;
+  next_at: Defaulted<string | null>;
+  entered_at: string;
+  entered_by: "signal" | "scan" | "birthday" | "person";
+  entered_by_user: Defaulted<string | null>;
+  cause_standing: "person" | "host" | "ai";
+  cause_record: Defaulted<string | null>;
+  ended_at: Defaulted<string | null>;
+  stopped_by: Defaulted<string | null>;
+  stop_reason: Defaulted<string | null>;
+}
+
+/** Migration 1170 (ADR 0800): what happened at a step of an entry; never words. */
+export interface CoreJourneyStepLogTable {
+  id: string;
+  entry_id: string;
+  step: string;
+  at: string;
+  what:
+    | "entered"
+    | "sent"
+    | "held"
+    | "skipped"
+    | "waited"
+    | "branch"
+    | "task"
+    | "finished"
+    | "stopped"
+    | "moved";
+  detail: Defaulted<string | null>;
+}
+
 /** Migration 0850 (stage 44, ADR 0640): an agreement document and its working copy. */
 export interface CoreAgreementDocumentTable {
   id: string;
@@ -3049,6 +3126,10 @@ export interface CoreDatabase {
   core_published_media: CorePublishedMediaTable;
   core_media_caption: CoreMediaCaptionTable;
   core_import_key: CoreImportKeyTable;
+  core_journey: CoreJourneyTable;
+  core_journey_version: CoreJourneyVersionTable;
+  core_journey_entry: CoreJourneyEntryTable;
+  core_journey_step_log: CoreJourneyStepLogTable;
   rec_media: RecMediaView;
   rec_publish_version: RecPublishVersionView;
   rec_stage_history: CrmStageHistoryView;

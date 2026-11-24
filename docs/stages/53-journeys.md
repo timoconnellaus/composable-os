@@ -23,6 +23,23 @@ decided, not asked; the owner may override any of them). A new stage, 53, in the
 Steps 1 to 3 may start now. The sending step (step 4) waits for stage 30's routine messages,
 preferences, one-tap stop and promotional consent (below, "What this stage needs from stage 30").
 
+Built:
+
+- **Step 3** (`feat/stage-53-journeys-core`, ADR 0800, migration 1170): journeys, versions, entries
+  and the step log (`core_journey*`, with triggers that refuse any change of a version and any
+  version not made from the reviewed working copy); `packages/core/src/journeys/` (the working
+  copy's shape and publish checks, the plain-words summary, the hash, the preview's rendering, the
+  settings, manual entry and erase); the operations `journey.list`, `get`, `version`, `preview`,
+  `create`, `update`, `archive`, `publish` (an AI's call is a request only a person with
+  `journeys:publish` approves, never the adjudicator), `goLive`, `pause`, `resume`, `enter`, `stop`,
+  `entries`, `log`, `settings` and `settings.update`; the permissions `journeys:read`,
+  `journeys:manage` and `journeys:publish`; the four starter journeys seeded as drafts with no
+  reply-to. Nothing sends. Not in this step: signals are checked for their form only (step 2
+  declares them); going live does not yet count who already qualifies (the scan, step 4); an
+  organisation reply-to address confirmed by a code (it needs a send, step 4); merge moving entries
+  (step 4's exits, with step 7's merge rules); a plan's or class type's name as a slot (with step
+  2's declarations).
+
 ## Goal
 
 A business sets up messages that go out on their own to one person at a time, because of what

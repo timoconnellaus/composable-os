@@ -47,9 +47,11 @@ describe("core registry", () => {
         // are read only with agreements:health (stage 44, ADR 0643), and the address a paper
         // form's copy would go to only by whoever may send it, agreements:paper (ADR 0645). An
         // acceptance kept after its person was erased is found only with agreements:manage
-        // (agreement.kept.find, ADR 0646).
+        // (agreement.kept.find, ADR 0646). Journeys are read with journeys:read (stage 53,
+        // ADR 0800): members hold it, viewers do not.
         if (op.risk === "read") {
           expect([
+            "journeys:read",
             "agreements:health",
             "agreements:manage",
             "agreements:paper",

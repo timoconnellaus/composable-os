@@ -90,6 +90,14 @@ export type Role = (typeof ROLES)[number];
  *   Admins by default, grantable as `orders:refund` is. An AI acting for an account that holds it
  *   may draft one; its write always waits for a person who holds it too, so a checklist staff are
  *   asked to follow is always one a person approved.
+ * - `journeys:read` read journeys, their versions, previews, entries and step log (stage 53,
+ *   ADR 0800). Admins and members.
+ * - `journeys:manage` write a journey's working copy, archive it, set it live, pause and resume
+ *   it, and add people to it (ADR 0800). Admins by default, grantable. Going live and resuming
+ *   are a person's whatever is granted (`actors: ["human"]`); an AI may draft and pause.
+ * - `journeys:publish` publish a journey's version: the approval of its wording (decision 3).
+ *   Admins by default, grantable. An AI acting for an account that holds it may ask; its request
+ *   always waits for a person who holds it too (ADR 0480), never the adjudicator.
  */
 export const PERMISSIONS = [
   "records:read",
@@ -109,6 +117,9 @@ export const PERMISSIONS = [
   "agreements:paper",
   "agreements:health",
   "checklists:write",
+  "journeys:read",
+  "journeys:manage",
+  "journeys:publish",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -123,7 +134,7 @@ export const CORE_PERMISSION_NAMESPACES: readonly string[] = [
 
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   viewer: ["records:read"],
-  member: ["records:read", "records:write"],
+  member: ["records:read", "records:write", "journeys:read"],
   admin: PERMISSIONS,
 };
 
@@ -146,6 +157,8 @@ export const GRANTABLE_PERMISSIONS = [
   "agreements:paper",
   "agreements:health",
   "checklists:write",
+  "journeys:manage",
+  "journeys:publish",
 ] as const;
 
 /**
@@ -175,8 +188,15 @@ export const MCP_SCOPES = ["read", "write", "admin"] as const;
 export type McpScope = (typeof MCP_SCOPES)[number];
 
 export const SCOPE_PERMISSIONS: Record<McpScope, readonly Permission[]> = {
-  read: ["records:read"],
-  write: ["records:read", "records:write", "records:publish"],
+  read: ["records:read", "journeys:read"],
+  write: [
+    "records:read",
+    "records:write",
+    "records:publish",
+    "journeys:read",
+    "journeys:manage",
+    "journeys:publish",
+  ],
   admin: PERMISSIONS,
 };
 

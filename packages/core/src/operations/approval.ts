@@ -989,6 +989,23 @@ async function approveActions(
       );
     }
   }
+  // An AI's journey publish (stage 53, ADR 0800): the approval of the wording members get without
+  // anyone approving each send, so only a person who may publish journeys approves it.
+  const journeyPublish = targets.find((t) => t.operation === "journey.publish");
+  if (journeyPublish) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError("A journey is published by a person, never by an AI actor", {
+        actionId: journeyPublish.id,
+        actor: ctx.actor,
+      });
+    }
+    if (!holdsPermission(ctx.user, ctx.permissionGrants, "journeys:publish")) {
+      throw new ForbiddenError(
+        "Approving a journey's publish needs the journeys publish permission (journeys:publish)",
+        { actionId: journeyPublish.id, permission: "journeys:publish" },
+      );
+    }
+  }
   // A roster change (stage 45, ADRs 0625 and 0626): a restricted tool's call is approved only by
   // someone who holds the tool, and a write of who works a shift only by someone who rosters.
   await assertRosterApprover(ctx, ctx.db, targets);
