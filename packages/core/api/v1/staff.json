@@ -88537,7 +88537,9 @@
                   "enum": [
                     "unavailable",
                     "not_qualified",
-                    "uncovered"
+                    "uncovered",
+                    "outside_hours",
+                    "client_busy"
                   ]
                 },
                 "object": {
@@ -89237,7 +89239,9 @@
                         "enum": [
                           "unavailable",
                           "not_qualified",
-                          "uncovered"
+                          "uncovered",
+                          "outside_hours",
+                          "client_busy"
                         ]
                       },
                       "object": {
@@ -89381,7 +89385,9 @@
                   "enum": [
                     "unavailable",
                     "not_qualified",
-                    "uncovered"
+                    "uncovered",
+                    "outside_hours",
+                    "client_busy"
                   ]
                 },
                 "object": {
@@ -90509,7 +90515,9 @@
                   "enum": [
                     "unavailable",
                     "not_qualified",
-                    "uncovered"
+                    "uncovered",
+                    "outside_hours",
+                    "client_busy"
                   ]
                 },
                 "object": {
@@ -90945,7 +90953,9 @@
                             "enum": [
                               "unavailable",
                               "not_qualified",
-                              "uncovered"
+                              "uncovered",
+                              "outside_hours",
+                              "client_busy"
                             ]
                           },
                           "object": {
@@ -93577,7 +93587,9 @@
                   "enum": [
                     "unavailable",
                     "not_qualified",
-                    "uncovered"
+                    "uncovered",
+                    "outside_hours",
+                    "client_busy"
                   ]
                 },
                 "object": {
@@ -93985,7 +93997,9 @@
                             "enum": [
                               "unavailable",
                               "not_qualified",
-                              "uncovered"
+                              "uncovered",
+                              "outside_hours",
+                              "client_busy"
                             ]
                           },
                           "object": {
