@@ -964,6 +964,15 @@ async function approveActions(
       { actionId: privileged.id, permission: "extensions:manage" },
     );
   }
+  // A change to how the system is set up is reviewed on a computer, never approved from the
+  // company's app on a phone (stage 60 decision 8, ADR 0872): the host holds the rule, not the
+  // owner's screen that says so.
+  if (privileged && ctx.origin.staffDevice) {
+    throw new ForbiddenError(`Review ${privileged.operation} on a computer: it changes the setup`, {
+      actionId: privileged.id,
+      reason: "review_on_computer",
+    });
+  }
   // A refund sends money back (ADR 0429): only a person approves one, and only a person who may
   // refund. No AI actor, under any policy, and not by relaying the person's words.
   const kindOf = (t: (typeof targets)[number]) =>
