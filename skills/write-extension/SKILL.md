@@ -382,6 +382,19 @@ the pack's hooks as the prop named for the pack and nothing else, so a screen wh
 other props gets a small wrapper export that works them out (Bookings' `FrontDesk` around `Desk`).
 A runtime extension declaring `screens` is refused. See Bookings and Rostering: `screens`.
 
+### Journey signals (shipped packs only)
+
+A **shipped pack** may name the moments about a Person that a journey can start or stop on
+(`journeySignals`, `JourneySignalSpec` in `journey-signals.ts`, ADR 0802): `journeySignals: {
+attended: { label: "Class attended", object: "booking", enters: ["attended"] } }`. A signal is a
+record of one of the pack's objects created (no `enters`), or entering one of its states;
+`from: [...]` counts only a move out of those states, and `created: false` leaves out a record
+created straight into one. `person` is the relation to one person it is about, by default the
+object's customer field. Declare what a business would follow up on ("membership ended", "trial
+ended", "class attended"), not every state. Never record one in a tool or a hook: the host records
+the last time each Person had each, in the write's batch, for every writer. A runtime extension
+declaring `journeySignals` is refused. See Memberships, Bookings and Ticketing: `journeySignals`.
+
 ## The rules
 
 - **No writes to the database.** An extension reaches data only through operations

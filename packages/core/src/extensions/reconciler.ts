@@ -25,6 +25,7 @@ import { releaseAllClaimsStatements } from "../capacity/claimants.ts";
 import { backfillCounters, dropCapacityStatements } from "../capacity/records.ts";
 import { FIELD_TYPE_REGISTRY } from "../fields/field-types.ts";
 import { getObject } from "../fields/index.ts";
+import type { ObjectSignal } from "../fields/types.ts";
 import { dropRecurringStatements } from "../recurring/bookkeeping.ts";
 import { loadGeneralSettings, ORG_TIMEZONE_SETTING } from "../settings.ts";
 import {
@@ -114,6 +115,25 @@ export interface ReconcilePlan {
   issues: ReconcileIssue[];
   /** The schema state after the plan. */
   next: SchemaState;
+}
+
+/**
+ * The journey signals `manifest` declares on its object `local` (stage 53, ADR 0802), with their
+ * ids and Person fields resolved, for the object's definition. Only a shipped extension's reach
+ * here: the check refuses them in a runtime one (install.ts).
+ */
+function objectSignals(manifest: ExtensionManifest, local: string): { signals?: ObjectSignal[] } {
+  const object = manifest.objects[local];
+  const signals = Object.entries(manifest.journeySignals ?? {})
+    .filter(([, signal]) => signal.object === local)
+    .map(([name, signal]) => ({
+      id: `${manifest.id}.${name}`,
+      person: signal.person ?? object?.customer?.field ?? "",
+      ...(signal.enters ? { enters: [...signal.enters] } : {}),
+      ...(signal.from ? { from: [...signal.from] } : {}),
+      ...(signal.created === false ? { created: false } : {}),
+    }));
+  return signals.length ? { signals } : {};
 }
 
 function clone(state: SchemaState): SchemaState {
@@ -403,6 +423,7 @@ export function planFromState(
       ...(object.agreements ? { agreements: object.agreements } : {}),
       ...(object.healthNotes ? { healthNotes: object.healthNotes } : {}),
       ...(object.states ? { states: object.states } : {}),
+      ...objectSignals(manifest, local),
       ...(object.claims ? { claims: object.claims } : {}),
       ...(object.unique?.length ? { unique: object.unique } : {}),
       ...(object.recurring ? { recurring: object.recurring } : {}),

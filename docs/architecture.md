@@ -1061,6 +1061,21 @@ writes for them at the seam, and the public move nothing
 a hook on an object's moves (`onRecordMove`): it runs in the batch of the write that makes the
 move, which is how `capacity` and `sellable` act when an order is paid. Extensions cannot.
 
+**Journey signals** (stage 53, [ADR 0802](adr/0802-journey-signals-declared-by-shipped-packs-recorded-in-the-write.md),
+`packages/core/src/journeys/signals.ts`, migration 1175). A shipped pack declares in its manifest
+the moments about a Person a journey can start or stop on (`journeySignals`): a record of one of its
+objects created, or entering one of its states (optionally only from some), and the relation field
+naming its Person, by default the object's customer field. Memberships declares `started`, `ended`,
+`trialEnded` and `passStarted`; Bookings `booked` and `attended`; Ticketing `ticketBought` and
+`checkedIn`. The reconciler puts each object's signals on its registry definition; the pipeline,
+beside the value marks, reads every write's recorded changes and queues in that write's batch one
+upsert into `core_person_signal` (one row per Person and signal: the last time, the record that
+made it, the write's standing as its marks say it, and whether the operation was a bulk one), so
+every actor and every path records it (the host's own moves through the transition engine
+included) and an approval's dry run records nothing. One statement a batch, its rows in one JSON
+parameter. The rows are in no `rec_*` view; erase and the Trash's purge delete a Person's, and
+merge keeps the later of each. A runtime extension may not declare them.
+
 **Windows, staff-only rules and requested moves**
 ([ADR 0503](adr/0503-time-windows-and-staff-only-on-the-transition-engine.md),
 `packages/core/src/records/windows.ts`). A move may declare a `window` and a `staffOnly` flag, and

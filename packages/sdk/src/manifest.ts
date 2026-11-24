@@ -38,6 +38,7 @@ import {
 } from "./document.ts";
 import { FIELD_TYPES, type FieldTypeName, formulaTypeOf } from "./field-types.ts";
 import { checkFormula, type FormulaFieldRef } from "./formula/compile.ts";
+import { journeySignalIssues, journeySignalsManifestSchema } from "./journey-signals.ts";
 import { checkObjectRecurring, recurringManifestSchema } from "./recurring.ts";
 import { renamedMessage } from "./renamed.ts";
 import { routineMailIssues, routineMailManifestSchema } from "./routine-mail.ts";
@@ -541,6 +542,8 @@ export const manifestSchema = z.object({
   grantable: z.array(z.string().max(80)).max(20).optional(),
   /** A shipped extension's routine mail (ADR 0590). */
   routineMail: routineMailManifestSchema.optional(),
+  /** A shipped extension's journey signals (stage 53, ADR 0802). */
+  journeySignals: journeySignalsManifestSchema.optional(),
   /** What each grantable permission gives, in plain words, for the admin (ADR 0600). */
   grantableLabels: z.record(z.string().max(80), z.string().min(10).max(300)).optional(),
   /** Tool permissions held by admins and by grant only (ADR 0625). */
@@ -827,6 +830,9 @@ export function toManifest(extension: Extension): ExtensionManifest {
     ...(extension.requires?.length ? { requires: [...extension.requires] } : {}),
     ...(extension.routineMail && Object.keys(extension.routineMail).length
       ? { routineMail: extension.routineMail }
+      : {}),
+    ...(extension.journeySignals && Object.keys(extension.journeySignals).length
+      ? { journeySignals: extension.journeySignals }
       : {}),
     roles: Object.fromEntries(
       Object.entries(extension.roles ?? {}).map(([name, role]) => [
@@ -2166,6 +2172,7 @@ export function validateManifest(
     }
   });
   for (const issue of routineMailIssues(m)) contract(issue.path, issue.message);
+  for (const issue of journeySignalIssues(m)) contract(issue.path, issue.message);
   if (perms.modules.includes("routine-mail") && !Object.keys(m.routineMail ?? {}).length) {
     contract("permissions.modules", 'The "routine-mail" module sends routine mail it declares');
   }

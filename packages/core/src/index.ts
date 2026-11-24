@@ -130,6 +130,7 @@ export * from "./integrations/outcome.ts";
 export * from "./integrations/runtime.ts";
 export * from "./invites.ts";
 export * from "./invoke.ts";
+export * from "./journeys/signals.ts";
 export * from "./judge/calibrated.ts";
 export * from "./judge/index.ts";
 export * from "./judge/load.ts";

@@ -1050,6 +1050,16 @@ describe("paying by deposit (criterion 6a)", () => {
       currency: "AUD",
       dueAt: expect.stringContaining(NEXT_YEAR),
     });
+    // The ticket granted and its check-in are the holder's journey signals (stage 53, ADR 0802).
+    const { results: signals } = await env.DB.prepare(
+      "SELECT signal, record_id FROM core_person_signal WHERE person_id = ? ORDER BY signal",
+    )
+      .bind(buyer.principal.personId)
+      .all();
+    expect(signals).toEqual([
+      { signal: "ticketing.checkedIn", record_id: ticket?.id },
+      { signal: "ticketing.ticketBought", record_id: ticket?.id },
+    ]);
 
     // The rest in two parts.
     await checkoutAndPay(now, as(buyer.principal), 30000);

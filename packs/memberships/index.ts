@@ -653,6 +653,35 @@ export default defineExtension({
   // Giving or voiding a pass by hand: a person on the staff, with this permission, which admins
   // and members hold and a human admin may grant to anyone else (ADR 0449).
   grantable: ["memberships:passes"],
+  // What a journey can start or stop on (stage 53, ADR 0802): the host records the last time each
+  // member had each, in the write's batch. A trial that turns into a paid membership is not a
+  // trial ended: that is the member joining.
+  journeySignals: {
+    started: {
+      label: "Membership started",
+      description: "A membership begins, on trial or paid.",
+      object: "membership",
+    },
+    ended: {
+      label: "Membership ended",
+      description: "A membership ends.",
+      object: "membership",
+      enters: ["ended"],
+    },
+    trialEnded: {
+      label: "Trial ended without joining",
+      description: "A trial stops without becoming a paid membership.",
+      object: "membership",
+      enters: ["past_due", "unpaid", "paused", "ended"],
+      from: ["trialing"],
+      created: false,
+    },
+    passStarted: {
+      label: "Pass started",
+      description: "A member gets a pass: bought, or given by staff.",
+      object: "pass",
+    },
+  },
   tools: { plans, passTypes, buy, mine, holdings, givePass, voidPass },
   dashboards: membershipsDashboards,
   // Staff screens in the product's admin (stage 47, ADR 0660): a person's memberships and passes,

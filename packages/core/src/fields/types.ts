@@ -89,6 +89,17 @@ export interface ExtensionFieldOptions {
   documentPath?: { field: string; path: string; count?: boolean | undefined };
 }
 
+/** A journey signal declared on an object (stage 53, ADR 0802), as the host records it. */
+export interface ObjectSignal {
+  /** `<extension>.<name>`. */
+  id: string;
+  /** The relation field naming the Person. */
+  person: string;
+  enters?: readonly string[];
+  from?: readonly string[];
+  created?: boolean;
+}
+
 export interface ObjectDefinition {
   /** Registry name, also the `object_type` in links, tags, audit and search. */
   name: string;
@@ -132,6 +143,12 @@ export interface ObjectDefinition {
     /** The pack's screens show what is due and let a person agree on the way (stage 44 step 5). */
     inlineStep?: boolean;
   };
+  /**
+   * Extension objects: the journey signals its shipped extension declares on it (stage 53, ADR
+   * 0802), each with its id (`memberships.started`) and its Person field resolved. The host
+   * records them in the write's batch (journeys/signals.ts).
+   */
+  signals?: readonly ObjectSignal[];
   /**
    * A fixed state machine (ADR 0425), with registry field names. An object has stages or states,
    * never both.

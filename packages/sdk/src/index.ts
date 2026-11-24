@@ -12,6 +12,7 @@ export * from "./checklists.ts";
 export * from "./contract.ts";
 export * from "./document.ts";
 export * from "./field-types.ts";
+export * from "./journey-signals.ts";
 export * from "./manifest.ts";
 export * from "./media.ts";
 export * from "./permissions.ts";

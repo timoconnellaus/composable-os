@@ -1287,6 +1287,20 @@ export interface CoreValueMarkTable {
   at: string;
 }
 
+/**
+ * Migration 1175 (stage 53, ADR 0802): the last time a Person had a journey signal, one row per
+ * Person and signal, written by the host in the write's batch.
+ */
+export interface CorePersonSignalTable {
+  person_id: string;
+  signal: string;
+  last_at: string;
+  object_type: string;
+  record_id: string;
+  standing: "person" | "customer" | "public" | "default" | "host" | "ai";
+  bulk: number;
+}
+
 /** Migration 0650: a guardian's write's guard; its trigger stores nothing. */
 export interface CorePersonLinkGuardTable {
   guardian_id: string;
@@ -3015,6 +3029,7 @@ export interface CoreDatabase {
   core_sellable_refund_due: CoreSellableRefundDueTable;
   core_routine_mail: CoreRoutineMailTable;
   core_value_mark: CoreValueMarkTable;
+  core_person_signal: CorePersonSignalTable;
   core_recurrence_series: CoreRecurrenceSeriesTable;
   core_recurrence_occurrence: CoreRecurrenceOccurrenceTable;
   core_recurrence_exception: CoreRecurrenceExceptionTable;
