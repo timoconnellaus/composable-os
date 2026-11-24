@@ -18,7 +18,7 @@
 //     `subscription` access source (ADR 0488), to its holder, while the host's record says it
 //     runs. One free trial per person per plan object is the host's rule (ADR 0489).
 // The tools in tools.ts compose the host's operations and hold no rule of their own.
-import { defineExtension } from "@composable-os/sdk";
+import { type AgreementsSpec, defineExtension } from "@composable-os/sdk";
 import { coursesAutomations } from "./automations.ts";
 import { coursesDashboards } from "./dashboards.ts";
 import { OUTLINE_MAX_BYTES, OUTLINE_SCHEMA } from "./outline.ts";
@@ -38,6 +38,10 @@ import {
 } from "./tools.ts";
 
 const ACTIVE = { states: ["active"], until: "until" };
+// Where agreement may be needed to buy a course, a bundle or a plan (stage 44, ADR 0641): nothing
+// is attached by default, so each sells as before until the business attaches a document (its
+// terms) to "course".
+const BUYING: AgreementsSpec = { point: "course", label: "Buying a course", suggests: ["terms"] };
 
 export default defineExtension({
   id: "courses",
@@ -116,7 +120,7 @@ export default defineExtension({
         outline: {
           type: "document",
           label: "Outline",
-          schema: OUTLINE_SCHEMA as never,
+          schema: OUTLINE_SCHEMA,
           maxBytes: OUTLINE_MAX_BYTES,
         },
       },
@@ -148,9 +152,7 @@ export default defineExtension({
           "outline",
         ],
       },
-      // Where agreement may be needed (stage 44, ADR 0641): nothing is attached by default, so it
-      // sells as before until the business attaches a document (its terms) to "course".
-      agreements: { point: "course", label: "Buying a course", suggests: ["terms"] },
+      agreements: BUYING,
       sellable: {
         price: "price",
         saleWindow: { from: "onSaleFrom" },
@@ -202,7 +204,7 @@ export default defineExtension({
                 },
               },
             },
-          } as never,
+          },
         },
         price: { type: "currency", label: "Price", required: true },
       },
@@ -211,9 +213,7 @@ export default defineExtension({
         slug: "slug",
       },
       public: { read: ["title", "slug", "summary", "description", "cover", "courses", "price"] },
-      // Where agreement may be needed (stage 44, ADR 0641): nothing is attached by default, so it
-      // sells as before until the business attaches a document (its terms) to "course".
-      agreements: { point: "course", label: "Buying a course", suggests: ["terms"] },
+      agreements: BUYING,
       sellable: {
         price: "price",
         tax: { code: "txcd_20060158" },
@@ -249,9 +249,7 @@ export default defineExtension({
       },
       // Every live plan is offered on the site.
       public: { read: ["title", "description", "price", "trialDays"] },
-      // Where agreement may be needed (stage 44, ADR 0641): nothing is attached by default, so it
-      // sells as before until the business attaches a document (its terms) to "course".
-      agreements: { point: "course", label: "Buying a course", suggests: ["terms"] },
+      agreements: BUYING,
       sellable: {
         price: "price",
         // As its courses (ADR 0479): taxed only once a human admin turns tax on.
