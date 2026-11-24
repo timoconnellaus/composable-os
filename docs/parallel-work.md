@@ -65,6 +65,24 @@ commit**, by editing this table. Use the next free block. Unused numbers in a bl
 | BD | 0950–0969 | 0690–0699 | Stage 34, Price adjustments and Offers (spec `docs/stages/34-offers.md`). ADR 0694, an order paid another way, is shared with stage 35 and the till: if one of them builds that step first it writes the ADR in its own block and 0694 stays free | specced |
 | BE | 0970–0989 | 0700–0709 | Stage 38, Knowledge base (spec `docs/stages/38-knowledge-base.md`): ADRs 0700 to 0707 named by the spec; migrations for the published-text index, `core_publish_ack` and the checklist's "how to" expected | specced |
 | BF | 0990–1009 | 0710–0719 | Stage 48, My account (spec `docs/stages/48-my-account.md`): `core_customer_email_change` (migration 0990), `me.portal`, `me.attention`, changing the sign-in address, deleting an account's consequences; ADRs 0710 to 0714 named in the spec | specced |
+| BB | 0910–0929 | 0670–0679 | Stage 30, Notifications (spec `docs/stages/30-notifications.md`) | specced |
+| BG | 1010–1029 | 0720–0729 | Stage 29, Forms (spec `docs/stages/29-forms.md`) | specced |
+| BH | 1030–1049 | 0730–0739 | Stage 35, Invoices and quotes (spec `docs/stages/35-invoices-quotes.md`) | specced |
+| BI | 1050–1069 | 0740–0749 | Stage 36, Shared inbox (spec `docs/stages/36-inbox.md`) | specced |
+| BJ | 1070–1089 | 0750–0759 | Stage 39, Jobs and projects (spec `docs/stages/39-jobs.md`) | specced |
+| BK | 1090–1109 | 0760–0769 | Stage 49, Appointments (spec `docs/stages/49-appointments.md`) | specced |
+| BL | 1110–1129 | 0770–0779 | Stage 50, Till (spec `docs/stages/50-till.md`) | specced |
+| BM | 1130–1149 | 0780–0789 | Stage 51, Kiosk check-in (spec `docs/stages/51-kiosk-check-in.md`) | specced |
+| BN | 1150–1169 | 0790–0799 | Stage 52, Finance reports (spec `docs/stages/52-finance-reports.md`) | specced |
+| BO | 1170–1189 | 0800–0809 | Stage 53, Journeys (spec `docs/stages/53-journeys.md`) | specced |
+| BP | 1190–1209 | 0810–0819 | Stage 54, Reviews (spec `docs/stages/54-reviews.md`) | specced |
+| BQ | 1210–1229 | 0820–0829 | Stage 55, Website builder (spec `docs/stages/55-website-builder.md`) | specced |
+| BR | 1230–1249 | 0830–0839 | Stage 56, Client notes (spec `docs/stages/56-client-notes.md`) | specced |
+| BS | 1250–1269 | 0840–0849 | Stage 57, Events and venue hire (spec `docs/stages/57-events-venue-hire.md`) | specced |
+| BT | 1270–1289 | 0850–0859 | Stage 58, Timesheets and leave (spec `docs/stages/58-timesheets-leave.md`) | specced |
+| BV | 1310–1329 | 0870–0879 | Stage 60, Owner's Today (spec `docs/stages/60-owners-today.md`) | specced |
+| BW | 1330–1349 | 0880–0889 | Stage 61, Accounting sync (spec `docs/stages/61-accounting-sync.md`) | specced |
+| BY | 1370–1389 | 0900–0909 | Stage 63, App publishing (spec `docs/stages/63-app-publishing.md`) | specced |
 
 **`core_write_guard` remakes come in order.** Each kind added drops and recreates the table and its
 trigger, carrying every earlier kind. Stage 44 step 2's remake (migration 0851, kind `agreements`)
