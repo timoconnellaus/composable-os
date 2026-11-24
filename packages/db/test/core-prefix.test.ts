@@ -50,6 +50,8 @@ it("after migrations every read view is rec_<object>, and none keeps the old pre
     "rec_allowance_use",
     "rec_capacity",
     "rec_capacity_claim",
+    // Stage 64 (migration 1390): the locations.
+    "rec_location",
     // Stage 28 (migration 0461): the media library.
     "rec_media",
     "rec_order",

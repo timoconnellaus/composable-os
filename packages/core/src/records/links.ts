@@ -3,8 +3,8 @@
 // (validating and loading links), and by merge and erase (moving links onto a survivor, and finding
 // the activities and tasks an erase removes with a record).
 //
-// LINK_TARGETS lists the objects a link may point at and how to check that a record exists. Stage
-// 3 adds extension objects here (generated from validated identifiers, never from user input).
+// A link may point at a core record (LINK_TARGETS) or a record of an installed extension object
+// (`extensionTarget`, from the registry's validated identifiers, never from user input).
 import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, type SqlBool, sql } from "kysely";
 import { z } from "zod";
@@ -41,6 +41,13 @@ function extensionTarget(object: string): { table: string; titleColumn: string }
   return title && column ? { table, titleColumn: column } : null;
 }
 
+/** Where `object`'s records are and what titles them, or null if a link may not point at it. */
+function linkTarget(object: string): LinkTarget | null {
+  return Object.hasOwn(LINK_TARGETS, object)
+    ? (LINK_TARGETS[object] ?? null)
+    : extensionTarget(object);
+}
+
 export const recordRefSchema = z.object({
   object: z
     .string()
@@ -70,9 +77,10 @@ export async function assertLinkTargets(
   refs: readonly RecordRef[],
   simulation?: SimulationView,
 ): Promise<void> {
-  const byObject = new Map<string, string[]>();
+  const byObject = new Map<string, { target: LinkTarget; ids: string[] }>();
   for (const ref of refs) {
-    if (!Object.hasOwn(LINK_TARGETS, ref.object) && !extensionTarget(ref.object)) {
+    const target = linkTarget(ref.object);
+    if (!target) {
       throw new ValidationError(`Cannot link to object type "${ref.object}"`, {
         field: "links",
         allowed: Object.keys(LINK_TARGETS),
@@ -87,10 +95,11 @@ export async function assertLinkTargets(
         missing: [ref.id],
       });
     }
-    byObject.set(ref.object, [...(byObject.get(ref.object) ?? []), ref.id]);
+    const group = byObject.get(ref.object);
+    if (group) group.ids.push(ref.id);
+    else byObject.set(ref.object, { target, ids: [ref.id] });
   }
-  for (const [object, ids] of byObject) {
-    const target = (LINK_TARGETS[object] ?? extensionTarget(object)) as LinkTarget;
+  for (const [object, { target, ids }] of byObject) {
     const found = await (db as Kysely<Record<string, { id: string; deleted_at: string | null }>>)
       .selectFrom(target.table)
       .select("id")
@@ -115,19 +124,21 @@ export async function loadRecordTitles(
   refs: readonly RecordRef[],
 ): Promise<Map<string, string>> {
   const titles = new Map<string, string>();
-  const byObject = new Map<string, string[]>();
+  const byObject = new Map<string, { target: LinkTarget; ids: Set<string> }>();
   for (const ref of refs) {
-    if (Object.hasOwn(LINK_TARGETS, ref.object) || extensionTarget(ref.object)) {
-      byObject.set(ref.object, [...(byObject.get(ref.object) ?? []), ref.id]);
+    const group = byObject.get(ref.object);
+    if (group) group.ids.add(ref.id);
+    else {
+      const target = linkTarget(ref.object);
+      if (target) byObject.set(ref.object, { target, ids: new Set([ref.id]) });
     }
   }
   await Promise.all(
-    [...byObject].map(async ([object, ids]) => {
-      const target = (LINK_TARGETS[object] ?? extensionTarget(object)) as LinkTarget;
+    [...byObject].map(async ([object, { target, ids }]) => {
       const rows = await (db as unknown as Kysely<Record<string, { id: string }>>)
         .selectFrom(target.table)
         .select(["id", sql<string>`${sql.ref(target.titleColumn)}`.as("title")])
-        .where("id", "in", jsonList([...new Set(ids)]))
+        .where("id", "in", jsonList([...ids]))
         .execute();
       for (const row of rows) titles.set(`${object}:${row.id}`, row.title);
     }),
@@ -266,32 +277,31 @@ export async function findOwnedActivitiesAndTasks(
 ): Promise<{ activityIds: string[]; taskIds: string[] }> {
   // One statement per kind over all ids, so "linked only to these records" sees every id.
   const mine = jsonList(recordIds);
-  const activities = await ctx.db
-    .selectFrom("core_activity as a")
-    .select("a.id")
-    .where(
-      sql<SqlBool>`a.id IN (SELECT l.activity_id FROM core_activity_links l
+  const [activities, tasks] = await Promise.all([
+    ctx.db
+      .selectFrom("core_activity as a")
+      .select("a.id")
+      .where(
+        sql<SqlBool>`a.id IN (SELECT l.activity_id FROM core_activity_links l
         WHERE l.object_type = ${object} AND l.record_id IN ${mine})`,
-    )
-    .where(
-      sql<SqlBool>`(a.type = 'system' OR NOT EXISTS (SELECT 1 FROM core_activity_links o
+      )
+      .where(
+        sql<SqlBool>`(a.type = 'system' OR NOT EXISTS (SELECT 1 FROM core_activity_links o
         WHERE o.activity_id = a.id AND NOT (o.object_type = ${object} AND o.record_id IN ${mine})))`,
-    )
-    .execute();
-  const tasks = await ctx.db
-    .selectFrom("core_task as t")
-    .select("t.id")
-    .where(
-      sql<SqlBool>`t.id IN (SELECT l.task_id FROM core_task_links l
+      )
+      .execute(),
+    ctx.db
+      .selectFrom("core_task as t")
+      .select("t.id")
+      .where(
+        sql<SqlBool>`t.id IN (SELECT l.task_id FROM core_task_links l
         WHERE l.object_type = ${object} AND l.record_id IN ${mine})`,
-    )
-    .where(
-      sql<SqlBool>`NOT EXISTS (SELECT 1 FROM core_task_links o
+      )
+      .where(
+        sql<SqlBool>`NOT EXISTS (SELECT 1 FROM core_task_links o
         WHERE o.task_id = t.id AND NOT (o.object_type = ${object} AND o.record_id IN ${mine}))`,
-    )
-    .execute();
-  return {
-    activityIds: [...new Set(activities.map((a) => a.id))],
-    taskIds: [...new Set(tasks.map((t) => t.id))],
-  };
+      )
+      .execute(),
+  ]);
+  return { activityIds: activities.map((a) => a.id), taskIds: tasks.map((t) => t.id) };
 }

@@ -1,0 +1,11 @@
+{
+  "name": "native-note-composer",
+  "pack": null,
+  "skin": "native",
+  "operations": ["note.kinds.list", "activity.log"],
+  "files": ["note-composer-screen.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/client": "*"
+  }
+}

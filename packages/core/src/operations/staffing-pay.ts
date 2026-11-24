@@ -48,14 +48,13 @@ import {
   toolCaller,
 } from "../staffing/rosterers.ts";
 import {
+  accountId,
   assertPersonApplies,
   assertRosterer,
   assertShippedToolRun,
+  localDate,
   requireLiveShift,
 } from "./staffing.ts";
-
-const localDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date, YYYY-MM-DD");
-const accountId = z.string().min(1).max(64);
 
 // --- Who calls -------------------------------------------------------------------------------------
 

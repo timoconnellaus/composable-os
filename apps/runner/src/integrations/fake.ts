@@ -34,7 +34,7 @@ import {
   isHostSignInMail,
   isSignInCodeMessage,
 } from "../../../../packages/gatekeeper-email-send/src/sign-in.ts";
-import { connectHandoffPageHtml, htmlResponse } from "./pages.ts";
+import { connectHandoffPageHtml, escapeHtml, htmlResponse } from "./pages.ts";
 
 // --- Shapes ------------------------------------------------------------------------------------
 
@@ -391,7 +391,7 @@ export class FakeAccount extends DurableObject<Env> {
 <style>body{font-family:system-ui;max-width:28rem;margin:3rem auto;padding:0 1rem}input,button{font:inherit;padding:.5rem;width:100%;box-sizing:border-box;margin:.25rem 0}</style></head>
 <body><h1>Fake provider</h1><p>The CRM wants access to your fake mailbox and calendar.</p>
 <form method="post"><label for="address">Mailbox address</label>
-<input id="address" name="address" type="email" required value="${suggested.replace(/"/g, "&quot;")}">
+<input id="address" name="address" type="email" required value="${escapeHtml(suggested)}">
 <button type="submit">Allow</button></form></body></html>`);
     }
     if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
@@ -792,6 +792,21 @@ export class FakeGatekeeper extends DurableObject<
     return this.ctx.storage.kv.get<Journal>("journal") ?? { next: 1, actions: {} };
   }
 
+  /** Journals a new pending action and gives its id. */
+  #journalAction(entry: Journal["actions"][number]): number {
+    const journal = this.#journal();
+    const id = journal.next;
+    journal.next += 1;
+    journal.actions[id] = entry;
+    this.ctx.storage.kv.put("journal", journal);
+    return id;
+  }
+
+  /** Whether action `id` has been applied. */
+  #sent(id: number): boolean {
+    return this.#journal().actions[id]?.status === "sent";
+  }
+
   async send(
     queue: QueueStub,
     message: {
@@ -835,7 +850,7 @@ export class FakeGatekeeper extends DurableObject<
       if (known !== undefined) {
         return {
           id: known,
-          status: this.#journal().actions[known]?.status === "sent" ? "sent" : "pending",
+          status: this.#sent(known) ? "sent" : "pending",
         };
       }
     }
@@ -877,10 +892,7 @@ export class FakeGatekeeper extends DurableObject<
       routineMail !== null &&
       message.internal === undefined &&
       isRoutineShaped({ to, subject, text }, routineMail.siteOrigin);
-    const journal = this.#journal();
-    const id = journal.next;
-    journal.next += 1;
-    journal.actions[id] = {
+    const id = this.#journalAction({
       status: "pending",
       to,
       subject,
@@ -888,8 +900,7 @@ export class FakeGatekeeper extends DurableObject<
       ...(signIn || routine || agreement ? { independent: true } : {}),
       ...(agreement ? { attachments: [AGREEMENT_FILENAME] } : {}),
       ...(queueClass !== "caller" ? { queue: queueClass } : {}),
-    };
-    this.ctx.storage.kv.put("journal", journal);
+    });
     if (slot) this.ctx.storage.kv.put(slot, id);
     const related = Array.isArray(message.relatedRecords) ? message.relatedRecords.map(String) : [];
     await queue.submitAction(id, {
@@ -916,7 +927,7 @@ export class FakeGatekeeper extends DurableObject<
               ? { tag: "fake.internal", label: "Send internal mail" }
               : { tag: "fake.send", label: "Send mail" },
     });
-    return { id, status: this.#journal().actions[id]?.status === "sent" ? "sent" : "pending" };
+    return { id, status: this.#sent(id) ? "sent" : "pending" };
   }
 
   /** A Slack post (`to` is the channel) or DM (`to` is the user); journalled like a send. */
@@ -929,11 +940,12 @@ export class FakeGatekeeper extends DurableObject<
     this.#require("slack");
     const body = String(text ?? "").slice(0, 4000);
     if (!target || !body) throw new Error(`${kind} needs a target and text`);
-    const journal = this.#journal();
-    const id = journal.next;
-    journal.next += 1;
-    journal.actions[id] = { status: "pending", to: [target], subject: `slack.${kind}`, text: body };
-    this.ctx.storage.kv.put("journal", journal);
+    const id = this.#journalAction({
+      status: "pending",
+      to: [target],
+      subject: `slack.${kind}`,
+      text: body,
+    });
     await queue.submitAction(id, {
       title: kind === "post" ? `Post to Slack: ${target}` : `Send a Slack DM to ${target}`,
       description: body,
@@ -949,7 +961,7 @@ export class FakeGatekeeper extends DurableObject<
           ? { tag: "fake.slack.dm", label: "DM a member" }
           : { tag: "fake.slack.post", label: "Post to a channel" },
     });
-    return { id, status: this.#journal().actions[id]?.status === "sent" ? "posted" : "pending" };
+    return { id, status: this.#sent(id) ? "posted" : "pending" };
   }
 
   /**

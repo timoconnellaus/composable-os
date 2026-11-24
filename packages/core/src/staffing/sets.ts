@@ -20,8 +20,6 @@ import { regularOverlaps } from "./index.ts";
 // biome-ignore lint/suspicious/noExplicitAny: x_* tables are not in CoreDatabase; names come from the registry.
 type AnyDb = import("kysely").Kysely<any>;
 
-/** Accounts per `IN (…)` list. */
-const CHUNK = 100;
 /** The most rows one set-based read takes before the answer is refused as too large. */
 export const SET_ROWS_MAX = 20_000;
 
@@ -30,12 +28,6 @@ const secondsOf = (value: unknown): number | null => {
   const ms = typeof value === "string" ? Date.parse(value) : Number.NaN;
   return Number.isFinite(ms) ? Math.floor(ms / 1000) : null;
 };
-
-function chunks<T>(items: readonly T[]): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += CHUNK) out.push(items.slice(i, i + CHUNK));
-  return out;
-}
 
 function tooLarge(): ValidationError {
   return new ValidationError(
@@ -62,37 +54,34 @@ export async function claimsOf(
   hi: number,
 ): Promise<Map<string, HeldClaim[]>> {
   const out = new Map<string, HeldClaim[]>();
-  let rows = 0;
-  for (const part of chunks([...new Set(accounts)])) {
-    const found = await ctx.db
-      .selectFrom("core_staff_time")
-      .select([
-        "account_id",
-        "object_type",
-        "record_id",
-        "starts",
-        "ends",
-        "margin_before",
-        "margin_after",
-      ])
-      .where("account_id", "in", jsonList(part))
-      .where("starts", "<", hi)
-      .where("ends", ">", lo)
-      .limit(SET_ROWS_MAX + 1)
-      .execute();
-    rows += found.length;
-    if (rows > SET_ROWS_MAX) throw tooLarge();
-    for (const r of found) {
-      const list = out.get(r.account_id) ?? [];
-      list.push({
-        object: r.object_type,
-        id: r.record_id,
-        starts: r.starts,
-        ends: r.ends,
-        own: { starts: r.starts + r.margin_before, ends: r.ends - r.margin_after },
-      });
-      out.set(r.account_id, list);
-    }
+  if (!accounts.length) return out;
+  const found = await ctx.db
+    .selectFrom("core_staff_time")
+    .select([
+      "account_id",
+      "object_type",
+      "record_id",
+      "starts",
+      "ends",
+      "margin_before",
+      "margin_after",
+    ])
+    .where("account_id", "in", jsonList(accounts))
+    .where("starts", "<", hi)
+    .where("ends", ">", lo)
+    .limit(SET_ROWS_MAX + 1)
+    .execute();
+  if (found.length > SET_ROWS_MAX) throw tooLarge();
+  for (const r of found) {
+    const list = out.get(r.account_id) ?? [];
+    list.push({
+      object: r.object_type,
+      id: r.record_id,
+      starts: r.starts,
+      ends: r.ends,
+      own: { starts: r.starts + r.margin_before, ends: r.ends - r.margin_after },
+    });
+    out.set(r.account_id, list);
   }
   return out;
 }
@@ -135,46 +124,43 @@ export async function awayRowsOf(
   const out = new Map<string, AwayRow[]>();
   // Regular rules not ended before the range's first local date (two days early, for any zone).
   const firstDate = iso(lo - 2 * 86_400).slice(0, 10);
-  let rows = 0;
-  for (const part of chunks([...new Set(accounts)])) {
-    const found = (await ctx.db
-      .selectFrom("core_staff_away")
-      .select([
-        "id",
-        "account_id",
-        "kind",
-        "starts_at",
-        "ends_at",
-        "weekdays",
-        "start_time",
-        "end_time",
-        "from_date",
-        "until_date",
-        "zone",
-      ])
-      .where("account_id", "in", jsonList(part))
-      .where((eb) =>
-        eb.or([
-          eb.and([
-            eb("kind", "!=", "regular"),
-            eb("ends_at", ">", iso(lo)),
-            eb("starts_at", "<", iso(hi)),
-          ]),
-          eb.and([
-            eb("kind", "=", "regular"),
-            eb.or([eb("until_date", "is", null), eb("until_date", ">=", firstDate)]),
-          ]),
+  if (!accounts.length) return out;
+  const found = (await ctx.db
+    .selectFrom("core_staff_away")
+    .select([
+      "id",
+      "account_id",
+      "kind",
+      "starts_at",
+      "ends_at",
+      "weekdays",
+      "start_time",
+      "end_time",
+      "from_date",
+      "until_date",
+      "zone",
+    ])
+    .where("account_id", "in", jsonList(accounts))
+    .where((eb) =>
+      eb.or([
+        eb.and([
+          eb("kind", "!=", "regular"),
+          eb("ends_at", ">", iso(lo)),
+          eb("starts_at", "<", iso(hi)),
         ]),
-      )
-      .limit(SET_ROWS_MAX + 1)
-      .execute()) as AwayRow[];
-    rows += found.length;
-    if (rows > SET_ROWS_MAX) throw tooLarge();
-    for (const r of found) {
-      const list = out.get(r.account_id) ?? [];
-      list.push(r);
-      out.set(r.account_id, list);
-    }
+        eb.and([
+          eb("kind", "=", "regular"),
+          eb.or([eb("until_date", "is", null), eb("until_date", ">=", firstDate)]),
+        ]),
+      ]),
+    )
+    .limit(SET_ROWS_MAX + 1)
+    .execute()) as AwayRow[];
+  if (found.length > SET_ROWS_MAX) throw tooLarge();
+  for (const r of found) {
+    const list = out.get(r.account_id) ?? [];
+    list.push(r);
+    out.set(r.account_id, list);
   }
   return out;
 }
@@ -218,17 +204,19 @@ export async function qualifiedOf(
           .executeTakeFirst(),
       )
     : false;
-  const marked = new Set<string>();
-  for (const part of chunks([...new Set(accounts)])) {
-    const rows = await ctx.db
-      .selectFrom("core_staff_qualification")
-      .select("account_id")
-      .where("kind_object", "=", kindObject)
-      .where("kind_record", "=", kind)
-      .where("account_id", "in", jsonList(part))
-      .execute();
-    for (const r of rows) marked.add(r.account_id);
-  }
+  const marked = new Set(
+    accounts.length
+      ? (
+          await ctx.db
+            .selectFrom("core_staff_qualification")
+            .select("account_id")
+            .where("kind_object", "=", kindObject)
+            .where("kind_record", "=", kind)
+            .where("account_id", "in", jsonList(accounts))
+            .execute()
+        ).map((r) => r.account_id)
+      : [],
+  );
   const any = await ctx.db
     .selectFrom("core_staff_qualification")
     .select("kind_record")
@@ -243,9 +231,8 @@ export async function qualifiedOf(
 
 /**
  * Whether each account is warned as not qualified for each kind (as `qualified` decides it, not
- * strict), for many accounts and kinds at once: their marks in one read per hundred accounts,
- * which kinds' objects have any mark at all in one, and which kinds are live in one per kind
- * object.
+ * strict), for many accounts and kinds at once: their marks in one read, which kinds' objects
+ * have any mark at all in one, and which kinds are live in one per kind object.
  */
 export async function notQualifiedOf(
   ctx: HandlerContext,
@@ -254,11 +241,11 @@ export async function notQualifiedOf(
 ): Promise<(account: string, kind: { object: string; id: string }) => boolean> {
   const key = (a: string, o: string, k: string) => `${a}\u0000${o}\u0000${k}`;
   const marked = new Set<string>();
-  for (const part of chunks([...new Set(accounts)])) {
+  if (accounts.length) {
     const rows = await ctx.db
       .selectFrom("core_staff_qualification")
       .select(["account_id", "kind_object", "kind_record"])
-      .where("account_id", "in", jsonList(part))
+      .where("account_id", "in", jsonList(accounts))
       .limit(SET_ROWS_MAX + 1)
       .execute();
     if (rows.length > SET_ROWS_MAX) throw tooLarge();
@@ -282,14 +269,12 @@ export async function notQualifiedOf(
     const target = getObject(object);
     if (!target) continue;
     const ids = [...new Set(kinds.filter((k) => k.object === object).map((k) => k.id))];
-    for (const part of chunks(ids)) {
-      const rows = (await ctx.db
-        .selectFrom(visibleSource(orgReader(ctx.db), target))
-        .select("id")
-        .where("id", "in", jsonList(part))
-        .execute()) as { id: string }[];
-      for (const r of rows) live.add(`${object}\u0000${r.id}`);
-    }
+    const rows = (await ctx.db
+      .selectFrom(visibleSource(orgReader(ctx.db), target))
+      .select("id")
+      .where("id", "in", jsonList(ids))
+      .execute()) as { id: string }[];
+    for (const r of rows) live.add(`${object}\u0000${r.id}`);
   }
   return (account, kind) =>
     marked.has(key(account, kind.object, kind.id))
@@ -299,7 +284,7 @@ export async function notQualifiedOf(
 
 /**
  * The value of `object`'s person field naming each of `accounts` (a coach profile; the account
- * itself for a user field), in one read per hundred accounts.
+ * itself for a user field), in one read.
  */
 export async function profilesOf(
   ctx: HandlerContext,
@@ -316,15 +301,13 @@ export async function profilesOf(
   const holder = def.who.object ? getObject(def.who.object) : undefined;
   const table = holder ? objectTableOf(holder.name) : undefined;
   const column = holder?.fields.find((f) => f.name === def.who.account)?.column;
-  if (!table || !column) return out;
-  for (const part of chunks([...new Set(accounts)])) {
-    const rows = await sql<{ id: string; account: string }>`SELECT id, ${sql.ref(
-      column,
-    )} AS account FROM ${sql.table(table)} WHERE ${sql.ref(column)} IN ${jsonList(
-      part,
-    )} AND deleted_at IS NULL ORDER BY id`.execute(ctx.db);
-    for (const r of rows.rows) if (!out.has(r.account)) out.set(r.account, r.id);
-  }
+  if (!table || !column || !accounts.length) return out;
+  const rows = await sql<{ id: string; account: string }>`SELECT id, ${sql.ref(
+    column,
+  )} AS account FROM ${sql.table(table)} WHERE ${sql.ref(column)} IN ${jsonList(
+    accounts,
+  )} AND deleted_at IS NULL ORDER BY id`.execute(ctx.db);
+  for (const r of rows.rows) if (!out.has(r.account)) out.set(r.account, r.id);
   return out;
 }
 
@@ -341,38 +324,33 @@ export async function titlesOf(
     const table = objectTableOf(name);
     const column = object?.fields.find((f) => f.name === object.titleField)?.column;
     if (!object || !table || !column) continue;
-    for (const part of chunks([...ids])) {
-      const rows = await (ctx.db as AnyDb)
-        .selectFrom(table)
-        .select(["id", `${column} as title`])
-        .where("id", "in", jsonList(part))
-        .execute();
-      for (const r of rows as { id: string; title: unknown }[]) {
-        out.set(
-          `${name}\u0000${r.id}`,
-          typeof r.title === "string" && r.title ? r.title : object.label,
-        );
-      }
+    const rows = await (ctx.db as AnyDb)
+      .selectFrom(table)
+      .select(["id", `${column} as title`])
+      .where("id", "in", jsonList([...ids]))
+      .execute();
+    for (const r of rows as { id: string; title: unknown }[]) {
+      out.set(
+        `${name}\u0000${r.id}`,
+        typeof r.title === "string" && r.title ? r.title : object.label,
+      );
     }
   }
   return out;
 }
 
-/** Each account's display name, one read per hundred. */
+/** Each account's display name, in one read. */
 export async function namesOf(
   ctx: HandlerContext,
   accounts: readonly string[],
 ): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
-  for (const part of chunks([...new Set(accounts)])) {
-    const rows = await ctx.db
-      .selectFrom("core_user")
-      .select(["id", "name", "email"])
-      .where("id", "in", jsonList(part))
-      .execute();
-    for (const r of rows) out.set(r.id, r.name || r.email);
-  }
-  return out;
+  if (!accounts.length) return new Map();
+  const rows = await ctx.db
+    .selectFrom("core_user")
+    .select(["id", "name", "email"])
+    .where("id", "in", jsonList(accounts))
+    .execute();
+  return new Map(rows.map((r) => [r.id, r.name || r.email]));
 }
 
 /**
@@ -431,5 +409,3 @@ export async function notWorkedOf(
   }
   return out;
 }
-
-export { iso as isoOfSeconds };

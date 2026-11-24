@@ -6,7 +6,10 @@
 //
 // This replaced stage 25's interim registry (`registerSellable`, ADR 0427), which platform code
 // filled by hand until the declaration existed.
+import type { CoreDatabase } from "@composable-os/db";
+import type { Kysely } from "kysely";
 import type { ObjectDefinition, SellableDefinition } from "../fields/types.ts";
+import type { AnyRow, VisibleSource } from "../visibility/index.ts";
 
 export type Sellable = SellableDefinition;
 
@@ -67,4 +70,13 @@ export function sellableProblems(sellable: Sellable, object: ObjectDefinition): 
   if (sellable.recurring?.trialDays) numeric(sellable.recurring.trialDays, "recurring.trialDays");
   if (!object.titleField) problems.push("a sellable object needs a title field");
   return problems;
+}
+
+/** One record's row of a view (`source`: the object's view as some reader sees it), or undefined. */
+export function viewRow(
+  db: Kysely<CoreDatabase>,
+  source: VisibleSource<AnyRow, string>,
+  id: string,
+): Promise<AnyRow | undefined> {
+  return db.selectFrom(source).selectAll().where("id", "=", id).executeTakeFirst();
 }

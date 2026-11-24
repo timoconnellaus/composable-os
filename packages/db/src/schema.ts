@@ -272,7 +272,7 @@ export interface CoreActivityTable extends RecordColumns {
   disclosure: Defaulted<"full" | "metadata" | null>;
   /** Migration 1230 (stage 56, ADR 0830): who may read a note. Only a note is not `staff`. */
   level: Defaulted<NoteLevel>;
-  /** Migration 1230: the note's kind (core_note_kind, stage 56 step 2). */
+  /** Migration 1230: the note's kind (core_note_kind, migration 1232). Every note has one. */
   kind_id: Defaulted<string | null>;
   /** Migration 1230: when and by whom the note was shared with its client (stage 56 step 5). */
   shared_at: Defaulted<string | null>;
@@ -1089,6 +1089,37 @@ export interface CorePersonLinkTable {
   ended_at: Defaulted<string | null>;
   ended_by: Defaulted<string | null>;
   end_reason: Defaulted<string | null>;
+}
+
+/** A section of a note kind's template (migration 1232). */
+export interface NoteKindSection {
+  key: string;
+  label: string;
+  hint: string | null;
+  required: boolean;
+}
+
+/** Migration 1232 (stage 56 step 2, ADR 0833): a kind of note and its template. */
+export interface CoreNoteKindTable {
+  id: string;
+  /** The shipped kinds' stable key; null for a business's own. */
+  key: Defaulted<"note" | "session" | "sensitive" | "from_client" | null>;
+  name: string;
+  default_level: Defaulted<NoteLevel>;
+  lowest_level: Defaulted<NoteLevel>;
+  /** JSON: NoteKindSection[]. */
+  sections: Defaulted<JsonText>;
+  /** Read by record files (stage 56 step 3). */
+  files_allowed: Defaulted<0 | 1>;
+  /** Read by erase and retention (stage 56 step 7). */
+  evidence: Defaulted<0 | 1>;
+  retention_years: Defaulted<number | null>;
+  active: Defaulted<0 | 1>;
+  position: Defaulted<number>;
+  created_by: Defaulted<string | null>;
+  created_at: string;
+  updated_by: Defaulted<string | null>;
+  updated_at: string;
 }
 
 /** Migration 1231 (stage 56, ADR 0831): a staff account that looks after a Person. */
@@ -3498,6 +3529,31 @@ export interface CoreMediaCaptionTable {
 /** `rec_media` (migration 0461): the live media items. */
 export type RecMediaView = Omit<CoreMediaTable, "deleted_at" | "deleted_by" | "sha256">;
 
+/**
+ * `core_location` (migration 1390, ADR 0910): one place the business works from, inside the one
+ * organisation. The main location (`main = 1`) is made by the migration; nothing deletes one.
+ */
+export interface CoreLocationTable {
+  id: string;
+  name: string;
+  short_name: string | null;
+  address: string | null;
+  timezone: string;
+  public: Generated<number>;
+  /** Minor units; null: not set. */
+  drop_in_price: number | null;
+  state: Generated<"open" | "closed">;
+  notes: string | null;
+  main: Generated<number>;
+  created_at: Timestamp;
+  created_by: string | null;
+  updated_at: Timestamp;
+  updated_by: string | null;
+}
+
+/** `rec_location` (migration 1390): every location, with `listed` for the public (ADR 0916). */
+export type RecLocationView = CoreLocationTable & { listed: "yes" | "no" };
+
 /** `core_import_key` (migration 0501): what an import made, and the values it last wrote. */
 export interface CoreImportKeyTable {
   object_type: string;
@@ -3671,6 +3727,7 @@ export interface CoreDatabase {
   core_stock_movement: CoreStockMovementTable;
   core_person_link: CorePersonLinkTable;
   core_person_carer: CorePersonCarerTable;
+  core_note_kind: CoreNoteKindTable;
   core_agreement_document: CoreAgreementDocumentTable;
   core_agreement_version: CoreAgreementVersionTable;
   core_agreement_point: CoreAgreementPointTable;
@@ -3741,6 +3798,7 @@ export interface CoreDatabase {
   core_preview_link: CorePreviewLinkTable;
   core_content_generation: CoreContentGenerationTable;
   core_media: CoreMediaTable;
+  core_location: CoreLocationTable;
   core_published_media: CorePublishedMediaTable;
   core_media_caption: CoreMediaCaptionTable;
   core_import_key: CoreImportKeyTable;
@@ -3749,6 +3807,7 @@ export interface CoreDatabase {
   core_journey_entry: CoreJourneyEntryTable;
   core_journey_step_log: CoreJourneyStepLogTable;
   rec_media: RecMediaView;
+  rec_location: RecLocationView;
   rec_publish_version: RecPublishVersionView;
   rec_stage_history: CrmStageHistoryView;
   rec_state_history: RecStateHistoryView;
