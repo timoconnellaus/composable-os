@@ -688,12 +688,19 @@ export interface RecurringDefinition {
   generates: string;
   link: string;
   rule: {
-    weekdays: string;
+    weekdays?: string | undefined;
     time: string;
     length?: string | undefined;
     from: string;
     until?: string | undefined;
     zone?: string | undefined;
+    /** The interval rule (ADR 0860): a select of week, month, year; every N; the day and month. */
+    unit?: string | undefined;
+    every?: string | undefined;
+    day?: string | undefined;
+    month?: string | undefined;
+    /** The length in whole days instead of minutes. */
+    lengthDays?: string | undefined;
   };
   into: {
     starts: string;

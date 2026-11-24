@@ -951,7 +951,7 @@ as the write, for every actor (ADR 0404): `stages` (the **stage behaviour**) and
 **state machine**), which exist and share the **transition engine**; `capacity` (places, holds
 and claims, ADRs 0430 to 0433) and `sellable` (prices, sale rules and what a paid line grants,
 ADR 0435), which exist; `publishable` (a working copy and published versions, ADR 0446), whose
-half without a public exists; `recurring` (a weekly series that makes dated records, ADR 0500), capacity **claimants**
+half without a public exists; `recurring` (a series that makes dated records, weekly or every N weeks, months or years, ADRs 0500 and 0860), capacity **claimants**
 (ADR 0501, with waitlists, ADR 0520) and declared uniqueness (ADR 0502), which exist since stage
 31; `allowance` (ADR 0493), which exists since stage 32b; `staffed` (a shift and its time claim,
 ADR 0621), which exists since stage 45.
@@ -1248,9 +1248,12 @@ a signed quantity, a kind (opening, received, sold, returned, written off, count
 what made it (an order line, a record or a person), who and when. Never changed or deleted.
 
 **Series** (of a recurring schedule)
-A record that declares `recurring`: a weekly rule in local wall-clock time (weekdays, a time, a
+A record that declares `recurring`: a rule in local wall-clock time (weekdays, a time, a
 length, from and until dates, a zone) that makes dated records of another object ahead, up to its
-horizon (a timetable line makes its classes). Each record made is its **occurrence**, keyed on the
+horizon (a timetable line makes its classes). Weekly, or by its **interval rule** every N weeks
+on its weekdays, every N months on a day (the month's last when shorter) or every N years on a
+date, fixed on the calendar from its first date, never counted from when the last was done; a
+length may be in days (ADR 0860). Each record made is its **occurrence**, keyed on the
 series and its local date so it is made once. A copied field staff change on one occurrence (its
 coach) is its **field exception**: the series never writes that field again and still writes the
 rest; one whose time or state staff change is **detached** whole and the series' no more. **Follow
@@ -1796,7 +1799,7 @@ an optional trial): subscribed to, never put on an order (stage 32a, ADR 0485). 
 **membership plan** (`memberships.plan`) is the second: its subscription grants a membership
 (`sellable.recurring.grants`, ADR 0510).
 _Avoid_: plan alone (a hosted plan), product; "recurring" for it alone (the `recurring` behaviour
-is a timetable's weekly rule, ADR 0500)
+is a timetable's rule, ADRs 0500 and 0860)
 
 **Free trial** (of a subscription plan)
 The free first days of a subscription, the card taken at the start and charged when it ends

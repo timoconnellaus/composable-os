@@ -170,18 +170,25 @@ extension declares it; it never implements it. Each behaviour the platform has i
   every caller but a person. Never decide "late" or
   "too early" in a tool. See `StateMove` and `StatesSpec` in `packages/sdk/src/states.ts`, ADRs
   0503 and 0505, and Bookings: `packs/bookings/index.ts`.
-- **`recurring`** on a series object: a weekly rule in local time that makes records of another
+- **`recurring`** on a series object: a rule in local time that makes records of another
   of your objects ahead (a timetable line makes its classes). Declare the rule's fields (a
   `multiSelect` of `mon`…`sun`, an `HH:MM` text field, a length in minutes, from and until
   dates, a `timezone`), then `recurring: { generates: "<object>", link: "<read-only relation on
-  it back to the series>", rule: { weekdays, time, length?, from, until?, zone? }, into: {
+  it back to the series>", rule: { weekdays?, time, length?, from, until?, zone?, unit?, every?,
+  day?, month?, lengthDays? }, into: {
   starts, ends?, zone?, changed? }, copy?: { <generated field>: "<series field>" }, cancel:
   "<a state of the generated object with a host move into it>", ended?: { field, in },
   closures?: { object, from, until }, horizonDays?, horizonAtLeast?: { object, field },
   horizonSetting? }`
   (`horizonAtLeast`: a number field in days, a booking window, the horizon never falls short of;
   `horizonSetting`: your number setting, in days, that sets the horizon when it holds a value,
-  Rostering's duty horizon). The host makes the records from the minute
+  Rostering's duty horizon). Without `unit` the rule is weekly. For every N weeks, months or
+  years (a quarterly service, a yearly test) add the interval rule (ADR 0860): `unit` (a
+  `select` whose options are some of `week`, `month`, `year`), `every` (a number, empty is 1),
+  `day` (day of the month, 1 to 31: a shorter month uses its last day) and `month` (1 to 12, for
+  years), both empty meaning the `from` date's, and `lengthDays` (a number of days) instead of
+  `length` for a window that stays open for days. Dates are fixed on the calendar from `from`,
+  never counted from when the last one was done. The host makes the records from the minute
   cron, keeps 06:00 at 06:00 across a clock change, never overwrites one staff edited, applies a
   series change to the rest, and cancels what a closure covers. Never create the dated records
   in a tool or an automation. See `RecurringScheduleSpec` in `packages/sdk/src/recurring.ts` and
