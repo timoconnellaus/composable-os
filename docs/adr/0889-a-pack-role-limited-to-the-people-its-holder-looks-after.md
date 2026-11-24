@@ -60,6 +60,9 @@ operation runs:
   (`screens.mine`, `ack.mine`, `ack.confirm`); **every other operation is refused**, whatever key
   its input names records by (an activity's links, a task's refs, `createMany`, a batch, a
   count), so the limit fails closed for an operation it does not understand.
+The limit is the role's own pack's: another pack's tool the role reaches (Daily checklists'
+`anyStaff` tools, ADR 0652) runs without it, and its host operations decide what it may do; held
+there, failing closed would refuse them.
 The limit is held before the gate, the agent's grant and the queue, so a call on someone else's
 record is not even queued. Nothing is cached: when the record ends or names another coach, the
 reach changes on the next call. A grant that opens a tool (ADR 0600) lifts the limit on that call,

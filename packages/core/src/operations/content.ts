@@ -2,7 +2,8 @@
 // object, by its address, and a preview of a working copy for whoever holds a link to it.
 //
 //   content.get          anyone   one published record by slug, or where an old slug now points
-//   content.list         anyone   a page of the published records
+//   content.list         anyone   a page of the published records (an object with no slug: only
+//                                 this, ADR 0810)
 //   content.search       anyone   published records whose words match, best first (ADR 0700)
 //   content.preview      anyone   one record's working copy, with a preview link's token
 //   content.previewLink  staff    make that link: one record, until it expires
@@ -54,14 +55,25 @@ const PUBLIC: PublicPrincipal = { kind: "public" };
 /** The public's reader: what every public content read reads with, whoever calls. */
 const publicReader = (ctx: HandlerContext): Reader => ({ db: ctx.db, principal: PUBLIC });
 
-type ContentObject = ObjectDefinition & {
+type ListedObject = ObjectDefinition & { publishable: PublishableDefinition };
+type ContentObject = ListedObject & {
   publishable: PublishableDefinition & { slug: string };
 };
 
-/** A publishable object the public reads, with an address; anything else: null. */
-function contentObject(name: string): ContentObject | null {
+/** A publishable object the public reads, listed or by address; anything else: null. */
+function listedObject(name: string): ListedObject | null {
   const object = getObject(name);
-  if (!object?.publishable?.slug || !object.public) return null;
+  if (!object?.publishable || !object.public) return null;
+  return object as ListedObject;
+}
+
+/**
+ * A publishable object the public reads by its address; anything else: null. One without a slug
+ * (a review, ADR 0810) is listed only: read by address it is not found, as anything else is.
+ */
+function contentObject(name: string): ContentObject | null {
+  const object = listedObject(name);
+  if (!object?.publishable.slug) return null;
   return object as ContentObject;
 }
 
@@ -162,7 +174,7 @@ export const contentList = defineOperation({
   hostInternal: true,
   mcp: { idempotent: true },
   async handler(input, ctx) {
-    const object = contentObject(input.object);
+    const object = listedObject(input.object);
     if (!object) throw contentNotFound(input.object);
     const readable = new Set(object.public?.read ?? []);
     const newest = [object.publishable.date, "publishedAt"].find(

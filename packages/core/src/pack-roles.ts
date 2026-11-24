@@ -8,6 +8,8 @@
 //   - `record.get` and `record.list` on the objects of that pack the role lists, and
 //   - `screens.mine`, the screens of the admin it may open (stage 47, ADR 0660),
 //   - its own read-and-understood list and confirmations (`ack.mine`, `ack.confirm`, ADR 0702),
+//   - a shipped pack's tools open to every staff account (`anyStaff`, ADR 0652), whose host
+//     operation decides by its own rule (Daily checklists: the checklist's "who may do it"),
 // and is refused every other operation, by the pipeline, before its input is looked at. Its own
 // `role` grants nothing while the pack role is held.
 //
@@ -27,7 +29,7 @@ import type { ExtensionManifest, RoleManifest } from "@composable-os/sdk";
 import { type Kysely, sql } from "kysely";
 import type { AnyOperation } from "./operation.ts";
 import type { LooksAfter, LooksAfterLimit, LooksAfterTeam } from "./pack-role-looks-after.ts";
-import { holdsPermission, type Role } from "./principals.ts";
+import { FIXED_ROLE_CORE_GRANTS, holdsPermission, type Role } from "./principals.ts";
 
 /** A pack role as an account holds it. */
 export interface HeldPackRole {
@@ -208,6 +210,9 @@ export async function availablePackRoles(
  * learns nothing about any other operation, not even whether its input was valid.
  */
 export function packRoleReaches(role: HeldPackRole, op: AnyOperation): boolean {
+  // A pack's tool open to every staff account (ADR 0652): its host operation decides who may do
+  // what, by a rule of its own (a checklist's "who may do it").
+  if (op.packAnyStaff === true) return true;
   if (op.packPermissions === undefined && PACK_ROLE_OWN.includes(op.name)) return true;
   if (op.packPermissions !== undefined) {
     return op.packPermissions.some((p) => role.permissions.includes(p));
@@ -218,11 +223,14 @@ export function packRoleReaches(role: HeldPackRole, op: AnyOperation): boolean {
 
 /**
  * Whether a permission granted to the account opens the pack tool `op`: one of the tool's
- * permissions its installed pack still declares grantable (ADR 0449). Never a core operation, so
- * for an account holding a pack role a grant opens exactly the tools naming the granted
- * permission, and no record read, list, search or setting (ADR 0600).
+ * permissions its installed pack still declares grantable (ADR 0449), or a core operation whose
+ * permission is one of FIXED_ROLE_CORE_GRANTS (ADR 0783). So for an account holding a pack role a
+ * grant opens exactly the tools naming the granted permission and those few core operations, and
+ * no record read, list, search or setting (ADR 0600).
  */
 export function grantOpens(grants: readonly string[], op: AnyOperation): boolean {
+  // The few core permissions a fixed role's account may be granted (ADR 0783): `people:cards`.
+  if (FIXED_ROLE_CORE_GRANTS.includes(op.permission) && grants.includes(op.permission)) return true;
   return (op.packGrantable ?? []).some((p) => grants.includes(p));
 }
 
@@ -298,8 +306,13 @@ export function roleLooksAfterFor(
   op: AnyOperation,
   userId: string,
 ): LooksAfterLimit | undefined {
-  const looksAfter = rights.packRole?.looksAfter;
-  if (!looksAfter) return undefined;
+  const role = rights.packRole;
+  const looksAfter = role?.looksAfter;
+  if (!role || !looksAfter) return undefined;
+  // Another pack's tool the role reaches (`anyStaff`, ADR 0652: Daily checklists') answers for
+  // the account by its own host operations: the limit is about the role's own pack's records,
+  // and holding it there would refuse those operations (it fails closed).
+  if (op.name.startsWith("x.") && !op.name.startsWith(`x.${role.extension}.`)) return undefined;
   return grantOpens(rights.grants, op) ? undefined : { userId, ...looksAfter };
 }
 
@@ -323,7 +336,12 @@ export function staffMayCall(
 /** Whether the role allows `op` with this (parsed) input. */
 export function packRoleAllows(role: HeldPackRole, op: AnyOperation, input: unknown): boolean {
   if (!packRoleReaches(role, op)) return false;
-  if (op.packPermissions !== undefined || PACK_ROLE_OWN.includes(op.name)) return true;
+  if (
+    op.packPermissions !== undefined ||
+    op.packAnyStaff === true ||
+    PACK_ROLE_OWN.includes(op.name)
+  )
+    return true;
   // The account's own screens (ADR 0660): its input is empty, and its answer is the account's.
   if (PACK_ROLE_CORE_READS.includes(op.name)) return true;
   // record.get and record.list name their object in the input.

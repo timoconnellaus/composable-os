@@ -62,6 +62,8 @@ describe("the screens registry (ADR 0660)", () => {
       "bookings/classList",
       "bookings/desk",
       "courses/builder",
+      "dailychecks/history",
+      "dailychecks/today",
       "memberships/holdings",
       "programs/bank",
       "programs/builder",

@@ -80,6 +80,7 @@ import {
 import { findProvisionalIds, newId } from "./ids.ts";
 import type { BlobStore, IntegrationRuntime } from "./integrations/runtime.ts";
 import type { HostMail } from "./invites.ts";
+import { signalStatements } from "./journeys/signals.ts";
 import type { Judge } from "./judge/types.ts";
 import { errorForLog } from "./log.ts";
 import type { ModelRunner } from "./models.ts";
@@ -112,6 +113,7 @@ import {
   staffMayCall,
   staffRightsReach,
 } from "./pack-roles.ts";
+import type { PersonCodeKeys } from "./people-codes/keys.ts";
 import {
   ACTORS,
   type ActingUser,
@@ -242,6 +244,11 @@ export interface InvocationContext {
   agentJobs?: AgentJobHost;
   /** The host's own mail for staff (ADR 0455). Not inherited when nested. */
   hostMail?: HostMail;
+  /**
+   * The keys of people's check-in codes and PINs (stage 51, ADR 0783), derived from the host's
+   * auth secret by the adapter. Absent: codes, cards and PINs are refused. Nested calls inherit it.
+   */
+  personCodes?: PersonCodeKeys;
   /**
    * Set on an agent's calls (ADR 0344): what its grant allows, checked on every call. Passed by the
    * AgentJob object, never by a model. Not inherited when nested, which is why operations that run
@@ -972,6 +979,7 @@ async function invokeOnce<O extends AnyOperation>(
     ...(ctx.voice ? { voice: ctx.voice } : {}),
     ...(ctx.agentJobs ? { agentJobs: ctx.agentJobs } : {}),
     ...(ctx.hostMail ? { hostMail: ctx.hostMail } : {}),
+    ...(ctx.personCodes ? { personCodes: ctx.personCodes } : {}),
     pipeline: {
       crm: ctx.db,
       resolve: (name) => ctx.resolveOperation?.(name),
@@ -1062,6 +1070,7 @@ async function invokeOnce<O extends AnyOperation>(
       ...(ctx.assistantThreads ? { assistantThreads: ctx.assistantThreads } : {}),
       ...(ctx.voice ? { voice: ctx.voice } : {}),
       ...(ctx.agentJobs ? { agentJobs: ctx.agentJobs } : {}),
+      ...(ctx.personCodes ? { personCodes: ctx.personCodes } : {}),
       // An approved update or rollback is applied through here (approval.approve).
       ...(ctx.updater ? { updater: ctx.updater } : {}),
       // A call an approved action makes: checked against the reviewed preview, and its changes
@@ -1322,6 +1331,12 @@ async function invokeOnce<O extends AnyOperation>(
         now,
         ctx.markGiven,
       )),
+      // And the journey signals the write made (stage 53, ADR 0802), standing as its marks do.
+      ...signalStatements({ db: ctx.db.query }, changes, {
+        standing: staffStanding(ctx),
+        bulk: isBulkOperation(op.name, bulkSize),
+        now,
+      }),
     );
   }
   statements.push(...activities);
@@ -1818,6 +1833,11 @@ export interface OutsideInvocationContext {
   integrations?: IntegrationRuntime;
   /** As for staff calls: the adapter's statements in the call's own batch (ADR 0416). */
   inBatch?: InBatch | undefined;
+  /**
+   * The keys of people's check-in codes and PINs (stage 51, ADR 0783), given only to a
+   * `hostInternal` core operation's handler: `me.code`, `me.pin.set`.
+   */
+  personCodes?: PersonCodeKeys;
   /** Never set: these make a context a staff one. */
   user?: undefined;
   actor?: undefined;
@@ -2206,6 +2226,9 @@ async function invokeOutside<O extends AnyOperation>(
         ...(op.hostInternal === true && !op.name.startsWith("x.") && ctx.integrations
           ? { integrations: ctx.integrations }
           : {}),
+        ...(op.hostInternal === true && !op.name.startsWith("x.") && ctx.personCodes
+          ? { personCodes: ctx.personCodes }
+          : {}),
         get actor() {
           return staffOnly("actor");
         },
@@ -2295,6 +2318,11 @@ async function invokeOutside<O extends AnyOperation>(
         principal.kind === "customer" ? principal.customerId : null,
         now,
       )),
+      ...signalStatements({ db: ctx.db.query }, changes, {
+        standing: principal.kind === "customer" ? "customer" : "public",
+        bulk: false,
+        now,
+      }),
     );
   }
   statements.push(...activities);

@@ -15,8 +15,10 @@ import {
   coreRegistry,
   type LooksAfterLimit,
   loadExtensionOperations,
+  loadStaffRights,
   looksAfterWhere,
   newId,
+  roleLooksAfterFor,
 } from "@composable-os/core";
 import { toManifest, validateManifest } from "@composable-os/sdk";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -321,6 +323,12 @@ describe("the coach role (ADR 0889)", () => {
         "record.get",
         "record.list",
         "screens.mine",
+        // Daily checklists' tools open to every staff account (anyStaff, ADR 0652): their host
+        // operations answer with only the checklists the account may do.
+        "x.dailychecks.day",
+        "x.dailychecks.done",
+        "x.dailychecks.tick",
+        "x.dailychecks.today",
         "x.programs.history",
         "x.programs.logAdd",
         "x.programs.logUpdate",
@@ -553,6 +561,18 @@ describe("the coach role (ADR 0889)", () => {
     // What it checks still runs: an object it does not limit, and the account's own screens.
     await run("record.list", { object: EXERCISE }, held);
     await run("screens.mine", {}, held);
+    // The limit is the role's own pack's: another pack's tool the role reaches (Daily checklists'
+    // anyStaff `today`, ADR 0652) runs without it, so its host operation (`checklist.today`) is not
+    // refused; Programs' own tools carry it.
+    const rights = await loadStaffRights(db.query, kim.id);
+    const tool = (name: string) => ({ name }) as AnyOperation;
+    expect(roleLooksAfterFor(rights, tool("x.dailychecks.today"), kim.id)).toBeUndefined();
+    expect(roleLooksAfterFor(rights, tool("x.programs.sessionGet"), kim.id)).toMatchObject({
+      userId: kim.id,
+    });
+    expect(roleLooksAfterFor(rights, tool("record.list"), kim.id)).toMatchObject({
+      userId: kim.id,
+    });
   });
 
   it("a team and a limit are a shipped pack's, and their mistakes are named", async () => {

@@ -39,6 +39,7 @@ import {
 } from "./document.ts";
 import { FIELD_TYPES, type FieldTypeName, formulaTypeOf } from "./field-types.ts";
 import { checkFormula, type FormulaFieldRef } from "./formula/compile.ts";
+import { journeySignalIssues, journeySignalsManifestSchema } from "./journey-signals.ts";
 import { checkObjectOccupies, occupiesManifestSchema } from "./occupies.ts";
 import { checkObjectRecurring, recurringManifestSchema } from "./recurring.ts";
 import { renamedMessage } from "./renamed.ts";
@@ -48,6 +49,7 @@ import { checkObjectStaffed, staffedManifestSchema } from "./staffed.ts";
 import { checkObjectStates, resolveFieldPath, statesManifestSchema } from "./states.ts";
 import { checkObjectTeam, teamManifestSchema } from "./team.ts";
 import { checkObjectUnique, uniqueManifestSchema } from "./unique.ts";
+import { checkObjectWorkedOn, workedOnManifestSchema } from "./worked-on.ts";
 
 export const EXTENSION_ID_RE = /^[a-z][a-z0-9]{1,29}$/;
 export const OBJECT_NAME_RE = /^[a-z][a-z0-9]{0,29}$/;
@@ -221,6 +223,7 @@ export const objectManifestSchema = z.object({
   unique: uniqueManifestSchema.optional(),
   recurring: recurringManifestSchema.optional(),
   staffed: staffedManifestSchema.optional(),
+  workedOn: workedOnManifestSchema.optional(),
   team: teamManifestSchema.optional(),
   occupies: occupiesManifestSchema.optional(),
   checklists: checklistsManifestSchema.optional(),
@@ -291,6 +294,7 @@ export const objectManifestSchema = z.object({
       content: z.array(z.string().max(40)).min(1).max(40),
       slug: z.string().max(40).optional(),
       date: z.string().max(40).optional(),
+      publishIn: z.array(z.string().max(100)).min(1).max(20).optional(),
       acknowledge: z
         .object({ who: z.string().max(40), manage: z.string().max(80) })
         .strict()
@@ -356,6 +360,10 @@ export const toolManifestSchema = z.object({
   personApproves: z.literal(true).optional(),
   /** The grant opens it without the role's limits, on purpose (ADR 0600). */
   grantLiftsRoleLimits: z.literal(true).optional(),
+  /** Every staff account may call it, pack roles included; the host decides (ADR 0652). */
+  anyStaff: z.literal(true).optional(),
+  /** A grantable core permission it needs instead of records:read or records:write (ADR 0652). */
+  corePermission: z.string().max(80).optional(),
   /** Input fields the audit log never keeps (ADR 0626). */
   redact: z.array(z.string().max(40)).max(20).optional(),
   /** Answer keys the host never keeps (ADR 0628). */
@@ -552,6 +560,8 @@ export const manifestSchema = z.object({
   grantable: z.array(z.string().max(80)).max(20).optional(),
   /** A shipped extension's routine mail (ADR 0590). */
   routineMail: routineMailManifestSchema.optional(),
+  /** A shipped extension's journey signals (stage 53, ADR 0802). */
+  journeySignals: journeySignalsManifestSchema.optional(),
   /** What each grantable permission gives, in plain words, for the admin (ADR 0600). */
   grantableLabels: z.record(z.string().max(80), z.string().min(10).max(300)).optional(),
   /** Tool permissions held by admins and by grant only (ADR 0625). */
@@ -569,6 +579,12 @@ export const manifestSchema = z.object({
           payPeriod: z.string().max(64).optional(),
           payPeriodStart: z.string().max(64).optional(),
           payPeriodDay: z.string().max(64).optional(),
+          /** Staff record their time (stage 58, ADR 0850): a boolean setting, off by default. */
+          recordsTime: z.string().max(64).optional(),
+          /** How many days back time may be entered. */
+          enterDays: z.string().max(64).optional(),
+          /** Hours after a shift's end an open entry is marked finish missing. */
+          finishMissingHours: z.string().max(64).optional(),
         })
         .strict()
         .optional(),
@@ -761,6 +777,8 @@ export function toManifest(extension: Extension): ExtensionManifest {
           ...(tool.humanOnly ? { humanOnly: true as const } : {}),
           ...(tool.personApproves ? { personApproves: true as const } : {}),
           ...(tool.grantLiftsRoleLimits ? { grantLiftsRoleLimits: true as const } : {}),
+          ...(tool.anyStaff ? { anyStaff: true as const } : {}),
+          ...(tool.corePermission ? { corePermission: tool.corePermission } : {}),
           ...(tool.redact?.length ? { redact: [...tool.redact] } : {}),
           ...(tool.redactResult?.length ? { redactResult: [...tool.redactResult] } : {}),
           ...(tool.customerFields
@@ -838,6 +856,9 @@ export function toManifest(extension: Extension): ExtensionManifest {
     ...(extension.requires?.length ? { requires: [...extension.requires] } : {}),
     ...(extension.routineMail && Object.keys(extension.routineMail).length
       ? { routineMail: extension.routineMail }
+      : {}),
+    ...(extension.journeySignals && Object.keys(extension.journeySignals).length
+      ? { journeySignals: extension.journeySignals }
       : {}),
     roles: Object.fromEntries(
       Object.entries(extension.roles ?? {}).map(([name, role]) => [
@@ -1260,6 +1281,7 @@ export function validateManifest(
     checkObjectUnique(m, name, object, contract);
     checkObjectRecurring(m, name, object, contract);
     checkObjectStaffed(m, name, object, contract);
+    checkObjectWorkedOn(m, name, object, contract);
     checkObjectTeam(m, name, object, contract);
     checkObjectOccupies(m, name, object, contract);
     checkObjectChecklists(m, name, object, contract);
@@ -1354,7 +1376,9 @@ export function validateManifest(
   );
   for (const { name, object, key, p } of readDeclarations) {
     const path = `objects.${name}.${key}`;
-    if (key === "public" && object.customer) {
+    // A publishable object with an author (ADR 0810) declares both: the author reads the working
+    // copy, the public the published version.
+    if (key === "public" && object.customer && !object.publishable) {
       contract(path, "An object declares customer or public, not both");
     }
     if (key === "signedIn" && object.public) {
@@ -1434,7 +1458,9 @@ export function validateManifest(
       const field = object.fields[fieldName];
       if (!field) {
         contract(`${path}.content`, `"${fieldName}" is not a field of ${name}`);
-      } else if (field.type === "formula" || field.readOnly) {
+      } else if (field.type === "formula" || (field.readOnly && !object.customer)) {
+        // With an author (ADR 0810) the content is the author's and what the host sets beside it
+        // (what a review is about): a read-only field may be content, a formula still not.
         contract(
           `${path}.content`,
           `"${fieldName}" is ${field.type === "formula" ? "a formula" : "read-only"}: content is what staff edit`,
@@ -1461,11 +1487,31 @@ export function validateManifest(
         contract(`${path}.date`, "publishable.date is content: list it in content too");
       }
     }
-    if (object.public) {
-      if (p.slug === undefined) {
-        contract(`${path}.slug`, "A publishable object the public reads names its slug field");
+    // The states a record may be published in (ADR 0810): values of the object's states field.
+    if (p.publishIn !== undefined) {
+      const stateField = object.states ? object.fields[object.states.field] : undefined;
+      if (!object.states || stateField?.type !== "select") {
+        contract(`${path}.publishIn`, "publishable.publishIn names states: declare states first");
+      } else {
+        const states = new Set(
+          (stateField.options ?? []).map((o) => (typeof o === "string" ? o : o.value)),
+        );
+        if (new Set(p.publishIn).size !== p.publishIn.length) {
+          contract(`${path}.publishIn`, "publishable.publishIn lists a state twice");
+        }
+        for (const state of p.publishIn) {
+          if (!states.has(state)) {
+            contract(
+              `${path}.publishIn`,
+              `"${state}" is not a state of ${name} (${object.states.field})`,
+            );
+          }
+        }
       }
-      // The public reads the published version (ADR 0442): its content, its address and when it
+    }
+    if (object.public) {
+      // Without a slug the public's records are listed only (ADR 0810): content.list, never
+      // content.get. The public reads the published version (ADR 0442): its content, its address and when it
       // went live, and fields the host keeps on the working copy that are not computed from it.
       for (const fieldName of object.public.read) {
         const field = object.fields[fieldName];
@@ -1477,11 +1523,27 @@ export function validateManifest(
         }
       }
     }
-    if (object.customer || object.customerVia) {
+    // An author (ADR 0810): the customer reads and writes the working copy; anyone else outside
+    // reads only the published version, never by an address and never whose it is.
+    if (object.customerVia) {
       contract(
         path,
-        "A publishable object declares no customer or customerVia: what outsiders read of it is its published version",
+        "A publishable object declares no customerVia: what outsiders read of it is its published version",
       );
+    }
+    if (object.customer) {
+      if (p.slug !== undefined) {
+        contract(
+          `${path}.slug`,
+          "A publishable object with an author (customer) has no slug: its records are listed, not addressed",
+        );
+      }
+      if (object.public?.read.includes(object.customer.field)) {
+        contract(
+          `objects.${name}.public.read`,
+          `public.read lists "${object.customer.field}", the author: the public never reads whose it is`,
+        );
+      }
     }
     for (const taken of PUBLISHED_FIELD_NAMES) {
       const clash =
@@ -1785,6 +1847,28 @@ export function validateManifest(
         `A tool only a person on the staff may call cannot be open to ${open.join(" and ")} callers`,
       );
     }
+    // Open to every staff account, pack roles too (ADR 0652): a person's own, the host's rule
+    // deciding who may do what, so it names no permission a role or a grant would hold.
+    if (
+      tool.anyStaff &&
+      (!tool.humanOnly || open.length || tool.permission || tool.corePermission)
+    ) {
+      contract(
+        `tools.${name}.anyStaff`,
+        "A tool every staff account may call is a person's own (humanOnly), for staff only, and names no permission or corePermission",
+      );
+    }
+    // A core permission instead of records:read or records:write (ADR 0652): staff only, and not
+    // beside a pack permission (a pack role never holds a core one).
+    if (tool.corePermission !== undefined) {
+      const ns = EXTENSION_PERMISSION_RE.exec(tool.corePermission)?.[1];
+      if (!ns || ns === m.id || open.length || tool.permission) {
+        contract(
+          `tools.${name}.corePermission`,
+          "corePermission names a core permission (<area>:<word>, not this extension's own), for a staff-only tool with no permission",
+        );
+      }
+    }
     if (tool.personApproves && (open.length || tool.risk === "read")) {
       contract(
         `tools.${name}.personApproves`,
@@ -2000,7 +2084,8 @@ export function validateManifest(
     // The pay period (ADR 0627): a select of weekly, fortnightly and monthly; the date one period
     // starts (text, YYYY-MM-DD); the day of the month (a number). The roster's numbers are numbers.
     const PERIODS = new Set(["weekly", "fortnightly", "monthly"]);
-    const types: Record<string, "number" | "select" | "text"> = {
+    const types: Record<string, "boolean" | "number" | "select" | "text"> = {
+      recordsTime: "boolean",
       offerCutoffMinutes: "number",
       uncoveredDays: "number",
       payPeriod: "select",
@@ -2238,6 +2323,7 @@ export function validateManifest(
     }
   });
   for (const issue of routineMailIssues(m)) contract(issue.path, issue.message);
+  for (const issue of journeySignalIssues(m)) contract(issue.path, issue.message);
   if (perms.modules.includes("routine-mail") && !Object.keys(m.routineMail ?? {}).length) {
     contract("permissions.modules", 'The "routine-mail" module sends routine mail it declares');
   }
