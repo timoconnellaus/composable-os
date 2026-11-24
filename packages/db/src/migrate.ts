@@ -2,6 +2,8 @@
 // `wrangler d1 migrations apply` (configured as `migrations_table: "core_migrations"` in each
 // Worker's wrangler.jsonc), so migrations applied by either are seen by both.
 
+import { CORE_SCHEMA_VERSION } from "./generated/schema-version.ts";
+
 /** One migration file: its file name and its SQL split into statements. */
 export interface Migration {
   name: string;
@@ -11,8 +13,9 @@ export interface Migration {
 export const MIGRATIONS_TABLE = "core_migrations";
 
 /**
- * The core schema version this code expects: the highest core migration number. Bump it with every
- * new migration.
+ * The core schema version this code expects: the highest core migration number. It is derived
+ * from the migration files by `scripts/schema-version.mjs` (into the gitignored
+ * `src/generated/schema-version.ts`), so adding a migration is only adding its file.
  *
  * Parallel stages take disjoint number ranges, so migrations can be applied out of numeric order
  * (a database that has 0221 later gets 0205). Each migration still writes its own number to
@@ -21,7 +24,7 @@ export const MIGRATIONS_TABLE = "core_migrations";
  * applyMigrations writes that to core_meta after applying, and getMigrationLevel reads it the same
  * way, which also covers `wrangler d1 migrations apply` (it runs only the files).
  */
-export const CORE_SCHEMA_VERSION = 1095;
+export { CORE_SCHEMA_VERSION };
 
 const CREATE_MIGRATIONS_TABLE = `CREATE TABLE IF NOT EXISTS ${MIGRATIONS_TABLE} (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

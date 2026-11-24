@@ -1,11 +1,16 @@
 // Golden test for the release manifest (AC1), run against the repository's REAL wrangler.jsonc
 // files, package.json binding docs, deploy-inputs.json files and migrations, with one fixture
 // module per Worker and a fixture asset directory standing in for real builds. So changing any
-// Worker's config (a new binding, a new secret, a new migration) fails this test until the golden
-// file is regenerated, which forces a look at how the change reaches installed deployments.
+// Worker's config (a new binding, a new secret) fails this test until the golden file is
+// regenerated, which forces a look at how the change reaches installed deployments.
+//
+// The core migrations and coreSchemaVersion are left out of the golden (it holds placeholders for
+// them) and checked against packages/db/migrations instead, so adding a migration is only adding
+// its file: parallel PRs that each add one do not all edit the golden (CONTRIBUTING.md, Working in
+// parallel).
 //
 // Regenerate: UPDATE_GOLDEN=1 pnpm --filter @composable-os/release-scripts test
-import { readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ProductDefinition } from "@composable-os/product";
@@ -96,10 +101,32 @@ describe("release manifest", () => {
     expect(app?.dependsOn).toEqual(["demo-runner"]);
   });
 
-  it("matches the golden file", async () => {
-    const text = `${stableStringify(await fixtureManifest())}\n`;
+  it("matches the golden file (all but the migrations)", async () => {
+    const manifest = await fixtureManifest();
+    const text = `${stableStringify({
+      ...manifest,
+      coreSchemaVersion: "<from packages/db/migrations>",
+      migrations: "<from packages/db/migrations>",
+    })}\n`;
     if (process.env.UPDATE_GOLDEN) writeFileSync(GOLDEN, text);
     expect(text).toBe(readFileSync(GOLDEN, "utf8"));
+  });
+
+  it("ships every core migration, sorted, with its hash, and the highest as the schema version", async () => {
+    const manifest = await fixtureManifest();
+    const files = readdirSync(join(ROOT, "packages/db/migrations"))
+      .filter((name) => name.endsWith(".sql"))
+      .sort();
+    const expected = await Promise.all(
+      files.map(async (name) => ({
+        name,
+        sha256: await sha256Hex(readFileSync(join(ROOT, "packages/db/migrations", name), "utf8")),
+      })),
+    );
+    expect(manifest.migrations).toEqual(expected);
+    expect(manifest.coreSchemaVersion).toBe(
+      Math.max(...files.map((name) => Number.parseInt(name, 10))),
+    );
   });
 
   it("never carries a resolved account value (placeholders only)", async () => {

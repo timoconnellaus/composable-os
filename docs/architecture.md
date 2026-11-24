@@ -357,6 +357,13 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   organisation) are counted where a row is claimed. Each kind has a human admin's switch (Settings →
   Routine email), with the log, kept 12 months by default.
 - **Gatekeepers we wrote**: `gatekeeper-email-send`, `gatekeeper-slack-post`, `gatekeeper-webhook`.
+  `gatekeeper-accounting` (stage 61, ADR 0880) is the **accounting contract** every accounting
+  gatekeeper serves, not a gatekeeper of its own: the session's types and input checks, the shared
+  facet (`AccountingGatekeeper`, which applies each write once by the host's reference, refuses
+  another currency and a locked day, and voids only the host's own documents), the fake books and
+  the conformance suite. The fake books run as `cos-gatekeeper-accounting-fake` in development and
+  cos-runner's tests only (`wrangler.fake.jsonc`, never released); the catalogue marks an
+  accounting gatekeeper `implements: "accounting"`.
   Inbound webhooks and sync events land in `core_integration_event`; cos-runner's cron turns them
   into `webhook` and `syncEvent` automation triggers (ADR 0173), dropping private activities.
 - **Notification delivery** ([ADR 0172](adr/0172-notification-delivery.md)): cos-runner's minute
@@ -1902,6 +1909,23 @@ boundary, with its pack's hooks over the staff client on the app's own origin
 gets a small shell (its screens, its account, sign out) that makes no call its role is refused;
 every other server function and `/api/*` route refuses it, and MCP holds it to its role
 (ADR 0436).
+
+**My account** (stage 48, [spec](stages/48-my-account.md)) is base-layer blocks over a base
+headless entry in the typed client's runtime (`packages/client/src/account.ts`:
+`createAccountHooks`, `accountSections`, `loadOrders`, the words for orders, subscriptions and
+sessions). Step 1 is built: the shells `web-account` and `native-account` with their base sections
+(`*-account-details`, `*-account-devices`, `*-account-family`, `*-account-orders`,
+`*-account-payment`, and the agreements blocks), and the subscriptions part
+(`web-account-subscriptions`, `native-account-subscriptions`) for the packs' sections to use, all
+over operations that already existed (`me.*`, `my.list` on `order` and `orderLine`,
+`subscription.*`). Orders is the one list of a customer's orders: a page of 20, then their lines in
+one `my.list` naming the page's orders. Payment method shows for a customer who pays a
+subscription that has not ended. The packs' sections are passed to the shell in `sections` for
+now; `me.portal`, the `portal` declaration, `me.attention` and the generated wiring are later
+steps. In the app, money opens the website ([ADR 0714](adr/0714-the-app-shows-money-and-opens-the-website.md)):
+the native shell shows orders and subscriptions, and "Manage on the website" opens the business's
+website account page; no native block calls a billing operation. The template's `/account` route
+and the mobile Account tab are plain pages over the same entry.
 
 | Pack | Built from | Status |
 | --- | --- | --- |

@@ -658,10 +658,16 @@ export function readMigrations(root: string): [string, string][] {
     .map((name) => [name, readFileSync(join(dir, name), "utf8")]);
 }
 
+/**
+ * CORE_SCHEMA_VERSION as the Workers were built with it: packages/db's generated module, which
+ * packages/db/scripts/schema-version.mjs writes from the migration files (on install and in
+ * `pnpm build`). generateManifest checks it against the migrations it ships.
+ */
 export function readCoreSchemaVersion(root: string): number {
-  const text = readFileSync(join(root, "packages/db/src/migrate.ts"), "utf8");
+  const file = "packages/db/src/generated/schema-version.ts";
+  const text = readFileSync(join(root, file), "utf8");
   const match = /export const CORE_SCHEMA_VERSION = (\d+);/.exec(text);
-  if (!match) throw new Error("CORE_SCHEMA_VERSION not found in packages/db/src/migrate.ts");
+  if (!match) throw new Error(`CORE_SCHEMA_VERSION not found in ${file}`);
   return Number(match[1]);
 }
 
