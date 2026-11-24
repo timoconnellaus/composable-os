@@ -1,5 +1,6 @@
 // /oauth/consent renders as the app does (its one script allowed by hash, nothing else) and keeps
 // the form fields the OAuth flow relies on.
+import { setProductLabel } from "@composable-os/product";
 import { product } from "@composable-os/products/active";
 import { describe, expect, it } from "vitest";
 import { appFor, openConsent, registerClient, signUp, testEnv } from "./mcp-helpers.ts";
@@ -32,5 +33,19 @@ describe("consent page", () => {
     const csp = page.response.headers.get("content-security-policy") ?? "";
     expect(csp).toContain(`script-src 'sha256-${await sha256(scripts[0] ?? "")}'`);
     expect(csp).toContain("default-src 'none'");
+  });
+
+  it("escapes the deployment's product label", async () => {
+    setProductLabel("Tea & Toast <Co>");
+    try {
+      const member = await signUp(mcpEnv, "member");
+      const clientId = await registerClient(fetchApp, "Claude Desktop");
+      const page = await openConsent(fetchApp, member, clientId, "x".repeat(43), "read");
+      expect(page.html).toContain('<div class="brand">Tea &amp; Toast &lt;Co&gt;</div>');
+      expect(page.html).toContain("Connect Claude Desktop to Tea &amp; Toast &lt;Co&gt;?");
+      expect(page.html).not.toContain("<Co>");
+    } finally {
+      setProductLabel(null);
+    }
   });
 });

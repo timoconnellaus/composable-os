@@ -67,6 +67,9 @@ interface StaffingDeclaration {
     payPeriod?: string;
     payPeriodStart?: string;
     payPeriodDay?: string;
+    recordsTime?: string;
+    enterDays?: string;
+    finishMissingHours?: string;
   };
 }
 
@@ -76,6 +79,9 @@ const SETTING_KEYS = [
   "payPeriod",
   "payPeriodStart",
   "payPeriodDay",
+  "recordsTime",
+  "enterDays",
+  "finishMissingHours",
 ] as const;
 
 /** The installed, active, shipped packs that declare the roster's rules (ADR 0626). */
@@ -280,6 +286,47 @@ export async function rosterNumbers(db: Kysely<CoreDatabase>): Promise<RosterNum
       1,
       62,
       DEFAULT_UNCOVERED_DAYS,
+    ),
+  };
+}
+
+/** How far back time may be entered (days) unless a pack's setting says (stage 58). */
+export const DEFAULT_ENTER_DAYS = 14;
+/** Hours after its shift's end an open entry is marked finish missing unless a setting says. */
+export const DEFAULT_FINISH_MISSING_HOURS = 4;
+
+/** Recording time (stage 58, ADR 0850): whether staff record it, and its numbers. */
+export interface TimeSettings {
+  /** Staff record their time: off unless the declaring pack's setting is on. */
+  recordsTime: boolean;
+  enterDays: number;
+  finishMissingHours: number;
+}
+
+/**
+ * Recording time as the pack declaring the roster's rules sets it (its settings' stored values,
+ * else their defaults). Where no pack declares `recordsTime`, nobody records time: nothing changes
+ * for a business that does not use it.
+ */
+export async function timeSettings(db: Kysely<CoreDatabase>): Promise<TimeSettings> {
+  const declared = (await declarations(db)).find((d) => d.settings.recordsTime);
+  if (!declared) {
+    return {
+      recordsTime: false,
+      enterDays: DEFAULT_ENTER_DAYS,
+      finishMissingHours: DEFAULT_FINISH_MISSING_HOURS,
+    };
+  }
+  const values = await extensionSettingValues(db, declared.extension);
+  const { recordsTime, enterDays, finishMissingHours } = declared.settings;
+  return {
+    recordsTime: recordsTime ? values[recordsTime] === true : false,
+    enterDays: bounded(enterDays ? values[enterDays] : undefined, 0, 62, DEFAULT_ENTER_DAYS),
+    finishMissingHours: bounded(
+      finishMissingHours ? values[finishMissingHours] : undefined,
+      1,
+      24,
+      DEFAULT_FINISH_MISSING_HOURS,
     ),
   };
 }

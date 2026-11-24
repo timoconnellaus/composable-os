@@ -35,3 +35,8 @@ A customer or the public is now told about the places of a record they may read 
 or one public through its object's `public` declaration (an on-sale event's ticket type). Any
 other record is not found. This is the narrowing this ADR said would follow once such a notion
 existed. See [ADR 0438](0438-the-public-scope.md).
+
+## Amendment, 2026-11-24 (stage 37, ADR 0680)
+Stock is told the same way, through its own operation: `stock.get` gives a customer or the public
+`in_stock`, `low` (with `available`, at or below `lowAt`) or `sold_out`, of a record they may read,
+by the object's `stock.show`. See [ADR 0680](0680-the-stock-behaviour.md).

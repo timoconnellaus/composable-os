@@ -17,7 +17,10 @@ import {
   type EventSink,
   type ExtensionHost,
   ForbiddenError,
+  type IntakeRuntime,
+  intakeRuntime,
   invokeByName,
+  type LooksAfterLimit,
   OperationError,
   type Origin,
   type OutsidePrincipal,
@@ -60,6 +63,11 @@ export interface HostEnv {
   AUTOMATION_EVENTS?: Queue;
   AI?: unknown;
   AI_GATEWAY_ID?: string;
+  /**
+   * The public-write door's spam check (stage 29, ADR 0722): an optional secret, env-only. Unset,
+   * forms take no answers from the public.
+   */
+  TURNSTILE_SECRET_KEY?: string;
 }
 
 /** A Code Mode run (ADR 0042): the script acts as the connected user, not as an extension. */
@@ -172,6 +180,11 @@ export interface RunState {
   roleToday?: TodayLimits;
   /** With `roleToday`: the moment of the call that started the run; its day is the run's today. */
   roleTodayAt?: string;
+  /**
+   * The calling staff account's pack role limit to the People it looks after (ADR 0889): the
+   * run's record reads and writes of these objects reach those People's records only.
+   */
+  roleLooksAfter?: LooksAfterLimit;
   /**
    * Set for a tool declared `risk: "read"` (ADR 0022 amendment, 2026-11-22): it may only read.
    * Its operation calls must be read operations, its storage answers `get` and `list` only, and
@@ -305,6 +318,11 @@ export class RunHost extends RpcTarget {
     return tool?.risk === "read";
   }
 
+  /** The public-write door's runtime, from this Worker's Turnstile secret (ADR 0722). */
+  #intake(): IntakeRuntime {
+    return intakeRuntime(this.#env.TURNSTILE_SECRET_KEY);
+  }
+
   /** The events queue for a tool's own calls, where this Worker has one. */
   #events(): { events?: EventSink } {
     return this.#env.AUTOMATION_EVENTS
@@ -372,6 +390,8 @@ export class RunHost extends RpcTarget {
             floor: parseFloor(this.#env.APPROVAL_FLOOR),
             ...this.#events(),
             ...(await this.#tools(operation)),
+            // The public-write door's spam check, for its own operations (ADR 0722).
+            ...(operation.startsWith("intake.") ? { intake: this.#intake() } : {}),
           })
         : await invokeByName(operation, input ?? {}, {
             actor: "extension",
@@ -388,6 +408,7 @@ export class RunHost extends RpcTarget {
             // runs of tools it calls (ADR 0553): the pipeline holds it before each operation.
             ...(run.roleToday ? { roleToday: run.roleToday } : {}),
             ...(run.roleToday && run.roleTodayAt ? { roleTodayAt: run.roleTodayAt } : {}),
+            ...(run.roleLooksAfter ? { roleLooksAfter: run.roleLooksAfter } : {}),
             // Who stands behind what the tool writes (ADR 0590): its caller, not the extension.
             ...this.#marks(),
             ...(run.simulate ? { simulate: run.simulate } : this.#events()),

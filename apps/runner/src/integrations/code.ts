@@ -41,6 +41,28 @@ interface Row {
   resources: string;
 }
 
+interface ResourceEntry {
+  key: string;
+  bindingName: string;
+  tsType: string;
+}
+
+/** A connection's bound resources as `connections()` lists them. */
+function listedResources(resources: string): ResourceEntry[] {
+  return (JSON.parse(resources) as ResourceEntry[]).map((x) => ({
+    key: x.key,
+    bindingName: x.bindingName,
+    tsType: x.tsType,
+  }));
+}
+
+/** The bound resource a call names, by its key or (case-insensitively) its binding name. */
+function findResource(resources: string, resource: unknown): ResourceEntry | undefined {
+  return (JSON.parse(resources) as ResourceEntry[]).find(
+    (r) => r.key === resource || r.bindingName.toLowerCase() === String(resource).toLowerCase(),
+  );
+}
+
 async function usable(env: Env, call: GatekeeperCall): Promise<Row[]> {
   const { results } = await env.DB.prepare(
     `SELECT id, vendor, scope, owner_user_id, status, title, resources
@@ -55,28 +77,18 @@ async function usable(env: Env, call: GatekeeperCall): Promise<Row[]> {
 export async function gatekeeperCall(env: Env, call: GatekeeperCall): Promise<unknown> {
   const rows = await usable(env, call);
   if (call.method === "connections") {
-    return rows.map((r) => ({
-      id: r.id,
-      title: r.title,
-      resources: (
-        JSON.parse(r.resources) as { key: string; bindingName: string; tsType: string }[]
-      ).map((x) => ({ key: x.key, bindingName: x.bindingName, tsType: x.tsType })),
-    }));
+    return rows.map((r) => ({ id: r.id, title: r.title, resources: listedResources(r.resources) }));
   }
   const [connectionId, resource, method, args] = call.args as [string, string, string, unknown[]];
   const row = rows.find((r) => r.id === connectionId);
-  const fail = (message: string) => ({ ok: false as const, error: { code: "forbidden", message } });
-  if (!row) {
-    const reply = fail(`No usable ${call.vendor} connection ${String(connectionId)}`);
-    return call.method === "types" ? Promise.reject(new Error(reply.error.message)) : reply;
-  }
-  const bound = (JSON.parse(row.resources) as { key: string; bindingName: string }[]).find(
-    (r) => r.key === resource || r.bindingName.toLowerCase() === String(resource).toLowerCase(),
-  );
-  if (!bound) {
-    const reply = fail(`No resource ${String(resource)} on ${row.title}`);
-    return call.method === "types" ? Promise.reject(new Error(reply.error.message)) : reply;
-  }
+  // `types()` rejects; the other methods answer a forbidden envelope.
+  const refuse = (message: string) => {
+    if (call.method === "types") throw new Error(message);
+    return { ok: false as const, error: { code: "forbidden", message } } satisfies Envelope;
+  };
+  if (!row) return refuse(`No usable ${call.vendor} connection ${String(connectionId)}`);
+  const bound = findResource(row.resources, resource);
+  if (!bound) return refuse(`No resource ${String(resource)} on ${row.title}`);
   const runtime = integrationRuntime(env);
   if (call.method === "types") return runtime.types({ connectionId: row.id, resource: bound.key });
   try {
@@ -205,32 +217,27 @@ export async function boundGatekeeperCall(
       reply: usableRows.map((r) => ({
         id: r.slot,
         title: r.title,
-        resources: (
-          JSON.parse(r.resources) as { key: string; bindingName: string; tsType: string }[]
-        ).map((x) => ({ key: x.key, bindingName: x.bindingName, tsType: x.tsType })),
+        resources: listedResources(r.resources),
       })),
     };
   }
   const [slot, resource, method, args] = call.args as [string, string, string, unknown[]];
   const row = usableRows.find((r) => r.slot === slot);
-  if (!row) {
-    const message = `No ${call.vendor} connection is bound to “${String(slot)}” for ${run.automationId}`;
+  // `types()` throws; the other methods answer a forbidden envelope.
+  const refuse = (message: string) => {
     if (call.method === "types") throw new Error(message);
     return fail("forbidden", message);
+  };
+  if (!row) {
+    return refuse(
+      `No ${call.vendor} connection is bound to “${String(slot)}” for ${run.automationId}`,
+    );
   }
   if (row.status !== "active" || row.owner_deactivated_at) {
-    const message = `The connection bound to “${slot}” (${row.title}) is not usable: ${row.status}`;
-    if (call.method === "types") throw new Error(message);
-    return fail("forbidden", message);
+    return refuse(`The connection bound to “${slot}” (${row.title}) is not usable: ${row.status}`);
   }
-  const bound = (JSON.parse(row.resources) as { key: string; bindingName: string }[]).find(
-    (r) => r.key === resource || r.bindingName.toLowerCase() === String(resource).toLowerCase(),
-  );
-  if (!bound) {
-    const message = `No resource ${String(resource)} on ${row.title}`;
-    if (call.method === "types") throw new Error(message);
-    return fail("forbidden", message);
-  }
+  const bound = findResource(row.resources, resource);
+  if (!bound) return refuse(`No resource ${String(resource)} on ${row.title}`);
   const runtime = integrationRuntime(env);
   if (call.method === "types") {
     return { reply: await runtime.types({ connectionId: row.id, resource: bound.key }) };

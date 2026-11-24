@@ -54,7 +54,7 @@ export function MemberAgreementStep({
     }
   });
   if (due.isPending || (steps && !steps.length && agreedHere.current)) {
-    return <ActivityIndicator />;
+    return <ActivityIndicator color={theme.color.muted} />;
   }
   if (steps && !steps.length) {
     return (

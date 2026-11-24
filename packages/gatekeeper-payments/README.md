@@ -3,7 +3,9 @@
 The payments gatekeeper (Worker `cos-gatekeeper-payments`), part of stage 25 (orders and payments).
 It is provider-neutral: the org takes money on the payment provider's own hosted page, and this
 Worker opens that page, reads its outcome, submits refunds for approval and delivers the provider's
-verified payment and refund events to the hook the CRM's integration host bound.
+verified payment and refund events to the hook the CRM's integration host bound. For payments in
+person (stage 50, ADR 0774) it registers card readers to the account and puts the host's payments
+on them; the reader is driven from the server, so nothing of the provider's runs on the tablet.
 
 - **Keys are Worker secrets of this gatekeeper only.** The Stripe secret key and webhook signing
   secret are set on `cos-gatekeeper-payments` and never leave it. The host, the CRM and extension
@@ -24,7 +26,7 @@ flow).
 | `PaymentsGatekeeper` | The per-provider gatekeeper facet (Durable Object class, `Gatekeeper<PaymentsSession>`, props `{ provider }`). Holds the refund action journal. |
 | `PaymentsHookController` | The `HookController` the session passes to `bindHook()` (props `{ provider }`). |
 | `PaymentsEvents` | The Durable Object per provider (`idFromName(provider)`): seen event ids, recent events, the hook's initiator and its delivery queue. |
-| `FakePaymentsLedger` | The fake provider's books (`idFromName("fake")`): checkouts and refunds. |
+| `FakePaymentsLedger` | The fake provider's books (`idFromName("fake")`): checkouts, refunds, subscriptions and fake card readers. |
 | `PaymentsVerifier` | The trivial `GatekeeperUserVerifier` (every collaborator may observe). |
 | `PaymentsConfiguratorUi` | The configurator's `ui` capability. |
 
@@ -55,6 +57,8 @@ to an unknown path, is `404`.
 | `POST {base}/in/fake` | The fake provider's webhook (fake on only, else `404`). |
 | `GET {base}/fake/pay/:ref` | The fake hosted page (fake on only). `404` for an unknown ref. |
 | `POST {base}/fake/pay/:ref` | Pay or cancel on the fake page (fake on only). |
+| `GET {base}/fake/reader/:ref` | A fake card reader's screen (fake on only): the payment on it, with Tap card, Decline and Cancel. `404` for an unknown reader. |
+| `POST {base}/fake/reader/:ref` | `outcome=tap`, `decline` or `cancel` at the fake reader (fake on only); `303` back to its screen. |
 | (no route) | The fake ledger is read only through its own binding: a route would show every checkout and its return address (a guest's order link) on a public staging host (ADR 0458). |
 
 Webhook answers:
@@ -86,6 +90,8 @@ keys are ignored. The comparison is constant time (`crypto.subtle.verify`).
 | `checkout.session.completed` with `payment_status: "paid"`, and `checkout.session.async_payment_succeeded` | a `payment` event: `orderId` from `client_reference_id`, else `metadata.order_id` (skipped when neither), `checkoutRef` the session id, `amount` `amount_total`, `paymentRef` the `payment_intent` id |
 | `refund.created` and `refund.updated` with `status: "succeeded"` | a `refund` event: `orderId` from `metadata.order_id`, `refundId` from `metadata.cos_refund_id`, `refundRef` the refund id, `paymentRef` the `payment_intent` id |
 | `checkout.session.completed` with `mode: "subscription"`; `customer.subscription.created`, `.updated`, `.deleted`, `.paused`, `.resumed`, `.trial_will_end`; `invoice.paid`, `.payment_failed`, `.payment_action_required`, `.finalization_failed` of a subscription's invoice | a `subscription` event built from a read made now (above); only the ids are taken from the payload |
+| `payment_intent.succeeded` of a `card_present` intent (a payment on a reader, ADR 0774) | a `payment` event: `orderId` from `metadata.order_id` (skipped without it), `checkoutRef` and `paymentRef` both the intent id, `amount` `amount_received`. A web checkout's intent is not read here: its session reports it |
+| `terminal.reader.action_failed` of a `process_payment_intent` action | a `reader` event: `readerRef` the reader id, `checkoutRef` the intent, `failureCode` the action's code (never its message), `outcome` `cancelled` for `customer_canceled` or `canceled`, else `failed` |
 | `credit_note.created` with one refund | a `refund` event with `creditNote: true` and the credit note's `total_taxes` as `tax`: it reports a period refund's tax and confirms nothing |
 | anything else (`invoice.payment_succeeded` too: `invoice.paid` says it) | ignored |
 
@@ -104,6 +110,12 @@ interface PaymentsSession {
   getPayment(ref: string): Promise<PaymentsPayment>;                       // observation
   refund(input: PaymentsRefundInput): Promise<PaymentsRefundReceipt>;      // action payments.refund
   subscribe(hook: PaymentsEventHook): Promise<void>;                       // bindHook
+  // …the subscription methods below, and the card readers (ADR 0774):
+  registerReader(input): Promise<PaymentsReaderChangeReceipt>;  // host only; action payments.reader.register
+  removeReader(input): Promise<PaymentsReaderChangeReceipt>;    // host only; action payments.reader.remove
+  listReaders(): Promise<PaymentsReader[]>;                     // host only; observation
+  presentPayment(input): Promise<PaymentsPresentation>;         // host only; observation, no approval
+  cancelPresented(readerRef: string): Promise<void>;            // host only; observation
 }
 ```
 
@@ -171,13 +183,33 @@ on with `advanceFakeSubscription(env, ref, step)` (`renew`, `fail`, `retry_fail`
 `action_required`, `give_up`, `trial_will_end`), which has no route. `GET {base}/fake/portal/:ref`
 is an inert stand-in for the portal.
 
+### Card readers (stage 50, ADR 0774)
+
+A reader belongs to the payment account, at a location (an address). The host asks for an amount
+on a named reader; the buyer taps or inserts their card on it; the provider's webhook reports the
+payment. Every reader call is the host's own orders call only (`isHostOrders()`), as the
+portal is: Code Mode, extensions, the assistant and MCP are refused.
+
+| Method | What it does |
+| --- | --- |
+| `registerReader({ readerId, registrationCode, label, locationName, address })` | Submits `payments.reader.register` (never auto-approvable; the approver sees the label and address, never the code). Applied: the location for that address, made once and kept in the facet (Stripe: `POST /v1/terminal/locations`), then `POST /v1/terminal/readers` with the code, the label and `metadata[cos_reader]` the host's id (idempotency key `cos-reader-<readerId>-<hash of the code>`: a new code is a new request). A refused code fails it terminally; any other failure leaves it pending, safe to apply again. |
+| `removeReader({ readerId, readerRef, reason })` | Submits `payments.reader.remove`. Applied: the reader is read first and nothing is removed unless its `metadata.cos_reader` is `readerId`; then `DELETE /v1/terminal/readers/:ref`. One already gone is removed. |
+| `listReaders()` | An observation, then at most 100 readers: `{ provider, ref, readerId, label, locationRef, status, deviceType }`. The host finds its reader by `readerId`. |
+| `presentPayment({ orderId, amount, currency, description, readerRef, idempotencyKey })` | An observation, then a card-present payment handed to the reader (Stripe: `POST /v1/payment_intents` with `payment_method_types[0]=card_present`, `capture_method=automatic`, `metadata[order_id]`, key `<idempotencyKey>:intent`; then `POST /v1/terminal/readers/:ref/process_payment_intent`). Returns `{ provider, ref, readerRef, status: "presented" \| "paid" }`. The same key is the same payment (within Stripe's 24 hours): unpaid, it is handed to the reader again; paid, the reader refuses it, the intent read now says so, and it answers `paid`. The same key with another order, amount or currency is refused. A reader with another payment on it refuses. |
+| `cancelPresented(readerRef)` | An observation, then the reader is cleared (Stripe: `cancel_action`); the payment stays unpaid. |
+
+Core always reviews `payments.reader.register` and `.remove`, and only a human admin approves them
+(`READER_KINDS`, ADR 0774). Refund a card-present payment with `refund` on its `ref`. Not verified against Stripe yet (the
+stage's step 10): see ADR 0774's consequences.
+
 ## Events
 
 ```ts
 type PaymentsEvent =
   | { kind: "payment"; provider; eventId; orderId; checkoutRef; amount; currency; paymentRef; occurredAt }
   | { kind: "refund"; provider; eventId; orderId | null; refundId | null; refundRef; paymentRef; amount; currency; occurredAt; tax?; creditNote? }
-  | { kind: "subscription"; provider; eventId; trigger; subscription; invoice?; occurredAt };
+  | { kind: "subscription"; provider; eventId; trigger; subscription; invoice?; occurredAt }
+  | { kind: "reader"; provider; eventId; readerRef; checkoutRef | null; outcome: "failed" | "cancelled"; failureCode | null; occurredAt };
 ```
 
 Currencies are upper case, amounts minor units, `occurredAt` ISO 8601. For each new event the DO
@@ -248,8 +280,17 @@ On only when `PAYMENTS_FAKE_PROVIDER` is `"true"`, and off localhost only with i
 - `refund` records the refund (`fre_…`), refusing one that would take the refunds on that payment
   past what was paid, an unknown payment or another currency; once the call has returned, it
   confirms by a signed `refund.succeeded` delivery to `/in/fake`.
-- Fake deliveries are `{ id, type: "payment.succeeded" | "refund.succeeded", created, data }`,
-  where `data` holds the event's fields.
+- Fake card readers (ADR 0774): `registerReader` records a reader (`frd_…`) at a location
+  (`floc_…`) made once per address; a code is single-use, and the same `readerId` returns the
+  reader registered before. `presentPayment` records the payment as a checkout with no page (ref
+  `fpi_…`, which is its payment ref once paid) and puts it on the reader. `GET
+  {base}/fake/reader/:ref` shows the reader's label, and the amount and description on it (never
+  the order or the buyer); `POST … outcome=tap` pays it and delivers a signed `payment.succeeded`
+  (`checkoutRef` and `paymentRef` the same ref); `decline` delivers `reader.action_failed` with
+  `failureCode: "card_declined"`; `cancel`, as `cancelPresented` does, delivers one with outcome
+  `cancelled`. The reader is free again after each.
+- Fake deliveries are `{ id, type: "payment.succeeded" | "refund.succeeded" | "reader.action_failed"
+  | "subscription.event", created, data }`, where `data` holds the event's fields.
 
 ## Environment
 

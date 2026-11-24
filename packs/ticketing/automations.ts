@@ -6,10 +6,8 @@
 // They add no rule of their own: what is paid, what is owed and when is the host's. Each declares
 // its steps, so the host renders the summary from them.
 import { defineAutomation, formatMoment } from "@composable-os/sdk";
+import { EVENT, type HostPage, isConflict, TICKET, TICKET_TYPE } from "./tools.ts";
 
-const EVENT = "ticketing.event";
-const TICKET = "ticketing.ticket";
-const TICKET_TYPE = "ticketing.tickettype";
 const DAY_MS = 86_400_000;
 /** Most buyers reminded in one run of the daily balance reminders; the rest wait a day. */
 export const BALANCE_BATCH = 200;
@@ -20,12 +18,6 @@ const MAIL = {
   gatekeeper: "email-send",
   purpose: "Send buyers their tickets and reminders",
 } as const;
-
-interface RecordShape {
-  id: string;
-  title: string | null;
-  values: Record<string, unknown>;
-}
 
 const text = (value: unknown): string | null =>
   value === null || value === undefined || value === "" ? null : String(value);
@@ -68,7 +60,7 @@ export const ticketsByEmail = defineAutomation({
     const orderId = event.record?.id;
     if (!orderId) return { skipped: "no order" };
     const found = await step.do("findTickets", async () => {
-      const tickets = await ctx.ops.call<{ items: RecordShape[] }>("record.list", {
+      const tickets = await ctx.ops.call<HostPage>("record.list", {
         object: TICKET,
         filter: { field: "order", op: "eq", value: orderId },
         limit: 100,
@@ -118,34 +110,30 @@ export const eventReminder = defineAutomation({
     if (!eventId) return { skipped: "no event" };
     const holders = await step.do("findHolders", async () => {
       // One email per holder however many tickets they hold: about their first ticket.
-      const byHolder = new Map<string, string[]>();
-      let cursor: string | null = null;
+      const byHolder = new Map<string, { ticket: string; count: number }>();
+      let cursor: string | null | undefined = null;
       do {
-        const page: { items: RecordShape[]; nextCursor: string | null } = await ctx.ops.call(
-          "record.list",
-          {
-            object: TICKET,
-            filter: {
-              and: [
-                { field: "event", op: "eq", value: eventId },
-                { field: "state", op: "eq", value: "valid" },
-              ],
-            },
-            limit: 200,
-            ...(cursor ? { cursor } : {}),
+        const page: HostPage = await ctx.ops.call("record.list", {
+          object: TICKET,
+          filter: {
+            and: [
+              { field: "event", op: "eq", value: eventId },
+              { field: "state", op: "eq", value: "valid" },
+            ],
           },
-        );
+          limit: 200,
+          ...(cursor ? { cursor } : {}),
+        });
         for (const ticket of page.items) {
           const holder = text(ticket.values.holder);
           if (!holder) continue;
-          byHolder.set(holder, [...(byHolder.get(holder) ?? []), ticket.id]);
+          const held = byHolder.get(holder);
+          if (held) held.count += 1;
+          else byHolder.set(holder, { ticket: ticket.id, count: 1 });
         }
         cursor = page.nextCursor;
       } while (cursor);
-      return [...byHolder.values()].map((tickets) => ({
-        ticket: tickets[0] as string,
-        count: tickets.length,
-      }));
+      return [...byHolder.values()];
     });
     if (!holders.length) return { sent: 0 };
     return step.do("sendReminders", async () => {
@@ -199,7 +187,7 @@ export const eventEnded = defineAutomation({
         });
         return { ended: true };
       } catch (error) {
-        if ((error as { code?: string }).code === "conflict") return { ended: false };
+        if (isConflict(error)) return { ended: false };
         throw error;
       }
     });

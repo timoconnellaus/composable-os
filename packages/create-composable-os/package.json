@@ -32,6 +32,7 @@
     "@composable-os/config": "workspace:*",
     "@composable-os/core": "workspace:*",
     "@composable-os/extension-check": "workspace:*",
+    "@composable-os/pack-programs": "workspace:*",
     "@composable-os/product": "workspace:*",
     "@composable-os/products": "workspace:*",
     "@composable-os/release": "workspace:*",

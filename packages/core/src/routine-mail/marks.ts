@@ -11,6 +11,7 @@
 // declared default (`default`).
 import type { CoreDatabase } from "@composable-os/db";
 import { type Compilable, CompiledQuery, type Kysely } from "kysely";
+import { sha256Hex } from "../digest.ts";
 
 export type Standing = "person" | "customer" | "public" | "default" | "host" | "ai";
 
@@ -82,9 +83,7 @@ export function normalForm(value: unknown): string {
 }
 
 export async function valueHash(value: unknown): Promise<string> {
-  const bytes = new TextEncoder().encode(normalForm(value));
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return sha256Hex(normalForm(value));
 }
 
 type Db = Kysely<CoreDatabase>;

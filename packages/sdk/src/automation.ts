@@ -15,6 +15,7 @@ import {
   type FilterOp,
   GATEKEEPER_MODULES,
   type GatekeeperModuleName,
+  STAGE_TYPES,
   type StageType,
   type ViewFilter,
 } from "./contract.ts";
@@ -35,13 +36,15 @@ const UNIT_MS: Record<string, number> = {
   week: 604_800_000,
 };
 
+const DURATION_RE = /^\s*(\d+(?:\.\d+)?)\s+(second|minute|hour|day|week)s?\s*$/;
+
 /** Milliseconds in a duration. Throws on a malformed one. */
 export function durationMs(duration: Duration): number {
   if (typeof duration === "number") {
     if (!Number.isFinite(duration) || duration < 0) throw new Error("Durations are >= 0 ms");
     return duration;
   }
-  const match = /^\s*(\d+(?:\.\d+)?)\s+(second|minute|hour|day|week)s?\s*$/.exec(duration);
+  const match = DURATION_RE.exec(duration);
   if (!match) throw new Error(`"${duration}" is not a duration like "3 days" or "90 minutes"`);
   return Math.round(Number(match[1]) * (UNIT_MS[match[2] as string] as number));
 }
@@ -445,7 +448,7 @@ const scalar = z.union([z.string().max(500), z.number(), z.boolean(), z.null()])
 export const valueMatchSchema = z.union([
   scalar,
   z.object({ in: z.array(scalar).min(1).max(50) }).strict(),
-  z.object({ stageType: z.enum(["open", "won", "lost"]) }).strict(),
+  z.object({ stageType: z.enum(STAGE_TYPES) }).strict(),
 ]);
 
 const objectName = z.string().min(1).max(80);
@@ -547,10 +550,7 @@ export const automationConnectionSchema = z
   })
   .strict();
 
-export const durationSchema = z.union([
-  z.number().int().min(0),
-  z.string().regex(/^\s*\d+(?:\.\d+)?\s+(second|minute|hour|day|week)s?\s*$/),
-]);
+export const durationSchema = z.union([z.number().int().min(0), z.string().regex(DURATION_RE)]);
 
 export const recipientSchema = z.union([
   z.literal("admins"),

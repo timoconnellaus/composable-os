@@ -7,6 +7,7 @@
 // The shorthand is the shape coaches already type (Ghetto Movement's prototype format):
 //
 //   Title: Strength, term 1
+//   Kind: class                                               (class, client or course; optional)
 //   Guidance: Reps and tempo are followed literally…         (for coaches)
 //   Week: 1                                                   (optional; else one week)
 //   Session: Monday                                           (a weekday names its day)
@@ -20,6 +21,8 @@
 //     * a note for coaches on the line above
 //   TV: a note shown to members
 //   B1: Ring rows x 5 (5050)                                  (an exercise: for everyone)
+//   C1: Hollow hold x 30 sec                                  (for everyone, and levels beside it)
+//     2: Tuck planche x 3
 import type {
   Block,
   Item,
@@ -46,8 +49,12 @@ export interface UnreadLine {
   reason: string;
 }
 
+export type ProgramKind = "class" | "client" | "course";
+
 export interface ImportResult {
   title: string | null;
+  /** What a `Kind:` line said, if there was one. */
+  kind: ProgramKind | null;
   guidance: string | null;
   layout: Layout;
   unread: UnreadLine[];
@@ -151,6 +158,7 @@ function splitExercise(raw: string): { name: string; rx?: string; tempo?: string
 
 const RE = {
   title: /^title\s*:\s*(.*)$/i,
+  kind: /^kind\s*:\s*(.*)$/i,
   guidance: /^guidance\s*:\s*(.*)$/i,
   week: /^week\s*:?\s*(\d+)\s*(?::\s*(.*))?$/i,
   session: /^session\s*:\s*(.*)$/i,
@@ -170,6 +178,7 @@ export function readProgramText(text: string, bank: readonly BankExercise[]): Im
   const find = bankIndex(bank);
   const unread: UnreadLine[] = [];
   let title: string | null = null;
+  let kind: ProgramKind | null = null;
   let guidance: string | null = null;
   const weeks: Layout["weeks"] = [];
   let week: Layout["weeks"][number] | null = null;
@@ -258,6 +267,16 @@ export function readProgramText(text: string, bank: readonly BankExercise[]): Im
       title = (m[1] ?? "").trim().slice(0, 200) || null;
       continueTo = null;
       return;
+    }
+    m = RE.kind.exec(line);
+    if (m) {
+      const said = norm(m[1] ?? "");
+      continueTo = null;
+      if (said === "class" || said === "client" || said === "course") {
+        kind = said;
+        return;
+      }
+      return skip(n, rawLine, "a kind is class, client or course");
     }
     m = RE.guidance.exec(line);
     if (m) {
@@ -384,6 +403,19 @@ export function readProgramText(text: string, bank: readonly BankExercise[]): Im
       return skip(n, rawLine, found);
     }
     m = RE.level.exec(line);
+    if (m && item?.kind === "all" && block) {
+      // Levels under an item that names an exercise: that exercise is everyone's, beside them.
+      const at = block.items.indexOf(item);
+      const both: Item = {
+        kind: "levels",
+        label: item.label,
+        exercises: item.exercises,
+        levels: [],
+        ...(item.notes ? { notes: item.notes } : {}),
+      };
+      block.items[at] = both;
+      item = both;
+    }
     if (m && item?.kind === "levels") {
       const number = Number(m[1]);
       if (number < 1 || number > 5) return skip(n, rawLine, "a level is 1 to 5");
@@ -412,9 +444,20 @@ export function readProgramText(text: string, bank: readonly BankExercise[]): Im
   for (const [index, rawLine] of lines.entries()) readLine(rawLine, index);
 
   // An item whose levels all failed, or a block left empty, cannot be in the layout: say so.
+  // One with exercises for everyone keeps them, as an item for everyone.
   for (const w of weeks) {
     for (const s of w.sessions) {
       for (const b of s.blocks) {
+        b.items = b.items.map((i) =>
+          i.kind === "levels" && !i.levels.length && i.exercises?.length
+            ? {
+                kind: "all",
+                label: i.label,
+                exercises: i.exercises,
+                ...(i.notes ? { notes: i.notes } : {}),
+              }
+            : i,
+        );
         const kept = b.items.filter((i) => i.kind === "all" || i.levels.length > 0);
         for (const dropped of b.items.filter((i) => !kept.includes(i))) {
           unread.push({
@@ -440,6 +483,7 @@ export function readProgramText(text: string, bank: readonly BankExercise[]): Im
   unread.sort((a, b) => a.line - b.line);
   return {
     title,
+    kind,
     guidance: guidance ? (guidance as string).slice(0, 5000) : null,
     layout: { weeks },
     unread,

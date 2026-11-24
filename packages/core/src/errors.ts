@@ -204,6 +204,19 @@ export function toOperationError(error: unknown): OperationError {
   const allowance = allowanceRefusal(error);
   if (allowance) return allowance;
   const message = error instanceof Error ? error.message : String(error);
+  // The stock ledger (migration 0930): a second opening, or any change to a movement.
+  if (message.includes("core_stock_opening_exists")) {
+    return new ConflictError(
+      "This record already has its opening stock; correct it with stock.adjust",
+      { rule: "stock", reason: "opening_exists" },
+    );
+  }
+  if (message.includes("core_stock_movement_immutable")) {
+    return new ConflictError("A stock movement is never changed or removed", {
+      rule: "stock",
+      reason: "movement_immutable",
+    });
+  }
   // An order written from a read that is no longer current (migration 0421): nothing was
   // applied, and the same call made again reads the order as it now is.
   if (message.includes("core_order_stale")) {
@@ -211,14 +224,29 @@ export function toOperationError(error: unknown): OperationError {
       reason: "order_stale",
     });
   }
+  // An order's price and its payment page crossed (migration 0951, ADR 0690): a discount given
+  // once its page is open, or a page recorded for a price a discount changed meanwhile.
+  if (message.includes("core_order_checkout_open")) {
+    return new ConflictError(
+      "The payment page for this order is already open, so its price cannot change: cancel it and start a new one",
+      { rule: "checkout_open" },
+    );
+  }
+  if (message.includes("core_order_checkout_stale")) {
+    return new ConflictError(
+      "The order's price changed while its payment page was being opened. Pay again for the new price.",
+      { rule: "price_changed" },
+    );
+  }
   // A subscription written from an older read of it (migration 0530): as for an order.
   if (message.includes("core_subscription_stale")) {
     return new ConflictError("The subscription changed while this was being applied. Try again.", {
       reason: "subscription_stale",
     });
   }
-  // A second hold of one person's free trial on a plan (migration 0531, ADR 0489): another start
-  // took it a moment before. Nothing of this start was recorded; starting again gives that page.
+  // A second hold of one person's free trial on a plan (migration 0531, ADR 0489; or of a Person
+  // sharing a folded address with them, migration 0955, ADR 0692): another start took it a
+  // moment before. Nothing of this start was recorded; starting again gives that page.
   if (message.includes("core_subscription_trial_taken")) {
     return new ConflictError(
       "A checkout with this free trial was opened at the same moment. Start again to get it.",
@@ -226,8 +254,12 @@ export function toOperationError(error: unknown): OperationError {
     );
   }
   // A second hold of something sold once per Person (migration 0581, ADR 0512): another order for
-  // it was started a moment before. Nothing of this one was recorded.
-  if (message.includes("UNIQUE constraint failed: core_sellable_once")) {
+  // it was started a moment before, for the Person or one sharing a folded address with them
+  // (migration 0955, ADR 0692). Nothing of this one was recorded.
+  if (
+    message.includes("UNIQUE constraint failed: core_sellable_once") ||
+    message.includes("core_sellable_once_folded")
+  ) {
     return new ConflictError(
       "This is one per person, and another order for it was started at the same moment",
       { rule: "once_per_person", reason: "held" },
@@ -326,6 +358,23 @@ export function toOperationError(error: unknown): OperationError {
       { rule: "double_booked" },
     );
   }
+  // Two time entries of one staff account that overlap (migration 1270, ADR 0850), or a second
+  // open one: refused by the database for every writer. A write the host read as free names the
+  // other entry itself; this is a race it could not see (twenty starts at once).
+  if (message.includes("core_time_overlap")) {
+    return new ConflictError(
+      "This overlaps another of this person's time entries, so nothing was changed.",
+      { rule: "time_overlap" },
+    );
+  }
+  if (
+    message.includes("core_time_open") ||
+    message.includes("UNIQUE constraint failed: core_time_entry.account_id")
+  ) {
+    return new ConflictError("An entry is already open: finish it first, so nothing was changed.", {
+      rule: "time_open",
+    });
+  }
   // Two live records in one thing at once (a room marked "one booking at a time", migration
   // 1095, ADR 0765): refused by the database for every writer, naming no other record (who else
   // is in the room is not the writer's to know).
@@ -352,6 +401,14 @@ export function toOperationError(error: unknown): OperationError {
   }
   // A batch planned from a read of the roster that changed before it committed (migration 0812,
   // ADR 0624): a leaver's shifts or patterns changed meanwhile. Nothing was applied.
+  // A note's level changed while a change planned from it was being made (migration 1230, ADR
+  // 0830): nothing was applied.
+  if (message.includes("core_note_changed")) {
+    return new ConflictError(
+      "The note's level changed while this was being done, so nothing was changed. Try again.",
+      { rule: "note_changed" },
+    );
+  }
   if (message.includes("core_staff_changed")) {
     return new ConflictError(
       "The roster changed while this was being done, so nothing was changed. Try again.",
@@ -425,12 +482,58 @@ export function toOperationError(error: unknown): OperationError {
       },
     );
   }
+  // Leave (migration 1271, ADR 0853): a request decided a moment before (of two approvals at once
+  // one applies), what was asked never changes, the ledger is insert only, and a type that refuses
+  // a balance below zero. The answer names no note, amount or balance.
+  if (
+    message.includes("core_leave_request_closed") ||
+    message.includes("core_leave_request_held")
+  ) {
+    return new ConflictError(
+      "This leave request was decided or cancelled a moment before, so nothing was changed. Look again.",
+      { rule: "leave_closed" },
+    );
+  }
+  if (
+    message.includes("core_leave_request_fixed") ||
+    message.includes("core_leave_balance_fixed")
+  ) {
+    return new ConflictError(
+      "What a leave request asked for and the balance ledger never change, so nothing was changed.",
+      { rule: "leave_fixed" },
+    );
+  }
+  if (message.includes("core_leave_below_zero")) {
+    return new ConflictError(
+      "This leave would take the balance below zero, which its type does not allow, so nothing was changed.",
+      { rule: "leave_below_zero" },
+    );
+  }
+  if (message.includes("core_leave_type_used")) {
+    return new ConflictError(
+      "Leave or a balance is recorded in this type, so its unit cannot change and it is not removed. Make it inactive instead.",
+      { rule: "leave_type_used" },
+    );
+  }
+  if (message.includes("UNIQUE constraint failed: core_leave_type")) {
+    return new ConflictError("There is already a leave type with that name.", {
+      rule: "leave_type_name",
+    });
+  }
   // A live shift whose end is not after its start (ADR 0621), written by a path that does not
   // check first: the trigger on the staffed object's table refuses it.
   if (message.includes("core_staff_time_backwards")) {
     return new ValidationError("A shift must end after it starts, so nothing was changed.", {
       rule: "staffed_time",
     });
+  }
+  // A live shift that requires an account naming a profile that holds none, or a profile left
+  // without one under such a shift (ADR 0760), by a path that does not check first.
+  if (message.includes("core_staff_time_no_account")) {
+    return new ValidationError(
+      "This shift needs someone with an account: the profile on it holds none, so nothing was changed.",
+      { rule: "staffed_account" },
+    );
   }
   // A live record in a claimed room, or a live shift, with a time the database cannot read
   // (ADRs 0765 and 0621), written by a path that does not check first.
@@ -580,6 +683,20 @@ export function toOperationError(error: unknown): OperationError {
     return new ConflictError("A copy's address is fixed once it is written.", {
       rule: "agreement_copy_fixed",
     });
+  }
+  // Desk signing (migrations 0858 and 1130, ADR 0649, after the review of PR #390): a claim that
+  // lost a race to another claim of the same code, or to the session's end.
+  if (message.includes("core_agreement_desk_claim_lost")) {
+    return new ConflictError(
+      "This code was claimed elsewhere, or the session ended, a moment before. Ask the desk for a new code.",
+      { rule: "desk_code_taken" },
+    );
+  }
+  if (message.includes("core_device_claim_lost")) {
+    return new ConflictError(
+      "This code was used on another device a moment before. Ask an admin for a new one.",
+      { rule: "device_code_taken" },
+    );
   }
   // A guardian's write after their link ended, or the dependant went to the Trash (migration
   // 0650, ADR 0540): as if the Person were not there.
@@ -757,6 +874,42 @@ interface CapacityRefusalPayload {
 
 const CAPACITY_REFUSED = /core_capacity_refused (\{[^{}]*\})/;
 
+/** Whether an object has stock (ADR 0680), set by stock/index.ts so this module imports nothing. */
+let hasStock: (object: string) => boolean = () => false;
+export function setStockLookup(lookup: (object: string) => boolean): void {
+  hasStock = lookup;
+}
+
+/**
+ * A stock record's counter refused (ADR 0680): a sale past what is available, or a movement that
+ * would leave fewer on hand than unpaid orders hold. Its counter's places less taken is on hand.
+ */
+function stockRefusal(payload: CapacityRefusalPayload): ValidationError {
+  const onHand = Number(payload.places ?? 0) - Number(payload.taken ?? 0);
+  if (payload.asked > 0) {
+    return new ValidationError(
+      `Not enough in stock: asked for ${payload.asked}, ${payload.available} available`,
+      {
+        rule: "stock",
+        object: payload.object,
+        record: payload.record,
+        asked: payload.asked,
+        available: payload.available,
+      },
+    );
+  }
+  return new ValidationError(
+    `Stock cannot go below what unpaid orders hold: ${payload.held} held. Count again in a few minutes.`,
+    {
+      rule: "stock",
+      object: payload.object,
+      record: payload.record,
+      onHand,
+      held: payload.held,
+    },
+  );
+}
+
 /** The error for a batch the capacity rule refused, or null when it failed for another reason. */
 export function capacityRefusal(error: unknown): ValidationError | null {
   const message = error instanceof Error ? error.message : String(error);
@@ -768,6 +921,7 @@ export function capacityRefusal(error: unknown): ValidationError | null {
     } catch {
       return new ValidationError("Not enough places", { rule: "capacity" });
     }
+    if (hasStock(payload.object)) return stockRefusal(payload);
     if (payload.asked > 0) {
       const details: CapacityRefusalDetails = {
         rule: "capacity",

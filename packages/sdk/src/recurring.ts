@@ -126,10 +126,12 @@ export function checkObjectRecurring(
   const recurring = object.recurring;
   if (!recurring) return;
   const path = `objects.${name}.recurring`;
-  const own = (o: ObjectManifest, local: string): FieldManifest | undefined =>
+  // An object, or the fields this extension adds to another extension's object.
+  type Fields = Pick<ObjectManifest, "fields">;
+  const own = (o: Fields, local: string): FieldManifest | undefined =>
     Object.hasOwn(o.fields, local) ? o.fields[local] : undefined;
   const expect = (
-    o: ObjectManifest,
+    o: Fields,
     oName: string,
     at: string,
     local: string | undefined,
@@ -301,7 +303,7 @@ export function checkObjectRecurring(
     // extension adds to it (a class type of Programs' carrying Bookings' window, ADR 0505).
     const added = h.object.includes(".") ? m.fields?.[h.object] : undefined;
     const target = added
-      ? ({ fields: added } as unknown as ObjectManifest)
+      ? { fields: added }
       : Object.hasOwn(m.objects, h.object)
         ? m.objects[h.object]
         : undefined;

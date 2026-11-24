@@ -9,7 +9,7 @@
 // said", and the person confirms. Anything else is not saved: the assistant is told the filter
 // does not match and rewrites it or asks. When the judge is off or cannot answer, the read-back
 // alone decides: the person sees the condition in words and confirms (fails closed).
-import { choice } from "../questions.ts";
+import { choice, clip } from "../questions.ts";
 import { failureOf, type Judge, type JudgeUnavailableReason } from "../types.ts";
 
 export const MEMORY_CONDITION_PLACEMENT = "memory.condition" as const;
@@ -45,11 +45,6 @@ export interface MemoryConditionState {
   condition: string;
   line: string;
 }
-
-const clip = (text: string, max: number) => {
-  const flat = text.replace(/\s+/g, " ").trim();
-  return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`;
-};
 
 export function memoryConditionState(input: {
   said: string;

@@ -244,6 +244,22 @@ async function counter(id: string) {
     .bind(CLASS, id)
     .first();
 }
+/** A Person's journey signals (stage 53): which, about what record, and who stood behind it. */
+async function signalsOf(personId: string) {
+  const { results } = await env.DB.prepare(
+    "SELECT signal, object_type, standing, bulk, last_at FROM core_person_signal WHERE person_id = ? ORDER BY signal",
+  )
+    .bind(personId)
+    .all<{
+      signal: string;
+      object_type: string;
+      standing: string;
+      bulk: number;
+      last_at: string;
+    }>();
+  return results;
+}
+
 /** How many times a booking entered a state (its state history). */
 async function entered(booking: string, state: string) {
   const row = await env.DB.prepare(
@@ -380,6 +396,16 @@ describe("attendance (criterion 7)", () => {
     expect(await run<Out>("x.bookings.markAttended", { bookingId: came }, staff())).toMatchObject({
       result: "attended",
     });
+    // Each is a journey signal of the member's, written in the batch that made it (stage 53,
+    // ADR 0802): the pass given, the class booked, the class attended.
+    // The member's own booking stands as theirs; the pass and the tick, made through the pack's
+    // tools by a person, as the host's (ADR 0590's marks).
+    const ticked = await signalsOf(p1.personId);
+    expect(ticked.map((r) => [r.signal, r.object_type, r.standing, r.bulk])).toEqual([
+      ["bookings.attended", BOOKING, "host", 0],
+      ["bookings.booked", BOOKING, "customer", 0],
+      ["memberships.passStarted", PASS, "host", 0],
+    ]);
 
     // Not yet: the class ends in 90 minutes, and the host waits 30 minutes more.
     const before = await runTimedMovesDue(db, { clock: () => new Date(Date.now() + 100 * MINUTE) });
@@ -415,6 +441,8 @@ describe("attendance (criterion 7)", () => {
     });
     await runTimedMovesDue(db, { clock: () => new Date(Date.now() + 2 * HOUR + MINUTE) });
     expect(await stateOf(came)).toBe("no_show");
+    // A tick taken back is not a new booking: the signals are as they were.
+    expect(await signalsOf(p1.personId)).toEqual(ticked);
     expect(await left(passes[0] as string)).toBe(4);
 
     // The sweep's step is the host's: refused from any origin the host did not set.

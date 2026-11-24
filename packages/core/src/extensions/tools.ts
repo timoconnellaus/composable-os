@@ -9,6 +9,7 @@ import { z } from "zod";
 import { TOOL_OPERATION_RE } from "../approvals/describe.ts";
 import { ForbiddenError, OperationError, RunsOnApprovalError } from "../errors.ts";
 import { type AnyOperation, defineOperation, markHostTool } from "../operation.ts";
+import { GRANTABLE_PERMISSIONS, type Permission } from "../principals.ts";
 import { callerMarks } from "../routine-mail/marks.ts";
 import { requireHost } from "./install.ts";
 
@@ -52,6 +53,27 @@ export function toolOperation(
   const restricted = toolPermissions(tool);
   const packRestricted =
     restricted.length > 0 && restricted.every((p) => (manifest.restricted ?? []).includes(p));
+  // Open to every staff account, pack roles too (ADR 0652): a shipped pack's or the org's own, a
+  // person's own, naming no permission (check and install refuse anything else, and it holds here
+  // if one is in the database anyway).
+  const anyStaff =
+    source === "shipped" &&
+    tool.anyStaff === true &&
+    tool.humanOnly === true &&
+    !packPermissions.length &&
+    !restricted.length &&
+    tool.corePermission === undefined &&
+    !(tool.audiences ?? []).some((a) => a !== "staff");
+  // A grantable core permission instead of records:read or records:write (ADR 0652). One that is
+  // not grantable, or from a runtime extension, holds the tool to admins (fail closed).
+  const corePermission =
+    tool.corePermission === undefined
+      ? undefined
+      : source === "shipped" &&
+          !packPermissions.length &&
+          (GRANTABLE_PERMISSIONS as readonly string[]).includes(tool.corePermission)
+        ? (tool.corePermission as Permission)
+        : "users:manage";
   const key = `${opName}@${manifest.version}:${source}:${JSON.stringify(tool)}:${(manifest.grantable ?? []).join(",")}:${[...roleHeld].join(",")}:${(manifest.restricted ?? []).join(",")}`;
   const hit = cache.get(key);
   if (hit) return hit;
@@ -60,7 +82,7 @@ export function toolOperation(
     description: `${tool.description} (Extension tool from ${manifest.label ?? manifest.id} ${manifest.version}.)`,
     input: schemaFrom(tool.inputSchema, z.record(z.string(), z.unknown())),
     output: schemaFrom(tool.outputSchema, z.unknown()),
-    permission: tool.risk === "read" ? "records:read" : "records:write",
+    permission: corePermission ?? (tool.risk === "read" ? "records:read" : "records:write"),
     risk: tool.risk,
     ...(audiences ? { audiences } : {}),
     // Only a person (ADR 0512): it narrows who may call, so it holds from any extension.
@@ -80,6 +102,7 @@ export function toolOperation(
     ...(packPermissions.length ? { packPermissions } : {}),
     ...(packGrantable.length ? { packGrantable } : {}),
     ...(packRestricted ? { packRestricted: true } : {}),
+    ...(anyStaff ? { packAnyStaff: true } : {}),
     // A visitor's acceptances passed on to the host in the buying call (stage 44 step 3, ADR
     // 0644): the name they typed, a signature and health answers never reach the audit log, from
     // any tool.
@@ -147,6 +170,8 @@ export function toolOperation(
                 // A pack role limited to today holds inside the tool too (ADR 0553).
                 ...(ctx.roleToday ? { roleToday: ctx.roleToday } : {}),
                 ...(ctx.roleToday && ctx.roleTodayAt ? { roleTodayAt: ctx.roleTodayAt } : {}),
+                // And one limited to the People they look after (ADR 0889).
+                ...(ctx.roleLooksAfter ? { roleLooksAfter: ctx.roleLooksAfter } : {}),
                 // Who approved it, for a tool a person approves called by another actor.
                 ...(ctx.approval?.approvedBy ? { approvedBy: ctx.approval.approvedBy } : {}),
                 // A run calling this tool: the weaker of its standing and the tool's wins.

@@ -5,6 +5,7 @@
 import {
   type AutomationQueueMessage,
   embedRecordEvents,
+  type ModelRunner,
   type VectorizeLike,
   vectorizeStore,
 } from "@composable-os/core";
@@ -16,10 +17,17 @@ interface EmbedEnv {
   VECTORIZE?: unknown;
 }
 
+/** The Vectorize index and the models to embed from events with, or null without either. */
+function embedder(env: object): { index: VectorizeLike; models: ModelRunner } | null {
+  const index = (env as EmbedEnv).VECTORIZE as VectorizeLike | undefined;
+  if (!index || typeof index.query !== "function") return null;
+  const models = runnerModels(env);
+  return models?.embed ? { index, models } : null;
+}
+
 /** Does this Worker embed from events (a Vectorize binding and a model that can embed)? */
 export function embedsFromEvents(env: object): boolean {
-  const index = (env as EmbedEnv).VECTORIZE as VectorizeLike | undefined;
-  return Boolean(index && typeof index.query === "function" && runnerModels(env)?.embed);
+  return embedder(env) !== null;
 }
 
 /** Embeds the records a batch of events changed. Never throws (failures are queued for the cron). */
@@ -27,18 +35,13 @@ export async function embedFromEvents(
   env: EmbedEnv,
   messages: readonly AutomationQueueMessage[],
 ): Promise<void> {
-  if (!embedsFromEvents(env)) return;
   const changes = messages.flatMap((m) => (m.kind === "record" ? m.changes : []));
   if (!changes.length) return;
-  const models = runnerModels(env);
-  if (!models) return;
+  const found = embedder(env);
+  if (!found) return;
   try {
     await embedRecordEvents(
-      {
-        db: createCrmDb(env.DB),
-        models,
-        vectors: vectorizeStore(env.VECTORIZE as VectorizeLike),
-      },
+      { db: createCrmDb(env.DB), models: found.models, vectors: vectorizeStore(found.index) },
       changes,
     );
   } catch (error) {

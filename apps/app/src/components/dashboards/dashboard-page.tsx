@@ -224,8 +224,14 @@ export function DashboardPage({
   );
 }
 
+/** A dashboard route's search: the `filters` param's values, when it has any. */
+export function validateFiltersSearch(search: Record<string, unknown>): { filters?: FilterValues } {
+  const filters = parseFilterValues(search.filters);
+  return filters && Object.keys(filters).length ? { filters } : {};
+}
+
 /** Parses the `filters` search param (JSON) into filter values. */
-export function parseFilterValues(raw: unknown): FilterValues | undefined {
+function parseFilterValues(raw: unknown): FilterValues | undefined {
   let value = raw;
   if (typeof raw === "string") {
     try {

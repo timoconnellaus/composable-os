@@ -11,6 +11,7 @@
 
 import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, sql } from "kysely";
+import { sha256Hex } from "../digest.ts";
 import type { BlobStore } from "../integrations/runtime.ts";
 import type { HandlerContext } from "../operation.ts";
 import { jsonList } from "./common.ts";
@@ -32,8 +33,7 @@ export interface EraseLogEntry {
 
 /** `sha256:` and the hex digest of `value` (an id as is; an address lower-cased and trimmed). */
 export async function sha256Ref(value: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return `sha256:${[...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
+  return `sha256:${await sha256Hex(value)}`;
 }
 
 /** Stores one entry. Keys sort by time, so a listing replays them in order. */

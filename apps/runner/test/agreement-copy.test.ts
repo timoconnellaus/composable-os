@@ -347,6 +347,70 @@ describe("keys and lists kept apart by who is sending (the review of PR #283)", 
     expect(await sentTo(ours)).toHaveLength(1);
   });
 
+  it("ordinary callers keep their own keys: a person, an MCP app, the assistant, an automation (issue #286)", async () => {
+    const key = `step-${unique("k")}`;
+    const session = `cap_${unique("s")}`;
+    const callers: Partial<InvocationContext>[] = [
+      {},
+      { actor: "mcp", origin: { surface: "mcp", sessionId: session, clientId: "c" } },
+      { actor: "mcp", origin: { surface: "mcp", sessionId: `cap_${unique("s")}`, clientId: "c" } },
+      { actor: "assistant", origin: { surface: "assistant", sessionId: "ath_s" } },
+      {
+        actor: "automation",
+        origin: { surface: "automation", automationId: "fixture.one", runId: "arn_1" },
+      },
+      {
+        actor: "automation",
+        origin: { surface: "automation", automationId: "fixture.two", runId: "arn_2" },
+      },
+    ];
+    const sendAs = async (extra: Partial<InvocationContext>, to: string) =>
+      (
+        await op<{ value: { id: number } }>(
+          admin,
+          "integration.call",
+          {
+            connectionId,
+            resource: "OUTBOX",
+            method: "send",
+            args: [{ to: [to], subject: "Step", text: "x", idempotencyKey: key }],
+          },
+          extra,
+        )
+      ).value.id;
+    // Each caller's first send under the one key is its own send, never another's answer.
+    const ids: number[] = [];
+    for (const [i, extra] of callers.entries()) {
+      ids.push(await sendAs(extra, `${unique(`caller${i}`)}@outside.test`));
+    }
+    expect(new Set(ids).size).toBe(callers.length);
+    // Each caller's retry finds its own first send, whatever it is sent to: another run of the
+    // same automation, the same MCP app in another thread of the assistant's.
+    expect(await sendAs({}, "other@outside.test")).toBe(ids[0]);
+    expect(
+      await sendAs(
+        { actor: "mcp", origin: { surface: "mcp", sessionId: session, clientId: "c" } },
+        "other@outside.test",
+      ),
+    ).toBe(ids[1]);
+    expect(
+      await sendAs(
+        { actor: "assistant", origin: { surface: "assistant", sessionId: "ath_other" } },
+        "other@outside.test",
+      ),
+    ).toBe(ids[3]);
+    expect(
+      await sendAs(
+        {
+          actor: "automation",
+          origin: { surface: "automation", automationId: "fixture.one", runId: "arn_3" },
+        },
+        "other@outside.test",
+      ),
+    ).toBe(ids[4]);
+    expect(await sentTo("other@outside.test")).toEqual([]);
+  });
+
   it("a caller's listSent does not show the host's copies", async () => {
     const to = `${unique("listed")}@outside.test`;
     await integrations.callAsHost?.({

@@ -12,6 +12,7 @@ import { ValidationError } from "../errors.ts";
 import { fieldStorage, objectTableOf } from "../extensions/schema.ts";
 import { getObject } from "../fields/index.ts";
 import type { HandlerContext, RecordRef, SimulationView } from "../operation.ts";
+import { hiddenNoteIds, type NoteViewer } from "../visibility/notes.ts";
 import { jsonList } from "./common.ts";
 
 interface LinkTarget {
@@ -186,6 +187,8 @@ export async function countLinks(
       .select((eb) => eb.fn.countAll<number>().as("n"))
       .where("object_type", "=", object)
       .where("record_id", "=", recordId)
+      // Notes kept from the caller are not counted (stage 56, ADR 0830).
+      .where(sql<boolean>`activity_id NOT IN ${hiddenNoteIds(ctx as NoteViewer)}`)
       .executeTakeFirst(),
     ctx.db
       .selectFrom("core_task_links")

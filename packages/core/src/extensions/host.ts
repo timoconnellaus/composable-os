@@ -34,6 +34,11 @@ export interface ToolCaller {
   roleToday?: import("../pack-role-today.ts").TodayLimits;
   /** With `roleToday`: the moment of the call that took the limit; its day is the run's today. */
   roleTodayAt?: string;
+  /**
+   * The staff caller's pack role limit to the People they look after (ADR 0889): the run's
+   * record reads and writes of these objects reach those People's records only.
+   */
+  roleLooksAfter?: import("../pack-role-looks-after.ts").LooksAfterLimit;
   /** The person who approved this call, when another actor's call was approved (ADR 0552). */
   approvedBy?: string;
   /**

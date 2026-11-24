@@ -12,6 +12,8 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as BlocksRouteImport } from './routes/blocks'
 import { Route as BuyRouteImport } from './routes/buy'
+import { Route as DeskRouteImport } from './routes/desk'
+import { Route as EnrolRouteImport } from './routes/enrol'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppActivityRouteImport } from './routes/_app/activity'
@@ -52,6 +54,7 @@ import { Route as AppSettingsAuditRouteImport } from './routes/_app/settings/aud
 import { Route as AppSettingsAutomationsRouteImport } from './routes/_app/settings/automations'
 import { Route as AppSettingsChecklistsRouteImport } from './routes/_app/settings/checklists'
 import { Route as AppSettingsConnectedAppsRouteImport } from './routes/_app/settings/connected-apps'
+import { Route as AppSettingsDevicesRouteImport } from './routes/_app/settings/devices'
 import { Route as AppSettingsDuplicatesRouteImport } from './routes/_app/settings/duplicates'
 import { Route as AppSettingsExtensionsRouteImport } from './routes/_app/settings/extensions'
 import { Route as AppSettingsGeneralRouteImport } from './routes/_app/settings/general'
@@ -95,6 +98,16 @@ const BlocksRoute = BlocksRouteImport.update({
 const BuyRoute = BuyRouteImport.update({
   id: '/buy',
   path: '/buy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DeskRoute = DeskRouteImport.update({
+  id: '/desk',
+  path: '/desk',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EnrolRoute = EnrolRouteImport.update({
+  id: '/enrol',
+  path: '/enrol',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SignInRoute = SignInRouteImport.update({
@@ -302,6 +315,11 @@ const AppSettingsConnectedAppsRoute =
     path: '/settings/connected-apps',
     getParentRoute: () => AppRoute,
   } as any)
+const AppSettingsDevicesRoute = AppSettingsDevicesRouteImport.update({
+  id: '/settings/devices',
+  path: '/settings/devices',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsDuplicatesRoute = AppSettingsDuplicatesRouteImport.update({
   id: '/settings/duplicates',
   path: '/settings/duplicates',
@@ -466,6 +484,8 @@ export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/blocks': typeof BlocksRoute
   '/buy': typeof BuyRoute
+  '/desk': typeof DeskRoute
+  '/enrol': typeof EnrolRoute
   '/sign-in': typeof SignInRoute
   '/activity': typeof AppActivityRoute
   '/approvals': typeof AppApprovalsRoute
@@ -499,6 +519,7 @@ export interface FileRoutesByFullPath {
   '/settings/automations': typeof AppSettingsAutomationsRoute
   '/settings/checklists': typeof AppSettingsChecklistsRoute
   '/settings/connected-apps': typeof AppSettingsConnectedAppsRoute
+  '/settings/devices': typeof AppSettingsDevicesRoute
   '/settings/duplicates': typeof AppSettingsDuplicatesRoute
   '/settings/extensions': typeof AppSettingsExtensionsRoute
   '/settings/general': typeof AppSettingsGeneralRoute
@@ -539,6 +560,8 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/blocks': typeof BlocksRoute
   '/buy': typeof BuyRoute
+  '/desk': typeof DeskRoute
+  '/enrol': typeof EnrolRoute
   '/sign-in': typeof SignInRoute
   '/activity': typeof AppActivityRoute
   '/approvals': typeof AppApprovalsRoute
@@ -573,6 +596,7 @@ export interface FileRoutesByTo {
   '/settings/automations': typeof AppSettingsAutomationsRoute
   '/settings/checklists': typeof AppSettingsChecklistsRoute
   '/settings/connected-apps': typeof AppSettingsConnectedAppsRoute
+  '/settings/devices': typeof AppSettingsDevicesRoute
   '/settings/duplicates': typeof AppSettingsDuplicatesRoute
   '/settings/extensions': typeof AppSettingsExtensionsRoute
   '/settings/general': typeof AppSettingsGeneralRoute
@@ -615,6 +639,8 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/blocks': typeof BlocksRoute
   '/buy': typeof BuyRoute
+  '/desk': typeof DeskRoute
+  '/enrol': typeof EnrolRoute
   '/sign-in': typeof SignInRoute
   '/_app/activity': typeof AppActivityRoute
   '/_app/approvals': typeof AppApprovalsRoute
@@ -649,6 +675,7 @@ export interface FileRoutesById {
   '/_app/settings/automations': typeof AppSettingsAutomationsRoute
   '/_app/settings/checklists': typeof AppSettingsChecklistsRoute
   '/_app/settings/connected-apps': typeof AppSettingsConnectedAppsRoute
+  '/_app/settings/devices': typeof AppSettingsDevicesRoute
   '/_app/settings/duplicates': typeof AppSettingsDuplicatesRoute
   '/_app/settings/extensions': typeof AppSettingsExtensionsRoute
   '/_app/settings/general': typeof AppSettingsGeneralRoute
@@ -692,6 +719,8 @@ export interface FileRouteTypes {
     | '/'
     | '/blocks'
     | '/buy'
+    | '/desk'
+    | '/enrol'
     | '/sign-in'
     | '/activity'
     | '/approvals'
@@ -725,6 +754,7 @@ export interface FileRouteTypes {
     | '/settings/automations'
     | '/settings/checklists'
     | '/settings/connected-apps'
+    | '/settings/devices'
     | '/settings/duplicates'
     | '/settings/extensions'
     | '/settings/general'
@@ -765,6 +795,8 @@ export interface FileRouteTypes {
   to:
     | '/blocks'
     | '/buy'
+    | '/desk'
+    | '/enrol'
     | '/sign-in'
     | '/activity'
     | '/approvals'
@@ -799,6 +831,7 @@ export interface FileRouteTypes {
     | '/settings/automations'
     | '/settings/checklists'
     | '/settings/connected-apps'
+    | '/settings/devices'
     | '/settings/duplicates'
     | '/settings/extensions'
     | '/settings/general'
@@ -840,6 +873,8 @@ export interface FileRouteTypes {
     | '/_app'
     | '/blocks'
     | '/buy'
+    | '/desk'
+    | '/enrol'
     | '/sign-in'
     | '/_app/activity'
     | '/_app/approvals'
@@ -874,6 +909,7 @@ export interface FileRouteTypes {
     | '/_app/settings/automations'
     | '/_app/settings/checklists'
     | '/_app/settings/connected-apps'
+    | '/_app/settings/devices'
     | '/_app/settings/duplicates'
     | '/_app/settings/extensions'
     | '/_app/settings/general'
@@ -916,6 +952,8 @@ export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   BlocksRoute: typeof BlocksRoute
   BuyRoute: typeof BuyRoute
+  DeskRoute: typeof DeskRoute
+  EnrolRoute: typeof EnrolRoute
   SignInRoute: typeof SignInRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ConnectHandoffRoute: typeof ConnectHandoffRoute
@@ -947,6 +985,20 @@ declare module '@tanstack/react-router' {
       path: '/buy'
       fullPath: '/buy'
       preLoaderRoute: typeof BuyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/desk': {
+      id: '/desk'
+      path: '/desk'
+      fullPath: '/desk'
+      preLoaderRoute: typeof DeskRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/enrol': {
+      id: '/enrol'
+      path: '/enrol'
+      fullPath: '/enrol'
+      preLoaderRoute: typeof EnrolRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sign-in': {
@@ -1229,6 +1281,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsConnectedAppsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings/devices': {
+      id: '/_app/settings/devices'
+      path: '/settings/devices'
+      fullPath: '/settings/devices'
+      preLoaderRoute: typeof AppSettingsDevicesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings/duplicates': {
       id: '/_app/settings/duplicates'
       path: '/settings/duplicates'
@@ -1472,6 +1531,7 @@ interface AppRouteChildren {
   AppSettingsAutomationsRoute: typeof AppSettingsAutomationsRoute
   AppSettingsChecklistsRoute: typeof AppSettingsChecklistsRoute
   AppSettingsConnectedAppsRoute: typeof AppSettingsConnectedAppsRoute
+  AppSettingsDevicesRoute: typeof AppSettingsDevicesRoute
   AppSettingsDuplicatesRoute: typeof AppSettingsDuplicatesRoute
   AppSettingsExtensionsRoute: typeof AppSettingsExtensionsRoute
   AppSettingsGeneralRoute: typeof AppSettingsGeneralRoute
@@ -1535,6 +1595,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSettingsAutomationsRoute: AppSettingsAutomationsRoute,
   AppSettingsChecklistsRoute: AppSettingsChecklistsRoute,
   AppSettingsConnectedAppsRoute: AppSettingsConnectedAppsRoute,
+  AppSettingsDevicesRoute: AppSettingsDevicesRoute,
   AppSettingsDuplicatesRoute: AppSettingsDuplicatesRoute,
   AppSettingsExtensionsRoute: AppSettingsExtensionsRoute,
   AppSettingsGeneralRoute: AppSettingsGeneralRoute,
@@ -1587,6 +1648,8 @@ const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   BlocksRoute: BlocksRoute,
   BuyRoute: BuyRoute,
+  DeskRoute: DeskRoute,
+  EnrolRoute: EnrolRoute,
   SignInRoute: SignInRoute,
   ApiHealthRoute: ApiHealthRoute,
   ConnectHandoffRoute: ConnectHandoffRoute,

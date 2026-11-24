@@ -9,6 +9,8 @@
 //   node scripts/release/changelog.ts --tag v1.2.0 [--repo owner/repo]   notes for one release
 //   node scripts/release/changelog.ts --all > CHANGELOG.md               every release tag
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
 import { DEFAULT_PRODUCT, products } from "@composable-os/products";
 import { bareVersion, compareVersions, isVersion } from "@composable-os/release";
 
@@ -95,12 +97,16 @@ function commitsBetween(from: string | null, to: string): Commit[] {
 }
 
 function main() {
-  const args = process.argv.slice(2);
-  const repository = args.includes("--repo")
-    ? (args[args.indexOf("--repo") + 1] as string)
-    : (process.env.GITHUB_REPOSITORY ?? products[DEFAULT_PRODUCT]?.updateRepository ?? "");
+  const { values } = parseArgs({
+    options: { repo: { type: "string" }, tag: { type: "string" }, all: { type: "boolean" } },
+  });
+  const repository =
+    values.repo ??
+    process.env.GITHUB_REPOSITORY ??
+    products[DEFAULT_PRODUCT]?.updateRepository ??
+    "";
   const tags = releaseTags();
-  if (args.includes("--all")) {
+  if (values.all) {
     const sections = [
       "# Changelog",
       "",
@@ -118,13 +124,13 @@ function main() {
     process.stdout.write(sections.join("\n"));
     return;
   }
-  const tag = args.includes("--tag") ? (args[args.indexOf("--tag") + 1] as string) : undefined;
+  const tag = values.tag;
   if (!tag || !isVersion(tag)) throw new Error("--tag vX.Y.Z[-beta.N] is required");
-  const previous = previousTag(tag, tags.includes(tag) ? tags : [...tags, tag]);
+  const previous = previousTag(tag, tags);
   const target = tags.includes(tag) ? tag : "HEAD";
   process.stdout.write(
     releaseNotes({ tag, previous, prs: prTitles(commitsBetween(previous, target)), repository }),
   );
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main();
+if (process.argv[1] === fileURLToPath(import.meta.url)) main();
