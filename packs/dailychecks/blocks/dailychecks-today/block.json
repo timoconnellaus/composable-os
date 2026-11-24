@@ -1,0 +1,16 @@
+{
+  "name": "dailychecks-today",
+  "pack": "dailychecks",
+  "skin": "web",
+  "operations": [
+    "x.dailychecks.today",
+    "x.dailychecks.day",
+    "x.dailychecks.tick",
+    "x.dailychecks.done"
+  ],
+  "files": ["today.tsx", "LICENSE"],
+  "dependsOn": ["ui-button"],
+  "packages": {
+    "@composable-os/pack-dailychecks": "*"
+  }
+}

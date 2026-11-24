@@ -23,6 +23,21 @@ decided, not asked; the owner may override any of them). A new stage, 53, in the
 Steps 1 to 3 may start now. The sending step (step 4) waits for stage 30's routine messages,
 preferences, one-tap stop and promotional consent (below, "What this stage needs from stage 30").
 
+Built so far:
+
+- **Step 2, journey signals** (2026-11-24, [ADR 0802](../adr/0802-journey-signals-declared-by-shipped-packs-recorded-in-the-write.md),
+  migration 1175; the spec's list below numbered this ADR 0801). `journeySignals` in the manifest
+  (`packages/sdk/src/journey-signals.ts`: `JourneySignalSpec`, the check, `journeySignalFires`),
+  refused for a runtime extension at check and install; `cos ext check` lists a pack's signals.
+  `core_person_signal` (one row per Person and signal, with the record, the write's standing and a
+  bulk flag), written by the pipeline beside the value marks in every write's batch, one statement
+  however many records (`packages/core/src/journeys/signals.ts`); erase, the purge and merge
+  handle it. Memberships declares `started`, `ended`, `trialEnded` and `passStarted` (the pass
+  signal is an addition: "stop when they buy a pass" needs it); Bookings `booked` and `attended`;
+  Ticketing `ticketBought` and `checkedIn`. Recorded in the pipeline rather than the transition
+  engine and record create (the same writes, with the standing and bulk flag they lack). Nothing
+  reads the rows yet: entries and the scan are steps 3 and 4.
+
 ## Goal
 
 A business sets up messages that go out on their own to one person at a time, because of what

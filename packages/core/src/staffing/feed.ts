@@ -17,7 +17,9 @@
 // type's name, a duty's), its place, its start and end. Never when its record last changed, which
 // other writes (a member's booking) could move. Nothing else: no title a business typed on a class (which could name
 // a member), no notes, no other person's name, no class list, bookings or places, nothing of
-// unavailability, offers or pay. A cancelled shift, one in the Trash and one now someone else's
+// unavailability, offers or pay. So a shift whose title may name a client (`staffed.private`, an
+// appointment, ADR 0761) needs nothing more here: the feed is a bearer link and carries no client
+// names at all. Its times are the shift's own, never the minutes kept free around it (ADR 0760). A cancelled shift, one in the Trash and one now someone else's
 // hold no time claim, so they drop out.
 //
 // Cost: read from the time claims by account and end (`core_staff_time_account`), so a request
@@ -263,7 +265,7 @@ export async function feedShifts(
   // The claims: one per live, covered shift of the account (ADR 0621), by account and end.
   const claims = await db
     .selectFrom("core_staff_time")
-    .select(["object_type", "record_id", "starts", "ends"])
+    .select(["object_type", "record_id", "starts", "ends", "margin_before", "margin_after"])
     .where("account_id", "=", account)
     .where("ends", ">", from)
     .where("starts", "<", to)
@@ -324,9 +326,9 @@ export async function feedShifts(
         id: r.id,
         title: (r.kind ? kindNames.get(r.kind) : undefined) || object.label,
         place: placeOf ? (r.place ? (placeNames.get(r.place) ?? null) : null) : text(r.place),
-        // The claim's instants are the shift's own (the claim is written from the row).
-        startsAt: new Date(claim.starts * 1000).toISOString(),
-        endsAt: new Date(claim.ends * 1000).toISOString(),
+        // The shift's own instants: the claim's, less the minutes kept free around it (ADR 0760).
+        startsAt: new Date((claim.starts + claim.margin_before) * 1000).toISOString(),
+        endsAt: new Date((claim.ends - claim.margin_after) * 1000).toISOString(),
       });
     }
   }

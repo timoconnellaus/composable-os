@@ -14,6 +14,16 @@ Status: **spec agreed** (owner interviewed 2026-11-24: decision 1; the owner's e
 decisions of 2026-11-24 stand as decisions 2 to 4; decisions 5 to 13 decided as best practice by
 the coordinator, open to override). Build may start.
 
+- **Step 1, time entries** (built 2026-11-24, migration 1270, [ADR 0850](../adr/0850-time-entries-the-hosts-clock-overlaps-refused-and-worked-on.md)):
+  `core_time_entry` with the overlap triggers (every statement shape), one open entry per person
+  and a start's idempotency key; the tool-only `staffing.time.clockIn`, `clockOut` (the host's
+  clock), `enter`, `edit`, `withdraw` and `mine`, a person's own act on their own entries, working
+  once the pack's `staffing.settings.recordsTime` is on (`enterDays`, `finishMissingHours` read
+  beside it); what an entry is against (an own live shift, a live `workedOn` record, or other
+  work); finish missing on the minute cron (`staffing.due`); `workedOn` in the SDK, refused to a
+  runtime extension. Until step 2 every finished or entered entry waits. Leaving does not yet mark
+  an open entry finish missing (step 4 amends `leaving.ts`).
+
 ## Goal
 
 Staff record the time they actually worked, and the business pays from it. A cleaner taps "start"

@@ -275,6 +275,16 @@ describe("a membership, through the fake provider", () => {
     );
     const membership = (await mine(member)).find((h) => h.kind === "membership") as Holding;
     expect(membership.period?.left).toBe(3);
+    // The membership starting is the member's journey signal, written by the host in the batch
+    // that granted it (stage 53, ADR 0802): a trial is a start, not a trial ended.
+    const { results: signals } = await env.DB.prepare(
+      "SELECT signal, record_id, standing, bulk FROM core_person_signal WHERE person_id = ?",
+    )
+      .bind(member.personId)
+      .all();
+    expect(signals).toEqual([
+      { signal: "memberships.started", record_id: membership.id, standing: "host", bulk: 0 },
+    ]);
 
     // A yoga class next week spends one of next week's three; a spin class is not covered.
     const klass = await classAt(yoga, 7);
