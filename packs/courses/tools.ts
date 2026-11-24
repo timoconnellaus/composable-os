@@ -26,6 +26,7 @@ export const COURSE = "courses.course";
 export const BUNDLE = "courses.bundle";
 export const ENROLMENT = "courses.enrolment";
 export const PROGRESS = "courses.progress";
+export const PLAN = "courses.plan";
 const PROGRAM = "programs.program";
 const SESSION = "programs.session";
 
@@ -85,6 +86,10 @@ const picture = z
   .passthrough()
   .nullable();
 const video = z.object({ media: z.string(), poster: z.string().optional() }).nullable();
+/** A picture or a video field's value, as the host gives it. */
+type Picture = z.infer<typeof picture>;
+type Video = z.infer<typeof video>;
+const pictureOf = (value: unknown) => (value as Picture | undefined) ?? null;
 
 const lessonSummary = z.object({
   key: z.string(),
@@ -117,26 +122,41 @@ function card(record: RecordShape) {
     theme: text(v.theme),
     level: num(v.level),
     summary: text(v.summary),
-    cover: (v.cover as never) ?? null,
-    trailer: (v.trailer as never) ?? null,
+    cover: pictureOf(v.cover),
+    trailer: (v.trailer as Video | undefined) ?? null,
     price: num(v.price),
     lessons: outline.sections.reduce((n, s) => n + (s.lessons?.length ?? 0), 0),
   };
 }
 
+/** What everyone who may read the course reads of a lesson (`lessonSummary`). */
+const summaryOfLesson = (l: Lesson): z.infer<typeof lessonSummary> => ({
+  key: l.key,
+  title: l.title,
+  kind: l.kind,
+  duration: l.duration ?? null,
+  preview: l.preview === true,
+});
+
 function summaryOf(outline: Outline) {
   return outline.sections.map((section) => ({
     key: section.key,
     title: section.title,
-    lessons: (section.lessons ?? []).map((l) => ({
-      key: l.key,
-      title: l.title,
-      kind: l.kind,
-      duration: l.duration ?? null,
-      preview: l.preview === true,
-    })),
+    lessons: (section.lessons ?? []).map(summaryOfLesson),
   }));
 }
+
+type ProgressState = "started" | "done";
+
+/** A progress row's state, or null when it has none. */
+const stateOf = (row: RecordShape | null | undefined): ProgressState | null => {
+  const state = row?.values.state;
+  return state === "started" || state === "done" ? state : null;
+};
+
+/** The keys of the lessons these progress rows mark done. */
+const doneKeys = (rows: Map<string, RecordShape>): Set<string> =>
+  new Set([...rows].filter(([, row]) => stateOf(row) === "done").map(([key]) => key));
 
 /** The caller's own progress rows on a course, by lesson key. */
 async function progressRows(ctx: ExtensionContext, courseId: string) {
@@ -216,7 +236,7 @@ export const catalogue = defineTool({
         name: text(t.values.name),
         slug: text(t.values.slug),
         summary: text(t.values.summary),
-        picture: (t.values.picture as never) ?? null,
+        picture: pictureOf(t.values.picture),
       })),
       courses: courses.items.map(card),
       bundles: bundles.items.map((b) => ({
@@ -224,7 +244,7 @@ export const catalogue = defineTool({
         title: text(b.values.title),
         slug: text(b.values.slug),
         summary: text(b.values.summary),
-        cover: (b.values.cover as never) ?? null,
+        cover: pictureOf(b.values.cover),
         courses: bundleCourses(b),
         price: num(b.values.price),
       })),
@@ -234,8 +254,6 @@ export const catalogue = defineTool({
 });
 
 // --- Course plans --------------------------------------------------------------------------------
-
-export const PLAN = "courses.plan";
 
 export const plans = defineTool({
   description:
@@ -308,18 +326,15 @@ export const course = defineTool({
     if (!record) throw notFound(COURSE, input.slug);
     const outline = asOutline(record.values.outline);
     const holds = (await held(ctx, [record.id])).has(record.id);
-    const rows = holds ? await progressRows(ctx, record.id) : new Map<string, RecordShape>();
-    const done = [...rows.values()]
-      .filter((r) => r.values.state === "done")
-      .map((r) => String(r.values.lessonKey));
+    const done = holds ? doneKeys(await progressRows(ctx, record.id)) : new Set<string>();
     return {
       ...card(record),
       description: record.values.description ?? null,
       sections: summaryOf(outline),
       currency: page.currency ?? null,
       holds,
-      done,
-      complete: completion(outline, new Set(done)).complete,
+      done: [...done],
+      complete: completion(outline, done).complete,
     };
   },
 });
@@ -389,16 +404,8 @@ export const lesson = defineTool({
           }
         : null,
       position: row ? num(row.values.position) : null,
-      state: row ? ((text(row.values.state) as "started" | "done" | null) ?? null) : null,
-      next: after
-        ? {
-            key: after.key,
-            title: after.title,
-            kind: after.kind,
-            duration: after.duration ?? null,
-            preview: after.preview === true,
-          }
-        : null,
+      state: stateOf(row),
+      next: after ? summaryOfLesson(after) : null,
     };
   },
 });
@@ -439,8 +446,8 @@ export const progress = defineTool({
     const existing = rows.get(input.lessonKey);
     const now = new Date().toISOString();
     const ended = input.position !== undefined && watchedToEnd(input.position, input.duration);
-    const before = text(existing?.values.state) as "started" | "done" | null;
-    const state: "started" | "done" =
+    const before = stateOf(existing);
+    const state: ProgressState =
       input.state === "done" || ended || before === "done" ? "done" : "started";
     const values: Record<string, unknown> = {
       state,
@@ -456,11 +463,7 @@ export const progress = defineTool({
         values: { course: input.courseId, lessonKey: input.lessonKey, startedAt: now, ...values },
       });
     }
-    const done = new Set(
-      [...rows.values()]
-        .filter((r) => r.values.state === "done")
-        .map((r) => String(r.values.lessonKey)),
-    );
+    const done = doneKeys(rows);
     if (state === "done") done.add(input.lessonKey);
     const sum = completion(outline, done);
     return {
@@ -476,6 +479,15 @@ export const progress = defineTool({
 
 // --- My courses ----------------------------------------------------------------------------------
 
+/** Why a student holds a course, as My courses says it. */
+const WHY = ["bought", "bundle", "given", "imported", "subscription"] as const;
+type Why = (typeof WHY)[number];
+/** An enrolment's source, as a reason; any other (a purchase) is "bought". */
+const WHY_BY_SOURCE = new Map<unknown, Why>([
+  ["staff", "given"],
+  ["import", "imported"],
+]);
+
 export const myCourses = defineTool({
   description:
     "Every course the signed-in student holds access to and why (bought, in a bundle, given by " +
@@ -486,7 +498,7 @@ export const myCourses = defineTool({
   output: z.object({
     courses: z.array(
       courseCard.extend({
-        why: z.enum(["bought", "bundle", "given", "imported", "subscription"]),
+        why: z.enum(WHY),
         done: z.number(),
         counted: z.number(),
         complete: z.boolean(),
@@ -498,16 +510,11 @@ export const myCourses = defineTool({
   audiences: ["customer"],
   async handler(_input, ctx) {
     const enrolments = await ctx.ops.call<ListShape>("my.list", { object: ENROLMENT, limit: 200 });
-    const why = new Map<string, "bought" | "bundle" | "given" | "imported" | "subscription">();
+    const why = new Map<string, Why>();
     const completed = new Set<string>();
     const bundles = new Map<string, string[]>();
     for (const e of enrolments.items) {
-      const reason =
-        e.values.source === "staff"
-          ? "given"
-          : e.values.source === "import"
-            ? "imported"
-            : "bought";
+      const reason = WHY_BY_SOURCE.get(e.values.source) ?? "bought";
       const courseId = text(e.values.course);
       const bundleId = text(e.values.bundle);
       if (courseId) {
@@ -542,16 +549,11 @@ export const myCourses = defineTool({
     for (const courseId of [...why.keys()].filter((c) => holding.has(c))) {
       const record = await ctx.ops.call<RecordShape>("my.get", { object: COURSE, id: courseId });
       const outline = asOutline(record.values.outline);
-      const rows = await progressRows(ctx, courseId);
-      const done = new Set(
-        [...rows.values()]
-          .filter((r) => r.values.state === "done")
-          .map((r) => String(r.values.lessonKey)),
-      );
+      const done = doneKeys(await progressRows(ctx, courseId));
       const sum = completion(outline, done, completed.has(courseId));
       const first = outline.sections
         .flatMap((s) => s.lessons ?? [])
-        .find((l: Lesson) => l.kind !== "download" && !done.has(l.key));
+        .find((l) => l.kind !== "download" && !done.has(l.key));
       out.push({
         ...card(record),
         why: why.get(courseId) ?? "bought",
@@ -840,15 +842,18 @@ export const draft = defineTool({
     const videos = [...library.items]
       .sort((a, b) => score(b) - score(a))
       .slice(0, sectionsWanted * 3);
-    const lessons: Lesson[] = videos.map((v, i) => ({
-      kind: "video",
-      key: `lesson-${i + 1}`,
-      title: String(v.values.name ?? `Lesson ${i + 1}`)
-        .replace(/\.[a-z0-9]{2,4}$/i, "")
-        .slice(0, 200),
-      video: { media: v.id },
-      ...(num(v.values.duration) ? { duration: Math.ceil(Number(v.values.duration) / 60) } : {}),
-    }));
+    const lessons: Lesson[] = videos.map((v, i) => {
+      const seconds = num(v.values.duration);
+      return {
+        kind: "video",
+        key: `lesson-${i + 1}`,
+        title: String(v.values.name ?? `Lesson ${i + 1}`)
+          .replace(/\.[a-z0-9]{2,4}$/i, "")
+          .slice(0, 200),
+        video: { media: v.id },
+        ...(seconds ? { duration: Math.ceil(seconds / 60) } : {}),
+      };
+    });
     const program = programs.items[0];
     if (program) {
       lessons.push({
@@ -860,16 +865,16 @@ export const draft = defineTool({
         session: 0,
       });
     }
+    // As many parts as the lessons fill, `per` lessons each; one empty part when there are none.
     const per = Math.max(1, Math.ceil(lessons.length / sectionsWanted));
-    const sections = [];
-    for (let s = 0; s * per < lessons.length || (s === 0 && !lessons.length); s += 1) {
-      sections.push({
+    const sections = Array.from(
+      { length: Math.max(1, Math.ceil(lessons.length / per)) },
+      (_, s) => ({
         key: `part-${s + 1}`,
         title: `Part ${s + 1}`,
         lessons: lessons.slice(s * per, (s + 1) * per),
-      });
-      if (!lessons.length) break;
-    }
+      }),
+    );
     const title = input.title ?? `Draft: ${input.brief.slice(0, 60)}`;
     const created = await ctx.ops.call<RecordShape>("record.create", {
       object: COURSE,
@@ -910,7 +915,7 @@ export const startSession = defineTool({
       id: input.courseId,
     });
     const found = findLesson(asOutline(record.values.outline), input.lessonKey);
-    if (!found || found.kind !== "session") throw notFound("lesson", input.lessonKey);
+    if (found?.kind !== "session") throw notFound("lesson", input.lessonKey);
     // Without access the seam gave no program (a holders' part), so there is no session.
     if (!found.program || found.week === undefined || found.session === undefined) {
       throw notFound("lesson", input.lessonKey);
