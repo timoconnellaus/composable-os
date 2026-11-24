@@ -70,8 +70,11 @@ Built so far:
   `packages/core/src/journeys/birthday.ts`): the live People whose birthday is today in the
   business's zone, 29 February on the 28th in other years, one indexed statement per page of 500.
   The Your details blocks (web and native) and `@composable-os/client`'s account entry show and
-  set it. Not in this step: the daily scan entering them and sending (step 4), the staff screen
-  (step 5).
+  set it. After the review: an AI's merge may not drop or carry away a member-given birthday;
+  every birthday write carries a guard on the value it read (`core_birthday_guard`), so one set
+  meanwhile fails it as a conflict; `person.update` refuses `birthday` and `record.update` names
+  `person.setBirthday`. Not in this step: the daily scan entering them and sending (step 4), the
+  staff screen (step 5).
 
 ## Goal
 

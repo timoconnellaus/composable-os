@@ -245,12 +245,148 @@ describe("merge and erase", () => {
     expect(await columns(keeps)).toEqual({ birth_day: 10, birth_month: 10 });
   });
 
+  // The review of PR #431, finding 1: an AI's merge may not drop or carry away a birthday the
+  // member gave; a person's may.
+  it("an AI's merge may not carry the member's birthday to the survivor, laundering its mark", async () => {
+    await setPreset("autonomous");
+    const survivor = await person();
+    const member = await customer();
+    await invoke("me.birthday.set", { birthday: { day: 3, month: 4 } }, as(member));
+    const merge = invoke(
+      "person.merge",
+      { survivorId: survivor, mergedId: member.personId },
+      context(admin, { actor: "assistant" }),
+    );
+    expect(await refused(merge)).toBe("forbidden");
+    expect(await columns(survivor)).toEqual({ birth_day: null, birth_month: null });
+    // So the AI cannot then overwrite it on the survivor either: the member's mark stands.
+    expect((await mark(member.personId))?.standing).toBe("customer");
+  });
+
+  it("an AI's merge may not replace the member's birthday with one it set", async () => {
+    await setPreset("autonomous");
+    const member = await customer();
+    await invoke("me.birthday.set", { birthday: { day: 3, month: 4 } }, as(member));
+    const planted = await person();
+    await setBirthday(planted, { day: 25, month: 12 }, context(admin, { actor: "assistant" }));
+    for (const actor of ["assistant", "mcp"] as const) {
+      const merge = invoke(
+        "person.merge",
+        { survivorId: planted, mergedId: member.personId },
+        context(admin, { actor }),
+      );
+      expect(await refused(merge), actor).toBe("forbidden");
+    }
+    expect(await invoke("me.birthday.get", {}, as(member))).toEqual({
+      birthday: { day: 3, month: 4 },
+    });
+    // A person may merge them; the survivor's birthday is kept, as the rule says.
+    await invoke(
+      "person.merge",
+      { survivorId: planted, mergedId: member.personId },
+      context(admin),
+    );
+    expect(await columns(planted)).toEqual({ birth_day: 25, birth_month: 12 });
+  });
+
+  it("an AI's merge that leaves the member's birthday as it is goes on", async () => {
+    await setPreset("autonomous");
+    const member = await customer();
+    await invoke("me.birthday.set", { birthday: { day: 8, month: 9 } }, as(member));
+    const other = await person();
+    await invoke(
+      "person.merge",
+      { survivorId: member.personId, mergedId: other },
+      context(admin, { actor: "assistant" }),
+    );
+    expect((await mark(member.personId))?.standing).toBe("customer");
+  });
+
   it("erase removes the birthday and its mark", async () => {
     const id = await person();
     await setBirthday(id, { day: 20, month: 1 });
     await invoke("person.erase", { id }, context(admin));
     expect(await columns(id)).toBeNull();
     expect(await mark(id)).toBeNull();
+  });
+});
+
+describe("a birthday set meanwhile", () => {
+  // The review of PR #431, finding 2: a write planned from the birthday it read fails whole when
+  // the birthday changed before it committed (the member's own, while an AI's was on its way).
+  it("fails the write's batch as a conflict, and a write over the value read goes through", async () => {
+    const id = await person();
+    await setBirthday(id, { day: 4, month: 4 });
+    const guard = (day: number | null, month: number | null) =>
+      env.DB.prepare(
+        "INSERT INTO core_birthday_guard (person_id, birth_day, birth_month) VALUES (?, ?, ?)",
+      )
+        .bind(id, day, month)
+        .run();
+    await expect(guard(null, null)).rejects.toThrow(/core_birthday_changed/);
+    await expect(guard(5, 4)).rejects.toThrow(/core_birthday_changed/);
+    await guard(4, 4);
+    const kept = await env.DB.prepare("SELECT count(*) AS n FROM core_birthday_guard").first<{
+      n: number;
+    }>();
+    expect(kept?.n).toBe(0);
+  });
+
+  it("person.setBirthday carries the guard: a batch planned from a stale read is refused", async () => {
+    const id = await person();
+    // The member sets theirs between the AI's read and its commit: simulated by a write the
+    // batch does not know of, made before it runs.
+    let raced = false;
+    const racing = new Proxy(env.DB, {
+      get(target, key) {
+        if (key === "batch") {
+          return async (statements: D1PreparedStatement[]) => {
+            if (!raced) {
+              raced = true;
+              await target
+                .prepare("UPDATE core_person SET birth_day = 1, birth_month = 2 WHERE id = ?")
+                .bind(id)
+                .run();
+            }
+            return target.batch(statements);
+          };
+        }
+        const value = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const outcome = await refused(
+      invoke(
+        "person.setBirthday",
+        { id, birthday: { day: 9, month: 9 } },
+        context(admin, { db: createCrmDb(racing) }),
+      ),
+    );
+    expect(raced).toBe(true);
+    expect(outcome).toBe("conflict");
+    expect(await columns(id)).toEqual({ birth_day: 1, birth_month: 2 });
+  });
+});
+
+describe("the field on the generic paths", () => {
+  // The review of PR #431, finding 3: nothing takes a birthday silently and does nothing.
+  it("record.update names person.setBirthday, and person.update refuses it", async () => {
+    const id = await person();
+    const generic = await invoke(
+      "record.update",
+      { object: "person", id, values: { birthday: { day: 1, month: 1 } } },
+      context(admin),
+    ).then(
+      () => null,
+      (e: { message?: string }) => e.message ?? "",
+    );
+    expect(generic).toContain("person.setBirthday");
+    expect(
+      await refused(
+        invoke("person.update", { id, birthday: { day: 1, month: 1 } } as never, context(admin)),
+      ),
+    ).toBe("invalid_input");
+    expect(await columns(id)).toEqual({ birth_day: null, birth_month: null });
   });
 });
 

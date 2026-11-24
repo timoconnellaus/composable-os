@@ -8,6 +8,11 @@
 -- like any field (the pipeline, ADR 0590). In no `rec_*` view, so in no export or dashboard; erase
 -- deletes it with the Person's row, and a merge keeps the survivor's unless it has none.
 --
+-- `core_birthday_guard` stores nothing: a birthday write's batch carries one row with the value the
+-- write was planned from, and fails (`core_birthday_changed`) unless the Person still has it, so a
+-- birthday set meanwhile (the member's own, while an AI's write was planned) is never overwritten
+-- unseen.
+--
 -- The partial index is the birthday entry rule's: the People with a birthday on one day, read by
 -- (month, day) in one indexed query.
 ALTER TABLE core_person ADD COLUMN birth_day INTEGER
@@ -28,3 +33,20 @@ ALTER TABLE core_person ADD COLUMN birth_month INTEGER
 
 CREATE INDEX core_person_birthday_idx ON core_person (birth_month, birth_day, id)
   WHERE birth_month IS NOT NULL AND deleted_at IS NULL;
+
+CREATE TABLE core_birthday_guard (
+  person_id TEXT NOT NULL,
+  birth_day INTEGER,
+  birth_month INTEGER
+);
+
+CREATE TRIGGER core_birthday_guard_check
+BEFORE INSERT ON core_birthday_guard
+BEGIN
+  SELECT CASE
+    WHEN NOT EXISTS (SELECT 1 FROM core_person p WHERE p.id = NEW.person_id
+        AND p.birth_day IS NEW.birth_day AND p.birth_month IS NEW.birth_month)
+      THEN RAISE(ABORT, 'core_birthday_changed')
+    ELSE RAISE(IGNORE)
+  END;
+END;

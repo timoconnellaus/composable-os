@@ -1550,6 +1550,13 @@ export interface CorePersonSignalTable {
   bulk: number;
 }
 
+/** Migration 1171: a birthday write's guard (stage 53, ADR 0803); its trigger stores nothing. */
+export interface CoreBirthdayGuardTable {
+  person_id: string;
+  birth_day: number | null;
+  birth_month: number | null;
+}
+
 /** Migration 0650: a guardian's write's guard; its trigger stores nothing. */
 export interface CorePersonLinkGuardTable {
   guardian_id: string;
@@ -3689,6 +3696,7 @@ export interface CoreDatabase {
   core_routine_mail: CoreRoutineMailTable;
   core_value_mark: CoreValueMarkTable;
   core_person_signal: CorePersonSignalTable;
+  core_birthday_guard: CoreBirthdayGuardTable;
   core_recurrence_series: CoreRecurrenceSeriesTable;
   core_recurrence_occurrence: CoreRecurrenceOccurrenceTable;
   core_recurrence_exception: CoreRecurrenceExceptionTable;

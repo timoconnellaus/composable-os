@@ -62,6 +62,8 @@ export function queueSetBirthday(
 ): boolean {
   if (same(before, after)) return false;
   ctx.write(
+    // Written over the value read: a birthday set meanwhile (the member's own) fails this batch.
+    birthdayGuard(ctx, personId, before),
     ctx.db
       .updateTable("core_person")
       .set({
@@ -82,33 +84,75 @@ export function queueSetBirthday(
 }
 
 /**
- * Refuses an AI's change of a birthday the member gave (stage 53: the assistant may not change a
- * birthday a member gave). The member gave it when the current value's mark is the customer's.
- * A person on the staff may change it; an AI may set one the member did not give.
+ * The statement that fails its batch (`core_birthday_changed`, a conflict) unless the Person's
+ * birthday is still `expected`, the value the write was planned from (migration 1171's guard).
  */
-export async function assertMayChangeBirthday(
-  ctx: Pick<HandlerContext, "db" | "actor">,
+export function birthdayGuard(
+  ctx: Pick<HandlerContext, "db">,
+  personId: string,
+  expected: Birthday | null,
+) {
+  return ctx.db.insertInto("core_birthday_guard").values({
+    person_id: personId,
+    birth_day: expected?.day ?? null,
+    birth_month: expected?.month ?? null,
+  });
+}
+
+/** Whether the member gave `current`: the current value's mark is the customer's. */
+async function memberGave(
+  db: HandlerContext["db"],
   personId: string,
   current: Birthday | null,
-): Promise<void> {
-  if (ctx.actor === "human" || current === null) return;
-  const mark = await ctx.db
+): Promise<boolean> {
+  if (current === null) return false;
+  const mark = await db
     .selectFrom("core_value_mark")
     .select(["standing", "value_hash"])
     .where("object_type", "=", "person")
     .where("record_id", "=", personId)
     .where("field", "=", BIRTHDAY_FIELD)
     .executeTakeFirst();
-  if (mark?.standing === "customer" && mark.value_hash === (await valueHash(current))) {
-    throw new ForbiddenError("The member gave this birthday: only a person may change it", {
-      rule: "member_birthday",
-    });
-  }
+  return mark?.standing === "customer" && mark.value_hash === (await valueHash(current));
+}
+
+const memberBirthday = (what: string) =>
+  new ForbiddenError(`The member gave this birthday: only a person may ${what}`, {
+    rule: "member_birthday",
+  });
+
+/**
+ * Refuses an AI's change of a birthday the member gave (stage 53: the assistant may not change a
+ * birthday a member gave). A person on the staff may change it; an AI may set one the member did
+ * not give.
+ */
+export async function assertMayChangeBirthday(
+  ctx: Pick<HandlerContext, "db" | "actor">,
+  personId: string,
+  current: Birthday | null,
+): Promise<void> {
+  if (ctx.actor === "human") return;
+  if (await memberGave(ctx.db, personId, current)) throw memberBirthday("change it");
 }
 
 /** A merge's birthday: the survivor's, unless it has none (stage 53). */
 export function mergedBirthday(survivor: Birthday | null, merged: Birthday | null) {
   return survivor ?? merged;
+}
+
+/**
+ * Refuses an AI's merge that would drop the duplicate's member-given birthday (the survivor's
+ * wins) or carry it to the survivor (the copy would be the AI's): either changes the member's own
+ * word, which only a person may do (the review of PR #431). A merge that leaves it as it was,
+ * the survivor holding the same day, goes on.
+ */
+export async function assertMergeKeepsMemberBirthday(
+  ctx: Pick<HandlerContext, "db" | "actor">,
+  survivor: { id: string; birthday: Birthday | null },
+  merged: { id: string; birthday: Birthday | null },
+): Promise<void> {
+  if (ctx.actor === "human" || same(survivor.birthday, merged.birthday)) return;
+  if (await memberGave(ctx.db, merged.id, merged.birthday)) throw memberBirthday("merge it away");
 }
 
 const isLeap = (year: number) => (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;

@@ -147,7 +147,14 @@ export const personObject = defineObject({
     { name: "description", label: "Description", type: "text", filterable: false, sortable: false },
     // Day and month (stage 53, ADR 0803): set by person.setBirthday and me.birthday.set, in no
     // view, so never filtered, sorted or exported.
-    { name: "birthday", label: "Birthday", type: "json", filterable: false, sortable: false },
+    {
+      name: "birthday",
+      label: "Birthday",
+      type: "json",
+      filterable: false,
+      sortable: false,
+      setWith: "person.setBirthday",
+    },
     {
       name: "createdAt",
       label: "Created",

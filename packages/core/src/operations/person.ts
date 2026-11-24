@@ -24,7 +24,9 @@ import { personObject } from "../fields/person.ts";
 import { newId } from "../ids.ts";
 import {
   assertMayChangeBirthday,
+  assertMergeKeepsMemberBirthday,
   BIRTHDAY_FIELD,
+  birthdayGuard,
   birthdayOf,
   birthdaySchema,
   mergedBirthday,
@@ -568,10 +570,19 @@ export const personGet = defineOperation({
 
 // --- Updating ---------------------------------------------------------------------------------
 
-const personUpdateInput = z.object({ id: personId, ...personWritableFields });
+const personUpdateInput = z.object({
+  id: personId,
+  ...personWritableFields,
+  // A birthday is set with person.setBirthday (stage 53): refused here, never silently dropped.
+  birthday: z
+    .unknown()
+    .optional()
+    .refine((value) => value === undefined, "Set a birthday with person.setBirthday")
+    .describe("Not set here: use person.setBirthday"),
+});
 
 /** What `updatePerson` changes: person.update's input without the id. */
-export type PersonChanges = Omit<z.output<typeof personUpdateInput>, "id"> & {
+export type PersonChanges = Omit<z.output<typeof personUpdateInput>, "id" | "birthday"> & {
   /**
    * The primary phone number alone (a customer's `me.update`): replaces the primary phone's
    * number, keeping the others; null removes it. Ignored when `phones` is given.
@@ -702,7 +713,7 @@ export const personUpdate = defineOperation({
   risk: "write",
   mcp: { curated: true },
   async handler(input, ctx) {
-    const { id, ...changes } = input;
+    const { id, birthday: _refused, ...changes } = input;
     await updatePerson(ctx, id, changes);
     return ctx.afterCommit(() => requirePerson(ctx, input.id));
   },
@@ -1152,8 +1163,14 @@ export const personMerge = defineOperation({
     }
     if (after.ownerId) await assertUserExists(ctx.db, after.ownerId);
     // A birthday: the survivor's, unless it has none (stage 53, ADR 0803).
+    await assertMergeKeepsMemberBirthday(ctx, survivor, merged);
     after.birthday = mergedBirthday(survivor.birthday, merged.birthday);
     const birthdayMoved = after.birthday !== survivor.birthday;
+    // Both birthdays as read: one set meanwhile fails the merge (a conflict), never lost.
+    ctx.write(
+      birthdayGuard(ctx, survivor.id, survivor.birthday),
+      birthdayGuard(ctx, merged.id, merged.birthday),
+    );
     // Customer accounts move to the survivor; refused while both people have an active one.
     await queueMergeCustomers(ctx, survivor.id, merged.id, [
       ...new Set([...survivor.emails, ...merged.emails].map((e) => e.email)),

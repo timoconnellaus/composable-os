@@ -35,10 +35,17 @@ member said.
 - **An AI may not change a birthday the member gave.** `person.setBirthday` refuses any actor
   but a person when the current value's mark is the member's (`customer`) for that value. Once a
   person on the staff has set it, or when none is recorded, an AI's write goes through the usual
-  gate.
+  gate. `person.merge` holds to the same rule (after the review of PR #431): an AI's merge that
+  would drop the duplicate's member-given birthday, or carry it to the survivor (where the copy's
+  mark would be the AI's), is refused; only a person merges it.
+- **A write over the value it read.** Every birthday write (`person.setBirthday`,
+  `me.birthday.set`, a merge) carries a guard row (`core_birthday_guard`, migration 1171) holding
+  the birthday it was planned from; the batch fails as a conflict (`core_birthday_changed`) when
+  the birthday changed meanwhile, so the member's own, set while an AI's write was on its way, is
+  never overwritten unseen.
 - **Kept out of bulk paths.** No `rec_*` view has the columns, so no export, list filter, saved
-  view or dashboard reads a birthday; `person.update`, `person.updateMany` and imports do not set
-  it.
+  view or dashboard reads a birthday; `person.updateMany` and imports do not set it, and
+  `person.update` refuses it, naming `person.setBirthday` (as `record.update` does).
 - **Merge and erase.** A merge keeps the survivor's birthday unless it has none, then takes the
   duplicate's with the duplicate's mark (a copy keeps whoever gave it). Erase deletes it with the
   Person's row and its marks.

@@ -50,6 +50,8 @@ export interface FieldDefinition {
   options?: ExtensionFieldOptions;
   /** Computed (formula) or system-maintained: never written by record operations. */
   readOnly?: boolean;
+  /** Core fields: the operation that changes it, when not `<object>.update` (a birthday's). */
+  setWith?: string;
   required?: boolean;
   description?: string;
 }
