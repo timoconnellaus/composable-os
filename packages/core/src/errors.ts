@@ -217,8 +217,9 @@ export function toOperationError(error: unknown): OperationError {
       reason: "subscription_stale",
     });
   }
-  // A second hold of one person's free trial on a plan (migration 0531, ADR 0489): another start
-  // took it a moment before. Nothing of this start was recorded; starting again gives that page.
+  // A second hold of one person's free trial on a plan (migration 0531, ADR 0489; or of a Person
+  // sharing a folded address with them, migration 0955, ADR 0692): another start took it a
+  // moment before. Nothing of this start was recorded; starting again gives that page.
   if (message.includes("core_subscription_trial_taken")) {
     return new ConflictError(
       "A checkout with this free trial was opened at the same moment. Start again to get it.",
@@ -226,8 +227,12 @@ export function toOperationError(error: unknown): OperationError {
     );
   }
   // A second hold of something sold once per Person (migration 0581, ADR 0512): another order for
-  // it was started a moment before. Nothing of this one was recorded.
-  if (message.includes("UNIQUE constraint failed: core_sellable_once")) {
+  // it was started a moment before, for the Person or one sharing a folded address with them
+  // (migration 0955, ADR 0692). Nothing of this one was recorded.
+  if (
+    message.includes("UNIQUE constraint failed: core_sellable_once") ||
+    message.includes("core_sellable_once_folded")
+  ) {
     return new ConflictError(
       "This is one per person, and another order for it was started at the same moment",
       { rule: "once_per_person", reason: "held" },

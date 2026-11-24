@@ -222,7 +222,9 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   // host.
   "subscriptions/cooling-off.ts": [4, WHY.host],
   // `hasBought` (ADR 0458, #221): whose address it is, before anyone has signed in (no caller).
-  "customers/accounts.ts": [2, WHY.org],
+  // `samePeople` (ADR 0692): the ids of the People sharing a folded address with one the host
+  // already has, for its own one-per-Person checks; never answered to a caller.
+  "customers/accounts.ts": [5, WHY.org],
   // The subscription access source's `covers: "all"`: only live ids (stage 32a review, ADR 0488).
   "subscriptions/access.ts": [1, WHY.access],
   // Continuation offers (stage 32a step 4, ADR 0491): the import matching an address to its one
