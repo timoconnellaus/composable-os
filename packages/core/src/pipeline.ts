@@ -2137,6 +2137,15 @@ async function invokeOutside<O extends AnyOperation>(
   if (ctx.tool && (!tool?.audiences.includes(principal.kind) || isHostTool(op))) {
     throw new UnknownOperationError(op.name);
   }
+  // An operation kept to a person (`actors`, as on the staff path) is not a tool's to call for
+  // its caller: a pack's tool is the extension acting (ending subscriptions, deleting an account).
+  if (ctx.tool && op.actors && !op.actors.includes("extension")) {
+    throw new ForbiddenError(`${op.name} is for a person, not a pack's tool`, {
+      operation: op.name,
+      rule: "actor",
+      allowed: op.actors,
+    });
+  }
   // Counted once the call is one this caller may make at all, and before any work is done for it.
   // A tool's own calls are part of the one call that started the tool.
   if (!ctx.tool) await checkOutsideRateLimit(ctx.rateLimit, principal, op.name);

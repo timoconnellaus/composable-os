@@ -1819,41 +1819,233 @@
     },
     {
       "name": "me.deleteAccount",
-      "description": "Delete your customer account and ask for your personal data to be erased. You are signed out everywhere at once and can no longer sign in. Staff then erase your data, or tell you by email why some of it must be kept, by the due date returned. Asking again changes nothing.",
+      "description": "Delete your customer account and ask for your personal data to be erased. Without `confirm` it changes nothing and says what will happen: each subscription you pay ends when the period already paid for ends (nothing refunded, nothing more charged), or with a cooling off you asked for; one that cannot be ended that way (an end date set later, or waiting for payment, unpaid or paused) is left for staff and may charge until they end it. Your unpaid orders are cancelled, and your bookings, tickets and other records stay for staff to decide when they erase your data. With `confirm: true` and the preview's `expect` it does that: you are signed out everywhere at once and can no longer sign in, and staff erase your data, or tell you by email why some of it must be kept, by the due date returned. A preview that changed meanwhile is a conflict: ask for it again.",
       "risk": "write",
       "audiences": ["customer"],
       "kind": "mutation",
       "input": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "confirm": {
+            "default": false,
+            "description": "Delete now, as the preview said",
+            "type": "boolean"
+          },
+          "expect": {
+            "description": "The preview's `expect`; required with confirm: true",
+            "type": "string",
+            "maxLength": 64
+          }
+        },
         "additionalProperties": false
       },
       "output": {
-        "type": "object",
-        "properties": {
-          "disabled": {
-            "type": "boolean",
-            "const": true
-          },
-          "sessionsEnded": {
-            "type": "number"
-          },
-          "eraseRequest": {
+        "oneOf": [
+          {
             "type": "object",
             "properties": {
-              "requestedAt": {
-                "type": "string"
+              "subscriptions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "amount": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "currency": {
+                      "type": "string"
+                    },
+                    "interval": {
+                      "type": "string"
+                    },
+                    "endsAt": {
+                      "description": "When it stops: the end of the period paid for, or an earlier end already set",
+                      "type": ["string", "null"]
+                    },
+                    "ending": {
+                      "type": "string",
+                      "enum": ["period_end", "already", "cooling_off"],
+                      "description": "period_end: it will be set to end then. already: it already ends by then. cooling_off: the cooling off you asked for ends it, with its refund"
+                    }
+                  },
+                  "required": ["id", "title", "amount", "currency", "interval", "endsAt", "ending"],
+                  "additionalProperties": false
+                },
+                "description": "Subscriptions you pay that will end when the period already paid for ends. Nothing is refunded and nothing more is charged"
               },
-              "dueAt": {
-                "type": "string"
+              "orders": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "total": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "currency": {
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "lines": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": ["id", "total", "currency", "createdAt", "lines"],
+                  "additionalProperties": false
+                },
+                "description": "Your unpaid orders, which will be cancelled"
+              },
+              "leftForStaff": {
+                "type": "object",
+                "properties": {
+                  "records": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "object": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "count": {
+                          "type": "number"
+                        }
+                      },
+                      "required": ["object", "label", "count"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "partPaidOrders": {
+                    "type": "number"
+                  },
+                  "moreUnpaidOrders": {
+                    "type": "number"
+                  },
+                  "subscriptions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "state": {
+                          "type": "string"
+                        },
+                        "why": {
+                          "type": "string",
+                          "enum": ["end_date_later", "state", "more"]
+                        }
+                      },
+                      "required": ["id", "title", "state", "why"],
+                      "additionalProperties": false
+                    },
+                    "description": "Subscriptions you pay that deleting does not end, which may still charge until staff end them: an end date set after the period paid for (end_date_later), waiting for a first payment, unpaid or paused (state), or more than one deletion ends (more)"
+                  },
+                  "dependantsWithoutGuardian": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "records",
+                  "partPaidOrders",
+                  "moreUnpaidOrders",
+                  "subscriptions",
+                  "dependantsWithoutGuardian"
+                ],
+                "additionalProperties": false,
+                "description": "What stays for staff to decide when they erase your data: your bookings, tickets and other open records by kind, part-paid orders, and children with no other guardian"
+              },
+              "eraseDueAt": {
+                "type": "string",
+                "description": "When staff must have erased your data or said why not"
+              },
+              "expect": {
+                "type": "string",
+                "description": "Pass back with confirm: true to do exactly this"
+              },
+              "deleted": {
+                "type": "boolean",
+                "const": false
               }
             },
-            "required": ["requestedAt", "dueAt"],
+            "required": [
+              "subscriptions",
+              "orders",
+              "leftForStaff",
+              "eraseDueAt",
+              "expect",
+              "deleted"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "deleted": {
+                "type": "boolean",
+                "const": true
+              },
+              "disabled": {
+                "type": "boolean",
+                "const": true
+              },
+              "sessionsEnded": {
+                "type": "number"
+              },
+              "subscriptionsEnding": {
+                "type": "number"
+              },
+              "ordersCancelled": {
+                "type": "number"
+              },
+              "eraseRequest": {
+                "type": "object",
+                "properties": {
+                  "requestedAt": {
+                    "type": "string"
+                  },
+                  "dueAt": {
+                    "type": "string"
+                  }
+                },
+                "required": ["requestedAt", "dueAt"],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "deleted",
+              "disabled",
+              "sessionsEnded",
+              "subscriptionsEnding",
+              "ordersCancelled",
+              "eraseRequest"
+            ],
             "additionalProperties": false
           }
-        },
-        "required": ["disabled", "sessionsEnded", "eraseRequest"],
-        "additionalProperties": false
+        ]
       },
       "invalidates": [
         "me.agreements.due",

@@ -125,12 +125,12 @@ export type Operations = {
     output: { codes: ({ givenName: (string) | (null); own: boolean; payload: string; secret: (string) | (null) })[]; refreshAt: string; algorithm: { kind: "totp"; hash: "SHA-1"; periodSeconds: number; digits: number } };
   };
   /**
-   * Delete your customer account and ask for your personal data to be erased. You are signed out everywhere at once and can no longer sign in. Staff then erase your data, or tell you by email why some of it must be kept, by the due date returned. Asking again changes nothing.
+   * Delete your customer account and ask for your personal data to be erased. Without `confirm` it changes nothing and says what will happen: each subscription you pay ends when the period already paid for ends (nothing refunded, nothing more charged), or with a cooling off you asked for; one that cannot be ended that way (an end date set later, or waiting for payment, unpaid or paused) is left for staff and may charge until they end it. Your unpaid orders are cancelled, and your bookings, tickets and other records stay for staff to decide when they erase your data. With `confirm: true` and the preview's `expect` it does that: you are signed out everywhere at once and can no longer sign in, and staff erase your data, or tell you by email why some of it must be kept, by the due date returned. A preview that changed meanwhile is a conflict: ask for it again.
    */
   "me.deleteAccount": {
     kind: "mutation";
-    input: Record<string, never>;
-    output: { disabled: true; sessionsEnded: number; eraseRequest: { requestedAt: string; dueAt: string } };
+    input: { confirm?: boolean; expect?: string };
+    output: ({ subscriptions: ({ id: string; title: string; amount: number; currency: string; interval: string; endsAt: (string) | (null); ending: ("period_end") | ("already") | ("cooling_off") })[]; orders: { id: string; total: number; currency: string; createdAt: string; lines: string[] }[]; leftForStaff: { records: { object: string; label: string; count: number }[]; partPaidOrders: number; moreUnpaidOrders: number; subscriptions: ({ id: string; title: string; state: string; why: ("end_date_later") | ("state") | ("more") })[]; dependantsWithoutGuardian: number }; eraseDueAt: string; expect: string; deleted: false }) | ({ deleted: true; disabled: true; sessionsEnded: number; subscriptionsEnding: number; ordersCancelled: number; eraseRequest: { requestedAt: string; dueAt: string } });
   };
   /**
    * Your family, as a signed-in customer: yourself, the dependants (children) the gym has linked to you, whom you may book for, and the guardians linked to you, each with their name and id. Only live links; the gym's staff make and end them. Read-only.

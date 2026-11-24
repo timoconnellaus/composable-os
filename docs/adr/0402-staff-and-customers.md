@@ -107,3 +107,10 @@ The public may now create one kind of record besides a purchase: a submission to
 through the host's one door, `intake.submit` (`toolOnly`, `hostInternal`, reached only from the
 form's own pack's tool). The host writes it as its own change after its checks; nothing else opens
 a write to the public ([ADR 0720](0720-the-intake-door-one-public-write.md)).
+
+## Note, 2026-11-24 (ADR 0713)
+Deleting an account now says first what it will do: `me.deleteAccount` without `confirm` is a
+preview, and with `confirm: true` and the preview's `expect` it also sets each subscription the
+member pays to end at its period's end (nothing refunded) and cancels their unpaid orders before
+disabling the account and opening the request. Admins' notice says what was left for staff
+([ADR 0713](0713-deleting-an-account-the-preview-and-its-consequences.md)).
