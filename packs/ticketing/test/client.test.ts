@@ -17,6 +17,7 @@ import {
   pickerLines,
   pickerMax,
   type TicketingClient,
+  ticketStateLabel,
   type UseMutation,
   type UseQuery,
   type UseState,
@@ -88,6 +89,20 @@ describe("plain functions", () => {
     expect(formatMoney(9000, "JPY")).toBe("9000 JPY");
     expect(minorFromInput("4500", "JPY")).toBe(4500);
     expect(formatPrice(45.5, "AUD")).toBe("45.50 AUD");
+  });
+
+  it("formats an amount without a currency, and a currency it does not know with two places", () => {
+    expect(formatMoney(1250, null)).toBe("12.50");
+    expect(formatPrice(null, "AUD")).toBe("");
+    expect(formatPrice(4500, "JPY")).toBe("4500 JPY");
+    expect(formatMoney(1250, "not a currency")).toBe("12.50 not a currency");
+  });
+
+  it("names a ticket's state as its holder reads it", () => {
+    expect(ticketStateLabel("valid")).toBe("Valid");
+    expect(ticketStateLabel("void")).toBe("Cancelled");
+    expect(ticketStateLabel("other")).toBe("other");
+    expect(ticketStateLabel(null)).toBeNull();
   });
 
   it("shows an event's times in its own zone, and says the zone when it is not the viewer's (ADR 0460)", () => {

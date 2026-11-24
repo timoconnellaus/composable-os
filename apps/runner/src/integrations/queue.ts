@@ -208,6 +208,33 @@ export class HostQueue extends RpcTarget {
   }
 
   /**
+   * Who is calling, as a name for a gatekeeper to keep this caller's idempotency keys apart by
+   * (ADR 0574, issue #286): a person, the assistant or an agent job for one person; an MCP app for
+   * one person and one connected app; an automation by its id; extension code by its extension;
+   * the host's own purposes each as one. Stable across a caller's retries (an automation's runs
+   * and their retries share it). The answer comes from how the host opened the queue, never from
+   * the caller.
+   */
+  async callerKeySpace(): Promise<string> {
+    if (this.#caller.kind === "system") return `system:${this.#caller.purpose}`;
+    const { actor, userId, origin } = this.#caller.caller;
+    // JSON, so no id can run into the next.
+    if (actor === "automation") {
+      return JSON.stringify([
+        actor,
+        origin.automationId ?? null,
+        origin.extensionId ?? null,
+        userId,
+      ]);
+    }
+    if (actor === "extension") return JSON.stringify([actor, origin.extensionId ?? null, userId]);
+    if (actor === "mcp") {
+      return JSON.stringify([actor, userId, origin.sessionId ?? origin.clientId ?? null]);
+    }
+    return JSON.stringify([actor, userId]);
+  }
+
+  /**
    * Whether this session is the host's own agreements mail (ADR 0645): the copy of a signed
    * agreement. Email-send attaches the signed PDF only for such a session; the answer comes from
    * how the host opened the queue, never from anything the caller sent.

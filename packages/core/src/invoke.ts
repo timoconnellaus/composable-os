@@ -73,11 +73,14 @@ export function createInvoker<Ops extends readonly AnyOperation[]>(
 }
 
 /**
- * Whether the caller's audience may call `op` directly (a `toolOnly` one only from a tool): for
+ * Whether the caller's audience may call `op` directly (a `toolOnly` one only from a tool, a
+ * `deskOnly` one only from the desk origin's handler): for
  * staff, a staff-only tool-only operation (ADR 0621) only from an extension tool's run, as the
  * pipeline refuses it otherwise.
  */
 function callableBy(op: AnyOperation, ctx: AnyInvocationContext): boolean {
+  // The desk origin's calls are its own handler's (ADR 0649): no surface lists or resolves them.
+  if (op.deskOnly) return Boolean(ctx.principal && ctx.desk?.request);
   if (ctx.principal) return allowsAudience(op, ctx.principal) && !(op.toolOnly && !ctx.tool);
   if (op.toolOnly && !isOpenOutside(op) && !(ctx.actor === "extension" && ctx.extension?.tool)) {
     return false;

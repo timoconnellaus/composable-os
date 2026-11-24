@@ -24,6 +24,7 @@ import {
   visibleObject,
   visibleSource,
 } from "./index.ts";
+import { readStock, type StockView } from "./stock.ts";
 
 /** A record as its caller may see it: only the fields their scope allows. */
 export interface VisibleRecord {
@@ -250,6 +251,8 @@ export interface RecordAccess {
   count(object: string, filter?: Filter): Promise<{ count: number; capped: boolean }>;
   /** A record's places: the real numbers for staff, what the object's `show` allows otherwise. */
   capacity(object: string, id: string): Promise<CapacityView>;
+  /** A record's stock: the numbers for staff, what the object's `show` allows otherwise. */
+  stock(object: string, id: string): Promise<StockView>;
   /**
    * Creates a record that belongs to the caller, or to a live dependant of theirs named by
    * `forPersonId` where the object lets guardians write (ADR 0540). Customers only.
@@ -291,6 +294,7 @@ export function recordAccess(
     get: (object, id) => getVisible(reader, object, id),
     count: (object, filter) => countVisible(reader, object, filter),
     capacity: (object, id) => readCapacity(reader, object, id),
+    stock: (object, id) => readStock(reader, object, id),
     create: writes?.create ?? none,
     update: writes?.update ?? none,
     family: () => familyOf(reader),

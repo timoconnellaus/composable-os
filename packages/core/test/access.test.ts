@@ -7,6 +7,7 @@
 // (isolation-suite.ts).
 
 import { env } from "cloudflare:workers";
+import { createCrmDb } from "@composable-os/db";
 import {
   type DocumentSchema,
   documentMediaReach,
@@ -371,6 +372,39 @@ describe("holders read the holders' parts; no one else does (criteria 4, 5 and 7
     expect(await ask(world.stranger)).toEqual([]);
     expect(await ask(world.voided)).toEqual([]);
     expect(await ask(world.lapsed)).toEqual([]);
+  });
+
+  it("asks of a page of 200 ids in statements that each bind well under D1's 100 variables", async () => {
+    const course = getObject(COURSE);
+    if (!course) throw new Error("no course");
+    // The local runtime does not enforce D1's limit, so each statement's bound variables are counted.
+    const bound: number[] = [];
+    const counted = new Proxy(env.DB, {
+      get(target, key) {
+        if (key === "prepare") {
+          return (query: string) => {
+            const statement = target.prepare(query);
+            const bind = statement.bind.bind(statement);
+            statement.bind = (...values: unknown[]) => {
+              bound.push(values.length);
+              return bind(...values);
+            };
+            return statement;
+          };
+        }
+        const value = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const ids = [world.course, ...Array.from({ length: 199 }, (_, i) => `missing_${i}`)];
+    const held = await holdsAccess(
+      { db: createCrmDb(counted).query, principal: world.holder },
+      course,
+      ids,
+    );
+    expect([...held]).toEqual([world.course]);
+    expect(bound.length).toBeGreaterThan(0);
+    expect(Math.max(...bound)).toBeLessThan(20);
   });
 });
 

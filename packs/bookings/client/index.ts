@@ -95,6 +95,16 @@ export type BookingsClient = PackClient<BookingsOperations>;
 
 // --- Plain functions (display only) --------------------------------------------------------------
 
+/** Today's date (YYYY-MM-DD) in `timeZone`, by this device's clock. */
+export function todayIn(timeZone: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
 /** A class's start and end in its own zone ("Tue 3 Mar, 06:00–07:00"), for display. */
 export function classTime(
   klass: { startsAt: string | null; endsAt: string | null; timeZone: string | null },

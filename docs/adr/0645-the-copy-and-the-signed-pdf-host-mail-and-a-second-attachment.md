@@ -202,3 +202,14 @@ link in the database.
 agreement renderer is `agreement.ts` on it, beside a table layout and the invoice and receipt
 renderers. Everything above about the writer still holds for every renderer. The agreement's
 bytes did not change: a golden test pins them.
+
+## Amended 2026-11-24 (issue #286): callers apart, the fallback dropped
+
+- **Callers keep their own keys.** Ordinary callers (a person, MCP, the assistant, automations,
+  extensions) no longer share one class's keys: the host's queue names the caller
+  (`callerKeySpace`) and email-send keeps its keys as `idemc:caller-<hash>:<key>` (ADR 0574,
+  amended the same day). The host's classes are unchanged.
+- **The read of `idem:<key>` is dropped**, as the second amendment said it would be. No release
+  ever carried those keys: they and the fallback came after v0.1.0-beta.11, the last release, so no
+  host has any to find.
+

@@ -13,7 +13,10 @@ import { queueScrubConversations } from "../assistant/erase.ts";
 import { queueEraseMemory } from "../assistant/memory.ts";
 import { queueEraseRoutines } from "../assistant/routines.ts";
 import { emailRef } from "../assistant/scrub.ts";
+import { eraseJourneyStatements } from "../journeys/entries.ts";
+import { queueEraseSignals } from "../journeys/signals.ts";
 import type { HandlerContext } from "../operation.ts";
+import { queueErasePersonCodes } from "../people-codes/people.ts";
 import { chunk, jsonList } from "./common.ts";
 import { drainAllBlobDeletions, writeEraseLog } from "./erase-log.ts";
 import {
@@ -353,6 +356,7 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
   // notifications, integration events and the outbox. All in this batch.
   const subject = {
     object,
+    recordId,
     recordIds,
     terms,
     names: request.names ?? [],
@@ -379,6 +383,15 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
   await queueEraseOrders(ctx, subject);
   // Their passes' and memberships' uses, and the uses they spent (stage 32b, ADR 0494).
   if (subject.object === "person") queueEraseAllowances(ctx, [...recordIds]);
+  // Their journey entries and step log (stage 53, ADR 0800).
+  if (subject.object === "person") {
+    const journeys = eraseJourneyStatements(ctx.db, [...recordIds]);
+    if (journeys.length) ctx.write(...journeys);
+  }
+  // Their journey signals: when they last did each thing (stage 53, ADR 0802).
+  if (subject.object === "person") queueEraseSignals(ctx, [...recordIds]);
+  // Their check-in codes, cards and PIN, and the dependants' codes on their app (stage 51, ADR 0783).
+  if (subject.object === "person") queueErasePersonCodes(ctx, [...recordIds]);
 
   // 3f. The erase log outside D1 (R2), so an erasure can be re-applied after a restore. Written
   // before the commit: if it cannot be written the erase fails and can be retried.
@@ -391,6 +404,15 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
     ctx.db.deleteFrom("core_duplicate_pair").where(
       sql<SqlBool>`(object = ${object} AND (a_id IN ${subjectIds} OR b_id IN ${subjectIds}))
           OR ${mentionsSql(terms, sql`details`)}`,
+    ),
+  );
+
+  // 3h. What imports last wrote (ADR 0470): a key or its stored values naming the subject (an
+  // imported set's person, its notes) go. A re-run then finds no person for those rows.
+  ctx.write(
+    ctx.db.deleteFrom("core_import_key").where(
+      // One search over both columns: the terms are bound once (at most 100 values a statement).
+      sql<SqlBool>`record_id IN ${subjectIds} OR ${mentionsSql(terms, sql`import_key || ' ' || coalesce(written, '')`)}`,
     ),
   );
 

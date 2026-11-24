@@ -90,8 +90,16 @@ const asCustomer = (acc: Account, clock?: () => Date) => ({
   ...(clock ? { clock } : {}),
 });
 
+/** Deletes the account as its customer does: the preview, then the confirm (ADR 0713). */
 async function deleteAccount(acc: Account, clock?: () => Date) {
-  return invokeByName("me.deleteAccount", {}, asCustomer(acc, clock)) as Promise<{
+  const preview = (await invokeByName("me.deleteAccount", {}, asCustomer(acc, clock))) as {
+    expect: string;
+  };
+  return invokeByName(
+    "me.deleteAccount",
+    { confirm: true, expect: preview.expect },
+    asCustomer(acc, clock),
+  ) as Promise<{
     disabled: true;
     sessionsEnded: number;
     eraseRequest: { requestedAt: string; dueAt: string };
@@ -140,8 +148,11 @@ describe("me.deleteAccount (criterion 12)", () => {
     const at = new Date("2030-03-01T10:00:00.000Z");
     const done = await deleteAccount(acc, () => at);
     expect(done).toEqual({
+      deleted: true,
       disabled: true,
       sessionsEnded: 2,
+      subscriptionsEnding: 0,
+      ordersCancelled: 0,
       eraseRequest: { requestedAt: at.toISOString(), dueAt: "2030-03-31T10:00:00.000Z" },
     });
     expect(await accountRow(acc.principal.customerId)).toMatchObject({ status: "disabled" });

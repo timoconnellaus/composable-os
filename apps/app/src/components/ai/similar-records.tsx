@@ -56,14 +56,27 @@ export function HitLink({
   );
 }
 
+/** How often the card looks again while its record is not indexed, and for how many looks. */
+export const SIMILAR_POLL_MS = 5_000;
+export const SIMILAR_POLLS = 12;
+
+/**
+ * Embeddings are written just after each save: look again shortly while not indexed, for a
+ * minute. A record that is never indexed (no text, or its embedding gave up) would otherwise be
+ * asked for every 5 seconds for as long as its page is open (docs/cloudflare-costs.md).
+ */
+export function similarPollInterval(status: string | undefined, looks: number): number | false {
+  return status === "not_indexed" && looks < SIMILAR_POLLS ? SIMILAR_POLL_MS : false;
+}
+
 export function SimilarRecordsCard({ object, id }: { object: string; id: string }) {
   const similar = useOp(
     "record.similar",
     { object, id, limit: 5 },
     {
       staleTime: 30_000,
-      // Embeddings are written just after each save: look again shortly while not indexed.
-      refetchInterval: (query) => (query.state.data?.status === "not_indexed" ? 5_000 : false),
+      refetchInterval: (query) =>
+        similarPollInterval(query.state.data?.status, query.state.dataUpdateCount),
     },
   );
   const data = similar.data;

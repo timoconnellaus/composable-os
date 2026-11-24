@@ -20,12 +20,11 @@ import { toast } from "sonner";
 import { EmptyState, ErrorState } from "#/components/empty-state";
 import { HrefLink } from "#/components/href-link";
 import { VirtualFeed } from "#/components/layout/infinite";
-import { useStageMutation } from "#/lib/automation-ops";
 import { formatDateTime } from "#/lib/format";
-import { errorMessage } from "#/lib/query";
+import { errorMessage, useOpMutation } from "#/lib/query";
 import { recordHref } from "#/lib/schema";
 import { type RunData, useRun, useRuns } from "./hooks.ts";
-import { compactRelative, formatMs, RUN_STATUS_LABELS, runLabel } from "./model.ts";
+import { compactRelative, formatMs, RUN_STATUS_LABELS, runLabel, stepsOf } from "./model.ts";
 import { RunOutcome } from "./parts.tsx";
 
 const ALL = "all";
@@ -138,12 +137,6 @@ function RunRow({ run, onOpen }: { run: RunData; onOpen: () => void }) {
   );
 }
 
-function stepsOf(run: RunData): RunStepRecord[] {
-  return run.steps.filter(
-    (s): s is RunStepRecord => Boolean(s) && typeof s === "object" && "name" in (s as object),
-  );
-}
-
 function errorText(error: unknown): string | null {
   if (!error) return null;
   if (typeof error === "string") return error;
@@ -172,9 +165,9 @@ export function RunDetail({
   onOpenRun: (runId: string) => void;
 }) {
   const query = useRun(runId);
-  const retry = useStageMutation("automation.retry", { invalidates: ["automation."] });
-  const replay = useStageMutation("automation.replay", { invalidates: ["automation."] });
-  const cancel = useStageMutation("automation.cancel", { invalidates: ["automation."] });
+  const retry = useOpMutation("automation.retry", { invalidates: ["automation."] });
+  const replay = useOpMutation("automation.replay", { invalidates: ["automation."] });
+  const cancel = useOpMutation("automation.cancel", { invalidates: ["automation."] });
   const run = query.data?.items[0];
 
   async function act(kind: "retry" | "replay" | "cancel") {

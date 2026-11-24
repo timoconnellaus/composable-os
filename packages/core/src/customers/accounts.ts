@@ -6,7 +6,7 @@
 // creates a Person only through `person.create`, so uniqueness, search, assignment and audit hold
 // as for any Person.
 import type { CoreDatabase, CrmDb, CustomerLinkState } from "@composable-os/db";
-import type { Compilable, Kysely } from "kysely";
+import { type Compilable, type Kysely, type RawBuilder, sql } from "kysely";
 import { z } from "zod";
 import { checkPerson } from "../duplicates/check.ts";
 import { ConfigError, ConflictError, NotFoundError, ValidationError } from "../errors.ts";
@@ -22,6 +22,46 @@ const emailSchema = z.string().trim().toLowerCase().pipe(z.email().max(320));
 export function normaliseCustomerEmail(email: string): string | null {
   const parsed = emailSchema.safeParse(email);
   return parsed.success ? parsed.data : null;
+}
+
+/**
+ * The address's folded form (ADR 0692, #225): normalised, with its `+tag` dropped, on every
+ * domain (`a+1@x` and `a+2@x` are both `a@x`); dots are not folded. Only for deciding "the same
+ * person" in one-per-Person rules, never an identity. `foldedSql` is the same rule in SQL.
+ */
+export function foldAddress(email: string): string | null {
+  const address = normaliseCustomerEmail(email);
+  if (!address) return null;
+  const plus = address.indexOf("+");
+  const at = address.indexOf("@");
+  return plus > 0 && plus < at ? address.slice(0, plus) + address.slice(at) : address;
+}
+
+/**
+ * The folded form of a stored address column (`core_person_emails.email`, already lower-cased
+ * and trimmed), as migration 0955 indexes it: it must stay the same expression as the index's,
+ * or the index does not serve it. Literals only, nothing bound.
+ */
+export function foldedSql(column: string): RawBuilder<string> {
+  const e = sql.ref(column);
+  return sql<string>`(CASE WHEN instr(${e}, '+') > 1 AND instr(${e}, '+') < instr(${e}, '@') THEN substr(${e}, 1, instr(${e}, '+') - 1) || substr(${e}, instr(${e}, '@')) ELSE ${e} END)`;
+}
+
+/**
+ * The People one-per-Person rules count as `personId` (ADR 0692): the Person, and every Person
+ * with an address whose folded form is one of theirs (one in the Trash too: their trial and intro
+ * offer still count while they could be restored). A subquery of `person_id`, for
+ * `where(column, "in", …)`: two bound values, however many People share the address.
+ */
+export function samePeople(db: Kysely<CoreDatabase>, personId: string) {
+  return db
+    .selectFrom("core_person_emails as mine")
+    .innerJoin("core_person_emails as theirs", (join) =>
+      join.on(sql<boolean>`${foldedSql("theirs.email")} = ${foldedSql("mine.email")}`),
+    )
+    .select("theirs.person_id")
+    .where("mine.person_id", "=", personId)
+    .union(db.selectFrom("core_person").select("id as person_id").where("id", "=", personId));
 }
 
 export interface CustomerAccount {

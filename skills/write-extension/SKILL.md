@@ -132,6 +132,14 @@ extension declares it; it never implements it. Each behaviour the platform has i
   `on` cannot change (a move to another class is a new record) and it cannot go to Trash. Never
   count places or claim them in a tool. See `ClaimsSpec` in `packages/sdk/src/capacity.ts` and
   ADR 0501.
+- **`stock`** on a sellable object: its records are things counted on a shelf (a variant of an
+  item), and the host keeps how many there are from a ledger nobody edits. Declare
+  `stock: { reorderAt?: "<number field>", reorderQty?: "<number field>", show?, lowAt? }`; not
+  beside a `capacity`, and with no `sellable.deposit`, `recurring` or `moves`. Records get
+  read-only `onHand`, `held` and `available`, so don't declare fields with those names, and never
+  write a count field of your own: an order's line holds and sells in its batch, and staff record
+  opening stock and corrections with `stock.opening` and `stock.adjust`. A shipped pack only. See
+  `StockSpec` in `packages/sdk/src/stock.ts` and ADR 0680.
 - **`unique`** on an object: `unique: [{ fields: [<up to 4 fields>], states?: [<states>] }]`, no
   two live records in those states share the fields (one active booking per Person per class).
   The database refuses the second, however many write at once (`conflict`, `rule: "unique"`).
@@ -156,7 +164,9 @@ extension declares it; it never implements it. Each behaviour the platform has i
   creates in any other). `states.create.closed: "<boolean path>"` closes creates to everyone but
   the host (a class that is cancelled). `states.follows: { relation, when: { <parent state>:
   <state> }, from }` moves your live records when the record they point to moves (a class
-  cancelled cancels its bookings, in its batch; ADR 0507). A request is resolved by the clock for
+  cancelled cancels its bookings, in its batch; ADR 0507). The parent may be an object of an
+  extension you `requires`, named in full; an object drawing places from a pool cannot follow it,
+  and one call moves at most 80 records (ADR 0841). A request is resolved by the clock for
   every caller but a person. Never decide "late" or
   "too early" in a tool. See `StateMove` and `StatesSpec` in `packages/sdk/src/states.ts`, ADRs
   0503 and 0505, and Bookings: `packs/bookings/index.ts`.
@@ -180,7 +190,11 @@ extension declares it; it never implements it. Each behaviour the platform has i
   duty shift): `staffed: { who: { field: "<user field>" } | { field: "<relation to another of
   your objects>", account: "<its user field>" }, starts, ends, zone?, kind: "<relation: what
   qualifications are for>", live: [<states in which it is a shift>], place?, pattern?: { link,
-  who } }`. The host refuses one staff account on two overlapping shifts in the database, across
+  who }, claimBefore?, claimAfter?, account?: "required", private? }`. `claimBefore`/`claimAfter`
+  (`{ field: "<kind>.<number field>" }`, minutes; the kind one of your objects) are a buffer the
+  claim keeps free around the shift (ADR 0760); `account: "required"` refuses a shift whose profile
+  holds no account; `private: true` when the title can name a client: the roster shows the kind
+  instead to other staff, and it is never offered (ADR 0761). The host refuses one staff account on two overlapping shifts in the database, across
   every staffed object, for every writer (`conflict`, `rule: "double_booked"`), and answers each
   write with its warnings (away, not qualified, nobody on it). Shipped packs and the org's own
   extensions only. Never check for a clash, or work out who may take a shift, in a tool. See
@@ -201,6 +215,23 @@ extension declares it; it never implements it. Each behaviour the platform has i
   things with that flag set are claimed (a room marked "one booking at a time"; a shared floor
   never). Never check whether a room is free in a tool. See `OccupiesSpec` in
   `packages/sdk/src/occupies.ts` and ADR 0765.
+- **`intake`** when the public or customers send answers (a form, its submissions, a record a
+  form may also make): `intake: { role: "form", questions: "<document field with
+  QUESTIONS_SCHEMA, in publishable.content>", answeredBy: "<select: public, customers, links,
+  staff>", openIn: [<states>], anonymous?, destination?, opensAt?, closesAt?, dailyCap?, notify? }`
+  on a publishable form object, with `answeredBy`, `anonymous` and `destination` in its
+  `publishable.content` (they are read from the version answered); `{ role: "submission", form: "<relation to it>", version,
+  answers: "<document field with ANSWERS_SCHEMA>", person, certainty: "<select: account, link,
+  staff, address>", spam: "<a state the host creates it in>", via?, rating? }` on its submission
+  (never with `customer`, `public` or `signedIn`); `{ role: "destination", person, fields: [<what
+  a form may fill>], source? }` on a record another pack's form may make. The host's one door,
+  `intake.submit` (tool-only: your tool calls it for your own form, with `intake.open` first for
+  the public's shown-time token), checks the form is open to the caller, Turnstile, the honeypot,
+  the fill time, the caps and the answers, and makes the submission, the Person (empty fields
+  only) and any destination record itself. Never create a submission or check spam in a tool: only the door creates one, and a
+  submission's form, version, answers, certainty, via and rating are the host's on every path.
+  Shipped packs and the org's own extensions only. See `IntakeSpec` in
+  `packages/sdk/src/intake.ts` and ADRs 0720 to 0722 and 0725.
 - **`sellable`** on an object: its records can be bought (ticket types, passes, products). Only
   an object that declares it can go on an order, and the host reads its price and rules from the
   record: `sellable: { price: "<currency field>", saleWindow?: { from?, until? }, maxPerOrder?,
@@ -217,7 +248,10 @@ extension declares it; it never implements it. Each behaviour the platform has i
   declares `onePerPerson: "<boolean field>"`: while true on a record, one per Person across the
   object's records with it on, bought signed in, held from the order's start (ADR 0512). A line
   that grants holds at most the record's `maxPerOrder` (10 when unset) and an order at most 100
-  grants. Only a pack or
+  grants. Say what kind of sale it is in the finance reports with `finance: { category: { key,
+  label }, earned }` (ADR 0792): `earned` is `at_sale` (the default), `over_period` (a plan's
+  paid period, only with `recurring`), `per_use` (a grant that holds uses, a pass) or `at_date`
+  with `at: "<date field or relation.field>"` (an event's start). One key, one label. Only a pack or
   the org's own extension (its client repo) may declare `sellable`: one written in the workspace
   is refused, since selling to the public is a reviewed change. Never create tickets or check a
   sale window in a tool or an automation. See `SellableSpec` in `packages/sdk/src/sellable.ts`
@@ -353,8 +387,11 @@ extension declares it; it never implements it. Each behaviour the platform has i
   the host makes it when the provider first reports the subscription running and moves it with
   every verified event, its `until` when it stops giving. It is not the `recurring` behaviour
   above. See Memberships' `plan` (ADR 0510).
-- **An extension built on another** declares `requires: ["<id>"]` (Courses requires Programs): the
-  host refuses to install it until that one is installed and on.
+- **An extension built on another** declares `requires: ["<id>"]` (Courses requires Programs and
+  Content): the host refuses to install it until that one is installed and on, and `cos deploy`
+  installs a required pack the product does not list. Require a pack whose blocks yours need too
+  (Courses' player draws text lessons with Content's rich text, and its block.json `dependsOn`
+  names that block).
 
 ### Roles
 
@@ -402,6 +439,19 @@ as that prop; with `nav` too it is also in the navigation, opened without a reco
 the pack's hooks as the prop named for the pack and nothing else, so a screen whose block needs
 other props gets a small wrapper export that works them out (Bookings' `FrontDesk` around `Desk`).
 A runtime extension declaring `screens` is refused. See Bookings and Rostering: `screens`.
+
+### Journey signals (shipped packs only)
+
+A **shipped pack** may name the moments about a Person that a journey can start or stop on
+(`journeySignals`, `JourneySignalSpec` in `journey-signals.ts`, ADR 0802): `journeySignals: {
+attended: { label: "Class attended", object: "booking", enters: ["attended"] } }`. A signal is a
+record of one of the pack's objects created (no `enters`), or entering one of its states;
+`from: [...]` counts only a move out of those states, and `created: false` leaves out a record
+created straight into one. `person` is the relation to one person it is about, by default the
+object's customer field. Declare what a business would follow up on ("membership ended", "trial
+ended", "class attended"), not every state. Never record one in a tool or a hook: the host records
+the last time each Person had each, in the write's batch, for every writer. A runtime extension
+declaring `journeySignals` is refused. See Memberships, Bookings and Ticketing: `journeySignals`.
 
 ## The rules
 

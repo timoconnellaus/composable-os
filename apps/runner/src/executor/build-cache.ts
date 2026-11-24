@@ -26,7 +26,7 @@ export function workspaceStub(env: BuildEnv): DurableObjectStub<ExtensionWorkspa
 }
 
 /** The checker's Dynamic Worker: reused across checks, so it has a stable id. */
-export function checkerWorker(loader: WorkerLoader): WorkerStub {
+function checkerWorker(loader: WorkerLoader): WorkerStub {
   return loader.get(checkerWorkerId(), () => ({
     compatibilityDate: "2026-10-01",
     // The compiler bundle was built for nodejs_compat (scripts/bundle.mjs sets process.browser).

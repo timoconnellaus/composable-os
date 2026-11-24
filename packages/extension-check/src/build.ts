@@ -8,6 +8,7 @@
 import type { SourceIssue } from "@composable-os/core";
 import { OLD_OPS_SPECIFIER, OPS_MODULE, OPS_SPECIFIER } from "@composable-os/sdk";
 import { transform } from "sucrase";
+import { resolveOwnImport } from "./resolve.ts";
 
 export const SDK_SPECIFIER = "cos-sdk";
 export const MAX_FILES = 100;
@@ -25,37 +26,6 @@ const BARE_IMPORT_RE = /(?<!["'`])(\bimport\s*)(["'])([^"'\n]+)\2/g;
 /** Removes comments so they cannot hide `import(` (strings are left alone; fail-closed). */
 function stripComments(code: string): string {
   return code.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:\\])\/\/.*$/gm, "$1");
-}
-
-function normalise(path: string): string | null {
-  const parts: string[] = [];
-  for (const part of path.split("/")) {
-    if (part === "" || part === ".") continue;
-    if (part === "..") {
-      if (!parts.length) return null;
-      parts.pop();
-    } else parts.push(part);
-  }
-  return parts.join("/");
-}
-
-function dirOf(path: string): string {
-  const i = path.lastIndexOf("/");
-  return i === -1 ? "" : path.slice(0, i);
-}
-
-/** `./tools` or `./tools.ts` from `index.ts` → `tools.ts` (when that file exists). */
-function resolveRelative(
-  from: string,
-  specifier: string,
-  files: Record<string, string>,
-): string | null {
-  const base = normalise(`${dirOf(from)}/${specifier}`);
-  if (base === null) return null;
-  for (const candidate of [base, `${base}.ts`, `${base}.js`, `${base}/index.ts`]) {
-    if (Object.hasOwn(files, candidate) && SOURCE_RE.test(candidate)) return candidate;
-  }
-  return null;
 }
 
 const jsName = (path: string) => path.replace(/\.ts$/, ".js");
@@ -119,7 +89,7 @@ export function buildExtension(files: Record<string, string>): BuildResult {
     const rewrite = (_match: string, head: string, quote: string, specifier: string) => {
       if (specifier === "@composable-os/sdk") return `${head}${quote}${SDK_SPECIFIER}${quote}`;
       if (specifier.startsWith("./") || specifier.startsWith("../")) {
-        const target = resolveRelative(path, specifier, files);
+        const target = resolveOwnImport(path, specifier, (p) => Object.hasOwn(files, p));
         if (!target) {
           issues.push({
             code: "import",

@@ -580,3 +580,20 @@ business during setup.
   first client's desk; the admin on the gym's actual tablet; a real cash-up run by the gym's staff
   for a week.
 - **Stage 47 at tablet width** is not yet tried; the admin's shell may need layout work.
+
+## Status
+
+- **Step 4a** (the gatekeeper's in-person payments and fake readers; branch
+  `feat/stage-50-in-person-payments`; ADR 0774, no migration). Built in
+  `packages/gatekeeper-payments/src/`: `registerReader`, `removeReader` and `listReaders` on
+  `PaymentProvider` and the session (register and remove are the actions
+  `payments.reader.register` and `.remove`, never auto-approvable); `presentPayment` and
+  `cancelPresented`; the host-only rule on every reader call; in core, both reader actions always
+  reviewed and approved only by a human admin (`READER_KINDS`, `approval.ts`, after the PR's
+  review); the `reader` event; Stripe's
+  Terminal calls and the mapping of `payment_intent.succeeded` (card-present only) and
+  `terminal.reader.action_failed`; fake readers in the fake ledger with a page each (Tap card,
+  Decline, Cancel) delivering signed events. Tests: `__tests__/readers.test.ts` (fake, through the
+  facet and routes), `__tests__/stripe.test.ts` (Stripe, by injected fetch) and core's
+  `test/reader-approval.test.ts`. Left: the host's
+  half (step 4b), and the real provider in test mode (step 10).

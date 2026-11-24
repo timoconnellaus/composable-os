@@ -130,6 +130,12 @@ export default defineConfig(({ command }) => ({
                       service: "cos-gatekeeper-accounting-fake",
                       entrypoint: "GatekeeperVendor",
                     },
+                    // Stage 65: the fake booking system (packages/gatekeeper-booking-system).
+                    {
+                      binding: "GATEKEEPER_BOOKING_SYSTEM_FAKE",
+                      service: "cos-gatekeeper-booking-system-fake",
+                      entrypoint: "GatekeeperVendor",
+                    },
                   ],
                 }),
               },
@@ -186,6 +192,23 @@ export default defineConfig(({ command }) => ({
                       {
                         name: "FAKE_ACCOUNTING_GATEKEEPER",
                         class_name: "FakeAccountingGatekeeper",
+                      },
+                    ],
+                  },
+                }),
+              },
+              {
+                // Development only, never released (its config is wrangler.fake.jsonc).
+                configPath: "../../packages/gatekeeper-booking-system/wrangler.fake.jsonc",
+                devOnly: true,
+                config: (site) => ({
+                  durable_objects: {
+                    bindings: [
+                      ...(site.durable_objects?.bindings ?? []),
+                      // Reached only as a facet; declared so the local runtime registers the class.
+                      {
+                        name: "FAKE_BOOKING_SYSTEM_GATEKEEPER",
+                        class_name: "FakeBookingSystemGatekeeper",
                       },
                     ],
                   },

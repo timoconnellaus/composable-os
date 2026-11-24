@@ -145,7 +145,6 @@ function SizeCard() {
   async function onRefresh() {
     try {
       await refresh.mutateAsync({});
-      await status.refetch();
     } catch (error) {
       toast.error(errorMessage(error));
     }
@@ -258,7 +257,6 @@ function useRetentionForm(enabled: boolean) {
     try {
       await update.mutateAsync({ years: choice.years });
       toast.success(`Audit history is now kept ${choice.title.toLowerCase()}`);
-      await retention.refetch();
     } catch (error) {
       toast.error(errorMessage(error));
     } finally {
@@ -391,7 +389,6 @@ function EraseRequestsCard() {
       }
       setDeclining(null);
       setReason("");
-      await requests.refetch();
     } catch (error) {
       toast.error(errorMessage(error));
     }

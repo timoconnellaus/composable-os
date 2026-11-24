@@ -7,7 +7,7 @@
 // What follows (code): a confident yes lets the run go on to the next gate. Anything else stops
 // it with no message and no model call. When the judge is off or cannot answer the check counts
 // as not passed: a routine that relies on a check never sends unfiltered (fails closed).
-import { choice } from "../questions.ts";
+import { choice, clip } from "../questions.ts";
 import { failureOf, type Judge, type JudgeUnavailableReason } from "../types.ts";
 
 export const ROUTINE_GATE_PLACEMENT = "routine.gate" as const;
@@ -39,11 +39,6 @@ export interface RoutineGateState {
   check: string;
   event: string;
 }
-
-const clip = (text: string, max: number) => {
-  const flat = text.replace(/\s+/g, " ").trim();
-  return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`;
-};
 
 export function routineGateState(input: { check: string; event: string }): RoutineGateState {
   return { check: clip(input.check, 300), event: clip(input.event, 3_000) };

@@ -12,6 +12,7 @@ import {
   Section,
   TextInput,
 } from "@composable-os/gatekeeper-configurator-ui";
+import { isEndpointId } from "../validate.js";
 import type {
   EndpointConfiguratorRpc,
   EndpointConfiguratorValues,
@@ -32,13 +33,11 @@ const SCHEME_OPTIONS = [
   },
 ];
 
-const ENDPOINT_ID = /^[a-z0-9-]{3,64}$/;
-
 export default {
   initial: { scheme: "hmac-sha256" },
 
   isReady({ values }) {
-    return typeof values.endpointId === "string" && ENDPOINT_ID.test(values.endpointId);
+    return isEndpointId(values.endpointId);
   },
 
   resourceUrl({ values, ui }) {
@@ -95,7 +94,7 @@ export default {
             onChange={(secret) => setValues({ secret })}
           />
         </Field>
-        <Button onClick={save} disabled={!ENDPOINT_ID.test(values.endpointId ?? "")}>
+        <Button onClick={save} disabled={!isEndpointId(values.endpointId)}>
           Save endpoint
         </Button>
         {values.issuedSecret ? (

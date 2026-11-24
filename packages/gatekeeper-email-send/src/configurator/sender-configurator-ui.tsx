@@ -9,7 +9,7 @@ import {
   Section,
   TextInput,
 } from "@composable-os/gatekeeper-configurator-ui";
-import { isEmailAddress } from "../address";
+import { domainOf, isEmailAddress } from "../address";
 import { senderFromUrl, senderUrl } from "../sender";
 import type { SenderConfiguratorRpc, SenderConfiguratorValues } from "./sender-configurator-types";
 
@@ -27,9 +27,8 @@ export default {
   async resourceUrl({ values, ui }) {
     const address = cleanAddress(values.address);
     if (!isEmailAddress(address)) throw new Error("Enter a sender address, like crm@example.com.");
-    const domain = address.slice(address.lastIndexOf("@") + 1).toLowerCase();
     const allowed = await ui.allowedDomains();
-    if (!allowed.includes(domain)) {
+    if (!allowed.includes(domainOf(address))) {
       throw new Error(
         allowed.length === 0
           ? "No sender domains are configured yet. Ask an administrator to set them up."

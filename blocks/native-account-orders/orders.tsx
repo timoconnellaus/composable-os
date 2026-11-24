@@ -64,7 +64,7 @@ function OrdersPage({
   openUrl?: (url: string) => void;
 }) {
   const page = account.useOrders(cursor);
-  if (page.isPending) return <ActivityIndicator />;
+  if (page.isPending) return <ActivityIndicator color={theme.color.muted} />;
   if (page.error || !page.data) {
     return (
       <Text style={styles.body} accessibilityRole="alert">

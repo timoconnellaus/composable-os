@@ -18,6 +18,7 @@
 import { MEDIA_FILE_MAX_BYTES, maxBytesOf, sniffUpload } from "@composable-os/sdk";
 import { type Kysely, type SqlBool, sql } from "kysely";
 import { z } from "zod";
+import { sha256Hex } from "../digest.ts";
 import { NotFoundError, OperationError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import { mediaObject } from "../fields/media.ts";
@@ -171,7 +172,7 @@ export const mediaUpload = defineOperation({
       );
     }
     // The same file again (a re-run of an import): the item the library has, nothing stored.
-    const sha256 = await bytesSha256(bytes);
+    const sha256 = await sha256Hex(new Uint8Array(bytes));
     const same = await liveByHash(ctx, [sha256]);
     if (same[0]) return { ...out(same[0]), existing: true };
     if (!ctx.media) throw new OperationError("config", "Media storage is not configured here");
@@ -212,12 +213,6 @@ export const mediaUpload = defineOperation({
     return { ...result, existing: false };
   },
 });
-
-/** SHA-256 of a file, hex. */
-async function bytesSha256(bytes: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
 
 /** The live items with these hashes, through the seam's staff table door. */
 async function liveByHash(

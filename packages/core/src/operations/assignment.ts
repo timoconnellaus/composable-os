@@ -455,7 +455,7 @@ export const assignmentApply = defineOperation({
     // The object's view holds live records only, so a deleted record reads as missing.
     const { rows } = await sql<Record<string, unknown>>`
       SELECT * FROM ${visibleSource(ctx, object)}
-      WHERE id IN ${sql`(SELECT value FROM json_each(${JSON.stringify(ids)}))`}
+      WHERE id IN ${jsonList(ids)}
     `.execute(ctx.db);
     const byId = new Map(rows.map((row) => [String(row.id), row]));
     const missing = ids.filter((id) => !byId.has(id));

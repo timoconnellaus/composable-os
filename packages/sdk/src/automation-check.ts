@@ -4,6 +4,7 @@
 // to add, the step name that is repeated.
 import {
   type AutomationManifest,
+  type Duration,
   durationMs,
   MAX_MOMENT_MINUTES,
   type Recipient,
@@ -596,7 +597,7 @@ export function checkAutomation(
 
 function safeDuration(duration: number | string): number | null {
   try {
-    return durationMs(duration as never);
+    return durationMs(duration as Duration);
   } catch {
     return null;
   }

@@ -9,6 +9,7 @@
 // - It is bound to the challenge and to the redirect address it was sent to, which must be one
 //   the deployment lists (NATIVE_REDIRECT_URIS).
 import type { CrmDb } from "@composable-os/db";
+import { base64url } from "../digest.ts";
 import { ForbiddenError } from "../errors.ts";
 import { tokenHash } from "./tokens.ts";
 
@@ -55,13 +56,6 @@ export function nativeRedirectAllowed(allowed: readonly string[], redirectUri: s
       return false;
     }
   });
-}
-
-function base64url(bytes: Uint8Array): string {
-  return btoa(String.fromCharCode(...bytes))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
 }
 
 /** The S256 challenge of a verifier (RFC 7636). */

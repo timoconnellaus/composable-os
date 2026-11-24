@@ -92,7 +92,7 @@ export async function startRun(env: RunEnv, params: AutomationRunParams): Promis
             id: params.record.id,
             data: record?.data ?? null,
             // The SDK reads it for `{record}` in notification titles.
-            ...({ title: record?.title ?? null } as object),
+            title: record?.title ?? null,
           },
         }
       : {}),
@@ -349,20 +349,21 @@ export async function markWaiting(
   ]);
 }
 
-/** Marks a wait over: the run continues. */
+/** Marks a wait over: the run continues (one batch: the status, and a held step's reason). */
 export async function markRunning(env: RunEnv, runId: string): Promise<void> {
-  await createCrmDb(env.DB)
-    .query.updateTable("core_automation_runs")
-    .set({ status: "running", wait_until: null, updated_at: new Date().toISOString() })
-    .where("id", "=", runId)
-    .where("status", "in", ["waiting", "review"])
-    .execute();
-  await createCrmDb(env.DB)
-    .query.updateTable("core_automation_runs")
-    .set({ status_reason: null })
-    .where("id", "=", runId)
-    .where("status_reason", "like", `${HELD_REASON}%`)
-    .execute();
+  const crm = createCrmDb(env.DB);
+  await crm.batch([
+    crm.query
+      .updateTable("core_automation_runs")
+      .set({ status: "running", wait_until: null, updated_at: new Date().toISOString() })
+      .where("id", "=", runId)
+      .where("status", "in", ["waiting", "review"]),
+    crm.query
+      .updateTable("core_automation_runs")
+      .set({ status_reason: null })
+      .where("id", "=", runId)
+      .where("status_reason", "like", `${HELD_REASON}%`),
+  ]);
 }
 
 /** A run waiting because a gatekeeper's queue was full (ADR 0573): its status reason. */

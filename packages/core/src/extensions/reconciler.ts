@@ -26,6 +26,7 @@ import { releaseAllClaimsStatements } from "../capacity/claimants.ts";
 import { backfillCounters, dropCapacityStatements } from "../capacity/records.ts";
 import { FIELD_TYPE_REGISTRY } from "../fields/field-types.ts";
 import { getObject } from "../fields/index.ts";
+import type { ObjectSignal } from "../fields/types.ts";
 import {
   createOccupiesTriggers,
   dropOccupiesTriggers,
@@ -47,6 +48,7 @@ import {
   resyncClaims,
   type StaffedTables,
 } from "../staffing/sql.ts";
+import { backfillStockCounters } from "../stock/index.ts";
 import { orgReader, visibleSource } from "../visibility/index.ts";
 import {
   columnName,
@@ -110,6 +112,7 @@ export interface ReconcileIssue {
     | "grants_conflict"
     | "staffed_conflict"
     | "occupies_conflict"
+    | "stock_change"
     | "restricted_change";
   path: string;
   message: string;
@@ -127,6 +130,25 @@ export interface ReconcilePlan {
   issues: ReconcileIssue[];
   /** The schema state after the plan. */
   next: SchemaState;
+}
+
+/**
+ * The journey signals `manifest` declares on its object `local` (stage 53, ADR 0802), with their
+ * ids and Person fields resolved, for the object's definition. Only a shipped extension's reach
+ * here: the check refuses them in a runtime one (install.ts).
+ */
+function objectSignals(manifest: ExtensionManifest, local: string): { signals?: ObjectSignal[] } {
+  const object = manifest.objects[local];
+  const signals = Object.entries(manifest.journeySignals ?? {})
+    .filter(([, signal]) => signal.object === local)
+    .map(([name, signal]) => ({
+      id: `${manifest.id}.${name}`,
+      person: signal.person ?? object?.customer?.field ?? "",
+      ...(signal.enters ? { enters: [...signal.enters] } : {}),
+      ...(signal.from ? { from: [...signal.from] } : {}),
+      ...(signal.created === false ? { created: false } : {}),
+    }));
+  return signals.length ? { signals } : {};
 }
 
 function clone(state: SchemaState): SchemaState {
@@ -269,6 +291,26 @@ async function dataIssues(
           code: "unique_conflict",
           path: `objects.${object.localName}.unique.${index.rule}`,
           message: `${object.name}: live records already share these values: ${clash.map((r) => r.ids).join("; ")}. Change or delete them first.`,
+        });
+      }
+    }
+    // Stock added to or taken from an object that has records (ADR 0680, the review of #370):
+    // its counters would keep what they held before (a capacity's places, NULL being unlimited,
+    // or units sold with no `sold` row), so on hand would no longer be the ledger's sum and the
+    // database could sell without limit. Refused while any record or counter exists.
+    if (Boolean(before.definition.stock) !== Boolean(object.definition.stock)) {
+      const rows = await sql<{
+        n: number;
+      }>`SELECT (SELECT count(*) FROM (SELECT 1 FROM ${sql.table(object.tableName)} LIMIT 1)) + (SELECT count(*) FROM (SELECT 1 FROM core_capacity WHERE object_type = ${object.name} LIMIT 1)) AS n`.execute(
+        db,
+      );
+      if (Number(rows.rows[0]?.n ?? 0) > 0) {
+        issues.push({
+          code: "stock_change",
+          path: `objects.${object.localName}.stock`,
+          message: object.definition.stock
+            ? `${object.name} already has records: stock can only be declared on a new object, whose records start with nothing on hand. Declare a new object for the things you count.`
+            : `${object.name} has records with stock: stock cannot be taken off it, or orders being paid would sell with no record in the ledger.`,
         });
       }
     }
@@ -446,15 +488,19 @@ export function planFromState(
       ...(object.stages ? { stages: object.stages } : {}),
       ...(object.capacity ? { capacity: object.capacity } : {}),
       ...(object.sellable ? { sellable: object.sellable } : {}),
+      ...(object.stock ? { stock: object.stock } : {}),
       ...(object.allowance ? { allowance: object.allowance } : {}),
       ...(object.agreements ? { agreements: object.agreements } : {}),
       ...(object.healthNotes ? { healthNotes: object.healthNotes } : {}),
       ...(object.states ? { states: object.states } : {}),
+      ...objectSignals(manifest, local),
       ...(object.claims ? { claims: object.claims } : {}),
       ...(object.unique?.length ? { unique: object.unique } : {}),
       ...(object.recurring ? { recurring: object.recurring } : {}),
       ...(object.staffed ? { staffed: object.staffed } : {}),
+      ...(object.workedOn ? { workedOn: object.workedOn } : {}),
       ...(object.occupies ? { occupies: object.occupies } : {}),
+      ...(object.intake ? { intake: object.intake } : {}),
       ...(object.checklists ? { checklists: object.checklists } : {}),
       ...(object.owner ? { owner: object.owner } : {}),
       ...(object.customer ? { customer: object.customer } : {}),
@@ -847,6 +893,16 @@ export function planFromState(
         name,
         `CREATE INDEX IF NOT EXISTS ${name} ON ${ident(object.tableName)} (${ident(staffed.who)}) WHERE deleted_at IS NULL`,
       );
+      // Its kind, when the claim reads minutes from it (ADR 0760): the kind's triggers find its
+      // shifts by it.
+      const kind = staffed.margins?.kind;
+      const byKind = kind ? ident(`${object.tableName}__${kind}`) : null;
+      if (kind && byKind && byKind !== name) {
+        wanted.set(
+          byKind,
+          `CREATE INDEX IF NOT EXISTS ${byKind} ON ${ident(object.tableName)} (${ident(kind)}) WHERE deleted_at IS NULL`,
+        );
+      }
     }
     // What a claim on a thing is found by (ADR 0765): its thing, and its margins' records.
     const occupies = occupiesTables(next, object);
@@ -891,10 +947,34 @@ export function planFromState(
       ...capacityBackfill(next, ext, now),
       ...allowanceBackfill(next, ext, orgZone, now),
       ...exceptionCleanup(next, ext),
+      ...signalCleanup(current, next, ext),
     ],
     changes,
     issues,
   );
+}
+
+/**
+ * The recorded journey signals (stage 53, ADR 0802) of signals this extension no longer
+ * declares: when each Person last did something it stopped naming is not kept.
+ */
+function signalCleanup(current: SchemaState, next: SchemaState, ext: string): CompiledQuery[] {
+  const ids = (state: SchemaState) =>
+    new Set(
+      state.objects
+        .filter((o) => o.extensionId === ext)
+        .flatMap((o) => (o.definition.signals ?? []).map((signal) => signal.id)),
+    );
+  const kept = ids(next);
+  const gone = [...ids(current)].filter((id) => !kept.has(id));
+  return gone.length
+    ? [
+        CompiledQuery.raw(
+          "DELETE FROM core_person_signal WHERE signal IN (SELECT value FROM json_each(?))",
+          [JSON.stringify(gone)],
+        ),
+      ]
+    : [];
 }
 
 function finishPlan(
@@ -1043,8 +1123,9 @@ export async function planDropHidden(
     }
   }
   // Counters and claims of a dropped object go with its table (ADR 0431).
+  // A stock object's counters and claims too (ADR 0680); its ledger stays, append-only.
   const capacityDrops = droppedObjects
-    .filter((o) => o.definition.capacity)
+    .filter((o) => o.definition.capacity || o.definition.stock)
     .flatMap((o) => dropCapacityStatements(o.name));
   // A dropped claimant gives back the places its records held and took (ADR 0501), and a
   // dropped series or generated object takes its recurring bookkeeping with it (ADR 0500).
@@ -1071,6 +1152,10 @@ export async function planDropHidden(
       const to = o.definition.sellable?.recurring?.grants?.object;
       return to ? [to.includes(".") ? to : `${o.extensionId}.${to}`] : [];
     }),
+  );
+  // When each Person last had its journey signals (stage 53, ADR 0802) goes with its table.
+  const signalDrops = droppedObjects.map((o) =>
+    CompiledQuery.raw("DELETE FROM core_person_signal WHERE object_type = ?", [o.name]),
   );
   const grantDrops = droppedObjects.flatMap((o) => [
     ...(granted.has(o.name)
@@ -1106,6 +1191,7 @@ export async function planDropHidden(
       ...claimantDrops,
       ...recurringDrops,
       ...allowanceDrops,
+      ...signalDrops,
       ...grantDrops,
       ...restrictedDrops,
     ],
@@ -1140,6 +1226,10 @@ function exceptionCleanup(state: SchemaState, ext: string): CompiledQuery[] {
 }
 
 function capacityBackfill(state: SchemaState, ext: string, now: string): CompiledQuery[] {
+  // Stock objects' records each get a counter with nothing on hand (ADR 0680).
+  const stocked = state.objects
+    .filter((o) => o.extensionId === ext && o.status === "active" && o.definition.stock)
+    .map((o) => backfillStockCounters({ object: o.name, table: ident(o.tableName), now }));
   const objects = state.objects.filter(
     (o) => o.extensionId === ext && o.status === "active" && o.definition.capacity,
   );
@@ -1147,7 +1237,7 @@ function capacityBackfill(state: SchemaState, ext: string, now: string): Compile
     ...objects.filter((o) => !o.definition.capacity?.pool),
     ...objects.filter((o) => o.definition.capacity?.pool),
   ];
-  const statements: CompiledQuery[] = [];
+  const statements: CompiledQuery[] = [...stocked];
   for (const object of ordered) {
     const capacity = object.definition.capacity;
     if (!capacity) continue;
@@ -1300,7 +1390,25 @@ function staffedTables(state: SchemaState, object: ObjectState): StaffedTables |
     if (!holder || !column) return null;
     account = { table: holder.tableName, column };
   }
-  const kind = field(object, declared.kind)?.columnName;
+  const kindField = field(object, declared.kind);
+  const kind = kindField?.columnName;
+  // The minutes kept free around a shift (ADR 0760): number fields of its kind, this extension's.
+  let margins: StaffedTables["margins"];
+  if (declared.claimBefore || declared.claimAfter) {
+    const target = state.objects.find(
+      (o) => o.name === kindField?.definition.to && o.status === "active",
+    );
+    const minutes = (path: { field: string } | undefined) => {
+      const local = path?.field.split(".")[1];
+      return (target && local ? field(target, local)?.columnName : undefined) ?? undefined;
+    };
+    const before = minutes(declared.claimBefore);
+    const after = minutes(declared.claimAfter);
+    if (!kind || !target || (declared.claimBefore && !before) || (declared.claimAfter && !after)) {
+      return null;
+    }
+    margins = { kind, table: target.tableName, before, after };
+  }
   return {
     object: object.name,
     table: object.tableName,
@@ -1311,6 +1419,8 @@ function staffedTables(state: SchemaState, object: ObjectState): StaffedTables |
     state: stateColumn,
     live: [...declared.live],
     ...(kind ? { kind } : {}),
+    ...(margins ? { margins } : {}),
+    ...(declared.account === "required" && account ? { required: true } : {}),
   };
 }
 
@@ -1320,7 +1430,10 @@ function staffedColumnsExist(current: SchemaState, t: StaffedTables): boolean {
     current.fields.some((f) => f.tableName === table && f.columnName === column);
   return (
     [t.who, t.starts, t.ends, t.state].every((c) => has(t.table, c)) &&
-    (!t.account || has(t.account.table, t.account.column))
+    (!t.account || has(t.account.table, t.account.column)) &&
+    (!t.margins ||
+      (has(t.table, t.margins.kind) &&
+        [t.margins.before, t.margins.after].every((c) => !c || has(t.margins?.table ?? "", c))))
   );
 }
 

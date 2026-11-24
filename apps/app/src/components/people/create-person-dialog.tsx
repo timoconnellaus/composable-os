@@ -21,15 +21,9 @@ import { DuplicateWarnings, useDuplicateCheck } from "../duplicates/duplicate-wa
 export interface CreatePersonDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Open the new record after creating it (default true). */
-  openAfterCreate?: boolean;
 }
 
-export function CreatePersonDialog({
-  open,
-  onOpenChange,
-  openAfterCreate = true,
-}: CreatePersonDialogProps) {
+export function CreatePersonDialog({ open, onOpenChange }: CreatePersonDialogProps) {
   const navigate = useNavigate();
   const create = useOpMutation("person.create");
   const [error, setError] = useState<string | null>(null);
@@ -75,7 +69,7 @@ export function CreatePersonDialog({
       });
       onOpenChange(false);
       toast.success(`Created ${person.displayName}`);
-      if (openAfterCreate) navigate({ to: "/people/$id", params: { id: person.id } });
+      navigate({ to: "/people/$id", params: { id: person.id } });
     } catch (caught) {
       setError(errorMessage(caught));
     }

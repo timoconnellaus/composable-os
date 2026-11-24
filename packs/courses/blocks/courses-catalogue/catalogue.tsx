@@ -2,12 +2,10 @@
 // with their prices. What is published and what it costs are the host's (`useCatalogue`); this
 // lays them out.
 import type { CoursesHooks } from "@composable-os/pack-courses/client";
-import { formatPrice, mediaPath } from "@composable-os/pack-courses/client";
+import { formatPrice, levelName, mediaPath } from "@composable-os/pack-courses/client";
 import { useState } from "react";
 import { Button } from "../ui-button/button.tsx";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui-card/card.tsx";
-
-const LEVELS = { 1: "Beginner", 2: "Intermediate", 3: "Advanced" } as const;
 
 export function CourseCatalogue({
   courses,
@@ -61,7 +59,7 @@ export function CourseCatalogue({
                 <CardTitle>{course.title}</CardTitle>
                 <CardDescription>
                   {[
-                    course.level ? LEVELS[course.level as 1 | 2 | 3] : null,
+                    levelName(course.level),
                     `${course.lessons} lessons`,
                     formatPrice(course.price, data.currency),
                   ]

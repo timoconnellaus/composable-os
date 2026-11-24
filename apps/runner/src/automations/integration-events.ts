@@ -82,7 +82,7 @@ async function withoutPrivate(
 ): Promise<IntegrationEventMessage[]> {
   const activityIds = new Set<string>();
   for (const m of messages) {
-    const id = (m.payload as { activityId?: unknown } | null)?.activityId;
+    const id = activityIdOf(m);
     if (m.source === "sync" && typeof id === "string") activityIds.add(id);
   }
   if (!activityIds.size) return messages;
@@ -94,7 +94,10 @@ async function withoutPrivate(
   const shared = new Set(rows.filter((r) => r.private_to === null).map((r) => r.id));
   return messages.filter((m) => {
     if (m.source !== "sync") return true;
-    const id = (m.payload as { activityId?: unknown } | null)?.activityId;
+    const id = activityIdOf(m);
     return typeof id === "string" && shared.has(id);
   });
 }
+
+const activityIdOf = (m: IntegrationEventMessage): unknown =>
+  (m.payload as { activityId?: unknown } | null)?.activityId;

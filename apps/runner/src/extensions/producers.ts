@@ -5,9 +5,8 @@
 //   an argument of each run, so two people's runs on one warm worker can never mix;
 // - the script imports nothing; `ops` is handed to its default export;
 // - there is no network and there are no bindings, and the run host answers only read operations.
-import { transform } from "sucrase";
 import { COMPATIBILITY_DATE, sha256 } from "../executor/worker-code.ts";
-import type { ScriptBuild } from "./code-mode.ts";
+import { type ScriptBuild, transpile } from "./code-mode.ts";
 
 const ENTRY = "entry.js";
 const SCRIPT = "script.js";
@@ -47,20 +46,12 @@ export default class extends WorkerEntrypoint {
 
 /** Transpiles a producer's script (TypeScript allowed). It may import nothing. */
 export function buildProducer(source: string): ScriptBuild {
-  let code: string;
-  try {
-    code = transform(source, {
-      transforms: ["typescript"],
-      disableESTransforms: true,
-      filePath: "script.ts",
-    }).code;
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) };
-  }
-  if (/\bimport\b\s*[("'{*\w]|\brequire\s*\(/.test(code.replace(/`[\s\S]*?`/g, "``"))) {
+  const built = transpile(source);
+  if (!built.ok) return built;
+  if (/\bimport\b\s*[("'{*\w]|\brequire\s*\(/.test(built.script.replace(/`[\s\S]*?`/g, "``"))) {
     return { ok: false, message: "A producer imports nothing; use the ops it is given" };
   }
-  return { ok: true, script: code };
+  return built;
 }
 
 /**

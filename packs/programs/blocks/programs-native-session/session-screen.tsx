@@ -17,10 +17,11 @@ import {
   type SetTarget,
 } from "@composable-os/pack-programs/client";
 import { useEffect, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { Button } from "../native-base/button.tsx";
 import { Field } from "../native-base/field.tsx";
 import { Screen } from "../native-base/screen.tsx";
+import { Text } from "../native-base/text.tsx";
 import { theme } from "../native-base/theme.ts";
 
 export function SessionScreen({
@@ -37,6 +38,7 @@ export function SessionScreen({
   const detail = programs.useSession({ sessionId, ...(personId ? { personId } : {}) });
   const mark = programs.useMarkSession();
   const [rest, setRest] = useState<number | null>(null);
+  const [markFailed, setMarkFailed] = useState(false);
   useEffect(() => {
     if (rest === null) return undefined;
     if (rest <= 0) {
@@ -108,10 +110,20 @@ export function SessionScreen({
           busy={mark.isPending}
           disabled={session.state === "done"}
           onPress={async () => {
-            await mark.mutateAsync({ sessionId, state: "done" });
+            setMarkFailed(false);
+            try {
+              await mark.mutateAsync({ sessionId, state: "done" });
+            } catch {
+              setMarkFailed(true);
+            }
             detail.refetch?.();
           }}
         />
+      ) : null}
+      {markFailed ? (
+        <Text tone="danger" accessibilityRole="alert">
+          It was not marked done. Check the connection and try again.
+        </Text>
       ) : null}
     </Screen>
   );
@@ -145,7 +157,11 @@ function NativeItem({
   const levels = item.kind === "levels" ? item.levels : [];
   const level =
     levels.find((l) => l.level === chosen) ?? (levels.length === 1 ? levels[0] : undefined);
-  const list = item.kind === "all" ? item.exercises : level ? levelExercises(level) : [];
+  // Everyone's exercises (beside the levels, if any), then the level's.
+  const list =
+    item.kind === "all"
+      ? item.exercises
+      : [...(item.exercises ?? []), ...(level ? levelExercises(level) : [])];
   return (
     <View style={styles.item}>
       <Text style={styles.heading}>{item.label}</Text>

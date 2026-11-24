@@ -4,7 +4,7 @@
 // provider's page (`useBuy`); a trailer plays with a token the host signs (`usePlayback`).
 import { agreementBlockedWords } from "@composable-os/client";
 import type { CoursesHooks } from "@composable-os/pack-courses/client";
-import { formatPrice, minutes } from "@composable-os/pack-courses/client";
+import { COURSE, formatPrice, minutes } from "@composable-os/pack-courses/client";
 import { useState } from "react";
 import { Button } from "../ui-button/button.tsx";
 import { Input } from "../ui-input/input.tsx";
@@ -30,7 +30,7 @@ export function CoursePage({
     course?.trailer
       ? {
           media: course.trailer.media,
-          record: { object: "courses.course", id: course.id },
+          record: { object: COURSE, id: course.id },
           field: "trailer",
         }
       : null,
