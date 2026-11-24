@@ -1117,7 +1117,10 @@ cancel and a booking racing it never leave a booking on a cancelled class. Widen
 requires (the host checks the parent's states at install and on every upgrade of either), a child
 that draws no places may follow a pool, the counter guard is queued only for a follower claiming
 places on the parent, any follower made under the move fails it at commit, and one move moves at
-most 100 records across every following object (`FOLLOWERS_MAX`, measured against D1's 1,000). A window may sit on a move
+most 80 records a call, across every following object, every parent the call moves and the
+followers' own cascades (`FOLLOWERS_MAX`, sized from the reads a follower costs against D1's 1,000
+queries; the minute cron's timed moves share one budget a tick), a follower is not restored from
+the Trash onto a parent that moved it, and a runtime extension cannot follow another's record. A window may sit on a move
 staff alone make when it binds staff, and a spender's `movedFrom.state` is entered only inside the
 new record's create ([ADR 0551](adr/0551-staff-bound-windows-and-a-move-only-by-its-new-record.md)).
 A tool may declare `personApproves`: anyone but a person is queued for one, whatever the preset, and

@@ -56,6 +56,7 @@ import { jsonList, restorableUntil, TRASH_RETENTION_DAYS } from "../records/comm
 import {
   FOLLOWERS_MAX,
   type Follower,
+  followerBudget,
   followerIds,
   followerLeftGuard,
   followersOf,
@@ -1262,7 +1263,7 @@ export async function updateRecord(
  * follows it names, each of that object's live records pointing at it (in its `from` states)
  * moves to the state given, as the host, in this write's batch, with everything that move does
  * (its place given back, its use returned, its time freed). A follower may be in another
- * extension that requires this one's (ADR 0841). More than FOLLOWERS_MAX in all refuses the move.
+ * extension that requires this one's (ADR 0841). More than the call's budget refuses the move.
  */
 async function moveFollowers(
   ctx: HandlerContext,
@@ -1293,20 +1294,32 @@ async function moveFollowers(
           .where("state", "in", ["held", "confirmed"])
           .execute()
       : null;
-  // Every follower's records first: the limit is on the whole move, whatever objects follow.
+  // Every follower's records first. The limit is on the whole call (ADR 0841): every object
+  // that follows this one, every other parent the call moves, and the cascades the followers' own
+  // moves start draw on one budget (a timed move's, the minute cron's tick).
+  const budget = followerBudget(ctx);
+  const allowed = budget.left;
   const moves: { follower: Follower; target: string; ids: string[] }[] = [];
   let total = 0;
   for (const follower of following) {
-    const ids = await followerIds(ctx, follower, id, FOLLOWERS_MAX + 1 - total);
+    const ids = await followerIds(ctx, follower, id, allowed + 1 - total);
     total += ids.length;
-    if (total > FOLLOWERS_MAX) {
+    if (total > allowed) {
+      const shared = allowed < FOLLOWERS_MAX;
       throw new ConflictError(
-        `${object.label} has more than ${FOLLOWERS_MAX} records to move with it (${(follower.object.plural ?? "records").toLowerCase()} among them)`,
-        { rule: "follows_too_many", object: follower.object.name },
+        shared
+          ? `${object.label}'s move, with the rest of this change, has more than ${FOLLOWERS_MAX} records to move with it: make the change in smaller parts`
+          : `${object.label} has more than ${FOLLOWERS_MAX} records to move with it (${(follower.object.plural ?? "records").toLowerCase()} among them)`,
+        {
+          rule: "follows_too_many",
+          object: follower.object.name,
+          ...(shared ? { reason: "budget" } : {}),
+        },
       );
     }
     moves.push({ follower, target: follower.when[to] as string, ids });
   }
+  budget.left -= total;
   const givenBack = new Set<string>();
   for (const { follower, target, ids } of moves) {
     const fc = follower.object.claims;
@@ -1355,6 +1368,52 @@ async function moveFollowers(
       .reduce((sum, c) => sum + Number(c.quantity), 0);
     ctx.write(guardStatement("claimed", object.name, id, expected));
   }
+}
+
+/**
+ * A follower back from the Trash (ADR 0841): its parent may have moved while it was there, into a
+ * state that moves it (an event cancelled). It never comes back live onto that, so the restore is
+ * refused naming the parent's state; and a parent that moves before the restore commits fails it
+ * (the `unmoved` guard of migration 0670, as a create judged against `create.closed`). A parent's
+ * move committed first, the restore is refused; a restore committed first, the parent's move reads
+ * it, or fails on the guard against a follower left behind.
+ */
+async function assertFollowerRestorable(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  stored: Record<string, unknown> | undefined,
+): Promise<void> {
+  const f = object.states?.follows;
+  if (!f || !object.states || !stored) return;
+  const relColumn = fieldStorage(object.name, f.relation)?.column;
+  const stateColumn = fieldStorage(object.name, object.states.field)?.column;
+  const parentId = relColumn ? stored[relColumn] : undefined;
+  const to = object.fields.find((x) => x.name === f.relation)?.options?.to;
+  const parent = to ? getObject(to) : undefined;
+  if (typeof parentId !== "string" || !parentId || !parent?.states) return;
+  const state = stateColumn ? stored[stateColumn] : undefined;
+  const row = await loadRecord(ctx, parent, parentId);
+  const parentState = row?.values[parent.states.field];
+  if (
+    row &&
+    typeof parentState === "string" &&
+    Object.hasOwn(f.when, parentState) &&
+    typeof state === "string" &&
+    f.from.includes(state) &&
+    f.when[parentState] !== state
+  ) {
+    throw new ConflictError(
+      `Its ${parent.label.toLowerCase()} is ${parentState} now, so this ${object.label.toLowerCase()} cannot come back from the Trash`,
+      { rule: "follows", reason: "parent_moved", object: parent.name, state: parentState },
+    );
+  }
+  const history = await ctx.db
+    .selectFrom("core_transition_history")
+    .select((eb) => eb.fn.countAll<number>().as("n"))
+    .where("object_type", "=", parent.name)
+    .where("record_id", "=", parentId)
+    .executeTakeFirst();
+  ctx.write(guardStatement("unmoved", parent.name, parentId, Number(history?.n ?? 0)));
 }
 
 /**
@@ -1642,6 +1701,8 @@ export const recordRestore = defineOperation({
         SELECT * FROM ${visibleTable(ctx, object)} WHERE id = ${input.id}
       `.execute(ctx.db);
       await assertHolderTrashRule(ctx, object, input.id, stored.rows[0]?.[stateColumn], true);
+      // Never back live onto a parent that moved it meanwhile (ADR 0841).
+      await assertFollowerRestorable(ctx, object, stored.rows[0]);
     }
     ctx.write(
       CompiledQuery.raw(`UPDATE ${table} SET deleted_at = NULL, deleted_by = NULL WHERE id = ?`, [

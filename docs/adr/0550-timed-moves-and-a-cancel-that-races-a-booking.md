@@ -83,3 +83,6 @@ counter guard taken out it fails every run).
   member). The counter guard is queued only when a follower claims places on the parent, and a
   follower made under the move, of any kind, fails the move at commit
   ([ADR 0841](0841-cascades-widened.md)).
+- **A tick's cascades share one budget** of records they may move (`FOLLOWERS_MAX`, ADR 0841):
+  a move whose followers do not fit what the tick has left stays due, is not counted as failed,
+  and moves on a later tick; a move that fails gives its followers back.

@@ -8,19 +8,41 @@ import type { ExtensionManifest } from "@composable-os/sdk";
 import { type CompiledQuery, type Kysely, sql } from "kysely";
 import { getObject, listObjects } from "../fields/index.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
-import type { HandlerContext } from "../operation.ts";
+import type { FollowerBudget, HandlerContext } from "../operation.ts";
 import { orgReader, visibleSource } from "../visibility/index.ts";
 import { viewColumnOf } from "./columns.ts";
 
 /**
- * The most child records one parent's move moves, across every object that follows it: beyond it
- * the move is refused. Each costs the parent's batch up to 8 statements (a booking paid from a
- * pass: its row, history, search document, its place and its use given back; measured in
- * test/bookings-platform.test.ts and test/cascades-widened.test.ts), so 100 is about 810 of the
- * 1,000 queries a Worker invocation may make on D1. It was 500, which D1 would have refused past
- * about 120 (ADR 0841).
+ * The most child records state cascades move in one call, across every parent the call moves
+ * (an import, a series change) and every cascade a follower's own move starts: beyond it the move
+ * is refused. What counts against D1's 1,000 queries a Worker invocation is each read and each
+ * batch (a batch is one query, whatever it holds), and a follower is moved by the record code,
+ * which reads it, its relations and its rules. Measured (test/cascades-widened.test.ts and
+ * test/bookings-platform.test.ts): a crew shift with its time claim 7 queries, a booking 2, a room
+ * use 1, the parent's own move 8. At FOLLOWER_QUERIES_MAX each, 80 is at most about 810 queries.
+ * It was 500 a parent (ADR 0841).
  */
-export const FOLLOWERS_MAX = 100;
+export const FOLLOWERS_MAX = 80;
+
+/** The most followers `followersOn` counts. */
+const FOLLOWERS_COUNTED = 1_000;
+
+/** The most queries one follower's move may cost: the dearest measured, with room to grow. */
+export const FOLLOWER_QUERIES_MAX = 10;
+
+// A call's own budget, keyed by its write queue: one per call, shared by every helper of it.
+const budgets = new WeakMap<object, FollowerBudget>();
+
+/** What state cascades may still move in this call (ADR 0841). */
+export function followerBudget(ctx: Pick<HandlerContext, "write" | "followerBudget">) {
+  if (ctx.followerBudget) return ctx.followerBudget;
+  let budget = budgets.get(ctx.write);
+  if (!budget) {
+    budget = { left: FOLLOWERS_MAX };
+    budgets.set(ctx.write, budget);
+  }
+  return budget;
+}
 
 export interface Follower {
   object: ObjectDefinition;
@@ -83,7 +105,8 @@ export async function followersOn(
 ): Promise<number> {
   let count = 0;
   for (const follower of followersOf(object)) {
-    count += (await followerIds(ctx, follower, id)).length;
+    // Counted past the limit: a confirm shows how many each cancel would move.
+    count += (await followerIds(ctx, follower, id, FOLLOWERS_COUNTED)).length;
   }
   return count;
 }

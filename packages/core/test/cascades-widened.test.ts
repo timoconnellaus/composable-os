@@ -8,7 +8,7 @@
 // every following object, and what one follower costs the batch. Every clock is injected.
 import { env } from "cloudflare:workers";
 import type { CrmDb } from "@composable-os/db";
-import { validateManifest } from "@composable-os/sdk";
+import { type ExtensionManifest, validateManifest } from "@composable-os/sdk";
 import { beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
@@ -20,11 +20,13 @@ import {
   createRegistry,
   defineOperation,
   invoke,
+  recordRestore,
   requireExtensionObject,
   runTimedMovesDue,
   updateRecordAsHost,
 } from "../src/index.ts";
-import { FOLLOWERS_MAX } from "../src/records/follows.ts";
+import { FOLLOWER_QUERIES_MAX, FOLLOWERS_MAX } from "../src/records/follows.ts";
+import { meterQueries } from "../src/records/query-meter.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
 import { context, createUser, db, unique } from "./helpers.ts";
 
@@ -204,7 +206,41 @@ const hires = (id: string, parent: string) =>
     },
   });
 
+/** A chain: a top record, mids following it, leaves following each mid. */
+const chain = (id: string) => {
+  const object = (label: string, parent?: string) => ({
+    label,
+    plural: `${label}s`,
+    titleField: "name",
+    fields: {
+      name: { type: "text", label: "Name" },
+      ...(parent ? { [parent]: { type: "relation", label: parent, to: `${id}.${parent}` } } : {}),
+      state: { type: "select", label: "State", options: option(["open", "closed"]) },
+    },
+    states: {
+      field: "state",
+      initial: "open",
+      moves: [{ from: "open", to: "closed", by: ["staff", "host"] }],
+      ...(parent
+        ? { follows: { relation: parent, when: { closed: "closed" }, from: ["open"] } }
+        : {}),
+    },
+  });
+  return manifest(id, {
+    // The literals widen to string in the helper; the schema parse checks them.
+    objects: {
+      top: object("Top"),
+      mid: object("Mid", "top"),
+      leaf: object("Leaf", "mid"),
+    } as unknown as ExtensionManifest["objects"],
+  });
+};
+
 const P = extId("evp");
+const C = extId("chn");
+const TOP = `${C}.top`;
+const MID = `${C}.mid`;
+const LEAF = `${C}.leaf`;
 const Q = extId("hrq");
 const EVENT = `${P}.event`;
 const ROLE = `${P}.role`;
@@ -256,8 +292,34 @@ const createThenCancel = defineOperation({
     return { ok: true };
   },
 });
+// A restore and its parent's cancel planned in one batch, in either order: as if the other
+// committed between the first one's reads and its commit.
+const restoreAndCancel = defineOperation({
+  name: "fixture.cwRestoreAndCancel",
+  description: "Test fixture: a follower restored and its parent cancelled, planned together.",
+  input: z.object({
+    id: z.string(),
+    crew: z.string(),
+    order: z.enum(["restoreThenCancel", "cancelThenRestore"]),
+  }),
+  output: z.object({ ok: z.boolean() }),
+  permission: "records:write",
+  risk: "write",
+  async handler(input, ctx) {
+    const restore = () => recordRestore.handler({ object: CREW, id: input.crew }, ctx);
+    const cancel = () => updateRecordAsHost(ctx, EVENT, input.id, { state: "cancelled" });
+    if (input.order === "restoreThenCancel") {
+      await restore();
+      await cancel();
+    } else {
+      await cancel();
+      await restore();
+    }
+    return { ok: true };
+  },
+});
 const fixtures = createInvoker(
-  createRegistry([...coreRegistry.list(), hostMove, createThenCancel]),
+  createRegistry([...coreRegistry.list(), hostMove, createThenCancel, restoreAndCancel]),
 );
 
 async function refused(promise: Promise<unknown>) {
@@ -326,6 +388,7 @@ beforeAll(async () => {
   admin = await createUser("admin");
   await reconcile(events(P));
   await reconcile(hires(Q, P));
+  await reconcile(chain(C));
   roleId = await create(ROLE, { name: "Door" });
   kindId = await create(KIND, { name: "Set-up" });
 }, 60_000);
@@ -436,6 +499,17 @@ describe("the contract (ADR 0841)", () => {
         message: expect.stringContaining(`${USE} follows ${EVENT} into "ended"`),
       }),
     ]);
+    // Written in the workspace, a follower of another extension's record is refused: its moves
+    // would sit in that extension's batch.
+    const runtime = await checkManifest(db.query, Q, hires(Q, P), NOW, {
+      installed: [P],
+      source: "runtime",
+    });
+    expect(runtime.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "outside_audience", path: "objects.use.states.follows" }),
+      ]),
+    );
     // Unchanged, both pass.
     expect((await checkManifest(db.query, P, events(P), NOW)).issues).toEqual([]);
     expect((await checkManifest(db.query, Q, hires(Q, P), NOW, { installed: [P] })).issues).toEqual(
@@ -512,9 +586,42 @@ describe("a pooled event cancelled moves its crew shifts and its room uses (crit
     await invoke("record.delete", { object: CREW, id: trashed.id }, as());
     await update(EVENT, id, { state: "cancelled" });
     expect(await stateOf(CREW, kept.id)).toBe("cancelled");
-    // Restored, it is as it was put in the Trash: the move never read it.
-    await invoke("record.restore", { object: CREW, id: trashed.id }, as());
-    expect(await stateOf(CREW, trashed.id)).toBe("open");
+  });
+});
+
+describe("a follower back from the Trash onto a parent that moved (ADR 0841)", () => {
+  it("is refused, and claims nobody's time", async () => {
+    const id = await event();
+    const shift = await crew(id);
+    await invoke("record.delete", { object: CREW, id: shift.id }, as());
+    await update(EVENT, id, { state: "cancelled" });
+    const out = await refused(invoke("record.restore", { object: CREW, id: shift.id }, as()));
+    expect(out).toMatchObject({
+      code: "conflict",
+      details: { rule: "follows", reason: "parent_moved", state: "cancelled" },
+    });
+    expect(await timeClaims(CREW, [shift.id])).toBe(0);
+    // Onto a parent that has not moved it comes back as it was.
+    const live = await event();
+    const back = await crew(live);
+    await invoke("record.delete", { object: CREW, id: back.id }, as());
+    await invoke("record.restore", { object: CREW, id: back.id }, as());
+    expect(await stateOf(CREW, back.id)).toBe("open");
+    expect(await timeClaims(CREW, [back.id])).toBe(1);
+  });
+
+  it("fails whole when the parent moves under it, whichever is planned first", async () => {
+    for (const order of ["restoreThenCancel", "cancelThenRestore"] as const) {
+      const id = await event();
+      const shift = await crew(id);
+      await invoke("record.delete", { object: CREW, id: shift.id }, as());
+      const out = await refused(
+        fixtures.invoke("fixture.cwRestoreAndCancel", { id, crew: shift.id, order }, as()),
+      );
+      expect(out.code).toBe("conflict");
+      expect(await stateOf(EVENT, id)).toBe("on_sale");
+      expect(await timeClaims(CREW, [shift.id])).toBe(0);
+    }
   });
 });
 
@@ -586,51 +693,112 @@ describe("a parent move refused whole when a child's claim is refused", () => {
   });
 });
 
-describe("the limit and the batch", () => {
-  const batches: number[] = [];
-  const counting: CrmDb = {
-    query: db.query,
-    async batch(statements) {
-      batches.push(statements.length);
-      return db.batch(statements);
-    },
-  };
-
+describe("the limit and what a follower costs (ADR 0841)", () => {
   async function cancelCost(crewCount: number, useCount: number) {
     const id = await event();
     for (let i = 0; i < crewCount; i++) await crew(id);
     for (let i = 0; i < useCount; i++) await create(USE, { name: `Room ${i}`, event: id });
-    batches.length = 0;
+    const meter = meterQueries(db);
     await invoke(
       "record.update",
       { object: EVENT, id, values: { state: "cancelled" } },
-      as(NOW, { db: counting }),
+      as(NOW, { db: meter.db }),
     );
-    return Math.max(...batches);
+    return { queries: meter.queries, statements: meter.batchStatements };
   }
 
-  it("costs the batch a bounded number of statements a follower, under D1's 1,000 at the limit", async () => {
+  it("each follower costs at most FOLLOWER_QUERIES_MAX queries, so a move at the limit fits D1's 1,000", async () => {
     const none = await cancelCost(0, 0);
     const crewOnly = await cancelCost(4, 0);
     const usesOnly = await cancelCost(0, 4);
-    const perCrew = (crewOnly - none) / 4;
-    const perUse = (usesOnly - none) / 4;
-    // Measured: a crew shift's move (its row, its history, its search document, its freed time)
-    // and a room use's; plus one guard each following object. FOLLOWERS_MAX of the dearer one
-    // fits in one invocation with room for the parent's own statements.
+    // D1 counts each read and each batch as one query: the reads are what grows.
+    const perCrew = (crewOnly.queries - none.queries) / 4;
+    const perUse = (usesOnly.queries - none.queries) / 4;
     const per = Math.max(perCrew, perUse);
-    expect(per).toBeLessThanOrEqual(8);
-    expect(none + per * FOLLOWERS_MAX).toBeLessThan(1000);
+    expect(per).toBeLessThanOrEqual(FOLLOWER_QUERIES_MAX);
+    expect(none.queries + FOLLOWER_QUERIES_MAX * FOLLOWERS_MAX).toBeLessThan(850);
+    // The batch itself stays small too.
+    const perStatement = (crewOnly.statements - none.statements) / 4;
+    expect(none.statements + perStatement * FOLLOWERS_MAX).toBeLessThan(1000);
   });
 
   it("counts every following object towards one limit", async () => {
     const id = await event();
-    // Seed just over the limit across two objects, straight into the tables (a fixture's speed).
     const half = Math.floor(FOLLOWERS_MAX / 2) + 1;
     for (let i = 0; i < half; i++) await create(USE, { name: `R${i}`, event: id });
     for (let i = 0; i < FOLLOWERS_MAX + 1 - half; i++) await crew(id, 21);
     const out = await refused(update(EVENT, id, { state: "cancelled" }));
     expect(out.details.rule).toBe("follows_too_many");
     expect(await stateOf(EVENT, id)).toBe("on_sale");
+  }, 120_000);
+
+  it("counts a follower's own followers: a chain over the limit is refused whole", async () => {
+    const top = await create(TOP, { name: "Top" });
+    const per = Math.ceil(FOLLOWERS_MAX / 2);
+    const mids: string[] = [];
+    for (let m = 0; m < 2; m++) {
+      const mid = await create(MID, { name: `Mid ${m}`, top });
+      mids.push(mid);
+      for (let i = 0; i < per; i++) await create(LEAF, { name: `Leaf ${i}`, mid });
+    }
+    // Two mids and their leaves: each cascade alone is under the limit, together they are not.
+    const out = await refused(
+      invoke("record.update", { object: TOP, id: top, values: { state: "closed" } }, as()),
+    );
+    expect(out.details.rule).toBe("follows_too_many");
+    expect(await stateOf(TOP, top)).toBe("open");
+    expect(await stateOf(MID, mids[0] as string)).toBe("open");
+  }, 120_000);
+
+  it("counts every parent one call moves: an import over the limit is refused whole", async () => {
+    const per = Math.floor(FOLLOWERS_MAX / 2) + 1;
+    const keys = [unique("imp"), unique("imp")];
+    const made = (await invoke(
+      "record.import",
+      { object: EVENT, records: keys.map((key) => ({ key, values: { name: key, places: 10 } })) },
+      as(),
+    )) as { results: { id: string }[] };
+    const ids = made.results.map((r) => r.id);
+    for (const id of ids) {
+      for (let i = 0; i < per; i++) await create(USE, { name: `U${i}`, event: id });
+    }
+    const out = await refused(
+      invoke(
+        "record.import",
+        {
+          object: EVENT,
+          records: keys.map((key) => ({
+            key,
+            values: { name: key, places: 10, state: "cancelled" },
+          })),
+        },
+        as(),
+      ),
+    );
+    expect(out.details.rule).toBe("follows_too_many");
+    for (const id of ids) expect(await stateOf(EVENT, id)).toBe("draft");
+  }, 120_000);
+
+  it("one tick of timed moves shares one budget: what does not fit moves next tick", async () => {
+    const ends = at(4, 22);
+    const per = Math.floor(FOLLOWERS_MAX / 2) - 1;
+    const ids: string[] = [];
+    for (let e = 0; e < 3; e++) {
+      const id = await event("on_sale", ends);
+      for (let i = 0; i < per; i++) await create(USE, { name: `T${i}`, event: id });
+      ids.push(id);
+    }
+    const meter = meterQueries(db);
+    const tick = await runTimedMovesDue(meter.db, {
+      clock: () => new Date(Date.parse(ends) + 60_000),
+    });
+    // Two fit; the third waits, not counted as a failure.
+    expect(tick).toMatchObject({ moved: 2, failed: 0 });
+    expect(meter.queries).toBeLessThan(1000);
+    const states = await Promise.all(ids.map((id) => stateOf(EVENT, id)));
+    expect(states.filter((s) => s === "ended")).toHaveLength(2);
+    const next = await runTimedMovesDue(db, { clock: () => new Date(Date.parse(ends) + 120_000) });
+    expect(next).toMatchObject({ moved: 1, failed: 0 });
+    for (const id of ids) expect(await stateOf(EVENT, id)).toBe("ended");
   }, 120_000);
 });

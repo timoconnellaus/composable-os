@@ -241,6 +241,20 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
       });
     }
   }
+  // Following another extension's record puts this extension's moves in that extension's batch,
+  // where a refusal fails its move (ADR 0841): a reviewed change, like calling its tools.
+  for (const [name, object] of Object.entries(manifest.objects)) {
+    const f = object.states?.follows;
+    const to = f ? object.fields[f.relation]?.to : undefined;
+    if (to?.includes(".") && !to.startsWith(`${manifest.id}.`)) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.states.follows`,
+        message: `A runtime extension cannot follow another extension's ${to}. ${why}`,
+      });
+    }
+  }
   // A role changes what a staff account may do, and a tool's permission is what a role holds
   // (ADR 0436): identity and access are not something code written in the app may declare.
   for (const [name, tool] of Object.entries(manifest.tools)) {

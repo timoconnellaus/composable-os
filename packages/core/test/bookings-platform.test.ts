@@ -11,7 +11,6 @@
 // another way (`waived`) enters its spend state spending nothing, and the mark cannot change while
 // it is in one. Every clock is injected.
 import { env } from "cloudflare:workers";
-import type { CrmDb } from "@composable-os/db";
 import { validateManifest } from "@composable-os/sdk";
 import { beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -28,7 +27,8 @@ import {
   resolveStateRequest,
   updateRecordAsHost,
 } from "../src/index.ts";
-import { FOLLOWERS_MAX } from "../src/records/follows.ts";
+import { FOLLOWER_QUERIES_MAX, FOLLOWERS_MAX } from "../src/records/follows.ts";
+import { meterQueries } from "../src/records/query-meter.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
 import { context, createUser, db, unique } from "./helpers.ts";
 
@@ -486,34 +486,25 @@ describe("a class cancelled moves its bookings with it (follows)", () => {
 });
 
 describe("what a booking costs its class's cancel (ADR 0841)", () => {
-  it("a bounded number of statements each: FOLLOWERS_MAX of them fit in one D1 invocation", async () => {
-    const batches: number[] = [];
-    const counting: CrmDb = {
-      query: db.query,
-      async batch(statements) {
-        batches.push(statements.length);
-        return db.batch(statements);
-      },
-    };
+  it("at most FOLLOWER_QUERIES_MAX queries each: FOLLOWERS_MAX of them fit in one D1 invocation", async () => {
     const cost = async (paid: number, desk: number) => {
       const id = await klass(5 * 60 * MINUTE);
       for (let i = 0; i < paid; i++) await create(BOOKING, { klass: id, person: personId });
       for (let i = 0; i < desk; i++) await deskBooking(id);
-      batches.length = 0;
+      const meter = meterQueries(db);
       await invoke(
         "record.update",
         { object: KLASS, id, values: { state: "cancelled" } },
-        { ...at(T), db: counting },
+        { ...at(T), db: meter.db },
       );
-      return Math.max(...batches);
+      return meter.queries;
     };
     const none = await cost(0, 0);
-    // A booking paid from a pass is the dearest: its row, history, search document, its place
-    // given back and its use returned.
+    // D1 counts each read and each batch as one query.
     const perPaid = ((await cost(3, 0)) - none) / 3;
     const perDesk = ((await cost(0, 3)) - none) / 3;
-    expect(Math.max(perPaid, perDesk)).toBeLessThanOrEqual(8);
-    expect(none + Math.max(perPaid, perDesk) * FOLLOWERS_MAX).toBeLessThan(1000);
+    expect(Math.max(perPaid, perDesk)).toBeLessThanOrEqual(FOLLOWER_QUERIES_MAX);
+    expect(none + FOLLOWER_QUERIES_MAX * FOLLOWERS_MAX).toBeLessThan(850);
   });
 });
 

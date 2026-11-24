@@ -88,6 +88,8 @@ const CONTEXT_KEYS = {
   postActivity: "database",
   afterCommit: "data",
   simulation: "data",
+  // A count the cascade draws down (ADR 0841): a number, not a store.
+  followerBudget: "data",
   pipeline: "database",
   extensionHost: "runtime",
   extension: "data",

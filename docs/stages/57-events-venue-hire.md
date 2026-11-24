@@ -30,15 +30,17 @@ all is not known; see "Suggested build order".
 
 ## Status
 
-- **Step 2, cascades widened** (branch `feat/stage-57-cascades`, ADR 0841, no migration): a child
-  that draws no places may `follows` a pool (a member of the pool, or a claimant of the parent or
-  of a member, is still refused); a child may follow a parent in an extension it `requires`, with
-  the parent's states checked by the host at install and on every upgrade of either extension; the
-  counter guard is queued only when a follower claims places on the parent; a follower made under
-  the move fails it whole at commit; one move moves at most 100 records across every following
-  object (was 500 per object, beyond D1's 1,000 statements). ADRs 0507 and 0550 amended. Left: one
-  `from` list serves every state in `when`, so step 5's room use following a hire into `held`,
-  `confirmed` and `released` from different states needs `follows` widened again.
+- **Step 2, cascades widened** (branch `feat/stage-57-cascades`, PR #355, ADR 0841, no
+  migration): a child that draws no places may `follows` a pool (a member of the pool, or a
+  claimant of the parent or of a member, is still refused); a child may follow a parent in an
+  extension it `requires`, with the parent's states checked by the host at install and on every
+  upgrade of either extension (a runtime extension may not); the counter guard is queued only when
+  a follower claims places on the parent; a follower made under the move fails it whole at commit;
+  a follower is not restored from the Trash onto a parent that moved it; one call moves at most 80
+  records across every parent and nested cascade, sized from the queries a follower costs (was
+  500 a parent), and a tick of timed moves shares one budget. ADRs 0507 and 0550 amended. Left:
+  one `from` list serves every state in `when`, so step 5's room use following a hire into
+  `held`, `confirmed` and `released` from different states needs `follows` widened again.
 
 ## Goal
 
