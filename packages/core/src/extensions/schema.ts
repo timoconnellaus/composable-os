@@ -16,6 +16,7 @@ import {
   type FieldTypeName,
   formulaTypeOf,
   isDocumentType,
+  type OccupiesManifest,
   RECURRING_HORIZON_DAYS,
   type RecurringScheduleManifest,
   type SellableManifest,
@@ -88,6 +89,8 @@ export interface ObjectDefinitionJson {
   recurring?: RecurringScheduleManifest;
   /** A shift (stage 45, ADR 0621), as declared. */
   staffed?: StaffedManifest;
+  /** A claim on a thing (stage 49, ADR 0765), as declared. */
+  occupies?: OccupiesManifest;
   /** A checklist its person ticks off (stage 45 step 4b, ADR 0650), as declared. */
   checklists?: ChecklistsManifest;
   owner?: string;
@@ -924,6 +927,37 @@ function staffedDefinition(
   };
 }
 
+/** The occupies declaration (ADR 0765), with the thing's and the margins' registry names. */
+function occupiesDefinition(
+  object: ObjectState,
+  own: readonly FieldState[],
+): Pick<ObjectDefinition, "occupies"> {
+  const declared = object.definition.occupies;
+  if (!declared) return {};
+  const target = (local: string) => own.find((f) => f.localName === local)?.definition.to;
+  const margin = (m: { field: string } | undefined) => {
+    if (!m) return undefined;
+    const [first, second] = m.field.split(".") as [string, string | undefined];
+    return second === undefined
+      ? { field: first }
+      : { field: second, via: first, viaObject: target(first) };
+  };
+  const before = margin(declared.before);
+  const after = margin(declared.after);
+  return {
+    occupies: {
+      thing: declared.thing,
+      thingObject: target(declared.thing) ?? "",
+      starts: declared.starts,
+      ends: declared.ends,
+      live: [...declared.live],
+      ...(before ? { before } : {}),
+      ...(after ? { after } : {}),
+      ...(declared.only ? { only: declared.only } : {}),
+    },
+  };
+}
+
 /** The checklists declaration (ADR 0650), with the template's holder's registry name. */
 function checklistsDefinition(
   object: ObjectState,
@@ -1267,6 +1301,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...(object.definition.unique?.length ? { unique: object.definition.unique } : {}),
       ...recurringDefinition(object),
       ...staffedDefinition(object, own),
+      ...occupiesDefinition(object, own),
       ...checklistsDefinition(object, own),
       ...(object.definition.owner ? { ownerField: object.definition.owner } : {}),
       ...(object.definition.customer ? { customer: object.definition.customer } : {}),
