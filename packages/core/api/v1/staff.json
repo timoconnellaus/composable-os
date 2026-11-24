@@ -287,6 +287,593 @@
       "invalidates": []
     },
     {
+      "name": "accounting.map.clear",
+      "description": "Forget which books account or tax rate one kind of host money goes to. Entries not yet sent that need it are held until it is mapped again; nothing sent changes. A person only.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "category",
+              "tax",
+              "fees",
+              "clearing",
+              "bank",
+              "method",
+              "rounding",
+              "refunds",
+              "invoice_default"
+            ],
+            "description": "What is mapped: `category` (a kind of sale, by its category key), `tax` (a tax code, to a tax rate), `fees` (the payment provider's fees), `clearing` (card money on its way to the bank), `bank` (where payouts land), `method` (a recorded-payment kind: transfer, cash, cheque, card machine, other), `rounding`, `refunds`, `invoice_default` (an invoice line with no category)"
+          },
+          "hostKey": {
+            "description": "For category, tax and method: the category key, tax code or recorded-payment kind",
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "cleared": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "cleared"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "accounting.settings.get"
+      ]
+    },
+    {
+      "name": "accounting.map.set",
+      "description": "Choose which of the books' accounts (or, for a tax code, which tax rate) one kind of host money goes to, from the books' own lists: a category of sale, a tax code, the provider's fees, the clearing account, the bank account payouts land in, a recorded-payment kind, rounding, refunds, or an invoice line with no category. `booksName` is the name the books gave it when it was chosen. A change applies only to entries not yet sent; a person only.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "category",
+              "tax",
+              "fees",
+              "clearing",
+              "bank",
+              "method",
+              "rounding",
+              "refunds",
+              "invoice_default"
+            ],
+            "description": "What is mapped: `category` (a kind of sale, by its category key), `tax` (a tax code, to a tax rate), `fees` (the payment provider's fees), `clearing` (card money on its way to the bank), `bank` (where payouts land), `method` (a recorded-payment kind: transfer, cash, cheque, card machine, other), `rounding`, `refunds`, `invoice_default` (an invoice line with no category)"
+          },
+          "hostKey": {
+            "description": "For category, tax and method: the category key, tax code or recorded-payment kind",
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "booksRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The books' own id for the account or rate"
+          },
+          "booksName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Its name in the books, as read"
+          }
+        },
+        "required": [
+          "kind",
+          "booksRef",
+          "booksName"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "changed": {
+            "type": "boolean"
+          },
+          "row": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "category",
+                  "tax",
+                  "fees",
+                  "clearing",
+                  "bank",
+                  "method",
+                  "rounding",
+                  "refunds",
+                  "invoice_default"
+                ]
+              },
+              "hostKey": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "target": {
+                "type": "string",
+                "enum": [
+                  "account",
+                  "tax_rate"
+                ]
+              },
+              "booksRef": {
+                "type": "string"
+              },
+              "booksName": {
+                "type": "string"
+              },
+              "setBy": {
+                "type": "string"
+              },
+              "setAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "hostKey",
+              "target",
+              "booksRef",
+              "booksName",
+              "setBy",
+              "setAt"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "changed",
+          "row"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "accounting.settings.get"
+      ]
+    },
+    {
+      "name": "accounting.settings.get",
+      "description": "The accounting sync's settings: the books chosen (an accounting connection and the books on it), the start date (nothing dated before it is sent), whether it is on, approval (how many days a person has approved and after how many sending is automatic), the settle delay, the mapping (which of the books' accounts and tax rates each kind of sale, tax, fee, payout and recorded payment goes to) and the accounting connections an admin may choose. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "books": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "connectionId": {
+                    "type": "string"
+                  },
+                  "resource": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "status": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "connectionId",
+                  "resource",
+                  "title",
+                  "status"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The accounting connection and the books on it, or null when none is chosen"
+          },
+          "startDate": {
+            "description": "Nothing dated before it is ever sent",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "approval": {
+            "type": "object",
+            "properties": {
+              "approvedDays": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "approveUntil": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "automatic": {
+                "type": "boolean",
+                "description": "Approval is over: entries go without a person approving"
+              }
+            },
+            "required": [
+              "approvedDays",
+              "approveUntil",
+              "automatic"
+            ],
+            "additionalProperties": false
+          },
+          "settleDays": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "updatedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mapping": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "category",
+                    "tax",
+                    "fees",
+                    "clearing",
+                    "bank",
+                    "method",
+                    "rounding",
+                    "refunds",
+                    "invoice_default"
+                  ]
+                },
+                "hostKey": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "target": {
+                  "type": "string",
+                  "enum": [
+                    "account",
+                    "tax_rate"
+                  ]
+                },
+                "booksRef": {
+                  "type": "string"
+                },
+                "booksName": {
+                  "type": "string"
+                },
+                "setBy": {
+                  "type": "string"
+                },
+                "setAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "hostKey",
+                "target",
+                "booksRef",
+                "booksName",
+                "setBy",
+                "setAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "choices": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "connectionId": {
+                  "type": "string"
+                },
+                "vendor": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "resources": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "url": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "url"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "connectionId",
+                "vendor",
+                "title",
+                "status",
+                "resources"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "books",
+          "startDate",
+          "enabled",
+          "approval",
+          "settleDays",
+          "updatedBy",
+          "updatedAt",
+          "mapping",
+          "choices"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "accounting.settings.update",
+      "description": "Change the accounting sync's settings (a human admin): choose the books (an accounting connection made in Settings → Integrations, and the books bound on it), the start date (nothing dated before it is ever sent; fixed once anything was sent), the number of days a person approves before sending is automatic (14 to 365), putting approval back on (`restartApproval`: the count starts again), the settle delay in days, and turning it on or off. Turning it on needs the books, an active connection and a start date; the books change only while it is off.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "books": {
+            "description": "The books; null clears them (only while off)",
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "connectionId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "resource": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "description": "The books' resource key on the connection"
+                  }
+                },
+                "required": [
+                  "connectionId",
+                  "resource"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "startDate": {
+            "type": "string",
+            "description": "A date, YYYY-MM-DD"
+          },
+          "approveUntil": {
+            "type": "integer",
+            "minimum": 14,
+            "maximum": 365
+          },
+          "restartApproval": {
+            "description": "Put approval back on: every day waits for a person again until the count is reached",
+            "type": "boolean",
+            "const": true
+          },
+          "settleDays": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 14
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "books": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "connectionId": {
+                    "type": "string"
+                  },
+                  "resource": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "status": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "connectionId",
+                  "resource",
+                  "title",
+                  "status"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The accounting connection and the books on it, or null when none is chosen"
+          },
+          "startDate": {
+            "description": "Nothing dated before it is ever sent",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "approval": {
+            "type": "object",
+            "properties": {
+              "approvedDays": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "approveUntil": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "automatic": {
+                "type": "boolean",
+                "description": "Approval is over: entries go without a person approving"
+              }
+            },
+            "required": [
+              "approvedDays",
+              "approveUntil",
+              "automatic"
+            ],
+            "additionalProperties": false
+          },
+          "settleDays": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "updatedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "books",
+          "startDate",
+          "enabled",
+          "approval",
+          "settleDays",
+          "updatedBy",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "accounting.settings.get"
+      ]
+    },
+    {
       "name": "activity.delete",
       "description": "Move an activity to Trash (soft delete). It disappears from every linked record's timeline and from search, and can be restored with activity.restore for 30 days.",
       "risk": "destructive",

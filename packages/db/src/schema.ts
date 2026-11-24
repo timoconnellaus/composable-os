@@ -2844,6 +2844,133 @@ export interface CoreImportKeyTable {
   imported_by: string;
 }
 
+/** Migration 1330 (stage 61): accounting sync's one settings row (id 1). */
+export interface CoreAccountingSettingsTable {
+  id: number;
+  connection_id: Defaulted<string | null>;
+  resource: Defaulted<string | null>;
+  start_date: Defaulted<string | null>;
+  approved_days: Defaulted<number>;
+  approve_until: Defaulted<number>;
+  settle_days: Defaulted<number>;
+  enabled: Defaulted<number>;
+  automatic_told_at: Defaulted<Timestamp | null>;
+  updated_by: string;
+  updated_at: Timestamp;
+}
+
+export type AccountingMapKind =
+  | "category"
+  | "tax"
+  | "fees"
+  | "clearing"
+  | "bank"
+  | "method"
+  | "rounding"
+  | "refunds"
+  | "invoice_default";
+
+/** Migration 1330: which books account or tax rate each kind of host money goes to. */
+export interface CoreAccountingMapTable {
+  connection_id: string;
+  kind: AccountingMapKind;
+  /** A category key, tax code or recorded-payment kind; empty for the single kinds. */
+  host_key: Defaulted<string>;
+  books_ref: string;
+  books_name: string;
+  set_by: string;
+  set_at: Timestamp;
+}
+
+/** Migration 1330: a host object to the books' record it is, unique both ways per connection. */
+export interface CoreAccountingLinkTable {
+  connection_id: string;
+  object: "person" | "organisation" | "invoice" | "credit_note" | "payment" | "payout" | "summary";
+  object_id: string;
+  books_kind: "contact" | "document" | "payment" | "entry";
+  books_ref: string;
+  created_at: Timestamp;
+}
+
+export type AccountingPostState =
+  | "awaiting_approval"
+  | "queued"
+  | "sending"
+  | "sent"
+  | "retrying"
+  | "held"
+  | "unknown"
+  | "skipped";
+
+/** Migration 1330: the outbox, one entry to send to the books with its fixed reference. */
+export interface CoreAccountingPostTable {
+  id: string;
+  connection_id: string;
+  kind:
+    | "summary"
+    | "adjustment"
+    | "transfer"
+    | "contact"
+    | "invoice"
+    | "credit_note"
+    | "payment"
+    | "refund"
+    | "void";
+  source_kind: string;
+  source_id: string;
+  n: Defaulted<number>;
+  reference: string;
+  carries_date: string;
+  belongs_date: string;
+  amount: Defaulted<number>;
+  /** JSON array: the lines as sent. */
+  lines: Defaulted<JsonText>;
+  /** JSON: what a contact or document carried about its person (an erase may clear it). */
+  detail: Defaulted<JsonText | null>;
+  depends_on: Defaulted<string | null>;
+  state: AccountingPostState;
+  attempts: Defaulted<number>;
+  next_attempt_at: Defaulted<Timestamp | null>;
+  error_code: Defaulted<string | null>;
+  error_text: Defaulted<string | null>;
+  books_ref: Defaulted<string | null>;
+  sent_at: Defaulted<Timestamp | null>;
+  approved_by: Defaulted<string | null>;
+  approved_at: Defaulted<Timestamp | null>;
+  skipped_by: Defaulted<string | null>;
+  skipped_at: Defaulted<Timestamp | null>;
+  skip_reason: Defaulted<string | null>;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+/** Migration 1330: each money event to the entry it went in, unique by source. */
+export interface CoreAccountingItemTable {
+  source_kind: string;
+  source_id: string;
+  post_id: string;
+  belongs_date: string;
+  amount: number;
+  created_at: Timestamp;
+}
+
+/** Migration 1330: a bill-to waiting for a person to choose its contact in the books. */
+export interface CoreAccountingMatchTable {
+  id: string;
+  connection_id: string;
+  reason: "unsure" | "merged";
+  object: "person" | "organisation";
+  object_id: string;
+  post_id: Defaulted<string | null>;
+  /** JSON array, at most 10: ref, name, email, tax number, archived. */
+  candidates: Defaulted<JsonText>;
+  state: Defaulted<"open" | "linked" | "created" | "dismissed">;
+  chosen_ref: Defaulted<string | null>;
+  decided_by: Defaulted<string | null>;
+  decided_at: Defaulted<Timestamp | null>;
+  created_at: Timestamp;
+}
+
 /** `core_published_media` (migration 0461): media a record's current version references. */
 export interface CorePublishedMediaTable {
   media_id: string;
@@ -3049,6 +3176,12 @@ export interface CoreDatabase {
   core_published_media: CorePublishedMediaTable;
   core_media_caption: CoreMediaCaptionTable;
   core_import_key: CoreImportKeyTable;
+  core_accounting_settings: CoreAccountingSettingsTable;
+  core_accounting_map: CoreAccountingMapTable;
+  core_accounting_link: CoreAccountingLinkTable;
+  core_accounting_post: CoreAccountingPostTable;
+  core_accounting_item: CoreAccountingItemTable;
+  core_accounting_match: CoreAccountingMatchTable;
   rec_media: RecMediaView;
   rec_publish_version: RecPublishVersionView;
   rec_stage_history: CrmStageHistoryView;

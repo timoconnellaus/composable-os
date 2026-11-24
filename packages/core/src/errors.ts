@@ -386,6 +386,17 @@ export function toOperationError(error: unknown): OperationError {
       { rule: "pay_period_held" },
     );
   }
+  // The accounting outbox (migration 1330): an entry sent to the books, or skipped, never changes
+  // and is never deleted; a reference is queued once.
+  if (
+    message.includes("core_accounting_post_fixed") ||
+    message.includes("UNIQUE constraint failed: core_accounting_post")
+  ) {
+    return new ConflictError(
+      "An entry sent to the books, or skipped, never changes, and nothing is queued twice.",
+      { rule: "accounting_post_fixed" },
+    );
+  }
   if (message.includes("core_pay_period_fixed")) {
     return new ConflictError(
       "A locked pay period and its lines never change, so nothing was changed.",

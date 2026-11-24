@@ -1848,6 +1848,24 @@ the erase is scrubbed after it. Merge moves acceptances unchanged (`agreement.me
 them for the preview). Signing at the desk and cooling off are the later steps
 (`docs/stages/44-agreements.md`).
 
+**Accounting sync** (stage 61, [spec](stages/61-accounting-sync.md)) sends the host's own money
+to the books a human admin connected, through the accounting contract (ADR 0880); core owns it
+(`packages/core/src/accounting/`), not a pack, and never names a system. Step 2 built its records
+(migration 1330), all core tables in no `rec_*` view: one settings row
+(`core_accounting_settings`: the books, an org connection of an `implements: "accounting"`
+gatekeeper and a resource bound on it; the start date; approval, `approved_days` of
+`approve_until`, 14 at least; the settle delay; on or off, which needs the books, an active
+connection and a start date), the mapping per connection (`core_accounting_map`: a category, tax
+code or recorded-payment kind, or one of fees, clearing, bank, rounding, refunds and the invoice
+default, to a books ref and its name as read), links (`core_accounting_link`, unique both ways per
+connection), the outbox (`core_accounting_post`: a unique `cos:` reference per entry; a sent or
+skipped entry never changes and is never deleted, by trigger), items (`core_accounting_item`, one
+per money event) and contact questions (`core_accounting_match`). `accounting:manage` is a core
+permission, admins by default and grantable, never to a pack role; `accounting.settings.get`
+reads with it, `accounting.map.set` and `.clear` write with it, a person only, and
+`accounting.settings.update` is a human admin's (`settings:manage`). Sending, the host-only
+connection, summaries, documents and the screens are later steps.
+
 Two reasons this is the centre of the design. Extension tools cannot run several writes as one
 transaction, so anything that must be atomic (take the last place and create the order) has to be
 the host's. And a rule in the host holds for a person, an MCP client, an import and a client app

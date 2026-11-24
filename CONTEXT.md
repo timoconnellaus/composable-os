@@ -566,6 +566,15 @@ entry. Each accounting system is its own gatekeeper Worker that passes the contr
 **conformance suite**; the fake books (`accounting-fake`) are for development and tests only.
 _Avoid_: connector, sync adapter
 
+**Accounting sync**
+The host sending its own money to a business's books (stage 61): through one **accounting
+connection** a human admin chose (the books), from a **start date** on, to the accounts and tax
+rates a person with `accounting:manage` chose in the **mapping** (each category, tax code, fees,
+the clearing account, the payout bank account, each recorded-payment kind, rounding, refunds and
+the invoice default). Each entry waits in the host's **outbox** (`core_accounting_post`) with its
+fixed reference until it is sent once; a person approves each day until fourteen days are approved.
+_Avoid_: export, integration (it is core, not a pack or a generic integration)
+
 **Suggested contact**
 An external address the org has exchanged mail with at least twice that matches no person,
 shown grouped by domain in the Suggested contacts inbox for one-click add. Nothing is created

@@ -90,6 +90,10 @@ export type Role = (typeof ROLES)[number];
  *   Admins by default, grantable as `orders:refund` is. An AI acting for an account that holds it
  *   may draft one; its write always waits for a person who holds it too, so a checklist staff are
  *   asked to follow is always one a person approved.
+ * - `accounting:manage` the accounting sync (stage 61): read its settings and log, map the books'
+ *   accounts and tax rates, approve a day, retry, skip and match contacts. Admins by default,
+ *   grantable as `orders:refund` is, never to a pack role. Every write is a person's whatever is
+ *   granted (`actors: ["human"]`); changing the settings is a human admin's (`settings:manage`).
  */
 export const PERMISSIONS = [
   "records:read",
@@ -109,6 +113,7 @@ export const PERMISSIONS = [
   "agreements:paper",
   "agreements:health",
   "checklists:write",
+  "accounting:manage",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -146,6 +151,7 @@ export const GRANTABLE_PERMISSIONS = [
   "agreements:paper",
   "agreements:health",
   "checklists:write",
+  "accounting:manage",
 ] as const;
 
 /**

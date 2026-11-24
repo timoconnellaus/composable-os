@@ -109,6 +109,10 @@ export const ID_PREFIXES = {
   checklistNote: "ckn",
   /** One tick of a checklist run's step, never changed (ADR 0650). */
   checklistTick: "ckt",
+  /** An entry in the accounting outbox, to send to the books once (stage 61). */
+  accountingPost: "acp",
+  /** A bill-to waiting for a person to choose its contact in the books (stage 61). */
+  accountingMatch: "acm",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

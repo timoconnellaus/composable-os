@@ -1,5 +1,12 @@
 // @composable-os/core: the operations registry and everything an operation needs. See README.md.
 
+export {
+  ACCOUNTING_MAP_KINDS,
+  type AccountingSettings,
+  accountingVendors,
+  loadAccountingSettings,
+  loadMapping,
+} from "./accounting/settings.ts";
 export * from "./adjudicator/agreement.ts";
 export * from "./adjudicator/review.ts";
 export * from "./adjudicator/reviewers.ts";

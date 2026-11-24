@@ -26,6 +26,19 @@ and a reopen); `packages/gatekeeper-payments/src/`, `packages/core/src/integrati
 Status: **spec agreed** (owner interviewed 2026-11-24: decisions 1 to 8). Build may start with
 steps 1 to 4 and 8; summaries wait for stage 52, documents for stage 35.
 
+- **Step 2 built** (`feat/stage-61-accounting-core`, migration 1330, no ADR): the core tables
+  `core_accounting_settings`, `_map`, `_link`, `_post`, `_item` and `_match` (a sent or skipped
+  post never changes and is never deleted, a reference is queued once, a link is unique both ways,
+  an item once per source, one open question per bill-to); `accounting:manage` (admins, grantable,
+  never a pack role's); `packages/core/src/accounting/settings.ts` and
+  `accounting.settings.get`, `accounting.settings.update` (a human admin: the books, the start
+  date, fixed once anything is sent, approval of 14 to 365 days and `restartApproval`, which
+  starts the count again, the settle delay of 1 to 14 days, on or off: on needs the books, an
+  active connection and a start date; the books change only while off) and `accounting.map.set`,
+  `accounting.map.clear` (a person, per connection). Left for later steps: `accounting.options`
+  and checking a mapped ref against the books' live lists and base currency (they need purpose
+  `accounting`, step 3); every other operation, the runner and the screens.
+
 **This is not accounting or tax advice.** The host sends what it recorded to the accounts a person
 chose. Which accounts and tax rates, and how a figure is treated, are for the business to confirm
 with its accountant. The setup screen says so.
