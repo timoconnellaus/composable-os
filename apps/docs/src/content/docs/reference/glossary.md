@@ -210,6 +210,16 @@ listed locked, each opening with `note.open` audited). Levels 2 and 3 are in no 
 search, embedding or summary, and no AI actor reads them with any grant. Only a note has one.
 _Avoid_: private (a synced email's `private_to`, its owner's only), confidential, clinical
 
+### Note kind
+
+The business's kinds of note (stage 56, ADR 0833): Note, Session note, Sensitive, From the client
+and its own, kept in Settings → Notes by `notes:manage`. Each has a template (labelled sections a
+person fills in, which make the note's body), the level a note of it starts at and the lowest it
+may ever have, and later its files, retention and whether it is evidence. A retired kind is no
+longer offered and keeps its notes. Every note has one; a note written without one is a Note,
+which stays `staff`.
+_Avoid_: type (an activity's type: note, email, call), category, template (a kind's part)
+
 ### Looks after
 
 A staff account that looks after a Person (stage 56, ADR 0831): it reads their `coaches` notes

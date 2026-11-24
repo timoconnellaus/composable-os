@@ -1077,6 +1077,23 @@ async function approveActions(
       );
     }
   }
+  // An AI's draft of a kind of note (stage 56, ADR 0833): approved only by a person who may keep
+  // the kinds themselves, so what staff are asked to write is always a person's.
+  const noteKind = targets.find((t) => t.operation === "note.kinds.save");
+  if (noteKind) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError("A kind of note is approved by a person, never by an AI actor", {
+        actionId: noteKind.id,
+        actor: ctx.actor,
+      });
+    }
+    if (!holdsPermission(ctx.user, ctx.permissionGrants, "notes:manage")) {
+      throw new ForbiddenError(
+        "Approving a kind of note needs the notes permission (notes:manage)",
+        { actionId: noteKind.id, permission: "notes:manage" },
+      );
+    }
+  }
   // An AI's opening stock or correction (stage 37, ADR 0680): approved only by a person who may
   // change stock themselves, so stock is never changed by an AI alone.
   const stock = targets.find(

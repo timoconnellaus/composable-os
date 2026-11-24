@@ -132,6 +132,12 @@
 - [Finance: permissions](https://docs.composableos.dev/capabilities/finance/permissions/)
 - [Finance: screens](https://docs.composableos.dev/capabilities/finance/screens/)
 - [Capabilities](https://docs.composableos.dev/capabilities/)
+- [Client notes: behaviours](https://docs.composableos.dev/capabilities/notes/behaviours/)
+- [Client notes: decisions](https://docs.composableos.dev/capabilities/notes/decisions/)
+- [Client notes](https://docs.composableos.dev/capabilities/notes/): Notes staff keep about a person, each with a kind and a level that decides who reads it, written from the kind's template.
+- [Client notes: operations](https://docs.composableos.dev/capabilities/notes/operations/)
+- [Client notes: permissions](https://docs.composableos.dev/capabilities/notes/permissions/)
+- [Client notes: screens](https://docs.composableos.dev/capabilities/notes/screens/)
 
 ## Solutions
 
@@ -185,6 +191,7 @@
 - [native-agreements-due](https://docs.composableos.dev/reference/blocks/native-agreements-due/): \"Before you go on\" (stage 44 step 5), for the mobile app: after sign-in, when the host says something is due (me.agreements.due), each due document in turn, the member's own first, then each child's; \"Not now\" goes on to the app.
 - [native-base](https://docs.composableos.dev/reference/blocks/native-base/): The native base layer's look, in one place: change these to the company's brand.
 - [native-my-agreements](https://docs.composableos.dev/reference/blocks/native-my-agreements/): My agreements (stage 44 step 5), for the mobile app: what the signed-in member and each child linked to them has agreed to (the document, the version, when, how and by whom), what is due (with a notice when a document changed), the signed PDF, and a health form's answers to update.
+- [native-note-composer](https://docs.composableos.dev/reference/blocks/native-note-composer/): The note composer (stage 56 step 2), for the staff app: a coach writes a note about a Person (and, beside them, the class it was in): picks a kind, fills the kind's template (or writes the note, for a kind with none) and picks who reads it from the levels the host lists for that kind.
 - [native-sign-in](https://docs.composableos.dev/reference/blocks/native-sign-in/): Sign-in with a code by email, for the mobile app.
 - [programs-bank](https://docs.composableos.dev/reference/blocks/programs-bank/): The exercise bank (stage 41): browse and search the gym's exercises, add one, and edit one with its easier and harder versions.
 - [programs-builder](https://docs.composableos.dev/reference/blocks/programs-builder/): The coach's program builder (stage 41): weeks, sessions, blocks and items, by drag and by keyboard; exercises picked from the bank; typed sets; levels; notes, for coaches or shown to members; copying a week or a session; the working copy saved as the coach goes, with the host's faults shown where they are; versions, restoring one, publishing, and assigning.
@@ -239,6 +246,7 @@
 - [web-agree](https://docs.composableos.dev/reference/blocks/web-agree/): Agree to one document (stage 44 step 5), for the web: the version the host gave, its words, a health form's questions, the tick label and its box, the typed name and, for a document agreed to by drawing, the signature pad.
 - [web-agreements-due](https://docs.composableos.dev/reference/blocks/web-agreements-due/): \"Before you go on\" (stage 44 step 5), for the web: shown after sign-in when the host says something is due (me.agreements.due).
 - [web-my-agreements](https://docs.composableos.dev/reference/blocks/web-my-agreements/): My agreements (stage 44 step 5), for the web: what the signed-in member, and each child linked to them, has agreed to (each document, the version, when, how and by whom), what is due (with a notice when a document changed and must be agreed to again), the signed PDF, and a health form's answers to update.
+- [web-note-composer](https://docs.composableos.dev/reference/blocks/web-note-composer/): The note composer (stage 56 step 2), for the web: a staff screen writes a note about a Person (and, beside them, a class, a session, a job): it picks a kind, fills the kind's template (or writes the note, for a kind with none) and picks who reads it from the levels the host lists for that kind.
 - [web-sign-in](https://docs.composableos.dev/reference/blocks/web-sign-in/): Sign-in with a code by email, for the web app, built on the web base layer.
 - [The cos command](https://docs.composableos.dev/reference/cli/): Every command of the cos CLI, as its own help gives them.
 - [accounting](https://docs.composableos.dev/reference/gatekeepers/accounting/): The accounting contract every accounting gatekeeper implements: its types, input checks, action descriptions, the shared session, a fake accounting system and the conformance suite.

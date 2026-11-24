@@ -16,12 +16,16 @@
 //
 // The base layer's web blocks that call the host (`blocks/web-*`: the agreement blocks, stage 44)
 // mount here too, and every block is also given the agreements hooks as `agreements`
-// (createAgreementsHooks from @composable-os/client), for the inline agreement step.
+// (createAgreementsHooks from @composable-os/client), for the inline agreement step, and the notes
+// hooks as `notes` (createNotesHooks, stage 56), for the note composer a pack's screen opens.
 import {
   AGREEMENTS_HOOKS_CALL,
   type AgreementsClient,
   createAgreementsHooks,
+  createNotesHooks,
   type HookCalls,
+  NOTES_HOOKS_CALL,
+  type NotesClient,
 } from "@composable-os/client";
 
 /** A client holding every operation (the `operations` is what the hooks read). */
@@ -141,6 +145,12 @@ function BlocksPage() {
       browserClient<FullClient<AgreementsClient>>(AGREEMENTS_HOOKS_CALL),
     ),
   );
+  const [notes] = useState(() =>
+    createNotesHooks(
+      { useQuery, useMutation } as never,
+      browserClient<FullClient<NotesClient>>(NOTES_HOOKS_CALL),
+    ),
+  );
   useEffect(() => {
     if (!block || !component) return;
     // A block may have several files (the roster week and its assign panel): the export is looked
@@ -168,7 +178,7 @@ function BlocksPage() {
   if (extra.signIn === "customer") extra.signIn = customerSignIn;
   return (
     <main className="mx-auto max-w-5xl p-6" data-block={block}>
-      <Component {...{ ...(base ? {} : { [pack]: hooks }), agreements, ...extra }} />
+      <Component {...{ ...(base ? {} : { [pack]: hooks }), agreements, notes, ...extra }} />
     </main>
   );
 }

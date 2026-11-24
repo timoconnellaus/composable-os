@@ -62,6 +62,7 @@ import { memoryOperations } from "./memory.ts";
 import { myOperations } from "./my.ts";
 import { myWriteOperations } from "./my-write.ts";
 import { noteOperations } from "./note.ts";
+import { noteKindOperations } from "./note-kind.ts";
 import { notificationOperations } from "./notification.ts";
 import { notificationDeliveryOperations } from "./notification-delivery.ts";
 import { orderOperations } from "./order.ts";
@@ -191,6 +192,7 @@ export const coreOperations = [
   ...meAttentionOperations,
   ...personLinkOperations,
   ...noteOperations,
+  ...noteKindOperations,
   ...carerOperations,
   ...personCodeOperations,
   ...orderOperations,

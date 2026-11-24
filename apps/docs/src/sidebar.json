@@ -180,36 +180,6 @@
         ]
       },
       {
-        "label": "Forms",
-        "collapsed": true,
-        "items": [
-          {
-            "slug": "packs/forms"
-          },
-          {
-            "slug": "packs/forms/data-model"
-          },
-          {
-            "slug": "packs/forms/tools"
-          },
-          {
-            "slug": "packs/forms/permissions"
-          },
-          {
-            "slug": "packs/forms/screens"
-          },
-          {
-            "slug": "packs/forms/messages"
-          },
-          {
-            "slug": "packs/forms/settings"
-          },
-          {
-            "slug": "packs/forms/decisions"
-          }
-        ]
-      },
-      {
         "label": "Leads",
         "collapsed": true,
         "items": [
@@ -422,26 +392,26 @@
         ]
       },
       {
-        "label": "Finance",
+        "label": "Client notes",
         "collapsed": true,
         "items": [
           {
-            "slug": "capabilities/finance"
+            "slug": "capabilities/notes"
           },
           {
-            "slug": "capabilities/finance/operations"
+            "slug": "capabilities/notes/operations"
           },
           {
-            "slug": "capabilities/finance/permissions"
+            "slug": "capabilities/notes/permissions"
           },
           {
-            "slug": "capabilities/finance/behaviours"
+            "slug": "capabilities/notes/behaviours"
           },
           {
-            "slug": "capabilities/finance/screens"
+            "slug": "capabilities/notes/screens"
           },
           {
-            "slug": "capabilities/finance/decisions"
+            "slug": "capabilities/notes/decisions"
           }
         ]
       }
