@@ -56,17 +56,37 @@ export interface SyncAdapter {
 /** Reconciliation reads at most this many ids per window. */
 export const RECONCILE_MAX = 2000;
 
+/** Empty pages in a row after which a cursor that never says `null` is given up on. */
+const MAX_EMPTY_PAGES = 20;
+
+/**
+ * Up to `max` entries of a gatekeeper cursor, and whether it ended. It ends on `null` only: an
+ * empty page is one `next()` running out of budget with results still ahead (the vendors' Cursor
+ * contract).
+ */
+async function read<T>(
+  cursor: { next(): Promise<T[] | null> },
+  max: number,
+): Promise<{ items: T[]; ended: boolean }> {
+  const items: T[] = [];
+  let empty = 0;
+  while (items.length < max) {
+    const page = await cursor.next();
+    if (!page) return { items, ended: true };
+    empty = page.length ? 0 : empty + 1;
+    if (empty >= MAX_EMPTY_PAGES) break;
+    items.push(...page);
+  }
+  return { items: items.slice(0, max), ended: false };
+}
+
+/** Up to `max` entries, and whether that was all of them (reading one past `max` tells). */
 async function drainAll<T>(
   cursor: { next(): Promise<T[] | null> },
   max: number,
 ): Promise<{ items: T[]; complete: boolean }> {
-  const items: T[] = [];
-  for (;;) {
-    const page = await cursor.next();
-    if (!page?.length) return { items, complete: true };
-    items.push(...page);
-    if (items.length > max) return { items: items.slice(0, max), complete: false };
-  }
+  const { items, ended } = await read(cursor, max + 1);
+  return { items: items.slice(0, max), complete: ended && items.length <= max };
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: gatekeeper sessions are RPC stubs typed by each vendor's .d.ts, which cos-runner does not import.
@@ -450,14 +470,9 @@ async function shortHash(text: string): Promise<string> {
     .join("");
 }
 
+/** Up to `max` entries of a gatekeeper cursor. */
 async function drain<T>(cursor: { next(): Promise<T[] | null> }, max: number): Promise<T[]> {
-  const out: T[] = [];
-  while (out.length < max) {
-    const page = await cursor.next();
-    if (!page?.length) break;
-    out.push(...page);
-  }
-  return out.slice(0, max);
+  return (await read(cursor, max)).items;
 }
 
 /**
