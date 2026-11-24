@@ -5,6 +5,7 @@
 // is every kind of work, or the kinds it lists. Free times (step 4) subtract time off, claims and
 // rooms from these ranges; nothing here reads them.
 import type { CoreStaffHoursTable } from "@composable-os/db";
+import { addDaysToDate } from "../automations/cron.ts";
 import {
   isoWeekday,
   localParts,
@@ -44,12 +45,6 @@ type HoursRow = Pick<
 
 const WEEKDAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
-/** Adds `days` to a `YYYY-MM-DD` date. */
-function plusDays(date: string, days: number): string {
-  const [y, m, d] = date.split("-").map(Number) as [number, number, number];
-  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
-}
-
 /** The kinds an entry is open for, or null for every kind. */
 export function onlyForOf(row: Pick<CoreStaffHoursTable, "only_for">): KindRef[] | null {
   if (!row.only_for) return null;
@@ -82,16 +77,18 @@ function rangesOf(row: HoursRow, from: number, to: number): Range[] {
   if (!days.size || open === null || close === null) return [];
   const out: Range[] = [];
   // The day before too: an overnight rule that started then runs into the range.
-  const first = plusDays(localParts(from * 1000, row.zone).date, -1);
+  const first = addDaysToDate(localParts(from * 1000, row.zone).date, -1);
   const last = localParts(Math.max(from, to - 1) * 1000, row.zone).date;
-  for (let date = first; date <= last; date = plusDays(date, 1)) {
+  for (let date = first; date <= last; date = addDaysToDate(date, 1)) {
     if (!days.has(isoWeekday(date))) continue;
     if (row.from_date && date < row.from_date) continue;
     if (row.until_date && date > row.until_date) continue;
     const starts = wallClockToInstant(wallClockOf(date, open), row.zone) / 1000;
     const ends =
-      wallClockToInstant(wallClockOf(close > open ? date : plusDays(date, 1), close), row.zone) /
-      1000;
+      wallClockToInstant(
+        wallClockOf(close > open ? date : addDaysToDate(date, 1), close),
+        row.zone,
+      ) / 1000;
     if (starts < to && ends > from) out.push({ starts, ends });
   }
   return out;
