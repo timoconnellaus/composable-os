@@ -1,13 +1,11 @@
 // A signed-in customer's tickets, for the mobile app's Tickets tab (stage 27). Which tickets are
 // theirs, and what of them they may see, is the host's (`useMyTickets` reads through the seam).
 import type { TicketingHooks } from "@composable-os/pack-ticketing/client";
-import { eventTime } from "@composable-os/pack-ticketing/client";
+import { eventTime, ticketStateLabel } from "@composable-os/pack-ticketing/client";
 import { Text } from "react-native";
 import { List } from "../native-base/list.tsx";
 import { Row } from "../native-base/row.tsx";
 import { Screen } from "../native-base/screen.tsx";
-
-const STATE = { valid: "Valid", used: "Used", void: "Cancelled" } as const;
 
 export function MyTicketsScreen({
   ticketing,
@@ -31,7 +29,7 @@ export function MyTicketsScreen({
               detail={[
                 ticket.ticketTypeName,
                 ticket.startsAt ? eventTime(ticket) : null,
-                STATE[ticket.state as keyof typeof STATE] ?? ticket.state,
+                ticketStateLabel(ticket.state),
               ]
                 .filter(Boolean)
                 .join(" · ")}
