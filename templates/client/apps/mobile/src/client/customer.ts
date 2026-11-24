@@ -61,6 +61,14 @@ export type Operations = {
     output: { object: string; id: string; values: Record<string, unknown>; kind: "preview" };
   };
   /**
+   * Search the published records of a content object (help pages, blog posts) by the words the public reads in them: their published versions only, never a draft or a working copy. Every word of two letters or more must match the start of a word, so partial input works. Best matches first, one result per record, each with its slug, title, the section the best match is in (its heading and anchor, to link to) and a highlighted snippet as plain and matching parts. Pass nextCursor back as cursor. Read-only.
+   */
+  "content.search": {
+    kind: "query";
+    input: { object: string; q: string; cursor?: string; limit?: number };
+    output: { items: ({ object: string; id: string; slug: string; title: (string) | (null); titleHighlight: { text: string; match: boolean }[]; version: number; section: { field: string; anchor: (string) | (null); heading: string; headingHighlight: { text: string; match: boolean }[] }; snippet: ({ text: string; match: boolean }[]) | (null) })[]; nextCursor: (string) | (null) };
+  };
+  /**
    * Agree to a version of a document, as a signed-in customer: for yourself, or with forPersonId for a child linked to you. Give the name you type, a signature for a document agreed to by drawing, and every answer for a health form. Recorded for good and never changed. Refused for yourself when a parent or guardian agrees for you.
    */
   "me.agreements.accept": {
@@ -253,6 +261,22 @@ export type Operations = {
     output: { id: string; changeId: string; kind: ("upgrade") | ("downgrade"); effectiveAt: (string) | (null); amount: number; currency: string; asked: ("sent") | ("pending") | ("unknown") | ("not_needed"); requested: true };
   };
   /**
+   * End a subscription in its cooling-off period, for a full refund of what was paid in it (subscription.coolingOff says whether it may be, and what it owes). Ended at the payment provider now: nothing more is charged, and what it gives stops once the provider confirms. Then each order paid up to the end of the period, and between the ask and the end, is owed back in full, whatever was used; each waits for a person with orders:refund to approve it. The bookings ahead the membership paid for are cancelled as the business's. Refused for a plan with no cooling off, a membership moved over with a continuation offer, a member who has cooled off before, while nothing has been paid (a free trial: cancel instead), and after the period unless one was asked in it. An ask inside the period opens it for 7 days; any end in that time is the cooling off's, and at its deadline it lapses (the ordinary cancel works again). A signed-in customer ends their own (the one they pay for, a child's included) and asks again only inside the period; staff any, with subscriptions:manage, ask again until the deadline, and finish a lapsed one (only what was paid in the period is owed, once the provider confirms the membership ended). Each ask reads the provider first and is a new request to it; nothing is done twice. Refused while a cancel of it waits for a person at the payments gatekeeper. A person decides, never an AI assistant.
+   */
+  "subscription.coolOff": {
+    kind: "mutation";
+    input: { id: string };
+    output: { id: string; state: ("asked") | ("ended") | ("lapsed"); asked: (("sent") | ("pending") | ("unknown")) | (null); refund: number; currency: string };
+  };
+  /**
+   * Whether each subscription may be ended in its cooling-off period for a full refund: the business's setting (whole days, 0 off), counted from when the payment provider confirmed it to the end of the last day in the business's time zone, for a new member's membership only (not a pass, not one moved over with a continuation offer), once per member. Also says how far a cooling off asked for has got and where its refunds are. The host decides; an app shows the button only when `offered`. A signed-in customer asks about the subscriptions they pay for only; another's is not found. Read-only.
+   */
+  "subscription.coolingOff": {
+    kind: "query";
+    input: { ids: string[] };
+    output: { items: ({ subscriptionId: string; offered: boolean; why: (("not_covered") | ("off") | ("continuation") | ("ended") | ("window_passed") | ("used") | ("nothing_paid")) | (null); days: number; until: (string) | (null); endsAt: (string) | (null); refund: number; currency: string; coolOff: ({ state: ("asked") | ("ended") | ("lapsed"); asked: (("sent") | ("pending") | ("unknown") | ("refused")) | (null); askedBy: ("payer") | ("staff"); askedAt: string; deadline: string; endedAt: (string) | (null); finished: boolean; finishing: (("asked") | ("sent") | ("pending") | ("unknown") | ("stuck")) | (null); waiting: boolean; lapsedBecause: (("deadline") | ("action") | ("end_time") | ("used")) | (null); askAgain: boolean; open: boolean; staffTold: boolean; paid: number; refunded: number; refunds: (("waiting") | ("refunded") | ("held")) | (null) }) | (null) })[] };
+  };
+  /**
    * Get one subscription: its plan, price per period, state (trial, active, past due, ended…), the current period and whether it ends when that period does. A signed-in customer gets the subscriptions they pay for only; anyone else's is not found. Read-only.
    */
   "subscription.get": {
@@ -319,6 +343,7 @@ export const operations = {
   "content.get": { kind: "query", invalidates: [] },
   "content.list": { kind: "query", invalidates: [] },
   "content.preview": { kind: "query", invalidates: [] },
+  "content.search": { kind: "query", invalidates: [] },
   "me.agreements.accept": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.family","me.get","me.sessions.list","my.get","my.list"] },
   "me.agreements.due": { kind: "query", invalidates: [] },
   "me.agreements.get": { kind: "query", invalidates: [] },
@@ -341,14 +366,16 @@ export const operations = {
   "order.start": { kind: "mutation", invalidates: ["order.get","order.view"] },
   "order.view": { kind: "query", invalidates: [] },
   "stock.get": { kind: "query", invalidates: [] },
-  "subscription.cancel": { kind: "mutation", invalidates: ["subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
-  "subscription.change": { kind: "mutation", invalidates: ["subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
+  "subscription.cancel": { kind: "mutation", invalidates: ["subscription.coolingOff","subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
+  "subscription.change": { kind: "mutation", invalidates: ["subscription.coolingOff","subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
+  "subscription.coolOff": { kind: "mutation", invalidates: ["subscription.coolingOff","subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
+  "subscription.coolingOff": { kind: "query", invalidates: [] },
   "subscription.get": { kind: "query", invalidates: [] },
   "subscription.list": { kind: "query", invalidates: [] },
   "subscription.offer.mine": { kind: "query", invalidates: [] },
   "subscription.portal": { kind: "query", invalidates: [] },
-  "subscription.resume": { kind: "mutation", invalidates: ["subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
-  "subscription.start": { kind: "mutation", invalidates: ["subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
+  "subscription.resume": { kind: "mutation", invalidates: ["subscription.coolingOff","subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
+  "subscription.start": { kind: "mutation", invalidates: ["subscription.coolingOff","subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
   "waitlist.position": { kind: "query", invalidates: [] },
 } as const;
 

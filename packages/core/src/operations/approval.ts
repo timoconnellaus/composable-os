@@ -68,6 +68,13 @@ import {
 } from "../principals.ts";
 import { jsonList } from "../records/common.ts";
 import { PUBLISH_OPERATIONS } from "../records/publish.ts";
+
+/** The publish operations whose read-again choice the approver makes (ADR 0702). */
+const READ_AGAIN_OPERATIONS: ReadonlySet<string> = new Set([
+  "record.publish",
+  "record.schedulePublish",
+]);
+
 import { approvalMarkStatements } from "../routine-mail/marks.ts";
 import { assertRosterApprover } from "../staffing/approvals.ts";
 
@@ -709,6 +716,14 @@ const approveInput = z
       .describe(
         "High-risk items only: the second button's words, exactly as the action's secondStep gives them",
       ),
+    readAgain: z
+      .record(actionId, z.boolean())
+      .optional()
+      .describe(
+        "A publish of something staff confirm they have read (ADR 0702): by action id, whether " +
+          "it asks everyone again (true) or is a small fix (false). Left out, the request's " +
+          "own suggestion stands",
+      ),
   })
   .refine(...oneTarget);
 
@@ -933,6 +948,7 @@ async function approveActions(
     changeSetId?: string | undefined;
     actionIds?: string[] | undefined;
     confirm?: string | undefined;
+    readAgain?: Record<string, boolean> | undefined;
   },
   how: Decided,
 ) {
@@ -1242,7 +1258,14 @@ async function approveActions(
         const user = await loadUser(ctx.db, action.user_id);
         if (!user) throw new ValidationError(`The user ${action.user_id} no longer exists`);
         const granted = parse<string[] | null>(action.granted_permissions, null);
-        await ctx.pipeline.invoke(action.operation, replaceIds(parse(action.input, {}), bindings), {
+        const asked = replaceIds(parse<Record<string, unknown>>(action.input, {}), bindings);
+        // The approver's read-again choice replaces the AI's suggestion (ADR 0702).
+        const choice = input.readAgain?.[action.id];
+        const applying =
+          choice !== undefined && READ_AGAIN_OPERATIONS.has(action.operation)
+            ? { ...asked, readAgain: choice }
+            : asked;
+        await ctx.pipeline.invoke(action.operation, applying, {
           actor: action.actor,
           user,
           origin: parse<Origin>(action.origin, { surface: "mcp" }),
@@ -1629,6 +1652,12 @@ export const approvalDecide = defineOperation({
       via: z.enum(["tap", "typed", "spoken"]).default("tap").describe("Set by the app"),
       words: z.string().trim().max(2_000).optional().describe("Set by the app"),
       confirm: z.string().max(300).optional().describe("Set by the app: the second button"),
+      readAgain: z
+        .record(actionId, z.boolean())
+        .optional()
+        .describe(
+          "Set by the app: a person's read-again choice for a publish request, by action id (ADR 0702)",
+        ),
     })
     .refine(...oneTarget),
   output: decideResultSchema,
@@ -1690,7 +1719,13 @@ export const approvalDecide = defineOperation({
     }
     // Only a person's press can stand for the second button: a model's `confirm` never does.
     const confirm = assistant || told.via !== "tap" ? undefined : input.confirm;
-    const applied = await approveActions(ctx, { ...scoped, confirm }, { via: told.via, proved });
+    // The read-again choice is a person's in the app: an assistant relaying a yes makes none.
+    const readAgain = assistant ? undefined : input.readAgain;
+    const applied = await approveActions(
+      ctx,
+      { ...scoped, confirm, readAgain },
+      { via: told.via, proved },
+    );
     return ctx.afterCommit(async () => ({
       status: "decided" as const,
       ...(await runAfterCommit(applied)),
