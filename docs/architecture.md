@@ -1184,7 +1184,16 @@ shifts that clash and have not ended is refused (`staffed_conflict`; past clashe
 made with (`unavailable`, `not_qualified`, `uncovered` within 14 days), which the audit row
 records; `staffing.check` (tool-only) is the same answer first. Qualifications and unavailability
 are core tables in no `rec_*` view (`core_staff_qualification`, `core_staff_away`). Bookings' class
-declares it.
+declares it. **Claim margins** (stage 49 step 1, [ADR 0760](adr/0760-claim-margins-and-a-required-account-on-staffed.md)):
+`claimBefore` and `claimAfter` (`kind.field` minutes, a service's buffer) widen the claim and are
+kept on it (`margin_before`, `margin_after`, migration 1091); triggers on the kind's table follow a
+change of its minutes for shifts not yet ended (history is never refused), and readers of a shift's
+own time (the feed, leaving, the away notice) take them off. Classes declare none.
+`account: "required"` refuses a live shift not yet ended whose profile holds no account, at write
+and by triggers on the shift's and the profile's tables (`rule: "staffed_account"`); nobody on it
+stays allowed. `private: true` ([ADR 0761](adr/0761-a-shift-that-names-a-client-kept-off-the-roster-and-the-feed.md))
+marks a shift whose title may name a client (an appointment): the roster shows it as its kind to
+anyone but its person and rosterers, clash answers name it by its kind, and it is never offered.
 
 **`occupies`** ([ADR 0765](adr/0765-occupies-the-claim-on-a-thing.md), `packages/core/src/occupies/`;
 stage 49 step 2). The time claim's twin for things: a record that declares

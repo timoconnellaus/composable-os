@@ -3,7 +3,9 @@
 // zone, the place, the person's name (and whether it is the reader), whether it has nobody on it,
 // its open offer, and, for a rosterer only, its warnings. Never a class's bookings, places taken,
 // its list or any Person: so a coach whose role reaches class lists only today sees the whole
-// future roster through Rostering's grant, and nothing the role protects.
+// future roster through Rostering's grant, and nothing the role protects. A shift whose title may
+// name a client (`staffed.private`, an appointment, ADR 0761) shows its kind's name (the service)
+// as its title to anyone but its own person and those who roster.
 //
 // Read as the host, set-based: one read per staffed object for its shifts, then one each for the
 // people, the kinds' names, the places and the open offers; the warnings from one read of the
@@ -99,6 +101,8 @@ export async function rosterRange(
     uncoveredDays: number;
     /** Whose checklists' states the reader sees: everyone's (a rosterer), their own, or none. */
     checklists?: "all" | "own" | "none";
+    /** The reader rosters, so sees a private shift's own title (ADR 0761); else only their own. */
+    clients?: boolean;
   },
 ): Promise<{ shifts: RosterShift[]; truncated: boolean }> {
   const out: RosterShift[] = [];
@@ -186,10 +190,13 @@ export async function rosterRange(
           : text(r.who);
       if (range.account !== undefined && account !== range.account) continue;
       if (account) people.set(account, "");
+      const kindName = r.kind ? kindNames.get(r.kind) || null : null;
+      // A private shift's title may name its client: its kind's name instead (ADR 0761).
+      const hidden = def.private === true && !options.clients && !(account && account === reader);
       out.push({
         object: object.name,
         id: r.id,
-        title: text(r.title) ?? object.label,
+        title: (hidden ? kindName : text(r.title)) ?? object.label,
         kind:
           kindObject && r.kind
             ? { object: kindObject, id: r.kind, name: kindNames.get(r.kind) ?? "" }

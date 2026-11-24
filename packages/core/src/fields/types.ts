@@ -592,6 +592,13 @@ export interface StaffedDefinition {
   pattern?: { link: string; who: string } | undefined;
   payBefore?: { field: string } | undefined;
   payAfter?: { field: string } | undefined;
+  /** Minutes kept free before and after, in the claim (ADR 0760): `kind.field` number paths. */
+  claimBefore?: { field: string } | undefined;
+  claimAfter?: { field: string } | undefined;
+  /** A live shift with a person must have an account (ADR 0760). */
+  account?: "required" | undefined;
+  /** Its title may name a client: off the roster for others, never offered (ADR 0761). */
+  private?: boolean | undefined;
   /** What shows a shift was worked (ADR 0627): `object` is the evidence object's registry name. */
   evidence?: { object: string; link: string; by: string } | undefined;
 }
