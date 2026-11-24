@@ -51,7 +51,6 @@ export function useEnrichAction(
     }
   }
 
-  const noun = object === "person" ? "person" : "organisation";
   return {
     item: (
       <DropdownMenuItem onSelect={() => setOpen(true)}>
@@ -63,7 +62,7 @@ export function useEnrichAction(
       <AlertDialog open={open} onOpenChange={setOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Enrich this {noun} from ZoomInfo?</AlertDialogTitle>
+            <AlertDialogTitle>Enrich this {object} from ZoomInfo?</AlertDialogTitle>
             <AlertDialogDescription>
               Uses ZoomInfo credits. Empty fields are filled from the result; values already on the
               record are never overwritten.

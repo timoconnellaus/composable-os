@@ -67,7 +67,7 @@ function CurrencyValue({ field, value }: { field: FieldInfo; value: number }) {
   return <>{formatCurrency(value, (field.options?.currency as string | undefined) ?? base)}</>;
 }
 
-function formatNumber(_field: FieldInfo, value: number, kind: string): string {
+function formatNumber(value: number, kind: string): string {
   if (kind === "percent") return `${new Intl.NumberFormat("en").format(value)}%`;
   return new Intl.NumberFormat("en").format(value);
 }
@@ -154,7 +154,7 @@ export function FieldDisplay({ field, value }: { field: FieldInfo; value: unknow
       );
     case "number":
     case "percent":
-      return <>{typeof value === "number" ? formatNumber(field, value, kind) : String(value)}</>;
+      return <>{typeof value === "number" ? formatNumber(value, kind) : String(value)}</>;
     case "date":
       return <time dateTime={String(value)}>{formatDate(String(value))}</time>;
     case "datetime":
@@ -255,7 +255,7 @@ function FormulaValue({ field, value }: { field: FieldInfo; value: unknown }) {
   let text: string;
   if (value === null || value === undefined || value === "") text = "—";
   else if (resultType === "number" && typeof value === "number")
-    text = formatNumber(field, value, "number");
+    text = formatNumber(value, "number");
   else if (resultType === "boolean") text = value ? "Yes" : "No";
   else if (resultType === "date") text = formatDate(String(value));
   else if (resultType === "datetime") text = formatDateTime(String(value));

@@ -196,7 +196,6 @@ export function compactRelative(value: string | null | undefined, now: number = 
   const at = Date.parse(value);
   if (Number.isNaN(at)) return value;
   const seconds = Math.round((now - at) / 1000);
-  if (seconds < 0) return "just now";
   if (seconds < 60) return "just now";
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
   if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h ago`;
