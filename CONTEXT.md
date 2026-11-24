@@ -2016,6 +2016,21 @@ email or phone or to a field of the form's destination. Answers are checked agai
 never the value. No health, signature, payment or (yet) file kind.
 _Avoid_: form fields (a form's questions are not fields of an object), survey schema
 
+**Intake** (stage 29)
+The behaviour by which an object accepts records made by the public or customers through the
+host's one door, `intake.submit`: a **form** (what is answered: published questions, who may
+answer, when it is open), its **submission** (one set of answers to one version of a form, made only
+by the host, read only by staff) and a **destination** (another pack's record a form may also make,
+a Lead). Declared only by shipped packs. The one public write that is not a purchase.
+_Avoid_: public create, form post
+
+**Submitter** (stage 29)
+Who sent a submission, with how sure the host is of it, its **certainty**: `account` (signed in),
+`link` (a personal link), `staff` (entered by staff), `address` (an address a visitor typed,
+unconfirmed, shown to staff as such). The host fills only a Person's empty fields from the answers.
+An anonymous form's submission has no submitter at all.
+_Avoid_: sender, respondent, lead (only for `leads.lead`)
+
 **Slug**
 A record's address in its object (`summer-launch`): lowercase words joined by hyphens, unique
 among the object's live records, made from the title when left empty. When a published record's

@@ -169,6 +169,11 @@ export interface ObjectDefinition {
   workedOn?: WorkedOnDefinition;
   /** Extension objects: a claim on a thing (a room) for the record's time (stage 49, ADR 0765). */
   occupies?: OccupiesDefinition;
+  /**
+   * Extension objects of a shipped pack: the public-write door (stage 29, ADR 0720), a form the
+   * public answers, the submission the host makes, or a destination a form may also make.
+   */
+  intake?: IntakeDefinition;
   /** A checklist its person ticks off (stage 45 step 4b, ADR 0650), with registry names. */
   checklists?: ChecklistsDefinition;
   /**
@@ -746,3 +751,12 @@ export type AccessSource = RecordAccessSource | KindAccessSource;
 export interface AccessDeclaration {
   readonly sources: readonly AccessSource[];
 }
+
+/**
+ * The SDK's IntakeSpec (ADR 0720): field names are the object's own; a submission's `formObject`
+ * is the registry name of the form object its `form` relation names.
+ */
+export type IntakeDefinition =
+  | import("@composable-os/sdk").IntakeFormSpec
+  | (import("@composable-os/sdk").IntakeSubmissionSpec & { formObject: string })
+  | import("@composable-os/sdk").IntakeDestinationSpec;

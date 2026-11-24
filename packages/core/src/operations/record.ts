@@ -47,6 +47,11 @@ import { getObject, isCoreObject, listObjects } from "../fields/index.ts";
 import { mediaObject } from "../fields/media.ts";
 import type { FieldDefinition, ObjectDefinition } from "../fields/types.ts";
 import { newId } from "../ids.ts";
+import {
+  assertFormQuestions,
+  assertSubmissionByHost,
+  intakeHostFields,
+} from "../intake/declared.ts";
 import { listInputSchema, pageSchema, runListQuery } from "../list.ts";
 import type { RecordRef } from "../operation.ts";
 import { defineOperation, type HandlerContext, personsTool } from "../operation.ts";
@@ -323,6 +328,14 @@ async function prepareValues(
     const hostCode = field.fieldType !== "formula" && (options.by === "host" || seamCode);
     // What a holder's conditions read on a spender is the host's alone, even for the
     // extension's own code (ADR 0493): no actor sets what pays for it.
+    // A submission's evidence is the host's alone (ADR 0720): what was answered, to which
+    // version, and how sure the host is whose it is. No staff write, AI or import changes it.
+    if (!hostCode && intakeHostFields(object).has(name)) {
+      throw new ValidationError(`${object.name}.${name} is set by the host and cannot be written`, {
+        field: name,
+        rule: "intake_host_only",
+      });
+    }
     if (!hostCode && hostFilled(object).has(name)) {
       throw new ValidationError(`${object.name}.${name} is set by the host and cannot be written`, {
         field: name,
@@ -705,6 +718,8 @@ export async function createRecord(
     generated?: readonly string[];
   } = {},
 ): Promise<string> {
+  // Only the door makes a submission (ADR 0720), whoever asks and by whatever path.
+  assertSubmissionByHost(object, options.by);
   const requester = options.by ?? (object.states?.requests ? callerMover(ctx) : undefined);
   // A move asked for by name (`cancel`) becomes the state the host picks (ADR 0503).
   const asked = requester
@@ -725,6 +740,8 @@ export async function createRecord(
   let prepared = await prepareValues(ctx, object, withDefaults, "create", options);
   assertOneOf(object, valuesOf(prepared));
   assertRuleValues(object, valuesOf(prepared));
+  // A form's questions, with its anonymous flag and destination (ADR 0720).
+  assertFormQuestions(object, valuesOf(prepared));
   // No owner given: assignment rules choose one, in this same insert (ADR 0246).
   const ownerField = object.ownerField;
   const assignment =
@@ -1119,6 +1136,7 @@ export async function updateRecord(
   let prepared = await prepareValues(ctx, object, asked, "update", options);
   if (!prepared.length) return false;
   assertRuleValues(object, { ...before.values, ...valuesOf(prepared) });
+  assertFormQuestions(object, { ...before.values, ...valuesOf(prepared) });
   await assertSlugsFree(ctx, object, id, valuesOf(prepared));
   assertChoiceRequirements(object, prepared, {
     ...before.values,

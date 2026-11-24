@@ -122,6 +122,7 @@ export * from "./filter.ts";
 export * from "./gate.ts";
 export * from "./http/index.ts";
 export * from "./ids.ts";
+export * from "./intake/runtime.ts";
 export * from "./integrations/catalogue.ts";
 export * from "./integrations/events.ts";
 export * from "./integrations/outbound.ts";

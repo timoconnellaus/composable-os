@@ -39,6 +39,7 @@ import {
 } from "./document.ts";
 import { FIELD_TYPES, type FieldTypeName, formulaTypeOf } from "./field-types.ts";
 import { checkFormula, type FormulaFieldRef } from "./formula/compile.ts";
+import { checkObjectIntake, intakeManifestSchema } from "./intake.ts";
 import { journeySignalIssues, journeySignalsManifestSchema } from "./journey-signals.ts";
 import { checkObjectOccupies, occupiesManifestSchema } from "./occupies.ts";
 import { checkObjectRecurring, recurringManifestSchema } from "./recurring.ts";
@@ -226,6 +227,7 @@ export const objectManifestSchema = z.object({
   workedOn: workedOnManifestSchema.optional(),
   team: teamManifestSchema.optional(),
   occupies: occupiesManifestSchema.optional(),
+  intake: intakeManifestSchema.optional(),
   checklists: checklistsManifestSchema.optional(),
   owner: z.string().max(40).optional(),
   customer: z
@@ -1284,6 +1286,7 @@ export function validateManifest(
     checkObjectWorkedOn(m, name, object, contract);
     checkObjectTeam(m, name, object, contract);
     checkObjectOccupies(m, name, object, contract);
+    checkObjectIntake(m, name, object, contract);
     checkObjectChecklists(m, name, object, contract);
     object.requireOneOf?.forEach((group, i) => {
       for (const field of group) {

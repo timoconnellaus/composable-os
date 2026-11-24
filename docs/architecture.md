@@ -1526,8 +1526,35 @@ filled once, none on an anonymous form, and no required marketing consent. `chec
 `{ [key]: value }` against one version (types, required when shown, lengths, at most 3 links in a
 text, 20 KB in all, nothing for a hidden or unknown question) and gives the answers document a
 submission stores (`ANSWERS_SCHEMA`, private: no customer or public read). Its faults carry the
-question's key and a fault code, never the value. Wiring these checks into writes (the form's
-record, `intake.submit`) is stage 29's later steps.
+question's key and a fault code, never the value. The record operations run `checkQuestions` on
+every create and update of an object declaring `intake` as a form, and `intake.submit` runs
+`checkAnswers` (below).
+
+**The public-write door** (stage 29, step 2, [ADR 0720](adr/0720-the-intake-door-one-public-write.md)
+to [0722](adr/0722-abuse-checks-turnstile-honeypot-fill-time-caps.md) and
+[0725](adr/0725-anonymous-submissions.md), `packages/sdk/src/intake.ts`,
+`packages/core/src/intake/`). The one reviewed way the public creates a record that is not a
+purchase. A shipped pack declares `intake` in a role per object: a `form` (publishable, its
+questions in its published content, who may answer, the states it is open in, and optionally
+anonymous, a destination, dates, a daily cap and who is told), its `submission` (the form, the
+version answered, the answers, the Person, the certainty, a spam state; never readable outside the
+org) and a `destination` another pack offers (its Person, the fields a form may fill, a source set
+to `website`). Two core operations, `toolOnly` and `hostInternal`, open to staff, customers and the
+public and reached only from the form's own pack's tool: `intake.open` (the form as the caller may
+answer it, and for the public a shown-time token) and `intake.submit`. The door finds a form only
+while it is published, open, within its dates and open to the caller (else not found), verifies a
+visitor's Turnstile token with cos-runner's env-only `TURNSTILE_SECRET_KEY` (none set: no public
+answers, admins told), answers success and stores nothing for a filled honeypot or a form sent
+under 3 seconds after it was shown, caps 200 an hour per deployment and the form's own per 24
+hours ("try later", admins told once), checks the answers against the version, keeps a sixth from
+one mailbox to one form in 24 hours as spam, and then writes in one batch, as the host's change:
+the submitter's Person by the shared address matcher (`personForAddress`, also `resolveBuyer`'s;
+certainty `account`, `staff` or `address`; only empty fields filled), the submission, a destination
+record and the notice to staff. Only the door creates a submission, and its form, version, answers,
+certainty, via and rating are the host's alone on every path; who may answer, anonymity and the
+destination are read from the published version, as the questions are. An anonymous form keeps no Person, and the call forgets the
+customer (`ctx.anonymise`): no account or session in its audit row, marks or events. No client
+address, user agent or fingerprint is stored.
 
 **`publishable`** ([ADR 0446](adr/0446-publishable-without-its-public-half.md),
 [ADR 0441](adr/0441-publishable-states-schedules-and-versions.md),

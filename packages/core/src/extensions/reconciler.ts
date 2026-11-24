@@ -467,6 +467,7 @@ export function planFromState(
       ...(object.staffed ? { staffed: object.staffed } : {}),
       ...(object.workedOn ? { workedOn: object.workedOn } : {}),
       ...(object.occupies ? { occupies: object.occupies } : {}),
+      ...(object.intake ? { intake: object.intake } : {}),
       ...(object.checklists ? { checklists: object.checklists } : {}),
       ...(object.owner ? { owner: object.owner } : {}),
       ...(object.customer ? { customer: object.customer } : {}),

@@ -107,6 +107,12 @@ const WHY = {
    * what its role reaches, never answered to anyone.
    */
   role: "a pack role's limit: the People its holder looks after, to narrow a staff read",
+  /**
+   * The public-write door (stage 29, ADRs 0720 and 0721): the counts its caps and spam rule take
+   * of a form's submissions, and the empty fields of a Person the host itself matched. Nothing it
+   * reads is answered to the caller.
+   */
+  intake: "the public-write door: its counts, and a Person the host matched",
 } as const;
 type Why = (typeof WHY)[keyof typeof WHY];
 
@@ -151,6 +157,8 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "extensions/schema.ts": [1, WHY.part],
   "entitlements.ts": [2, WHY.org],
   "filter.ts": [1, WHY.part],
+  "intake/person.ts": [3, WHY.intake],
+  "intake/submit.ts": [2, WHY.intake],
   "integrations/outbound-check.ts": [2, WHY.org],
   "notifications/delivery.ts": [1, WHY.org],
   "notifications/digest-content.ts": [4, WHY.org],

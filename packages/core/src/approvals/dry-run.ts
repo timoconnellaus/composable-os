@@ -117,6 +117,10 @@ const CONTEXT_KEYS = {
   hostMail: "runtime",
   // Key arithmetic only (an HMAC, sealing and opening a secret): it cannot act (ADR 0783).
   personCodes: "data",
+  // Outside calls only (stage 29, ADRs 0722 and 0725): never on a staff call a dry run makes.
+  intake: "runtime",
+  callingTool: "data",
+  anonymise: "data",
 } as const satisfies Record<keyof HandlerContext, "database" | "runtime" | "data">;
 
 type RuntimeKey = {
@@ -152,6 +156,7 @@ const RUNTIMES = {
   agentJobs: { label: "agents", reads: [] },
   hostMail: { label: "the host's mail", reads: ["signInMailProblem"] },
   widgetCache: { label: "the dashboard cache", reads: ["get"] },
+  intake: { label: "the spam check", reads: [] },
 } as const satisfies Record<RuntimeKey, { label: string; reads: readonly string[] }>;
 
 export type DryRunRuntime = keyof typeof RUNTIMES;

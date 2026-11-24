@@ -78,6 +78,7 @@ import {
   type GateResult,
 } from "./gate.ts";
 import { findProvisionalIds, newId } from "./ids.ts";
+import type { IntakeRuntime } from "./intake/runtime.ts";
 import type { BlobStore, IntegrationRuntime } from "./integrations/runtime.ts";
 import type { HostMail } from "./invites.ts";
 import { signalStatements } from "./journeys/signals.ts";
@@ -255,6 +256,11 @@ export interface InvocationContext {
    * auth secret by the adapter. Absent: codes, cards and PINs are refused. Nested calls inherit it.
    */
   personCodes?: PersonCodeKeys;
+  /**
+   * The public-write door's runtime (stage 29, ADR 0722). A staff call skips the spam check, so
+   * nothing uses it there; a dry run refuses it as any runtime.
+   */
+  intake?: IntakeRuntime;
   /**
    * Set on an agent's calls (ADR 0344): what its grant allows, checked on every call. Passed by the
    * AgentJob object, never by a model. Not inherited when nested, which is why operations that run
@@ -987,6 +993,7 @@ async function invokeOnce<O extends AnyOperation>(
     ...(ctx.agentJobs ? { agentJobs: ctx.agentJobs } : {}),
     ...(ctx.hostMail ? { hostMail: ctx.hostMail } : {}),
     ...(ctx.personCodes ? { personCodes: ctx.personCodes } : {}),
+    ...(ctx.intake ? { intake: ctx.intake } : {}),
     pipeline: {
       crm: ctx.db,
       resolve: (name) => ctx.resolveOperation?.(name),
@@ -1846,6 +1853,11 @@ export interface OutsideInvocationContext {
    * `hostInternal` core operation's handler: `me.code`, `me.pin.set`.
    */
   personCodes?: PersonCodeKeys;
+  /**
+   * The public-write door's runtime (stage 29, ADR 0722), built by the adapter from the env-only
+   * Turnstile secret: given only to the `intake.*` operations' handlers.
+   */
+  intake?: IntakeRuntime;
   /** Never set: these make a context a staff one. */
   user?: undefined;
   actor?: undefined;
@@ -2105,7 +2117,8 @@ async function invokeOutside<O extends AnyOperation>(
     if (!grant.ok) throw new ForbiddenError(grant.reason, { operation: op.name });
   }
   const actor: OutsideActor = principal.kind;
-  const subjectId = principal.kind === "customer" ? principal.customerId : null;
+  // Mutable only by `anonymise` (ADR 0725): an anonymous form's submission names no account.
+  let subjectId = principal.kind === "customer" ? principal.customerId : null;
   const origin = originSchema.parse(ctx.origin ?? { surface: "client" });
   // `{ $relative: "me" }` in a customer's filter is their own Person.
   const me = principal.kind === "customer" ? principal.personId : "";
@@ -2114,7 +2127,15 @@ async function invokeOutside<O extends AnyOperation>(
 
   const isRead = op.risk === "read";
   const auditId = newId("audit");
-  const base = { id: auditId, op, actor, subjectId, origin, input, at: now } as const;
+  const base: Omit<OutsideAudit, "gate" | "outcome"> = {
+    id: auditId,
+    op,
+    actor,
+    subjectId,
+    origin,
+    input,
+    at: now,
+  };
   const auditAloneOutside = async (row: OutsideAudit): Promise<void> => {
     // Failed reads are not written down: a caller with no account could make any number.
     if (isRead) return;
@@ -2237,6 +2258,21 @@ async function invokeOutside<O extends AnyOperation>(
         ...(op.hostInternal === true && !op.name.startsWith("x.") && ctx.personCodes
           ? { personCodes: ctx.personCodes }
           : {}),
+        // The pack tool whose run made this call (ADR 0414), from the runner.
+        ...(ctx.tool ? { callingTool: { ...ctx.tool } } : {}),
+        // The public-write door's runtime, for its own operations only (ADR 0722).
+        ...(op.name.startsWith("intake.") && ctx.intake ? { intake: ctx.intake } : {}),
+        // An anonymous form (ADR 0725): from now on nothing this call writes names the account.
+        ...(principal.kind === "customer"
+          ? {
+              anonymise: () => {
+                subjectId = null;
+                base.subjectId = null;
+                // A session is the account's too.
+                delete (origin as { sessionId?: string }).sessionId;
+              },
+            }
+          : {}),
         get actor() {
           return staffOnly("actor");
         },
@@ -2323,7 +2359,7 @@ async function invokeOutside<O extends AnyOperation>(
         ctx.db.query,
         marked,
         principal.kind === "customer" ? "customer" : "public",
-        principal.kind === "customer" ? principal.customerId : null,
+        subjectId,
         now,
       )),
       ...signalStatements({ db: ctx.db.query }, changes, {
@@ -2373,6 +2409,14 @@ async function invokeOutside<O extends AnyOperation>(
     try {
       await ctx.db.batch(statements);
     } catch (error) {
+      // A race the database decided: the operation may read again and say what happened, as on
+      // a staff call (stage 29: two first answers from one new address at once).
+      if (op.explainFailure) {
+        const explained = await op
+          .explainFailure(toOperationError(error), input, handlerCtx)
+          .catch(() => null);
+        if (explained) return fail(explained);
+      }
       return fail(error);
     }
   }

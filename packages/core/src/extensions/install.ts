@@ -447,6 +447,15 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
         message: `A runtime extension cannot declare who on the staff looks after the People ${name} is about. ${why}`,
       });
     }
+    // The public-write door (ADR 0720): what the public may create is a reviewed change.
+    if (object.intake) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.intake`,
+        message: `A runtime extension cannot open ${name} to the public's answers. ${why}`,
+      });
+    }
     // Who ticks what is a staff record, read by the person and rosterers only (ADR 0650).
     if (object.checklists) {
       issues.push({
