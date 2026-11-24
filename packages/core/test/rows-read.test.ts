@@ -67,7 +67,9 @@ describe("rows read on hot paths", () => {
     // a child's paper copy to the guardian (migration 0857: an index, four triggers) to about 1,140;
     // stage 44 step 7's cooling off (migration 0856: a column, a table, four indexes and its key's
     // autoindex, three triggers): 1,138 measured on the merged tree.
-    expect(await read("person.list", { limit: 50 })).toBeLessThan(1_155);
+    // Stage 37's stock ledger (migration 0935: a table and its key's autoindex, three indexes,
+    // three triggers, a view): 1,168 measured on the merged tree.
+    expect(await read("person.list", { limit: 50 })).toBeLessThan(1_185);
     expect(await read("organisation.list", { limit: 50 })).toBeLessThan(1_050);
     expect(await read("activity.list", { limit: 50 })).toBeLessThan(1_500);
     expect(await read("task.list", { limit: 50 })).toBeLessThan(1_050);
