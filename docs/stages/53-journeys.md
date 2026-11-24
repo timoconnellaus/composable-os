@@ -26,14 +26,18 @@ preferences, one-tap stop and promotional consent (below, "What this stage needs
 Built so far:
 
 - **Step 2, journey signals** (2026-11-24, [ADR 0802](../adr/0802-journey-signals-declared-by-shipped-packs-recorded-in-the-write.md),
-  migration 1175; the spec's list below numbered this ADR 0801). `journeySignals` in the manifest
+  migration 1175; the list of ADRs below is renumbered to match). `journeySignals` in the manifest
   (`packages/sdk/src/journey-signals.ts`: `JourneySignalSpec`, the check, `journeySignalFires`),
-  refused for a runtime extension at check and install; `cos ext check` lists a pack's signals.
+  refused for a runtime extension at check and install, and a signal no declared move or create can
+  make refused; `cos ext check` lists a pack's signals.
   `core_person_signal` (one row per Person and signal, with the record, the write's standing and a
   bulk flag), written by the pipeline beside the value marks in every write's batch, one statement
   however many records (`packages/core/src/journeys/signals.ts`); erase, the purge and merge
-  handle it. Memberships declares `started`, `ended`, `trialEnded` and `passStarted` (the pass
-  signal is an addition: "stop when they buy a pass" needs it); Bookings `booked` and `attended`;
+  handle it, and a signal no longer declared or a dropped object loses its rows. A `bulk-write`
+  operation is bulk at any size (an import's chunk of one). Memberships declares `started`,
+  `joined` (a trial becoming paid: AC 2's "becoming active"), `ended`, `trialEnded` and
+  `passStarted` (`joined` and the pass signal are additions: "stop when they join" and "stop when
+  they buy a pass" need them); Bookings `booked` and `attended`;
   Ticketing `ticketBought` and `checkedIn`. Recorded in the pipeline rather than the transition
   engine and record create (the same writes, with the standing and bulk flag they lack). Nothing
   reads the rows yet: entries and the scan are steps 3 and 4.
@@ -466,8 +470,10 @@ ADRs the build writes:
 
 1. **ADR 0800**: Journeys as a host primitive (journeys, versions, entries, the tick and the daily
    scan); amends ADR 0242 (sequences become journeys, once stage 13 is interviewed).
-2. **ADR 0801**: Journey signals, declared by shipped packs and recorded in the write's batch.
-3. **ADR 0802**: A journey publish is the approval of its wording; the send decision; journeys as a
+2. **ADR 0802** (built, step 2): Journey signals, declared by shipped packs and recorded in the
+   write's batch.
+3. **ADR 0801** (or the next free number of block BO): A journey publish is the approval of its
+   wording; the send decision; journeys as a
    source of routine messages; the journey shape at the email gatekeeper (reply-to, the host's own
    links); amends ADRs 0051 and 0590 and stage 30's routine messages ADR.
 4. **ADR 0803**: A birthday as day and month on Person.
