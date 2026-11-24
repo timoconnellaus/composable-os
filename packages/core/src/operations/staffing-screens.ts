@@ -546,7 +546,7 @@ export const staffingPatterns = defineOperation({
           : null;
         const title =
           text(series.titleField ? values[series.titleField] : null) ?? kind?.name ?? series.label;
-        const days = values[def.rule.weekdays];
+        const days = def.rule.weekdays ? values[def.rule.weekdays] : null;
         patterns.push({
           object: series.name,
           id,

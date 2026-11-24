@@ -1,6 +1,7 @@
 // The `recurring` behaviour (stage 31, ADR 0500): a series (a record of an object that declares
-// `recurring`) keeps a weekly rule in local wall-clock time, and the host makes the dated records
-// it generates (classes) ahead, up to the series' horizon.
+// `recurring`) keeps a rule in local wall-clock time (weekly, or every N weeks, months or years:
+// ADR 0860), and the host makes the dated records it generates (classes) ahead, up to the series'
+// horizon.
 //
 // - **Generation** is the minute cron's (`runRecurringDue` → `recurring.generate`, as the host):
 //   a series is due when it was written (its write sets it due now) and once a day after local
@@ -24,7 +25,13 @@
 // - **Closures** (records of the declared closure object): nothing is made on their dates, and
 //   the future records already made in them are cancelled (a host move into `cancel`).
 
-import { WEEKDAYS } from "@composable-os/sdk";
+import {
+  RECURRING_EVERY_MAX,
+  RECURRING_HORIZON_MAX,
+  RECURRING_UNITS,
+  type RecurringUnit,
+  WEEKDAYS,
+} from "@composable-os/sdk";
 import { addDaysToDate } from "../automations/cron.ts";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { getObject, listObjects } from "../fields/index.ts";
@@ -127,11 +134,21 @@ function records(): RecurringWriter {
 
 /** A series' rule, read from its values. */
 export interface SeriesRule {
+  /** Every `every` weeks, months or years (ADR 0860); a weekly series is every 1 week. */
+  unit: RecurringUnit;
+  every: number;
+  /** ISO weekdays, for `week`. */
   weekdays: ReadonlySet<number>;
+  /** The day of the month (1 to 31, the month's last when shorter), for `month` and `year`. */
+  day: number;
+  /** The month (1 to 12), for `year`. */
+  month: number;
   /** Minutes of the local day. */
   minutes: number;
   /** Minutes long, or null. */
   length: number | null;
+  /** Whole days long (ending at the same wall-clock time), or null. */
+  lengthDays: number | null;
   from: string;
   until: string | null;
   zone: string;
@@ -146,10 +163,14 @@ export interface Occurrence {
 
 const text = (value: unknown) => (typeof value === "string" && value.trim() !== "" ? value : null);
 
+const wholeIn = (value: unknown, min: number, max: number) =>
+  typeof value === "number" && Number.isInteger(value) && value >= min && value <= max;
+
 /**
- * Checks a series' rule values as written (ADR 0500): the time is `HH:MM`, the length whole
- * minutes from 1 to a day, the dates real and in order. A rule may be incomplete (a draft makes
- * nothing); what is given must be right.
+ * Checks a series' rule values as written (ADR 0500, 0860): the time is `HH:MM`, the length whole
+ * minutes from 1 to a day (or whole days from 1 to 366), every N from 1 to 100, the day of the
+ * month 1 to 31 and the month 1 to 12, the dates real and in order. A rule may be incomplete (a
+ * draft makes nothing); what is given must be right.
  */
 export function assertRuleValues(object: ObjectDefinition, values: Record<string, unknown>): void {
   const def = object.recurring;
@@ -165,15 +186,22 @@ export function assertRuleValues(object: ObjectDefinition, values: Record<string
   if (text(time) !== null && parseLocalTime(time as string) === null) {
     refuse(def.rule.time, "must be a local time, HH:MM (00:00 to 23:59)");
   }
-  if (def.rule.length) {
-    const length = values[def.rule.length];
-    if (
-      length !== null &&
-      length !== undefined &&
-      !(typeof length === "number" && Number.isInteger(length) && length >= 1 && length <= 1440)
-    ) {
-      refuse(def.rule.length, "must be whole minutes, from 1 to 1440");
-    }
+  const bounded: [string | undefined, number, number, string][] = [
+    [def.rule.length, 1, 1440, "must be whole minutes, from 1 to 1440"],
+    [def.rule.lengthDays, 1, RECURRING_HORIZON_MAX, "must be whole days, from 1 to 366"],
+    [
+      def.rule.every,
+      1,
+      RECURRING_EVERY_MAX,
+      `must be a whole number, from 1 to ${RECURRING_EVERY_MAX}`,
+    ],
+    [def.rule.day, 1, 31, "must be a day of the month, from 1 to 31"],
+    [def.rule.month, 1, 12, "must be a month, from 1 to 12"],
+  ];
+  for (const [field, min, max, message] of bounded) {
+    if (!field) continue;
+    const value = values[field];
+    if (value !== null && value !== undefined && !wholeIn(value, min, max)) refuse(field, message);
   }
   const from = text(values[def.rule.from]);
   const until = def.rule.until ? text(values[def.rule.until]) : null;
@@ -187,7 +215,7 @@ export function ruleOf(
   values: Record<string, unknown>,
   defaultZone: string,
 ): SeriesRule | null {
-  const days = values[def.rule.weekdays];
+  const days = def.rule.weekdays ? values[def.rule.weekdays] : null;
   const weekdays = new Set(
     (Array.isArray(days) ? days : [])
       .map((d) => (WEEKDAYS as readonly string[]).indexOf(String(d)) + 1)
@@ -195,29 +223,82 @@ export function ruleOf(
   );
   const minutes = parseLocalTime(text(values[def.rule.time]) ?? "");
   const from = text(values[def.rule.from]);
-  if (!weekdays.size || minutes === null || !from || !parseLocalDate(from)) return null;
+  const start = from ? parseLocalDate(from) : null;
+  const unitValue = def.rule.unit ? text(values[def.rule.unit]) : null;
+  const unit = (RECURRING_UNITS as readonly string[]).includes(unitValue ?? "")
+    ? (unitValue as RecurringUnit)
+    : "week";
+  const read = (field: string | undefined, min: number, max: number) => {
+    const value = field ? values[field] : null;
+    return wholeIn(value, min, max) ? (value as number) : null;
+  };
+  if (minutes === null || !from || !start) return null;
+  if (unit === "week" && !weekdays.size) return null;
   const lengthValue = def.rule.length ? values[def.rule.length] : null;
   const until = def.rule.until ? text(values[def.rule.until]) : null;
   return {
+    unit,
+    every: read(def.rule.every, 1, RECURRING_EVERY_MAX) ?? 1,
     weekdays,
+    day: read(def.rule.day, 1, 31) ?? start.day,
+    month: read(def.rule.month, 1, 12) ?? start.month,
     minutes,
     length: typeof lengthValue === "number" && lengthValue > 0 ? lengthValue : null,
+    lengthDays: read(def.rule.lengthDays, 1, RECURRING_HORIZON_MAX),
     from,
     until: until && parseLocalDate(until) ? until : null,
     zone: text(def.rule.zone ? values[def.rule.zone] : null) ?? defaultZone,
   };
 }
 
-/** Whether a rule makes a record on `date`. */
+/** The number of days in a month (`month` 1 to 12). */
+const daysInMonth = (year: number, month: number) =>
+  new Date(Date.UTC(year, month, 0)).getUTCDate();
+
+/** Days from 1970-01-01 to a `YYYY-MM-DD` date. */
+const dayNumber = (date: { year: number; month: number; day: number }) =>
+  Date.UTC(date.year, date.month - 1, date.day) / 86_400_000;
+
+/**
+ * Whether a rule makes a record on `date` (ADR 0860). Fixed on the calendar, counted from `from`:
+ * every N weeks from the week (Monday first) holding `from`, every N months from `from`'s month,
+ * every N years from `from`'s year. A day the month lacks (the 31st, 29 February) is its last day.
+ */
 export function ruleIncludes(rule: SeriesRule, date: string): boolean {
   if (date < rule.from || (rule.until !== null && date > rule.until)) return false;
-  return rule.weekdays.has(isoWeekday(date));
+  const d = parseLocalDate(date);
+  const f = parseLocalDate(rule.from);
+  if (!d || !f) return false;
+  if (rule.unit === "week") {
+    const weekday = isoWeekday(date);
+    if (!rule.weekdays.has(weekday)) return false;
+    if (rule.every === 1) return true;
+    const weeks = (dayNumber(d) - (weekday - 1) - (dayNumber(f) - (isoWeekday(rule.from) - 1))) / 7;
+    return weeks % rule.every === 0;
+  }
+  if (rule.unit === "month") {
+    const months = (d.year - f.year) * 12 + (d.month - f.month);
+    if (months % rule.every !== 0) return false;
+  } else {
+    if ((d.year - f.year) % rule.every !== 0 || d.month !== rule.month) return false;
+  }
+  return d.day === Math.min(rule.day, daysInMonth(d.year, d.month));
 }
 
 /** The record a rule makes on `date`. */
 export function occurrenceOn(rule: SeriesRule, date: string): Occurrence {
   const starts = wallClockToInstant(wallClockOf(date, rule.minutes), rule.zone);
-  return { date, starts, ends: rule.length === null ? null : starts + rule.length * 60_000 };
+  // A length in days ends at the same wall-clock time that many local days on (ADR 0860).
+  const ends =
+    rule.lengthDays !== null
+      ? wallClockToInstant(
+          wallClockOf(addDaysToDate(date, rule.lengthDays), rule.minutes),
+          rule.zone,
+        )
+      : rule.length === null
+        ? null
+        : starts + rule.length * 60_000;
+  return { date, starts, ends };
 }
 
 /** The records a rule makes from `first` to `last` (local dates, inclusive), in order. */
@@ -226,7 +307,7 @@ export function occurrencesBetween(rule: SeriesRule, first: string, last: string
   const start = first > rule.from ? first : rule.from;
   const end = rule.until !== null && rule.until < last ? rule.until : last;
   for (let date = start; date <= end; date = addDaysToDate(date, 1)) {
-    if (rule.weekdays.has(isoWeekday(date))) out.push(occurrenceOn(rule, date));
+    if (ruleIncludes(rule, date)) out.push(occurrenceOn(rule, date));
   }
   return out;
 }

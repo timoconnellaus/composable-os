@@ -1220,8 +1220,11 @@ read before the write gives the clear message and the dry run's answer.
 
 **`recurring`** ([ADR 0500](adr/0500-recurring-a-weekly-rule-in-local-time.md),
 `packages/core/src/recurring/`, `packages/core/src/time/local.ts`). A series (a timetable line)
-declares a weekly rule in local wall-clock time and the fields it fills on the records it makes:
+declares a rule in local wall-clock time and the fields it fills on the records it makes:
 `recurring: { generates, link, rule, into, copy, cancel, ended?, closures?, horizonDays? }`. The
+rule is weekly, or with `rule.unit` every N weeks, months or years (`every`, `day`, `month`; a day
+the month lacks is its last), fixed on the calendar from `from`, and a length may be in days
+(`lengthDays`) ([ADR 0860](adr/0860-the-interval-rule-in-recurring.md)). The
 minute cron (`runRecurringDue` → `recurring.generate`, as the host) makes each due series'
 records up to its horizon (56 days by default): a series is due when written, and daily at 00:05
 in its zone. `core_recurrence_occurrence` (migration 0560) keys each record on the series and
