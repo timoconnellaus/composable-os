@@ -5,249 +5,32 @@
 // marked once per field (C1); an AI's given name never reaches an email (D1); approving one held
 // email clears only what that email showed and its own address, and a rejection marks nothing
 // (E1). Also: an erased person's orders keep no mark.
-import { introspectWorkflow } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import {
-  type ActingUser,
-  type CustomerPrincipal,
-  type ExtensionHost,
-  type InvocationContext,
-  type OutsideInvocationContext,
-  queueEventSink,
-  refreshSchemaRegistry,
-} from "@composable-os/core";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { runMomentDateRelative } from "../src/automations/schedule.ts";
-import { integrationRuntime } from "../src/integrations/runtime.ts";
-import { setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, newCustomer, run, unique } from "./helpers.ts";
-import { packFiles } from "./pack-files.ts";
+import { run, unique } from "./helpers.ts";
+import {
+  booked,
+  CLASS,
+  classType,
+  create,
+  DAY,
+  get,
+  givePass,
+  klass,
+  mailConnection,
+  mailTo,
+  mcp,
+  member,
+  moveClass,
+  type Out,
+  type Row,
+  rowsFor,
+  staff,
+  useRoutineMail,
+} from "./routine-mail-fixture.ts";
 
-const files: Record<string, Record<string, string>> = {
-  programs: packFiles("programs"),
-  bookings: packFiles("bookings"),
-  memberships: packFiles("memberships"),
-};
-const OURS = new Set(Object.keys(files));
-const shippedHost: ExtensionHost = {
-  ...host,
-  shipped: async () => [
-    ...(await host.shipped()).filter((s) => !OURS.has(s.id)),
-    { id: "bookings", version: "0.1.0" },
-    { id: "memberships", version: "0.1.0" },
-    { id: "programs", version: "0.1.0" },
-  ],
-  commitShipped: (id) =>
-    files[id]
-      ? host.commit({
-          id,
-          files: files[id] as Record<string, string>,
-          message: `Shipped ${id} 0.1.0`,
-          author: { name: "Composable OS", email: "release@composableos.dev" },
-        })
-      : host.commitShipped(id),
-};
-
-const integrations = integrationRuntime(env);
-const HOUR = 3_600_000;
-const DAY = 24 * HOUR;
-const CLASS = "bookings.class";
-const SITE = "https://gym.example";
-const MAILING = [
-  "bookingConfirmed",
-  "waitlistPassedOver",
-  "placeFree",
-  "classChanged",
-  "classCancelled",
-  "classReminder",
-  "dropInOrder",
-];
-
-let introspector: Awaited<ReturnType<typeof introspectWorkflow>>;
-let admin: ActingUser;
-let mailConnection: string;
-const sink = queueEventSink(env.AUTOMATION_EVENTS);
-const staff = (extra: Partial<InvocationContext> = {}): InvocationContext => ({
-  actor: "human",
-  user: admin,
-  origin: { surface: "ui" },
-  db,
-  integrations,
-  extensionHost: shippedHost,
-  events: sink,
-  ...extra,
-});
-const as = (principal: CustomerPrincipal): OutsideInvocationContext => ({
-  principal,
-  db,
-  integrations,
-  extensionHost: shippedHost,
-  events: sink,
-});
-const create = async (object: string, values: Record<string, unknown>) =>
-  (await run<{ id: string }>("record.create", { object, values }, staff())).id;
-
-interface Sent {
-  to: string[];
-  subject: string;
-  text?: string;
-}
-async function mailTo(address: string): Promise<Sent[]> {
-  const all = (await env.TEST_EMAIL_OUTBOX.list()) as Sent[];
-  return all.filter((m) => m.to.includes(address.toLowerCase()));
-}
-
-interface Row {
-  id: string;
-  kind: string;
-  status: string;
-  routine: number;
-  held_reason: string | null;
-  recipient: string;
-  recipient_rule: string;
-  pending_action_id: string | null;
-  run_id: string;
-  trigger_type: string;
-}
-/** The routine mail rows about a record, once there are `count` decided ones. */
-async function rowsFor(recordId: string, count = 1): Promise<Row[]> {
-  let rows: Row[] = [];
-  await vi.waitFor(
-    async () => {
-      rows = (
-        await env.DB.prepare(
-          "SELECT * FROM core_routine_mail WHERE record_id = ? ORDER BY created_at, id",
-        )
-          .bind(recordId)
-          .all<Row>()
-      ).results;
-      expect(rows.filter((r) => r.status !== "ready" && r.status !== "sending")).toHaveLength(
-        count,
-      );
-    },
-    { timeout: 30_000, interval: 200 },
-  );
-  return rows;
-}
-
-async function member(
-  label: string,
-  name?: string,
-): Promise<CustomerPrincipal & { email: string }> {
-  const { principal, email } = await newCustomer(staff(), label, { givenName: name });
-  return { ...principal, email };
-}
-
-async function givePass(personId: string): Promise<void> {
-  const type = await create("memberships.passtype", {
-    title: unique("Pack "),
-    price: 50,
-    uses: 10,
-    validDays: 60,
-    status: "on_sale",
-  });
-  await run(
-    "x.memberships.givePass",
-    { personId, passTypeId: type, reason: "Integration test" },
-    staff(),
-  );
-}
-
-let type: string;
-async function klass(extra: Record<string, unknown> = {}): Promise<string> {
-  const startsAt = new Date(Date.now() + 2 * DAY).toISOString();
-  return create(CLASS, {
-    classType: type,
-    startsAt,
-    endsAt: new Date(Date.parse(startsAt) + HOUR).toISOString(),
-    timezone: "Australia/Sydney",
-    places: 10,
-    ...extra,
-  });
-}
-
-type Out = Record<string, unknown> & { result: string; bookingId?: string };
-const book = (who: CustomerPrincipal, classId: string, extra: Record<string, unknown> = {}) =>
-  run<Out>("x.bookings.book", { classId, ...extra }, as(who));
-
-/** A booked member, their booking's confirmation decided. */
-async function booked(label: string, classId?: string) {
-  const who = await member(label);
-  await givePass(who.personId);
-  const k = classId ?? (await klass());
-  const out = await book(who, k);
-  expect(out.result).toBe("booked");
-  const [row] = await rowsFor(out.bookingId as string);
-  return { who, classId: k, bookingId: out.bookingId as string, row: row as Row };
-}
-
-beforeAll(async () => {
-  introspector = await introspectWorkflow(env.AUTOMATION_WORKFLOW);
-  await introspector.modifyAll(async (m) => {
-    await m.disableSleeps();
-    await m.disableRetryDelays();
-  });
-  admin = await createAdmin();
-  await setPreset("balanced");
-  await refreshSchemaRegistry(db.query);
-  for (const id of ["programs", "bookings", "memberships"]) {
-    await run("extension.install", { id, shipped: true }, staff());
-  }
-  await refreshSchemaRegistry(db.query);
-  await run("integration.setVendor", { vendor: "email-send", enabled: true }, staff());
-  const mail = await run<{ connection: { id: string } }>(
-    "connection.create",
-    { vendor: "email-send", scope: "org" },
-    staff(),
-  );
-  mailConnection = mail.connection.id;
-  await run(
-    "connection.bindResource",
-    { id: mailConnection, url: `email-send://sender/${encodeURIComponent("gym@example.com")}` },
-    staff(),
-  );
-  for (const name of MAILING) {
-    await run(
-      "automation.bindConnection",
-      { id: `bookings.${name}`, slot: "mail", connectionId: mailConnection },
-      staff(),
-    );
-  }
-  // Off until a human admin turns it on (D1): this file is about routine email turned on.
-  await run(
-    "routineMail.settings.update",
-    { siteOrigin: SITE, packs: { bookings: true } },
-    staff(),
-  );
-  await run(
-    "extensionSettings.update",
-    { extension: "bookings", values: { bookingsUrl: `${SITE}/bookings` } },
-    staff(),
-  );
-  type = await create("programs.classtype", { name: unique("Strength") });
-}, 120_000);
-
-afterAll(async () => {
-  await setPreset("balanced");
-  await introspector[Symbol.asyncDispose]();
-});
-
-const mcp = () =>
-  staff({ actor: "mcp", origin: { surface: "mcp", sessionId: unique("cap"), clientName: "Bot" } });
-const get = async (object: string, id: string) =>
-  (await run<{ values: Record<string, unknown> }>("record.get", { object, id }, staff())).values;
-const moveClass = (classId: string, hours: number, ctx = staff()) => {
-  const later = new Date(Date.now() + 2 * DAY + hours * HOUR).toISOString();
-  return run(
-    "record.update",
-    {
-      object: CLASS,
-      id: classId,
-      values: { startsAt: later, endsAt: new Date(Date.parse(later) + HOUR).toISOString() },
-    },
-    ctx,
-  );
-};
+useRoutineMail();
 
 // ---- The third review: how the mail check reads the marks (ADR 0590) ---------------------------
 
@@ -408,7 +191,7 @@ describe("what the marks cost (the third review, C1)", { timeout: 120_000 }, () 
     const firstDate = new Date(Date.now() + 2 * DAY).toISOString().slice(0, 10);
     const lastDate = new Date(Date.now() + 26 * DAY).toISOString().slice(0, 10);
     const series = await create("bookings.series", {
-      classType: type,
+      classType,
       title: "Cost series",
       weekdays: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
       time: "06:00",
