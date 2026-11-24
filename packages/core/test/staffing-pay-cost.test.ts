@@ -63,6 +63,9 @@ const KIND = `${ext}.kind`;
 const NOW = "2026-06-20T00:00:00.000Z";
 const START = "2026-06-01";
 const HISTORY_DAYS = 1000;
+/** A later period: 10,000 shifts, the most one period totals. */
+const BUSY = "2026-06-29";
+let me: string;
 const fixture = manifest(ext, {
   objects: {
     kind: {
@@ -198,7 +201,83 @@ beforeAll(async () => {
     }
   }
   for (let i = 0; i < statements.length; i += 200) await env.DB.batch(statements.slice(i, i + 200));
-}, 240_000);
+  // A later period (29 June to 12 July, two after START) at the most a period totals: 10,000
+  // shifts, 200 each for 50 people, every one an hour long and 100 minutes after the last. The
+  // first three are the people with 1,000 days of history above.
+  const crowd = [...staff];
+  while (crowd.length < 50) {
+    const user = await createUser("member");
+    crowd.push(user.id);
+    await env.DB.prepare(
+      "INSERT INTO core_staff_pay_basis (account_id, from_date, basis, set_by, set_at) VALUES (?, '2020-01-01', 'by_time', ?, ?)",
+    )
+      .bind(user.id, admin.id, NOW)
+      .run();
+  }
+  me = crowd[0] as string;
+  const busy: D1PreparedStatement[] = [];
+  const from = Date.parse(`${BUSY}T00:00:00.000Z`);
+  for (const [p, account] of crowd.entries()) {
+    for (let i = 0; i < 200; i++) {
+      const starts = new Date(from + (i * 100 + (p % 40)) * 60_000).toISOString();
+      const ends = new Date(Date.parse(starts) + 3_600_000).toISOString();
+      busy.push(
+        env.DB.prepare(
+          `INSERT INTO ${table} (id, created_at, updated_at, name, ${col("kind")}, ${col("staff")}, ${col("startsAt")}, ${col("endsAt")}, ${col("state")}) VALUES (?, ?, ?, 'Busy', ?, ?, ?, ?, 'scheduled')`,
+        ).bind(`b${p}_${i}`, NOW, NOW, made.id, account, starts, ends),
+      );
+    }
+  }
+  for (let i = 0; i < busy.length; i += 200) await env.DB.batch(busy.slice(i, i + 200));
+}, 600_000);
+
+/** A person's own read through the pay-period pack's tool (the owner's decision of 2026-11-24). */
+const own = (): InvocationContext => {
+  const ctx = tool();
+  return {
+    ...ctx,
+    extension: {
+      ...(ctx.extension as NonNullable<InvocationContext["extension"]>),
+      permissions: {
+        operations: ["staffing.myPay", "staffing.myPay.periods"],
+        objects: {},
+      } as never,
+      tool: {
+        name: "myPay",
+        humanOnly: true,
+        permission: `${ext}:team`,
+        calledBy: { account: me, actor: "human" },
+      },
+    },
+  };
+};
+
+describe("a person's own totals at the largest input (the owner's decision of 2026-11-24)", () => {
+  it("a person with 1,000 days of history, in a period of 10,000 shifts, reads their own only", async () => {
+    queries = 0;
+    rowsRead = 0;
+    const out = (await invokeByName("staffing.myPay", { start: BUSY }, own())) as {
+      lines: unknown[];
+      minutes: number;
+    };
+    expect(out.lines).toHaveLength(200);
+    expect(out.minutes).toBe(200 * 60);
+    // Far below D1's 1,000 a call (23 when written): their own shifts and a few small tables.
+    expect(queries).toBeLessThan(40);
+    // Their own shifts (1,655 rows read when written), never the period's other 9,800 shifts or
+    // the 3,000 of history.
+    expect(rowsRead).toBeLessThan(5_000);
+  });
+
+  it("the periods list is a handful of statements", async () => {
+    queries = 0;
+    const out = (await invokeByName("staffing.myPay.periods", {}, own())) as {
+      periods: unknown[];
+    };
+    expect(out.periods).toHaveLength(13);
+    expect(queries).toBeLessThan(20);
+  });
+});
 
 describe("a pay period's cost with years of shifts", () => {
   it("its totals read the period's shifts, not the history", async () => {

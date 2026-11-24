@@ -5,7 +5,9 @@
 // (nobody else qualified, past the cut-off, already offered), each with its own state here.
 //
 // Room is left for what later steps add: a duty shift's checklist under the shift (`shiftExtra`,
-// step 4b) and my calendar's address above the list (`calendar`, step 5).
+// step 4b) and my calendar's address above the list (`calendar`, step 5). Under the list, My hours
+// (my-hours.tsx, the owner's decision of 2026-11-24): my own hours for a pay period, fetched only
+// when I pick one.
 import {
   addDays,
   dateIn,
@@ -20,8 +22,10 @@ import {
 } from "@composable-os/pack-rostering/client";
 import { type ReactNode, useId, useState } from "react";
 import { Button } from "../ui-button/button.tsx";
+import { MyHours, type MyHoursHooks } from "./my-hours.tsx";
 
-type Hooks = Pick<RosteringHooks, "useMe" | "useMine" | "useOffers" | "useOffer" | "useWithdraw">;
+type Hooks = Pick<RosteringHooks, "useMe" | "useMine" | "useOffers" | "useOffer" | "useWithdraw"> &
+  MyHoursHooks;
 
 export function MyShifts({
   rostering,
@@ -187,6 +191,7 @@ export function MyShifts({
           </ul>
         </section>
       ) : null}
+      <MyHours rostering={rostering} locale={locale} />
     </section>
   );
 }

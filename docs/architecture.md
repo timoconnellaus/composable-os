@@ -1207,7 +1207,12 @@ guarded on what they were read from; after it, triggers on each staffed table (b
 reconciler beside the time claim's), the holder's, the marks and the basis refuse any change that
 would alter the period, for every statement shape. Who handles pay is the pack's `staffing.pays`
 (Rostering's restricted `rostering:pay`): admins and by grant, a person only, never an AI; reads
-of totals and exports are audited without their figures.
+of totals and exports are audited without their figures. Each staff member also reads **their own**
+totals for a period (`staffing.myPay` and `staffing.myPay.periods`, Rostering's team tools
+`myPay` and `myPayPeriods`; the owner's decision of 2026-11-24): the same lines, read for the
+verified caller only (`periodLines` narrowed to one account, or the locked lines of that account),
+through the pack that declares the pay periods, a person only, never an AI, with no one else's
+lines, who took a class's list or why a shift was not worked; audited as which period.
 
 The roster's screens (step 7,
 [ADR 0629](adr/0629-the-rosters-screens-role-clients-with-grants-and-the-roster-import.md)) are

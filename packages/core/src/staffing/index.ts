@@ -319,7 +319,10 @@ export function payMinuteFields(object: ObjectDefinition): string[] {
   return [...new Set(out)];
 }
 
-/** Whether a write of `object` moves a shift that has started (or moves one to before `now`). */
+/**
+ * Whether a write of `object` moves a shift that has started (or moves one to before `now`): before
+ * a lock, only rosterers change a started shift's times (the owner's decision of 2026-11-24).
+ */
 function movesStartedShift(
   object: ObjectDefinition,
   before: Record<string, unknown> | null,
@@ -340,7 +343,7 @@ function movesStartedShift(
 
 /**
  * A caller's write that sets or changes who works a shift, a pattern's person or a holder's account
- * is a rosterer's, by every path that writes a record (create, update, createMany, import, a
+ * is a rosterer's (the owner's decision of 2026-11-24: a class's coach included), by every path that writes a record (create, update, createMany, import, a
  * version restored, a series changed): refused otherwise, where a pack declares who rosters. The
  * host's own writes (a take, a series' generation, a leaver taken off) are not the caller's.
  * Creating a shift or a pattern with nobody on it stays open to whoever may write the object.

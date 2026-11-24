@@ -18,6 +18,8 @@ import { defineOperation, type HandlerContext } from "../operation.ts";
 import { jsonList } from "../records/common.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import {
+  basisOn,
+  clockChangeNote,
   fingerprintGuards,
   hoursOf,
   lineFromRow,
@@ -37,7 +39,13 @@ import {
   type StoredPeriod,
   totalsOf,
 } from "../staffing/pay.ts";
-import { actingAccount, isPayer, staffName } from "../staffing/rosterers.ts";
+import {
+  actingAccount,
+  declaresPayPeriods,
+  isPayer,
+  staffName,
+  toolCaller,
+} from "../staffing/rosterers.ts";
 import {
   assertPersonApplies,
   assertRosterer,
@@ -234,6 +242,7 @@ async function linesFor(
   ctx: HandlerContext,
   range: PeriodRange,
   version: number | undefined,
+  only?: { account: string },
 ): Promise<{ lines: PayLine[]; locked: boolean; version: PeriodRow | null; range: PeriodRange }> {
   const versions = await versionsOf(ctx, [range.start]);
   const chosen =
@@ -243,10 +252,9 @@ async function linesFor(
   if (version !== undefined && !chosen)
     throw new NotFoundError("pay period version", String(version));
   if (chosen) {
-    const rows = await ctx.db
-      .selectFrom("core_pay_line")
-      .selectAll()
-      .where("period_id", "=", chosen.id)
+    let query = ctx.db.selectFrom("core_pay_line").selectAll().where("period_id", "=", chosen.id);
+    if (only) query = query.where("account_id", "=", only.account);
+    const rows = await query
       .orderBy("n")
       .limit(MAX_PERIOD_SHIFTS + 1)
       .execute();
@@ -263,7 +271,7 @@ async function linesFor(
       },
     };
   }
-  return { lines: await periodLines(ctx, range), locked: false, version: null, range };
+  return { lines: await periodLines(ctx, range, only), locked: false, version: null, range };
 }
 
 /** The period asked for: a stored version's dates when one starts then, else the setting's. */
@@ -775,6 +783,286 @@ export const staffingPayPeriodExport = defineOperation({
   },
 });
 
+// --- A person's own totals (the owner's decision of 2026-11-24, ADR 0627's amendment) -------------
+//
+// Every member of staff counted for pay may see their own totals for a period: their own lines and
+// totals, worked out by exactly the computation the pay holder's totals use (or read from the
+// locked lines), so the two always agree. It is the person's own act, at the screen: the calling
+// tool is `humanOnly` and the verified caller a person, through the pack that declares the pay
+// periods (Rostering's `myPay`), never an assistant, MCP client, automation, another pack's code
+// or a runtime extension. The account is the verified caller, never the input, and nothing about
+// anyone else is answered: no one else's lines, no business totals, no list of who is counted,
+// not who took a class's list, and not why a shift was marked not worked (a rosterer's and the
+// pay holder's note); only that it was.
+
+/**
+ * A person's own pay read: the pay-period pack's own tool, called by the person themselves.
+ * Answers their account (the pipeline's verified caller).
+ */
+async function assertOwnPayCall(ctx: HandlerContext, name: string): Promise<string> {
+  await assertShippedToolRun(ctx, name);
+  const tool = ctx.extension?.tool;
+  if (tool?.humanOnly !== true || tool.calledBy?.actor !== "human") {
+    throw new ForbiddenError(
+      "Your hours are read by you only, at the screen: never by an assistant.",
+      { rule: "human_only" },
+    );
+  }
+  if (!(await declaresPayPeriods(ctx.db, ctx.extension?.id ?? ""))) {
+    throw new ForbiddenError(
+      `${name} is called from the tools of the pack whose pay periods these are.`,
+      { rule: "pay_pack" },
+    );
+  }
+  return toolCaller(ctx) as string;
+}
+
+/** The most periods a person's list goes back (the current one and twelve before it). */
+const MY_PERIODS = 12;
+
+const myPeriodSchema = z.object({
+  start: z.string(),
+  end: z.string(),
+  zone: z.string(),
+  state: z.enum(["open", "locked"]),
+  ended: z.boolean(),
+  version: z.number().int().nullable().describe("The locked version; null when open"),
+});
+
+/** The periods from the current one back `count`, newest first: dates and state only. */
+async function recentPeriods(
+  ctx: HandlerContext,
+  config: PayConfig,
+  count: number,
+): Promise<{
+  set: boolean;
+  current: PeriodRange | null;
+  periods: z.infer<typeof myPeriodSchema>[];
+}> {
+  const now = nowSeconds(ctx);
+  const stored = await storedPeriods(ctx);
+  const current = periodFor(config, stored, localDateOf(now, config.zone));
+  if (!current) return { set: false, current: null, periods: [] };
+  const ranges: PeriodRange[] = [current];
+  for (let i = 0; i < count; i++) {
+    const first = ranges[0] as PeriodRange;
+    const prev = periodFor(config, stored, dayBefore(first.start));
+    if (!prev || prev.start === first.start) break;
+    ranges.unshift(prev);
+  }
+  const first = ranges[0] as PeriodRange;
+  const locked = await ctx.db
+    .selectFrom("core_pay_period")
+    .select(["start_date", "version"])
+    .where("state", "=", "locked")
+    .where("end_date", ">=", first.start)
+    .where("start_date", "<=", current.end)
+    .execute();
+  const lockedOf = new Map(locked.map((v) => [v.start_date, v.version]));
+  ranges.sort((a, b) => b.start.localeCompare(a.start));
+  return {
+    set: true,
+    current,
+    periods: ranges.map((r) => ({
+      start: r.start,
+      end: r.end,
+      zone: r.zone,
+      state: lockedOf.has(r.start) ? ("locked" as const) : ("open" as const),
+      ended: r.ends <= now,
+      version: lockedOf.get(r.start) ?? null,
+    })),
+  };
+}
+
+export const staffingMyPayPeriods = defineOperation({
+  name: "staffing.myPay.periods",
+  description:
+    "Tool-only (a shipped pack's tool): the pay periods a person may look up their own hours " +
+    "for: the current one and the twelve before it (fewer with count), each with its dates and " +
+    "whether it is open or locked. Nothing about who is counted. The person themselves only, " +
+    "never an assistant. Read-only.",
+  input: z.object({ count: z.number().int().min(1).max(MY_PERIODS).optional() }),
+  output: z.object({
+    /** False until a weekly or fortnightly period has its start date: nothing is totalled. */
+    set: z.boolean(),
+    periods: z.array(myPeriodSchema),
+  }),
+  permission: "records:read",
+  risk: "read",
+  toolOnly: true,
+  mcp: { expose: false },
+  async handler(input, ctx) {
+    await assertOwnPayCall(ctx, "staffing.myPay.periods");
+    const config = await requireConfig(ctx);
+    const { set, periods } = await recentPeriods(ctx, config, input.count ?? MY_PERIODS);
+    return { set, periods };
+  },
+});
+
+const myLineSchema = z.object({
+  object: z.string(),
+  id: z.string(),
+  title: z.string(),
+  kindName: z.string(),
+  basis: z.enum(["by_time", "by_class"]),
+  place: z.string().nullable(),
+  localDate: z.string(),
+  localStart: z.string(),
+  localEnd: z.string(),
+  shiftMinutes: z.number().int(),
+  beforeMinutes: z.number().int(),
+  afterMinutes: z.number().int(),
+  countedMinutes: z.number().int(),
+  notWorked: z.boolean().describe("Marked not worked by whoever rosters: it counts for nothing"),
+  listTaken: z.boolean().nullable().describe("Null: this kind of shift keeps no list"),
+  flagged: z
+    .boolean()
+    .describe("Someone other than you took its list: whoever handles pay checks it"),
+  clockChange: z
+    .string()
+    .nullable()
+    .describe("It crosses a clock change: its minutes are the time worked"),
+});
+
+const myTotalSchema = z.object({
+  basis: z.enum(["by_time", "by_class"]),
+  kind: z.object({ object: z.string(), id: z.string() }).nullable(),
+  kindName: z.string(),
+  shifts: z.number().int(),
+  minutes: z.number().int(),
+  hours: z.string().describe("Minutes ÷ 60, rounded half up to two places"),
+  notWorked: z.number().int(),
+  flagged: z.number().int(),
+});
+
+export const staffingMyPay = defineOperation({
+  name: "staffing.myPay",
+  description:
+    "Tool-only (a shipped pack's tool): the caller's own totals for one pay period (the current " +
+    "one when start is left out): how they are counted (by time, by class, or not counted), " +
+    "their shifts and hours per kind of work, and their own lines, each with its minutes and " +
+    "whether it was marked not worked. Worked out exactly as the pay totals are: a locked " +
+    "period's locked lines, or a preview of an open one, which may still change. Nothing about " +
+    "anyone else. The person themselves only, never an assistant. Read-only; audited as a " +
+    "read, without its figures.",
+  input: z.object({ start: localDate.optional().describe("The period's first day") }),
+  output: z.object({
+    period: z.object({
+      start: z.string(),
+      end: z.string(),
+      zone: z.string(),
+      ended: z.boolean(),
+      locked: z.boolean(),
+      preview: z.boolean().describe("Not locked: worked out now, and may still change"),
+      version: z.number().int().nullable(),
+    }),
+    /** False: not counted for pay on any day of the period; no figures are given. */
+    counted: z.boolean(),
+    basis: z
+      .enum(PAY_BASES)
+      .describe("How they are counted: on the period's last day, or today while it runs"),
+    totals: z.array(myTotalSchema),
+    lines: z.array(myLineSchema),
+    minutes: z.number().int().nullable(),
+    hours: z.string().nullable(),
+  }),
+  permission: "records:read",
+  risk: "read",
+  toolOnly: true,
+  mcp: { expose: false },
+  auditReads: true,
+  // Which period was read, never its figures or how the person is counted.
+  auditSummary: (output) => ({
+    read: "own pay",
+    start: output.period.start,
+    version: output.period.version,
+    locked: output.period.locked,
+  }),
+  async handler(input, ctx) {
+    const account = await assertOwnPayCall(ctx, "staffing.myPay");
+    const config = await requireConfig(ctx);
+    let start = input.start;
+    if (!start) {
+      const { current } = await recentPeriods(ctx, config, 0);
+      if (!current) {
+        throw new ConflictError(
+          "The date a pay period starts is not set yet, so nothing is totalled.",
+          { rule: "pay_period_unset" },
+        );
+      }
+      start = current.start;
+    }
+    const asked = await rangeFor(ctx, start);
+    const { lines, locked, version, range } = await linesFor(ctx, asked, undefined, { account });
+    const now = nowSeconds(ctx);
+    const bases = await ctx.db
+      .selectFrom("core_staff_pay_basis")
+      .select(["from_date", "basis"])
+      .where("account_id", "=", account)
+      .where("from_date", "<=", range.end)
+      .orderBy("from_date")
+      .execute();
+    const rows = bases.map((b) => ({ from: b.from_date, basis: b.basis }));
+    const today = localDateOf(now, range.zone);
+    const on = today < range.start ? range.start : today > range.end ? range.end : today;
+    const countedSome =
+      basisOn(rows, range.start) !== "not_counted" ||
+      rows.some((r) => r.from > range.start && r.basis !== "not_counted");
+    const counted = lines.length > 0 || countedSome;
+    const period = {
+      start: range.start,
+      end: range.end,
+      zone: range.zone,
+      ended: range.ends <= now,
+      locked,
+      preview: version === null,
+      version: version?.version ?? null,
+    };
+    const basis = basisOn(rows, on);
+    if (!counted) {
+      return { period, counted, basis, totals: [], lines: [], minutes: null, hours: null };
+    }
+    const minutes = lines.reduce((sum, l) => sum + l.countedMinutes, 0);
+    return {
+      period,
+      counted,
+      basis,
+      totals: totalsOf(lines).map((t) => ({
+        basis: t.basis,
+        kind: t.kind,
+        kindName: t.kindName,
+        shifts: t.shifts,
+        minutes: t.minutes,
+        hours: t.hours,
+        notWorked: t.notWorked,
+        flagged: t.flagged,
+      })),
+      // No reason it was not worked, and not who took its list: those are other people's words.
+      lines: lines.map((l) => ({
+        object: l.object,
+        id: l.id,
+        title: l.title,
+        kindName: l.kindName,
+        basis: l.basis,
+        place: l.place,
+        localDate: l.localDate,
+        localStart: l.localStart,
+        localEnd: l.localEnd,
+        shiftMinutes: l.shiftMinutes,
+        beforeMinutes: l.beforeMinutes,
+        afterMinutes: l.afterMinutes,
+        countedMinutes: l.countedMinutes,
+        notWorked: !l.counted,
+        listTaken: l.listTaken,
+        flagged: l.flagged,
+        clockChange: clockChangeNote(l),
+      })),
+      minutes,
+      hours: hoursOf(minutes),
+    };
+  },
+});
+
 // --- Not worked ---------------------------------------------------------------------------------------
 
 export const staffingMarkNotWorked = defineOperation({
@@ -888,5 +1176,7 @@ export const staffingPayOperations = [
   staffingPayPeriodLock,
   staffingPayPeriodReopen,
   staffingPayPeriodExport,
+  staffingMyPayPeriods,
+  staffingMyPay,
   staffingMarkNotWorked,
 ] as const;

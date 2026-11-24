@@ -600,8 +600,10 @@ grants).
   minutes counted, not-worked reason). No rates, no money. Never through `export.csv`, dashboards
   or `query.sql`: the tables are in no `rec_*` view.
 - **Who sees it**: `rostering:pay` only, a person only (`humanOnly`): never an AI actor, never the
-  person themselves through these tools (guess: they see their own shifts, which is the same data
-  unsummed).
+  person themselves through these tools. **Each staff member sees their own totals** (the owner's
+  decision of 2026-11-24, replacing the guess that their shifts were enough): their own hours and
+  shifts for a period through Rostering's `myPay`, worked out exactly as the pay holder's, a person
+  only, nothing about anyone else, and a shift marked not worked shown as such without its reason.
 
 ### Members' view
 Unchanged except what the coach field already gives: the coach's name, photo and bio on each class
@@ -615,7 +617,7 @@ Stage 22's isolation suite gains every Rostering object and the feed.
 | Read the roster, a shift's warnings, who is qualified | applied (never who is away: an assistant gets no `unavailable` warning, step 7) |
 | Propose a roster ("put Sam on Mondays at 06:00 from March"): `assign`, a series' person, `qualify`, `markNotWorked` | waits for a person (`personApproves`); the card shows the warnings |
 | Offer, take, withdraw, say someone is away | refused: a person's own act |
-| Anything of pay | refused: a person only |
+| Anything of pay, a person's own hours (`myPay`) included | refused: a person only, at the screen |
 
 Roster changes are a person's to apply because they change other people's working week, are told
 to them, and feed their pay. The assistant drafting a week and a person approving it is ADR 0552's
@@ -645,7 +647,7 @@ shape.
 | Web: qualifications | rosterers | People down, kinds across, a tick each |
 | Web: unavailability | rosterers | Everyone's, by week |
 | Web: pay | `rostering:pay` | Periods, who is counted, a period's totals with evidence and flags, lock, reopen, export |
-| Web and native: my shifts | every rostered person | The next weeks' shifts; offer, withdraw; my open offers |
+| Web and native: my shifts | every rostered person | The next weeks' shifts; offer, withdraw; my open offers; My hours: my own hours and shifts for a pay period I pick (the owner's decision of 2026-11-24) |
 | Web and native: offered to me | every rostered person | Shifts offered that I can take; take (with the unavailable confirmation) |
 | Web and native: my availability | every rostered person | Leave and regular time off; add, end |
 | Web and native: my calendar | every rostered person | The feed's address to copy or open, rotate |
@@ -908,8 +910,8 @@ migration; no `core_write_guard` remake (0852 stays free).
   spec's `awayFor`, for the unavailability screen; a tool may declare input fields the audit log
   never keeps (`redact`), used for the leave note (the tool's own audit row held it); an assistant
   reading its own person's time off gets the times without the notes (step 3 gave it the notes).
-- **Who works a shift is a rosterer's to say, by every path** (the review of PR #284; a
-  coordinator's decision the owner may override): where a pack declares who rosters, a caller's
+- **Who works a shift is a rosterer's to say, by every path** (the review of PR #284; the
+  owner's decision of 2026-11-24, a class's coach included): where a pack declares who rosters, a caller's
   write of a shift's person, a pattern's person or a coach profile's account is refused unless
   they roster, by record writes, imports, series changes, `recurring.follow` and restores; the
   host's own writes (a take, the generation, a leaver) are not refused. A product with Bookings
@@ -983,7 +985,8 @@ triggers). No `core_write_guard` remake (0852 stays free). All new operations ar
 - **Totals** (`staffing.payPeriod.totals`, `staffing.payPeriod.list`): as this spec says, worked
   out set-based from every staffed object. Decided here: every total carries **both** shifts and
   whole minutes whatever the basis (payroll reads the one it pays on); hours are minutes ÷ 60
-  rounded half up to two places, from summed minutes; a shift's minutes are its instants' difference
+  rounded half up to two places, from summed minutes (exact minutes summed, hours to two decimals:
+  the owner's decision of 2026-11-24); a shift's minutes are its instants' difference
   (a clock change counts the real time); a shift with no account, a cancelled one and one in the
   Trash are no line. Bookings' class type gains `rosterBeforeMinutes` and `rosterAfterMinutes`
   (`personApproves`), declared as the class's `payBefore` and `payAfter`.
@@ -1009,12 +1012,32 @@ triggers). No `core_write_guard` remake (0852 stays free). All new operations ar
   are audited (`auditReads`) as which period and who; no figure, basis or reason reaches the audit
   log, a notice, a tool run or an error. Rostering adds `payBases` (a read of who is counted, not in
   this spec's tool list) beside `payBasis`.
-- **Decided in review** (PR #287, coordinator's decisions the owner is asked about; ADR 0627's
+- **Decided in review** (PR #287; the owner's decisions of 2026-11-24; ADR 0627's
   amendment): a change of the pay period or the zone after a lock takes effect from the day after
   the last locked period (periods never overlap or leave a gap); a kind's set-up and pack-down
   minutes and the times of a shift that has started are a rosterer's to change; a redacted input
   in the approval queue is read only by someone who could approve it; every CSV text cell quoted.
-- **Not in this step**: the screens (7), `staffing.forget`, overtime or any pay rule.
+- **Not in this step**: the screens (7), `staffing.forget`, overtime or any pay rule (the owner's
+  decision of 2026-11-24: payroll applies its own rules; nothing more is computed, no overtime,
+  penalty hours, minimum engagement, breaks or rounding rules). The CSV keeps each person's staff
+  email (the owner's decision of 2026-11-24).
+- **A person's own totals** (the owner's decision of 2026-11-24, built after step 7; ADR 0627's
+  second amendment; no migration): `staffing.myPay` and `staffing.myPay.periods`, behind
+  Rostering's team tools `myPay` and `myPayPeriods` (`humanOnly`). For the verified caller only,
+  never an account in the input: the period's dates, open (a preview) or locked (its version), how
+  they are counted, their shifts and hours per kind and their own lines (title, kind, place, start
+  and end, counted minutes, marked not worked, the list's flag, the clock-change note), worked out
+  by the same `periodLines` narrowed to their shifts, or the locked lines for their account, so the
+  figures equal the pay holder's for them. Not why a shift was not worked (this spec gives the
+  reason to rosterers and pay holders) and not who took a class's list. Someone not counted is told
+  so with no figures. The periods: the current one and at most twelve before, dates and state only.
+  Refused to an assistant, MCP, an automation, another pack's tool (`pay_pack`, the operation's own
+  guard: only the pack that declares the pay periods) and a runtime extension. Audited as which
+  period, never a figure, and never listed to an AI. 23 D1 statements at a 10,000-shift period for
+  a person with 1,000 days of history; the periods list 12. "My hours" is part of My shifts on the
+  web and in the app (figures fetched when a period is picked, `gcTime: 0`, hidden on leaving the
+  page or the app going to the background). The web block mounts on `/blocks` until stage 47's
+  pack screens show "My shifts".
 
 ### Built in step 7 (2026-11-24)
 [ADR 0629](../adr/0629-the-rosters-screens-role-clients-with-grants-and-the-roster-import.md)
@@ -1202,7 +1225,7 @@ a shift), so it gets the most careful review.
   the assistant).
 - **A private feed, not emailed calendar files**.
 - **Nobody sees their own pay totals through the pay tools**; pay is `rostering:pay`'s, a person
-  only.
+  only. Each person sees their own totals through `myPay` (the owner's decision of 2026-11-24).
 - **A cancelled shift counts for nothing**, whoever cancelled it and however late.
 
 ## Questions for the owner

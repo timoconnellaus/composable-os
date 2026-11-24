@@ -309,6 +309,101 @@ export const me = defineTool({
   handler: async (_input, ctx) => (await ctx.ops.call("staffing.me", {})) as never,
 });
 
+// --- My hours (the owner's decision of 2026-11-24, ADR 0627's amendment) ------------------------
+// Everyone counted for pay may see their own totals for a pay period: hours and shifts, never money.
+// A person's own read at the screen (`humanOnly`): an assistant never reads anyone's pay, its own
+// person's included. The host answers for the verified caller only, never an account in the input.
+
+const myPeriod = z.object({
+  start: z.string(),
+  end: z.string(),
+  zone: z.string(),
+  state: z.enum(["open", "locked"]),
+  ended: z.boolean(),
+  version: z.number().nullable(),
+});
+
+export const myPayPeriods = defineTool({
+  description:
+    "The pay periods you can look up your own hours for: the current one and the twelve before " +
+    "it, each with its dates and whether it is open or locked. A person's own read.",
+  input: z.object({ count: z.number().int().min(1).max(12).optional() }),
+  output: z.object({
+    set: z.boolean().describe("False until the date a period starts is set: nothing is totalled"),
+    periods: z.array(myPeriod),
+  }),
+  risk: "read",
+  permission: [...TEAM],
+  grantLiftsRoleLimits: true,
+  humanOnly: true,
+  handler: async (input, ctx) => (await ctx.ops.call("staffing.myPay.periods", input)) as never,
+});
+
+export const myPay = defineTool({
+  description:
+    "Your own hours for a pay period (the current one when start is left out): how you are " +
+    "counted, your shifts and hours per kind of work, and each of your shifts with its minutes " +
+    "and whether it was marked not worked. Exactly what payroll is given for you: a locked " +
+    "period's locked figures, or a preview of an open one, which may still change. Nothing " +
+    "about anyone else. A person's own read.",
+  input: z.object({ start: localDate.optional() }),
+  output: z.object({
+    period: z.object({
+      start: z.string(),
+      end: z.string(),
+      zone: z.string(),
+      ended: z.boolean(),
+      locked: z.boolean(),
+      preview: z.boolean(),
+      version: z.number().nullable(),
+    }),
+    counted: z
+      .boolean()
+      .describe("False: you are not counted for pay then, and there are no figures"),
+    basis: z.enum(["by_time", "by_class", "not_counted"]),
+    totals: z.array(
+      z.object({
+        basis: z.enum(["by_time", "by_class"]),
+        kind: z.object({ object: z.string(), id: z.string() }).nullable(),
+        kindName: z.string(),
+        shifts: z.number(),
+        minutes: z.number(),
+        hours: z.string(),
+        notWorked: z.number(),
+        flagged: z.number(),
+      }),
+    ),
+    lines: z.array(
+      z.object({
+        object: z.string(),
+        id: z.string(),
+        title: z.string(),
+        kindName: z.string(),
+        basis: z.enum(["by_time", "by_class"]),
+        place: z.string().nullable(),
+        localDate: z.string(),
+        localStart: z.string(),
+        localEnd: z.string(),
+        shiftMinutes: z.number(),
+        beforeMinutes: z.number(),
+        afterMinutes: z.number(),
+        countedMinutes: z.number(),
+        notWorked: z.boolean(),
+        listTaken: z.boolean().nullable(),
+        flagged: z.boolean(),
+        clockChange: z.string().nullable(),
+      }),
+    ),
+    minutes: z.number().nullable(),
+    hours: z.string().nullable(),
+  }),
+  risk: "read",
+  permission: [...TEAM],
+  grantLiftsRoleLimits: true,
+  humanOnly: true,
+  handler: async (input, ctx) => (await ctx.ops.call("staffing.myPay", input)) as never,
+});
+
 // --- My calendar (the feed, ADR 0628) ------------------------------------------------------------
 
 const feedState = z.object({
