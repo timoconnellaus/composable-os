@@ -2008,7 +2008,8 @@ _Avoid_: enrolment (stage 42), subscription
 
 **Session** (Programs)
 One dated session of an assignment, carrying its plan as the assigned version had it (blocks,
-items, levels, typed targets) and whether it was done or skipped.
+items, levels, typed targets) and whether it was done or skipped. A person's **past sessions** are their
+own sessions dated today or before, newest first, each with its sets done of planned.
 _Avoid_: workout, class (a class is the timetable's, stage 31)
 
 **Log** (Programs; a **logged set**)

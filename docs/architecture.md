@@ -1548,8 +1548,10 @@ set against its target. Its tools compose the host's operations: `assign`, `toda
 shorthand into structured targets, unread lines listed). The staff side is declarations: the
 Training dashboard, saved views, the Person page's Training tab and panels. Its headless entry
 (`@composable-os/pack-programs/client`) holds the layout's pure edits and a self-saving working
-copy; twelve blocks (the program builder, the exercise bank, today and session, class today,
-history and progress, the coach's client view; web and native) are built on it. In development
+copy, and a person's past sessions with their sets done of planned (`loadPastSessions`, over a
+member's `my.list` or a coach's `record.list`); fourteen blocks (the program builder, the exercise
+bank, today and session, class today, history and progress, past sessions, the coach's client
+view; web and native) are built on it. In development
 `apps/app` mounts any pack's web block at `/blocks` (ADR 0424, amended); the bank, the builder and
 the client view are its screens in the admin (stage 47, ADR 0660).
 
