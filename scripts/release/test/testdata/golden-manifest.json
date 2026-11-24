@@ -28,7 +28,7 @@
   },
   "channel": "stable",
   "commit": "0123456789abcdef0123456789abcdef01234567",
-  "coreSchemaVersion": 857,
+  "coreSchemaVersion": 971,
   "extensionContract": {
     "supported": [
       1
@@ -614,6 +614,14 @@
     {
       "name": "0857_agreement_copy_guardian.sql",
       "sha256": "de4d547480821eea343eaa81437f54d6b90926759211713f53d4ab86acf50c60"
+    },
+    {
+      "name": "0970_published_text.sql",
+      "sha256": "0bcba2c6839d71d5c365a8c0e42138fd77ca2e355faf6f4724198186f48f0864"
+    },
+    {
+      "name": "0971_publish_acks.sql",
+      "sha256": "5fea04cdb24c6ba53d5b9025b3f5b0014f0885c5f868fc6afdfd16bf07768251"
     }
   ],
   "product": "crm",

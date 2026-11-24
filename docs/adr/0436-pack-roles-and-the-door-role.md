@@ -159,3 +159,10 @@ code. Stage 45's Rostering declares `rostering.team` (its team's tools, no recor
 restricted `rostering:manage` (rostering other people). See
 [ADR 0625](0625-restricted-pack-permissions.md). Tools also learn the account they were called
 for on the run (`ctx.extension.tool.calledBy`), for the host's operations about "me".
+
+## Amendment, 2026-11-24 (stage 38 step 3, ADR 0702)
+Every pack role also reaches two core operations about the account itself: `ack.mine` (what it
+must read and has confirmed) and `ack.confirm` (confirming it read the current version of a record
+it is asked to read). Each acts only for the calling person, so they open nothing of anyone else's.
+`PACK_ROLE_OWN` in `pack-roles.ts`; the API contract's `roles.json` lists them for each role. See
+[ADR 0702](0702-acknowledgements-read-again-and-a-confirmation-nobody-changes.md).

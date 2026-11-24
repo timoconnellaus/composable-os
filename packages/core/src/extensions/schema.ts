@@ -112,7 +112,12 @@ export interface ObjectDefinitionJson {
   /** Who holds access to a record (ADR 0477), as declared. */
   access?: { sources: AccessSourceJson[] };
   /** Versions of the content fields (ADR 0446), as declared. */
-  publishable?: { content: string[]; slug?: string | undefined; date?: string | undefined };
+  publishable?: {
+    content: string[];
+    slug?: string | undefined;
+    date?: string | undefined;
+    acknowledge?: { who: string; manage: string } | undefined;
+  };
   navigationOrder?: number;
   requireOneOf?: string[][];
   titleDefault?: { from: string[]; suffix?: string | undefined };
@@ -1185,6 +1190,14 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
               content: [...publishable.content],
               ...(publishable.slug ? { slug: publishable.slug } : {}),
               ...(publishable.date ? { date: publishable.date } : {}),
+              ...(publishable.acknowledge
+                ? {
+                    acknowledge: {
+                      who: publishable.acknowledge.who,
+                      manage: publishable.acknowledge.manage,
+                    },
+                  }
+                : {}),
             },
           }
         : {}),

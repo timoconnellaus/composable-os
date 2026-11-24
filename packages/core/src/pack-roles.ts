@@ -5,7 +5,8 @@
 // every one of those roles reads every record. A pack role is the one way for an account to hold
 // less: while `core_user.pack_role` is set, the account may call exactly
 //   - the tools of that pack whose declared permission the role lists, and
-//   - `record.get` and `record.list` on the objects of that pack the role lists,
+//   - `record.get` and `record.list` on the objects of that pack the role lists, and
+//   - its own read-and-understood list and confirmations (`ack.mine`, `ack.confirm`, ADR 0702),
 // and is refused every other operation, by the pipeline, before its input is looked at. Its own
 // `role` grants nothing while the pack role is held.
 //
@@ -41,6 +42,12 @@ export interface HeldPackRole {
 
 /** The reads a pack role's `read` opens, on the objects it lists. Nothing else reads for it. */
 export const PACK_ROLE_READS: readonly string[] = ["record.get", "record.list"];
+
+/**
+ * The operations every pack role reaches, about the account itself (stage 38, ADR 0702): its
+ * own list of what to read, and confirming it read one. Each acts only for the calling person.
+ */
+export const PACK_ROLE_OWN: readonly string[] = ["ack.mine", "ack.confirm"];
 
 /** `<extension>.<role>`. */
 export const PACK_ROLE_NAME_RE = /^([a-z][a-z0-9]{1,29})\.([a-z][a-zA-Z0-9]{0,39})$/;
@@ -150,6 +157,7 @@ export async function availablePackRoles(
  * learns nothing about any other operation, not even whether its input was valid.
  */
 export function packRoleReaches(role: HeldPackRole, op: AnyOperation): boolean {
+  if (op.packPermissions === undefined && PACK_ROLE_OWN.includes(op.name)) return true;
   if (op.packPermissions !== undefined) {
     return op.packPermissions.some((p) => role.permissions.includes(p));
   }
@@ -248,7 +256,7 @@ export function staffMayCall(
 /** Whether the role allows `op` with this (parsed) input. */
 export function packRoleAllows(role: HeldPackRole, op: AnyOperation, input: unknown): boolean {
   if (!packRoleReaches(role, op)) return false;
-  if (op.packPermissions !== undefined) return true;
+  if (op.packPermissions !== undefined || PACK_ROLE_OWN.includes(op.name)) return true;
   // record.get and record.list name their object in the input.
   const object = (input as { object?: unknown } | null)?.object;
   return typeof object === "string" && role.read.includes(object);

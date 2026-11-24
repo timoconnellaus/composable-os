@@ -1789,6 +1789,39 @@ code, a link). Never HTML: markup and unsafe links are refused on every write (A
 client renders it block by block with its own components.
 _Avoid_: HTML, markdown, body (a field's name, not a type)
 
+**Section** and **anchor** (of rich text; stage 38, ADR 0700)
+A heading starts a section, which runs to the next heading; the blocks before the first heading
+are a section without one. A heading's **anchor** is made from its words and its place among the
+document's headings (`summer-at-the-hall`, then `summer-at-the-hall-2`; `section` for one with no
+letters), by one function (`headingAnchors`, `@composable-os/sdk/rich-text`) that the host's
+index and both renderers call; it is never stored. A link to `#<anchor>` lands on the heading.
+_Avoid_: slug (a record's address), id (records have ids)
+
+**Published-text index** (stage 38, ADR 0700)
+The words of each record's current published version, one row per section, for
+`content.search`: only content fields the public reads, of objects the public reads, written in
+the batch of every publish and unpublish and caught up by the minute cron when a declaration
+changes. Never the working copy. Not a `rec_*` view.
+_Avoid_: search index (that is `core_search`, over working copies, for staff), FTS table
+
+**Confirmation** (read and understood; stage 38, ADR 0702)
+A staff account saying, with one tap, that it has read and understood one published version of a
+record of an **acknowledged** object (one whose `publishable` declares `acknowledge`, such as a
+procedure). Only the person makes it, for the current version, once; a row nobody changes
+(`core_publish_ack`). Who is asked is the record's **must read**: everyone, or staff roles, pack
+roles and granted pack permissions, checked on the day. A record is **to read** for a person it
+asks who has no confirmation that counts.
+_Avoid_: acceptance (an agreement's, a customer's), acknowledgement in prose (the declaration's
+name), sign-off
+
+**Read again** and **small fix** (stage 38, ADR 0702)
+The choice a person makes when publishing a later version of an acknowledged record: **read
+again** asks everyone it names to confirm this version; a **small fix** keeps their earlier
+confirmations counting. The first version always asks. A confirmation counts when it is of a
+version at or after the latest that asked again. An AI's publish request carries a suggestion;
+the person who approves chooses.
+_Avoid_: major and minor (no version numbering scheme), re-acknowledge
+
 **Slug**
 A record's address in its object (`summer-launch`): lowercase words joined by hyphens, unique
 among the object's live records, made from the title when left empty. When a published record's
