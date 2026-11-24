@@ -125,3 +125,9 @@ A move is now made from a current read or not at all: the engine closes the curr
 only while the record still holds the position the write was judged from, so a second write
 racing to move the same record fails its batch as a conflict (`moved_meanwhile`).
 `record.update` takes `from`. See [ADR 0437](0437-a-move-is-made-from-a-current-read.md).
+
+## Amendment, 2026-11-24 (stage 39, ADR 0750)
+A required-fields refusal names the missing read-only fields (facts only the host sets) first,
+lists them in `details.setByHost`, and says they are recorded when they happen and cannot be
+entered by hand. This holds for both forms; which fields a `states` move may require is unchanged.
+See [ADR 0750](0750-stage-rules-on-host-facts.md).

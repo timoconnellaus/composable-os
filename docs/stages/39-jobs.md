@@ -514,3 +514,17 @@ may override any of them.
   accounting system for the CSV.
 - **Roster coupling**: one "rosterer" across gym classes and trade crews may be too broad for a
   business with both (decision 7 keeps it; revisit if asked).
+
+## Status
+
+- **Step 1, stage rules on host facts** (branch `feat/stage-39-host-set-date`): built.
+  `packages/sdk/src/behaviour.ts` lets a stage's `requiredFields` options and `requiredByType`
+  name a read-only field (still not a formula or the stage field); the transition engine
+  (`packages/core/src/records/transitions.ts`) names missing read-only fields first in a
+  required-fields refusal, lists them in `details.setByHost` and says they cannot be entered by
+  hand. What it refuses is unchanged, so the rule holds for every caller of the record operations.
+  ADR 0750 (amends 0100 and 0425). No migration. Tests:
+  `packages/core/test/stage-host-facts.test.ts` (acceptance criterion 1 on a fixture pipeline:
+  person, MCP client applied and queued, the extension's own code, CSV import, the host). Left for
+  step 5: the Jobs pack declaring `acceptedAt`, `signedOffAt` and `invoicedAt` and its seeded
+  pipelines; the board e2e of criterion 1 comes with the pack.

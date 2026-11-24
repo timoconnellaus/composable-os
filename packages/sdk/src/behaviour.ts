@@ -84,12 +84,14 @@ export function checkObjectBehaviour(
             `"${stages.stage.requiredFields}" must be a multiSelect field of ${stageTarget}`,
           );
         } else {
+          // A read-only field may be required (ADR 0750): a fact the host sets, such as the
+          // time a quote was accepted, which then gates the stage for every actor.
           for (const option of required.options ?? []) {
             const target = fieldOf(option.value);
-            if (!target || target.type === "formula" || target.readOnly) {
+            if (!target || target.type === "formula" || option.value === stages.field) {
               contract(
                 `${sp}.stage.requiredFields`,
-                `Option "${option.value}" must name a writable field of ${name}`,
+                `Option "${option.value}" must name a field of ${name} other than a formula or the stage field`,
               );
             }
           }
@@ -176,10 +178,10 @@ export function checkObjectBehaviour(
     for (const [type, list] of Object.entries(stages.requiredByType ?? {})) {
       for (const local of list ?? []) {
         const field = fieldOf(local);
-        if (!field || field.type === "formula" || field.readOnly) {
+        if (!field || field.type === "formula" || local === stages.field) {
           contract(
             `${sp}.requiredByType.${type}`,
-            `"${local}" must be a writable field of ${name}`,
+            `"${local}" must be a field of ${name} other than a formula or the stage field`,
           );
         }
       }

@@ -402,7 +402,8 @@ export type StageType = (typeof STAGE_TYPES)[number];
  * operations, so it applies to every actor: people, MCP clients, Code Mode, extensions.
  *
  * - Entering a stage needs the stage's required fields and `requiredByType[type]` to have values;
- *   otherwise the write is refused with a structured error naming the missing fields.
+ *   otherwise the write is refused with a structured error naming the missing fields. A read-only
+ *   field may be required: a fact the host sets, which no caller can supply (ADR 0750).
  * - `group` must match the stage's group; a record given only a group starts in its first stage.
  * - `probability.field` follows the stage's default probability unless it was set by hand
  *   (`probability.overridden` is then true; clearing that flag resets it).
