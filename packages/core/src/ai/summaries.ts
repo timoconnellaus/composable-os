@@ -343,10 +343,21 @@ export async function activitySummaryInput(
 ): Promise<SummaryInput | null> {
   const a = await db
     .selectFrom("core_activity")
-    .select(["id", "type", "subject", "body", "body_ref", "private_to", "disclosure", "deleted_at"])
+    .select([
+      "id",
+      "type",
+      "subject",
+      "body",
+      "body_ref",
+      "private_to",
+      "disclosure",
+      "deleted_at",
+      "level",
+    ])
     .where("id", "=", activityId)
     .executeTakeFirst();
-  if (!a || a.deleted_at || a.private_to) return null;
+  // A note kept from the whole staff is never a model's input (stage 56, ADR 0830).
+  if (!a || a.deleted_at || a.private_to || a.level !== "staff") return null;
   if (a.disclosure === "metadata" || a.type === "system") return null;
   let body = a.body ?? "";
   if (a.body_ref && blobs) {

@@ -111,15 +111,14 @@ type ListInput = {
   style: "bullet" | "ordered";
   items: { content: z.infer<typeof inlines>; list?: ListInput }[];
 };
+const listStyle = z.enum(["bullet", "ordered"]);
 const listShape: z.ZodType<ListInput> = z.lazy(() =>
-  z.strictObject({
-    style: z.enum(["bullet", "ordered"]),
-    items: z
-      .array(z.strictObject({ content: inlines, list: listShape.optional() }))
-      .min(1)
-      .max(200),
-  }),
+  z.strictObject({ style: listStyle, items: listItems }),
 );
+const listItems = z
+  .array(z.strictObject({ content: inlines, list: listShape.optional() }))
+  .min(1)
+  .max(200);
 const depthOf = (list: ListInput): number =>
   1 + Math.max(0, ...list.items.map((item) => (item.list ? depthOf(item.list) : 0)));
 
@@ -137,11 +136,8 @@ const agreementBody = z.strictObject({
         z
           .strictObject({
             type: z.literal("list"),
-            style: z.enum(["bullet", "ordered"]),
-            items: z
-              .array(z.strictObject({ content: inlines, list: listShape.optional() }))
-              .min(1)
-              .max(200),
+            style: listStyle,
+            items: listItems,
           })
           .refine((list) => depthOf(list) <= MAX_LIST_DEPTH, "nests too deep"),
         z.strictObject({

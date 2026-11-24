@@ -54,37 +54,13 @@ export async function queueSetTags(
   names: readonly string[],
 ): Promise<string[]> {
   const unique = uniqueTagNames(names);
-  const existing = unique.length
-    ? await ctx.db
-        .selectFrom("core_tags")
-        .select(["id", "name"])
-        .where("name", "in", unique)
-        .execute()
-    : [];
-  const canonical = new Map(existing.map((tag) => [tag.name.toLowerCase(), tag.name]));
-  const missing = unique.filter((name) => !canonical.has(name.toLowerCase()));
-
   ctx.write(
     ctx.db
       .deleteFrom("core_record_tags")
       .where("object_type", "=", object)
       .where("record_id", "=", recordId),
   );
-  if (missing.length) {
-    ctx.write(
-      ctx.db
-        .insertInto("core_tags")
-        .values(
-          missing.map((name) => ({
-            id: newId("tag"),
-            name,
-            created_at: ctx.now,
-            created_by: ctx.user.id,
-          })),
-        )
-        .onConflict((oc) => oc.column("name").doNothing()),
-    );
-  }
+  const canonical = await queueCreateTags(ctx, unique);
   if (unique.length) {
     // Link by name through a subselect, so a tag created concurrently is still found.
     ctx.write(
@@ -105,6 +81,40 @@ export async function queueSetTags(
     );
   }
   return unique.map((name) => canonical.get(name.toLowerCase()) ?? name).sort(compareTagNames);
+}
+
+/**
+ * Queues creating the tags among `names` (already de-duplicated) that do not exist yet. Returns
+ * the stored spelling of those that do, by lower-cased name.
+ */
+export async function queueCreateTags(
+  ctx: HandlerContext,
+  names: readonly string[],
+): Promise<Map<string, string>> {
+  if (!names.length) return new Map();
+  const existing = await ctx.db
+    .selectFrom("core_tags")
+    .select("name")
+    .where("name", "in", [...names])
+    .execute();
+  const canonical = new Map(existing.map((tag) => [tag.name.toLowerCase(), tag.name]));
+  const missing = names.filter((name) => !canonical.has(name.toLowerCase()));
+  if (missing.length) {
+    ctx.write(
+      ctx.db
+        .insertInto("core_tags")
+        .values(
+          missing.map((name) => ({
+            id: newId("tag"),
+            name,
+            created_at: ctx.now,
+            created_by: ctx.user.id,
+          })),
+        )
+        .onConflict((oc) => oc.column("name").doNothing()),
+    );
+  }
+  return canonical;
 }
 
 /** The order loadTags returns (SQLite NOCASE: ASCII case-folded, then code units). */

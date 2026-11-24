@@ -1,7 +1,7 @@
 // The merge dialog's model: the fields a merge lets you choose per object, the default choices
 // (the server's rule: the survivor's value, or the duplicate's when the survivor's is empty), the
 // lists that are combined, and the operation input. Pure, so it is unit-tested.
-import type { CoreInput, Organisation, Person } from "@composable-os/core";
+import type { Organisation, Person } from "@composable-os/core";
 
 export type MergeObject = "person" | "organisation";
 export type MergeSide = "survivor" | "merged";
@@ -148,8 +148,6 @@ export function addedListValues(
     return added.length ? [{ name, label: LIST_LABELS[name] ?? name, values: added }] : [];
   });
 }
-
-export type MergeInput = CoreInput<"person.merge"> | CoreInput<"organisation.merge">;
 
 /** The merge operation input: every chooser field stated explicitly. */
 export function mergeInput(

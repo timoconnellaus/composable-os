@@ -41,7 +41,7 @@ export function MyAgreementsScreen({
   const [said, setSaid] = useState<string | null>(null);
   const [drawing, setDrawing] = useState(false);
   let content: ReactElement;
-  if (due.isPending || mine.isPending) content = <ActivityIndicator />;
+  if (due.isPending || mine.isPending) content = <ActivityIndicator color={theme.color.muted} />;
   else if (due.error || mine.error || !due.data || !mine.data) {
     content = (
       <Text style={styles.body} accessibilityRole="alert">
@@ -221,7 +221,7 @@ function AcceptanceView({
   agreements: Pick<Hooks, "useAcceptance">;
 }) {
   const detail = agreements.useAcceptance(id);
-  if (detail.isPending) return <ActivityIndicator />;
+  if (detail.isPending) return <ActivityIndicator color={theme.color.muted} />;
   if (detail.error || !detail.data) {
     return <Text style={styles.body}>We could not load this agreement.</Text>;
   }

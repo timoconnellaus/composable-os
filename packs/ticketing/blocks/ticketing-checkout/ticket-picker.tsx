@@ -72,7 +72,7 @@ export function TicketPicker({
   returnUrl,
   onStarted,
 }: {
-  ticketing: Pick<TicketingHooks, "useCheckout" | "useOrder" | "useStartOrder" | "useTicketPicker">;
+  ticketing: Pick<TicketingHooks, "useCheckout" | "useStartOrder" | "useTicketPicker">;
   agreements?: TicketAgreements;
   event: EventOnSale;
   signedIn: boolean;
@@ -263,7 +263,7 @@ export function BalancePayment({
   order,
   returnUrl,
 }: {
-  ticketing: Pick<TicketingHooks, "useCheckout" | "useOrder" | "useStartOrder" | "useTicketPicker">;
+  ticketing: Pick<TicketingHooks, "useCheckout" | "useOrder">;
   order: { id: string; token?: string | null };
   returnUrl: string;
 }) {
@@ -273,6 +273,7 @@ export function BalancePayment({
   const data = current.data;
   if (!data) return current.isPending ? <p aria-busy="true">Loading your order…</p> : null;
   if (data.state !== "part_paid") return null;
+  const partAmount = minorFromInput(part, data.currency);
 
   async function open(amount: number | null) {
     const page = await checkout.mutateAsync({
@@ -302,8 +303,8 @@ export function BalancePayment({
           onChange={(e) => setPart(e.target.value)}
         />
         <Button
-          onClick={() => open(minorFromInput(part, data.currency))}
-          disabled={checkout.isPending || minorFromInput(part, data.currency) === null}
+          onClick={() => open(partAmount)}
+          disabled={checkout.isPending || partAmount === null}
         >
           Pay this amount
         </Button>

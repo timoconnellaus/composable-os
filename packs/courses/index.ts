@@ -18,7 +18,7 @@
 //     `subscription` access source (ADR 0488), to its holder, while the host's record says it
 //     runs. One free trial per person per plan object is the host's rule (ADR 0489).
 // The tools in tools.ts compose the host's operations and hold no rule of their own.
-import { defineExtension } from "@composable-os/sdk";
+import { type AgreementsSpec, defineExtension } from "@composable-os/sdk";
 import { coursesAutomations } from "./automations.ts";
 import { coursesDashboards } from "./dashboards.ts";
 import { OUTLINE_MAX_BYTES, OUTLINE_SCHEMA } from "./outline.ts";
@@ -38,6 +38,16 @@ import {
 } from "./tools.ts";
 
 const ACTIVE = { states: ["active"], until: "until" };
+// Where agreement may be needed to buy a course, a bundle or a plan (stage 44, ADR 0641): nothing
+// is attached by default, so each sells as before until the business attaches a document (its
+// terms) to "course". The course page and subscribe blocks show what is due and let the buyer
+// agree on the way (issue #292).
+const BUYING: AgreementsSpec = {
+  point: "course",
+  label: "Buying a course",
+  suggests: ["terms"],
+  inlineStep: true,
+};
 
 export default defineExtension({
   id: "courses",
@@ -47,8 +57,10 @@ export default defineExtension({
   description:
     "Video courses sold one at a time or in bundles, watched lesson by lesson, with progress. " +
     "A lesson can be a training session from Programs.",
-  // A session lesson is a Programs program: the host installs Courses only beside Programs.
-  requires: ["programs"],
+  // A session lesson is a Programs program, and a text lesson (and a video's notes) is drawn by
+  // Content's rich text blocks (`content-rich-text`, `content-native-rich-text`) in the player:
+  // the host installs Courses only beside both, and `cos add` brings Content's block with it.
+  requires: ["programs", "content"],
   permissions: {
     // person.get: a student's name in the stats. programs.*: a session lesson's program, its
     // assignment and dated sessions, made by x.programs.assign for the student (step 6).
@@ -116,7 +128,7 @@ export default defineExtension({
         outline: {
           type: "document",
           label: "Outline",
-          schema: OUTLINE_SCHEMA as never,
+          schema: OUTLINE_SCHEMA,
           maxBytes: OUTLINE_MAX_BYTES,
         },
       },
@@ -148,21 +160,14 @@ export default defineExtension({
           "outline",
         ],
       },
-      // Where agreement may be needed (stage 44, ADR 0641): nothing is attached by default, so it
-      // sells as before until the business attaches a document (its terms) to "course".
-      // The course page and subscribe blocks show what is due and let the buyer agree on the way
-      // (issue #292).
-      agreements: {
-        point: "course",
-        label: "Buying a course",
-        suggests: ["terms"],
-        inlineStep: true,
-      },
+      agreements: BUYING,
       sellable: {
         price: "price",
         saleWindow: { from: "onSaleFrom" },
         // On-demand online courses, no place (ADR 0479): taxed only once an admin turns tax on.
         tax: { code: "txcd_20060158" },
+        // In the finance reports (ADR 0792): earned when it is bought.
+        finance: { category: { key: "courses", label: "Courses" }, earned: "at_sale" },
         grants: {
           object: "enrolment",
           set: { holder: "order.person", course: "item", order: "order", code: "code" },
@@ -209,7 +214,7 @@ export default defineExtension({
                 },
               },
             },
-          } as never,
+          },
         },
         price: { type: "currency", label: "Price", required: true },
       },
@@ -218,17 +223,12 @@ export default defineExtension({
         slug: "slug",
       },
       public: { read: ["title", "slug", "summary", "description", "cover", "courses", "price"] },
-      // Where agreement may be needed (stage 44, ADR 0641): nothing is attached by default, so it
-      // sells as before until the business attaches a document (its terms) to "course".
-      agreements: {
-        point: "course",
-        label: "Buying a course",
-        suggests: ["terms"],
-        inlineStep: true,
-      },
+      agreements: BUYING,
       sellable: {
         price: "price",
         tax: { code: "txcd_20060158" },
+        // In the finance reports (ADR 0792): earned when it is bought.
+        finance: { category: { key: "courses", label: "Courses" }, earned: "at_sale" },
         grants: {
           object: "enrolment",
           set: { holder: "order.person", bundle: "item", order: "order", code: "code" },
@@ -261,18 +261,13 @@ export default defineExtension({
       },
       // Every live plan is offered on the site.
       public: { read: ["title", "description", "price", "trialDays"] },
-      // Where agreement may be needed (stage 44, ADR 0641): nothing is attached by default, so it
-      // sells as before until the business attaches a document (its terms) to "course".
-      agreements: {
-        point: "course",
-        label: "Buying a course",
-        suggests: ["terms"],
-        inlineStep: true,
-      },
+      agreements: BUYING,
       sellable: {
         price: "price",
         // As its courses (ADR 0479): taxed only once a human admin turns tax on.
         tax: { code: "txcd_20060158" },
+        // In the finance reports (ADR 0792): courses, but a paid month is earned over the month.
+        finance: { category: { key: "courses", label: "Courses" }, earned: "over_period" },
         // A plan (ADR 0485): subscribed to with subscription.start, never put on an order.
         recurring: { interval: "month", trialDays: "trialDays" },
       },

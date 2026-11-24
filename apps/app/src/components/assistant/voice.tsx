@@ -45,7 +45,7 @@ import { toast } from "sonner";
 import { callOp } from "#/lib/operations";
 import { errorMessage, useOp, useOpMutation } from "#/lib/query";
 import { useAssistant } from "./assistant-provider.tsx";
-import { useThread } from "./thread-provider.tsx";
+import { socketUrl, useThread } from "./thread-provider.tsx";
 
 type VoicePrefs = CoreOutput<"voice.prefs.get">;
 export type VoiceMode = VoicePrefs["mode"];
@@ -90,11 +90,6 @@ export function voiceDeviceLabel(): string {
           ? "Safari"
           : "Browser";
   return `${device} · ${browser}`;
-}
-
-function socketUrl(): string {
-  const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${scheme}//${window.location.host}/api/assistant/socket`;
 }
 
 interface VoiceView {

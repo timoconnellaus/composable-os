@@ -247,7 +247,13 @@ export const staffingCandidates = defineOperation({
     const named = await profilesOf(ctx, s.object, accounts);
     const { starts, ends } = s.shift;
     const span = starts !== null && ends !== null && ends > starts ? { starts, ends } : null;
-    const claims = span ? await claimsOf(ctx, accounts, span.starts, span.ends) : new Map();
+    // The span its claim would take: widened by the minutes kept free around it (ADR 0760).
+    const claimSpan = span
+      ? { starts: span.starts - s.shift.before, ends: span.ends + s.shift.after }
+      : null;
+    const claims = claimSpan
+      ? await claimsOf(ctx, accounts, claimSpan.starts, claimSpan.ends)
+      : new Map();
     // Who is away is a person's to read (ADR 0629): an assistant acting for a rosterer learns
     // clashes and qualifications, never who is away.
     const person = ctx.extension?.tool?.calledBy?.actor === "human";
@@ -257,8 +263,11 @@ export const staffingCandidates = defineOperation({
     const quals = kind && kindObject ? await qualifiedOf(ctx, kindObject, kind, accounts) : null;
     const clashing = new Map<string, HeldClaim>();
     for (const a of accounts) {
-      const c = span
-        ? clashIn(claims.get(a), span.starts, span.ends, { object: s.object.name, id: s.id })
+      const c = claimSpan
+        ? clashIn(claims.get(a), claimSpan.starts, claimSpan.ends, {
+            object: s.object.name,
+            id: s.id,
+          })
         : null;
       if (c) clashing.set(a, c);
     }
@@ -288,8 +297,9 @@ export const staffingCandidates = defineOperation({
             object: c.object,
             id: c.id,
             title: titles.get(`${c.object}\u0000${c.id}`) ?? getObject(c.object)?.label ?? "shift",
-            startsAt: iso(c.starts),
-            endsAt: iso(c.ends),
+            // The other shift's own time, not its claim's margins (ADR 0760).
+            startsAt: iso(c.own.starts),
+            endsAt: iso(c.own.ends),
           }
         : null;
       const strict = quals?.strict.has(p.account) ?? false;

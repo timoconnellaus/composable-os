@@ -17,10 +17,11 @@ import {
   rosterRefusal,
 } from "@composable-os/pack-rostering/client";
 import { useEffect, useState } from "react";
-import { AppState, Text, View } from "react-native";
+import { AppState, View } from "react-native";
 import { Button } from "../native-base/button.tsx";
 import { List } from "../native-base/list.tsx";
 import { Row } from "../native-base/row.tsx";
+import { Text } from "../native-base/text.tsx";
 
 export type MyHoursHooks = Pick<RosteringHooks, "useMyPayPeriods" | "useMyPay">;
 
@@ -59,7 +60,9 @@ export function MyHoursNative({
       <Text accessibilityRole="header">My hours</Text>
       <Text>Your own hours and shifts for each pay period, as payroll is given them.</Text>
       {hidden || periods.isPending ? (
-        <Text accessibilityRole="progressbar">Loading the pay periods…</Text>
+        <Text tone="muted" accessibilityRole="progressbar">
+          Loading the pay periods…
+        </Text>
       ) : null}
       {!hidden && refusal ? (
         <View>
@@ -112,7 +115,11 @@ function PeriodHours({
       <Text accessibilityRole="header">
         {dayLabel(period.start, locale, true)} to {dayLabel(period.end, locale, true)}
       </Text>
-      {mine.isPending ? <Text accessibilityRole="progressbar">Loading your hours…</Text> : null}
+      {mine.isPending ? (
+        <Text tone="muted" accessibilityRole="progressbar">
+          Loading your hours…
+        </Text>
+      ) : null}
       {refusal ? (
         <View>
           <Text accessibilityRole="alert">

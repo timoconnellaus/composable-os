@@ -23,6 +23,7 @@ import type { ObjectDefinition } from "../fields/types.ts";
 import { type Principal, staffPrincipal } from "../principals.ts";
 import { type CustomerScope, customerObject, customerScope, unknownObject } from "./customer.ts";
 import { ownersWhere } from "./guardians.ts";
+import { type NoteViewer, noteScopeWhere } from "./notes.ts";
 import {
   type Condition,
   type PublicScope,
@@ -41,10 +42,25 @@ export {
   recordsMadeFor,
   sharedEmailWarning,
 } from "./guardians.ts";
+export {
+  hiddenNoteIds,
+  NOTE_LEVELS,
+  type NoteLevel,
+  type NoteRights,
+  type NoteViewer,
+  noteLevelGuard,
+  noteRights,
+  noteScopeWhere,
+  readsEveryNote,
+} from "./notes.ts";
 export { type PublicScope, publicProblems, signedInProblems } from "./public.ts";
 export { customerViaProblems, type ViaScope } from "./via.ts";
 
-/** Who is reading. A handler's context is one. */
+/**
+ * Who is reading. A handler's context is one. A staff handler's context also carries its actor
+ * and grants, which the note scope reads (`NoteViewer`, stage 56): a viewer without them reads
+ * `staff` notes only.
+ */
 export interface Viewer {
   readonly principal: Principal;
 }
@@ -369,8 +385,17 @@ export function visibleTable(
   if (!table) throw new Error(`${definition.name} has no record table`);
   const scope = scopeOf(ctx.principal, definition);
   switch (scope.kind) {
-    case "all":
+    case "all": {
+      // Activities: the notes kept from the whole staff that this caller may not read are not
+      // in the source (stage 56, ADR 0830). For a person who reads every level, the plain table.
+      const notes = definition.name === "activity" ? noteScopeWhere(ctx as NoteViewer, "n") : null;
+      if (notes) {
+        return sql<AnyRow>`(SELECT * FROM ${sql.table(ident(table))} n WHERE ${notes})`.as(
+          alias ?? table,
+        );
+      }
       return sql<AnyRow>`${sql.table(ident(table))}`.as(alias ?? table);
+    }
     default:
       // Tables hold the Trash and every column. Only staff read them.
       throw unknownObject(definition.name);

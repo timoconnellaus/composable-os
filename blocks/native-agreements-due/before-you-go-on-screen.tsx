@@ -41,7 +41,7 @@ export function BeforeYouGoOnScreen({
   }, [nothingAtAll, onDone]);
 
   let content: ReactNode;
-  if (due.isPending || nothingAtAll) content = <ActivityIndicator />;
+  if (due.isPending || nothingAtAll) content = <ActivityIndicator color={theme.color.muted} />;
   else if (due.error || !steps) {
     content = (
       <>

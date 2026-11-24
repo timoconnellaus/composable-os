@@ -15,7 +15,6 @@ import {
   loadRoutes,
   type ModelRunner,
   matchNotificationRoutes,
-  type NotificationRoute,
   ROLES,
   type Role,
   resolveChannelTarget,
@@ -116,13 +115,9 @@ export async function deliverNotificationRoutes(
     if (!records.length) return [];
     if (!env.INTEGRATION_HOST && !options.callIntegration) return [];
     const db = createCrmDb(env.DB).query;
-    let routes: NotificationRoute[] | null = null;
-    const matches = [];
-    for (const message of records) {
-      routes ??= (await loadRoutes(db)).filter((r) => r.enabled);
-      if (!routes.length) return [];
-      matches.push(...matchNotificationRoutes(message, routes));
-    }
+    const routes = (await loadRoutes(db)).filter((r) => r.enabled);
+    if (!routes.length) return [];
+    const matches = records.flatMap((message) => matchNotificationRoutes(message, routes));
     if (!matches.length) return [];
     const settings = await loadDeliverySettings(db);
     if (!settings.slack) return [];

@@ -136,3 +136,8 @@ the file, the one 404, headers, limits, no log, not through the binding);
   shift's start says nothing else, and the bytes stay the same while the shift does.
 - **The UID is `<record id>@<hostname>`**, the hostname the feed was fetched through: subscribing to
   the same feed through a second hostname gives the same shifts a second time in a calendar app.
+
+## Amended 2026-11-24 (stage 49 step 1, ADRs 0760 and 0761)
+A claim may be widened by minutes kept free around its shift (ADR 0760); the feed shows the
+shift's own start and end, the claim's less its margins. It shows no title, so a shift that may
+name a client (`staffed.private`, ADR 0761) needs nothing more: the feed carries no client names.

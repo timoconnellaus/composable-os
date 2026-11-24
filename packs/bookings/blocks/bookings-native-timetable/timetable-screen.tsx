@@ -26,12 +26,13 @@ import {
   refusalMessage,
 } from "@composable-os/pack-bookings/client";
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { AgreementStepModal } from "../native-agree/agreement-step.tsx";
 import { Button } from "../native-base/button.tsx";
 import { List } from "../native-base/list.tsx";
 import { Row } from "../native-base/row.tsx";
 import { Screen } from "../native-base/screen.tsx";
+import { Text } from "../native-base/text.tsx";
 
 type Hooks = Pick<
   BookingsHooks,
@@ -81,7 +82,9 @@ export function TimetableScreen({
       ) : null}
       {message ? <Text accessibilityRole="alert">{message}</Text> : null}
       {timetable.isPending ? (
-        <Text accessibilityRole="progressbar">Loading the timetable…</Text>
+        <Text tone="muted" accessibilityRole="progressbar">
+          Loading the timetable…
+        </Text>
       ) : null}
       {timetable.error ? (
         <Text accessibilityRole="alert">We could not load the timetable.</Text>
@@ -104,6 +107,9 @@ export function TimetableScreen({
     </Screen>
   );
 }
+
+/** When a cancel fails with no answer to show (offline, the host down): it can be tried again. */
+const CANCEL_FAILED = "We could not cancel that just now. Check the connection and try again.";
 
 function ClassItem({
   klass,
@@ -200,11 +206,17 @@ function ClassItem({
             label="Confirm cancel"
             busy={cancel.isPending}
             onPress={async () => {
-              const result = await cancel.mutateAsync({
-                bookingId: booking.id,
-                confirm: true,
-                expect: preview.state,
-              });
+              let result: Awaited<ReturnType<typeof cancel.mutateAsync>>;
+              try {
+                result = await cancel.mutateAsync({
+                  bookingId: booking.id,
+                  confirm: true,
+                  expect: preview.state,
+                });
+              } catch {
+                onDone(CANCEL_FAILED);
+                return;
+              }
               setPreview(null);
               onDone(
                 result.result === "refused"
@@ -221,7 +233,13 @@ function ClassItem({
           quiet
           busy={cancel.isPending}
           onPress={async () => {
-            const asked = await cancel.mutateAsync({ bookingId: booking.id });
+            let asked: Awaited<ReturnType<typeof cancel.mutateAsync>>;
+            try {
+              asked = await cancel.mutateAsync({ bookingId: booking.id });
+            } catch {
+              onDone(CANCEL_FAILED);
+              return;
+            }
             if (asked.result === "refused") onDone(refusalMessage(asked, klass.timeZone));
             else setPreview({ state: asked.state, message: asked.message });
           }}

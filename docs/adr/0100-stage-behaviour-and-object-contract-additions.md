@@ -89,3 +89,11 @@ above are unchanged, and Deals' tests pass without edits. What moved:
 - "Every actor" above means everyone who works for the organisation. Stage moves are for `staff`
   and the `host`; a customer (stage 22) is refused with `stage_move_not_permitted`.
 - `StageRuleError` is a `TransitionRuleError`. Its code and details are as described above.
+
+## Amended 2026-11-24 (stage 39, ADR 0750)
+A stage's `requiredFields` options and `requiredByType` may now name a read-only field (not a
+formula, the stage field or a field the behaviour keeps): a fact the host sets, such as the time a quote was accepted. No
+caller can enter the stage until the host has set it. The refusal names such fields first and
+carries `setByHost`. Such a fact is written only by the host or a person's own tool, and the
+stages that wait on one are changed only by an admin in person. See
+[ADR 0750](0750-stage-rules-on-host-facts.md).

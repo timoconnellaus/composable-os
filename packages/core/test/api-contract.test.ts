@@ -40,8 +40,8 @@ const computed = {
   public: withPacks(contractFor(contract, "public"), releasePackIds),
 };
 // Each carried pack's roles (ADR 0436) and the operations a holder may call: the tools whose
-// permission the role holds, and the generic reads (record.get, record.list) of the objects it
-// reads. `cos client generate` writes a role's client from this and the staff contract, so a
+// permission the role holds, any pack's tools open to every staff account (ADR 0652), and the
+// generic reads (record.get, record.list) of the objects it reads. `cos client generate` writes a role's client from this and the staff contract, so a
 // customer-facing app that needs a role names no other staff operation (ADR 0451).
 const computedRoles: PackRolesFile = {
   version: API_VERSION,
@@ -50,6 +50,11 @@ const computedRoles: PackRolesFile = {
     const ops = [
       ...coreRegistry.list(),
       ...releasePackTools.filter((op) => op.name.startsWith(`x.${manifest.id}.`)),
+      // Any carried pack's tools open to every staff account (ADR 0652: Daily checklists' today,
+      // day, tick and done), which a role reaches wherever that pack is installed.
+      ...releasePackTools.filter(
+        (op) => op.packAnyStaff === true && !op.name.startsWith(`x.${manifest.id}.`),
+      ),
     ];
     return Object.entries(manifest.roles ?? {})
       .map(([local, role]) => {
@@ -95,6 +100,15 @@ const computedRoles: PackRolesFile = {
       }));
     })
     .sort((a, b) => a.permission.localeCompare(b.permission)),
+  // The packs each pack requires (Courses: Programs and Content), so a client repo's tools bring
+  // them: the host installs them first, and a block may use theirs.
+  requires: Object.fromEntries(
+    releasePackExtensions
+      .map((extension) => toManifest(extension))
+      .filter((manifest) => manifest.requires?.length)
+      .map((manifest): [string, string[]] => [manifest.id, [...(manifest.requires ?? [])]])
+      .sort(([a], [b]) => a.localeCompare(b)),
+  ),
 };
 
 // scripts/write-api-contract.mjs reads these lines (only it asks for them: they are large).
@@ -129,6 +143,12 @@ describe("the committed roles file", () => {
       "record.list",
       // The screens of the admin it may open (stage 47, ADR 0660): every pack role reaches it.
       "screens.mine",
+      // Today's checklists (ADR 0652): every staff account's, the host answering each with only
+      // the checklists it may do.
+      "x.dailychecks.day",
+      "x.dailychecks.done",
+      "x.dailychecks.tick",
+      "x.dailychecks.today",
       "x.ticketing.checkIn",
       "x.ticketing.undoCheckIn",
     ]);

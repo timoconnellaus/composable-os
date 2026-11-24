@@ -96,3 +96,39 @@ block in the client kit with its licence, unless an allow-list there names it wi
 is not released (empty today). A new pack is also not on npm until a person publishes it once
 (docs/deploying.md, "Publishing to npm"): the release workflow now checks that before the release
 goes public.
+
+## Amended 2026-11-24: native blocks on a dark theme, failures said, a block of a required pack
+Found while putting the first client's app on the platform.
+- **Text takes the theme's colour.** React Native draws a `<Text>` with no colour black, so most
+  native blocks were unreadable on a dark theme. `native-base` gains **`text.tsx`**: a `Text` in
+  `theme.color.text`, with `tone="muted"` or `tone="danger"`, a given style still winning. Every
+  native block writes its text with it or with a style that names a theme colour; spinners take
+  `color={theme.color.muted}`. The theme gains the colours blocks had of their own (`success`,
+  `successSurface`, `dangerSurface`, `info`, `warning`, `scrim`, and `codeBackground`, white
+  behind a code to scan whatever the theme), so a dark theme is `theme.ts` changed and nothing
+  else.
+- **The block lint holds it** (`native-text-colour`, `native-literal-colour`): in a native block,
+  React Native's own `<Text>` (by whatever name it is imported) not inside another needs a style
+  with a colour in every branch, a `<TextInput>` a colour and a placeholder colour, an
+  `<ActivityIndicator>` a colour; `color`, `placeholderTextColor` and `tintColor` must read the
+  theme; and no colour literal (hex, `rgb()`, `hsl()`, white, black) appears outside
+  `native-base/theme.ts`. It reads the code with TypeScript's parser and follows
+  `StyleSheet.create` styles in the same file.
+- **A failed call is said.** `native-sign-in` caught nothing, so a 503 (sign-in not switched on),
+  a 429 or being offline showed nothing. It now says each in plain words from
+  **`signInErrorWords(error, step)`** in `@composable-os/client` (shared logic, so a web screen
+  can use the same words), keeps its button to try again, and offers "Use another email, or get a
+  new code" once a code is sent. The token session reads the status of an answer that is not JSON
+  (a gateway's page). The other native blocks' calls were checked the same way: Programs' "Mark
+  done", Bookings' cancel and confirm-cancel, Rostering's copy to the clipboard and Courses'
+  progress now say when they fail, and Programs' today, class, coach and progress screens say when
+  they could not load (the progress screen showed "Loading…" for ever).
+- **A block may depend on a block of a pack its pack requires.** The Courses player draws a text
+  lesson with Content's rich text, so `courses-player` depends on `content-rich-text` and
+  `courses-native-player` on `content-native-rich-text`, and Courses requires Content (ADR 0478,
+  amended the same day). `cos add` counts a pack as listed when a listed pack requires it.
+
+Tests: `scripts/check-blocks.test.mjs` (the `native-dark` fixture and the rule's cases; every
+shipped block passes), `packages/client/test/client.test.ts` (each failure's words, from the
+host's real answers), `packages/create-composable-os/test/client-repo.test.ts` (the players bring
+Content's blocks).

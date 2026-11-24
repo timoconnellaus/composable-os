@@ -20,6 +20,7 @@ import {
 import {
   AGREEMENT_KEY_PREFIX,
   HOST_PRIVATE_CLASSES,
+  keySpaceOf,
   type QueueClass,
   queueClassOf,
 } from "../../../../packages/gatekeeper-email-send/src/queue-class.ts";
@@ -810,7 +811,8 @@ export class FakeGatekeeper extends DurableObject<
     if (!to.length || !subject) throw new Error("send needs `to` and a `subject`");
     const internal = message.internal === true;
     // A retried send with the same key answers the first one's receipt (ADR 0574), as email-send:
-    // keys are remembered per class of queue, and the copy's keys are the agreements mail's alone.
+    // keys are remembered per class of queue (an ordinary caller's per caller, issue #286), and
+    // the copy's keys are the agreements mail's alone.
     const queueClass = await queueClassOf(queue);
     const key = typeof message.idempotencyKey === "string" ? message.idempotencyKey : null;
     if (key?.startsWith(AGREEMENT_KEY_PREFIX) && queueClass !== "agreements") {
@@ -825,9 +827,9 @@ export class FakeGatekeeper extends DurableObject<
         throw new Error("Refused: this copy's agreement was erased, and it is not sent.");
       }
     }
-    // Per queue class only, as email-send keeps them (never per kind: a retried send may be
-    // decided another kind, and must still find its first send).
-    const slot = key ? `idemc:${queueClass}:${key}` : null;
+    // Per key space, as email-send keeps them (never per kind: a retried send may be decided
+    // another kind, and must still find its first send).
+    const slot = key ? `idemc:${await keySpaceOf(queue, queueClass)}:${key}` : null;
     if (slot) {
       const known = this.ctx.storage.kv.get<number>(slot);
       if (known !== undefined) {

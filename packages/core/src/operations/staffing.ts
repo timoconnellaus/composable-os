@@ -485,7 +485,16 @@ const awaySchema = z.object({
   fromDate: z.string().nullable(),
   untilDate: z.string().nullable(),
   zone: z.string(),
+  /** The approved leave request it came from (stage 58, ADR 0853), or null. */
+  leaveRequest: z.string().nullable(),
 });
+
+/** Whether the business has set any leave type (stage 58, ADR 0853). */
+async function leaveTypesExist(ctx: HandlerContext): Promise<boolean> {
+  return Boolean(
+    await ctx.db.selectFrom("core_leave_type").select("id").limit(1).executeTakeFirst(),
+  );
+}
 
 /** A local `YYYY-MM-DDTHH:MM` in `zone` as unix seconds. */
 export function instantOf(local: string, zone: string): number {
@@ -555,6 +564,14 @@ export const staffingAway = defineOperation({
     assertPersonsOwnAct(ctx, "Saying someone is away");
     const account = await awayAccount(ctx, input.account, "say someone else is away");
     await requireAccount(ctx, account);
+    // Once the business has a leave type, leave is asked for and approved (stage 58, ADR 0853): a
+    // person says `other` or `regular` here. Rows already made stay as they are.
+    if (input.kind === "leave" && (await leaveTypesExist(ctx))) {
+      throw new ValidationError(
+        "Leave is asked for (and approved) as a leave request here. To say you cannot work, say other or regular.",
+        { field: "kind", rule: "leave_is_asked_for" },
+      );
+    }
     const zone = input.zone ?? (await loadGeneralSettings(ctx.db)).timezone;
     if (!isTimezone(zone))
       throw new ValidationError(`${zone} is not a time zone`, { field: "zone" });
@@ -629,15 +646,22 @@ export const staffingAway = defineOperation({
       );
     }
     // Their shifts from now on that it covers, from their claims (indexed by account and end).
+    // A claim is widened by its margins (ADR 0760): read as a wider range, then kept by the
+    // shift's own time.
     let claims = ctx.db
       .selectFrom("core_staff_time")
-      .select(["object_type", "record_id", "starts", "ends"])
+      .select(["object_type", "record_id", "starts", "ends", "margin_before", "margin_after"])
       .where("account_id", "=", account)
       .where("ends", ">", range ? Math.max(now, range.starts) : now);
     if (range) claims = claims.where("starts", "<", range.ends);
-    const rows = (await claims.orderBy("starts").limit(1000).execute()).filter(
-      (c) => !rule || regularOverlaps(rule, c.starts, c.ends),
-    );
+    const rows = (await claims.orderBy("starts").limit(1000).execute())
+      .map((c) => ({ ...c, starts: c.starts + c.margin_before, ends: c.ends - c.margin_after }))
+      .filter(
+        (c) =>
+          c.ends > (range ? Math.max(now, range.starts) : now) &&
+          (!range || c.starts < range.ends) &&
+          (!rule || regularOverlaps(rule, c.starts, c.ends)),
+      );
     const shifts: ShiftSummary[] = [];
     for (const c of rows.slice(0, 100)) {
       const s = await loadShift(ctx, c.object_type, c.record_id);
@@ -669,7 +693,7 @@ export const staffingBack = defineOperation({
   description:
     "Tool-only (a shipped pack's tool): remove a time someone said they cannot work (they are " +
     "back, or it was wrong). Their own, or anyone's for someone who rosters; a person's own act. " +
-    "Returns its id.",
+    "Approved leave is not removed here: cancel its leave request. Returns its id.",
   input: z.object({ id: z.string().min(1).max(64) }),
   output: z.object({ id: z.string() }),
   permission: "records:write",
@@ -681,12 +705,19 @@ export const staffingBack = defineOperation({
     assertPersonsOwnAct(ctx, "Saying someone is back");
     const row = await ctx.db
       .selectFrom("core_staff_away")
-      .select(["id", "account_id"])
+      .select(["id", "account_id", "leave_request"])
       .where("id", "=", input.id)
       .executeTakeFirst();
     // Someone else's is as if it were not there: other staff never learn that someone is away.
     if (!row || (row.account_id !== actingAccount(ctx) && !(await mayRoster(ctx)))) {
       throw new NotFoundError("unavailability", input.id);
+    }
+    // Approved leave's row goes with its request (stage 58, ADR 0853): cancel the request.
+    if (row.leave_request) {
+      throw new ConflictError("This is approved leave: cancel the leave request instead.", {
+        rule: "leave_request_away",
+        request: row.leave_request,
+      });
     }
     ctx.write(ctx.db.deleteFrom("core_staff_away").where("id", "=", input.id));
     return { id: input.id };
@@ -753,21 +784,26 @@ export const staffingAwayList = defineOperation({
     // person at the screen reads it (ADR 0626).
     const person = ctx.extension?.tool?.calledBy?.actor === "human";
     return {
-      items: rows.map((r) => ({
-        id: r.id,
-        account: r.account_id,
-        name: names.get(r.account_id) ?? "",
-        kind: r.kind,
-        note: person ? r.note : null,
-        startsAt: r.starts_at,
-        endsAt: r.ends_at,
-        weekdays: r.weekdays ? r.weekdays.split(",") : [],
-        startTime: r.start_time,
-        endTime: r.end_time,
-        fromDate: r.from_date,
-        untilDate: r.until_date,
-        zone: r.zone,
-      })),
+      // Approved leave is a person's to read (stage 58, ADR 0853): an assistant acting for its
+      // own person gets the times they said they cannot work, never their leave.
+      items: rows
+        .filter((r) => person || !r.leave_request)
+        .map((r) => ({
+          id: r.id,
+          account: r.account_id,
+          name: names.get(r.account_id) ?? "",
+          kind: r.kind,
+          note: person ? r.note : null,
+          startsAt: r.starts_at,
+          endsAt: r.ends_at,
+          weekdays: r.weekdays ? r.weekdays.split(",") : [],
+          startTime: r.start_time,
+          endTime: r.end_time,
+          fromDate: r.from_date,
+          untilDate: r.until_date,
+          zone: r.zone,
+          leaveRequest: r.leave_request,
+        })),
     };
   },
 });
@@ -802,6 +838,14 @@ export const staffingOffer = defineOperation({
     await assertShippedToolRun(ctx, "staffing.offer");
     assertPersonsOwnAct(ctx, "Offering a shift");
     const s = await requireLiveShift(ctx, input.object, input.id);
+    // A shift whose title may name a client (an appointment, ADR 0761) is never offered: the
+    // offer would show it to others, and a client chose their provider. A rosterer reassigns it.
+    if (s.object.staffed?.private) {
+      throw new ConflictError(
+        `A ${s.object.label.toLowerCase()} is not offered to others. Whoever rosters gives it to someone else.`,
+        { rule: "offer_private" },
+      );
+    }
     assertLive(s);
     await assertBeforeCutoff(ctx, s);
     const mine = s.shift.account !== null && s.shift.account === actingAccount(ctx);
@@ -1208,7 +1252,9 @@ export const staffingWeek = defineOperation({
     "(and whether it is you), whether it has nobody on it, and its open offer (`truncated` when " +
     "more than 1,000 of one kind fall in the range). `mine` keeps " +
     "your own shifts, `account` one person's. Someone who rosters also gets each shift's " +
-    "warnings. Never a class's bookings, places or list, nor any member. Read-only.",
+    "warnings. A shift whose title may name a client (an appointment) shows its kind as its " +
+    "title, except to its own person and those who roster. Never a class's bookings, places or " +
+    "list, nor any member. Read-only.",
   input: z.object({
     from: localDate,
     to: localDate,
@@ -1257,6 +1303,8 @@ export const staffingWeek = defineOperation({
       actingAccount(ctx),
       {
         warnings: rosterer,
+        // A private shift's client (ADR 0761): its own person and those who roster only.
+        clients: rosterer,
         uncoveredDays: (await rosterNumbers(ctx.db)).uncoveredDays,
         // How a checklist is going is a person's to read at the screen (ADR 0650): a rosterer's
         // every shift's, anyone else their own; never an AI's.
@@ -1367,12 +1415,14 @@ export const staffingDueOperation = defineOperation({
   description:
     "Platform use only (the minute cron, as the host): open offers past their cut-off lapse and " +
     "their offerers and the rosterers are told; once a day the rosterers hear of every shift " +
-    "with nobody on it in the uncovered window. Returns what it did.",
+    "with nobody on it in the uncovered window; a time entry left open past its finish is " +
+    "marked finish missing and its person told. Returns what it did.",
   input: z.object({}),
   output: z.object({
     lapsed: z.number().int(),
     cancelled: z.number().int(),
     uncovered: z.number().int(),
+    finishMissing: z.number().int(),
   }),
   permission: "records:write",
   risk: "write",
@@ -1391,9 +1441,11 @@ export const staffingDueOperation = defineOperation({
 export async function runStaffingDue(
   db: CrmDb,
   { floor, clock }: { floor?: GateFloor; clock?: () => Date } = {},
-): Promise<{ lapsed: number; cancelled: number; uncovered: number }> {
+): Promise<{ lapsed: number; cancelled: number; uncovered: number; finishMissing: number }> {
   const now = (clock?.() ?? new Date()).toISOString();
-  if (!(await staffingWorkDue(db.query, now))) return { lapsed: 0, cancelled: 0, uncovered: 0 };
+  if (!(await staffingWorkDue(db.query, now))) {
+    return { lapsed: 0, cancelled: 0, uncovered: 0, finishMissing: 0 };
+  }
   return (await invoke(
     "staffing.due",
     {},
@@ -1405,7 +1457,7 @@ export async function runStaffingDue(
       ...(floor ? { floor } : {}),
       ...(clock ? { clock } : {}),
     },
-  )) as { lapsed: number; cancelled: number; uncovered: number };
+  )) as { lapsed: number; cancelled: number; uncovered: number; finishMissing: number };
 }
 
 export const staffingOperations = [

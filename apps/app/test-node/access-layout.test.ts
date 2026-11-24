@@ -83,6 +83,9 @@ describe("every route of cos-app is accounted for behind Access", () => {
       // Stage 45 step 5 (ADR 0628): a staff member's calendar feed, which a calendar app polls
       // with no sign-in: bypassed, authenticated by the token in its address.
       isStaffFeedPath: "/api/v1/staffing/feed/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA.ics",
+      // Stage 44 step 6 (ADR 0649): the desk's paths, not found on the staff hostname; the desk
+      // origin is a hostname of its own, outside this Access application.
+      isDeskPath: "/desk",
     };
 
     expect([...dispatched].sort()).toEqual(Object.keys(known).sort());
@@ -95,6 +98,7 @@ describe("every route of cos-app is accounted for behind Access", () => {
       isMediaPath: "staff",
       isAgreementPdfPath: "staff",
       isStaffFeedPath: "bypass",
+      isDeskPath: "staff",
     });
     // The feed's bypass is its own entry (it says how the feed authenticates), and nothing of the
     // staff app is under it.

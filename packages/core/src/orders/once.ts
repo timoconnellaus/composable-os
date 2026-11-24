@@ -14,6 +14,11 @@
 //     expires or is cancelled unpaid (`released`). A refund keeps it used. A late payment staff
 //     honour on an expired order takes it again, and is refused (the batch fails, the order stays
 //     expired, staff refund) when the Person has had one since.
+//
+// "A Person" is every live Person sharing a folded address with them (ADR 0692, #225): `a+1@x` and
+// `a+2@x` buy one between them. Migration 0955's trigger refuses the second of two orders started
+// at once by such People, as the unique index does for one Person.
+import { samePeople } from "../customers/accounts.ts";
 import { ConflictError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import { newId } from "../ids.ts";
@@ -62,20 +67,25 @@ export async function holdOncePerPerson(
   const personId = buyer.personId as string;
   const had = await ctx.db
     .selectFrom("core_sellable_once")
-    .select(["object_type", "state"])
-    .where("person_id", "=", personId)
+    .select(["object_type", "state", "person_id"])
+    .where("person_id", "in", samePeople(ctx.db, personId))
     .where("object_type", "in", [...objects])
     .where("state", "in", ["held", "used"])
     .execute();
   for (const line of lines) {
     const row = had.find((h) => h.object_type === line.object);
     if (!row) continue;
-    // A customer is told only about themselves; staff see the same words.
+    // A customer is told only about themselves; staff see the same words. Another Person sharing
+    // the folded address is named as "the same address" (ADR 0692), never by who they are.
+    const whose =
+      row.person_id === personId
+        ? "for this person"
+        : "for someone with this address (a +tag aside)";
     refuse(
       row.state === "used" ? "used" : "held",
       row.state === "used"
-        ? "This is one per person, and it has been bought for this person already"
-        : "This is one per person, and an order for it is waiting to be paid",
+        ? `This is one per person, and it has been bought ${whose} already`
+        : `This is one per person, and an order for it ${whose} is waiting to be paid`,
       line.position,
     );
   }
@@ -113,7 +123,8 @@ const orderOnce: MoveHook = async (ctx, move) => {
   }
   if ((to === "paid" || to === "part_paid") && from === "expired") {
     // Honoured late: the hold went back at expiry. Take it again, used; refused by the unique
-    // index when the Person has had one since, which fails the batch (staff refund instead).
+    // index (or migration 0955's trigger) when the Person has had one since, which fails the
+    // batch (staff refund instead).
     const released = await ctx.db
       .selectFrom("core_sellable_once")
       .select(["person_id", "object_type", "record_id"])
@@ -125,7 +136,7 @@ const orderOnce: MoveHook = async (ctx, move) => {
       const since = await ctx.db
         .selectFrom("core_sellable_once")
         .select("id")
-        .where("person_id", "=", row.person_id)
+        .where("person_id", "in", samePeople(ctx.db, row.person_id))
         .where("object_type", "=", row.object_type)
         .where("state", "in", ["held", "used"])
         .executeTakeFirst();

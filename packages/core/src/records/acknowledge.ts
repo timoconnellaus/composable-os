@@ -27,6 +27,7 @@ import type { HandlerContext } from "../operation.ts";
 import { parseGrants } from "../pack-roles.ts";
 import { ROLES } from "../principals.ts";
 import { visibleSource } from "../visibility/index.ts";
+import { everPublished } from "./common.ts";
 
 export type AcknowledgedObject = ObjectDefinition & {
   titleField: string;
@@ -343,15 +344,7 @@ export async function assertMayChangeMustRead(
       actor: ctx.actor,
     });
   }
-  if (id === null) return;
-  const published = await ctx.db
-    .selectFrom("core_publish_version")
-    .select("version")
-    .where("object_type", "=", object.name)
-    .where("record_id", "=", id)
-    .limit(1)
-    .executeTakeFirst();
-  if (!published) return;
+  if (id === null || !(await everPublished(ctx.db, object.name, id))) return;
   await assertManages(ctx, acknowledged);
 }
 
@@ -375,14 +368,7 @@ export async function readAgainOf(
     }
     return null;
   }
-  const ever = await ctx.db
-    .selectFrom("core_publish_version")
-    .select("version")
-    .where("object_type", "=", object.name)
-    .where("record_id", "=", id)
-    .limit(1)
-    .executeTakeFirst();
-  if (!ever) {
+  if (!(await everPublished(ctx.db, object.name, id))) {
     if (given === false) {
       throw new ValidationError(
         "The first version always asks everyone who must read it: it cannot be a small fix",

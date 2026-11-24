@@ -4,3 +4,6 @@
 # Stage 6a: offer the fake OAuth provider and gatekeeper (development and e2e only, never in
 # production). Settings → Integrations then lists "Fake provider (development)".
 INTEGRATIONS_FAKE_PROVIDER=true
+# Stage 29 (ADR 0722): forms' spam check. Unset, forms take no answers from the public. For local
+# development, Cloudflare's documented always-passing test secret works with its test site key.
+# TURNSTILE_SECRET_KEY=

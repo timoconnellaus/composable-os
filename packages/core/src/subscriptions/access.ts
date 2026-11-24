@@ -27,7 +27,7 @@ import type { AccessSource, ObjectDefinition } from "../fields/types.ts";
 import { type AccessQuery, registerAccessSource } from "../visibility/access.ts";
 import { PAST_DUE_GRACE_DAYS } from "./sweep.ts";
 
-export const SUBSCRIPTION_ACCESS_KIND = "subscription";
+const SUBSCRIPTION_ACCESS_KIND = "subscription";
 
 /** The states in which a subscription gives what it covers (decision 4). */
 export const GIVING_STATES = ["trialing", "active", "past_due"] as const;
@@ -63,7 +63,7 @@ function problems(object: ObjectDefinition, source: AccessSource): string[] {
 }
 
 /** Whether `personId` holds a subscription to `planObject` that gives access at `now`. */
-export function givingSubscriptionSql(
+function givingSubscriptionSql(
   personId: string,
   planObject: string,
   now: string,

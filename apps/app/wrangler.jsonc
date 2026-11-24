@@ -118,7 +118,10 @@
       "name": "STAFF_FEED_ADDRESS_RATE_LIMIT",
       "namespace_id": "4109",
       "simple": { "limit": 120, "period": 60 }
-    }
+    },
+    // Calls to the desk origin (the enrolled tablet, ADR 0649) per client address: a tablet makes
+    // a few a minute; codes and enrolment codes are guessed nowhere near fast enough.
+    { "name": "DESK_RATE_LIMIT", "namespace_id": "4151", "simple": { "limit": 60, "period": 60 } }
   ],
   "vars": {
     // better-auth (default) or cloudflare-access. See docs/deploying.md.
@@ -136,6 +139,11 @@
     // Origins a browser may call the HTTP surface (/api/v1) from, comma separated, e.g. a client
     // app's site. Phones and servers send no origin and are not affected. Empty: none.
     "API_ALLOWED_ORIGINS": "",
+    // The desk origin's hostname (stage 44 step 6, ADR 0649): `desk.` before the host's name, where
+    // the business's enrolled tablet runs. `cos deploy` sets it with the custom domain; empty (a
+    // workers.dev install, local dev without it): no desk signing and no enrolled devices. The
+    // DESK_SECRET secret goes with it.
+    "DESK_HOSTNAME": "",
     // Videos in Cloudflare Stream on this account (stage 42, ADR 0475; docs/stream-runbook.md).
     // The account id, its playback subdomain's code (customer-<code>.cloudflarestream.com) and the
     // signing key's id; the API token (STREAM_API_TOKEN) and the key's JWK (STREAM_SIGNING_JWK)

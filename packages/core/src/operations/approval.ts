@@ -38,9 +38,10 @@ import {
 } from "../errors.ts";
 import { isProvisionalId, newId, replaceIds } from "../ids.ts";
 import {
-  ALWAYS_REVIEWED_KINDS,
   type OutboundInput,
   outboundAppliedAudit,
+  READER_KINDS,
+  REFUND_KINDS,
 } from "../integrations/outbound.ts";
 import type { IntegrationRuntime } from "../integrations/runtime.ts";
 import {
@@ -965,13 +966,11 @@ async function approveActions(
   }
   // A refund sends money back (ADR 0429): only a person approves one, and only a person who may
   // refund. No AI actor, under any policy, and not by relaying the person's words.
-  const refund = targets.find(
-    (t) =>
-      t.connection_id !== null &&
-      ALWAYS_REVIEWED_KINDS.has(
-        parse<{ actionKind?: { tag?: string } | null }>(t.input, {}).actionKind?.tag ?? "",
-      ),
-  );
+  const kindOf = (t: (typeof targets)[number]) =>
+    t.connection_id === null
+      ? ""
+      : (parse<{ actionKind?: { tag?: string } | null }>(t.input, {}).actionKind?.tag ?? "");
+  const refund = targets.find((t) => REFUND_KINDS.has(kindOf(t)));
   if (refund) {
     if (ctx.actor !== "human") {
       throw new ForbiddenError("A refund is approved by a person, never by an AI actor", {
@@ -983,6 +982,24 @@ async function approveActions(
       throw new ForbiddenError("Approving a refund needs the refund permission (orders:refund)", {
         actionId: refund.id,
         permission: "orders:refund",
+      });
+    }
+  }
+  // A card reader registered to or removed from the payment account (stage 50, ADR 0774): a device
+  // that takes money, so a person who is an admin (integrations:manage, which no grant gives)
+  // approves it, never an AI actor.
+  const reader = targets.find((t) => READER_KINDS.has(kindOf(t)));
+  if (reader) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError("A card reader is approved by a person, never by an AI actor", {
+        actionId: reader.id,
+        actor: ctx.actor,
+      });
+    }
+    if (!roleHasPermission(ctx.user.role, "integrations:manage")) {
+      throw new ForbiddenError("Approving a card reader needs an admin (integrations:manage)", {
+        actionId: reader.id,
+        permission: "integrations:manage",
       });
     }
   }
@@ -1005,6 +1022,41 @@ async function approveActions(
       );
     }
   }
+  // An AI's journey publish (stage 53, ADR 0800): the approval of the wording members get without
+  // anyone approving each send, so only a person who may publish journeys approves it.
+  const journeyPublish = targets.find((t) => t.operation === "journey.publish");
+  if (journeyPublish) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError("A journey is published by a person, never by an AI actor", {
+        actionId: journeyPublish.id,
+        actor: ctx.actor,
+      });
+    }
+    if (!holdsPermission(ctx.user, ctx.permissionGrants, "journeys:publish")) {
+      throw new ForbiddenError(
+        "Approving a journey's publish needs the journeys publish permission (journeys:publish)",
+        { actionId: journeyPublish.id, permission: "journeys:publish" },
+      );
+    }
+  }
+  // An AI's manual journey entry (ADR 0800): the entry counts as a person's (its messages are
+  // not held for the AI's cause) only because a person approved it, so the approver must be one
+  // who could have added those people themselves.
+  const journeyEnter = targets.find((t) => t.operation === "journey.enter");
+  if (journeyEnter) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError("People are added to a journey by a person, never by an AI actor", {
+        actionId: journeyEnter.id,
+        actor: ctx.actor,
+      });
+    }
+    if (!holdsPermission(ctx.user, ctx.permissionGrants, "journeys:manage")) {
+      throw new ForbiddenError(
+        "Approving people added to a journey needs the journeys permission (journeys:manage)",
+        { actionId: journeyEnter.id, permission: "journeys:manage" },
+      );
+    }
+  }
   // A roster change (stage 45, ADRs 0625 and 0626): a restricted tool's call is approved only by
   // someone who holds the tool, and a write of who works a shift only by someone who rosters.
   await assertRosterApprover(ctx, ctx.db, targets);
@@ -1023,6 +1075,48 @@ async function approveActions(
         "Approving a checklist needs the checklists permission (checklists:write)",
         { actionId: checklist.id, permission: "checklists:write" },
       );
+    }
+  }
+  // An AI's opening stock or correction (stage 37, ADR 0680): approved only by a person who may
+  // change stock themselves, so stock is never changed by an AI alone.
+  const stock = targets.find(
+    (t) => t.operation === "stock.adjust" || t.operation === "stock.opening",
+  );
+  if (stock) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError("A stock change is approved by a person, never by an AI actor", {
+        actionId: stock.id,
+        actor: ctx.actor,
+      });
+    }
+    if (!holdsPermission(ctx.user, ctx.permissionGrants, "stock:adjust")) {
+      throw new ForbiddenError(
+        "Approving a stock change needs the stock permission (stock:adjust)",
+        {
+          actionId: stock.id,
+          permission: "stock:adjust",
+        },
+      );
+    }
+  }
+  // A staff discount over the limit, or asked by an AI, and an AI's taking one off (stage 34,
+  // ADR 0691): approved only by a human admin, so an order's price beyond what the owner allowed,
+  // or an AI's change to it, is always the owner's decision.
+  const discount = targets.find(
+    (t) => t.operation === "order.adjust" || t.operation === "order.unadjust",
+  );
+  if (discount) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError("A discount is approved by a person, never by an AI actor", {
+        actionId: discount.id,
+        actor: ctx.actor,
+      });
+    }
+    if (!roleHasPermission(ctx.user.role, "settings:manage")) {
+      throw new ForbiddenError("Approving a discount over the limit needs an admin", {
+        actionId: discount.id,
+        permission: "settings:manage",
+      });
     }
   }
   const targetIds = new Set(targets.map((t) => t.id));

@@ -11,7 +11,8 @@
 //   - refuses a stage outside the record's group (StageRuleError);
 //   - tells the engine which fields the stage needs (the stage's own list plus
 //     `requiredByType`), which refuses entering it while one is empty, with a structured error
-//     naming the fields;
+//     naming the fields; a read-only one is a fact the host sets (ADR 0750), so no caller can
+//     enter the stage before the host has recorded it;
 //   - keeps the probability on the stage's default unless it was set by hand (the overridden
 //     flag), sets the status from the stage type, and sets or clears the closed date.
 // The engine records stage history (closes the current row, opens a new one) on the same batch
@@ -57,6 +58,8 @@ export interface StageRuleDetails {
   stage: { id: string; title: string; type: StageType } | null;
   /** `stage_move_not_permitted`: who may make the move. */
   by?: Mover[];
+  /** `stage_required_fields`: the missing facts only the host sets (ADR 0750). */
+  setByHost?: string[];
 }
 
 /** A write broke a stage rule. `code` is `invalid_input`; details say what to fix. */

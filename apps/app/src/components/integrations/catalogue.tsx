@@ -145,7 +145,7 @@ function CatalogueCard({
             )}
             {item.syncs.length > 0 && (
               <Badge variant="secondary" className="rounded-sm px-1.5 font-normal">
-                Syncs {item.syncs.map((k) => (k === "mail" ? "mail" : "calendar")).join(" and ")}
+                Syncs {item.syncs.join(" and ")}
               </Badge>
             )}
           </div>

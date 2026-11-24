@@ -23,7 +23,9 @@ which this stage closes) and [#118](https://github.com/timoconnellaus/composable
 
 Status: **spec agreed** (no interview was held: the ten questions were decided by the coordinator
 on 2026-11-24 under the owner's standing rule that best-practice answers are decided, not asked;
-decisions 1 to 10 below, each open to override). Roadmap stage 51. Build may start with step 1.
+decisions 1 to 10 below, each open to override). Roadmap stage 51. Step 1, the enrolled device,
+built on `feat/stage-44-desk-signing` together with stage 44's step 6 (migration 1130, ADR 0780;
+build notes at the end).
 
 **Shared piece owned here.** This stage defines the **enrolled device** (a tablet or other device a
 human admin enrols as the business's own, what it may do, and how it is revoked) once. Desk signing
@@ -570,10 +572,12 @@ Block **BM**: migrations 1130–1149, ADRs 0780–0789.
      desk ADR if step 6 writes it first).
   2. **0781** A device as a caller: the `device` audience and device roles (amends ADRs 0402 and
      0436).
-  3. **0782** A person's code: the rotating app code, cards and the PIN; identification only inside
-     a device tool, one answer for every failure, the lock-outs.
-  4. **0783** Checking in at the door: Bookings' check-in tools, the door's own policy on a document
-     due (decision 5, beside ADR 0644), and the door log.
+  3. **0783** (written by step 3; first planned as 0782) A person's code: the rotating app code,
+     cards and the PIN; identification only inside a device tool, one answer for every failure,
+     the lock-outs.
+  4. **A number the coordinator gives step 4** (first planned as 0783, which step 3 took)
+     Checking in at the door: Bookings' check-in tools, the door's own policy on a document due
+     (decision 5, beside ADR 0644), and the door log.
   5. **0784** A device's screen, served on the desk origin only (extends stage 47's screens).
 - **Amended with dated notes**: ADR 0600 (`people:cards` grantable to a fixed-role account), ADR
   0553 (a tick may be a device's), stage 44's spec (the device section, when step 6 is built).
@@ -642,3 +646,52 @@ may override any of them.
   pinned-browser mode (the design does not rely on it).
 - **Needs a real client** (decision 1): how members arrive today, whether cards exist, and how busy
   the door is at peak (whether 4 seconds per member is fast enough).
+
+## Status
+
+One bullet per build step, written by that step (CONTRIBUTING.md, Working in parallel).
+
+- **Step 1, the enrolled device** (built 2026-11-24 on `feat/stage-44-desk-signing`, with stage
+  44's step 6, which built `core_device` general from the start as [What stage 44 step 6 takes
+  from this](#what-stage-44-step-6-takes-from-this) says): migration 1130 (`core_device`: its use
+  `signing`, `role` with its device role, or `till`; the enrolment code and the credential as
+  HMACs under `DESK_SECRET`; the previous credential and its rotation time; the browser and
+  network at the claim and each rotation, and the flags; the wrong-code lock-out; who revoked it
+  and why; triggers that keep a revoked device revoked and end its signing session on a
+  revocation or a change of use), ADR 0780. `device.enrol`, `device.setUse`, `device.revoke`
+  (users:manage, a person; every admin told in the host), `device.list`, `device.claim` (the desk
+  origin's /enrol), `desk.status`; rotation at least daily and on every signing claim, confirmed by use, with
+  the 60-second grace, a rotated-away credential presented later revoking the device as a clone (every
+  admin told), lapsing after 30 days; the desk origin (`DESK_HOSTNAME`, its own handler,
+  `cos deploy` adds the hostname on a custom domain) and Settings → Devices.
+  - Deviations: the `role` use is refused until a pack declares a device role (step 2 adds the
+    declaration), and `till` is refused at enrolment (stage 50); `device.heartbeat` (a device
+    role's) comes with step 2. Admins are told in the host, and by email as their notification
+    preferences route it (see stage 44's step 6 notes).
+  - Acceptance criteria this step meets: 1 (enrol, every admin told, a member, a coach and the AI
+    refused and audited; for the `signing` use), 2 (one Settings → Devices; a device of another
+    use cannot claim a signing session), 3 (rotation, the grace, the clone, 30 days), 14 in part
+    (a desk call without an enrolled credential, from another origin or with a staff session is
+    refused; a revoked device at its next call), 20 in part (e2e: an admin enrols and revokes a
+    tablet). The rest are steps 2 to 6.
+- **Step 3, the person's code and PIN** (branch `feat/stage-51-person-code`; migration 1135, ADR
+  [0783](../adr/0783-a-persons-code-the-rotating-app-code-cards-and-the-pin.md), ADR 0600 amended).
+  Built:
+  - `core_person_code` (app codes tied to one sign-in, cards by HMAC), `core_person_pin` and
+    `core_identify_lockout`;
+  - `me.code`, `me.pin.set` and `me.pin.clear` (customer, `hostInternal`, in
+    `open-operations.json`);
+  - `personCode.issueCard`, `revokeCard` and `list` with the new core permission `people:cards`
+    (admins and members, grantable, to a fixed-role account too: `FIXED_ROLE_CORE_GRANTS`);
+  - `identifyPerson` (`packages/core/src/people-codes/identify.ts`): host code with the lock-outs
+    and one answer for every miss; erase and merge.
+  - Keys come from `BETTER_AUTH_SECRET` (HKDF), passed as `ctx.personCodes`.
+  - After review: every try is counted before it is checked (parallel tries get no further than
+    one by one), a name and PIN always costs five slow hashes, issuing a card is never queued for
+    review, and two first `me.code` calls at once keep one code.
+  - Deviations, in the ADR: it is ADR 0783 (the spec said 0782; the coordinator gave this step
+    0783 and 0784, and the numbering list above now says so); `me.code` is risk `write` (it makes the code on a sign-in's first call); a name is
+    compared by the indexed name key of the Person's listed name.
+  - Left: the host path from step 4's `doorNow` to `identifyPerson` (steps 2 and 4); the door
+    log's and handles' erase (step 4); Cards on the Person page (step 6); the member's blocks
+    (step 5).

@@ -49,7 +49,7 @@ export interface SentTaxLine {
  * checkout that asked for none (or zero), one on every taxed checkout, never more than the amount,
  * and line by line on the lines sent, each at most its share and all summing to the total.
  */
-export function taxReportFits(
+function taxReportFits(
   amount: number,
   sent: readonly SentTaxLine[] | null | undefined,
   tax: PaymentsTaxReport | undefined,

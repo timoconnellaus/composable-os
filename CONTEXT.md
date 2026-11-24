@@ -162,6 +162,20 @@ _Avoid_: purge (that is retention), delete (that is soft)
 **Activity**
 One entry on a record's timeline: a note, email, call, meeting or system event.
 
+**Note level**
+Who may read a note (stage 56, ADR 0830): `staff` (every staff account, the default and every
+note before stage 56), `coaches` (its author, the staff who look after its one Person, admins and
+holders of `notes:clients`) or `sensitive` (its author, admins and holders of `notes:sensitive`;
+listed locked, each opening with `note.open` audited). Levels 2 and 3 are in no `rec_*` view, no
+search, embedding or summary, and no AI actor reads them with any grant. Only a note has one.
+_Avoid_: private (a synced email's `private_to`, its owner's only), confidential, clinical
+
+**Looks after**
+A staff account that looks after a Person (stage 56, ADR 0831): it reads their `coaches` notes
+while the row is live. Set on the Person's page with `carer.set` by a person with `people:link`,
+never worked out from bookings; ended with `carer.end`, effective on the next read.
+_Avoid_: assigned, owner (a record's owner field), coach (the Bookings pack role)
+
 **Operation**
 One thing a user or AI can do, defined once in the operations registry with zod input/output, a
 model-facing description, a permission and a risk class. It is exposed as a server function, an MCP
@@ -374,7 +388,10 @@ roadmap's stages are a different word (see **Stage** below).
 **Stage rule**
 A field a stage requires before a record may enter it (Proposal needs a value and an expected close
 date; Lost needs a lost reason). The host enforces it in the record operations for every actor and
-refuses a move with an error naming the missing fields.
+refuses a move with an error naming the missing fields. A stage rule may require a **host fact**: a
+read-only field only the host (or a person's own tool of the declaring pack) sets, such as a job's
+`acceptedAt`, so nobody moves a job into Accepted by hand; the stages it gates are an admin's to
+change, in person (ADR 0750).
 
 **Stage behaviour**
 The contract's declarative `stages` key (ADR 0100): it makes an extension object move through stage
@@ -565,6 +582,18 @@ only a document the host posted, always approved by a person. No delete, no edit
 entry. Each accounting system is its own gatekeeper Worker that passes the contract's
 **conformance suite**; the fake books (`accounting-fake`) are for development and tests only.
 _Avoid_: connector, sync adapter
+
+**Booking system contract**
+The typed session every booking-system gatekeeper serves (`BookingSystemSession`, in
+`packages/gatekeeper-booking-system`, ADR 0920): read the site, its people, membership types,
+memberships and passes, class types, classes, bookings, staff, one person's past visits, and the
+hints the system sent. Read only: no write of any kind and no outbound action, so nothing is
+journalled or approved. Every answer is copied into the contract's shape, so nothing else about a
+person leaves the gatekeeper. It is served from **loaded files** (the **file source**: a people
+file and optionally a timetable a business exported, mapped by column and dry run first) or, for a
+system read through its API, by a gatekeeper Worker; each passes the contract's **conformance
+suite**. The fake booking system (`booking-system-fake`) is for development and tests only.
+_Avoid_: connector, sync adapter, import
 
 **Suggested contact**
 An external address the org has exchanged mail with at least twice that matches no person,
@@ -1035,9 +1064,20 @@ shows is the host's answer; in the app, money opens the website (ADR 0714). "Por
 name of the manifest key and the operation (`portal`, `me.portal`).
 _Avoid_: customer portal, dashboard
 
+**Needs your attention**
+The top of My account: what a customer, or a child they act for, has to do now, answered by the
+host (`me.attention`, ADR 0711) as items of eight kinds worked out in core from agreements, orders,
+subscriptions and allowances: a document to agree to, a card payment that failed, a payment to
+confirm with the bank, a deposit's balance, an unfinished held order, a pass expiring or used up,
+a free trial ending. How far ahead it looks is `account.attentionDays` (default 7).
+_Avoid_: notifications, alerts, to-do
+
 **Erase request**
 What deleting a customer account leaves for staff: the Person, when it was asked and when it is
-due. Staff erase the person or decline with a reason; either closes it (stage 22).
+due. Staff erase the person or decline with a reason; either closes it (stage 22). Deleting first
+shows the member what will happen (the subscriptions they pay end at the period's end, their
+unpaid orders are cancelled, the rest stays for staff), and the request's notice tells admins what
+was left (ADR 0713).
 
 **Host-internal operation**
 A core operation open to customers or the public whose handler keeps the raw database, for
@@ -1123,6 +1163,31 @@ _Avoid_: provenance, taint
 One declared email of a pack (`bookings.reminder`), with its messages: what an admin turns on or
 off in Settings → Routine email.
 
+**Journey**
+A named set of steps the host takes for one Person at a time, because of what they did or stopped
+doing: an entry rule, conditions, messages with waits between them, simple branches, staff tasks,
+exit rules and a re-entry rule. **Service** (about something the member has or did) or
+**promotional** (needs the Person's recorded yes; never about a child). Data the business edits,
+run by the host; a person approves its wording once by publishing it (ADR 0800).
+_Avoid_: sequence, campaign, drip, routine, enrolment
+
+**Journey version**
+A published snapshot of a journey's steps and words, which nobody can change. Only a published
+version runs; it was published by a person, or an AI asked and a person who may publish approved.
+
+**Entry** (journey entry)
+One Person on one journey: the version it started on, the step it is at, its state (active,
+waiting, held, finished, stopped) and the standing of what put them on it.
+
+**Signal**
+A moment about a Person that a shipped pack declares in its manifest (`journeySignals`) and a
+journey can start or stop on: a record of one of its objects created, or entering one of its states
+(`memberships.started`, `bookings.attended`). The host records, in the batch of the write that made
+it, the last time each Person had each signal (`core_person_signal`), with who stood behind that
+write and whether it was a bulk one; readable only as the Person is, in no view or export, gone
+with an erase (stage 53, ADR 0802).
+_Avoid_: event (Ticketing's), trigger (an automation's)
+
 **Headless entry**
 A pack's functions and hooks over the typed client, with no markup (`<package>/headless`); the
 base layer's are in the client runtime itself (`@composable-os/client`: agreements, My account). Blocks
@@ -1144,6 +1209,19 @@ A record whose own states hold, take and give back one place on the record its r
 (a booking on its class), declared `claims: { on, held, confirmed }`. The host makes the claim in
 the batch of each move, refused by the database past the places, as an order's line is (stage 31,
 ADR 0501). A claimant may declare a **waitlist** (`claims.waitlist`, below, ADR 0520).
+
+**Stock**
+How many of a thing there are (a variant of an item in a shop), declared `stock` by its object.
+Nobody types it: the host keeps it from the **stock ledger**, on capacity's counter, so an order's
+line holds while unpaid and sells when paid, refused by the database past what is available. On
+hand is what came in less what went out; available is on hand less what unpaid orders hold. A
+refund changes nothing in stock; a return does. What customers and the public are told is the
+object's `show` (stage 37, ADR 0680).
+
+**Stock movement**
+One row of the stock ledger: a record, a place (one default place until stock is kept in several),
+a signed quantity, a kind (opening, received, sold, returned, written off, counted, adjusted, used),
+what made it (an order line, a record or a person), who and when. Never changed or deleted.
 
 **Series** (of a recurring schedule)
 A record that declares `recurring`: a weekly rule in local wall-clock time (weekdays, a time, a
@@ -1216,6 +1294,19 @@ _Avoid_: absence, missed class
 The pack role `bookings.coach`: the day's classes, a class list and ticking names, today's only;
 nothing else (no money, no other people, no booking or cancelling). An account holds one pack role
 (ADR 0436). A coach who also works the desk is granted the **Desk permission** on top (ADR 0600).
+
+**Coach** (the Programs role)
+The pack role `programs.coach` (ADR 0889): a coach's own clients in the app, the People an active
+assignment names them coach of: their assignments and sessions, logging and marking for them, their
+history and progress. Nobody else's, no class sessions, no programs, no assigning, no people. Who a
+client's coach is, is the assignment's `coach`, the object's **team**.
+
+**Team** (on an object)
+A shipped pack's declaration of who on the staff looks after the Person a record is about (`team:
+{ person, staff, live }`, stage 56's decision, built in ADR 0889): the accounts in its user fields
+while the record is live. It gives nothing alone; a pack role's `looksAfter` reaches records only
+for those People. Programs' assignment names the client's coach.
+_Avoid_: stage 14a's teams (groups of staff), crew
 
 **Desk permission** (Bookings)
 `bookings:desk`, the front desk's tools: find people, book anyone (a walk-in too) into any class,
@@ -1391,14 +1482,35 @@ A Person who is a dependant of a live family link, or whom staff have marked as 
 holds no date of birth; `agreement.setMinor`, a person with `people:link`). Only a guardian's
 acceptance or a paper form counts for them, never their own, and the database refuses their own.
 
-**Desk signing session** (stage 44, proposed)
-A short session a person on the staff starts, from their own signed-in account, for one named Person
-(and the children they will sign for) on the enrolled tablet they choose: a one-time code opens it
-only there (a device an admin enrolled as the business's, every admin told, holding a revocable
-device credential that alone opens nothing). The tablet is signed in as nobody, uses the desk's own
-origin, shows only that Person's due documents, and locks on limits the host keeps. The record says
-"on the device enrolled as [name] by [admin]", never "in person".
+**Desk signing session** (stage 44, built in step 6: ADR 0649)
+A short session a person on the staff (`agreements:desk`: admins, and anyone granted it, a coach
+with a fixed role included) starts, from their own signed-in account, for one named Person (and
+the live children they sign for) on the enrolled tablet they choose: a one-time 8-character code,
+good for 2 minutes, opens it only on that device. The tablet is signed in as nobody, uses the desk
+origin, shows only that Person's due documents, and is refused on limits the host keeps (3 minutes
+idle, 20 in all). An acceptance made in it is the member's own (`channel: "desk"`), naming the
+session; the record says "Agreed at the desk on the device enrolled as [name] by [admin] on
+[date]; session started by [staff] at [time]", never "in person".
 _Avoid_: kiosk (a standing sign-in on a shared device, which this is not)
+
+**Enrolled device** (stage 51 step 1, built with stage 44 step 6: ADR 0780)
+A tablet or other browser a human admin enrolled as the business's own (`core_device`), for one
+**use**: desk signing, a **device role** a pack declares (stage 51's check-in tablet, not built
+yet), or a till (stage 50, not built yet). It holds one credential, a cookie on the desk origin
+that alone opens almost nothing, rotated at least daily (and on every signing claim): the next
+one is issued and the current one stays good until the device presents it, then the old one is
+accepted 60 seconds more; a credential rotated away and used later revokes it as a clone, and 30
+days unused lapse it. Every admin is told when one is enrolled, changed or revoked (Settings, Devices).
+Not a **Device session**, which is a person's own app sign-in.
+_Avoid_: kiosk, terminal, registered device
+
+**Desk origin** (stage 44 step 6: ADR 0649)
+The host's second hostname, `desk.` before its name (`DESK_HOSTNAME`, set by `cos deploy` on a
+custom domain), served by the same Worker: the enrolled tablet's two pages (`/desk`, `/enrol`) and
+its calls (`/api/desk/*`), and nothing else, while the staff origin serves none of them. Its
+cookies are its own, every call checks `Origin`, and a call with a staff session is refused. A
+deployment without the hostname has no desk signing and no enrolled devices.
+_Avoid_: kiosk mode, desk mode on the staff origin
 
 **Cooling off** (stage 44, built in step 7: ADR 0647)
 The days (a Memberships setting, `coolingOffDays`; 0, the default, turns it off; a person's to
@@ -1421,8 +1533,9 @@ A time someone works: a class (its coach works it) or a **duty shift** (cleaning
 at most one staff account on it. **Covered** when it has a person, **uncovered** when it has none.
 A record declares `staffed` to be one. One person's shifts never overlap: a **double-booking** is
 refused by the database, for every actor. Each live, covered shift whose person has an account
-holds a **time claim** (its own time, never preparation or pack-down). A write of a shift answers
-its **warnings** (away, not qualified, uncovered), which never refuse it (ADR 0622).
+holds a **time claim** (its own time, never preparation or pack-down, widened by its **buffer**
+when its kind keeps one). A write of a shift answers its **warnings** (away, not qualified,
+uncovered), which never refuse it (ADR 0622).
 _Avoid_: session, slot, booking
 
 **Thing** and **`occupies`** (stage 49, built in step 2: ADR 0765)
@@ -1434,6 +1547,13 @@ things marked **one booking at a time** (Bookings' room's `exclusive`) are claim
 never is. A **buffer** (minutes kept free before or after) enters the claim. One occupant at a
 time: not a capacity.
 _Avoid_: reservation, slot
+
+**Buffer** (stage 49, built in step 1: ADR 0760)
+The gap a kind of session keeps before or after itself (15 minutes after a personal training
+session). It is part of the provider's time claim, so nothing else of theirs is booked in it, but
+never part of the session's own times or of pay. Classes keep none: two classes back to back are
+fine. A session's provider must have an account; a profile with none is never booked for one.
+_Avoid_: margin (the code's word), padding, slot
 
 **Roster** (stage 45, built in step 4: ADR 0626)
 Every shift in a range, with who works each (`staffing.week`, through Rostering's `week` and
@@ -1469,7 +1589,21 @@ else is a warning. **Unavailable** (away) is a time they said they cannot work (
 `staffing.back`): one-off (leave) or **regular** (every Wednesday afternoon). Both are host tables
 keyed by the staff account, in no `rec_*` view; whether someone is away is known only to them and
 to rosterers. A person is **eligible** for a shift when they are qualified, free and not away.
+Once the business has a leave type, leave is asked for (below) and a person says other or regular
+time off here; approved leave is written here as unavailability.
 _Avoid_: skill, certification, availability (say when they are away)
+
+**Leave** and **Leave balance** (stage 58, built in step 4: ADR 0853)
+**Leave** is approved time off of a **leave type** the business sets (annual, personal, unpaid:
+none ship), counted in hours or days. A **leave request** asks for it, for whole days or part of
+one day; the host proposes each date's amount from the person's roster, they or the approver may
+change it, and an approver (whoever rosters, never for their own) approves or declines it. Approved,
+the person is unavailable then, is taken off the shifts it covers that have not started, and each
+is offered; cancelling it gives the balance back and puts nobody back on a shift. A **balance** is
+what the business says a person has of a type: the sum of a ledger of entries a pay holder sets or
+adjusts and the leave approved; the host never accrues. A person sees their own requests and
+balances, approvers and pay holders everyone's, other staff nothing; never an assistant.
+_Avoid_: entitlement, accrual, time-off request (say leave request), holiday (say the type's name)
 
 **Open hours** (stage 49, built in step 3: ADR 0762)
 When someone takes appointments: **weekly** (every Monday 09:00 to 12:00, in local time, from a
@@ -1508,7 +1642,20 @@ why); locking again makes a new version. It is exported as CSV for payroll. No r
 Read only with `rostering:pay` (admins and by grant), by a person, never an assistant. Each staff
 member also sees **their own** totals and lines for a period (Rostering's `myPay`, the owner's
 decision of 2026-11-24): the same figures, nothing about anyone else, never through an assistant.
-_Avoid_: timesheet, payroll, wages
+_Avoid_: payroll, wages; timesheet (a person's time entries in a period, below, not the period)
+
+**Time entry**, **Timesheet** and **Worked on** (stage 58, built in step 1: ADR 0850)
+A **time entry** is one stretch of time a staff member worked: a start and a finish, unpaid break
+minutes they entered, against one of their own shifts, a job (a record whose object declares
+**`workedOn`**: time can be recorded against it) or nothing (**other work**). **Clocked** when they
+start and finish it (the host's clock, never the phone's); **entered** when typed afterwards (up to
+14 days back, never in a locked pay period). It is **open** while clocked in, then **waiting** for
+an approver (approval is step 2), **approved** or **rejected**. Left open long after its shift
+ends, it is marked **finish missing** and its person told; no finish is invented. Two entries of
+one person never overlap, refused by the database. A person's **timesheet** for a pay period is
+their time entries in it: a view, not a record. A job keeps no hours of its own: its time is the
+entries against it. Personal: in no `rec_*` view, read and changed by the person, never an AI.
+_Avoid_: shift (the plan, not what was worked), clock-in record, time spent
 
 **Checklist** (stage 45, built in step 4b: ADR 0650)
 A list of steps a business writes once (a close-down clean, opening up): a **template**, in
@@ -1520,11 +1667,19 @@ behalf**, with why: shown as "ticked by X for Y", never as the person's own. Mar
 never changes; one not done by then is **missed**, and the rosterers are told. A **correction** is a
 note someone who rosters adds beside a closed run. Read only by the run's person and people who
 roster, never by other staff or an AI; templates are read by everyone.
-_Avoid_: task list, to-do (a task is something else), inspection
+A checklist may also be **done on its own** (ADR 0651): a **schedule** on the template (the days of
+the week it is due in the business's time zone, a time it is due by, and who may do it: everyone on
+staff, a role or pack role, or a grant). Each due day gets one **day's run**, open for that local
+day, ticked by anyone who may do it; whoever ticks the last step **finishes** it; not finished by
+the end of the day, it is missed. Those who **manage checklists** (`checklists:write`) see how each
+day went and may tick for someone. Its screens are the Daily checklists pack's.
+_Avoid_: task list, to-do (a task is something else), inspection, daily task
 
 **Follows** (a state cascade)
 An object whose records move when the record a relation points to moves (`states.follows`): a
 class cancelled moves its bookings to `cancelled_by_us`, as the host, in the same batch (ADR 0507).
+The parent is in the follower's extension or one it requires (an event's crew shifts and room uses);
+a child that draws places from a pool never follows it (ADR 0841).
 
 **Approved by a person** (a `personApproves` field or setting)
 A field or extension setting only a person changes: the assistant's, an MCP client's, an
@@ -1566,15 +1721,33 @@ something (a ticket, later a pass). A base record from stage 25, with its own `o
 operations. With tax at checkout on, its amounts include tax: it keeps the provider's tax per
 payment, per line and in total, and what is owed does not change (ADR 0479). Each paid period of a
 subscription is an order too, born paid from the provider's verified invoice, with the period's
-dates (ADR 0486).
+dates (ADR 0486). Its total is what is owed after its adjustments (ADR 0690).
 _Avoid_: purchase, sale, booking (a booking is a place in a class), invoice (stage 35)
+
+**Adjustment**
+An amount taken off an order, on one line or spread over its lines in proportion, with its kind
+(`staff` today; `code`, `automatic` and `referral` with later steps of stage 34), its source (a
+discount, or the person who gave it) and why (`core_order_adjustment`, ADR 0690). Each line keeps
+its price and its share of the adjustments; the order's total is what is owed after them, and
+the checkout, the tax shares, the deposit rule and refunds all read that net. Never changed once
+given: one taken off a pending order is marked removed.
+_Avoid_: coupon, rebate, discount line (it is not a line with a negative price)
+
+**Staff discount**
+An adjustment a person with `orders:discount` gives on a pending order at the desk, with a
+reason (`order.adjust`). Within the limit a human admin sets it applies at once; above it, and
+always when an AI asks, it waits in Approvals for a human admin, and the order cannot be paid
+until it is decided (ADR 0691).
+_Avoid_: comp, override, markdown
 
 **Sellable**
 The behaviour of an object whose records can be put on an order (stage 27, ADR 0435): its price
 field, and optionally its currency, sale window, most per order, deposit and what a paid line
 grants, or what a paid line moves (`sellable.moves`, ADR 0560: a record made held with its
 order, moved when it is paid or expires). Only an object that declares it can be bought. The host reads every price and rule from
-the record, so a caller sends none.
+the record, so a caller sends none. It may also say what kind of sale it is in the finance reports
+and when its money is earned (`sellable.finance`, ADR 0792: a category and `at_sale`,
+`over_period`, `per_use` or `at_date`; left out, `other` and `at_sale`).
 _Avoid_: product (a product is what the platform is composed into, ADR 0400), SKU
 
 **Subscription plan**
@@ -1592,7 +1765,7 @@ unless cancelled. One per Person (the holder) per plan object, and only for a ho
 who they are (a signed-in customer, or staff with `subscriptions:manage` starting it for them): a
 guest is charged from the start. It is used when the provider confirms a subscription opened with
 the plan's trial days, not when its page is opened; a continuation's free time is not a trial
-(ADR 0489).
+(ADR 0489). "Per Person" counts every Person sharing a **folded address** (ADR 0692).
 _Avoid_: trial offer (the provider's newer feature, not used), continuation (stage 32a step 4's
 free period until a paid-up date)
 
@@ -1654,8 +1827,18 @@ _Avoid_: ticket (a ticket is a place at an event), credit
 A pass type a Person buys once, across every pass type marked so (`sellable.onePerPerson`, ADR
 0512): only when they proved who they are (signed in, or staff for them), held from the order's
 start so two orders at once give one, used when it is paid, given back only when the unpaid order
-expires or is cancelled.
+expires or is cancelled. "A Person" counts every Person sharing a **folded address** (ADR 0692).
 _Avoid_: trial (a subscription plan's free first days), coupon, discount
+
+**Folded address**
+An address with its `+tag` dropped, on every domain (`a+1@x` and `a+2@x` are both `a@x`); dots
+are not folded (`a.b@x` and `ab@x` stay two). Used only to decide "the same person" for the
+one-per-Person rules (a free trial, an intro offer; later a per-person code, a new-customer check
+and a referral): every Person with an address folding to one of a Person's counts as them, one in
+the Trash too (ADR 0692, `foldedSql` and its index, `samePeople`). Never an identity: the Person, the account
+and the address mailed stay as typed.
+_Avoid_: mailbox key (the sign-in code limit's and routine mail's `mailboxKey`, which also folds
+Gmail's dots, for counting sends only), normalised address (trimmed and lower-cased only)
 
 **Grant**
 A record the host creates when an order is first paid, one per unit of a line whose object
@@ -1672,6 +1855,21 @@ _Avoid_: entitlement (a hosted plan's limits, ADR 0211), allowance (a pass's use
 The long, random, unguessable value the host gives a granted record that asks for one (a
 ticket's): read-only, unique across every grant. A QR shows only the code.
 _Avoid_: ticket number, PIN
+
+**Person's code**
+What identifies a Person at a check-in tablet, kept in the host: an **app code**, a rotating
+8-digit code (changing every 30 seconds, good for 60) made for one sign-in of the member's app or
+browser and ended with it, with one for each live dependant shown on a guardian's app; or a
+**card**, a fixed long code on a card or key tag staff issue and revoke (`people:cards`), kept
+only as an HMAC. Only a device tool identifies by it, and every miss answers the same "not found"
+(stage 51, ADR 0783).
+_Avoid_: member number, barcode (a card's code is one), ticket code (a grant's **Code**)
+
+**Check-in PIN**
+Four digits a member chooses in their app to check in by their full name and the PIN when they
+have no phone; kept as a slow hash, the most common ones refused, disabled after ten wrong tries in
+a day until they set it again. Never set by staff or a guardian (stage 51, ADR 0783).
+_Avoid_: password, passcode
 
 **Deposit**
 Paying part of an order now and the balance by a date, when what is bought offers it. The amount
@@ -1705,6 +1903,14 @@ The provider's own page a buyer pays one payment on, opened by the host for what
 be charged now. Card details are typed there and never reach the platform. Coming back from it
 tells the host nothing: only the provider's verified event does (stage 25, ADR 0429).
 _Avoid_: payment form, cart (there is no cart: an order is what is bought)
+
+**Card reader**
+A device on the business's own payment account that takes a card in person: registered to the
+account at its address by a person approving the action, and driven from the server (the host
+puts an order's amount on it; the buyer taps or inserts their card; the provider's verified event
+says it was paid, as for a checkout). Nothing of the provider's runs on the tablet, and card
+details never reach the platform (stage 50, ADR 0774).
+_Avoid_: terminal (Stripe's product name), card machine, POS (the till is the whole desk)
 
 **Paid late**
 A payment the provider confirmed for an order that had already expired or been cancelled. It
@@ -1755,8 +1961,10 @@ _Avoid_: published (stage 28's word for a version), visible (the seam's word for
 A fixed staff role a pack declares (ADR 0436): the permissions of its own tools and the objects of
 its own an account given it may read. A human admin gives at most one to a staff account; while
 it is held, it and the pack permissions granted to the account (ADR 0600) are all that account may
-do, on every operation; the role's limits bind only the calls the role allows. The door role is
-Ticketing's.
+do, on every operation; the role's limits bind only the calls the role allows (today only, ADR
+0553; only the People its holder looks after, through a pack's team, ADR 0889). It also reaches a
+shipped pack's tools open to every staff account (`anyStaff`, ADR 0652: Daily checklists' today
+and tick), whose host operation decides what it may do. The door role is Ticketing's.
 Stage 14a's roles and teams will extend it.
 _Avoid_: role (alone, it means admin, member or viewer), team, scope
 
@@ -1777,6 +1985,9 @@ _Avoid_: role (a role is admin, member or viewer), scope (an MCP token's)
 A pack tool permission held by admins and by a permission grant only (ADR 0625): a member or
 viewer does not hold its tools through their role, no pack role holds it, no automation or other
 extension's code calls them, and nobody grants it to themselves. Rostering's `rostering:manage`.
+Since stage 56 (ADR 0832) core permissions can be restricted too: `notes:clients`,
+`notes:sensitive` and `notes:manage` are never granted to oneself or to a fixed role's account,
+and give an AI actor nothing.
 _Avoid_: admin-only (it can be granted), private
 
 **Through their own records** (`customerVia`)
@@ -1830,12 +2041,21 @@ refused if the record changed since it was asked for (ADR 0480). Stage 28 adds
 **scheduling** (the snapshot is taken when a person schedules, and the minute cron makes it
 current at the set time) and **unpublishing** (no version is current; the versions are kept). A
 record's **publish state** is read from its versions and its schedule: `draft` (never
-published), `scheduled`, `published`, `unpublished` (ADR 0441).
+published), `scheduled`, `published`, `unpublished` (ADR 0441). An object may publish only in
+some of its states (`publishIn`, ADR 0810): leaving them unpublishes the record.
 _Avoid_: go live (as a verb in code), release (a release is the platform's)
+
+**Author** (of a publishable record)
+The Person a publishable record belongs to, declared as its `customer` (ADR 0810): a review's
+writer. The author reads and writes the working copy; the public reads only the published
+version. The fields the author writes are **author-only**: no one on the staff side, and no AI,
+changes them, so what is published is the author's words; staff publish, unpublish and move it.
+_Avoid_: owner (a record's owner is a staff user), submitter
 
 **Content** (stage 28)
 Records of a publishable object the public reads: a blog post, an event page. The public reads
-only the current version, by the record's **slug**, with `content.get` and `content.list`; a
+only the current version, by the record's **slug**, with `content.get` and `content.list` (an
+object with no slug, such as reviews, is listed only, ADR 0810); a
 draft, an unpublished record and an unknown slug are one not-found (ADR 0442). Its prose is
 **rich text**.
 _Avoid_: page (pages are code), CMS entry
@@ -1890,6 +2110,21 @@ email or phone or to a field of the form's destination. Answers are checked agai
 never the value. No health, signature, payment or (yet) file kind.
 _Avoid_: form fields (a form's questions are not fields of an object), survey schema
 
+**Intake** (stage 29)
+The behaviour by which an object accepts records made by the public or customers through the
+host's one door, `intake.submit`: a **form** (what is answered: published questions, who may
+answer, when it is open), its **submission** (one set of answers to one version of a form, made only
+by the host, read only by staff) and a **destination** (another pack's record a form may also make,
+a Lead). Declared only by shipped packs. The one public write that is not a purchase.
+_Avoid_: public create, form post
+
+**Submitter** (stage 29)
+Who sent a submission, with how sure the host is of it, its **certainty**: `account` (signed in),
+`link` (a personal link), `staff` (entered by staff), `address` (an address a visitor typed,
+unconfirmed, shown to staff as such). The host fills only a Person's empty fields from the answers.
+An anonymous form's submission has no submitter at all.
+_Avoid_: sender, respondent, lead (only for `leads.lead`)
+
 **Slug**
 A record's address in its object (`summer-launch`): lowercase words joined by hyphens, unique
 among the object's live records, made from the title when left empty. When a published record's
@@ -1901,7 +2136,8 @@ _Avoid_: permalink, path, handle
 The name a record has in the system it was imported from (an old post's file name), kept by the
 host with what the import last wrote (`record.import`, ADR 0470). A re-run of the import finds the
 record by it: it updates only what the source changed, and reports a record someone changed since
-as a conflict instead of overwriting it.
+as a conflict instead of overwriting it. What the import writes starts no automation and sends no
+notification. (`x.programs.importText` keeps a key of its own on the program, to the same rule.)
 _Avoid_: external id (a synced email's), source id
 
 **Media** (a media item; the **media library**)
@@ -2008,13 +2244,17 @@ _Avoid_: enrolment (stage 42), subscription
 
 **Session** (Programs)
 One dated session of an assignment, carrying its plan as the assigned version had it (blocks,
-items, levels, typed targets) and whether it was done or skipped.
+items, levels, typed targets) and whether it was done or skipped. A person's **past sessions** are their
+own sessions dated today or before, newest first, each with its sets done of planned. An **imported session** is one
+done before the platform, brought in by `cos programs import`: done, with no assignment and no
+plan, `source: import`.
 _Avoid_: workout, class (a class is the timetable's, stage 31)
 
 **Log** (Programs; a **logged set**)
 One set someone did: the exercise, the item and level taken, the target from the plan and what
 was done (load, reps, seconds), effort (RPE), and who recorded it (the person, or a coach for
-them). One row per set: the table a gym's training data comes from.
+them). One row per set: the table a gym's training data comes from. An imported set
+(`source: import`) is one done before the platform, on an imported session.
 _Avoid_: entry, result
 
 **Allowance**
