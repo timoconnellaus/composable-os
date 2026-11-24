@@ -89,6 +89,15 @@ export interface ExtensionFieldOptions {
   documentPath?: { field: string; path: string; count?: boolean | undefined };
 }
 
+/** A restricted field (ADR 0811): its registry name, label and the permission that reads it. */
+export interface RestrictedFieldDefinition {
+  name: string;
+  label: string;
+  /** One of the pack's restricted permissions (ADR 0625), `<pack>:<word>`. */
+  permission: string;
+  fieldType: "text" | "longText";
+}
+
 /** A journey signal declared on an object (stage 53, ADR 0802), as the host records it. */
 export interface ObjectSignal {
   /** `<extension>.<name>`. */
@@ -136,6 +145,13 @@ export interface ObjectDefinition {
    */
   /** Extension objects: a health-note list (stage 44, ADR 0643), local field names. */
   healthNotes?: { list: string; person: string };
+  /**
+   * Extension objects: restricted fields (stage 54 step 2, ADR 0811). Never in `fields`: their
+   * values are kept in core_restricted_value, in no view, list, filter, search or export. The
+   * record's customer writes and reads their own (the seam); staff read them only through
+   * `record.readRestricted`, from a tool of the pack that names `permission`.
+   */
+  restricted?: readonly RestrictedFieldDefinition[];
   agreements?: {
     point: string;
     label: string;

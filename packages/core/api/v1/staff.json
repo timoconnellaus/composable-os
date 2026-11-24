@@ -56316,6 +56316,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -56661,6 +56662,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -56726,6 +56728,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -56784,6 +56787,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -57149,6 +57153,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -57479,6 +57484,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -57548,11 +57554,85 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
         "recurring.exceptions"
       ]
+    },
+    {
+      "name": "record.readRestricted",
+      "description": "From a pack's tool a person calls themselves (humanOnly) that names the field's restricted permission: read one restricted field (a text kept out of every view, list, search and export) of up to 50 live records of the pack's own object. Records that are not live are left out; a record with nothing kept reads null. Every read is audited with the records named, never the values. Refused to an assistant, MCP, an automation and any other pack. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "The pack's object, e.g. `reviews.review`"
+          },
+          "field": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "Its restricted field"
+          },
+          "ids": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        },
+        "required": [
+          "object",
+          "field",
+          "ids"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "value"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "values"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
     },
     {
       "name": "record.restore",
@@ -57635,6 +57715,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -57744,6 +57825,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -57858,6 +57940,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -58081,6 +58164,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -58224,6 +58308,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -58535,6 +58620,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -58608,6 +58694,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -58781,6 +58868,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -58844,6 +58932,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",

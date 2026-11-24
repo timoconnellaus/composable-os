@@ -131,6 +131,7 @@ import type { RateLimitBinding } from "./rate-limit.ts";
 import type { MediaStore } from "./records/media.ts";
 import { touchesPersonApproves } from "./records/person-approves.ts";
 import { ALWAYS_REVIEWED_PUBLISHERS } from "./records/publish.ts";
+import { restrictedInputKeys } from "./records/restricted.ts";
 import { resolveInputFilter } from "./relative.ts";
 import { type MarkedChange, markStatements, type Standing } from "./routine-mail/marks.ts";
 import { loadApprovalPolicy } from "./settings.ts";
@@ -390,11 +391,6 @@ export function redactInput(value: unknown, extra: readonly string[] = []): unkn
   return value;
 }
 
-/** The input keys an operation's audit row leaves out. */
-function auditRedactions(op: AnyOperation): readonly string[] {
-  return op.auditRedact ? [...(op.redact ?? []), ...op.auditRedact] : (op.redact ?? []);
-}
-
 /** Two read-audit summaries as one: lists under the same key are joined, without repeats. */
 function mergeReadAudit(
   into: Record<string, unknown> | null,
@@ -407,6 +403,16 @@ function mergeReadAudit(
       Array.isArray(before) && Array.isArray(value) ? [...new Set([...before, ...value])] : value;
   }
   return out;
+}
+
+/**
+ * The input keys an audit row leaves out: the operation's own `redact` and `auditRedact`, and the
+ * restricted fields of the object it names (ADR 0811), so no row holds an author's restricted
+ * words, even a refused write's.
+ */
+function auditRedactions(op: AnyOperation, input: unknown): readonly string[] {
+  const extra = [...(op.auditRedact ?? []), ...restrictedInputKeys(input)];
+  return extra.length ? [...(op.redact ?? []), ...extra] : (op.redact ?? []);
 }
 
 /**
@@ -509,7 +515,7 @@ function auditInsert(db: CrmDb, row: AuditRow): Compilable {
     actor: row.ctx.actor,
     user_id: row.ctx.user.id,
     origin: JSON.stringify(originSchema.parse(row.ctx.origin)),
-    input: JSON.stringify(redactInput(row.input, auditRedactions(row.op)) ?? null),
+    input: JSON.stringify(redactInput(row.input, auditRedactions(row.op, row.input)) ?? null),
     result:
       row.result === undefined
         ? null
@@ -2113,7 +2119,7 @@ function outsideAuditInsert(db: CrmDb, row: OutsideAudit): Compilable {
     actor: row.actor,
     user_id: row.subjectId,
     origin: JSON.stringify(row.origin),
-    input: JSON.stringify(redactInput(row.input, auditRedactions(row.op)) ?? null),
+    input: JSON.stringify(redactInput(row.input, auditRedactions(row.op, row.input)) ?? null),
     result:
       row.result === undefined
         ? null

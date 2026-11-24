@@ -229,6 +229,15 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
         message: `A runtime extension cannot call another extension's tool (${operation}). ${why}`,
       });
     }
+    // A restricted value is read by reviewed pack code only (stage 54, ADR 0811).
+    if (operation === "record.readRestricted") {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `permissions.operations.${i}`,
+        message: `A runtime extension cannot read restricted fields (${operation}). ${why}`,
+      });
+    }
     // A health mark is health information (stage 44, ADR 0643): only reviewed pack code asks.
     if (operation === "agreement.listHealthNotes") {
       issues.push({
