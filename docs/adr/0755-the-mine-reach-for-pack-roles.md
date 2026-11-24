@@ -44,10 +44,14 @@ Jobs' crew (step 5) will declare, on jobs, visits, crew places and sites, `throu
 that is not a one-account user field, a path that is not one-record relations between the pack's
 own objects ending at the object reached, more than three steps, a state `through` does not have,
 a `within` field that is not a datetime of `through`, and an object already limited by `today` or
-`looksAfter` (one limit an object). **`who` and every relation of the path must be
-`personApproves`**: each decides whom the role reaches, so changing it is a person's choice, never
+`looksAfter` (one limit an object). **`who`, every relation of the path, the states field `live`
+reads and the `within` datetimes must be `personApproves`**: each decides whom the role reaches
+(a crew place moved from twenty days out to tomorrow, or a cancelled one booked again, brings a
+job into reach), so changing it is a person's choice, never
 the assistant's, an MCP client's, an automation's or code's on its own (ADR 0889 closed the same
-gap on a team's staff fields at review). `cos ext check` says which objects a role reaches only
+gap on a team's staff fields at review; the states field and the datetimes were added at this
+PR's review, which reproduced an assistant's, an MCP client's and an automation's move of a place's
+times and state being applied without a person). `cos ext check` says which objects a role reaches only
 through which records.
 
 **The host holds it, as it holds the other limits** (`packages/core/src/pack-role-mine.ts`). The
@@ -59,7 +63,8 @@ through `roleMine` beside `roleToday` and `roleLooksAfter`), before the operatio
   `id IN (SELECT <last relation> FROM <through> JOIN <each object on the path> … WHERE <who> = ?
   AND <state> IN (…) AND <from> <= now + days AND <to or from> >= now − days)`. Each object on the
   path is read through its view, so a visit in the Trash leads nowhere. Its bound values are the
-  account, the live states and the window's two ends, however many records name the account; a
+  account, one for each live state (at most twenty) and the window's two ends (Jobs' three states:
+  six), however many records name the account; a
   filter, sort, cursor or projection cannot reach past it;
 - `record.get` and `record.update` of a limited object: the stored record must be reached, else
   not found;
@@ -68,6 +73,11 @@ through `roleMine` beside `roleToday` and `roleLooksAfter`), before the operatio
 - `record.update` writing a field that decides the reach (a `through`'s `who`, its states field
   or its window's datetimes, or a relation on a path), on any object: refused, whether or not
   the role reaches that record;
+- `record.create` and `record.update` of any object whose relation values name a record of a
+  limited object the account does not reach (a note put on another customer's job): not found,
+  exactly as for a record that does not exist, so a write attaches nothing to another's job and
+  learns nothing of which ids exist. One statement for each fifty ids of an object named (added at
+  this PR's review, which reproduced both);
 - a tool runs (its own calls are held in turn), and so do the account's own core operations
   (`screens.mine`, `ack.mine`, `ack.confirm`); **every other operation is refused**, whatever key
   its input names records by, so the limit fails closed for an operation it does not understand.
@@ -84,7 +94,7 @@ it on that call, as it lifts the others.
   who is on a job, and nothing is copied.
 - A path of relations, not a join the host infers, so the pack says how a crew place leads to a
   job and a site, and the check can prove each step. Three steps is a crew place to its site.
-- One subquery with four bound values keeps a busy crew member inside D1's 100 bound values a
+- One subquery with a constant number of bound values (at most twenty-three) keeps a busy crew member inside D1's 100 bound values a
   statement; ADR 0553's list of ids would grow with the jobs.
 - A window on `through`'s own datetimes: step 2's `staffed.timesFrom` copies the visit's times onto
   each crew place, so the window moves with the visit and reads no other record.
@@ -106,6 +116,17 @@ it on that call, as it lifts the others.
   between them lets one write already checked land.
 - One more statement on each role call that gets or updates a limited record; none on a list
   (its predicate rides in its own query) and none on anyone else's calls.
+- **A host copy or follow onto `through` changes its deciding fields without the write naming
+  them.** Step 2's `staffed.timesFrom` copies a visit's times onto each crew place, so a write of
+  the visit's times moves the window; `states.follows` moves a crew place when its visit moves, so
+  a visit move whose follow leads into a live state widens the reach. The hold here sees only the
+  values a call writes. Whichever lands second of step 2 and step 5 must treat the sources of such
+  a copy or follow as deciding: the visit's times `personApproves` and refused under the limit,
+  and no follow from a state outside `live` into one in it (Jobs' visits end in `cancelled`,
+  final). Found at this PR's review; not reproducible here, where neither is declared.
+- An object that relates to a limited object but is not limited itself (a note on a job) lists
+  every such record under the limit: the pack declares `mine` on it, or keeps it out of the role.
+  The check does not flag it.
 - Field-level rules on what a reached record shows (prices without `jobs:prices`, access notes on
   the visit's day only) are not this reach's: step 5 holds them on the pack's fields.
 
@@ -119,12 +140,20 @@ restored, and a place moved to another account and back; the role itself is refu
 operations. A member's call carrying the limit (as a tool run does) changes a job it reaches and
 not another, writes no field deciding the reach (who, the place's visit, its times, its state, the
 visit's job), creates no job, visit or crew place but other records, and is refused
-`record.count`, `task.list`, `person.list` and `record.createMany`. The list's predicate binds four
-values; a reach naming what the registry cannot read matches nothing. The declaration's checks
+`record.count`, `task.list`, `person.list` and `record.createMany`; a create or update naming
+another's job, a job out of the window or a missing id in a relation (one or many) is not found
+alike, and clearing one passes. The assistant's, an MCP client's or an automation's move of a
+place's times or state waits for a person and changes no reach. The list's predicate binds four
+values with one live state and six with three; a reach naming what the registry cannot read
+matches nothing. The declaration's checks
 refuse each bad declaration above. Removing the list's predicate fails eight of its tests;
-dropping the deciding-field check fails two.
+dropping the deciding-field check fails two; without the relation hold, or without the check on
+the states field and the datetimes, a test fails for each.
 `apps/runner/test/pack-role-mine.test.ts`, in the real sandbox: a tool run carrying the limit
 lists and opens only the reached job, follows into another pack's tool it calls (an extension
 cannot call its own), renames only the reached job, cannot repoint a crew place, and is refused
-`record.count`; without the carry in the executor all three of its tests fail.
+`record.count`. An account that holds the role (the pack shipped in place) lists and gets only its
+job directly, through its pack's tools, and through another pack's tool one of them calls, and is
+refused a tool its role does not hold. Without the carry in the executor, or in the tool call, all
+four of its tests fail.
 `packages/extension-check/test/check.test.ts`: `cos ext check` names the reach.

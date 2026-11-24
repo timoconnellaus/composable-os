@@ -532,23 +532,25 @@ may override any of them.
   the host, and editing, adding, trashing and restoring the gated stages). Left for step 5: the
   Jobs pack declaring `acceptedAt`, `signedOffAt` and `invoicedAt` and its seeded pipelines; the
   board e2e of criterion 1 comes with the pack.
-- **Step 3, the "mine" reach for pack roles** (branch `feat/stage-39-mine-reach`): built. A pack
-  role may declare `mine` (`packages/sdk/src/mine.ts`): by object, the records of its pack naming
-  the holder (`through`, its user field `who`), the relations from them to the object (`path`, at
-  most three), the states in which they count (`live`) and a window around their own datetimes
-  (`within: { from, to, days }`). The contract check requires `who` and every relation on the path
-  to be `personApproves` and refuses a second limit on one object. The host
-  (`packages/core/src/pack-role-mine.ts`, carried as `roleMine` beside the other limits through the
-  pipeline, tool runs and nested runs) holds a list to one subquery in its own query (four bound
-  values), finds no other record for a get or update, refuses creating a limited or naming record
-  and any write of a field deciding the reach, and refuses every other operation (fail closed). ADR
+- **Step 3, the "mine" reach for pack roles** (branch `feat/stage-39-mine-reach`, PR #424): built.
+  A pack role may declare `mine` (`packages/sdk/src/mine.ts`): by object, the records of its pack
+  naming the holder (`through`, its user field `who`), the relations from them to the object
+  (`path`, at most three), the states in which they count (`live`) and a window around their own
+  datetimes (`within: { from, to, days }`). The contract check requires `who`, every relation on
+  the path, the states field and the window's datetimes to be `personApproves`, and refuses a
+  second limit on one object. The host (`packages/core/src/pack-role-mine.ts`, carried as
+  `roleMine` beside the other limits through the pipeline, tool runs and nested runs) holds a list
+  to one subquery in its own query (the account, one value a live state and the window's two
+  ends), finds no other record for a get or update, finds no unreached record a write's relation
+  values name (not found, as for a missing id), refuses creating a limited or naming record and
+  any write of a field deciding the reach, and refuses every other operation (fail closed). ADR
   0755 (amends 0436, 0553 and 0600), numbered 0755 rather than the planned 0752 because this
-  session was given the upper half of block BJ; the later ADRs this spec lists as 0755 to 0757 take
-  the next free numbers. No migration. Tests: `packages/core/test/pack-role-mine.test.ts`
-  (criterion 6's reach on a fixture pack: the window, the states, the Trash, another account, a
-  filter, a page, a projection, a carried limit's writes and refusals, the declaration's checks,
-  the bound values) and `apps/runner/test/pack-role-mine.test.ts` (inside a tool run and another
-  pack's tool it calls). Left for step 5: the `jobs.crew` role declaring it on jobs, visits, crew places and sites;
-  opening, each with a check against the reach, the core operations the crew tools call (tasks,
-  stage 58's clocking, checklist ticks); prices without `jobs:prices` and access notes on the
-  visit's day only (field rules, not the reach).
+  session was given the upper half of block BJ; the later ADRs this spec lists as 0755 to 0757
+  take the next free numbers. No migration. Tests: `packages/core/test/pack-role-mine.test.ts`
+  (criterion 6's reach on a fixture pack) and `apps/runner/test/pack-role-mine.test.ts` (inside a
+  tool run, another pack's tool it calls, and an account holding the role end to end). Left for
+  step 5: the `jobs.crew` role declaring it on jobs, visits, crew places and sites; opening, each
+  with a check against the reach, the core operations the crew tools call (tasks, stage 58's
+  clocking, checklist ticks); treating the sources of step 2's time copy and of `states.follows`
+  onto the crew place as deciding (ADR 0755, Consequences); prices without `jobs:prices` and
+  access notes on the visit's day only (field rules, not the reach).

@@ -1981,7 +1981,7 @@ A role's `mine` names, by object, the records of its pack that name its holder (
 user field `who`), the relations from them to the object (`path`), the states in which they count
 and a window around their datetimes; the host holds a list of the object to the records those
 lead to in its own query (one subquery, the account and the window bound once), finds no other
-for a get or update, refuses creating the object or a naming record and any change to a field
+for a get or update or in a write's relation values (not found, as for a missing id), refuses creating the object or a naming record and any change to a field
 that decides the reach, and refuses any other operation
 ([ADR 0755](adr/0755-the-mine-reach-for-pack-roles.md): Jobs' crew on the jobs it has a crew place
 on, a week either side of the visit). A tool may name several permissions, any one of which opens it.

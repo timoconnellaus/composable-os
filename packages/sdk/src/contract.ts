@@ -788,8 +788,9 @@ export interface RoleSpec {
    * counts (`live`) and a window around its datetimes (`within`). Jobs' crew reaches the jobs on
    * which it has a crew place, from a week before the visit to a week after. The host holds it on
    * every call the account makes and every call of a tool run it started: a list holds only those
-   * records, a read or a change of another is not found, a new record is refused, a change to a
-   * field that decides the reach is refused, and so is any other operation. Other staff are not
+   * records, a read or a change of another is not found, and so is a write naming another in a
+   * relation, a new record is refused, a change to a field that decides the reach is refused, and
+   * so is any other operation. Every field deciding it is `personApproves`. Other staff are not
    * limited.
    */
   mine?: Readonly<Record<string, MineSpec>>;

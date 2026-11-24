@@ -21,11 +21,11 @@ export interface MineSpec {
    * dot-separated, at most three: `"visit.job"`. Left out: the object reached is `through` itself.
    */
   path?: string;
-  /** The states of `through`'s `states` in which its record counts; left out: every record. */
+  /** The states of `through`'s `states` (its field `personApproves`) in which its record counts; left out: every record. */
   live?: readonly string[];
   /**
-   * A window around `through`'s own datetimes: its record counts from `days` days before `from`
-   * to `days` days after `to` (`from` when left out).
+   * A window around `through`'s own datetimes (each `personApproves`): its record counts from
+   * `days` days before `from` to `days` days after `to` (`from` when left out).
    */
   within?: { from: string; to?: string; days: number };
 }
@@ -137,6 +137,11 @@ export function checkRoleMine(
             contract(`${at}.live.${i}`, `"${state}" is not a state of ${spec.through}`);
           }
         }
+        // Moving a record back into a live state widens the reach (a cancelled place booked again).
+        const field = fieldOf(through, states.field);
+        if (field && !approved(field)) {
+          contract(`${at}.live`, `"${states.field}" of ${spec.through} ${PERSON}`);
+        }
       }
     }
     if (spec.within) {
@@ -146,6 +151,9 @@ export function checkRoleMine(
         const field = fieldOf(through, value);
         if (field?.type !== "datetime" || field.many) {
           contract(`${at}.within.${key}`, `"${value}" must be a datetime field of ${spec.through}`);
+        } else if (!approved(field)) {
+          // Moving the times moves the window: a place twenty days out brought into reach.
+          contract(`${at}.within.${key}`, `"${value}" ${PERSON}`);
         }
       }
     }

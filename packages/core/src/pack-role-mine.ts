@@ -11,6 +11,9 @@
 //   - record.get, record.update: the stored record must be reached, else it is not found;
 //   - record.create of a limited object or of a `through` object: refused (a new record is
 //     reached by nobody yet, and a new `through` record naming the account would widen it);
+//   - record.create, record.update whose relation values name a record of a limited object the
+//     account does not reach: not found (nothing is attached to another's job, and an unreached
+//     record cannot be told from a missing one);
 //   - record.update writing a field that decides the reach (`who`, a path's relation, the live
 //     states' field, the window's datetimes), on any object: refused;
 //   - a tool runs (its own calls are held in turn), and so do the account's own core operations
@@ -146,6 +149,52 @@ async function reachable(
   return rows.length > 0;
 }
 
+/** At most this many ids in one statement's IN list, well inside D1's 100 bound values. */
+const IDS_A_STATEMENT = 50;
+
+/**
+ * Throws not found for the first id among the relation values of a write that names a record of
+ * a limited object the account does not reach: under the limit a write attaches nothing to
+ * another's job, and cannot tell an unreached record from a missing one. One statement per fifty
+ * ids of an object (a single relation's value is one).
+ */
+async function holdRelations(
+  db: Kysely<CoreDatabase>,
+  limit: MineLimit,
+  objectName: string,
+  values: Record<string, unknown>,
+  now: number,
+): Promise<void> {
+  const object = getObject(objectName);
+  if (!object) return;
+  const named = new Map<string, Set<string>>();
+  for (const [name, value] of Object.entries(values)) {
+    const to = fieldOf(object, name)?.options?.to;
+    if (!to || !Object.hasOwn(limit.reach, to)) continue;
+    for (const id of Array.isArray(value) ? value : [value]) {
+      // Clearing a relation names nothing; any other value is held, whatever its shape.
+      if (id === null || id === undefined || id === "") continue;
+      named.set(to, (named.get(to) ?? new Set()).add(String(id)));
+    }
+  }
+  for (const [to, ids] of named) {
+    const target = getObject(to);
+    const where = mineWhere(limit, to, "r", now);
+    const all = [...ids];
+    if (!target || !where) throw new NotFoundError(to, all[0] as string);
+    for (let i = 0; i < all.length; i += IDS_A_STATEMENT) {
+      const chunk = all.slice(i, i + IDS_A_STATEMENT);
+      const { rows } = await sql<{ id: string }>`
+        SELECT r.id AS id FROM ${sql.table(target.source)} AS r
+        WHERE r.id IN (${sql.join(chunk.map((id) => sql`${id}`))}) AND ${where}
+      `.execute(db);
+      const found = new Set(rows.map((r) => r.id));
+      const missing = chunk.find((id) => !found.has(id));
+      if (missing !== undefined) throw new NotFoundError(to, missing);
+    }
+  }
+}
+
 /** The fields of `objectName` whose change would change what the role reaches. */
 function decidingFields(limit: MineLimit, objectName: string): Set<string> {
   const fields = new Set<string>();
@@ -209,6 +258,7 @@ export async function holdRoleMine(
     if (limited || namesHolders(limit, object)) {
       throw refuse(`it creates no ${object} record`, { object });
     }
+    await holdRelations(db, limit, object, (record.values ?? {}) as Record<string, unknown>, now);
     return;
   }
   if (operation === "record.get" || operation === "record.update") {
@@ -226,5 +276,6 @@ export async function holdRoleMine(
         fields: deciding,
       });
     }
+    await holdRelations(db, limit, object, values, now);
   }
 }

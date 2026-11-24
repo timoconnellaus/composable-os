@@ -18,8 +18,8 @@ let reached: string;
 let theirs: string;
 let place: string;
 
-const tool = (name: string, input: string, body: string) => `${name}: defineTool({
-      description: "Test fixture: a crew tool over jobs.",
+const tool = (name: string, input: string, body: string, permission = "") => `${name}: defineTool({
+      description: "Test fixture: a crew tool over jobs.",${permission ? `\n      permission: "${permission}",` : ""}
       input: z.object({ ${input} }),
       output: z.unknown(),
       handler: async (input, ctx) => { ${body} },
@@ -75,6 +75,9 @@ beforeAll(async () => {
     ${tool("rename", "id: z.string()", `return ctx.ops.call("record.update", { object: "${JOB}", id: input.id, values: { name: "renamed" } });`)}
     ${tool("repoint", "id: z.string(), job: z.string()", `return ctx.ops.call("record.update", { object: "${PLACE}", id: input.id, values: { job: input.job } });`)}
     ${tool("count", "", `return ctx.ops.call("record.count", { object: "${JOB}" });`)}
+    ${tool("mine", "", `return ctx.ops.call("record.list", { object: "${JOB}" });`)}
+    ${tool("look", "id: z.string()", `return ctx.ops.call("record.get", { object: "${JOB}", id: input.id });`)}
+    ${tool("viaRelay", "id: z.string()", `return ctx.ops.call("x.${relay}.fetch", { id: input.id });`)}
   },`,
     ),
   );
@@ -90,16 +93,46 @@ beforeAll(async () => {
   objects: {},
   tools: {
     ${tool("relay", "id: z.string()", `return ctx.ops.call("x.${id}.peek", { id: input.id });`)}
+    ${tool("fetch", "id: z.string()", `return ctx.ops.call("record.get", { object: "${JOB}", id: input.id });`)}
   },`,
     ),
   );
-  const row = await env.DB.prepare("SELECT manifest FROM core_extensions WHERE id = ?")
-    .bind(relay)
-    .first<{ manifest: string }>();
-  const stored = JSON.parse(row?.manifest ?? "{}");
-  stored.permissions.operations = [`x.${id}.peek`];
-  await env.DB.prepare("UPDATE core_extensions SET source = 'shipped', manifest = ? WHERE id = ?")
-    .bind(JSON.stringify(stored), relay)
+  const ship = async (ext: string, change: (manifest: Record<string, never>) => void) => {
+    const row = await env.DB.prepare("SELECT manifest FROM core_extensions WHERE id = ?")
+      .bind(ext)
+      .first<{ manifest: string }>();
+    const stored = JSON.parse(row?.manifest ?? "{}");
+    change(stored);
+    await env.DB.prepare("UPDATE core_extensions SET source = 'shipped', manifest = ? WHERE id = ?")
+      .bind(JSON.stringify(stored), ext)
+      .run();
+  };
+  await ship(relay, (m: { permissions?: { operations?: string[]; read?: string[] } }) => {
+    m.permissions ??= {};
+    m.permissions.operations = [`x.${id}.peek`];
+    m.permissions.read = [JOB];
+  });
+  // The first pack, shipped with a crew role reaching jobs through the places naming its holder
+  // (review finding 5: an account that holds the role, through the whole chain).
+  await ship(id, (m: { permissions?: { operations?: string[] }; roles?: unknown }) => {
+    m.permissions ??= {};
+    m.permissions.operations = [`x.${relay}.fetch`];
+    const tools = (m as unknown as { tools: Record<string, { permission?: string }> }).tools;
+    for (const name of ["count", "mine", "look", "viaRelay"]) {
+      (tools[name] as { permission?: string }).permission = `${id}:crew`;
+    }
+    m.roles = {
+      crew: {
+        label: "Crew",
+        description: "Fixture: jobs through its places.",
+        permissions: [`${id}:crew`],
+        read: [JOB],
+        mine: { [JOB]: { through: PLACE, who: "staff", path: "job" } },
+      },
+    };
+  });
+  await env.DB.prepare("UPDATE core_user SET role = 'member', pack_role = ? WHERE id = ?")
+    .bind(`${id}.crew`, crew.id)
     .run();
   const create = async (object: string, values: Record<string, unknown>) =>
     (await call<{ id: string }>(admin, "record.create", { object, values })).id;
@@ -152,6 +185,44 @@ describe("a tool run carrying the mine reach", () => {
       await outcome(invokeByName(`x.${id}.repoint`, { id: place, job: theirs }, carrying())),
     ).toMatchObject({ ok: false, code: "forbidden" });
     expect(await outcome(invokeByName(`x.${id}.count`, {}, carrying()))).toMatchObject({
+      ok: false,
+      code: "forbidden",
+    });
+  });
+});
+
+describe("an account holding the role, through the whole chain (review finding 5)", () => {
+  const asCrew = () => context(crew);
+  it("its own reads, its pack's tools and another pack's tool they call reach only its jobs", async () => {
+    const listed = (await invokeByName("record.list", { object: JOB }, asCrew())) as {
+      items: { id: string }[];
+    };
+    expect(listed.items.map((r) => r.id)).toEqual([reached]);
+    expect(
+      await outcome(invokeByName("record.get", { object: JOB, id: theirs }, asCrew())),
+    ).toMatchObject({ ok: false, code: "not_found" });
+    const mine = await outcome(invokeByName(`x.${id}.mine`, {}, asCrew()));
+    expect(mine, JSON.stringify(mine)).toMatchObject({ ok: true });
+    expect((mine as { value: { items: { id: string }[] } }).value.items.map((r) => r.id)).toEqual([
+      reached,
+    ]);
+    expect(await outcome(invokeByName(`x.${id}.look`, { id: reached }, asCrew()))).toMatchObject({
+      ok: true,
+    });
+    expect(await outcome(invokeByName(`x.${id}.look`, { id: theirs }, asCrew()))).toMatchObject({
+      ok: false,
+      code: "not_found",
+    });
+    const via = await outcome(invokeByName(`x.${id}.viaRelay`, { id: reached }, asCrew()));
+    expect(via, JSON.stringify(via)).toMatchObject({ ok: true });
+    const viaTheirs = await outcome(invokeByName(`x.${id}.viaRelay`, { id: theirs }, asCrew()));
+    expect(viaTheirs.ok).toBe(false);
+    expect(JSON.stringify(viaTheirs)).toContain(`No ${JOB} with id ${theirs}`);
+    // What the limit cannot check is refused inside the tool; the role reaches no other tool.
+    expect(await outcome(invokeByName(`x.${id}.count`, {}, asCrew()))).toMatchObject({
+      ok: false,
+    });
+    expect(await outcome(invokeByName(`x.${id}.peek`, { id: reached }, asCrew()))).toMatchObject({
       ok: false,
       code: "forbidden",
     });

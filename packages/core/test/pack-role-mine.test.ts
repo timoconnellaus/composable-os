@@ -19,7 +19,7 @@ import {
   roleMineFor,
 } from "../src/index.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
-import { context, createUser, db, unique } from "./helpers.ts";
+import { context, createUser, db, setPreset, unique } from "./helpers.ts";
 
 const ext = extId("mine");
 const JOB = `${ext}.job`;
@@ -56,11 +56,12 @@ const m = manifest(ext, {
         name: { type: "text", label: "Name", required: true },
         visit: { type: "relation", label: "Visit", to: VISIT, personApproves: true },
         staff: { type: "user", label: "Staff", personApproves: true },
-        starts: { type: "datetime", label: "Starts" },
-        ends: { type: "datetime", label: "Ends" },
+        starts: { type: "datetime", label: "Starts", personApproves: true },
+        ends: { type: "datetime", label: "Ends", personApproves: true },
         state: {
           type: "select",
           label: "State",
+          personApproves: true,
           options: [
             { value: "booked", label: "Booked" },
             { value: "done", label: "Done" },
@@ -82,7 +83,12 @@ const m = manifest(ext, {
       label: "Note",
       plural: "Notes",
       titleField: "name",
-      fields: { name: { type: "text", label: "Name", required: true } },
+      fields: {
+        name: { type: "text", label: "Name", required: true },
+        // Not part of the reach, and not limited itself: a note on a job.
+        job: { type: "relation", label: "Job", to: JOB },
+        jobs: { type: "relation", label: "Jobs", to: JOB, many: true },
+      },
     },
   },
   roles: {
@@ -350,8 +356,84 @@ describe("a call carrying the limit (a tool run the account started)", () => {
   });
 });
 
+describe("what decides the reach is a person's to change (review finding 1)", () => {
+  it("the assistant, an MCP client or an automation moving a place's times or state waits", async () => {
+    await setPreset("balanced");
+    const before = await ids(crew, JOB);
+    for (const actor of ["assistant", "mcp", "automation"] as const) {
+      for (const values of [
+        { starts: at(1), ends: at(1.1) }, // a place twenty days out brought into the window
+        { state: "cancelled" },
+      ]) {
+        const out = invokeByName(
+          "record.update",
+          { object: PLACE, id: places.later, values },
+          context(admin, {
+            actor,
+            ...(actor === "mcp"
+              ? {
+                  origin: {
+                    surface: "mcp",
+                    clientId: "client-1",
+                    clientName: "Test client",
+                    sessionId: unique(),
+                  },
+                  reason: "Test reason",
+                }
+              : {}),
+          }),
+        );
+        await expect(out, `${actor} ${JSON.stringify(values)}`).rejects.toMatchObject({
+          code: "pending_approval",
+        });
+      }
+    }
+    expect(await ids(crew, JOB)).toEqual(before);
+    expect(before).not.toContain(jobs.later);
+  });
+});
+
+describe("a write under the limit attaches nothing to what it does not reach (review finding 2)", () => {
+  const missing = "rec_doesnotexist000000000";
+  it("a new record naming another's job, or one that does not exist, is not found alike", async () => {
+    const ctx = await carrying(crew);
+    for (const values of [
+      { job: jobs.theirs },
+      { job: missing },
+      { job: jobs.later },
+      { jobs: [jobs.tomorrow, jobs.theirs] },
+    ]) {
+      await expect(
+        invokeByName("record.create", { object: NOTE, values: { name: "x", ...values } }, ctx),
+        JSON.stringify(values),
+      ).rejects.toMatchObject({ code: "not_found" });
+    }
+    const ok = (await invokeByName(
+      "record.create",
+      { object: NOTE, values: { name: unique("n"), job: jobs.tomorrow, jobs: [jobs.nextWeek] } },
+      ctx,
+    )) as Rec;
+    expect(ok.values.job).toBe(jobs.tomorrow);
+    // Clearing a relation names nothing.
+    await invokeByName("record.update", { object: NOTE, id: ok.id, values: { job: null } }, ctx);
+    for (const values of [{ job: jobs.theirs }, { job: missing }, { jobs: [jobs.past] }]) {
+      await expect(
+        invokeByName("record.update", { object: NOTE, id: ok.id, values }, ctx),
+        JSON.stringify(values),
+      ).rejects.toMatchObject({ code: "not_found" });
+    }
+    // Nobody else is held: a member attaches a note to any job.
+    const theirs = (await invokeByName(
+      "record.create",
+      { object: NOTE, values: { name: unique("n"), job: jobs.theirs } },
+      as(member),
+    )) as Rec;
+    expect(theirs.values.job).toBe(jobs.theirs);
+  });
+});
+
 describe("the list's predicate", () => {
-  it("binds the account, the live states and the window's two ends, however many places", async () => {
+  it("binds the account, each live state and the window's two ends, however many places", async () => {
     const limit = await limitOf(crew);
     const where = mineWhere(limit, JOB, "r", Date.now());
     if (!where) throw new Error("no predicate");
@@ -359,6 +441,22 @@ describe("the list's predicate", () => {
     expect(compiled.parameters).toHaveLength(4);
     expect(compiled.parameters[0]).toBe(crew.id);
     expect(mineWhere(limit, NOTE, "r", Date.now())).toBeUndefined();
+    // One value a live state (review finding 3): Jobs' three states bind six, at most twenty-three.
+    const three = mineWhere(
+      {
+        userId: crew.id,
+        reach: {
+          [JOB]: {
+            ...(limit.reach[JOB] as MineLimit["reach"][string]),
+            live: { field: "state", states: ["booked", "done", "cancelled"] },
+          },
+        },
+      },
+      JOB,
+      "r",
+      Date.now(),
+    );
+    expect(three?.compile(db.query).parameters).toHaveLength(6);
     expect(mineWhere(undefined, JOB, "r", Date.now())).toBeUndefined();
   });
 
@@ -386,7 +484,8 @@ describe("the declaration", () => {
   };
 
   it("refuses what the host cannot hold", () => {
-    const cases: [(mine: Record<string, Record<string, unknown>>, m: never) => void, RegExp][] = [
+    type Case = [(mine: Record<string, Record<string, unknown>>, m: never) => void, RegExp];
+    const cases: Case[] = [
       [
         (mine) => Object.assign(mine, { "other.job": mine[JOB] }),
         /is not an object of this extension/,
@@ -417,6 +516,17 @@ describe("the declaration", () => {
         },
         /personApproves/,
       ],
+      // The live states' field and the window's datetimes decide the reach too (review finding 1).
+      ...(["state", "starts", "ends"] as const).map(
+        (field) =>
+          [
+            (_mine: Record<string, Record<string, unknown>>, copy: never) => {
+              delete ((copy as Fixture).objects.place.fields[field] as Record<string, unknown>)
+                .personApproves;
+            },
+            new RegExp(`"${field}".*personApproves`),
+          ] as Case,
+      ),
       [
         (_mine, copy) => {
           (copy as { roles: { crew: Record<string, unknown> } }).roles.crew.today = { [JOB]: "x" };
