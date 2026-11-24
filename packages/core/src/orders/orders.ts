@@ -466,6 +466,7 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
     period_end: null,
     invoice_ref: null,
     period_flag: null,
+    provider_paid_at: null,
     paid_at: null,
     cancelled_at: null,
     refunded_at: null,
