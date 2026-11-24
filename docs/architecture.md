@@ -357,6 +357,13 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   organisation) are counted where a row is claimed. Each kind has a human admin's switch (Settings →
   Routine email), with the log, kept 12 months by default.
 - **Gatekeepers we wrote**: `gatekeeper-email-send`, `gatekeeper-slack-post`, `gatekeeper-webhook`.
+  `gatekeeper-accounting` (stage 61, ADR 0880) is the **accounting contract** every accounting
+  gatekeeper serves, not a gatekeeper of its own: the session's types and input checks, the shared
+  facet (`AccountingGatekeeper`, which applies each write once by the host's reference, refuses
+  another currency and a locked day, and voids only the host's own documents), the fake books and
+  the conformance suite. The fake books run as `cos-gatekeeper-accounting-fake` in development and
+  cos-runner's tests only (`wrangler.fake.jsonc`, never released); the catalogue marks an
+  accounting gatekeeper `implements: "accounting"`.
   Inbound webhooks and sync events land in `core_integration_event`; cos-runner's cron turns them
   into `webhook` and `syncEvent` automation triggers (ADR 0173), dropping private activities.
 - **Notification delivery** ([ADR 0172](adr/0172-notification-delivery.md)): cos-runner's minute

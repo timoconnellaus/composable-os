@@ -8,6 +8,15 @@ declare global {
       TEST_EMAIL_OUTBOX: Fetcher & {
         list(): Promise<{ from: string; to: string[]; subject: string; text?: string }[]>;
       };
+      /** The fake accounting books' controls (packages/gatekeeper-accounting, vitest.config.ts). */
+      TEST_ACCOUNTING_BOOKS: Fetcher & {
+        reset(
+          books: string,
+          overrides?: { baseCurrency?: string; lockDate?: string | null },
+        ): Promise<void>;
+        writesOf(books: string, reference: string): Promise<number>;
+        state(books: string): Promise<{ records: { reference: string | null; kind: string }[] }>;
+      };
     }
   }
   // Vite's glob import, as same-issues.test.ts uses it (source text of the fixture extensions).

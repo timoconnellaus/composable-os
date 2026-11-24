@@ -554,6 +554,16 @@ waits in the Approvals inbox unless the gatekeeper marks the kind auto-approvabl
 enabled it. Approving it makes the gatekeeper apply it, in order per resource.
 _Avoid_: operation (an outbound action is not in the registry)
 
+**Accounting contract**
+The typed session every accounting gatekeeper serves (`AccountingSession`, in
+`packages/gatekeeper-accounting`, ADR 0880): read the books' accounts, tax rates, lock date and
+contacts; post a contact, a summary, a transfer, an invoice, a credit note, a payment or a refund,
+each with the host's **reference** (`cos:…`) so it is found again and never written twice; void
+only a document the host posted, always approved by a person. No delete, no edit of a posted
+entry. Each accounting system is its own gatekeeper Worker that passes the contract's
+**conformance suite**; the fake books (`accounting-fake`) are for development and tests only.
+_Avoid_: connector, sync adapter
+
 **Suggested contact**
 An external address the org has exchanged mail with at least twice that matches no person,
 shown grouped by domain in the Suggested contacts inbox for one-click add. Nothing is created
