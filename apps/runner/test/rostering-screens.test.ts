@@ -19,7 +19,7 @@ import {
 import { beforeAll, describe, expect, it } from "vitest";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, unique } from "./helpers.ts";
+import { createAdmin, db, host, queriesOf, unique } from "./helpers.ts";
 import { packFiles } from "./pack-files.ts";
 
 const files: Record<string, Record<string, string>> = {
@@ -598,28 +598,6 @@ describe("who is counted, everyone (x.rostering.payBases)", () => {
 });
 
 // --- What one call reads (ADR 0629: a D1 call runs at most 1,000 queries) -------------------------
-
-/** How many statements `call` prepares against D1 (each query is one). */
-async function queriesOf(
-  call: () => Promise<unknown>,
-): Promise<{ queries: number; outcome: string }> {
-  const d1 = env.DB as unknown as { prepare: (...a: unknown[]) => unknown };
-  const prepare = d1.prepare.bind(d1);
-  let queries = 0;
-  d1.prepare = (...a: unknown[]) => {
-    queries++;
-    return prepare(...a);
-  };
-  try {
-    const outcome = await call().then(
-      () => "ok",
-      (e: { code?: string }) => String(e.code),
-    );
-    return { queries, outcome };
-  } finally {
-    d1.prepare = prepare;
-  }
-}
 
 /** Well under D1's 1,000 a call, for the largest input each takes. */
 const CEILING = 250;

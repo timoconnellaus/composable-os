@@ -45,6 +45,7 @@ import { listedPacks } from "../src/extensions/shipped-list.ts";
 import { fakeProviderStub } from "../src/integrations/fake.ts";
 import { blobStore, integrationRuntime } from "../src/integrations/runtime.ts";
 import { runWorkflows, setPreset } from "./automation-fixture.ts";
+import { connectFake } from "./fake-connection.ts";
 import { createAdmin, db, host, unique } from "./helpers.ts";
 import { packFiles } from "./pack-files.ts";
 
@@ -249,28 +250,13 @@ async function createStaff(role: "member" | "viewer", name: string): Promise<Act
 
 /** The fake provider's consent page and handoff, for the org (as customer-mail.test.ts). */
 async function connectFakeMail(address: string): Promise<string> {
-  const created = await run<{
-    connection: { id: string };
-    connect: { url: string; nonce: string };
-  }>("connection.create", { vendor: "fake", scope: "org", sharingLevel: "full" }, staff(admin));
-  const url = `http://crm.test${created.connect.url}`;
-  await runner.gatekeeperFetch("fake", new Request(url));
-  const done = await runner.gatekeeperFetch(
-    "fake",
-    new Request(url, { method: "POST", body: new URLSearchParams({ address }) }),
-  );
-  const ticket = /var ticket = "([^"]+)"/.exec(await done.text())?.[1] ?? "";
-  await run(
-    "connection.completeConnect",
-    { connectionId: created.connection.id, ticket, nonce: created.connect.nonce },
-    staff(admin),
-  );
+  const id = await connectFake((name, input) => run(name, input, staff(admin)), address);
   await run(
     "connection.bindResource",
-    { id: created.connection.id, url: `fake://outbox/${encodeURIComponent(address)}` },
+    { id, url: `fake://outbox/${encodeURIComponent(address)}` },
     staff(admin),
   );
-  return created.connection.id;
+  return id;
 }
 
 async function emailsTo(address: string) {

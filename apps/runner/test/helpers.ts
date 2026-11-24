@@ -32,6 +32,13 @@ export async function createAdmin(): Promise<ActingUser> {
   return { id, email, name: "Admin", role: "admin" };
 }
 
+/** A staff user with the member role. */
+export async function createMember(): Promise<ActingUser> {
+  const user = await createAdmin();
+  await env.DB.prepare("UPDATE core_user SET role = 'member' WHERE id = ?").bind(user.id).run();
+  return { ...user, role: "member" };
+}
+
 export function context(
   user: ActingUser,
   overrides: Partial<InvocationContext> & { actor?: Actor } = {},
@@ -101,4 +108,26 @@ export default defineExtension({
 });
 `,
   };
+}
+
+/** How many statements `call` prepares against D1 (each is one query), and "ok" or its refusal. */
+export async function queriesOf(
+  call: () => Promise<unknown>,
+): Promise<{ queries: number; outcome: string }> {
+  const d1 = env.DB as unknown as { prepare: (...a: unknown[]) => unknown };
+  const prepare = d1.prepare.bind(d1);
+  let queries = 0;
+  d1.prepare = (...a: unknown[]) => {
+    queries++;
+    return prepare(...a);
+  };
+  try {
+    const outcome = await call().then(
+      () => "ok",
+      (e: { code?: string }) => String(e.code),
+    );
+    return { queries, outcome };
+  } finally {
+    d1.prepare = prepare;
+  }
 }
