@@ -1915,6 +1915,45 @@ lists moving people in; (2) once per member, ever; (3) the ceiling for the setti
 (4) the clock starts when the payment provider confirms the membership started; (5) a longer period
 set later applies only to people who join after the change.
 
+### Step 7: after the fourth review of PR #299 (2026-11-24)
+
+Fixed in the same PR (ADR 0647 amended to match; migration 0856 edited in place, schema version
+still 857):
+
+1. **Waiting cancels.** While a cancel of a cooling off waits for a person at the gatekeeper, a new
+   ask (the member's or staff's) and a finish are refused (`reason: "waiting"`, said to the caller).
+   Every cancel the row ever waited on is kept (`core_subscription_cool_off_action`, by its ask), so
+   a `retryable` answer loses none; the row lapses "for the action" only when none waits and the
+   latest ask's was turned down or expired; at the deadline every one still waiting is rejected.
+2. **Staff finishing a lapsed one** records the request (`finish_state`) and stays `lapsed` until
+   the provider's verified event shows the membership ended; that event's batch finishes it (owes
+   the window's payments, releases the bookings ahead, makes the summary due). The sweep retries
+   the request with the same key (`cool-off-finish-<n>`) at most hourly, waits while its approval
+   waits, and marks it `stuck` with admins told once when it is refused, turned down, or not
+   confirmed a day on. No failure is swallowed. Staff's ordinary end finishes it the same way.
+3. **The minute tick** runs at most one release step (the longest waiting), of 15 bookings (30
+   before), then the bounded sweep. Measured over every tick: five members with 31 ahead each on
+   the host's fixture, 172 statements at most (1,568 before); the runner's whole `minuteTick` on
+   the shipped packs, four members with 31 ahead each, 499 at most
+   (`apps/runner/test/cooling-off-bookings.test.ts`; a step of 30 measured 799).
+4. **An end the provider shows but never sends** lapses a day after the deadline at most, admins
+   told once, and the sweep stops visiting it (past-deadline rows are looked at every five
+   minutes, not every minute).
+5. **"Paid" is when the provider took the money**: a period's order keeps its verified event's
+   time (`core_order.provider_paid_at`), and the rule compares with that; `paid_at` (the host's
+   processing) is unchanged for everything else.
+6. **A holder who has since used theirs** on another membership: the open ask stops being open at
+   once (the ordinary cancel works), and the next tick lapses it as `used`, rejecting any waiting
+   cancel, admins told once.
+7. A release step that succeeds resets `release_failures`. The five-minute clock tolerance and the
+   trigger race stay as documented in ADR 0647.
+
+Also: the sweep's hourly re-ask of a lost answer now times itself by `last_asked_at` (it was timed by
+`updated_at`, which each visit touched, so it never asked twice).
+
+Statements, measured: `subscription.coolingOff` 9, `subscription.coolOff` 14, the provider's end
+35 whatever is booked ahead.
+
 ## Step 8: build notes (`feat/stage-44-erase`, 2026-11-23)
 
 Built: migration 0855 (`core_agreement_hold`; the acceptance's update trigger made again with one

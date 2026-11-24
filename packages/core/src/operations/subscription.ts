@@ -604,6 +604,20 @@ const coolOffSchema = z
     deadline: z.string().describe("Open until then: the ask plus the approval expiry (7 days)"),
     endedAt: when,
     finished: z.boolean().describe("Staff finished a lapsed one"),
+    finishing: z
+      .enum(["asked", "sent", "pending", "unknown", "stuck"])
+      .nullable()
+      .describe(
+        "Staff asked to finish a lapsed one, not yet confirmed: asked or unknown (the host asks " +
+          "the provider again), sent (waiting for the provider's end), pending (waiting for a " +
+          "person at the payments gatekeeper), stuck (it could not be done; admins were told)",
+      ),
+    waiting: z
+      .boolean()
+      .describe(
+        "A cancel of it waits for a person at the payments gatekeeper: nobody may ask again " +
+          "until it is approved or turned down",
+      ),
     lapsedBecause: z.enum(["deadline", "action", "end_time", "used"]).nullable(),
     askAgain: z
       .boolean()
@@ -693,18 +707,25 @@ export const subscriptionCoolOff = defineOperation({
     "cancel works again). A signed-in customer ends their own (the one they pay for, a child's " +
     "included) and asks again only inside the period; staff any, with subscriptions:manage, ask " +
     "again until the deadline, and finish a lapsed one (only what was paid in the period is " +
-    "owed). Each ask reads the provider first and is a new request to it; nothing is done " +
-    "twice. A person decides, never an AI assistant.",
+    "owed, once the provider confirms the membership ended). Each ask reads the provider first " +
+    "and is a new request to it; nothing is done twice. Refused while a cancel of it waits for " +
+    "a person at the payments gatekeeper. A person decides, never an AI assistant.",
   input: z.object({ id: subscriptionId }),
   output: z.object({
     id: z.string(),
-    state: z.enum(["asked", "ended"]),
+    state: z
+      .enum(["asked", "ended", "lapsed"])
+      .describe(
+        "asked: open; ended: it ended (or was finished) and its refunds are owed; lapsed: staff " +
+          "asked to finish it and the provider has not confirmed the end yet",
+      ),
     asked: z
       .enum(["sent", "pending", "unknown"])
       .nullable()
       .describe(
-        "sent: the provider was asked to end it; unknown: it may or may not have reached it " +
-          "(its next event decides; staff are told)",
+        "sent: the provider was asked to end it; pending: it waits for a person at the payments " +
+          "gatekeeper; unknown: it may or may not have reached it (its next event decides; staff " +
+          "are told)",
       ),
     refund: z.number().describe("Paid and not refunded so far, in minor units: owed back"),
     currency: z.string(),
@@ -731,8 +752,10 @@ export const subscriptionCoolOffSweep = defineOperation({
   description:
     "The host's minute step for cooling offs: one whose call to the payment provider was lost " +
     "or never made is resolved from the provider's read or asked again (the same ask) until its " +
-    "deadline; at the deadline, or once its waiting cancel is rejected or expires, an open one " +
-    "lapses (its waiting cancel rejected, admins told once); then the summary emails. Bounded; " +
+    "deadline; at the deadline, or once its latest waiting cancel is rejected or expires with " +
+    "none still waiting, or once its holder has used theirs on another, an open one lapses " +
+    "(every waiting cancel rejected, admins told once); staff's finish of a lapsed one is asked " +
+    "again, waited for, or marked stuck with admins told; then the summary emails. Bounded; " +
     "nothing when nothing is due. The host's own cron only.",
   input: z.object({}),
   output: z.object({

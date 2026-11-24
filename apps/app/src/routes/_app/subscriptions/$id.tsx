@@ -283,6 +283,12 @@ function CoolingOff({ subscription: s }: { subscription: SubscriptionData }) {
         toast.warning(
           "Asked the payment provider to end it; its answer was lost. Ask again if it does not end",
         );
+      } else if (out.asked === "pending") {
+        toast.success("Ending it waits for approval at the payments gatekeeper");
+      } else if (out.state === "lapsed") {
+        toast.success(
+          "Asked the payment provider to end it now; the cooling off is finished once it ends",
+        );
       } else {
         toast.success(
           "Asked the payment provider to end it now; the refunds are owed once it ends",
@@ -300,7 +306,13 @@ function CoolingOff({ subscription: s }: { subscription: SubscriptionData }) {
     ? own.state === "lapsed"
       ? own.lapsedBecause === "used"
         ? "Asked in its cooling-off period, but the member had already cooled off another membership: this one did not count, and nothing is owed as cooled off."
-        : "Its cooling off lapsed (it did not end the membership by its deadline): nothing is owed as cooled off yet, and the membership can be cancelled as usual. To refund what was paid in the period, finish the cooling off here (it then counts as the member's one); do not refund it by hand from the orders."
+        : own.finishing === "stuck"
+          ? "Its cooling off lapsed, and finishing it could not be done: the payment provider has not ended the membership (it refused, the cancel was turned down, or no end was confirmed). Finish it again, or end it as usual: once the provider confirms the end, the cooling off is finished and what was paid in the period is owed."
+          : own.finishing === "pending"
+            ? "Its cooling off lapsed, and finishing it waits for approval at the payments gatekeeper: once the payment provider ends the membership, what was paid in the period is owed."
+            : own.finishing
+              ? "Its cooling off lapsed, and staff asked to finish it: the payment provider is asked to end the membership. Once it confirms the end, what was paid in the period is owed and the bookings ahead are cancelled."
+              : "Its cooling off lapsed (it did not end the membership by its deadline): nothing is owed as cooled off yet, and the membership can be cancelled as usual. To refund what was paid in the period, finish the cooling off here (it then counts as the member's one); do not refund it by hand from the orders."
       : own.state === "ended"
         ? `${own.finished ? "Finished by staff" : "Ended in its cooling-off period"}${own.endedAt ? ` on ${formatDateTime(own.endedAt)}` : ""}. ` +
           (own.refunds === "refunded"
@@ -312,7 +324,9 @@ function CoolingOff({ subscription: s }: { subscription: SubscriptionData }) {
           (own.asked === "refused"
             ? "The payment provider refused: ask again."
             : own.asked === "pending"
-              ? "Ending it waits for approval at the payments gatekeeper."
+              ? own.waiting
+                ? "Ending it waits for approval at the payments gatekeeper: approve or turn it down there."
+                : "Ending it waits at the payments gatekeeper."
               : own.asked === "sent"
                 ? "Waiting for the payment provider to confirm."
                 : "The payment provider's answer was lost: the host asks again; you may too.")

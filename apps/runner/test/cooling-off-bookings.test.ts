@@ -4,8 +4,8 @@
 // business's (`cancelled_by_us`), its place freed so the waiting list moves people in as usual, and
 // the member's own place on a waiting list it would pay for goes too (one naming it, or naming
 // nothing when they hold nothing else live). The end's own batch releases none (ADR 0647, rule F):
-// the minute cron's steps do, 30 at a time, every batch well under D1's 1,000 statements. Every
-// name and figure is invented.
+// the minute cron's steps do, 15 at a time and one step a minute tick, every batch well under D1's
+// 1,000 statements. Every name and figure is invented.
 import { env, exports } from "cloudflare:workers";
 import {
   type ActingUser,
@@ -19,6 +19,7 @@ import {
   runWaitlistDue,
 } from "@composable-os/core";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { minuteTick } from "../src/index.ts";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
 import { createAdmin, db, host, unique } from "./helpers.ts";
@@ -444,4 +445,75 @@ describe("cooling off releases the bookings ahead (the real Bookings pack)", () 
     expect((await get(BOOKING, unnamed)).state).toBe("waiting");
     expect((await get(BOOKING, namedPass)).state).toBe("waiting");
   }, 180_000);
+
+  it("four members cooling off at once, 31 ahead each: every whole minute tick stays under D1's 1,000 statements", async () => {
+    const subs: string[] = [];
+    for (let m = 0; m < 4; m += 1) {
+      const who = await member(`tick${m}`);
+      await subscribe(who, unlimited);
+      const sub = await subscriptionOf(who.personId);
+      const week = monday(1);
+      for (let i = 0; i < 31; i += 1) {
+        const c = await klass(yoga, local(addDays(week, Math.floor(i / 12)), 6 + (i % 12)), 10);
+        const b = await book(who, c);
+        if (b.result !== "booked") throw new Error(`booking ${i}: ${JSON.stringify(b)}`);
+      }
+      await run("subscription.coolOff", { id: sub?.id }, as(who));
+      subs.push(sub?.id as string);
+    }
+    const states = async () =>
+      (
+        await env.DB.prepare(
+          `SELECT state, release_left, mail_state FROM core_subscription_cool_off WHERE subscription_id IN (${subs.map(() => "?").join(", ")})`,
+        )
+          .bind(...subs)
+          .all<{ state: string; release_left: number; mail_state: string | null }>()
+      ).results;
+    await vi.waitFor(
+      async () => expect((await states()).every((r) => r.state === "ended")).toBe(true),
+      { timeout: 60_000 },
+    );
+    // Every statement the scheduled invocation sends, batch statements included.
+    let queries = 0;
+    const metered = new Proxy(env.DB, {
+      get(target, prop) {
+        if (prop === "prepare") {
+          return (query: string) => {
+            const wrap = (stmt: D1PreparedStatement): D1PreparedStatement =>
+              new Proxy(stmt, {
+                get(st, p) {
+                  if (p === "bind") return (...args: unknown[]) => wrap(st.bind(...args));
+                  if (p === "all" || p === "run" || p === "first" || p === "raw") queries += 1;
+                  const value = Reflect.get(st, p);
+                  return typeof value === "function" ? value.bind(st) : value;
+                },
+              });
+            return wrap(target.prepare(query));
+          };
+        }
+        if (prop === "batch") {
+          return (statements: D1PreparedStatement[]) => {
+            queries += statements.length;
+            return target.batch(statements);
+          };
+        }
+        const value = Reflect.get(target, prop);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const ticks: number[] = [];
+    for (let n = 0; n < 20; n += 1) {
+      queries = 0;
+      const out = await minuteTick({ ...env, DB: metered }, new Date());
+      ticks.push(queries);
+      expect(out.orders?.coolingOff?.releases ?? 0).toBeLessThanOrEqual(1);
+      const rows = await states();
+      if (rows.every((r) => r.release_left === 0 && r.mail_state !== "due")) break;
+    }
+    const left = await states();
+    expect(left.every((r) => r.release_left === 0)).toBe(true);
+    console.log("cooling off: statements a whole minute tick", { ticks, max: Math.max(...ticks) });
+    // Measured 499 (ADR 0647): kept well under D1's 1,000, so a busy minute has room.
+    expect(Math.max(...ticks)).toBeLessThan(700);
+  }, 600_000);
 });

@@ -1381,7 +1381,7 @@ later; while it is open any end of the membership is the cooling off's, and what
 every order paid up to the window's end or after the ask and up to the end, each waiting for a
 person with `orders:refund`. At the deadline an open one that has not ended **lapses** (owing
 nothing as cooled off; the ordinary cancel works again; staff may **finish** it, for the window's
-payments only). The bookings ahead it paid for are cancelled as the business's. Nothing is offered in a free trial (nothing
+payments only, once the payment provider confirms the membership ended). The bookings ahead it paid for are cancelled as the business's. Nothing is offered in a free trial (nothing
 paid: the ordinary cancel ends it). What the law asks is the business's to confirm.
 _Avoid_: trial (a plan's free first days), grace period, cancellation (which ends it at the
 period's end, with no refund)

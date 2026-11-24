@@ -439,6 +439,16 @@ async function coolOffRow(id: string) {
     .first<Record<string, unknown>>();
 }
 
+/** Every cancel of a cooling off that waited at the gatekeeper, oldest first, and its status. */
+async function actionsOf(id: string) {
+  const { results } = await env.DB.prepare(
+    "SELECT a.action_id, a.ask, p.status FROM core_subscription_cool_off_action a LEFT JOIN core_pending_action p ON p.id = a.action_id WHERE a.subscription_id = ? ORDER BY a.ask, a.created_at",
+  )
+    .bind(id)
+    .all<{ action_id: string; ask: number; status: string | null }>();
+  return results;
+}
+
 async function noticeCount(prefix: string) {
   return (
     (
@@ -971,6 +981,17 @@ const paidAt = (id: string, when: () => Date, amount: number) =>
   );
 const sumOf = (rows: Record<string, unknown>[]) => rows.reduce((a, r) => a + Number(r.paid), 0);
 const tick = (clock: () => Date) => runCoolOffSweep(db, { integrations: runtime, clock });
+/** Ticks until no release step is left (one runs a tick, the longest waiting first). */
+async function drain(clock: () => Date) {
+  for (let n = 0; n < 50; n += 1) {
+    const left = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_subscription_cool_off WHERE release_left = 1",
+    ).first<{ n: number }>();
+    if (!left?.n) return;
+    await tick(clock);
+  }
+  throw new Error("release steps did not end");
+}
 const staffStatus = async (id: string, clock: () => Date) =>
   (
     await run<{ items: (Status & { coolOff: Record<string, unknown> | null })[] }>(
@@ -1126,8 +1147,8 @@ describe("rule D: at its deadline an open one lapses, and the ordinary cancel wo
     const { buyer, id } = await member("d-deadline");
     gw.nextCancel = "pending";
     await coolOff(buyer, id, day(3));
-    const row = await coolOffRow(id);
-    expect(row?.pending_action_id).toMatch(/^pac_/);
+    const [waiting] = await actionsOf(id);
+    expect(waiting?.action_id).toMatch(/^pac_/);
     // Open: the ordinary cancel waits.
     expect(
       (await refusal(run("subscription.cancel", { id }, as(buyer, day(5))))).details,
@@ -1137,10 +1158,7 @@ describe("rule D: at its deadline an open one lapses, and the ordinary cancel wo
     gw.providerReads.set(`fsub_${id}`, { ...read(id) });
     await tick(at(START, 3 * DAY + DEADLINE_MS + 60_000));
     expect(await coolOffRow(id)).toMatchObject({ state: "lapsed", lapsed_because: "deadline" });
-    const action = await env.DB.prepare("SELECT status FROM core_pending_action WHERE id = ?")
-      .bind(row?.pending_action_id)
-      .first<{ status: string }>();
-    expect(action?.status).toBe("rejected");
+    expect((await actionsOf(id))[0]?.status).toBe("rejected");
     expect(await noticeCount(`subscription.cool_off:lapsed:${id}`)).toBeGreaterThan(0);
     // The ordinary cancel and staff's end-now work again.
     await run("subscription.cancel", { id }, as(buyer, day(11)));
@@ -1165,7 +1183,7 @@ describe("rule D: at its deadline an open one lapses, and the ordinary cancel wo
     const { buyer, id } = await member("d-action");
     gw.nextCancel = "pending";
     await coolOff(buyer, id, day(3));
-    const actionId = (await coolOffRow(id))?.pending_action_id as string;
+    const actionId = (await actionsOf(id))[0]?.action_id as string;
     await run("approval.reject", { actionIds: [actionId], reason: "Not now" }, staff());
     gw.providerReads.set(`fsub_${id}`, { ...read(id) });
     await tick(day(4));
@@ -1191,17 +1209,35 @@ describe("rule E: staff finish a lapsed one", () => {
     expect((await coolOffRow(id))?.state).toBe("lapsed");
     // The member's exit: the ordinary cancel; staff's: finish it.
     expect((await staffStatus(id, day(21)))?.coolOff).toMatchObject({ askAgain: true });
+    // Asked of the provider (its own key); not ended until the provider's event says so.
     expect(await run("subscription.coolOff", { id }, staff({ clock: day(21) }))).toMatchObject({
-      state: "ended",
+      state: "lapsed",
+      asked: "sent",
       refund: 3000,
     });
-    expect(cancels(id).at(-1)?.request).toMatchObject({ when: "now", askKey: "cool-off-finish" });
+    expect(cancels(id).at(-1)?.request).toMatchObject({
+      when: "now",
+      askKey: "cool-off-finish-2",
+    });
+    expect(await coolOffRow(id)).toMatchObject({
+      state: "lapsed",
+      finish_state: "sent",
+      release_left: 0,
+      mail_state: null,
+    });
+    expect(await owed(id)).toEqual([]);
+    expect((await staffStatus(id, day(21)))?.coolOff).toMatchObject({
+      finishing: "sent",
+      askAgain: false,
+    });
+    // Its end arrives: finished, the window's payments owed, then the bookings released.
+    await ended(id, { endedAt: day(21.02)().toISOString() });
     expect(await coolOffRow(id)).toMatchObject({ state: "ended", finished: 1, release_left: 1 });
     expect(sumOf(await owed(id))).toBe(3000);
-    await tick(day(21.01));
+    expect(await noticeCount(`subscription.cool_off:finished:${id}`)).toBe(1);
+    await drain(day(21.03));
     expect(await visitState(v)).toBe("cancelled_by_us");
-    // Its end arrives, then a payment the provider reports later: nothing more is owed.
-    await ended(id, { endedAt: day(21.02)().toISOString() });
+    // A payment the provider reports later: nothing more is owed.
     await paidAt(id, day(21.5), 1234);
     expect(sumOf(await owed(id))).toBe(3000);
   });
@@ -1246,6 +1282,8 @@ describe("rule F: once per member, and nothing here fails an end", () => {
     await tick(at(START, 3 * DAY + DEADLINE_MS + 60_000));
     expect((await coolOffRow(a.id))?.state).toBe("lapsed");
     await run("subscription.coolOff", { id: a.id }, staff({ clock: day(11) }));
+    await ended(a.id, { endedAt: day(11.01)().toISOString() });
+    expect((await coolOffRow(a.id))?.state).toBe("ended");
     const next = await run<{ subscriptionId: string }>(
       "subscription.start",
       { plan: { object: PLAN, id: thirty }, returnUrl: RETURN },
@@ -1344,6 +1382,7 @@ describe("the third review's probes, as tests with exact amounts", () => {
     gw.providerReads.set(`fsub_${id}`, { ...read(id) });
     await tick(day(11));
     await run("subscription.coolOff", { id }, staff({ clock: day(12) }));
+    await ended(id, { endedAt: day(12.01)().toISOString() });
     expect(await coolOffRow(id)).toMatchObject({
       state: "ended",
       finished: 1,
@@ -1418,7 +1457,7 @@ describe("the provider and the sweep", () => {
         ).first<{ n: number }>()
       )?.n ?? 0;
     await env.DB.prepare(
-      "UPDATE core_subscription_cool_off SET mail_state = NULL, release_left = 0",
+      "UPDATE core_subscription_cool_off SET mail_state = NULL, release_left = 0, finish_state = CASE WHEN finish_state IS NULL THEN NULL ELSE 'stuck' END",
     ).run();
     await env.DB.prepare(
       "UPDATE core_subscription_cool_off SET state = 'lapsed', lapsed_because = 'deadline' WHERE state = 'asked'",
@@ -1521,12 +1560,11 @@ describe("bookings ahead and the summary email", () => {
       expect(await released()).toBe(0);
       expect(summaries(buyer.email)).toHaveLength(0);
       await tick(day(2.01));
-      expect(await released()).toBe(30);
+      expect(await released()).toBe(COOL_OFF_RELEASE_STEP);
       // The earliest first.
       expect(await visitState(ids[0] as string)).toBe("cancelled_by_us");
       expect(await visitState(ids[60] as string)).toBe("booked");
-      await tick(day(2.02));
-      await tick(day(2.03));
+      await drain(day(2.03));
       expect(await released()).toBe(61);
       // A step that finds only what cannot be released ends (the ticked one keeps its use).
       expect(await coolOffRow(id)).toMatchObject({ release_left: 0, released_count: 61 });
@@ -1847,4 +1885,527 @@ describe("cost (D1's 1,000 statements per invocation)", () => {
     expect(three.end).toBe(none.end);
     expect(none.step + each * COOL_OFF_RELEASE_STEP).toBeLessThan(1000);
   });
+});
+
+// ---- The fourth review of PR #299: each of its attacks, as a test of what is built now ----------
+
+/** A database that counts the statements it runs, batch statements included. */
+function meteredDb() {
+  const meter = { queries: 0 };
+  const metered = new Proxy(env.DB, {
+    get(target, prop) {
+      if (prop === "prepare") {
+        return (query: string) => {
+          const wrap = (stmt: D1PreparedStatement): D1PreparedStatement =>
+            new Proxy(stmt, {
+              get(s, p) {
+                if (p === "bind") return (...args: unknown[]) => wrap(s.bind(...args));
+                if (p === "all" || p === "run" || p === "first" || p === "raw") meter.queries += 1;
+                const value = Reflect.get(s, p);
+                return typeof value === "function" ? value.bind(s) : value;
+              },
+            });
+          return wrap(target.prepare(query));
+        };
+      }
+      if (prop === "batch") {
+        return (statements: D1PreparedStatement[]) => {
+          meter.queries += statements.length;
+          return target.batch(statements);
+        };
+      }
+      const value = Reflect.get(target, prop);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return { meter, crm: createCrmDb(metered) };
+}
+
+const actionStatus = async (actionId: string | undefined) =>
+  actionId
+    ? (
+        await env.DB.prepare("SELECT status FROM core_pending_action WHERE id = ?")
+          .bind(actionId)
+          .first<{ status: string }>()
+      )?.status
+    : undefined;
+
+describe("the fourth review: waiting cancels (rule D)", () => {
+  it("A1: while a cancel waits, nobody may ask again (told so); its end inside the deadline is the cooling off's", async () => {
+    const { buyer, id } = await member("r4-two-pending");
+    gw.nextCancel = "pending";
+    await coolOff(buyer, id, day(3));
+    const [first] = await actionsOf(id);
+    expect(first?.action_id).toMatch(/^pac_/);
+    gw.providerReads.set(`fsub_${id}`, { ...read(id) });
+    // Staff and the member are both told it waits; nothing more is asked of the provider.
+    const before = cancels(id).length;
+    expect(
+      (await refusal(run("subscription.coolOff", { id }, staff({ clock: day(3.1) })))).details,
+    ).toMatchObject({ reason: "waiting" });
+    expect((await refusal(coolOff(buyer, id, day(3.1)))).details).toMatchObject({
+      reason: "waiting",
+    });
+    expect(cancels(id).length).toBe(before);
+    expect((await staffStatus(id, day(3.1)))?.coolOff).toMatchObject({
+      waiting: true,
+      askAgain: false,
+      open: true,
+    });
+    // The tick leaves it open: the one cancel still waits.
+    await tick(day(3.2));
+    expect((await coolOffRow(id))?.state).toBe("asked");
+    // A person approves it and the provider ends it on day 4: the cooling off's, 3000 owed.
+    await ended(id, { endedAt: day(4)().toISOString() });
+    expect((await coolOffRow(id))?.state).toBe("ended");
+    expect(sumOf(await owed(id))).toBe(3000);
+  });
+
+  it("A1b: a cancel turned down, then asked again before the tick: both kept; it lapses only when none waits, and the deadline rejects the one that does", async () => {
+    const { buyer, id } = await member("r4-reask");
+    gw.nextCancel = "pending";
+    await coolOff(buyer, id, day(3));
+    const [first] = await actionsOf(id);
+    await run("approval.reject", { actionIds: [first?.action_id], reason: "Not now" }, staff());
+    gw.providerReads.set(`fsub_${id}`, { ...read(id) });
+    gw.nextCancel = "pending";
+    await run("subscription.coolOff", { id }, staff({ clock: day(3) }));
+    const both = await actionsOf(id);
+    expect(both.map((a) => [a.ask, a.status])).toEqual([
+      [1, "rejected"],
+      [2, "pending"],
+    ]);
+    // The newer one waits: no lapse for the older one turned down.
+    await tick(day(3.1));
+    expect((await coolOffRow(id))?.state).toBe("asked");
+    // At the deadline the host rejects the one still waiting, and it lapses.
+    await tick(at(START, 3 * DAY + DEADLINE_MS + 60_000));
+    expect(await coolOffRow(id)).toMatchObject({ state: "lapsed", lapsed_because: "deadline" });
+    expect(await actionStatus(both[1]?.action_id)).toBe("rejected");
+  });
+
+  it("A2: a retryable answer never loses a waiting cancel's id; at the deadline every waiting one is rejected", async () => {
+    const { buyer, id } = await member("r4-retryable");
+    gw.nextCancel = "pending";
+    await coolOff(buyer, id, day(3));
+    const [first] = await actionsOf(id);
+    gw.providerReads.set(`fsub_${id}`, { ...read(id) });
+    // An ask again while it waits is refused before anything is called.
+    gw.nextCancel = "retryable";
+    await refusal(run("subscription.coolOff", { id }, staff({ clock: day(3.1) })));
+    gw.nextCancel = "applied";
+    expect((await actionsOf(id)).map((a) => a.action_id)).toEqual([first?.action_id]);
+    await tick(at(START, 3 * DAY + DEADLINE_MS + 60_000));
+    expect((await coolOffRow(id))?.state).toBe("lapsed");
+    expect(await actionStatus(first?.action_id)).toBe("rejected");
+  });
+
+  it("A2b: a retryable answer to an ask when none waits keeps every id the row made", async () => {
+    const { buyer, id } = await member("r4-retryable-kept");
+    gw.nextCancel = "pending";
+    await coolOff(buyer, id, day(3));
+    const [first] = await actionsOf(id);
+    await run("approval.reject", { actionIds: [first?.action_id], reason: "Not now" }, staff());
+    gw.providerReads.set(`fsub_${id}`, { ...read(id) });
+    gw.nextCancel = "retryable";
+    expect(await run("subscription.coolOff", { id }, staff({ clock: day(3) }))).toMatchObject({
+      asked: "pending",
+    });
+    expect((await actionsOf(id)).map((a) => a.action_id)).toEqual([first?.action_id]);
+    // The latest ask has no cancel waiting for a person: it is not lapsed for the older one.
+    await tick(day(3.1));
+    expect((await coolOffRow(id))?.state).toBe("asked");
+  });
+});
+
+describe("the fourth review: staff finishing a lapsed one (rule E)", () => {
+  /** A member whose cooling off lapsed at its deadline (its cancel waited, then was rejected). */
+  async function lapsedOne(label: string) {
+    const m = await member(label);
+    gw.nextCancel = "pending";
+    await coolOff(m.buyer, m.id, day(3));
+    gw.providerReads.set(`fsub_${m.id}`, { ...read(m.id) });
+    await tick(at(START, 3 * DAY + DEADLINE_MS + 60_000));
+    expect((await coolOffRow(m.id))?.state).toBe("lapsed");
+    return m;
+  }
+
+  it("A9: the provider's cancel fails: not ended, retried with the same key, admins told once a day on, then the ordinary end finishes it", async () => {
+    const { id } = await lapsedOne("r4-finish-fails");
+    gw.nextCancel = "throw";
+    expect(await run("subscription.coolOff", { id }, staff({ clock: day(12) }))).toMatchObject({
+      state: "lapsed",
+      asked: "unknown",
+    });
+    expect(await subscriptionState(id)).toBe("active");
+    expect(await coolOffRow(id)).toMatchObject({
+      state: "lapsed",
+      finish_state: "unknown",
+      release_left: 0,
+      mail_state: null,
+    });
+    expect(await owed(id)).toEqual([]);
+    // The sweep asks again, with the same key, at most hourly.
+    gw.nextCancel = "throw";
+    await tick(at(day(12)().toISOString(), 10 * 60_000));
+    gw.nextCancel = "throw";
+    await tick(at(day(12)().toISOString(), 2 * 3_600_000));
+    const keys = cancels(id)
+      .map((c) => c.request.askKey)
+      .filter((k) => String(k).startsWith("cool-off-finish"));
+    expect(keys).toEqual(["cool-off-finish-2", "cool-off-finish-2"]);
+    // Not done a day on: stuck, admins told once, and the sweep leaves it.
+    await tick(day(13.1));
+    expect((await coolOffRow(id))?.finish_state).toBe("stuck");
+    expect(await noticeCount(`subscription.cool_off:finish:${id}`)).toBe(1);
+    const stuckAt = (await coolOffRow(id))?.updated_at;
+    await tick(day(13.5));
+    expect((await coolOffRow(id))?.updated_at).toBe(stuckAt);
+    expect(await noticeCount(`subscription.cool_off:finish:${id}`)).toBe(1);
+    expect((await staffStatus(id, day(13.5)))?.coolOff).toMatchObject({
+      finishing: "stuck",
+      askAgain: true,
+    });
+    // A renewal the provider takes meanwhile is not the window's.
+    await renew(id, 1);
+    // Staff end it as usual; its end finishes the cooling off: the window's payments only.
+    await run("subscription.cancel", { id, now: true, reason: "Asked" }, staff({ clock: day(31) }));
+    await ended(id, { endedAt: day(31)().toISOString() });
+    expect(await coolOffRow(id)).toMatchObject({
+      state: "ended",
+      finished: 1,
+      finish_state: null,
+      release_left: 1,
+    });
+    expect(sumOf(await owed(id))).toBe(3000);
+  });
+
+  it("A9b: a finish waiting for approval is waiting (no second finish); turned down, it is stuck and admins told", async () => {
+    const { id } = await lapsedOne("r4-finish-pending");
+    gw.nextCancel = "pending";
+    expect(await run("subscription.coolOff", { id }, staff({ clock: day(12) }))).toMatchObject({
+      state: "lapsed",
+      asked: "pending",
+    });
+    expect((await staffStatus(id, day(12)))?.coolOff).toMatchObject({
+      finishing: "pending",
+      waiting: true,
+      askAgain: false,
+    });
+    expect(
+      (await refusal(run("subscription.coolOff", { id }, staff({ clock: day(12) })))).details,
+    ).toMatchObject({ reason: "waiting" });
+    await tick(day(12.5));
+    expect((await coolOffRow(id))?.finish_state).toBe("pending");
+    const finishAction = (await actionsOf(id)).find((a) => a.ask === 2);
+    await run("approval.reject", { actionIds: [finishAction?.action_id], reason: "No" }, staff());
+    await tick(day(12.6));
+    expect((await coolOffRow(id))?.finish_state).toBe("stuck");
+    expect(await noticeCount(`subscription.cool_off:finish:${id}`)).toBe(1);
+    expect(await owed(id)).toEqual([]);
+  });
+
+  it("A9c: the provider refuses the finish: stuck at once, the caller and admins told", async () => {
+    const { id } = await lapsedOne("r4-finish-refused");
+    gw.nextCancel = "refused";
+    expect(
+      (await refusal(run("subscription.coolOff", { id }, staff({ clock: day(12) })))).details,
+    ).toMatchObject({ rule: "provider_refused" });
+    expect((await coolOffRow(id))?.finish_state).toBe("stuck");
+    expect(await noticeCount(`subscription.cool_off:finish:${id}`)).toBe(1);
+  });
+
+  it("A6: two staff finish at once: one request (one key), owed once when it ends", async () => {
+    const { id } = await lapsedOne("r4-double-finish");
+    await Promise.allSettled([
+      run("subscription.coolOff", { id }, staff({ clock: day(12) })),
+      run("subscription.coolOff", { id }, staff({ clock: day(12) })),
+    ]);
+    const keys = new Set(
+      cancels(id)
+        .map((c) => c.request.askKey)
+        .filter((k) => String(k).startsWith("cool-off-finish")),
+    );
+    expect(keys).toEqual(new Set(["cool-off-finish-2"]));
+    await ended(id, { endedAt: day(12.01)().toISOString() });
+    expect(await owed(id)).toHaveLength(1);
+    expect(sumOf(await owed(id))).toBe(3000);
+  });
+});
+
+describe("the fourth review: an end the provider shows but never sends (rule D)", () => {
+  it("A3: lapses a day after the deadline, admins told once, and is not visited again; a finish then is stuck a day on", async () => {
+    const { buyer, id } = await member("r4-no-event");
+    gw.nextCancel = "throw";
+    await coolOff(buyer, id, day(3));
+    gw.providerReads.set(`fsub_${id}`, { ...read(id, { status: "canceled" }) });
+    await tick(day(10.1));
+    expect((await coolOffRow(id))?.state).toBe("asked");
+    await tick(day(11.2));
+    expect(await coolOffRow(id)).toMatchObject({ state: "lapsed", lapsed_because: "deadline" });
+    expect(await noticeCount(`subscription.cool_off:lapsed:${id}`)).toBe(1);
+    const lapsedAt = (await coolOffRow(id))?.updated_at;
+    for (const d of [12, 20, 40]) await tick(day(d));
+    expect((await coolOffRow(id))?.updated_at).toBe(lapsedAt);
+    expect(await noticeCount(`subscription.cool_off:lapsed:${id}`)).toBe(1);
+    // Staff finish it: the provider shows it ended, so it is sent; with no event a day on, stuck.
+    expect(await run("subscription.coolOff", { id }, staff({ clock: day(41) }))).toMatchObject({
+      state: "lapsed",
+      asked: "sent",
+    });
+    await tick(day(41.5));
+    expect((await coolOffRow(id))?.finish_state).toBe("sent");
+    await tick(day(42.1));
+    expect((await coolOffRow(id))?.finish_state).toBe("stuck");
+    expect(await noticeCount(`subscription.cool_off:finish:${id}`)).toBe(1);
+  });
+});
+
+describe("the fourth review: paid is when the provider took the money (rule C)", () => {
+  it("A4: an in-window charge whose event is applied after the end is owed (3800)", async () => {
+    const { buyer, id } = await member("r4-late-event");
+    await coolOff(buyer, id, day(5));
+    await ended(id, { endedAt: day(5.01)().toISOString() });
+    expect(sumOf(await owed(id))).toBe(3000);
+    // An upgrade's prorated charge the provider took on day 4; its event is applied on day 16.
+    await payments.deliver(
+      {
+        kind: "subscription",
+        provider: "fake",
+        eventId: `fevt_${unique("s")}`,
+        trigger: "invoice_paid",
+        subscription: read(id, { status: "canceled", endedAt: day(5.01)().toISOString() }),
+        invoice: invoice({
+          amountPaid: 800,
+          amountDue: 800,
+          periodStart: day(4)().toISOString(),
+          billingReason: "subscription_update",
+        }),
+        occurredAt: day(4)().toISOString(),
+      },
+      day(16),
+    );
+    const order = await env.DB.prepare(
+      "SELECT paid_at, provider_paid_at FROM core_order WHERE subscription_id = ? AND paid = 800",
+    )
+      .bind(id)
+      .first<{ paid_at: string; provider_paid_at: string }>();
+    // The host's time is kept where it was; the provider's beside it.
+    expect(order).toEqual({
+      paid_at: day(16)().toISOString(),
+      provider_paid_at: day(4)().toISOString(),
+    });
+    expect(sumOf(await owed(id))).toBe(3800);
+  });
+
+  it("A4b: a charge taken after the ask and before the end, applied after the end, is owed", async () => {
+    const { buyer, id } = await member("r4-late-at-end");
+    await coolOff(buyer, id, day(13));
+    // The end on day 16 (after the window, inside the deadline); a charge taken on day 15.
+    await ended(id, { endedAt: day(16)().toISOString() });
+    await payments.deliver(
+      {
+        kind: "subscription",
+        provider: "fake",
+        eventId: `fevt_${unique("s")}`,
+        trigger: "invoice_paid",
+        subscription: read(id, { status: "canceled", endedAt: day(16)().toISOString() }),
+        invoice: invoice({ amountPaid: 500, amountDue: 500, periodStart: day(15)().toISOString() }),
+        occurredAt: day(15)().toISOString(),
+      },
+      day(16.5),
+    );
+    expect(sumOf(await owed(id))).toBe(3500);
+  });
+});
+
+describe("the fourth review: a holder who used theirs elsewhere (rule F)", () => {
+  it("A open ask on the first lapses as used at once: the ordinary cancel works", async () => {
+    const a = await member("r4-used-elsewhere");
+    const second = await run<{ subscriptionId: string }>(
+      "subscription.start",
+      { plan: { object: PLAN, id: sixty }, returnUrl: RETURN },
+      as(a.buyer),
+    );
+    await confirm(second.subscriptionId, { amount: 6000 }, 6000);
+    const b = second.subscriptionId;
+    gw.nextCancel = "refused";
+    await refusal(coolOff(a.buyer, a.id, day(2)));
+    expect((await coolOffRow(a.id))?.state).toBe("asked");
+    expect(await coolOff(a.buyer, b, day(3))).toMatchObject({ asked: "sent" });
+    await ended(b, { endedAt: at(START, 3 * DAY + 60_000)().toISOString() });
+    expect((await coolOffRow(b))?.state).toBe("ended");
+    // At once: A is no longer open, and the member's ordinary cancel is not refused for it.
+    expect((await statusOf(a.buyer, a.id, day(3.1))).coolOff).toMatchObject({
+      open: false,
+    });
+    await run("subscription.cancel", { id: a.id }, as(a.buyer, day(3.1)));
+    // The next tick records it: lapsed as used, admins told once.
+    await tick(day(3.2));
+    expect(await coolOffRow(a.id)).toMatchObject({ state: "lapsed", lapsed_because: "used" });
+    expect(await noticeCount(`subscription.cool_off:used:${a.id}`)).toBe(1);
+  });
+});
+
+describe("the fourth review: a lost answer is asked again hourly, with its key", () => {
+  it("unknown: not again within the hour, again after it, the same key", async () => {
+    const { buyer, id } = await member("r4-hourly");
+    gw.nextCancel = "throw";
+    await coolOff(buyer, id, day(3));
+    gw.providerReads.set(`fsub_${id}`, { ...read(id) });
+    gw.nextCancel = "throw";
+    await tick(at(day(3)().toISOString(), 10 * 60_000));
+    await tick(at(day(3)().toISOString(), 30 * 60_000));
+    expect(cancels(id).map((c) => c.request.askKey)).toEqual(["cool-off-1"]);
+    gw.nextCancel = "throw";
+    await tick(at(day(3)().toISOString(), 70 * 60_000));
+    expect(cancels(id).map((c) => c.request.askKey)).toEqual(["cool-off-1", "cool-off-1"]);
+  });
+});
+
+describe("the fourth review: what held (rules B, C, E, F)", () => {
+  it("A5: the end delivered three times owes one refund (3000)", async () => {
+    const { buyer, id } = await member("r4-replay");
+    await coolOff(buyer, id, day(2));
+    const when = day(2.01)().toISOString();
+    await ended(id, { endedAt: when });
+    await ended(id, { endedAt: when });
+    await ended(id, { endedAt: day(2.5)().toISOString() });
+    const rows = await owed(id);
+    expect(rows).toHaveLength(1);
+    expect(sumOf(rows)).toBe(3000);
+  });
+
+  it("A7: an assistant, an automation and a stranger are refused; the host steps refuse any other origin", async () => {
+    const { id } = await member("r4-who");
+    expect(
+      (
+        await refusal(
+          run("subscription.coolOff", { id }, staff({ actor: "assistant", clock: day(2) })),
+        )
+      ).code,
+    ).toBe("forbidden");
+    const automation = {
+      actor: "automation" as const,
+      origin: { surface: "automation" as const, automationId: "x" },
+    };
+    await refusal(
+      run("subscription.coolOff", { id }, staff({ ...automation, clock: day(2) } as never)),
+    );
+    const other = await createBuyer(admin, "r4-other");
+    expect((await refusal(coolOff(other, id, day(2)))).code).toBe("not_found");
+    expect(
+      (await refusal(run("subscription.coolOffRelease", { id }, staff(automation as never)))).code,
+    ).toBe("forbidden");
+    expect(await coolOffRow(id)).toBeNull();
+  });
+
+  it("A10: the member and staff at the same instant: one asks, the other is a conflict, never internal", async () => {
+    const { buyer, id } = await member("r4-race-ask");
+    const out = await Promise.allSettled([
+      coolOff(buyer, id, day(2)),
+      run("subscription.coolOff", { id }, staff({ clock: day(2) })),
+    ]);
+    for (const o of out) {
+      if (o.status === "rejected") {
+        expect((o.reason as { code?: string }).code).not.toBe("internal");
+      }
+    }
+    expect(cancels(id).map((c) => c.request.askKey)).toEqual(["cool-off-1"]);
+  });
+
+  it("A11: a customer's assistant cannot cool off", async () => {
+    const { buyer, id } = await member("r4-cust-ai");
+    await refusal(
+      run(
+        "subscription.coolOff",
+        { id },
+        outside(buyer.principal, {
+          integrations: runtime,
+          events,
+          clock: day(2),
+          actor: "assistant",
+        } as never),
+      ),
+    );
+    expect(await coolOffRow(id)).toBeNull();
+  });
+
+  it("a release step that succeeds clears the failures before it", async () => {
+    const { buyer, id } = await member("r4-release-failures");
+    const k = await create(KLASS(), { name: "Ahead", startsAt: hoursAhead(72), places: 5 });
+    await create(VISIT(), {
+      name: "B",
+      person: buyer.principal.personId,
+      klass: k,
+      state: "booked",
+    });
+    await coolOff(buyer, id, day(2));
+    await ended(id);
+    await env.DB.prepare(
+      "UPDATE core_subscription_cool_off SET release_failures = 2 WHERE subscription_id = ?",
+    )
+      .bind(id)
+      .run();
+    await drain(day(2.1));
+    expect(await coolOffRow(id)).toMatchObject({ release_left: 0, release_failures: 0 });
+  });
+});
+
+describe("the fourth review: the whole minute tick under D1's 1,000 statements", () => {
+  it("A8: five members cooling off at once, each with 31 bookings ahead: every tick until all is done", async () => {
+    const { meter, crm } = meteredDb();
+    // Nothing else left over from the tests before.
+    await env.DB.prepare(
+      "UPDATE core_subscription_cool_off SET release_left = 0, mail_state = NULL, finish_state = CASE WHEN finish_state IS NULL THEN NULL ELSE 'stuck' END",
+    ).run();
+    await env.DB.prepare(
+      "UPDATE core_subscription_cool_off SET state = 'lapsed', lapsed_because = 'deadline' WHERE state = 'asked'",
+    ).run();
+    let endAt = "";
+    const ids: string[] = [];
+    for (let m = 0; m < 5; m += 1) {
+      const { buyer, id } = await member(`r4-tick-${m}`);
+      ids.push(id);
+      for (let i = 0; i < 31; i += 1) {
+        const klass = await create(KLASS(), {
+          name: `Ahead ${m}-${i}`,
+          startsAt: hoursAhead(72 + 24 * i),
+          places: 5,
+        });
+        await create(VISIT(), {
+          name: `B ${i}`,
+          person: buyer.principal.personId,
+          klass,
+          state: "booked",
+        });
+      }
+      await coolOff(buyer, id, day(2));
+      endAt = new Date(Date.parse(day(2)().toISOString()) + 60_000).toISOString();
+      await ended(id, { endedAt: endAt });
+    }
+    const ticks: number[] = [];
+    for (let n = 0; n < 30; n += 1) {
+      meter.queries = 0;
+      const out = await runCoolOffSweep(crm, {
+        integrations: runtime,
+        clock: at(endAt, (n + 1) * 60_000),
+      });
+      ticks.push(meter.queries);
+      expect(out.releases).toBeLessThanOrEqual(1);
+      const left = await env.DB.prepare(
+        "SELECT count(*) AS n FROM core_subscription_cool_off WHERE release_left = 1 OR mail_state IN ('due', 'sending')",
+      ).first<{ n: number }>();
+      if (!left?.n) break;
+    }
+    const counts = await env.DB.prepare(
+      `SELECT count(*) AS n FROM core_subscription_cool_off WHERE released_count = 31 AND subscription_id IN (${ids.map(() => "?").join(", ")})`,
+    )
+      .bind(...ids)
+      .first<{ n: number }>();
+    expect(counts?.n).toBe(5);
+    // Reported in the PR: the statements of each tick.
+    console.log("cooling off: statements a minute tick", { ticks, max: Math.max(...ticks) });
+    expect(Math.max(...ticks)).toBeLessThan(1000);
+  }, 300_000);
 });

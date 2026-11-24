@@ -524,6 +524,8 @@ describe("plan changes, pauses and the dashboard (stage 32b, ADRs 0530 to 0532)"
         deadline: "2026-10-18T00:00:00.000Z",
         endedAt: "2026-10-11T00:01:00.000Z",
         finished: false,
+        finishing: null,
+        waiting: false,
         lapsedBecause: null,
         askAgain: false,
         open: false,

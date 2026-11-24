@@ -21,11 +21,15 @@
 //   C. What is owed is always: every order paid on or before the window's end, plus every order
 //      paid after the ask and on or before the end. The figures shown are the same function.
 //   D. At the deadline an open one that has not ended lapses (the minute cron): admins are told,
-//      the ordinary cancel works again, and a cancel still waiting at the gatekeeper is rejected.
-//      One whose waiting cancel is rejected or expires lapses at once. A lapsed one never becomes
-//      the cooling off's by a later end.
-//   E. Staff may finish a lapsed one: it ends the membership now if it runs, owes the window's
-//      payments only, releases the bookings ahead and sends the summary, as an end does.
+//      the ordinary cancel works again, and every cancel of it still waiting at the gatekeeper is
+//      rejected. While one waits nobody may ask again; once none waits and the latest was turned
+//      down or expired, it lapses at once. One the provider shows ended waits for its event a day
+//      after the deadline at most. One whose holder has since used theirs lapses as used. A
+//      lapsed one never becomes the cooling off's by a later end.
+//   E. Staff may finish a lapsed one: the membership is ended at the provider (retried with the
+//      same key, a waiting approval waited for, admins told once if it cannot be done), and only
+//      when the provider's event shows it ended is it `ended`: the window's payments owed, the
+//      bookings ahead released and the summary sent, as an end does.
 //   F. Once per member: an ended (or finished) one counts; an open or lapsed one does not. The
 //      end is checked for it before anything is written, so nothing here ever fails the recording
 //      of a subscription's end; the bookings are released by a step of their own after it.
@@ -76,7 +80,9 @@ export const COOL_OFF_PENDING_AFTER_MS = 60 * 60_000;
 /** How many open cooling offs one sweep looks at. */
 export const COOL_OFF_SWEEP_BATCH = 10;
 /** The bookings ahead one release step moves (its own batch, never the end's). */
-export const COOL_OFF_RELEASE_STEP = 30;
+export const COOL_OFF_RELEASE_STEP = 15;
+/** Release steps one minute tick runs: one, so the tick's statements stay bounded. */
+export const COOL_OFF_RELEASES_A_TICK = 1;
 /** Uses read per page by a release step; it reads pages until it has a step's worth to release. */
 const RELEASE_PAGE = 200;
 /** The most pages one step reads (its statements stay far under D1's 1,000). */
@@ -129,6 +135,10 @@ export interface CoolingOffStatus {
     endedAt: string | null;
     /** Staff finished a lapsed one. */
     finished: boolean;
+    /** Staff asked to finish a lapsed one, and how far ending it at the provider has got. */
+    finishing: "asked" | "sent" | "pending" | "unknown" | "stuck" | null;
+    /** A cancel of it waits for a person at the gatekeeper: nobody may ask again until then. */
+    waiting: boolean;
     /** Why it lapsed. */
     lapsedBecause: "deadline" | "action" | "end_time" | "used" | null;
     /** The caller may ask the provider again (or, staff, finish a lapsed one) now. */
@@ -239,8 +249,57 @@ function boundsOf(
   };
 }
 
-/** When an order was paid, for the rule. */
-const PAID_AT = sql<string>`coalesce(o.paid_at, o.created_at)`;
+/**
+ * When an order was paid, for the rule: the provider's own time for a period's payment (its
+ * verified event's), else when the host recorded it paid. A payment whose event came late is
+ * judged by when the money was taken, not when the host heard of it.
+ */
+const PAID_AT = sql<string>`coalesce(o.provider_paid_at, o.paid_at, o.created_at)`;
+
+/** A cancel of a cooling off that waited at the gatekeeper, and where its approval is now. */
+interface CoolOffAction {
+  subscription_id: string;
+  action_id: string;
+  ask: number;
+  status: string | null;
+  expires_at: string | null;
+  decided_at: string | null;
+  connection_id: string | null;
+  facet_key: string | null;
+  gk_action: number | null;
+}
+
+/** Every cancel the cooling offs of `ids` ever waited on, with its approval (chunked). */
+async function actionsOf(db: Db, ids: readonly string[]): Promise<CoolOffAction[]> {
+  const out: CoolOffAction[] = [];
+  for (const part of chunks(ids)) {
+    out.push(
+      ...(await db
+        .selectFrom("core_subscription_cool_off_action as a")
+        .leftJoin("core_pending_action as p", "p.id", "a.action_id")
+        .select([
+          "a.subscription_id",
+          "a.action_id",
+          "a.ask",
+          "p.status",
+          "p.expires_at",
+          "p.decided_at",
+          "p.connection_id",
+          "p.facet_key",
+          "p.gk_action",
+        ])
+        .where("a.subscription_id", "in", part)
+        .execute()),
+    );
+  }
+  return out;
+}
+
+/** Still waiting for a person at the gatekeeper. */
+const waitingNow = (a: CoolOffAction, now: string) =>
+  a.status === "pending" && (a.expires_at === null || at(a.expires_at) > at(now));
+/** Approved and applied: the provider was asked. */
+const appliedAction = (a: CoolOffAction) => a.status === "applied";
 
 /** Whether a holder has a cooling off that counts (ended), on another subscription than `id`. */
 async function holderUsed(db: Db, holder: string | null, id: string): Promise<boolean> {
@@ -268,7 +327,7 @@ export async function coolingOffStatuses(
   const holders = [
     ...new Set(rows.map((r) => r.holder_person_id).filter((h): h is string => h !== null)),
   ];
-  const [checkouts, coolOffs, orders, refundRows, general] = await Promise.all([
+  const [checkouts, coolOffs, orders, refundRows, general, actions] = await Promise.all([
     ctx.db
       .selectFrom("core_subscription_checkout")
       .select(["id", "offer_id", "cooling_off_days"])
@@ -297,6 +356,7 @@ export async function coolingOffStatuses(
       .where("d.entered", "=", COOLED_OFF)
       .execute(),
     loadGeneralSettings(ctx.db),
+    actionsOf(ctx.db, ids),
   ]);
   const staff = ctx.principal.kind === "staff";
   const out: CoolingOffStatus[] = [];
@@ -335,17 +395,22 @@ export async function coolingOffStatuses(
                 : paid - refunded <= 0
                   ? "nothing_paid"
                   : null;
-    const open = own?.state === "asked" && at(ctx.now) < at(own.deadline_at);
+    // Open: asked, before its deadline, and the holder has not used theirs since (rule F).
+    const open = own?.state === "asked" && at(ctx.now) < at(own.deadline_at) && !used;
+    const waiting = actions.some((a) => a.subscription_id === row.id && waitingNow(a, ctx.now));
     const retryable =
       own?.state === "asked" &&
       open &&
       !FINAL.has(row.state) &&
       own.call_outcome !== "sent" &&
-      (own.call_outcome !== "pending" || staff);
-    const askAgain =
-      own !== null &&
-      !used &&
-      ((retryable && (staff || inWindow)) || (own.state === "lapsed" && staff));
+      !waiting;
+    const finishable =
+      own?.state === "lapsed" &&
+      staff &&
+      own.lapsed_because !== "used" &&
+      own.finish_state !== "sent" &&
+      !waiting;
+    const askAgain = own !== null && !used && ((retryable && (staff || inWindow)) || finishable);
     const refunds = refundRows.filter((r) => r.subscription_id === row.id).map((r) => r.state);
     out.push({
       subscriptionId: row.id,
@@ -365,6 +430,8 @@ export async function coolingOffStatuses(
             deadline: own.deadline_at,
             endedAt: own.ended_at,
             finished: own.finished === 1,
+            finishing: own.state === "lapsed" ? own.finish_state : null,
+            waiting,
             lapsedBecause: own.lapsed_because,
             askAgain,
             open,
@@ -416,16 +483,18 @@ export async function coolingOffFor(
 }
 
 /**
- * Whether a cooling off is open on `subscriptionId` (asked, before its deadline): the ordinary
- * cancel waits for it (`subscription.cancel` refuses), for the member and for staff.
+ * Whether a cooling off is open on `subscriptionId` (asked, before its deadline, and its holder
+ * has not used theirs on another since): the ordinary cancel waits for it (`subscription.cancel`
+ * refuses), for the member and for staff.
  */
 export async function coolOffOpen(db: Db, subscriptionId: string, now: string): Promise<boolean> {
   const own = await db
     .selectFrom("core_subscription_cool_off")
-    .select(["state", "deadline_at"])
+    .select(["state", "deadline_at", "holder_person_id"])
     .where("subscription_id", "=", subscriptionId)
     .executeTakeFirst();
-  return own?.state === "asked" && at(now) < at(own.deadline_at);
+  if (own?.state !== "asked" || at(now) >= at(own.deadline_at)) return false;
+  return !(await holderUsed(db, own.holder_person_id, subscriptionId));
 }
 
 /** The words a member or staff are told when cooling off is refused (no other person named). */
@@ -448,12 +517,21 @@ export function notOfferedWords(why: NotOffered, until: string | null): string {
   }
 }
 
+/** A new ask (or a finish) is refused while a cancel of the cooling off waits for a person. */
+const waitingRefusal = (row: SubscriptionRow) =>
+  new ConflictError(
+    "Ending this membership is waiting for approval at the payments gatekeeper. It is approved " +
+      "or turned down there; nothing can be asked again until then.",
+    { subscription: row.id, rule: "cooling_off", reason: "waiting" },
+  );
+
 /** The refund-owed rows a cooling off writes are marked so (core_sellable_refund_due.entered). */
 export const COOLED_OFF = "cooled_off";
 
 export interface CooledOff {
   id: string;
-  state: "asked" | "ended";
+  /** asked: open; ended: it ended; lapsed: staff's finish is asked, not yet confirmed. */
+  state: "asked" | "ended" | "lapsed";
   /** What came of asking the provider: sent, pending (waiting at the gatekeeper), unknown. */
   asked: "sent" | "pending" | "unknown" | null;
   /** What it owes back, not refunded yet, in minor units (the member's "a full refund of"). */
@@ -512,16 +590,13 @@ export async function coolOff(
   if (existing?.state === "ended") {
     return result("ended", existing.call_outcome === "refused" ? null : existing.call_outcome);
   }
-  if (existing?.state === "lapsed") return finishLapsed(ctx, row, existing, status);
+  if (existing?.state === "lapsed") return finishLapsed(ctx, row, existing);
   if (existing) {
     if (FINAL.has(row.state)) throw refuse(row, "ended", null);
-    // Taken by the provider: nothing to ask again. Waiting at the gatekeeper: the member waits.
-    if (
-      existing.call_outcome === "sent" ||
-      (existing.call_outcome === "pending" && caller.kind !== "staff")
-    ) {
-      return result("asked", existing.call_outcome);
-    }
+    // Taken by the provider: nothing to ask again.
+    if (existing.call_outcome === "sent") return result("asked", "sent");
+    // A cancel waiting for a person at the gatekeeper: one at a time, for everyone.
+    if (await anyWaiting(ctx.db, row.id, ctx.now)) throw waitingRefusal(row);
     if (at(ctx.now) >= at(existing.deadline_at)) {
       throw new ConflictError(
         "This cooling off's time has passed: it lapses, and the membership can be cancelled as usual.",
@@ -550,10 +625,10 @@ export async function coolOff(
     return afterCommit(async () => {
       // An ask again reads the provider first: one it already ended (an answer lost) is sent.
       if ((await endedAtProvider(ctx, row)) === true) {
-        await recordAsk(ctx.db, row, { outcome: "sent" }, ctx.operation ?? null, ctx.now);
+        await recordAsk(ctx, row, { outcome: "sent" }, askCount, false);
         return result("asked", "sent");
       }
-      return result("asked", await askToEnd(ctx, row, `cool-off-${askCount}`));
+      return result("asked", await askToEnd(ctx, row, askCount, false));
     });
   }
   if (!status.offered) throw refuse(row, status.why ?? "not_covered", status.until);
@@ -575,67 +650,105 @@ export async function coolOff(
       updated_at: ctx.now,
     }),
   );
-  return afterCommit(async () => result("asked", await askToEnd(ctx, row, "cool-off-1")));
+  return afterCommit(async () => result("asked", await askToEnd(ctx, row, 1, false)));
+}
+
+/** Whether a cancel of the cooling off on `id` waits for a person at the gatekeeper now. */
+async function anyWaiting(db: Db, id: string, now: string): Promise<boolean> {
+  return (await actionsOf(db, [id])).some((a) => waitingNow(a, now));
 }
 
 /**
- * Rule E: staff finish a lapsed cooling off. What was paid on or before the window's end is owed
- * (never anything later), the bookings ahead are released and the summary is due, as an end does;
- * a membership still running is ended at the provider now (after the commit; if that fails it is
- * staff's ordinary "end it now", which works again once a cooling off has lapsed). It counts as
- * the member's one: refused when they have used theirs.
+ * Rule E: staff finish a lapsed cooling off. It counts as the member's one (refused when they have
+ * used theirs) and owes what was paid on or before the window's end, never anything later; the
+ * bookings ahead are released and the summary sent, as an end does. None of that is written until
+ * the provider's verified event shows the membership ended (`followCoolOff`, in that event's
+ * batch): a membership that has ended already is finished at once; one still running is asked to
+ * end now (its own key, `cool-off-finish-<n>`), the request kept on the row (`finish_state`), and
+ * the sweep retries it with the same key, waits while its approval waits, and tells admins once if
+ * it cannot be done. Staff's ordinary "end it now" works too: its end finishes it the same way.
  */
 async function finishLapsed(
   ctx: HandlerContext,
   row: SubscriptionRow,
   own: CoolOffRow,
-  status: CoolingOffStatus,
 ): Promise<AfterCommit<CooledOff> | CooledOff> {
   if (ctx.principal.kind !== "staff") throw refuse(row, "ended", null);
-  if (await holderUsed(ctx.db, row.holder_person_id, row.id)) throw refuse(row, "used", null);
+  if (own.lapsed_because === "used" || (await holderUsed(ctx.db, row.holder_person_id, row.id))) {
+    throw refuse(row, "used", null);
+  }
   const bounds: OwedBounds = { windowEndsAt: own.window_ends_at, from: null, to: null };
-  oweRefunds(ctx, row.id, bounds);
+  const owed = await sumOwed(ctx.db, row.id, bounds);
+  const out = (state: CooledOff["state"], asked: CooledOff["asked"]): CooledOff => ({
+    id: row.id,
+    state,
+    asked,
+    refund: owed,
+    currency: row.currency,
+  });
+  if (FINAL.has(row.state)) {
+    // The provider's event has already shown it ended: finished now, in this batch.
+    ctx.write(...finishStatements(ctx.db, row, own, row.ended_at ?? ctx.now, ctx.now));
+    return out("ended", null);
+  }
+  if (await anyWaiting(ctx.db, row.id, ctx.now)) throw waitingRefusal(row);
+  // Asked and taken by the provider: its event finishes it.
+  if (own.finish_state === "sent") return out("lapsed", "sent");
+  const askCount = own.ask_count + 1;
   ctx.write(
     ctx.db
       .updateTable("core_subscription_cool_off")
       .set({
+        finish_state: "asked",
+        finish_asked_at: ctx.now,
+        last_asked_at: ctx.now,
+        ask_count: askCount,
+        updated_at: ctx.now,
+      })
+      .where("subscription_id", "=", row.id)
+      .where("state", "=", "lapsed")
+      .where("ask_count", "=", own.ask_count),
+  );
+  return afterCommit(async () => {
+    if ((await endedAtProvider(ctx, row)) === true) {
+      await recordAsk(ctx, row, { outcome: "sent" }, askCount, true);
+      return out("lapsed", "sent");
+    }
+    return out("lapsed", await askToEnd(ctx, row, askCount, true));
+  });
+}
+
+/**
+ * What finishing a lapsed one writes once the membership has ended (rule E): the refunds owed for
+ * the window's payments (one statement), and the row `ended`, finished, its bookings ahead and its
+ * summary due. Each is safe to run again: the refunds are keyed by the order, the row moves from
+ * `lapsed` only.
+ */
+function finishStatements(
+  db: Db,
+  row: SubscriptionRow,
+  own: Pick<CoolOffRow, "window_ends_at">,
+  end: string,
+  now: string,
+) {
+  return [
+    oweRefundsQuery(db, row.id, { windowEndsAt: own.window_ends_at, from: null, to: null }, now),
+    db
+      .updateTable("core_subscription_cool_off")
+      .set({
         state: "ended",
         finished: 1,
+        finish_state: null,
+        ended_at: end,
         owed_from: null,
         owed_to: null,
         release_left: 1,
         mail_state: row.email ? "due" : null,
-        last_asked_at: ctx.now,
-        updated_at: ctx.now,
+        updated_at: now,
       })
       .where("subscription_id", "=", row.id)
       .where("state", "=", "lapsed"),
-  );
-  const owed = await sumOwed(ctx.db, row.id, bounds);
-  const done: CooledOff = {
-    id: row.id,
-    state: "ended",
-    asked: null,
-    refund: owed,
-    currency: row.currency,
-  };
-  if (FINAL.has(row.state)) return done;
-  return afterCommit(async () => {
-    try {
-      const target = await paymentsTarget(ctx.db);
-      await callSubscriptionGatekeeper(ctx.integrations, target, "cancelSubscription", {
-        subscriptionId: row.id,
-        subscriptionRef: row.provider_ref,
-        when: "now",
-        reason: "Cooling off, finished by staff",
-        askKey: "cool-off-finish",
-      });
-    } catch {
-      // Staff end it as usual from the subscription's page; the refunds are owed already.
-    }
-    void status;
-    return done;
-  });
+  ];
 }
 
 /** What a set of bounds owes on a subscription, not refunded yet (one statement). */
@@ -651,7 +764,15 @@ async function sumOwed(db: Db, subscriptionId: string, bounds: OwedBounds): Prom
     .reduce((sum, o) => sum + Math.max(0, Number(o.paid) - Number(o.refunded)), 0);
 }
 
-type StuckKind = "refused" | "unknown" | "pending" | "lapsed" | "used" | "release" | "mail";
+type StuckKind =
+  | "refused"
+  | "unknown"
+  | "pending"
+  | "lapsed"
+  | "used"
+  | "finish"
+  | "release"
+  | "mail";
 
 /** Tells admins once per subscription and kind, and marks the cooling off as told. */
 async function tellAdmins(
@@ -675,11 +796,15 @@ async function tellAdmins(
     ],
     lapsed: [
       "A cooling off lapsed",
-      "and the membership did not end before its deadline (or the waiting cancel was turned down, or it ended before the ask). Nothing is owed as cooled off. To refund what was paid in the period, finish it on the subscription's page (Cooling off): it then counts as the member's one. Do not refund it by hand from the orders. The membership can now be cancelled as usual.",
+      "and the membership did not end before its deadline (or the waiting cancel was turned down, or it ended before the ask, or the payment provider shows it ended but its event did not arrive within a day of the deadline). Nothing is owed as cooled off. To refund what was paid in the period, finish it on the subscription's page (Cooling off): it then counts as the member's one. Do not refund it by hand from the orders. The membership can now be cancelled as usual.",
     ],
     used: [
       "A cooling off did not count: the member had used theirs",
-      "and the membership ended, but the member has already cooled off another membership (once per member). Nothing is owed as cooled off; the end is recorded as any end.",
+      "but the member has since cooled off another membership (once per member), so this one does not count. Nothing is owed as cooled off, any cancel of it waiting for approval was turned down, and the membership can be cancelled as usual.",
+    ],
+    finish: [
+      "Finishing a cooling off could not be done",
+      "lapsed, and staff asked to finish it, but the payment provider has not ended the membership (it refused, the cancel was turned down at the gatekeeper, or no end was confirmed within a day). Nothing is owed as cooled off yet and it may still be billing. End it from the subscription's page (End it now) or finish it again: once the provider confirms the end, the cooling off is finished and the period's payments are owed.",
     ],
     release: [
       "Bookings ahead of a cooled-off membership were not all cancelled",
@@ -714,24 +839,46 @@ async function tellAdmins(
     .execute();
 }
 
-/** Writes what came of a call (on an open row only), with an audit row of the host's. */
+/**
+ * Writes what came of a call, with an audit row of the host's: on an open row (`call_outcome`) or,
+ * `finish`, on a lapsed one staff are finishing (`finish_state`). A cancel waiting for a person is
+ * kept (`core_subscription_cool_off_action`, by its ask) and never overwritten or forgotten. An
+ * open ask unknown or refused tells admins once; a finish refused is stuck, admins told once.
+ */
 async function recordAsk(
-  db: Db,
+  ctx: Pick<HandlerContext, "db" | "operation" | "now">,
   row: SubscriptionRow,
   answer: { outcome: "sent" | "pending" | "unknown" | "refused"; actionId?: string | null },
-  by: string | null,
-  now: string,
+  ask: number,
+  finish: boolean,
 ): Promise<void> {
-  const updated = await db
-    .updateTable("core_subscription_cool_off")
-    .set({
-      call_outcome: answer.outcome,
-      ...(answer.outcome === "pending" ? { pending_action_id: answer.actionId ?? null } : {}),
-      updated_at: now,
-    })
-    .where("subscription_id", "=", row.id)
-    .where("state", "=", "asked")
-    .executeTakeFirst();
+  const { db, now } = ctx;
+  if (answer.actionId) {
+    await db
+      .insertInto("core_subscription_cool_off_action")
+      .orIgnore()
+      .values({ subscription_id: row.id, action_id: answer.actionId, ask, created_at: now })
+      .execute();
+  }
+  const state = finish
+    ? answer.outcome === "refused"
+      ? ("stuck" as const)
+      : answer.outcome
+    : answer.outcome;
+  const updated = finish
+    ? await db
+        .updateTable("core_subscription_cool_off")
+        .set({ finish_state: state as Exclude<typeof state, "refused">, updated_at: now })
+        .where("subscription_id", "=", row.id)
+        .where("state", "=", "lapsed")
+        .where("finish_state", "is not", null)
+        .executeTakeFirst()
+    : await db
+        .updateTable("core_subscription_cool_off")
+        .set({ call_outcome: answer.outcome, updated_at: now })
+        .where("subscription_id", "=", row.id)
+        .where("state", "=", "asked")
+        .executeTakeFirst();
   const written = Number(updated.numUpdatedRows ?? 0) > 0;
   await db
     .insertInto("core_audit")
@@ -744,7 +891,7 @@ async function recordAsk(
       actor: "automation",
       user_id: null,
       origin: JSON.stringify({ surface: "system", automationId: "subscription.coolOff.outcome" }),
-      input: JSON.stringify({ subscriptionId: row.id, by }),
+      input: JSON.stringify({ subscriptionId: row.id, by: ctx.operation ?? null, ask, finish }),
       result: JSON.stringify(
         written
           ? { written: true, outcome: answer.outcome }
@@ -755,7 +902,9 @@ async function recordAsk(
       error: null,
     })
     .execute();
-  if (written && (answer.outcome === "unknown" || answer.outcome === "refused")) {
+  if (!written) return;
+  if (finish && answer.outcome === "refused") await tellAdmins(db, row, "finish", now);
+  if (!finish && (answer.outcome === "unknown" || answer.outcome === "refused")) {
     await tellAdmins(db, row, answer.outcome, now);
   }
 }
@@ -802,21 +951,22 @@ function cancelOutcome(result: {
 }
 
 /**
- * Asks the provider to end `row` now and writes what came of it. `askKey` is the ask's own
- * idempotency key (`cool-off-<n>`): a person asking again is a new request; the sweep's retry of an
- * ask keeps its key. Staff's ordinary "end it now" keeps the subscription's own key. A refusal is
- * checked against the provider's read first (ended: sent), then stays refused (the cooling off
- * stays open: ask again, or it lapses at its deadline) and is told to the caller.
+ * Asks the provider to end `row` now and writes what came of it. Each ask by a person is a new
+ * request with its own idempotency key (`cool-off-<n>`, or `cool-off-finish-<n>` for staff
+ * finishing a lapsed one, `n` the row's ask count); the sweep's retry of an ask keeps its key.
+ * Staff's ordinary "end it now" keeps the subscription's own key. A refusal is checked against the
+ * provider's read first (ended: sent), then stays refused and is told to the caller: an open one
+ * stays open (ask again, or it lapses at its deadline); a finish is stuck, admins told.
  */
 async function askToEnd(
   ctx: Pick<HandlerContext, "db" | "integrations" | "operation" | "now">,
   row: SubscriptionRow,
-  askKey: string,
+  ask: number,
+  finish: boolean,
 ): Promise<"sent" | "pending" | "unknown"> {
-  const by = ctx.operation ?? null;
   const target = await paymentsTarget(ctx.db);
   if (target.provider !== row.provider) {
-    await recordAsk(ctx.db, row, { outcome: "refused" }, by, ctx.now);
+    await recordAsk(ctx, row, { outcome: "refused" }, ask, finish);
     throw new ConflictError(
       `This subscription is with ${row.provider}, and payments now use ${target.provider}`,
       { subscription: row.id, rule: "provider" },
@@ -828,23 +978,26 @@ async function askToEnd(
       subscriptionId: row.id,
       subscriptionRef: row.provider_ref,
       when: "now",
-      reason: "Cooling off",
-      askKey,
+      reason: finish ? "Cooling off, finished by staff" : "Cooling off",
+      askKey: finish ? `cool-off-finish-${ask}` : `cool-off-${ask}`,
     });
   } catch {
     // The call itself failed: it may have been submitted before the answer was lost.
-    await recordAsk(ctx.db, row, { outcome: "unknown" }, by, ctx.now);
+    await recordAsk(ctx, row, { outcome: "unknown" }, ask, finish);
     return "unknown";
   }
   let got = cancelOutcome(answer as Parameters<typeof cancelOutcome>[0]);
   if (got.outcome === "refused" && (await endedAtProvider(ctx, row)) === true) {
     got = { outcome: "sent", actionId: null };
   }
-  await recordAsk(ctx.db, row, got, by, ctx.now);
+  await recordAsk(ctx, row, got, ask, finish);
   if (got.outcome === "refused") {
     throw new ConflictError(
-      "The payment provider did not end your membership, so nothing changed. Try again; the " +
-        "business has been told.",
+      finish
+        ? "The payment provider did not end this membership, so it is not finished. End it " +
+            "from the subscription's page; the cooling off is finished once the provider confirms."
+        : "The payment provider did not end your membership, so nothing changed. Try again; the " +
+            "business has been told.",
       { subscription: row.id, rule: "provider_refused" },
     );
   }
@@ -853,48 +1006,51 @@ async function askToEnd(
 
 /** Writes a refund owed for each order `bounds` owes, in one statement keyed by the order. */
 function oweRefunds(ctx: HandlerContext, subscriptionId: string, bounds: OwedBounds): void {
+  ctx.write(oweRefundsQuery(ctx.db, subscriptionId, bounds, ctx.now));
+}
+
+/** The one statement that owes the refunds `bounds` owe (insert or ignore, keyed by the order). */
+function oweRefundsQuery(db: Db, subscriptionId: string, bounds: OwedBounds, now: string) {
   const reason = "A membership ended in its cooling-off period: a full refund";
   const inWindow = sql<boolean>`${PAID_AT} <= ${bounds.windowEndsAt}`;
   const after =
     bounds.from === null || bounds.to === null
       ? sql<boolean>`0`
       : sql<boolean>`(${PAID_AT} > ${bounds.from} AND ${PAID_AT} <= ${bounds.to})`;
-  ctx.write(
-    ctx.db
-      .insertInto("core_sellable_refund_due")
-      .orIgnore()
-      .columns([
-        "id",
-        "order_id",
-        "object_type",
-        "record_id",
-        "entered",
-        "reason",
-        "state",
-        "attempt",
-        "created_at",
-        "updated_at",
-      ])
-      .expression(
-        ctx.db
-          .selectFrom("core_order as o")
-          .where("o.subscription_id", "=", subscriptionId)
-          .where(sql<boolean>`o.paid > o.refunded`)
-          .where(sql<boolean>`(${inWindow} OR ${after})`)
-          .select([
-            sql<string>`'rdu_' || substr(o.id, instr(o.id, '_') + 1)`.as("id"),
-            "o.id as order_id",
-            sql<string>`'subscription'`.as("object_type"),
-            sql<string>`${subscriptionId}`.as("record_id"),
-            sql<string>`${COOLED_OFF}`.as("entered"),
-            sql<string>`${reason}`.as("reason"),
-            sql<string>`'due'`.as("state"),
-            sql<number>`0`.as("attempt"),
-            sql<string>`${ctx.now}`.as("created_at"),
-            sql<string>`${ctx.now}`.as("updated_at"),
-          ]),
-      ),
-  );
+  return db
+    .insertInto("core_sellable_refund_due")
+    .orIgnore()
+    .columns([
+      "id",
+      "order_id",
+      "object_type",
+      "record_id",
+      "entered",
+      "reason",
+      "state",
+      "attempt",
+      "created_at",
+      "updated_at",
+    ])
+    .expression(
+      db
+        .selectFrom("core_order as o")
+        .where("o.subscription_id", "=", subscriptionId)
+        .where(sql<boolean>`o.paid > o.refunded`)
+        .where(sql<boolean>`(${inWindow} OR ${after})`)
+        .select([
+          sql<string>`'rdu_' || substr(o.id, instr(o.id, '_') + 1)`.as("id"),
+          "o.id as order_id",
+          sql<string>`'subscription'`.as("object_type"),
+          sql<string>`${subscriptionId}`.as("record_id"),
+          sql<string>`${COOLED_OFF}`.as("entered"),
+          sql<string>`${reason}`.as("reason"),
+          sql<string>`'due'`.as("state"),
+          sql<number>`0`.as("attempt"),
+          sql<string>`${now}`.as("created_at"),
+          sql<string>`${now}`.as("updated_at"),
+        ]),
+    );
 }
 
 /**
@@ -903,8 +1059,9 @@ function oweRefunds(ctx: HandlerContext, subscriptionId: string, bounds: OwedBou
  * end, the refunds are owed by rule C in one statement, the bookings ahead are left to the release
  * step (never this batch), the summary is due and admins are told once; one outside them lapses.
  * The member's cooling off is checked before anything is written (rule F): one already used, and
- * this one lapses as not counted. Nothing written here can fail the end's batch. An ended or
- * lapsed one is never changed by a later event.
+ * this one lapses as not counted. Nothing written here can fail the end's batch. An ended one,
+ * or a lapsed one staff have not asked to finish, is never changed by a later event; a lapsed one
+ * staff asked to finish (rule E) is finished by it.
  */
 export async function followCoolOff(ctx: HandlerContext, row: SubscriptionRow): Promise<void> {
   if (!FINAL.has(row.state)) return;
@@ -913,7 +1070,63 @@ export async function followCoolOff(ctx: HandlerContext, row: SubscriptionRow): 
     .selectAll()
     .where("subscription_id", "=", row.id)
     .executeTakeFirst();
-  if (!own || own.state === "lapsed") return;
+  if (!own) return;
+  if (own.state === "lapsed") {
+    if (own.finish_state === null) return;
+    const end = row.ended_at ?? ctx.now;
+    if (await holderUsed(ctx.db, row.holder_person_id, row.id)) {
+      ctx.write(
+        ctx.db
+          .updateTable("core_subscription_cool_off")
+          .set({ finish_state: "stuck", lapsed_because: "used", updated_at: ctx.now })
+          .where("subscription_id", "=", row.id)
+          .where("state", "=", "lapsed"),
+      );
+      const used = await notifyStatements(
+        ctx.db,
+        {
+          to: [{ role: "admin" }],
+          type: "system.message",
+          title: "A cooling off did not count: the member had used theirs",
+          body:
+            `Subscription ${row.id} (${row.plan_title}) has ended, but its lapsed cooling off ` +
+            "cannot be finished: the member has already cooled off another membership (once " +
+            "per member). Nothing is owed as cooled off; the end is recorded as any end.",
+          link: { kind: "record", object: "subscription", id: row.id },
+          dedupeKey: `subscription.cool_off:used:${row.id}`,
+          source: { actor: "system" },
+        },
+        ctx.now,
+      );
+      ctx.write(...used.statements);
+      return;
+    }
+    ctx.write(...finishStatements(ctx.db, row, own, end, ctx.now));
+    const owed = await sumOwed(ctx.db, row.id, {
+      windowEndsAt: own.window_ends_at,
+      from: null,
+      to: null,
+    });
+    const plan = await notifyStatements(
+      ctx.db,
+      {
+        to: [{ role: "admin" }],
+        type: "system.message",
+        title: "A cooling off was finished",
+        body:
+          `Subscription ${row.id} (${row.plan_title}) has ended, and its lapsed cooling off is ` +
+          `finished as staff asked: what was paid in the period (${formatMoney(owed, row.currency)}) ` +
+          "is owed back, each refund waiting in Approvals for a person who may refund. The " +
+          "bookings ahead it paid for are being cancelled by the business.",
+        link: { kind: "record", object: "subscription", id: row.id },
+        dedupeKey: `subscription.cool_off:finished:${row.id}`,
+        source: { actor: "system" },
+      },
+      ctx.now,
+    );
+    ctx.write(...plan.statements);
+    return;
+  }
   if (own.state === "ended") {
     // The same formula by the bounds kept when it ended (rule C): a payment recorded later is owed
     // only if it was paid within them, so a later event adds nothing the rule did not owe.
@@ -1217,6 +1430,8 @@ export async function releaseFollowUp(
       .set({
         release_left: out.left ? 1 : 0,
         released_count: Number(own.released_count) + out.released,
+        // A step that succeeds clears the failures before it: only three in a row stop it.
+        release_failures: 0,
         updated_at: ctx.now,
       })
       .where("subscription_id", "=", id)
@@ -1236,23 +1451,31 @@ export interface CoolOffSweep {
 }
 
 /**
- * The minute cron's sweep (`subscription.coolOffSweep`, a host step) over open cooling offs, at
- * most `COOL_OFF_SWEEP_BATCH` a tick:
- *   - past its deadline (rule D): the provider's read first (ended: its event decides, so a late
- *     event is still the cooling off's); otherwise it lapses, a waiting cancel is rejected, and
- *     admins are told once. Unread, it waits a tick (a day at most);
- *   - its waiting cancel rejected or expired at the gatekeeper: it lapses at once;
+ * The minute cron's sweep (`subscription.coolOffSweep`, a host step) over open cooling offs and
+ * lapsed ones staff are finishing, at most `COOL_OFF_SWEEP_BATCH` of each a tick:
+ *   - its holder has since used theirs on another membership (rule F): it lapses as used;
+ *   - past its deadline, or its latest cancel turned down or expired at the gatekeeper with none
+ *     still waiting (rule D): the provider's read first; one it shows ended (or unread) is left
+ *     for its event until a day after the deadline; otherwise it lapses, every cancel still
+ *     waiting is rejected, and admins are told once;
  *   - waiting over `COOL_OFF_PENDING_AFTER_MS`: admins are told once;
  *   - its answer lost (`unknown`) or never made (null): the provider's read (ended: sent); else
  *     asked again (the same ask, the same key) at most every `RETRY_EVERY_MS` until the deadline;
- *   - refused: left for the member or staff to ask again, or the deadline.
+ *   - refused: left for the member or staff to ask again, or the deadline;
+ *   - a finish (rule E): see `sweepFinish`.
  * Then the member's summary emails.
  */
 export async function sweepCoolOffs(
   ctx: Pick<HandlerContext, "db" | "integrations" | "operation" | "now" | "user">,
 ): Promise<CoolOffSweep> {
   const out: CoolOffSweep = { resolved: 0, asked: 0, told: 0, unread: 0, lapsed: 0, mailed: 0 };
-  for (const own of await dueOpen(ctx.db, ctx.now)) {
+  const due = await dueOpen(ctx.db, ctx.now);
+  const finishing = await dueFinish(ctx.db, ctx.now);
+  const actions = await actionsOf(ctx.db, [
+    ...due.map((d) => d.subscription_id),
+    ...finishing.map((f) => f.subscription_id),
+  ]);
+  for (const own of due) {
     const row = await loadSubscriptionRow(ctx.db, own.subscription_id);
     const touch = () =>
       ctx.db
@@ -1261,32 +1484,30 @@ export async function sweepCoolOffs(
         .where("subscription_id", "=", own.subscription_id)
         .where("state", "=", "asked")
         .execute();
-    const action = own.pending_action_id
-      ? await ctx.db
-          .selectFrom("core_pending_action")
-          .select(["id", "status", "expires_at", "connection_id", "facet_key", "gk_action"])
-          .where("id", "=", own.pending_action_id)
-          .executeTakeFirst()
-      : undefined;
-    const actionDead =
-      action !== undefined &&
-      (action.status === "rejected" ||
-        action.status === "expired" ||
-        action.status === "failed" ||
-        (action.status === "pending" &&
-          action.expires_at !== null &&
-          at(action.expires_at) <= at(ctx.now)));
+    const mine = actions.filter((a) => a.subscription_id === own.subscription_id);
+    const waiting = mine.filter((a) => waitingNow(a, ctx.now));
+    if (await holderUsed(ctx.db, row.holder_person_id, row.id)) {
+      await lapseOpen(ctx, row, own, "used", mine);
+      out.lapsed += 1;
+      continue;
+    }
+    const latest = mine.filter((a) => a.ask === own.ask_count);
+    const turnedDown =
+      own.call_outcome === "pending" &&
+      waiting.length === 0 &&
+      latest.length > 0 &&
+      !latest.some(appliedAction);
     const pastDeadline = at(ctx.now) >= at(own.deadline_at);
-    if (pastDeadline || actionDead) {
+    if (pastDeadline || turnedDown) {
       const ended = FINAL.has(row.state) ? true : await endedAtProvider(ctx, row);
-      if (ended === true || (ended === null && at(ctx.now) < at(own.deadline_at) + DAY)) {
-        // Ended at the provider: its verified event says whether before the deadline. Unread:
-        // a tick later (a day at most).
+      if (ended !== false && at(ctx.now) < at(own.deadline_at) + DAY) {
+        // Ended at the provider: its verified event says whether before the deadline. Unread: a
+        // tick later. Either way a day after the deadline at most.
         await touch();
         out.unread += ended === null ? 1 : 0;
         continue;
       }
-      await lapseOpen(ctx, row, own, pastDeadline ? "deadline" : "action", action);
+      await lapseOpen(ctx, row, own, pastDeadline ? "deadline" : "action", mine);
       out.lapsed += 1;
       continue;
     }
@@ -1309,42 +1530,128 @@ export async function sweepCoolOffs(
         continue;
       }
       if (ended) {
-        await recordAsk(ctx.db, row, { outcome: "sent" }, "subscription.coolOffSweep", ctx.now);
+        await recordAsk(ctx, row, { outcome: "sent" }, own.ask_count, false);
         out.resolved += 1;
         continue;
       }
-      if (own.call_outcome === null || at(ctx.now) - at(own.updated_at) >= RETRY_EVERY_MS) {
-        await ctx.db
-          .updateTable("core_subscription_cool_off")
-          .set({ updated_at: ctx.now })
-          .where("subscription_id", "=", own.subscription_id)
-          .execute();
-        await askToEnd(ctx, row, `cool-off-${own.ask_count}`).catch(() => undefined);
+      if (own.call_outcome === null || at(ctx.now) - at(own.last_asked_at) >= RETRY_EVERY_MS) {
+        await retried(ctx, own.subscription_id, "asked");
+        await askToEnd(ctx, row, own.ask_count, false).catch(() => undefined);
         out.asked += 1;
         continue;
       }
     }
     await touch();
   }
+  for (const own of finishing) {
+    const mine = actions.filter((a) => a.subscription_id === own.subscription_id);
+    const did = await sweepFinish(ctx, own, mine);
+    if (did === "asked") out.asked += 1;
+    if (did === "told") out.told += 1;
+    if (did === "unread") out.unread += 1;
+  }
   out.mailed = await sendSummaries(ctx);
   return out;
 }
 
-/** Rule D: an open cooling off lapses, a waiting cancel is rejected, admins are told once. */
+/** Marks a retry of an ask (or a finish): its time is the latest ask's, so it waits an hour. */
+async function retried(
+  ctx: Pick<HandlerContext, "db" | "now">,
+  id: string,
+  state: "asked" | "lapsed",
+): Promise<void> {
+  await ctx.db
+    .updateTable("core_subscription_cool_off")
+    .set({ last_asked_at: ctx.now, updated_at: ctx.now })
+    .where("subscription_id", "=", id)
+    .where("state", "=", state)
+    .execute();
+}
+
+/**
+ * The sweep's step for a lapsed cooling off staff are finishing (rule E), not yet ended by the
+ * provider's event (that event's batch finishes it, `followCoolOff`):
+ *   - the membership has ended here (the event came before the request committed): finished now;
+ *   - a cancel of it waiting for a person: left to wait;
+ *   - its latest cancel turned down or expired at the gatekeeper: stuck, admins told once;
+ *   - the provider shows it ended: sent, left for its event;
+ *   - not ended: asked again with the same key at most every `RETRY_EVERY_MS`;
+ *   - not confirmed a day after it was asked (or its cancel approved): stuck, admins told once.
+ * A stuck one is not visited again; staff finish it again, or end it as usual (its end finishes it).
+ */
+async function sweepFinish(
+  ctx: Pick<HandlerContext, "db" | "integrations" | "operation" | "now">,
+  own: CoolOffRow,
+  mine: CoolOffAction[],
+): Promise<"asked" | "told" | "unread" | "waited"> {
+  const row = await loadSubscriptionRow(ctx.db, own.subscription_id);
+  const touch = (finish_state?: "sent") =>
+    ctx.db
+      .updateTable("core_subscription_cool_off")
+      .set({ ...(finish_state ? { finish_state } : {}), updated_at: ctx.now })
+      .where("subscription_id", "=", own.subscription_id)
+      .where("state", "=", "lapsed")
+      .execute();
+  const stuck = async () => {
+    const updated = await ctx.db
+      .updateTable("core_subscription_cool_off")
+      .set({ finish_state: "stuck", updated_at: ctx.now })
+      .where("subscription_id", "=", own.subscription_id)
+      .where("state", "=", "lapsed")
+      .where("finish_state", "in", ["asked", "sent", "pending", "unknown"])
+      .executeTakeFirst();
+    if (Number(updated.numUpdatedRows ?? 0) === 1) {
+      await tellAdmins(ctx.db, row, "finish", ctx.now);
+    }
+    return "told" as const;
+  };
+  if (FINAL.has(row.state)) {
+    if (await holderUsed(ctx.db, row.holder_person_id, row.id)) return stuck();
+    for (const q of finishStatements(ctx.db, row, own, row.ended_at ?? ctx.now, ctx.now)) {
+      await q.execute();
+    }
+    return "waited";
+  }
+  if (mine.some((a) => waitingNow(a, ctx.now))) {
+    await touch();
+    return "waited";
+  }
+  const latest = mine.filter((a) => a.ask === own.ask_count);
+  if (own.finish_state === "pending" && latest.length > 0 && !latest.some(appliedAction)) {
+    return stuck();
+  }
+  // A day from the request, or from its approval.
+  const since = Math.max(
+    at(own.finish_asked_at ?? own.updated_at),
+    ...latest.filter(appliedAction).map((a) => (a.decided_at ? at(a.decided_at) : 0)),
+  );
+  const overdue = at(ctx.now) >= since + DAY;
+  const ended = await endedAtProvider(ctx, row);
+  if (ended !== false) {
+    if (overdue) return stuck();
+    await touch(ended === true ? "sent" : undefined);
+    return ended === null ? "unread" : "waited";
+  }
+  if (overdue) return stuck();
+  if (own.finish_state === "asked" || at(ctx.now) - at(own.last_asked_at) >= RETRY_EVERY_MS) {
+    await retried(ctx, own.subscription_id, "lapsed");
+    await askToEnd(ctx, row, own.ask_count, true).catch(() => undefined);
+    return "asked";
+  }
+  await touch();
+  return "waited";
+}
+
+/**
+ * Rule D (and F): an open cooling off lapses, every cancel of it still waiting at the gatekeeper is
+ * rejected, and admins are told once.
+ */
 async function lapseOpen(
   ctx: Pick<HandlerContext, "db" | "integrations" | "now" | "user">,
   row: SubscriptionRow,
   own: CoolOffRow,
-  because: "deadline" | "action",
-  action:
-    | {
-        id: string;
-        status: string;
-        connection_id: string | null;
-        facet_key: string | null;
-        gk_action: number | null;
-      }
-    | undefined,
+  because: "deadline" | "action" | "used",
+  actions: CoolOffAction[],
 ): Promise<void> {
   const updated = await ctx.db
     .updateTable("core_subscription_cool_off")
@@ -1353,44 +1660,84 @@ async function lapseOpen(
     .where("state", "=", "asked")
     .executeTakeFirst();
   if (Number(updated.numUpdatedRows ?? 0) !== 1) return;
-  if (action?.status === "pending") {
+  const waiting = actions.filter((a) => a.status === "pending");
+  for (const action of waiting) {
     await ctx.db
       .updateTable("core_pending_action")
       .set({
         status: "rejected",
-        status_reason: "Rejected: its cooling off lapsed",
+        status_reason:
+          because === "used"
+            ? "Rejected: the member has used their cooling off on another membership"
+            : "Rejected: its cooling off lapsed",
         decided_at: ctx.now,
         decided_by: ctx.user.id,
       })
-      .where("id", "=", action.id)
+      .where("id", "=", action.action_id)
       .where("status", "=", "pending")
       .execute();
-    await rejectOnFacets(ctx.integrations, [action]);
   }
-  await tellAdmins(ctx.db, row, "lapsed", ctx.now);
+  if (waiting.length) {
+    await rejectOnFacets(
+      ctx.integrations,
+      waiting.map((a) => ({
+        id: a.action_id,
+        connection_id: a.connection_id,
+        facet_key: a.facet_key,
+        gk_action: a.gk_action,
+      })),
+    );
+  }
+  await tellAdmins(ctx.db, row, because === "used" ? "used" : "lapsed", ctx.now);
 }
 
-/** The open cooling offs the sweep looks at now (one indexed read). */
+/**
+ * The open cooling offs the sweep looks at now (one indexed read): past the deadline, waiting at
+ * the gatekeeper, an answer lost or never made, or a holder who has since used theirs. Each is
+ * looked at once in `COOL_OFF_SWEEP_AFTER_MS` (touched when looked at), except one waiting at the
+ * gatekeeper, so a turned-down cancel lapses it on the next tick.
+ */
 async function dueOpen(db: Db, now: string) {
+  const lost = iso(at(now) - COOL_OFF_SWEEP_AFTER_MS);
+  return db
+    .selectFrom("core_subscription_cool_off as c")
+    .selectAll("c")
+    .where("c.state", "=", "asked")
+    .where((eb) =>
+      eb.or([
+        eb("c.call_outcome", "=", "pending"),
+        eb.and([
+          eb("c.updated_at", "<", lost),
+          eb.or([
+            eb("c.deadline_at", "<=", now),
+            eb("c.call_outcome", "is", null),
+            eb("c.call_outcome", "=", "unknown"),
+            eb.exists(
+              eb
+                .selectFrom("core_subscription_cool_off as u")
+                .select("u.subscription_id")
+                .whereRef("u.holder_person_id", "=", "c.holder_person_id")
+                .where("u.state", "=", "ended")
+                .whereRef("u.subscription_id", "!=", "c.subscription_id"),
+            ),
+          ]),
+        ]),
+      ]),
+    )
+    .orderBy("c.updated_at")
+    .limit(COOL_OFF_SWEEP_BATCH)
+    .execute();
+}
+
+/** The lapsed cooling offs staff are finishing that the sweep looks at now (one indexed read). */
+async function dueFinish(db: Db, now: string) {
   const lost = iso(at(now) - COOL_OFF_SWEEP_AFTER_MS);
   return db
     .selectFrom("core_subscription_cool_off")
     .selectAll()
-    .where("state", "=", "asked")
-    .where((eb) =>
-      eb.or([
-        eb("deadline_at", "<=", now),
-        eb("pending_action_id", "is not", null),
-        eb.and([
-          eb.or([
-            eb("call_outcome", "is", null),
-            eb("call_outcome", "=", "unknown"),
-            eb("call_outcome", "=", "pending"),
-          ]),
-          eb("updated_at", "<", lost),
-        ]),
-      ]),
-    )
+    .where("state", "=", "lapsed")
+    .where("finish_state", "in", ["asked", "sent", "pending", "unknown"])
+    .where((eb) => eb.or([eb("finish_state", "=", "pending"), eb("updated_at", "<", lost)]))
     .orderBy("updated_at")
     .limit(COOL_OFF_SWEEP_BATCH)
     .execute();
@@ -1398,8 +1745,9 @@ async function dueOpen(db: Db, now: string) {
 
 /** Whether the minute cron has anything to do (cheap reads), so an idle tick invokes nothing. */
 async function anythingDue(db: Db, now: string): Promise<boolean> {
-  const [open, follow] = await Promise.all([
+  const [open, finishing, follow] = await Promise.all([
     dueOpen(db, now),
+    dueFinish(db, now),
     db
       .selectFrom("core_subscription_cool_off")
       .select("subscription_id")
@@ -1409,7 +1757,7 @@ async function anythingDue(db: Db, now: string): Promise<boolean> {
       .limit(1)
       .execute(),
   ]);
-  return open.length > 0 || follow.length > 0;
+  return open.length > 0 || finishing.length > 0 || follow.length > 0;
 }
 
 /**
@@ -1521,9 +1869,12 @@ export interface CoolOffSweepOptions {
 
 /**
  * The minute cron's step: nothing when nothing is due (cheap reads, no operation, no audit row);
- * else `subscription.coolOffRelease` for each cooled-off membership with bookings ahead left (a few
- * a tick), then `subscription.coolOffSweep`. A release step that keeps failing tells admins after
- * `RELEASE_FAILURES_MAX` tries and stops (the summary then says the business will cancel the rest).
+ * else at most one `subscription.coolOffRelease` (the cooled-off membership whose bookings ahead
+ * have waited longest), then `subscription.coolOffSweep`. One release step a tick keeps the whole
+ * scheduled invocation, beside the minute's other work, far under D1's 1,000 statements: a step
+ * is bounded (`COOL_OFF_RELEASE_STEP` bookings), and the sweep is bounded (`COOL_OFF_SWEEP_BATCH`
+ * of each kind). A release step that fails `RELEASE_FAILURES_MAX` times in a row tells admins and
+ * stops (the summary then says the business will cancel the rest).
  */
 export async function runCoolOffSweep(
   crm: CrmDb,
@@ -1546,7 +1897,8 @@ export async function runCoolOffSweep(
     .selectFrom("core_subscription_cool_off")
     .select(["subscription_id", "release_failures"])
     .where("release_left", "=", 1)
-    .limit(5)
+    .orderBy("updated_at")
+    .limit(COOL_OFF_RELEASES_A_TICK)
     .execute();
   let releases = 0;
   for (const own of left) {

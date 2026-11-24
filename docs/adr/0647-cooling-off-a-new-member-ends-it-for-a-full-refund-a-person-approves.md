@@ -1,7 +1,11 @@
 # ADR 0647: Cooling off: a new member ends it for a full refund, a person approves each refund
 
 Status: accepted, 2026-11-24 (stage 44, build step 7); amended 2026-11-24 after the third review
-of PR #299: "The rule" (A to G) replaces the earlier "whose end is it" and "what is owed" wording.
+of PR #299: "The rule" (A to G) replaces the earlier "whose end is it" and "what is owed" wording;
+amended again 2026-11-24 after the fourth review: one waiting cancel at a time, a finish recorded
+as ended only once the provider confirms, one release step a minute, a day's bound on an end
+the provider shows but never sends, the provider's own time for "paid", and a holder who used
+theirs elsewhere (each marked "(fourth review)" below).
 Builds on
 [ADR 0429](0429-payments-gatekeeper-verified-events-and-refunds.md) (refunds through the payments
 gatekeeper, approved by a person with `orders:refund`),
@@ -80,7 +84,9 @@ allowance after the latest ask and an inside-the-window test, and is withdrawn):
   provider first: one it already ended (an answer lost) is recorded as sent and nothing more is
   asked. Each ask by a person is a new request: its own idempotency key (`askKey: "cool-off-<n>"`,
   the row's ask count; Stripe's key `cos-cancel-<id>-now-cool-off-<n>`); the sweep's retry of an
-  ask keeps its key. Staff's ordinary "end it now" keeps the subscription's own key.
+  ask keeps its key. Staff's ordinary "end it now" keeps the subscription's own key. **While a
+  cancel of it waits for a person at the gatekeeper, nobody may ask again** (fourth review): the
+  member and staff are told so (`reason: "waiting"`), and nothing is asked of the provider.
 - **B. While it is open and before its deadline, any end of the subscription is the cooling
   off's**, whatever the provider's reason (a cancel, failed payments, a dispute) and however it
   arrived (the ask, a retry, staff, an action a person approved at the gatekeeper). The one
@@ -89,22 +95,43 @@ allowance after the latest ask and an inside-the-window test, and is withdrawn):
   lapses.
 - **C. What is owed is one formula, always** (`owedByCoolOff`): every order paid on or before the
   window's end, plus every order paid after `asked_at` and on or before the end (the end is at most
-  the deadline). Nothing else, ever. The figure shown to the member and to staff is the same
+  the deadline). Nothing else, ever. **"Paid" is when the provider took the money** (fourth
+  review): a period's order keeps the provider's time for its payment, its verified event's own
+  time (`core_order.provider_paid_at`, migration 0856), beside `paid_at` (when the host processed
+  it, which everything else still reads). The rule reads the provider's time when there is one,
+  so an event the host applied late (a failed first delivery, the catch-up's backoff) owes what
+  the provider took inside the bounds. The figure shown to the member and to staff is the same
   function over the same bounds (as if it ended now while open; the stored bounds once ended), and
   the refunds owed are one statement over them (insert or ignore, keyed by the order, each in full
   of what is left on it). A payment the provider reports later is owed by its own event's batch
   only when it falls inside the stored bounds.
 - **D. At the deadline an open one lapses** (the minute cron, `subscription.coolOffSweep`): admins
-  are told once, the ordinary cancel and staff's end-now work again. A cancel of it still waiting
-  at the gatekeeper is rejected by the host (its id is kept on the row, `pending_action_id`); one a
-  person rejects, or that expires, lapses the row at once (the next sweep), not at the deadline.
-  One the provider already shows ended is left for its event (at most a day after the deadline;
-  then it lapses). A lapsed row never becomes the cooling off's by a later end.
+  are told once, the ordinary cancel and staff's end-now work again. **Every cancel of it that
+  ever waited at the gatekeeper is kept** (`core_subscription_cool_off_action`, by its ask; never
+  overwritten, so a `retryable` answer to a later ask loses none), and at the deadline the host
+  rejects each one still waiting. Once none waits and the latest ask's cancel was turned down or
+  expired, the row lapses at once (the next tick, `lapsed_because: "action"`), not at the
+  deadline. One the provider already shows ended (or cannot be read) is left for its event at
+  most a day after the deadline; then it lapses, admins are told once, and the sweep no longer
+  visits it (fourth review). A lapsed row never becomes the cooling off's by a later end, except
+  by staff finishing it (E). **A holder who has since used theirs** on another membership (F):
+  an open ask lapses as `used` at once (the ordinary cancel is not refused for it from that
+  moment; the next tick records it, rejects any cancel still waiting and tells admins once).
 - **E. Staff finish a lapsed one** from its card (`subscriptions:manage`; "Finish the cooling
-  off"): it ends the membership now if still running (askKey `cool-off-finish`), owes exactly the
-  orders paid on or before the window's end (never later), releases the bookings ahead and waiting
-  places, and sends the summary, as a normal end does. It is stored as finished with its bounds;
-  later events never add to it.
+  off"). It owes exactly the orders paid on or before the window's end (never later), releases
+  the bookings ahead and waiting places, and sends the summary, as a normal end does, **but only
+  once the provider confirms the membership ended** (fourth review). A membership already ended
+  is finished at once. One still running is asked to end now (a new request, askKey
+  `cool-off-finish-<n>`); the request is kept on the row (`finish_state`: asked, sent, pending,
+  unknown) and the row stays `lapsed`. The sweep reads the provider, asks again with the same key
+  at most hourly, and waits while a cancel waits for approval. It marks the finish `stuck` and
+  tells admins once when it cannot be done: the provider refused, its cancel was turned down or
+  expired, or no end was confirmed a day after the request (or its approval). A stuck one is not
+  visited again. The provider's verified event that shows the membership ended finishes it in
+  its own batch, however it ended (the finish, a retry, or staff's ordinary "end it now"): stored
+  as `ended`, finished, with the window's bounds; later events never add to it. Until then nothing
+  is owed, released or emailed, and the operation answers `state: "lapsed"` with what came of the
+  call. Staff may finish a stuck one again (a new request).
 - **F. Once per member**: an ended or finished cooling off counts; a lapsed one, or one refused and
   never finished, does not. The ask, the finish and the end's batch check this before writing
   (migration 0856's triggers hold it too: a second row for a subscription is refused, an
@@ -123,21 +150,25 @@ allowance after the latest ask and an inside-the-window test, and is withdrawn):
 | `asked`, open, inside the window (sent, pending, unknown, refused or never answered) | the member's or staff's ask inside the window | ask again (a new request); or wait for the end | not yet: the figure as if it ended now |
 | `asked`, open, after the window | — (time) | wait: at most until the deadline (7 days from the ask); staff may ask again until then | not yet |
 | `ended` | an end inside the bounds (B) of an open one, holder not used | none needed: the membership has ended | window's payments + those after the ask up to the end |
-| `lapsed` (`deadline`, `action`, `end_time`) | the sweep at the deadline; the waiting cancel rejected or expired; an end outside the bounds | the ordinary cancel (and staff's end-now) work again; staff may finish it (E) | nothing, until finished |
-| `lapsed` (`used`) | an end while the holder had used theirs | none needed; the end is recorded as any other | nothing |
-| `ended`, finished | staff finish a lapsed one (holder not used) | none needed | the window's payments only |
+| `asked`, a cancel waiting at the gatekeeper | an ask the gatekeeper holds for a person | wait: approved, it ends (B); turned down or expired, it lapses at the next tick; at the deadline the host rejects it | not yet |
+| `lapsed` (`deadline`, `action`, `end_time`) | the sweep at the deadline (or a day after it, when the provider shows it ended and its event never came); the latest waiting cancel rejected or expired with none still waiting; an end outside the bounds | the ordinary cancel (and staff's end-now) work again; staff may finish it (E) | nothing, until finished |
+| `lapsed` (`used`) | an end while the holder had used theirs; the sweep, once the holder used theirs on another | none needed, or the ordinary cancel; the end is recorded as any other | nothing |
+| `lapsed`, finishing (`finish_state` asked, sent, pending, unknown) | staff finish a lapsed one whose membership still runs | none needed: the host asks the provider (retried, the approval waited for); the provider's end finishes it | nothing yet |
+| `lapsed`, finish `stuck` | the finish refused, turned down, or not confirmed in a day: admins told once | staff end it as usual (its end finishes it) or finish it again | nothing yet |
+| `ended`, finished | the provider's event shows the membership ended after staff asked to finish (holder not used) | none needed | the window's payments only |
 
 While one is open (`asked` and before its deadline), `subscription.cancel` is refused for the
 member and staff (`rule: "cooling_off_open"`); the deadline bounds that wait.
 
-**What came of a call** is written on the row (`call_outcome`) with an audit row of the host's:
-`sent`; `pending` (the cancel waits at the gatekeeper, for a person or a `retryable` failure it
-holds: never recorded as refused; admins told after an hour); `unknown` (the call failed or its
-answer was lost; admins told once); `refused` (the provider's read first: one it shows ended counts
-as sent; admins told once). A crash between the commit and the call (`call_outcome` null) and a
-lost answer are resolved by the sweep after five minutes from the provider's own read, else asked
-again (the same ask, its key) at most hourly until the deadline. An idle tick is one cheap read and
-invokes nothing, so it writes no audit row.
+**What came of a call** is written on the row (`call_outcome`, or `finish_state` for a finish)
+with an audit row of the host's: `sent`; `pending` (the cancel waits at the gatekeeper, for a
+person, its id kept; or a `retryable` failure it holds, with no approval to wait for, so a person
+may ask again: never recorded as refused; admins told after an hour); `unknown` (the call failed
+or its answer was lost; admins told once); `refused` (the provider's read first: one it shows ended
+counts as sent; admins told once; a finish refused is stuck). A crash between the commit and the
+call (`call_outcome` null) and a lost answer are resolved by the sweep after five minutes from the
+provider's own read, else asked again (the same ask, its key) at most hourly (`last_asked_at`)
+until the deadline. An idle tick is one cheap read and invokes nothing, so it writes no audit row.
 
 **Money, case by case** (all integer minor units, each owed order in full of what is left):
 - the first period paid, and anything paid until the window's end: refunded;
@@ -155,31 +186,36 @@ invokes nothing, so it writes no audit row.
 - asked on day 13 of a 14-day window, ended on day 18 (any reason): the window's payments and
   those paid after the ask up to day 18;
 - an ask waiting at the gatekeeper past its deadline: lapsed (rejected); the member cancels as
-  usual; staff may finish it for the window's payments only;
+  usual; staff may finish it for the window's payments only, owed once the provider ends it;
+- an upgrade's charge the provider took inside the window whose event the host applied after the
+  end: owed (paid is the provider's time);
 - an end months later (a cancel at period end, failed payments): lapsed; nothing owed as cooled
   off;
 - a payment reported after the end and paid after it: never owed.
 
-**What was used, and bookings ahead** (the owner's decision 1 of 2026-11-24). Classes attended
-stand (decision 16). After the cooling off's end (or a finish), each record that spent a use of the
-subscription's granted membership, not given back, whose time is still ahead and that is still in
-a state it spends in (booked), and each of the member's own places on a waiting list for a class
-ahead that it would pay for (one naming this membership; one naming nothing only when they hold
-nothing else live: a member with a pass too keeps it), is moved by the host into its object's
-`released` state: an optional field of the allowance spender's declaration
-(`allowance.spends.released`, a return state with a host move from each spend state; checked by
-the contract; ADR 0493 amended). Bookings declares `released: "cancelled_by_us"`: the gym's
-cancellation, its place freed (the waiting list moves people in through the existing promotion)
-and its use given back. A booking attended, cancelled late, paid by another holder, or for a class
-already started stands. **None is released in the end's own batch** (rule F): the minute cron runs
-`subscription.coolOffRelease`, a host step in its own batch, 30 at a time by class start, until
-none is left; it reads the uses page by page (what cannot be released never hides those after)
-and counts only what it could release toward what is left, so the steps always end. A step that
-fails three times stops: admins are told once, and the summary says the business will cancel the
-rest. If the end's batch fails, nothing of it is recorded and the stored event is applied again.
-**Stored payment events that keep failing** are tried every tick five times, then with backoff (an
-hour, two, four, at most a day apart), for good; admins are told once at the fifth failure
-(`payment-event.failing:<provider>:<event>`). Any other end of a membership keeps its bookings.
+**What was used, and bookings ahead** (the owner's decision 1 of 2026-11-24). Classes attended stand
+(decision 16). After the cooling off's end (or a finish), each record that spent a use of the
+subscription's granted membership, not given back, whose time is still ahead and that is still in a
+state it spends in (booked), and each of the member's own places on a waiting list for a class ahead
+that it would pay for (one naming this membership; one naming nothing only when they hold nothing
+else live: a member with a pass too keeps it), is moved by the host into its object's `released`
+state: an optional field of the allowance spender's declaration (`allowance.spends.released`, a
+return state with a host move from each spend state; checked by the contract; ADR 0493 amended).
+Bookings declares `released: "cancelled_by_us"`: the gym's cancellation, its place freed (the
+waiting list moves people in through the existing promotion) and its use given back. A booking
+attended, cancelled late, paid by another holder, or for a class already started stands. **None is
+released in the end's own batch** (rule F): the minute cron runs `subscription.coolOffRelease`, a
+host step in its own batch, 15 at a time by class start (30 before the fourth review), until none is
+left, **one step a minute tick** (the membership that has waited longest first; fourth review), so
+the whole scheduled invocation stays bounded however many members cool off at once; it reads the
+uses page by page (what cannot be released never hides those after) and counts only what it could
+release toward what is left, so the steps always end. A step that fails three times in a row stops
+(a step that succeeds clears the count): admins are told once, and the summary says the business
+will cancel the rest. If the end's batch fails, nothing of it is recorded and the stored event is
+applied again. **Stored payment events that keep failing** are tried every tick five times, then
+with backoff (an hour, two, four, at most a day apart), for good; admins are told once at the fifth
+failure (`payment-event.failing:<provider>:<event>`). Any other end of a membership keeps its
+bookings.
 
 **The member's one email.** Once the releases are done, the member (the subscription's address)
 gets one email through the host's mail as an order's confirmation goes (the email channel an admin
@@ -196,11 +232,17 @@ it null (the foreign key); the payer's refunds stay owed on their orders (erase 
 does not delete them). A merge moves the rows to the survivor in its batch; the once-per-member
 triggers never fire on it, so no merge and no erase is ever refused for them.
 
-**D1.** Measured with a metered database: `coolingOff` 8 statements whatever the paid periods (its
-order read grows in rows, not statements); `coolOff` 13; the end event 35, the same whatever is
-booked ahead (it releases none); a release step about 40 plus 6 a booking (30 a step: about 220).
-On the real Bookings pack every batch stays well under D1's 1,000. The refunds owed are one
-statement.
+**D1.** Measured with a metered database: `coolingOff` 9 statements whatever the paid periods (its
+order read grows in rows, not statements; one more since the fourth review, the waiting cancels);
+`coolOff` 14; the end event 35, the same whatever is booked ahead (it releases none). One minute
+tick runs at most one release step, then the sweep (at most 10 open and 10 finishing rows) and at
+most 10 summary emails. Measured over a whole tick (fourth review): five members cooling off at
+once with 31 bookings ahead each, on the host's fixture, at most 172 statements a tick (it was
+1,568 with five steps of 30 a tick). On the real packs, the runner's whole `minuteTick` (every
+minute step, not only this one; `apps/runner/test/cooling-off-bookings.test.ts`, four members with
+31 ahead each) is at most 499 statements a tick: about 20 a booking released on the shipped
+Bookings pack, beside about 125 for the rest of the minute. A step of 30 measured 799, too close
+to D1's 1,000 for a busy minute, so a step is 15. The refunds owed are one statement.
 
 **The member's screens.** The Memberships web block shows "You can cancel for a full refund until
 the end of [day]" and "Cancel for a full refund" only while the host offers it, "Ask again" only
@@ -222,6 +264,12 @@ window before its deadline, and finish a lapsed one.
   seven days.
 - A race the host's check cannot see (two ends for one holder in the same instant) is caught by the
   trigger: that batch fails, is applied again, and the second lapses as used.
+- The clock tolerance (five minutes before the ask, rule B) is a little more generous than "while
+  the ask is open"; it stays, recorded here (fourth review, finding 7).
+- A finish whose provider shows the membership ended but never sends the event stays `lapsed`
+  (stuck, admins told): the host owes nothing it has not seen end (fourth review).
+- A `retryable` answer leaves no approval to wait for: the row reads `pending`, admins are told
+  after an hour, and a person may ask again; the sweep does not retry it by itself.
 
 ## The owner's decisions (interview of 2026-11-24)
 1. When a member cools off, classes booked for later are cancelled and their places freed, waiting

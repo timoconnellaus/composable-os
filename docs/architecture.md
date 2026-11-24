@@ -1825,18 +1825,25 @@ person only) writes `core_subscription_cool_off` in its batch and, after the com
 payments gatekeeper to end the subscription now. A valid ask is made inside the window and fixes
 a deadline seven days later (the gatekeeper's approval expiry, `DEFAULT_APPROVAL_EXPIRY_DAYS`);
 asking again (the member inside the window, staff before the deadline) is a new request to the
-provider (`askKey`) and never moves the deadline. While it is open, any end the provider reports
+provider (`askKey`) and never moves the deadline; while a cancel of it waits for a person at the
+gatekeeper nobody may ask again, and every such cancel is kept
+(`core_subscription_cool_off_action`). While it is open, any end the provider reports
 (whatever its reason) is the cooling off's, bounded by the ask less a five-minute tolerance and the
 deadline; one statement owes back each order paid up to the window's end or after the ask and up
 to the end (`core_sellable_refund_due`, `entered: "cooled_off"`), the same bounds as the figure
-shown. At the deadline the minute cron's `subscription.coolOffSweep` (a host step; an idle tick
-invokes nothing) lapses an open one, rejecting its cancel still waiting at the gatekeeper, and the
-ordinary cancel works again; staff may finish a lapsed one (the window's payments only). Once per
+shown; "paid" is the provider's time for a period's payment (`core_order.provider_paid_at`), not
+when the host processed it. At the deadline the minute cron's `subscription.coolOffSweep` (a host
+step; an idle tick invokes nothing) lapses an open one, rejecting every cancel of it still waiting
+at the gatekeeper (one the provider shows ended waits a day at most for its event), and the
+ordinary cancel works again; staff may finish a lapsed one (the window's payments only): the
+provider is asked to end it (retried with the same key, admins told once if it cannot be done),
+and the row is `ended` only in the batch of the provider's event that shows it ended. Once per
 holder: the ask, the finish and the end check it before writing, and an end is always recorded
 (one for a holder who used theirs lapses the row as not counted). The end's batch releases
 nothing: `subscription.coolOffRelease`, run by the minute cron in its own batch, moves the bookings
 ahead the membership paid for, and the member's own waiting places it would pay for, into their
-spender's `released` state (`allowance.spends.released`: Bookings' `cancelled_by_us`), 30 a step,
+spender's `released` state (`allowance.spends.released`: Bookings' `cancelled_by_us`), 15 a step
+and one step a minute tick (so the scheduled invocation stays under D1's 1,000 statements),
 then one summary email goes to the member, claimed before it is sent. The minute cron
 asks the gatekeeper for each refund, which waits for a person with `orders:refund` (ADR 0429).
 Nothing refunds a card on its own.

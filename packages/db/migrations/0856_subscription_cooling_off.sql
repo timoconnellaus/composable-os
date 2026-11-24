@@ -13,6 +13,12 @@
 ALTER TABLE core_subscription_checkout ADD COLUMN cooling_off_days INTEGER
   CHECK (cooling_off_days IS NULL OR cooling_off_days >= 0);
 
+-- 1b. When the provider took a subscription period's payment (its verified event's own time), as
+--     against `paid_at`, when the host processed it. What a cooling off owes is judged by this
+--     one, so a payment whose event the host applied late is still owed (ADR 0647, rule C). Null:
+--     an order that is not a period's, or one recorded before this migration.
+ALTER TABLE core_order ADD COLUMN provider_paid_at TEXT;
+
 -- 2. A cooling off asked for (`subscription.coolOff`), one per subscription (ADR 0647's rule):
 --
 --   asked    open: a valid ask (inside the window) was made at `asked_at`; it stays open until
@@ -22,9 +28,11 @@ ALTER TABLE core_subscription_checkout ADD COLUMN cooling_off_days INTEGER
 --   ended    the subscription ended while it was open (or staff finished a lapsed one,
 --            `finished`): what is owed was written once, by the bounds kept here (`owed_from`,
 --            `owed_to`); later events add nothing
---   lapsed   its deadline passed with no end, the gatekeeper action for it was rejected or
---            expired, the end came before the ask or after the deadline, or the member had used
---            theirs: nothing owed as cooled off, admins told; staff may finish it
+--   lapsed   its deadline passed with no end (or the provider showed it ended and its event did
+--            not come within a day), its waiting cancel was rejected or expired, the end came
+--            before the ask or after the deadline, or the member had used theirs: nothing owed as
+--            cooled off, admins told; staff may finish it (`finish_state`), and it becomes
+--            `ended` only once the provider's event shows the membership ended
 --
 -- No address, name or free text: the holder is held only so a person cools off once (below), and
 -- goes with them on erase (the foreign key) or to the survivor on a merge.
@@ -51,12 +59,17 @@ CREATE TABLE core_subscription_cool_off (
   -- Each ask by a person is a new request to the provider (its idempotency key carries this
   -- count); the sweep's retry of one keeps it.
   ask_count INTEGER NOT NULL DEFAULT 1 CHECK (ask_count >= 1),
-  -- The host's pending approval of the cancel, while one waits at the gatekeeper.
-  pending_action_id TEXT,
   -- When the provider ended it (its read), once `ended` or `lapsed`.
   ended_at TEXT,
   -- Ended by staff finishing a lapsed one; the bounds what is owed was written by.
   finished INTEGER NOT NULL DEFAULT 0 CHECK (finished IN (0, 1)),
+  -- Staff asked to finish a lapsed one (rule E) at `finish_asked_at`, and what came of ending it
+  -- at the provider: asked (not called yet), sent, pending (waiting at the gatekeeper), unknown,
+  -- or stuck (it could not be done: admins told, the sweep leaves it). It is `ended` only once
+  -- the provider's event shows the membership ended.
+  finish_state TEXT
+    CHECK (finish_state IS NULL OR finish_state IN ('asked', 'sent', 'pending', 'unknown', 'stuck')),
+  finish_asked_at TEXT,
   owed_from TEXT,
   owed_to TEXT,
   -- Why it lapsed: its deadline, the action turned down, the end's time, or used before.
@@ -84,11 +97,29 @@ CREATE INDEX core_subscription_cool_off_holder_idx
 CREATE INDEX core_subscription_cool_off_open_idx
   ON core_subscription_cool_off (state, updated_at) WHERE state = 'asked';
 
+-- Staff finishing a lapsed one, not yet confirmed: the sweep's.
+CREATE INDEX core_subscription_cool_off_finish_idx
+  ON core_subscription_cool_off (finish_state, updated_at)
+  WHERE state = 'lapsed' AND finish_state IN ('asked', 'sent', 'pending', 'unknown');
+
 -- The follow-ups: bookings still to release, and the summary email due or stuck.
 CREATE INDEX core_subscription_cool_off_release_idx
   ON core_subscription_cool_off (release_left) WHERE release_left = 1;
 CREATE INDEX core_subscription_cool_off_mail_idx
   ON core_subscription_cool_off (mail_state) WHERE mail_state IN ('due', 'sending');
+
+-- 2b. Every cancel of a cooling off that waited for a person at the gatekeeper, kept for good
+--     (never overwritten by a later ask): while one still waits nobody may ask again, the row
+--     lapses for a turned-down one only when none waits, and at the deadline every one still
+--     waiting is rejected. `ask` is the ask (`ask_count`) it was made by.
+CREATE TABLE core_subscription_cool_off_action (
+  subscription_id TEXT NOT NULL
+    REFERENCES core_subscription_cool_off (subscription_id) ON DELETE CASCADE,
+  action_id TEXT NOT NULL,
+  ask INTEGER NOT NULL CHECK (ask >= 1),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (subscription_id, action_id)
+);
 
 -- 3. One row per subscription for good: an INSERT OR REPLACE over an existing row (which would
 --    pass the update triggers by, recursive triggers being off) is refused like a second insert.

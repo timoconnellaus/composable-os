@@ -105,6 +105,10 @@ export interface CoolingOffStatus {
     deadline: string;
     endedAt: string | null;
     finished: boolean;
+    /** Staff asked to finish a lapsed one, not yet confirmed by the payment provider. */
+    finishing: "asked" | "sent" | "pending" | "unknown" | "stuck" | null;
+    /** A cancel of it waits for a person at the payments gatekeeper: nobody may ask again. */
+    waiting: boolean;
     lapsedBecause: "deadline" | "action" | "end_time" | "used" | null;
     /** The host says this caller may ask the provider again now. */
     askAgain: boolean;
@@ -122,7 +126,8 @@ export interface CoolingOffStatus {
 /** What subscription.coolOff answers. */
 export interface CooledOff {
   id: string;
-  state: "asked" | "ended";
+  /** lapsed: staff asked to finish one, not yet confirmed. */
+  state: "asked" | "ended" | "lapsed";
   asked: "sent" | "pending" | "unknown" | null;
   refund: number;
   currency: string;
@@ -514,6 +519,8 @@ export function coolOffRefusalWords(
       return "The cooling-off period has ended. You can still cancel at the end of the period.";
     case "used":
       return "Cooling off has been used for this member before: it is once per member.";
+    case "waiting":
+      return "Ending your membership waits for the business to confirm: there is nothing to ask again until then.";
     case "nothing_paid":
       return "Nothing has been paid yet: cancel instead, and it ends with the free time at no charge.";
     case "continuation":
