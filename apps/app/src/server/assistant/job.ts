@@ -54,7 +54,7 @@ import {
   scrubPattern,
   scrubText,
 } from "@composable-os/core";
-import { createCrmDb } from "@composable-os/db";
+import { type CrmDb, createCrmDb } from "@composable-os/db";
 import { activeUser } from "../acting-user.ts";
 import { aiContextFor } from "../ai.ts";
 import { approvalExpiryDays } from "../approval-expiry.ts";
@@ -279,10 +279,18 @@ export class AgentJob extends DurableObject<Cloudflare.Env> {
     return user;
   }
 
-  /** Invocation context for this job: the agent's actor, its session and its guard. */
-  #context(user: ActingUser, spec: JobSpec, guard?: InvocationContext["grantGuard"]) {
+  /**
+   * Invocation context for this job: the agent's actor, its session and its guard. A slice passes
+   * its own db and AI context, so its AI settings are read once.
+   */
+  #context(
+    user: ActingUser,
+    spec: JobSpec,
+    guard?: InvocationContext["grantGuard"],
+    slice?: { db: CrmDb; ai: ReturnType<typeof aiContextFor> },
+  ) {
     const env = this.#env;
-    const db = createCrmDb(env.DB);
+    const db = slice?.db ?? createCrmDb(env.DB);
     const extensionHost = extensionHostFor(env);
     const integrations = integrationRuntimeFor(env);
     const blobs = blobStoreFor(env);
@@ -297,7 +305,7 @@ export class AgentJob extends DurableObject<Cloudflare.Env> {
       approvalExpiryDays: approvalExpiryDays(env.APPROVAL_EXPIRY_DAYS),
       ...(extensionHost ? { extensionHost } : {}),
       ...automationWiring(env),
-      ...aiContextFor(env, db),
+      ...(slice?.ai ?? aiContextFor(env, db)),
       ...(guard ? { grantGuard: guard } : {}),
     };
     return context;
@@ -440,7 +448,7 @@ export class AgentJob extends DurableObject<Cloudflare.Env> {
       },
     });
     const caller: McpCaller = {
-      context: this.#context(user, spec, guard),
+      context: this.#context(user, spec, guard, { db, ai }),
       async consumeWrite() {
         const writes = await rateLimit(env.MCP_WRITE_RATE_LIMIT, `job:${spec.id}`);
         if (!writes.ok) {
