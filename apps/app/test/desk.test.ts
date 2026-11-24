@@ -98,6 +98,10 @@ describe("the desk origin", () => {
       expect(isDeskPath(path), path).toBe(true);
     }
     expect(isDeskPath("/desktop")).toBe(false);
+    // A trailing slash the router would serve as the page (after the review of PR #390).
+    for (const path of ["/desk/", "/enrol//", "/api/desk/desk.claim/"]) {
+      expect(isDeskPath(path), path).toBe(true);
+    }
     expect(deskOrigin(deskEnv, "http://localhost:5179")).toBe("http://desk.crm.test:5179");
     expect(deskOrigin(deskEnv)).toBe(DESK);
   });

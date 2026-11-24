@@ -62,7 +62,9 @@ export const DESK_PAGES = new Set(["/desk", "/enrol"]);
 
 /** Paths that belong to the desk origin, which the staff origin answers as not found. */
 export function isDeskPath(pathname: string): boolean {
-  return DESK_PAGES.has(pathname) || pathname === "/api/desk" || pathname.startsWith("/api/desk/");
+  // `/desk/` and `/desk//` too: the router would serve them as /desk (after the review of PR #390).
+  const path = pathname.replace(/\/+$/, "") || "/";
+  return DESK_PAGES.has(path) || path === "/api/desk" || path.startsWith("/api/desk/");
 }
 
 /** A device credential lasts until it rotates; browsers keep a cookie at most 400 days. */
@@ -143,7 +145,7 @@ export async function handleDesk(
   if (url.pathname === "/" && (request.method === "GET" || request.method === "HEAD")) {
     return withDeskHeaders(Response.redirect(new URL("/desk", url).toString(), 302));
   }
-  if (DESK_PAGES.has(url.pathname)) {
+  if (DESK_PAGES.has(url.pathname.replace(/\/+$/, ""))) {
     if (request.method !== "GET" && request.method !== "HEAD") {
       return reply(errorReply(new ValidationError("Use GET", { httpStatus: 405 }), true));
     }

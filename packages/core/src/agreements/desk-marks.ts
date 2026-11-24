@@ -35,8 +35,8 @@ export interface DeskMark {
 
 const DAY_MS = 24 * 60 * 60_000;
 const WINDOW_MS = 30 * DAY_MS;
-/** The most email changes read for one page (each is one audit row of a Person's emails). */
-const CHANGES_LIMIT = 2_000;
+/** The newest email changes read per Person (each is one audit row of a Person's emails). */
+const CHANGES_PER_PERSON = 20;
 
 /** The primary address in an audited `emails` value, whatever shape it was recorded in. */
 function primaryOf(value: unknown): string | null {
@@ -79,21 +79,27 @@ export async function deskMarks(
       .where(sql<boolean>`id IN (SELECT value FROM json_each(${ids}))`)
       .execute(),
     db.selectFrom("core_user").select("email").where("kind", "=", "human").execute(),
-    db
-      .selectFrom("core_audit_changes as c")
-      .innerJoin("core_audit as a", "a.id", "c.audit_id")
-      .leftJoin("core_user as u", "u.id", "a.user_id")
-      .select(["c.record_id", "c.at", "c.diff", "a.operation", "a.actor", "u.name"])
-      // The address a Person was made with is not a change of it.
-      .where("c.action", "!=", "create")
-      .where("c.object_type", "=", "person")
-      .where(sql<boolean>`c.record_id IN (SELECT value FROM json_each(${ids}))`)
-      .where("c.at", ">=", from)
-      .where("c.at", "<=", to)
-      .where("c.diff", "like", '%"emails"%')
-      .orderBy("c.at")
-      .limit(CHANGES_LIMIT)
-      .execute(),
+    // The newest few changes of each Person's emails in the window (after the review of PR
+    // #390: a cap across the page cut the newest, which matter most).
+    sql<{
+      record_id: string;
+      at: string;
+      diff: string;
+      operation: string;
+      actor: string;
+      name: string | null;
+    }>`SELECT record_id, at, diff, operation, actor, name FROM (
+        SELECT c.record_id, c.at, c.diff, a.operation, a.actor, u.name,
+          row_number() OVER (PARTITION BY c.record_id ORDER BY c.at DESC) AS n
+        FROM core_audit_changes c
+        JOIN core_audit a ON a.id = c.audit_id
+        LEFT JOIN core_user u ON u.id = a.user_id
+        WHERE c.object_type = 'person' AND c.action != 'create'
+          AND c.record_id IN (SELECT value FROM json_each(${ids}))
+          AND c.at >= ${from} AND c.at <= ${to} AND c.diff LIKE '%"emails"%')
+      WHERE n <= ${CHANGES_PER_PERSON}`
+      .execute(db)
+      .then((r) => r.rows),
   ]);
   const createdAt = new Map(created.map((p) => [p.id, Date.parse(p.created_at)]));
   const staffBoxes = new Set(staff.map((u) => mailboxKey(u.email.trim().toLowerCase())));

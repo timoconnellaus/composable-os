@@ -581,6 +581,20 @@ export function toOperationError(error: unknown): OperationError {
       rule: "agreement_copy_fixed",
     });
   }
+  // Desk signing (migrations 0858 and 1130, ADR 0649, after the review of PR #390): a claim that
+  // lost a race to another claim of the same code, or to the session's end.
+  if (message.includes("core_agreement_desk_claim_lost")) {
+    return new ConflictError(
+      "This code was claimed elsewhere, or the session ended, a moment before. Ask the desk for a new code.",
+      { rule: "desk_code_taken" },
+    );
+  }
+  if (message.includes("core_device_claim_lost")) {
+    return new ConflictError(
+      "This code was used on another device a moment before. Ask an admin for a new one.",
+      { rule: "device_code_taken" },
+    );
+  }
   // A guardian's write after their link ended, or the dependant went to the Trash (migration
   // 0650, ADR 0540): as if the Person were not there.
   if (message.includes("core_person_link_not_live")) {

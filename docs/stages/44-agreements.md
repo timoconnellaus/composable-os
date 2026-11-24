@@ -2165,3 +2165,32 @@ Not verified: a real tablet's browser keeping the desk origin's cookie for weeks
 the signature pad on a real device, the desk hostname's custom domain on a live deployment (`cos
 deploy` adds it; not yet tried on a live host), and Cloudflare Access deployments (the desk
 hostname must not be behind the Access application, `docs/deploying.md`).
+
+### Step 6: after the review of PR #390 (2026-11-24)
+
+Fixed in the same PR (ADRs 0649 and 0780 amended; migrations 0858 and 1130 edited in place, as
+they were not on `main`), each with a test that fails without the fix
+(`agreement-desk.test.ts`, "after the review of PR #390"):
+
+1. Wrong codes sent at once each count (one statement reads the row's own count); twelve together
+   lock the device.
+2. `agreement.desk.find` matches a full name or an email address exactly, at most 5, audited; no
+   partial search, so a fixed-role coach gets no directory. `prepare` names children by given name
+   only, audited.
+3. The copy to the previous address is still not built (the owner to decide whether step 6 ships
+   without it); meanwhile a session started for someone whose address changed in the 30 days
+   before tells every admin.
+4. A claim, or an enrolment claim, that loses a race is refused (guard rows in the claim's batch),
+   never answered with a token or a credential that matches nothing.
+5. A device unused for 30 days is not enrolled to `desk.status`, not offered or accepted for a
+   session, and `lapsed` on Settings → Devices.
+6. A session is read and ended only by whoever started it, or an admin.
+7. Rotation is confirmed by use: the current credential stays good until the device presents the
+   next, so a lost answer never makes a healthy tablet look copied.
+8. The Acceptances list's mark filter reads past a page of unmarked acceptances (up to 1,000 a
+   call); the marks read each Person's 20 newest email changes in the window (not a cap across the
+   page); `device.list` is a person's; `/desk/` with a trailing slash is not found on the staff
+   origin.
+
+Not changed: the staff origin's bundle holds the desk's two route components (one admin build);
+on the staff origin their calls are not found, and the server answers the paths as not found.

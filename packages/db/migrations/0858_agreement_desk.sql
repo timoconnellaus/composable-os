@@ -18,8 +18,9 @@
 -- This table is not a record: no rec_* view reads it, so query.sql, dashboards, exports, search
 -- and the assistant's bulk reads never see it.
 --
--- core_device is made by migration 1130 (block BM), which runs after this one on a new database;
--- nothing here names it. Its own triggers end a device's sessions when it is revoked.
+-- core_device is made by migration 1130 (block BM), which runs after this one in name order;
+-- nothing here names it, and 1130's triggers (which end a device's sessions when it is revoked)
+-- name this table, which exists by then.
 
 CREATE TABLE core_agreement_desk_session (
   id TEXT PRIMARY KEY,
@@ -145,6 +146,27 @@ BEGIN
             AND EXISTS (SELECT 1 FROM json_each(s.dependant_ids) d WHERE d.value = NEW.person_id)))
     )
       THEN RAISE(ABORT, 'core_agreement_acceptance_desk')
+  END;
+END;
+
+-- A claim's guard (after the review of PR #390): the claim's batch carries one row here, and fails
+-- unless the session it claimed is now claimed by that device and still open. Of two claims made
+-- at once (or a claim racing the session's end) the one that lost is refused, never answered with
+-- a token that matches nothing. Stores nothing.
+CREATE TABLE core_agreement_desk_guard (
+  session_id TEXT NOT NULL,
+  device_id TEXT NOT NULL
+);
+
+CREATE TRIGGER core_agreement_desk_guard_check
+BEFORE INSERT ON core_agreement_desk_guard
+BEGIN
+  SELECT CASE
+    WHEN NOT EXISTS (SELECT 1 FROM core_agreement_desk_session s
+        WHERE s.id = NEW.session_id AND s.claimed_device_id = NEW.device_id
+          AND s.claimed_at IS NOT NULL AND s.ended_at IS NULL)
+      THEN RAISE(ABORT, 'core_agreement_desk_claim_lost')
+    ELSE RAISE(IGNORE)
   END;
 END;
 

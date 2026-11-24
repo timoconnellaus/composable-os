@@ -6494,7 +6494,7 @@
             "description": "At the desk: only those in sessions this staff user started (usr_…)"
           },
           "mark": {
-            "description": "At the desk: only those with this mark (of the page read)",
+            "description": "At the desk: only those with this mark",
             "type": "string",
             "enum": [
               "changed_recently",
@@ -7501,7 +7501,7 @@
     },
     {
       "name": "agreement.desk.find",
-      "description": "Find people by name to start a desk signing session for: up to 10, by name only (no record, address or history). For staff at the desk with agreements:desk. Read-only.",
+      "description": "Find the Person a desk signing session is for: by their full name exactly (as a name is compared for duplicates: case, accents and middle initials folded) or by one of their email addresses exactly. Never a partial match or a list to page through: up to 5 people with that very name. Names and ids only. Every search is audited. agreements:desk, a person. Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -7512,8 +7512,8 @@
         "properties": {
           "query": {
             "type": "string",
-            "minLength": 2,
-            "maxLength": 80
+            "minLength": 3,
+            "maxLength": 200
           }
         },
         "required": [
@@ -7753,7 +7753,8 @@
                 "due"
               ],
               "additionalProperties": false
-            }
+            },
+            "description": "The live children, by given name only"
           },
           "copyTo": {
             "description": "Where the copy goes, masked (s•••@e•••.com)",
@@ -29341,6 +29342,7 @@
                   "waiting",
                   "unclaimed",
                   "active",
+                  "lapsed",
                   "revoked"
                 ],
                 "description": "waiting: its enrolment code is not used yet; unclaimed: the code ran out; active; revoked"
@@ -29551,6 +29553,7 @@
                     "waiting",
                     "unclaimed",
                     "active",
+                    "lapsed",
                     "revoked"
                   ],
                   "description": "waiting: its enrolment code is not used yet; unclaimed: the code ran out; active; revoked"
@@ -29745,6 +29748,7 @@
                   "waiting",
                   "unclaimed",
                   "active",
+                  "lapsed",
                   "revoked"
                 ],
                 "description": "waiting: its enrolment code is not used yet; unclaimed: the code ran out; active; revoked"
@@ -29953,6 +29957,7 @@
                   "waiting",
                   "unclaimed",
                   "active",
+                  "lapsed",
                   "revoked"
                 ],
                 "description": "waiting: its enrolment code is not used yet; unclaimed: the code ran out; active; revoked"

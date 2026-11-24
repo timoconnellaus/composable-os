@@ -1907,8 +1907,8 @@ built with stage 51's step 1 (migration 1130, [ADR 0780](adr/0780-the-enrolled-d
 (`core_device`, `packages/core/src/devices/`): a tablet a human admin enrolled for one use
 (`device.enrol`, `device.setUse`, `device.revoke`, users:manage and a person; every admin told),
 whose credential (a cookie on the desk origin, an HMAC under `DESK_SECRET` in the host) rotates
-at least daily with a 60-second grace and revokes the device as a clone when a rotated-away one
-comes back, and lapses after 30 days unused. A person with `agreements:desk` (a core permission
+at least daily, confirmed by use (the current one stays good until the device presents the next),
+and revokes the device as a clone when a rotated-away one comes back after 60 seconds, and lapses after 30 days unused. A person with `agreements:desk` (a core permission
 grantable even to a fixed-role account, ADR 0600 amended; a core screen in `screens.mine` for
 them) starts a **desk signing session** (`core_agreement_desk_session`, `agreements/desk.ts`) for
 one Person on a chosen device; the tablet claims it with a one-time code and gets a session token

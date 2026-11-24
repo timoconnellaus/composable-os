@@ -1406,9 +1406,10 @@ _Avoid_: kiosk (a standing sign-in on a shared device, which this is not)
 A tablet or other browser a human admin enrolled as the business's own (`core_device`), for one
 **use**: desk signing, a **device role** a pack declares (stage 51's check-in tablet, not built
 yet), or a till (stage 50, not built yet). It holds one credential, a cookie on the desk origin
-that alone opens almost nothing, rotated at least daily (and on every signing claim) with a
-60-second grace; a credential rotated away and used later revokes it as a clone, and 30 days
-unused lapse it. Every admin is told when one is enrolled, changed or revoked (Settings, Devices).
+that alone opens almost nothing, rotated at least daily (and on every signing claim): the next
+one is issued and the current one stays good until the device presents it, then the old one is
+accepted 60 seconds more; a credential rotated away and used later revokes it as a clone, and 30
+days unused lapse it. Every admin is told when one is enrolled, changed or revoked (Settings, Devices).
 Not a **Device session**, which is a person's own app sign-in.
 _Avoid_: kiosk, terminal, registered device
 

@@ -21,6 +21,7 @@ import {
   deviceRoleDeclared,
   ENROL_MS,
   GRACE_MS,
+  lapsed,
   noticeTime,
   parseFlags,
   revokeStatements,
@@ -56,7 +57,7 @@ const role = z
   .optional()
   .describe("For use role: the device role, <pack>.<role>, an installed pack declares");
 
-const STATES = ["waiting", "unclaimed", "active", "revoked"] as const;
+const STATES = ["waiting", "unclaimed", "active", "lapsed", "revoked"] as const;
 
 const deviceOut = z.object({
   id: z.string(),
@@ -108,7 +109,9 @@ function toDevice(row: Row, names: Map<string, string>, now: string): DeviceOut 
   const state: DeviceOut["state"] = row.revoked_at
     ? "revoked"
     : row.claimed_at
-      ? "active"
+      ? lapsed(row, now)
+        ? "lapsed"
+        : "active"
       : Date.parse(row.enrol_expires_at) > Date.parse(now)
         ? "waiting"
         : "unclaimed";
@@ -368,6 +371,8 @@ export const deviceList = defineOperation({
   }),
   permission: "users:manage",
   risk: "read",
+  // A device's browser and network address are for an admin who is a person.
+  actors: ["human"],
   mcp: { expose: false },
   async handler(_input, ctx) {
     const rows = await ctx.db
@@ -383,7 +388,7 @@ export const deviceList = defineOperation({
     );
     const devices = rows.map((r) => toDevice(r, names, ctx.now));
     // Active and waiting first, then the rest.
-    const order = { active: 0, waiting: 1, unclaimed: 2, revoked: 3 } as const;
+    const order = { active: 0, waiting: 1, unclaimed: 2, lapsed: 3, revoked: 4 } as const;
     devices.sort((a, b) => order[a.state] - order[b.state]);
     return {
       deskUrl: ctx.desk?.origin ?? null,
@@ -453,6 +458,7 @@ export const deviceClaim = defineOperation({
       }
     }
     const credential = randomSecret();
+    const credentialHash = await secretHash(desk.secret, "credential", credential);
     const userAgent = request.userAgent ? request.userAgent.slice(0, 400) : null;
     const address = request.address ? request.address.slice(0, 64) : null;
     ctx.write(
@@ -461,7 +467,7 @@ export const deviceClaim = defineOperation({
         .set({
           claimed_at: ctx.now,
           enrol_code_hash: null,
-          credential_hash: await secretHash(desk.secret, "credential", credential),
+          credential_hash: credentialHash,
           rotated_at: ctx.now,
           last_seen_at: ctx.now,
           claim_user_agent: userAgent,
@@ -473,6 +479,12 @@ export const deviceClaim = defineOperation({
         .where("enrol_code_hash", "=", hash)
         .where("claimed_at", "is", null)
         .where("revoked_at", "is", null),
+      // Of two browsers claiming one code at once, the one that lost is refused (migration
+      // 1130's guard), never answered with a credential that matches no device.
+      ctx.db.insertInto("core_device_guard").values({
+        device_id: device.id,
+        credential_hash: credentialHash,
+      }),
     );
     request.issue({ credential });
     return { name: device.name, use: device.use };
@@ -503,16 +515,32 @@ export const deskStatus = defineOperation({
     const hash = await secretHash(desk.secret, "credential", request.credential);
     const row = await ctx.db
       .selectFrom("core_device")
-      .select(["name", "use", "rotated_at", "credential_hash", "previous_credential_hash"])
+      .select([
+        "name",
+        "use",
+        "rotated_at",
+        "credential_hash",
+        "pending_credential_hash",
+        "previous_credential_hash",
+        "last_seen_at",
+        "claimed_at",
+        "enrolled_at",
+      ])
       .where((eb) =>
-        eb.or([eb("credential_hash", "=", hash), eb("previous_credential_hash", "=", hash)]),
+        eb.or([
+          eb("credential_hash", "=", hash),
+          eb("pending_credential_hash", "=", hash),
+          eb("previous_credential_hash", "=", hash),
+        ]),
       )
       .where("revoked_at", "is", null)
       .executeTakeFirst();
-    if (!row) return none;
+    // Unused for 30 days, it is not enrolled (its next call revokes it).
+    if (!row || lapsed(row, ctx.now)) return none;
     // The credential rotated away counts only within its grace window (the next call says more).
     if (
       row.credential_hash !== hash &&
+      row.pending_credential_hash !== hash &&
       Date.parse(ctx.now) - Date.parse(row.rotated_at ?? ctx.now) > GRACE_MS
     ) {
       return none;

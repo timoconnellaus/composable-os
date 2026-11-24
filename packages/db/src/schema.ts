@@ -1208,6 +1208,7 @@ export interface CoreDeviceTable {
   enrol_expires_at: string;
   claimed_at: Defaulted<string | null>;
   credential_hash: Defaulted<string | null>;
+  pending_credential_hash: Defaulted<string | null>;
   previous_credential_hash: Defaulted<string | null>;
   rotated_at: Defaulted<string | null>;
   last_seen_at: Defaulted<string | null>;
@@ -3193,6 +3194,8 @@ export interface CoreDatabase {
   core_agreement_minor: CoreAgreementMinorTable;
   core_agreement_desk_session: CoreAgreementDeskSessionTable;
   core_device: CoreDeviceTable;
+  core_device_guard: { device_id: string; credential_hash: string };
+  core_agreement_desk_guard: { session_id: string; device_id: string };
   core_agreement_copy: CoreAgreementCopyTable;
   core_agreement_hold: CoreAgreementHoldTable;
   core_person_link_guard: CorePersonLinkGuardTable;

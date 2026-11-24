@@ -1958,6 +1958,15 @@ function outsideError(error: unknown): OperationError {
   ) {
     return typed;
   }
+  // A desk claim that lost a race (ADR 0649): the tablet is told so, and nothing more.
+  if (
+    typed.code === "conflict" &&
+    ["desk_code_taken", "device_code_taken"].includes(
+      String((typed.details as { rule?: unknown })?.rule),
+    )
+  ) {
+    return typed;
+  }
   console.error("outside call failed", errorForLog(error));
   if (typed.code === "conflict")
     return new ConflictError("A record with that value already exists");

@@ -35,8 +35,12 @@ CREATE TABLE core_device (
   enrol_code_hash TEXT CHECK (enrol_code_hash IS NULL OR length(enrol_code_hash) = 64),
   enrol_expires_at TEXT NOT NULL,
   claimed_at TEXT,
-  -- The credential, the one rotated away (accepted until `rotated_at` + 60 seconds) and when.
+  -- The credential, the next one the host has issued (`pending`: the current one stays good until
+  -- the device presents the next, so an answer lost on the way never locks it out), the one
+  -- rotated away (accepted until `rotated_at` + 60 seconds) and when.
   credential_hash TEXT CHECK (credential_hash IS NULL OR length(credential_hash) = 64),
+  pending_credential_hash TEXT
+    CHECK (pending_credential_hash IS NULL OR length(pending_credential_hash) = 64),
   previous_credential_hash TEXT
     CHECK (previous_credential_hash IS NULL OR length(previous_credential_hash) = 64),
   rotated_at TEXT,
@@ -63,6 +67,8 @@ CREATE INDEX core_device_credential_idx ON core_device (credential_hash)
   WHERE credential_hash IS NOT NULL;
 CREATE INDEX core_device_previous_idx ON core_device (previous_credential_hash)
   WHERE previous_credential_hash IS NOT NULL;
+CREATE INDEX core_device_pending_idx ON core_device (pending_credential_hash)
+  WHERE pending_credential_hash IS NOT NULL;
 CREATE INDEX core_device_enrol_idx ON core_device (enrol_code_hash)
   WHERE enrol_code_hash IS NOT NULL;
 CREATE INDEX core_device_list_idx ON core_device (revoked_at, enrolled_at);
@@ -75,7 +81,8 @@ BEGIN
     WHEN EXISTS (SELECT 1 FROM core_device d WHERE d.id = NEW.id)
       THEN RAISE(ABORT, 'core_device_fixed')
     WHEN NEW.claimed_at IS NOT NULL OR NEW.credential_hash IS NOT NULL
-      OR NEW.previous_credential_hash IS NOT NULL OR NEW.revoked_at IS NOT NULL
+      OR NEW.previous_credential_hash IS NOT NULL OR NEW.pending_credential_hash IS NOT NULL
+      OR NEW.revoked_at IS NOT NULL
       OR NEW.enrol_code_hash IS NULL
       THEN RAISE(ABORT, 'core_device_fixed')
   END;
@@ -97,7 +104,7 @@ BEGIN
     WHEN OLD.revoked_at IS NOT NULL AND (NEW.revoked_at IS NOT OLD.revoked_at
         OR NEW.revoke_reason IS NOT OLD.revoke_reason OR NEW.revoked_by IS NOT OLD.revoked_by
         OR NEW.credential_hash IS NOT NULL OR NEW.previous_credential_hash IS NOT NULL
-        OR NEW.enrol_code_hash IS NOT NULL)
+        OR NEW.pending_credential_hash IS NOT NULL OR NEW.enrol_code_hash IS NOT NULL)
       THEN RAISE(ABORT, 'core_device_fixed')
   END;
 END;
@@ -129,6 +136,25 @@ BEGIN
   SET ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), end_reason = 'device_changed',
     code_hash = NULL, token_hash = NULL
   WHERE ended_at IS NULL AND (device_id = NEW.id OR claimed_device_id = NEW.id);
+END;
+
+-- An enrolment claim's guard (after the review of PR #390): the claim's batch carries one row
+-- here, and fails unless the device now holds the credential this claim set. Of two browsers
+-- claiming one code at once, the one that lost is refused. Stores nothing.
+CREATE TABLE core_device_guard (
+  device_id TEXT NOT NULL,
+  credential_hash TEXT NOT NULL
+);
+
+CREATE TRIGGER core_device_guard_check
+BEFORE INSERT ON core_device_guard
+BEGIN
+  SELECT CASE
+    WHEN NOT EXISTS (SELECT 1 FROM core_device d WHERE d.id = NEW.device_id
+        AND d.credential_hash = NEW.credential_hash AND d.revoked_at IS NULL)
+      THEN RAISE(ABORT, 'core_device_claim_lost')
+    ELSE RAISE(IGNORE)
+  END;
 END;
 
 -- Guarded: migrations land out of order (docs/parallel-work.md).

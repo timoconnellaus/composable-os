@@ -7,11 +7,12 @@
 //
 // On each call (`resolveDevice`):
 //   - the current credential: the device. Its first call more than 24 hours after the last
-//     rotation, and every call that asks to rotate (a signing claim), gets a new credential in its
-//     response (`nextCredential` of the presented one);
-//   - the credential rotated away, within 60 seconds of the rotation (the grace window): the
-//     device, and the same new credential again (a retry whose response was lost, or calls made
-//     at once);
+//     rotation, and every call that asks to rotate (a signing claim), gets the next credential in
+//     its response (`nextCredential` of the presented one), kept as pending: the current one
+//     stays good, and every answer re-issues the same next one, until the device presents it;
+//   - the pending one: it becomes the current one, and the old one is rotated away;
+//   - the credential rotated away, within 60 seconds of that (the grace window): the device, and
+//     the current credential again (calls made at once);
 //   - the credential rotated away, later: two browsers hold it. The device is revoked as a clone
 //     (its open signing session ends with it, migration 1130) and every admin is told;
 //   - a device with no call for 30 days lapses (revoked, `lapsed`); an admin enrols it again;
@@ -124,6 +125,13 @@ export interface ResolvedDevice {
 /**
  * The enrolled device a desk request comes from, or `notEnrolled`. `rotate`: this call rotates
  * the credential whatever its age (a signing claim, stage 44).
+ *
+ * Rotation is confirmed by use (after the review of PR #390): the host issues the next credential
+ * (`pending`) and keeps the current one good until the device presents the next, so an answer lost
+ * on the way (premises Wi-Fi) never makes a healthy tablet look copied. The next one is derived
+ * from the current under the secret, so every answer until then re-issues the same one. Once the
+ * device presents it, the old one is rotated away: accepted for 60 seconds more (calls made at
+ * once), and presented after that it means two browsers hold it.
  */
 export async function resolveDevice(
   db: Db,
@@ -136,100 +144,102 @@ export async function resolveDevice(
   if (!presented || presented.length > 200) throw notEnrolled();
   const hash = await secretHash(desk.secret, "credential", presented);
   const at = Date.parse(now);
-  const current = await db
+  const row = await db
     .selectFrom("core_device")
     .selectAll()
-    .where("credential_hash", "=", hash)
+    .where((eb) =>
+      eb.or([
+        eb("credential_hash", "=", hash),
+        eb("pending_credential_hash", "=", hash),
+        eb("previous_credential_hash", "=", hash),
+      ]),
+    )
+    .where("revoked_at", "is", null)
     .executeTakeFirst();
-  if (current && !current.revoked_at) {
-    const lastSeen = Date.parse(current.last_seen_at ?? current.claimed_at ?? current.enrolled_at);
-    if (at - lastSeen > LAPSE_MS) {
-      await runNow(db, revokeStatements(db, current.id, "lapsed", null, now));
-      throw new ForbiddenError(
-        "This device has not been used for 30 days, so it was revoked. An admin enrols it again.",
-        { rule: "device_lapsed", httpStatus: 401 },
-      );
-    }
-    const due = at - Date.parse(current.rotated_at ?? current.claimed_at ?? now) >= ROTATE_MS;
-    if (options.rotate || due) {
-      const next = await nextCredential(desk.secret, presented);
-      request.issue({ credential: next });
-      return {
-        device: current,
-        statements: [
+  if (!row) throw notEnrolled();
+  if (lapsed(row, now)) {
+    await runNow(db, revokeStatements(db, row.id, "lapsed", null, now));
+    throw new ForbiddenError(
+      "This device has not been used for 30 days, so it was revoked. An admin enrols it again.",
+      { rule: "device_lapsed", httpStatus: 401 },
+    );
+  }
+  const seen = db
+    .updateTable("core_device")
+    .set({ last_seen_at: now })
+    .where("id", "=", row.id)
+    .where("revoked_at", "is", null);
+
+  if (row.pending_credential_hash === hash || row.credential_hash === hash) {
+    const promoting = row.pending_credential_hash === hash;
+    // The device presents the next credential: it is now the current one, and the old one is
+    // rotated away. A claim then rotates again.
+    const statements: Compilable[] = promoting
+      ? [
           db
             .updateTable("core_device")
             .set({
-              credential_hash: await secretHash(desk.secret, "credential", next),
-              previous_credential_hash: hash,
+              previous_credential_hash: row.credential_hash,
+              credential_hash: hash,
+              pending_credential_hash: null,
               rotated_at: now,
               last_seen_at: now,
-              ...seenFrom(current, request, now),
             })
-            .where("id", "=", current.id)
-            .where("credential_hash", "=", hash)
+            .where("id", "=", row.id)
+            .where("pending_credential_hash", "=", hash)
             .where("revoked_at", "is", null),
-        ],
-        rotated: true,
-        viaGrace: false,
-        credential: next,
-      };
-    }
-    return {
-      device: current,
-      statements: [
-        db
-          .updateTable("core_device")
-          .set({ last_seen_at: now })
-          .where("id", "=", current.id)
-          .where("revoked_at", "is", null),
-      ],
-      rotated: false,
-      viaGrace: false,
-      credential: presented,
-    };
-  }
-  const previous = await db
-    .selectFrom("core_device")
-    .selectAll()
-    .where("previous_credential_hash", "=", hash)
-    .executeTakeFirst();
-  if (previous && !previous.revoked_at) {
-    const next = await nextCredential(desk.secret, presented);
-    const sameNext =
-      previous.credential_hash === (await secretHash(desk.secret, "credential", next));
-    if (sameNext && at - Date.parse(previous.rotated_at ?? now) <= GRACE_MS) {
-      // The grace window: the same new credential again.
+        ]
+      : [seen];
+    const pendingOpen = !promoting && row.pending_credential_hash !== null;
+    const due =
+      at - Date.parse((promoting ? now : row.rotated_at) ?? row.claimed_at ?? now) >= ROTATE_MS;
+    if (options.rotate || due || pendingOpen) {
+      const next = await nextCredential(desk.secret, presented);
+      const nextHash = await secretHash(desk.secret, "credential", next);
       request.issue({ credential: next });
-      return {
-        device: previous,
-        statements: [
+      if (row.pending_credential_hash !== nextHash || promoting) {
+        statements.push(
           db
             .updateTable("core_device")
-            .set({ last_seen_at: now })
-            .where("id", "=", previous.id)
+            .set({ pending_credential_hash: nextHash, ...seenFrom(row, request, now) })
+            .where("id", "=", row.id)
             .where("revoked_at", "is", null),
-        ],
-        rotated: true,
-        viaGrace: true,
-        credential: next,
-      };
+        );
+      }
+      return { device: row, statements, rotated: true, viaGrace: pendingOpen, credential: next };
     }
-    // Rotated away and presented later: another browser holds a copy. Revoked as a clone.
-    await runNow(db, [
-      ...revokeStatements(db, previous.id, "clone", null, now),
-      ...(await adminNotice(db, now, {
-        title: `The device ${previous.name} was revoked: it looked copied`,
-        body:
-          `A credential the host had replaced on ${previous.name} was used again, so two ` +
-          "browsers held it. The device was revoked and any signing session on it ended. Enrol " +
-          "it again in Settings, Devices if it is still the business's.",
-        dedupeKey: `device-clone:${previous.id}`,
-      })),
-    ]);
-    throw notEnrolled();
+    return { device: row, statements, rotated: false, viaGrace: false, credential: presented };
   }
+
+  // The credential rotated away: within the grace window, the current one again (calls made at
+  // once); later, two browsers hold it, and the device is revoked as a clone.
+  const next = await nextCredential(desk.secret, presented);
+  const sameNext = row.credential_hash === (await secretHash(desk.secret, "credential", next));
+  if (sameNext && at - Date.parse(row.rotated_at ?? now) <= GRACE_MS) {
+    request.issue({ credential: next });
+    return { device: row, statements: [seen], rotated: true, viaGrace: true, credential: next };
+  }
+  await runNow(db, [
+    ...revokeStatements(db, row.id, "clone", null, now),
+    ...(await adminNotice(db, now, {
+      title: `The device ${row.name} was revoked: it looked copied`,
+      body:
+        `A credential the host had replaced on ${row.name} was used again, so two ` +
+        "browsers held it. The device was revoked and any signing session on it ended. Enrol " +
+        "it again in Settings, Devices if it is still the business's.",
+      dedupeKey: `device-clone:${row.id}`,
+    })),
+  ]);
   throw notEnrolled();
+}
+
+/** Whether a device has had no call for 30 days (it is refused, and revoked at its next call). */
+export function lapsed(
+  device: { last_seen_at: string | null; claimed_at: string | null; enrolled_at: string },
+  now: string,
+): boolean {
+  const last = device.last_seen_at ?? device.claimed_at ?? device.enrolled_at;
+  return Date.parse(now) - Date.parse(last) > LAPSE_MS;
 }
 
 /** The browser and address seen now, and a flag for each that changed since the last. */
@@ -295,6 +305,7 @@ export function revokeStatements(
         revoked_by: by,
         credential_hash: null,
         previous_credential_hash: null,
+        pending_credential_hash: null,
         enrol_code_hash: null,
       })
       .where("id", "=", deviceId)

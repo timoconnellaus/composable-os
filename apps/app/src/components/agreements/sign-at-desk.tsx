@@ -62,15 +62,16 @@ export function SignAtDesk({ personId }: { personId: string }) {
   );
 }
 
-/** The Sign at the desk screen (a core screen, `screens.mine`): find the Person by name first. */
+/**
+ * The Sign at the desk screen (a core screen, `screens.mine`): find the Person first, by their
+ * full name or an email address of theirs exactly. The host matches nothing partial and lists
+ * nobody else, and every search is on record.
+ */
 export function SignAtDeskScreen() {
   const [query, setQuery] = useState("");
+  const [asked, setAsked] = useState("");
   const [chosen, setChosen] = useState<{ personId: string; name: string } | null>(null);
-  const found = useOp(
-    "agreement.desk.find",
-    { query: query.trim() },
-    { enabled: query.trim().length >= 2 },
-  );
+  const found = useOp("agreement.desk.find", { query: asked }, { enabled: asked.length >= 3 });
   if (chosen) {
     return (
       <div className="grid gap-4">
@@ -90,16 +91,26 @@ export function SignAtDeskScreen() {
         <CardTitle>Who is signing?</CardTitle>
       </CardHeader>
       <CardContent className="grid gap-3">
-        <div className="grid gap-1">
-          <Label htmlFor="desk-find">Name</Label>
-          <Input
-            id="desk-find"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="At least two letters"
-            autoComplete="off"
-          />
-        </div>
+        <form
+          className="grid gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setAsked(query.trim());
+          }}
+        >
+          <Label htmlFor="desk-find">Their full name, or their email address</Label>
+          <div className="flex gap-2">
+            <Input
+              id="desk-find"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              autoComplete="off"
+            />
+            <Button type="submit" disabled={query.trim().length < 3}>
+              Find
+            </Button>
+          </div>
+        </form>
         {found.isError && <p className="text-sm text-destructive">{errorMessage(found.error)}</p>}
         <ul className="grid gap-1" aria-label="People found">
           {found.data?.people.map((p) => (
@@ -111,7 +122,10 @@ export function SignAtDeskScreen() {
           ))}
         </ul>
         {found.data && found.data.people.length === 0 && (
-          <p className="text-sm text-muted-foreground">Nobody by that name.</p>
+          <p className="text-sm text-muted-foreground">
+            Nobody with exactly that name or address. Check the spelling, or ask for their email
+            address.
+          </p>
         )}
       </CardContent>
     </Card>

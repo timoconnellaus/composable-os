@@ -470,11 +470,13 @@ describe("claiming a session on the tablet", () => {
     expect(retry.credential).toBe(tablet.credential);
     expect(retry.token).toBe(tablet.token);
     expect((await sessionRow(session.id))?.ended_at).toBe(null);
-    // The credential rotated away by the next claim, presented after the grace window: two
-    // browsers hold it.
+    // The next credential becomes the current one once the tablet presents it (its next claim);
+    // the one after, once the tablet's next call presents that. The credential so rotated away,
+    // presented after the grace window, means two browsers hold it.
     const next = await start(await person(), deviceId);
     const kept = tablet.credential;
     await tablet.call("desk.claim", { code: next.code });
+    await tablet.call("desk.documents");
     const late = new Tablet();
     late.credential = kept;
     expect(
@@ -841,5 +843,215 @@ describe("cost", () => {
       ctx(),
     );
     expect(statements).toBeLessThan(200);
+  });
+});
+
+describe("after the review of PR #390", () => {
+  it("wrong codes sent at once each count: twelve together lock the device", async () => {
+    const { tablet, deviceId } = await enrolled();
+    await Promise.allSettled(
+      Array.from({ length: 12 }, (_, i) => tablet.call("desk.claim", { code: `NOPE${i}X` })),
+    );
+    const row = await deviceRow(deviceId);
+    expect(row?.locked_until).not.toBe(null);
+  });
+
+  it("a claim that loses a race to the session's end is refused, never answered with a dead token", async () => {
+    const { claimSession, endStatement } = await import("../src/agreements/desk.ts");
+    const { runNow } = await import("../src/devices/devices.ts");
+    const { tablet, deviceId } = await enrolled();
+    const other = await enrolled();
+    const { code, session } = await start(await person(), deviceId);
+    const issued: { credential?: string; token?: string | null } = {};
+    const claim = await claimSession(
+      db.query,
+      DESK,
+      {
+        credential: tablet.credential,
+        token: null,
+        userAgent: tablet.userAgent,
+        address: tablet.address,
+        issue: (c) => Object.assign(issued, c),
+      },
+      code,
+      new Date().toISOString(),
+    );
+    // Another device's claim of the same code commits first and ends the session.
+    await runNow(db.query, [
+      endStatement(db.query, session.id, "wrong_device", new Date().toISOString(), other.deviceId),
+    ]);
+    await expect(db.batch(claim.statements)).rejects.toThrow(/core_agreement_desk_claim_lost/);
+    expect((await sessionRow(session.id))?.end_reason).toBe("wrong_device");
+  });
+
+  it("two browsers claiming one enrolment code at once: one is enrolled, the other refused", async () => {
+    const made = await invoke("device.enrol", { name: unique("T"), use: "signing" }, staff(admin));
+    const [a, b] = [new Tablet(), new Tablet()];
+    const results = await Promise.allSettled([
+      a.call("device.claim", { code: made.code }),
+      b.call("device.claim", { code: made.code }),
+    ]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const statuses = [await a.call("desk.status"), await b.call("desk.status")].map(
+      (s) => s.enrolled,
+    );
+    expect(statuses.sort()).toEqual([false, true]);
+  });
+
+  it("an answer lost on a rotation never makes a healthy tablet look copied", async () => {
+    const { tablet, deviceId } = await enrolled();
+    const { code } = await start(await person(), deviceId);
+    const before = tablet.clone();
+    await tablet.call("desk.claim", { code });
+    // The claim's answer never arrived: the tablet still holds its old credential and no token,
+    // and is offline for five minutes.
+    const later = new Date(Date.now() + 5 * MINUTE);
+    expect((await before.call("desk.status", {}, later)).enrolled).toBe(true);
+    const again = await invoke(
+      "agreement.desk.start",
+      { personId: await person(), deviceId },
+      staff(admin, { clock: () => later }),
+    );
+    await before.call("desk.claim", { code: again.code }, later);
+    expect(before.credential).toBe(tablet.credential);
+    expect((await deviceRow(deviceId))?.revoked_at).toBe(null);
+  });
+
+  it("a device unused for 30 days is not enrolled anywhere it is shown, nor offered", async () => {
+    const { tablet, deviceId } = await enrolled(unique("Idle tablet"));
+    const month = new Date(Date.now() + 31 * 24 * 60 * MINUTE);
+    const later = (extra: Parameters<typeof context>[1] = {}) =>
+      staff(admin, { clock: () => month, ...extra });
+    expect((await tablet.call("desk.status", {}, month)).enrolled).toBe(false);
+    const offered = await invoke("agreement.desk.devices", {}, later());
+    expect(offered.devices.map((d) => d.id)).not.toContain(deviceId);
+    expect(
+      (
+        await refusal(
+          invoke("agreement.desk.start", { personId: await person(), deviceId }, later()),
+        )
+      ).details?.rule,
+    ).toBe("device_use");
+    const listed = await invoke("device.list", {}, later());
+    expect(listed.devices.find((d) => d.id === deviceId)?.state).toBe("lapsed");
+  });
+
+  it("finding a Person takes their full name or an address exactly, lists nobody else, and is audited", async () => {
+    const family = unique("Exactname");
+    const email = `${unique("found")}@example.com`;
+    const made = await invoke(
+      "person.create",
+      { givenName: "Quinn", familyName: family, emails: [{ email }] },
+      context(admin),
+    );
+    const find = (query: string) => invoke("agreement.desk.find", { query }, staff(admin));
+    expect((await find(family.slice(0, 6))).people).toEqual([]);
+    expect((await find("Quinn")).people).toEqual([]);
+    expect((await find(`quinn ${family.toLowerCase()}`)).people.map((p) => p.personId)).toEqual([
+      made.id,
+    ]);
+    expect((await find(email.toUpperCase())).people.map((p) => p.personId)).toEqual([made.id]);
+    const audited = await env.DB.prepare(
+      "SELECT input FROM core_audit WHERE operation = 'agreement.desk.find' AND user_id = ? ORDER BY at DESC LIMIT 1",
+    )
+      .bind(admin.id)
+      .first<{ input: string }>();
+    expect(audited).not.toBe(null);
+    expect(audited?.input).not.toContain(email);
+  });
+
+  it("preparing names the children by given name only", async () => {
+    const parent = await person();
+    const child = await invoke(
+      "person.create",
+      { givenName: "Kit", familyName: unique("Childfamily") },
+      context(admin),
+    );
+    await invoke("person.link.add", { guardianId: parent, dependantId: child.id }, context(admin));
+    const prepared = await invoke("agreement.desk.prepare", { personId: parent }, staff(admin));
+    expect(prepared.dependants.map((d) => d.name)).toEqual(["Kit"]);
+  });
+
+  it("a session is watched and ended by whoever started it, or an admin; nobody else", async () => {
+    const { deviceId } = await enrolled();
+    const started = await start(await person(), deviceId);
+    const granted = await createUser("member");
+    await env.DB.prepare("UPDATE core_user SET granted_permissions = ? WHERE id = ?")
+      .bind(JSON.stringify(["agreements:desk"]), granted.id)
+      .run();
+    const sessionId = started.session.id;
+    expect((await refusal(invoke("agreement.desk.get", { sessionId }, staff(granted)))).code).toBe(
+      "not_found",
+    );
+    expect((await refusal(invoke("agreement.desk.end", { sessionId }, staff(granted)))).code).toBe(
+      "not_found",
+    );
+    expect((await sessionRow(sessionId))?.ended_at).toBe(null);
+    const mine = await start(await person(), deviceId, granted);
+    expect(
+      (await invoke("agreement.desk.get", { sessionId: mine.session.id }, staff(granted))).session
+        .state,
+    ).toBe("waiting");
+    expect(
+      (await invoke("agreement.desk.get", { sessionId: mine.session.id }, staff(admin))).session
+        .state,
+    ).toBe("waiting");
+  });
+
+  it("a session started for someone whose address changed recently tells every admin", async () => {
+    const { deviceId } = await enrolled();
+    const signer = await person();
+    await invoke(
+      "person.update",
+      { id: signer, emails: [{ email: `${unique("changed")}@example.com` }] },
+      context(admin),
+    );
+    const before = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_notifications WHERE user_id = ? AND title = 'A desk signing session was started for someone whose address changed recently'",
+    )
+      .bind(otherAdmin.id)
+      .first<{ n: number }>();
+    await start(signer, deviceId);
+    const after = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_notifications WHERE user_id = ? AND title = 'A desk signing session was started for someone whose address changed recently'",
+    )
+      .bind(otherAdmin.id)
+      .first<{ n: number }>();
+    expect(Number(after?.n)).toBe(Number(before?.n) + 1);
+  });
+
+  it("the device list is a person's: an AI actor acting for an admin is refused", async () => {
+    expect(
+      (await refusal(invoke("device.list", {}, staff(admin, { actor: "assistant" })))).code,
+    ).not.toBe(undefined);
+  });
+
+  it("the mark filter reads past a page of unmarked acceptances", async () => {
+    const doc = await liveDocument();
+    const { tablet, deviceId } = await enrolled();
+    // A signer whose address is a staff account's: marked.
+    const marked = await person({ email: `${unique("staffbox")}@example.com` });
+    const box = (await env.DB.prepare("SELECT email FROM core_person_emails WHERE person_id = ?")
+      .bind(marked)
+      .first<{ email: string }>()) as { email: string };
+    const staffer = await createUser("member");
+    await env.DB.prepare("UPDATE core_user SET email = ? WHERE id = ?")
+      .bind(box.email, staffer.id)
+      .run();
+    const one = await start(marked, deviceId);
+    await tablet.call("desk.claim", { code: one.code });
+    await tablet.call("desk.accept", { versionId: doc.versionId, typedName: "Fixture Name" });
+    // Then newer unmarked desk acceptances, more than a page of the list's limit.
+    for (let i = 0; i < 3; i++) {
+      const plain = await start(await person(), deviceId);
+      await tablet.call("desk.claim", { code: plain.code });
+      await tablet.call("desk.accept", { versionId: doc.versionId, typedName: "Fixture Name" });
+    }
+    const listed = await invoke(
+      "agreement.acceptances",
+      { mark: "staff_address", deviceId, limit: 2 },
+      context(admin),
+    );
+    expect(listed.items.map((i) => i.personId)).toContain(marked);
   });
 });

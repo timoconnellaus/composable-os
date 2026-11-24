@@ -52,3 +52,17 @@ Two enrolment flows would be two attack surfaces and two Settings pages. Stage 4
 - Stage 51's step 2 adds the device as a caller (`ctx.caller`, the `device` audience) and device
   roles; step 1 here adds only the record, the uses and Settings → Devices. `device.heartbeat`
   (for a device role) comes with step 2: a signing device needs none.
+
+**Amended 2026-11-24, after the review of PR #390:**
+- **Rotation is confirmed by use.** The host issues the next credential (`pending_credential_hash`)
+  and keeps the current one good until the device presents the next; until then every answer
+  re-issues the same next one (it is derived from the current). Only then is the old one rotated
+  away: accepted for 60 seconds more (calls made at once) and, presented after that, revoking the
+  device as a clone. An answer lost on premises Wi-Fi no longer makes a healthy tablet look copied.
+- **Lapsed is lapsed everywhere**: a device with no call for 30 days is "not enrolled" to
+  `desk.status`, is not offered or accepted for a desk session, and shows as `lapsed` on Settings →
+  Devices; its next call revokes it.
+- **Two browsers claiming one enrolment code at once**: the one that lost is refused (a guard row,
+  `core_device_guard`, fails its batch unless the device holds its credential).
+- **`device.list`** is a person's (`actors: ["human"]`): a device's browser and address are for an
+  admin who is a person.

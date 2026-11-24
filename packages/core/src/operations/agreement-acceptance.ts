@@ -645,6 +645,10 @@ export const agreementGuestVersions = defineOperation({
 
 // --- Staff -------------------------------------------------------------------------------------
 
+/** By mark: desk acceptances are read this many at a time, and at most MARK_SCAN_ROWS a call. */
+const MARK_CHUNK = 200;
+const MARK_SCAN_ROWS = 1_000;
+
 /** What an acceptance made at the desk says of its session (ADR 0649), and its marks. */
 const deskOut = z.object({
   sessionId: z.string(),
@@ -829,10 +833,7 @@ export const agreementAcceptances = defineOperation({
     channel: z.enum(CHANNEL).optional().describe("Only those made this way: desk is at the desk"),
     deviceId: id("At the desk: only those made on this enrolled device (dev_…)").optional(),
     startedBy: id("At the desk: only those in sessions this staff user started (usr_…)").optional(),
-    mark: z
-      .enum(DESK_MARKS)
-      .optional()
-      .describe("At the desk: only those with this mark (of the page read)"),
+    mark: z.enum(DESK_MARKS).optional().describe("At the desk: only those with this mark"),
     from: z.string().datetime({ offset: true }).optional(),
     to: z.string().datetime({ offset: true }).optional(),
     limit: z.number().int().min(1).max(200).default(50),
@@ -876,11 +877,51 @@ export const agreementAcceptances = defineOperation({
     if (input.before) query = query.where("a.accepted_at", "<", input.before);
     // A guest's, before their order settles, is nobody's yet (step 3).
     query = query.where("a.person_id", "is not", null);
-    const rows = (await query
-      .orderBy("a.accepted_at", "desc")
-      .orderBy("a.id", "desc")
-      .limit(input.limit + 1)
-      .execute()) as AcceptanceRow[];
+    // By mark (after the review of PR #390): marks are worked out from the records, not stored,
+    // so the list reads desk acceptances in chunks until it has a page of marked ones, or has read
+    // MARK_SCAN_ROWS; `next` then continues from the last one read.
+    let rows: AcceptanceRow[];
+    let next: string | null;
+    if (input.mark) {
+      rows = [];
+      next = null;
+      let before = input.before;
+      for (let read = 0; read < MARK_SCAN_ROWS && rows.length <= input.limit; ) {
+        const chunk = (await (before ? query.where("a.accepted_at", "<", before) : query)
+          .orderBy("a.accepted_at", "desc")
+          .orderBy("a.id", "desc")
+          .limit(MARK_CHUNK)
+          .execute()) as AcceptanceRow[];
+        read += chunk.length;
+        const marks = await deskMarks(
+          ctx.db,
+          chunk.map((r) => ({
+            id: r.id,
+            personId: r.person_id,
+            email: r.email ?? null,
+            acceptedAt: r.accepted_at,
+          })),
+        );
+        for (const row of chunk) {
+          if (rows.length > input.limit) break;
+          before = row.accepted_at;
+          if (marks.get(row.id)?.some((m) => m.kind === input.mark)) rows.push(row);
+        }
+        if (chunk.length < MARK_CHUNK) {
+          before = undefined;
+          break;
+        }
+      }
+      next =
+        rows.length > input.limit ? (rows[input.limit - 1]?.accepted_at ?? null) : (before ?? null);
+    } else {
+      rows = (await query
+        .orderBy("a.accepted_at", "desc")
+        .orderBy("a.id", "desc")
+        .limit(input.limit + 1)
+        .execute()) as AcceptanceRow[];
+      next = rows.length > input.limit ? (rows[input.limit - 1]?.accepted_at ?? null) : null;
+    }
     const page = rows.slice(0, input.limit);
     const names = await namesOf(
       ctx,
@@ -898,12 +939,7 @@ export const agreementAcceptances = defineOperation({
       personName: row.person_id ? (names.get(row.person_id) ?? null) : null,
       desk: desk.get(row.id) ?? null,
     }));
-    return {
-      items: input.mark
-        ? items.filter((i) => i.desk?.marks.some((m) => m.kind === input.mark))
-        : items,
-      next: rows.length > input.limit ? (page.at(-1)?.accepted_at ?? null) : null,
-    };
+    return { items, next };
   },
 });
 

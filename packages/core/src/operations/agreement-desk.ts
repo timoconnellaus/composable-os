@@ -32,9 +32,11 @@ import {
   parseIds,
   sessionById,
 } from "../agreements/desk.ts";
+import { deskMarks } from "../agreements/desk-marks.ts";
 import { isMinor, personFacts } from "../agreements/due.ts";
-import { deskRequestOf } from "../devices/devices.ts";
+import { adminNotice, deskRequestOf, lapsed } from "../devices/devices.ts";
 import { randomCode, SESSION_CODE_LENGTH, secretHash } from "../devices/secret.ts";
+import { personNameKey } from "../duplicates/normalise.ts";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
 import { newId } from "../ids.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
@@ -87,28 +89,70 @@ async function dueTitles(ctx: HandlerContext, personId: string): Promise<string[
   return documents.filter((d) => d.status === "due").map((d) => d.title);
 }
 
+/**
+ * The copy goes to the address pinned at the start, and the spec's second copy to the previous
+ * address is not built (ADR 0649, the owner to decide). Meanwhile, a session started for a Person
+ * whose primary address changed in the 30 days before tells every admin at once, so "change the
+ * address to one I control, then sign" is not left to a mark nobody is told of. Names nobody.
+ */
+async function changedAddressNotice(ctx: HandlerContext, personId: string) {
+  const marks = await deskMarks(ctx.db, [
+    { id: "start", personId, email: null, acceptedAt: ctx.now },
+  ]);
+  if (!marks.get("start")?.some((m) => m.kind === "changed_recently")) return [];
+  return adminNotice(ctx.db, ctx.now, {
+    title: "A desk signing session was started for someone whose address changed recently",
+    body:
+      "Their primary email address changed in the last 30 days, and the copy of what they sign " +
+      "goes to the new one. Check it was them: Settings, Agreements, Acceptances, the mark " +
+      '"address changed recently".',
+  });
+}
+
 // --- Staff ---------------------------------------------------------------------------------------
 
 export const agreementDeskFind = defineOperation({
   name: "agreement.desk.find",
   description:
-    "Find people by name to start a desk signing session for: up to 10, by name only (no " +
-    "record, address or history). For staff at the desk with agreements:desk. Read-only.",
-  input: z.object({ query: z.string().trim().min(2).max(80) }).strict(),
+    "Find the Person a desk signing session is for: by their full name exactly (as a name is " +
+    "compared for duplicates: case, accents and middle initials folded) or by one of their email " +
+    "addresses exactly. Never a partial match or a list to page through: up to 5 people with that " +
+    "very name. Names and ids only. Every search is audited. agreements:desk, a person. Read-only.",
+  input: z.object({ query: z.string().trim().min(3).max(200) }).strict(),
   output: z.object({ people: z.array(z.object({ personId: z.string(), name: z.string() })) }),
   permission: "agreements:desk",
   risk: "read",
   actors: ["human"],
   mcp: { expose: false },
+  // After the review of PR #390: a fixed-role account holding agreements:desk must not get a
+  // directory of the members (stage 44: "nothing of their record beyond that"). An exact name or
+  // address names whom the staff member already has in front of them; each search is on record.
+  auditReads: true,
+  redact: ["query"],
+  auditSummary: (output) => ({ found: output.people.length }),
   async handler(input, ctx) {
-    const like = `%${input.query.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    const query = input.query.trim();
+    if (query.includes("@")) {
+      const rows = await ctx.db
+        .selectFrom("core_person_emails as e")
+        .innerJoin("core_person as p", "p.id", "e.person_id")
+        .select(["p.id", "p.display_name"])
+        .where("e.email", "=", query.toLowerCase())
+        .where("p.deleted_at", "is", null)
+        .limit(5)
+        .execute();
+      return { people: rows.map((r) => ({ personId: r.id, name: r.display_name })) };
+    }
+    const key = personNameKey(query);
+    // A full name: at least a given and a family name.
+    if (!key || !key.includes(" ")) return { people: [] };
     const rows = await ctx.db
       .selectFrom("core_person")
       .select(["id", "display_name"])
+      .where("name_key", "=", key)
       .where("deleted_at", "is", null)
-      .where(sql<boolean>`display_name LIKE ${like} ESCAPE '\\'`)
-      .orderBy("display_name")
-      .limit(10)
+      .orderBy("id")
+      .limit(5)
       .execute();
     return { people: rows.map((r) => ({ personId: r.id, name: r.display_name })) };
   },
@@ -125,9 +169,9 @@ export const agreementDeskPrepare = defineOperation({
     personId: z.string(),
     name: z.string(),
     due: z.array(z.string()),
-    dependants: z.array(
-      z.object({ personId: z.string(), name: z.string(), due: z.array(z.string()) }),
-    ),
+    dependants: z
+      .array(z.object({ personId: z.string(), name: z.string(), due: z.array(z.string()) }))
+      .describe("The live children, by given name only"),
     copyTo: z.string().nullable().describe("Where the copy goes, masked (s•••@e•••.com)"),
     refused: z
       .enum(["minor", "no_address"])
@@ -140,6 +184,8 @@ export const agreementDeskPrepare = defineOperation({
   risk: "read",
   actors: ["human"],
   mcp: { expose: false },
+  auditReads: true,
+  auditSummary: (_output, input) => ({ personId: input.personId }),
   async handler(input, ctx) {
     const facts = await personFacts(ctx.db, input.personId);
     if (!facts.exists || facts.inTrash) throw new NotFoundError("person", input.personId);
@@ -149,6 +195,10 @@ export const agreementDeskPrepare = defineOperation({
       .where("id", "=", input.personId)
       .executeTakeFirstOrThrow();
     const children = await liveDependants(ctx, input.personId);
+    const given = await givenNames(
+      ctx,
+      children.map((c) => c.id),
+    );
     const address = await paperCopyAddress(ctx.db, input.personId);
     return {
       personId: input.personId,
@@ -157,7 +207,7 @@ export const agreementDeskPrepare = defineOperation({
       dependants: await Promise.all(
         children.map(async (c) => ({
           personId: c.id,
-          name: c.display_name,
+          name: given.get(c.id) ?? "",
           due: await dueTitles(ctx, c.id),
         })),
       ),
@@ -186,7 +236,7 @@ export const agreementDeskDevices = defineOperation({
   async handler(_input, ctx) {
     const rows = await ctx.db
       .selectFrom("core_device")
-      .select(["id", "name", "last_seen_at"])
+      .select(["id", "name", "last_seen_at", "claimed_at", "enrolled_at"])
       .where("use", "=", "signing")
       .where("revoked_at", "is", null)
       .where("claimed_at", "is not", null)
@@ -195,7 +245,10 @@ export const agreementDeskDevices = defineOperation({
       .execute();
     return {
       configured: Boolean(ctx.desk?.secret && ctx.desk.origin),
-      devices: rows.map((r) => ({ id: r.id, name: r.name, lastSeenAt: r.last_seen_at })),
+      // A device unused for 30 days is refused at its next call: it is not offered.
+      devices: rows
+        .filter((r) => !lapsed(r, ctx.now))
+        .map((r) => ({ id: r.id, name: r.name, lastSeenAt: r.last_seen_at })),
     };
   },
 });
@@ -219,7 +272,11 @@ const sessionState = z.object({
 
 async function sessionOut(ctx: HandlerContext, sessionId: string) {
   const s = await sessionById(ctx.db, sessionId);
-  if (!s) throw new NotFoundError("desk session", sessionId);
+  // A session is its starter's to watch and end, and an admin's (after the review of PR #390):
+  // anyone else is told there is no such session.
+  if (!s || (s.started_by !== ctx.user.id && ctx.user.role !== "admin")) {
+    throw new NotFoundError("desk session", sessionId);
+  }
   const ids = [s.device_id, s.claimed_device_id].filter((x): x is string => Boolean(x));
   const devices = await ctx.db
     .selectFrom("core_device")
@@ -315,11 +372,16 @@ export const agreementDeskStart = defineOperation({
     }
     const device = await ctx.db
       .selectFrom("core_device")
-      .select(["id", "name", "use", "revoked_at", "claimed_at"])
+      .select(["id", "name", "use", "revoked_at", "claimed_at", "last_seen_at", "enrolled_at"])
       .where("id", "=", input.deviceId)
       .executeTakeFirst();
     if (!device) throw new NotFoundError("device", input.deviceId);
-    if (device.revoked_at || !device.claimed_at || device.use !== "signing") {
+    if (
+      device.revoked_at ||
+      !device.claimed_at ||
+      device.use !== "signing" ||
+      lapsed(device, ctx.now)
+    ) {
       throw new ConflictError("That device is not enrolled for desk signing now.", {
         rule: "device_use",
       });
@@ -339,6 +401,7 @@ export const agreementDeskStart = defineOperation({
         code_hash: await secretHash(desk.secret, "code", code),
         code_expires_at: expiresAt,
       }),
+      ...(await changedAddressNotice(ctx, input.personId)),
     );
     return {
       session: {

@@ -39,6 +39,7 @@ const STATE_WORDS: Record<string, string> = {
   waiting: "Waiting for its code",
   unclaimed: "Code ran out",
   active: "Enrolled",
+  lapsed: "Unused for 30 days: enrol it again",
   revoked: "Revoked",
 };
 

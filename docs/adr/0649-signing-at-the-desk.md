@@ -117,3 +117,21 @@ reaches every member's documents). The spec settled the design; this records wha
 - **ADR 0660** (2026-11-24): `screens.mine` also lists core's own screens (`pack: "core"`,
   `CORE_SCREENS`), each gated by core operations as a pack's by its tools; the admin holds their
   components.
+
+**Amended 2026-11-24, after the review of PR #390:**
+- **Finding people** (`agreement.desk.find`) matches a full name exactly (as duplicates compare
+  names: case, accents and middle initials folded; given and family name at least) or one of the
+  Person's email addresses exactly, at most 5, and every search is audited (the query redacted). No
+  partial match: a fixed-role account holding `agreements:desk` gets no directory of the members.
+  `agreement.desk.prepare` names children by given name only, and is audited too.
+- **A claim that loses a race** (two claims of one code, or a claim racing the session's end) is
+  refused: the claim's batch carries a guard row (`core_agreement_desk_guard`) that fails unless
+  the session is then claimed by that device and open.
+- **Wrong codes** are counted in one statement that reads the row's own count, so codes sent at
+  once each count and five lock the device.
+- **A session** is read and ended only by whoever started it, or an admin.
+- **The previous address** (criterion 15: "it also goes to the previous address") is still not
+  built, for the reason above; it needs the owner's decision whether step 6 ships without it.
+  Meanwhile a session started for a Person whose primary address changed in the 30 days before
+  tells every admin at once (a notice naming nobody), so "change the address, then sign" is not
+  left to a mark nobody is told of.

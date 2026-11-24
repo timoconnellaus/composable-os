@@ -29,7 +29,7 @@
 //   - every claim rotates the device's credential; a retry within 60 seconds with the old
 //     credential and the code gets the same new credential and the same token.
 import type { CoreDatabase } from "@composable-os/db";
-import type { Compilable, Kysely } from "kysely";
+import { type Compilable, type CompiledQuery, type Kysely, sql } from "kysely";
 import {
   type DeskHost,
   type DeskRequest,
@@ -157,13 +157,13 @@ export async function claimSession(
     .where("code_hash", "=", hash)
     .executeTakeFirst();
 
-  // A retry of this device's own claim within the grace window: the same token again.
+  // A retry of this device's own claim within the grace window: the same token again. The token
+  // is derived from the credential the claim was made with, so only that browser gets it.
   if (
     session &&
     !session.ended_at &&
     session.claimed_at &&
     session.claimed_device_id === device.id &&
-    resolved.viaGrace &&
     at - Date.parse(session.claimed_at) <= 60_000 &&
     request.credential
   ) {
@@ -222,6 +222,13 @@ export async function claimSession(
         .where("id", "=", session.id)
         .where("claimed_at", "is", null)
         .where("ended_at", "is", null),
+      // The batch fails unless this claim is the one that holds the session at commit: of two
+      // claims at once, or a claim racing the session's end, the loser is refused (migration
+      // 0858's guard), never answered with a token that matches nothing.
+      db.insertInto("core_agreement_desk_guard").values({
+        session_id: session.id,
+        device_id: device.id,
+      }),
       ...resolved.statements,
       db
         .updateTable("core_device")
@@ -231,7 +238,11 @@ export async function claimSession(
   };
 }
 
-/** A wrong (or used, or run-out) code on this device: counted, and the lock-out when due. */
+/**
+ * A wrong (or used, or run-out) code on this device: counted, and the lock-out when due. One
+ * statement that reads the row's own count (after the review of PR #390: a read then a write let
+ * wrong codes sent at once count once), so every wrong code counts whatever else runs.
+ */
 async function wrongCode(
   db: Db,
   device: ResolvedDevice["device"],
@@ -239,23 +250,19 @@ async function wrongCode(
   now: string,
 ): Promise<void> {
   const at = Date.parse(now);
-  const fresh = !device.bad_codes_since || at - Date.parse(device.bad_codes_since) > LOCK_WINDOW_MS;
-  const tries = fresh ? 1 : device.bad_codes + 1;
-  const statements: Compilable[] = [
-    db
-      .updateTable("core_device")
-      .set({
-        bad_codes: tries,
-        bad_codes_since: fresh ? now : device.bad_codes_since,
-        ...(tries >= LOCK_TRIES
-          ? {
-              locked_until: new Date(at + LOCK_MS).toISOString(),
-              bad_codes: 0,
-              bad_codes_since: null,
-            }
-          : {}),
-      })
-      .where("id", "=", device.id),
+  const windowStart = new Date(at - LOCK_WINDOW_MS).toISOString();
+  const lockEnd = new Date(at + LOCK_MS).toISOString();
+  // SQLite evaluates every expression of a SET against the row as it was: `fresh` and `tries`
+  // below read the count before this statement.
+  const fresh = sql`(bad_codes_since IS NULL OR bad_codes_since < ${windowStart})`;
+  const tries = sql`(CASE WHEN ${fresh} THEN 1 ELSE bad_codes + 1 END)`;
+  const statements: (Compilable | CompiledQuery)[] = [
+    sql`UPDATE core_device SET
+        bad_codes = CASE WHEN ${tries} >= ${LOCK_TRIES} THEN 0 ELSE ${tries} END,
+        bad_codes_since = CASE WHEN ${tries} >= ${LOCK_TRIES} THEN NULL
+          WHEN ${fresh} THEN ${now} ELSE bad_codes_since END,
+        locked_until = CASE WHEN ${tries} >= ${LOCK_TRIES} THEN ${lockEnd} ELSE locked_until END
+      WHERE id = ${device.id}`.compile(db),
     // A session waiting for this very device ends on a failed claim on it (decision 22).
     db
       .updateTable("core_agreement_desk_session")
