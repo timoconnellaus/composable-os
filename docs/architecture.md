@@ -118,6 +118,11 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   people, organisations, activities and tasks after 30 days through the operations pipeline
   (`trash.purge`), and admin erase redacts the append-only audit log through a sanctioned path
   ([ADR 0019](adr/0019-audit-redaction-for-erasure.md)).
+- **What it costs** ([`cloudflare-costs.md`](cloudflare-costs.md)): an idle host's minute cron
+  writes nothing. Each host step reads whether it has work before it calls its operation, so a
+  quiet minute leaves no audit row, and its reads walk indexes
+  ([ADR 0130](adr/0130-automation-runtime.md), amended 2026-11-24). Cost tests count statements,
+  rows read and rows written (`apps/runner/test/idle-minute-cost.test.ts`).
 - **Duplicates** ([ADR 0247](adr/0247-duplicate-rules-and-scan.md)): plain rules in code with a
   stated reason, no score. Every write that sets a name writes `name_key`, so `duplicate.check` at
   creation and the scan are indexed lookups. cos-runner's minute cron runs a bounded

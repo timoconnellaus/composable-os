@@ -12,7 +12,7 @@
 //   out paying members), and staff are told once per subscription that the provider's events are
 //   not arriving.
 import type { CrmDb } from "@composable-os/db";
-import type { Compilable } from "kysely";
+import { type Compilable, sql } from "kysely";
 import { notifyStatements } from "../notifications/send.ts";
 import { sweepOffers } from "./offers.ts";
 
@@ -32,6 +32,8 @@ export async function sweepSubscriptions(
     .selectFrom("core_subscription")
     .select(["id", "plan_title", "failing_since"])
     .where("state", "=", "past_due")
+    // core_subscription_failing_idx's own predicate, written out: without it, a scan of every row.
+    .where(sql<boolean>`state IN ('past_due', 'unpaid')`)
     .where("failing_since", "<=", ago(now, PAST_DUE_GRACE_DAYS))
     .where("failing_since", ">", ago(now, PAST_DUE_GRACE_DAYS + 1))
     .limit(LIMIT)

@@ -35,7 +35,7 @@
 //      of a subscription's end; the bookings are released by a step of their own after it.
 //   G. Every state has an exit for the member (ADR 0647 lists them).
 import type { CoreDatabase, CoreSubscriptionCoolOffTable, CrmDb } from "@composable-os/db";
-import { type Kysely, type Selectable, sql } from "kysely";
+import { type Kysely, type RawBuilder, type Selectable, sql } from "kysely";
 import { DEFAULT_APPROVAL_EXPIRY_DAYS } from "../approvals/queue.ts";
 import type { EventSink } from "../automations/types.ts";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
@@ -1710,32 +1710,40 @@ async function dueOpen(db: Db, now: string) {
 /** The lapsed cooling offs staff are finishing that the sweep looks at now (one indexed read). */
 async function dueFinish(db: Db, now: string) {
   const lost = iso(at(now) - COOL_OFF_SWEEP_AFTER_MS);
-  return db
-    .selectFrom("core_subscription_cool_off")
-    .selectAll()
-    .where("state", "=", "lapsed")
-    .where("finish_state", "in", ["asked", "sent", "pending", "unknown"])
-    .where((eb) => eb.or([eb("finish_state", "=", "pending"), eb("updated_at", "<", lost)]))
-    .orderBy("updated_at")
-    .limit(COOL_OFF_SWEEP_BATCH)
-    .execute();
+  return (
+    db
+      .selectFrom("core_subscription_cool_off")
+      .selectAll()
+      // Written out, not bound: SQLite uses a partial index only for its own predicate, literally
+      // (core_subscription_cool_off_finish_idx); bound values scan the table every minute.
+      .where(
+        sql<boolean>`state = 'lapsed' AND finish_state IN ('asked', 'sent', 'pending', 'unknown')`,
+      )
+      .where((eb) => eb.or([eb("finish_state", "=", "pending"), eb("updated_at", "<", lost)]))
+      .orderBy("updated_at")
+      .limit(COOL_OFF_SWEEP_BATCH)
+      .execute()
+  );
 }
 
 /** Whether the minute cron has anything to do (cheap reads), so an idle tick invokes nothing. */
 async function anythingDue(db: Db, now: string): Promise<boolean> {
-  const [open, finishing, follow] = await Promise.all([
-    dueOpen(db, now),
-    dueFinish(db, now),
+  // The follow-ups as two reads, each of its own partial index: one read with an OR, or with
+  // bound values, scans the whole table.
+  const followUp = (where: RawBuilder<boolean>) =>
     db
       .selectFrom("core_subscription_cool_off")
       .select("subscription_id")
-      .where((eb) =>
-        eb.or([eb("release_left", "=", 1), eb("mail_state", "in", ["due", "sending"])]),
-      )
+      .where(where)
       .limit(1)
-      .execute(),
+      .execute();
+  const [open, finishing, release, mail] = await Promise.all([
+    dueOpen(db, now),
+    dueFinish(db, now),
+    followUp(sql<boolean>`release_left = 1`),
+    followUp(sql<boolean>`mail_state IN ('due', 'sending')`),
   ]);
-  return open.length > 0 || finishing.length > 0 || follow.length > 0;
+  return open.length > 0 || finishing.length > 0 || release.length > 0 || mail.length > 0;
 }
 
 /**
