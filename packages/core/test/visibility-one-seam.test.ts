@@ -193,6 +193,8 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "staffing/week.ts": [3, WHY.host],
   "operations/staffing.ts": [2, WHY.host],
   "operations/staffing-screens.ts": [2, WHY.host],
+  // Open hours (stage 49 step 3, ADR 0762): that the kinds an entry is for exist, by id only.
+  "operations/staffing-hours.ts": [1, WHY.host],
   "staffing/sets.ts": [1, WHY.host],
   // Pay periods (step 6, ADR 0627): a period's shifts (person, times, kind, title, place), their
   // holders' accounts, their kinds' names and set-up minutes, and the evidence object's marker

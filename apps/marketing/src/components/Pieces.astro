@@ -11,14 +11,14 @@
 // and cancelling a class (step 7), drop-ins (step 8), and the emails with their calendar file and
 // the reminder, the dashboard and the coach's list in the app (step 9) are merged; the import
 // (step 10) and one-to-one sessions (31b) are not yet. Its staff screens on the web (the front desk
-// and the class list) are built, but the product's admin does not show them yet. Memberships (stage 32b) is
+// and the class list) are shown in the product's admin (stage 47). Memberships (stage 32b) is
 // being built: its plans, memberships and passes, spent by bookings (step 6), plan changes, staff
 // pauses and its dashboard (steps 6 and 7) are merged; the import of members (step 8) is not yet.
 // Rostering (stage 45) is being built: the host's rules for shifts (steps 1 to 3: one person never
 // on two shifts at once, warnings, offers and takes, time off) and the pack's duties, weekly
 // patterns and tools (step 4), pay (step 6), the calendar feed (step 5) and the screens on the web
-// and in the app (step 7, not yet tried on phones; the product's admin does not show the web
-// screens yet) and checklists on a duty (step 4b) are merged.
+// and in the app (step 7, not yet tried on phones; the web screens are in the product's admin,
+// stage 47) and checklists on a duty (step 4b) are merged.
 // Agreements (stage 44) is being built: documents and versions (step 1), acceptances (step 2),
 // the check before paying, subscribing and booking (step 3), the copy and the signed PDF (step 4)
 // the screens on the web and in the app (step 5) and cooling off (step 7) are merged; signing at
@@ -59,7 +59,7 @@ const pieces = [
   {
     soon: BUILDING,
     title: "Bookings",
-    body: "Classes made from a weekly timetable, booked and cancelled on the web and in the app within each class type's rules: when booking opens and closes, and when a cancel is late. A full class has a waiting list that moves people in on their own. Parents book for their children. A visitor pays for a single class on the website, no account needed, their place held while they pay. Staff book anyone, walk-ins too, move a member to another class and cancel a class before it ends, giving back the class of everyone on it who booked with a membership or pass, even those already ticked or who cancelled late, and refunding to the card anyone who paid for that class on the website once a member of staff approves it. Members are emailed when they book, when the gym changes or cancels their class, and with a reminder before it, with a file that adds the class to their calendar, by default staff approve each one until the gym turns automatic emails on. Coaches tick who came in the app. The front desk and class-list screens are built for the web too, where the product's admin does not show them yet.",
+    body: "Classes made from a weekly timetable, booked and cancelled on the web and in the app within each class type's rules: when booking opens and closes, and when a cancel is late. A full class has a waiting list that moves people in on their own. Parents book for their children. A visitor pays for a single class on the website, no account needed, their place held while they pay. Staff book anyone, walk-ins too, move a member to another class and cancel a class before it ends, giving back the class of everyone on it who booked with a membership or pass, even those already ticked or who cancelled late, and refunding to the card anyone who paid for that class on the website once a member of staff approves it. Members are emailed when they book, when the gym changes or cancels their class, and with a reminder before it, with a file that adds the class to their calendar, by default staff approve each one until the gym turns automatic emails on. Coaches tick who came in the app. On the web, staff work the front desk and the class list in the product's admin, and a coach signs in there to just the class list; the web screens are not yet tried on a live host.",
   },
   {
     soon: STATUS.building,
@@ -69,7 +69,7 @@ const pieces = [
   {
     soon: STATUS.building,
     title: "Rostering",
-    body: "Who works each class and each shift that is not a class, like cleaning. A weekly pattern makes the shifts eight weeks ahead, nobody is ever put on two at once, and staff say when they are away and offer a shift they cannot work for a qualified colleague to take, with the manager told. A duty can carry a checklist the person on the shift ticks off, and the manager is told when one is missed. Hours and classes are totalled per pay period for the staff paid by them and locked, with a file for payroll, and each of them can see their own; no pay rates are kept. Each person's own shifts are published at a private calendar address only they get, from their own calendar screen. The screens are built for the app (not yet tried on phones) and for the web, where the product's admin does not show them yet; the calendar address is not yet tried in phone calendars.",
+    body: "Who works each class and each shift that is not a class, like cleaning. A weekly pattern makes the shifts eight weeks ahead, nobody is ever put on two at once, and staff say when they are away and offer a shift they cannot work for a qualified colleague to take, with the manager told. A duty can carry a checklist the person on the shift ticks off, and the manager is told when one is missed. Hours and classes are totalled per pay period for the staff paid by them and locked, with a file for payroll, and each of them can see their own; no pay rates are kept. Each person's own shifts are published at a private calendar address only they get, from their own calendar screen. Staff use the screens on the web in the product's admin, each person seeing only the ones they may use, and in the app (not yet tried on phones); the web screens are not yet tried on a live host, and the calendar address is not yet tried in phone calendars.",
   },
   {
     soon: STATUS.building,

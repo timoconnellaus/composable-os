@@ -8,7 +8,11 @@
 // sign-in block makes through its own routes), for a block that signs a guest in on the spot.
 //
 // The blocks are read where they sit (`packs/<id>/blocks/<block>/`), their base-layer imports
-// joined to `blocks/` by pack-blocks-plugin.ts. A production build mounts nothing.
+// joined to `blocks/` by pack-blocks-plugin.ts. A production build mounts nothing. Each pack's
+// hooks come from the build's generated map (`PACK_HOOKS`, screens-plugin.ts), so the app's source
+// names no pack (stage 47). The admin shows a shipped pack's declared staff screens in its own
+// shell (`/s/<pack>/<screen>`); this page stays for blocks that are not screens and for specs that
+// mount a block with props.
 //
 // The base layer's web blocks that call the host (`blocks/web-*`: the agreement blocks, stage 44)
 // mount here too, and every block is also given the agreements hooks as `agreements`
@@ -18,43 +22,15 @@ import {
   type AgreementsClient,
   createAgreementsHooks,
 } from "@composable-os/client";
-import {
-  BOOKINGS_HOOKS_CALL,
-  type BookingsClient,
-  createBookingsHooks,
-} from "@composable-os/pack-bookings/client";
-import {
-  COURSES_HOOKS_CALL,
-  type CoursesClient,
-  createCoursesHooks,
-} from "@composable-os/pack-courses/client";
-import {
-  createMembershipsHooks,
-  MEMBERSHIPS_HOOKS_CALL,
-  type MembershipsClient,
-} from "@composable-os/pack-memberships/client";
-import {
-  createProgramsHooks,
-  PROGRAMS_HOOKS_CALL,
-  type ProgramsClient,
-} from "@composable-os/pack-programs/client";
-import {
-  createRosteringHooks,
-  ROSTERING_HOOKS_CALL,
-  type RosteringClient,
-} from "@composable-os/pack-rostering/client";
-import {
-  createTicketingHooks,
-  TICKETING_HOOKS_CALL,
-  type TicketingClient,
-} from "@composable-os/pack-ticketing/client";
 
-/** A pack's client holding every operation (the `operations` is what the hooks read). */
+/** A client holding every operation (the `operations` is what the hooks read). */
 type FullClient<C> = C & { operations: Record<string, unknown> };
 
+import { PACK_HOOKS } from "virtual:cos-screens";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { type ComponentType, useEffect, useState } from "react";
+import { staffClient } from "#/lib/staff-client";
 
 interface BlocksSearch {
   block?: string;
@@ -87,66 +63,11 @@ const files: Record<string, () => Promise<Record<string, unknown>>> = import.met
     ])
   : {};
 
-/** An error as the HTTP surface sends it, with the host's details. */
-class SurfaceError extends Error {
-  constructor(
-    readonly code: string,
-    message: string,
-    readonly details?: unknown,
-  ) {
-    super(message);
-  }
-}
-
-async function call(name: string, input: unknown, write: boolean): Promise<unknown> {
-  const response = await fetch(`/api/v1/op/${name}`, {
-    method: "POST",
-    credentials: "same-origin",
-    headers: {
-      "content-type": "application/json",
-      ...(write ? { "idempotency-key": crypto.randomUUID() } : {}),
-    },
-    body: JSON.stringify(input ?? {}),
-  });
-  const body = (await response.json()) as {
-    data?: unknown;
-    error?: { code?: string; message?: string; details?: unknown };
-  };
-  if (!response.ok || body.error) {
-    // A tool's refusal carries the host's own words inside it.
-    const inner = (body.error?.details as { details?: unknown } | undefined)?.details;
-    throw new SurfaceError(
-      body.error?.code ?? "internal",
-      body.error?.message ?? "Refused",
-      inner ?? body.error?.details,
-    );
-  }
-  return body.data;
-}
-
-/**
- * A typed client's shape, over the browser's own calls, holding every operation a pack's hooks
- * call (`calls`, the pack's `*_HOOKS_CALL`): this page shows every block (ADR 0453).
- */
+/** A typed client's shape over the browser's own calls (#/lib/staff-client), holding every
+ * operation a pack's hooks call (`calls`, the pack's `*_HOOKS_CALL`): this page shows every block
+ * (ADR 0453). */
 function browserClient<C>(calls: Record<string, readonly string[]>): C {
-  const operations = Object.fromEntries(
-    Object.values(calls)
-      .flat()
-      .map((name) => [name, { kind: "query", invalidates: [] }]),
-  );
-  return {
-    operations,
-    // The host this page calls: its own origin (the calls are same-origin), never the query.
-    baseUrl: window.location.origin,
-    query: (name: string, input: unknown) => ({
-      queryKey: [name, input],
-      queryFn: () => call(name, input, false),
-    }),
-    mutation: (name: string) => ({
-      mutationKey: [name],
-      mutationFn: (input: unknown) => call(name, input, true),
-    }),
-  } as C;
+  return staffClient<C>(calls, "blocks");
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: the hooks are typed by each pack; this passes them through.
@@ -174,43 +95,31 @@ const customerSignIn = {
   },
 };
 
+/**
+ * The pack's hooks over the browser's client, loaded with its headless entry. Every pack's is in
+ * the build's generated map (screens-plugin.ts): this page names no pack.
+ */
 function usePackHooks(pack: string): AnyHooks {
-  // The app's own React Query: a query is refetched when the block asks, as a client app's is.
-  const react = { useQuery, useMutation, useState, useEffect } as never;
-  if (pack === "programs") {
-    return createProgramsHooks(
-      react,
-      browserClient<FullClient<ProgramsClient>>(PROGRAMS_HOOKS_CALL),
-    );
-  }
-  if (pack === "courses") {
-    return createCoursesHooks(react, browserClient<FullClient<CoursesClient>>(COURSES_HOOKS_CALL));
-  }
-  if (pack === "bookings") {
-    return createBookingsHooks(
-      react,
-      browserClient<FullClient<BookingsClient>>(BOOKINGS_HOOKS_CALL),
-    );
-  }
-  if (pack === "memberships") {
-    return createMembershipsHooks(
-      react,
-      browserClient<FullClient<MembershipsClient>>(MEMBERSHIPS_HOOKS_CALL),
-    );
-  }
-  if (pack === "ticketing") {
-    return createTicketingHooks(
-      react,
-      browserClient<FullClient<TicketingClient>>(TICKETING_HOOKS_CALL),
-    );
-  }
-  if (pack === "rostering") {
-    return createRosteringHooks(
-      react,
-      browserClient<FullClient<RosteringClient>>(ROSTERING_HOOKS_CALL),
-    );
-  }
-  return null;
+  const [hooks, setHooks] = useState<{ pack: string; hooks: AnyHooks } | null>(null);
+  useEffect(() => {
+    let live = true;
+    const load = PACK_HOOKS[pack];
+    if (!load) return;
+    void load().then(({ createHooks, calls }) => {
+      if (!live) return;
+      // The app's own React Query: a query is refetched when the block asks, as a client app's is.
+      const react = { useQuery, useMutation, useState, useEffect };
+      const make = createHooks as (react: unknown, client: unknown) => AnyHooks;
+      setHooks({
+        pack,
+        hooks: make(react, browserClient(calls as Record<string, readonly string[]>)),
+      });
+    });
+    return () => {
+      live = false;
+    };
+  }, [pack]);
+  return hooks?.pack === pack ? hooks.hooks : null;
 }
 
 function BlocksPage() {
@@ -221,9 +130,11 @@ function BlocksPage() {
   const base = block?.startsWith("web-") ?? false;
   const pack = base ? "" : (block?.split("-")[0] ?? "");
   const hooks = usePackHooks(pack);
-  const agreements = createAgreementsHooks(
-    { useQuery, useMutation } as never,
-    browserClient<FullClient<AgreementsClient>>(AGREEMENTS_HOOKS_CALL),
+  const [agreements] = useState(() =>
+    createAgreementsHooks(
+      { useQuery, useMutation } as never,
+      browserClient<FullClient<AgreementsClient>>(AGREEMENTS_HOOKS_CALL),
+    ),
   );
   useEffect(() => {
     if (!block || !component) return;

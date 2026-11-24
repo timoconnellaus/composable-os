@@ -21,6 +21,7 @@ type Io<T extends { input: z.ZodType; output: z.ZodType }> = {
 export const PLAN = "memberships.plan";
 export const MEMBERSHIP = "memberships.membership";
 export const PASS = "memberships.pass";
+export const PASSTYPE = "memberships.passtype";
 
 /** A subscription as its payer reads it (`subscription.list`, stage 32a). */
 export interface MembershipSubscription {
@@ -170,6 +171,12 @@ export type MembershipsOperations = {
   "x.memberships.holdings": { kind: "query" } & Io<typeof holdings>;
   "x.memberships.givePass": { kind: "mutation" } & Io<typeof givePass>;
   "x.memberships.voidPass": { kind: "mutation" } & Io<typeof voidPass>;
+  // Staff only: the pass types a person may be given by hand, as the admin lists them (stage 47).
+  "record.list": {
+    kind: "query";
+    input: { object: string; sort?: { field: string; direction?: "asc" | "desc" }; limit?: number };
+    output: { items: { id: string; values: Record<string, unknown> }[]; nextCursor: string | null };
+  };
   "order.checkout": {
     kind: "mutation";
     input: { id: string; token?: string; returnUrl: string };
@@ -596,6 +603,7 @@ export const MEMBERSHIPS_HOOKS_CALL = {
   useHoldings: ["x.memberships.holdings"],
   useGivePass: ["x.memberships.givePass"],
   useVoidPass: ["x.memberships.voidPass"],
+  useStaffPassTypes: ["record.list"],
   // A membership's billing (stage 32a's flows). Every action is the web's: a native block may
   // read the subscription only (the block lint).
   useSubscribe: ["subscription.start"],
@@ -642,6 +650,19 @@ function allMembershipsHooks(
     /** The passes on sale, with the host's prices. */
     usePassTypes() {
       return useQuery(api.query("x.memberships.passTypes", {}));
+    },
+    /**
+     * Staff: every pass type, by title, for giving one by hand (stage 47). The staff client's
+     * record read; a customer's client cannot back it.
+     */
+    useStaffPassTypes() {
+      return useQuery(
+        api.query("record.list", {
+          object: PASSTYPE,
+          sort: { field: "title", direction: "asc" },
+          limit: 100,
+        }),
+      );
     },
     /** Start an order for a pass; then `checkout` it on the provider's page (web only). */
     useBuyPass() {

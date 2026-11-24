@@ -1,5 +1,7 @@
-// Development only: lets the app mount a pack's web blocks where they sit in the repository
-// (`packs/<id>/blocks/<block>/`), for `/blocks` and the e2e specs that drive them (stage 41).
+// Lets the app mount a pack's web blocks where they sit in the repository
+// (`packs/<id>/blocks/<block>/`): for `/blocks` and the e2e specs that drive them in development
+// (stage 41), and for the shipped packs' staff screens in the production build too (stage 47,
+// screens-plugin.ts).
 //
 // A block imports the base layer as a sibling folder (`../ui-button/button.tsx`), as it sits once
 // `cos add` has copied it into a client app (ADR 0424). In the repository the base layer is in

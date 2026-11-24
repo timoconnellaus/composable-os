@@ -4,6 +4,8 @@
 // is the typed client. The MCP (stage 2) and host-module (stage 3) adapters follow the same shape
 // with a different actor and origin.
 
+// The screens this build holds, for screens.mine (stage 47).
+import "./built-screens.ts";
 import type { Principal } from "@composable-os/auth";
 import {
   type AgentJobHost,

@@ -283,6 +283,16 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
       message: `A runtime extension cannot declare who rosters other people. ${why}`,
     });
   }
+  // A screen is code built into the admin (stage 47, ADR 0660): only a shipped pack's blocks,
+  // reviewed in the repository, are. An extension written in the app never ships UI (ADR 0005).
+  if (manifest.screens && Object.keys(manifest.screens).length) {
+    issues.push({
+      stage: "contract",
+      code: "outside_audience",
+      path: "screens",
+      message: `A runtime extension cannot declare screens: only a shipped pack's blocks are built into the admin. ${why}`,
+    });
+  }
   // Routine mail goes to members without a person's approval (ADR 0590): only a shipped
   // extension's declaration may say what it says, so code written in the app declares none and
   // gets no module to send it.

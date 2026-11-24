@@ -516,4 +516,84 @@ export default defineExtension({
     reopen,
     export: exportPeriod,
   },
+  // Staff screens in the product's admin (stage 47, ADR 0660), each gated by the tools that decide
+  // who may use it (its main read and the write it is for; the host refuses the rest): the team's screens for the rostered team (the
+  // `rostering.team` role, `rostering:roster` granted to another role, and any member, who holds
+  // the team's tools); the rosterers' for admins and those granted `rostering:manage`
+  // (restricted); pay for admins and those granted `rostering:pay` (restricted, a person's only).
+  // The roster's assign controls show inside the week for a rosterer, from the host's `me`.
+  screens: {
+    roster: {
+      label: "Roster",
+      block: "rostering-week",
+      export: "RosterWeek",
+      nav: { group: "Rostering", order: 10 },
+      opens: ["week"],
+    },
+    myShifts: {
+      label: "My shifts",
+      // My shifts with each duty's checklist under it (step 4b) and My hours.
+      block: "rostering-checklist",
+      export: "MyShiftsWithChecklist",
+      nav: { group: "Rostering", order: 20 },
+      opens: ["mine", "offer"],
+    },
+    offers: {
+      label: "Offers",
+      block: "rostering-offers",
+      export: "OffersToMe",
+      nav: { group: "Rostering", order: 30 },
+      opens: ["offers", "take"],
+    },
+    myTimeOff: {
+      label: "My time off",
+      block: "rostering-my-availability",
+      export: "MyAvailability",
+      nav: { group: "Rostering", order: 40 },
+      opens: ["myAway", "away"],
+    },
+    myCalendar: {
+      label: "My calendar",
+      block: "rostering-my-calendar",
+      export: "MyCalendar",
+      nav: { group: "Rostering", order: 50 },
+      opens: ["feed", "feedRotate"],
+    },
+    patterns: {
+      label: "Patterns",
+      block: "rostering-patterns",
+      export: "Patterns",
+      nav: { group: "Rostering", order: 60 },
+      opens: ["patterns", "setPattern"],
+    },
+    qualifications: {
+      label: "Who may do what",
+      block: "rostering-qualifications",
+      export: "Qualifications",
+      nav: { group: "Rostering", order: 70 },
+      opens: ["qualifications", "qualify"],
+    },
+    timeOff: {
+      label: "Time off",
+      block: "rostering-away",
+      export: "TimeOff",
+      nav: { group: "Rostering", order: 80 },
+      opens: ["awayList", "awayFor"],
+    },
+    pay: {
+      label: "Pay",
+      block: "rostering-pay",
+      export: "Pay",
+      nav: { group: "Rostering", order: 90 },
+      opens: ["periods", "lock"],
+    },
+    // The duties' checklists by checklist and date (step 4b): the rosterers' (rostering:manage).
+    checklists: {
+      label: "Checklists",
+      block: "rostering-checklists",
+      export: "ChecklistRuns",
+      nav: { group: "Rostering", order: 85 },
+      opens: ["checklistRuns", "checklistCorrect"],
+    },
+  },
 });

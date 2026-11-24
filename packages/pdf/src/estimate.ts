@@ -13,9 +13,9 @@
 // - a page holds its height less the tallest block the writer keeps together (a signature box).
 //
 // Imports only types: nothing of the writer comes with it.
-import type { AgreementPdf, PdfBlock, PdfInline, PdfList } from "./writer.ts";
+import type { AgreementPdf, PdfBlock, PdfInline, PdfList } from "./agreement.ts";
 
-// The writer's page, as laid out in writer.ts.
+// The writer's page, as laid out in core.ts and agreement.ts.
 const PAGE_HEIGHT = 841.89;
 const TOP = PAGE_HEIGHT - 60;
 const BOTTOM = 76;

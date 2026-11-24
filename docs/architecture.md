@@ -754,8 +754,10 @@ How stage 4a built it:
 - **Dashboards** ([ADR 0057](adr/0057-dashboards-params-cache-and-click-through.md)):
   `core_dashboards` plus the code-defined Overview, Home per user (`core_user_home`). Widget SQL
   uses named params (`:date_from`, `:owner`, `:now`, …) rewritten to `?N` and run through
-  `runReadOnlySql`; results are cached 60 s in the Workers Cache API by a hash of SQL, params and
-  visibility scope; click-through templates resolve to list filters.
+  `runReadOnlySql`; results are cached 60 s in the Workers Cache API by a hash of SQL, params,
+  visibility scope and time zone; click-through templates resolve to list filters. Date presets
+  and `:today` are the business's day, in the organisation's time zone (`localDay` in
+  `time/local.ts`, [ADR 0871](adr/0871-day-windows-in-the-business-zone.md)).
 - **Record tabs and panels, settings** ([ADR 0058](adr/0058-record-tabs-panels-and-extension-settings.md)):
   extensions declare `recordTabs`, `recordPanels` and typed `settings`; `view.recordViews` and
   `extensionSettings.*` serve them to the UI.
@@ -821,6 +823,8 @@ packages/
                        and `cos ext check`; and the Node side of `cos ext check` / `cos ext test`
   ui/                  shared shadcn/ui components and the view-spec renderer
   config/              shared tsconfig, biome and vitest presets
+  pdf/                 the PDF writer, no dependencies: a safe core (standard fonts, every text a hex
+                       string), a table layout, the agreement, invoice and receipt renderers (ADRs 0645, 0737)
   agent-core/, agent-a2ui/, agent-voice/, agent-plugins/
                        the assistant's general machinery, MIT, no CRM imports (ADR 0350; agent-core is
                        real since stage 17 W1, the others are placeholders for later waves)
@@ -994,7 +998,10 @@ As built (stage 23; ADRs [0415](adr/0415-the-http-surface-as-built.md),
   (the pipeline's `inBatch` hook), a claim makes a second call with the same key wait for the
   first, and the daily cron purges keys after 24 hours.
   Erasing a person deletes the stored replies that name them. A key costs a write one round trip.
-- Cross-origin calls only from `API_ALLOWED_ORIGINS`; customers are limited per account and
+- Cross-origin calls only from `API_ALLOWED_ORIGINS`, and only for customers and the public: a
+  staff cookie (Better Auth's, Access's, hosted support's) is used only from the host's own pages,
+  on every route that reads one (`staffCookieAllowed`, `apps/app/src/server/staff-origin.ts`,
+  ADR 0660); customers are limited per account and
   operation by `CUSTOMER_RATE_LIMIT`. Public calls need a Cloudflare rate limiting rule at the
   edge (`docs/deploying.md`).
 - **The contract** (`packages/core/src/http/contract.ts`) is the manifest per audience, committed
@@ -1194,6 +1201,16 @@ declares who rosters, a caller's write of who works a shift (a shift's person, a
 a coach profile's account), by any path, is a rosterer's (`assertRosterWrite`); an AI's such change,
 or its call of a restricted tool, is approved only by someone who could make it.
 
+**Open hours** (stage 49 step 3, [ADR 0762](adr/0762-open-hours-and-free-times.md),
+`packages/core/src/staffing/hours.ts`, `operations/staffing-hours.ts`, migration 1090): when
+someone takes appointments, in `core_staff_hours` beside `core_staff_away` and in no `rec_*` view:
+weekly entries in local time (overnight when the end is at or before the start) and one-off extra
+hours, each for every kind of work or for some kinds only (a service). Read by wall clock on the
+fly (`openRanges`, `openCovers`), merged where they touch; "not open" is time off, never an entry.
+Set, changed and removed by the person or a rosterer through the tool-only `staffing.hours.set`,
+`.clear` and `.list`; an AI's change waits for a person; at most 50 entries a person;
+`user.deactivate` removes a leaver's. Free times (step 4) subtract time off, claims and rooms.
+
 **Pay periods** (stage 45 step 6, [ADR 0627](adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md),
 `packages/core/src/staffing/pay.ts`, `operations/staffing-pay.ts`, migration 0813): who is counted
 (`core_staff_pay_basis`, by time or by class from a date), the not-worked mark
@@ -1348,6 +1365,20 @@ record, which stage 28's step 4 adds. `slug` is a field type: unique among an ob
 by a partial unique index the reconciler makes on its own table, made from the title when left
 empty, its old value kept in `core_slug_redirect` when a published record's slug changes.
 
+**The question schema** (stage 29, step 1, `packages/sdk/src/questions.ts`). A form's questions are
+a document field with the platform's one schema, `QUESTIONS_SCHEMA`: `{ items }`, at most 60, told
+apart by `kind` (text, email, phone, number, choice, date, rating, yesNo, consent, heading,
+paragraph), unique by `key`. Labels are `noMarkup` and a paragraph is rich text's inline runs.
+`checkQuestions` adds what the schema cannot say: camelCase keys, a `showIf` that names an earlier
+choice or yes/no with no `showIf` of its own and one of its values, a `map` to the Person (name,
+email, phone, each from the matching kind) or to a field the destination's intake lists, each
+filled once, none on an anonymous form, and no required marketing consent. `checkAnswers` checks
+`{ [key]: value }` against one version (types, required when shown, lengths, at most 3 links in a
+text, 20 KB in all, nothing for a hidden or unknown question) and gives the answers document a
+submission stores (`ANSWERS_SCHEMA`, private: no customer or public read). Its faults carry the
+question's key and a fault code, never the value. Wiring these checks into writes (the form's
+record, `intake.submit`) is stage 29's later steps.
+
 **`publishable`** ([ADR 0446](adr/0446-publishable-without-its-public-half.md),
 [ADR 0441](adr/0441-publishable-states-schedules-and-versions.md),
 `packages/core/src/operations/record-versions.ts`, `packages/core/src/records/publish.ts`).
@@ -1465,7 +1496,8 @@ Training dashboard, saved views, the Person page's Training tab and panels. Its 
 (`@composable-os/pack-programs/client`) holds the layout's pure edits and a self-saving working
 copy; twelve blocks (the program builder, the exercise bank, today and session, class today,
 history and progress, the coach's client view; web and native) are built on it. In development
-`apps/app` mounts any pack's web block at `/blocks` (ADR 0424, amended).
+`apps/app` mounts any pack's web block at `/blocks` (ADR 0424, amended); the bank, the builder and
+the client view are its screens in the admin (stage 47, ADR 0660).
 
 **Bookings** (`packs/bookings`, stage 31a, step 3 the spine, steps 4 and 5 spending and the
 waitlist; [ADRs 0504](adr/0504-the-bookings-pack.md) and [0520](adr/0520-a-waitlist-on-a-claimant.md)):
@@ -1776,8 +1808,8 @@ with `agreements:paper`); no caller names an address and none can be changed. Er
 denies it, with a system origin so no AI's outbound check reads it, and the idempotency key
 `agreement-copy:<id>` (a crashed send is retried with the same key; a new key only after a try
 the gatekeeper proved was not sent; an unknown outcome is never retried). The email gatekeeper
-attaches `agreement.pdf`, made by the PDF writer (`packages/agreement-pdf`, a package of its own: standard fonts, every
-text a hex string, deterministic) from checked values (`validate.ts`), only for the host's
+attaches `agreement.pdf`, made by the PDF writer (`packages/pdf`, a package of its own: standard fonts, every
+text a hex string, deterministic; shared since stage 35 with the invoice and receipt renderers, ADR 0737) from checked values (`validate.ts`), only for the host's
 agreements queue (`isHostAgreementMail`) and only in the copy's shape; health answers have no
 field there (the copy says they are in the app). The same writer draws the downloads
 (`apps/app/src/server/http/agreement-pdf.ts`): `me.agreements.pdf` (a customer, their own and a
@@ -1874,6 +1906,22 @@ in the release's client kit and copied with `cos add`. The web base layer (`bloc
 generated from `packages/ui` (Radix underneath); the native base layer is `blocks/native-base`;
 sign-in ships in both skins. `scripts/check-blocks.mjs` (in `pnpm lint`) refuses a block that
 calculates a price, checks a capacity or checks a permission.
+
+**Screens in the admin** (stage 47, [ADR 0660](adr/0660-pack-screens-in-the-admin.md)): a shipped
+pack declares its staff screens (`screens` in its manifest: label, web block and export, `nav`,
+the tools in `opens` that gate it, and `record` for a tab on a record page); a runtime extension
+declaring any is refused. `apps/app/screens-plugin.ts` reads every pack's declaration at build
+time and emits `virtual:cos-screens`, one lazy chunk per screen (a missing block or export fails
+the build; the server's build holds none), so the admin's source names no pack. The core read
+`screens.mine` answers which screens the caller may open (the pack active and shipped, and the
+pipeline's `staffAuthority` for every gate tool, as a person; empty for any other actor; the one
+core read every pack role reaches). The admin's navigation, `/s/<pack>/<screen>` (client-only,
+"not found" when not listed) and the record tabs render that answer; each screen sits in an error
+boundary, with its pack's hooks over the staff client on the app's own origin
+(`src/lib/staff-client.ts`), and its data is forgotten when it closes. An account with a pack role
+gets a small shell (its screens, its account, sign out) that makes no call its role is refused;
+every other server function and `/api/*` route refuses it, and MCP holds it to its role
+(ADR 0436).
 
 | Pack | Built from | Status |
 | --- | --- | --- |

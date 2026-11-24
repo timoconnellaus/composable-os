@@ -11,7 +11,7 @@
 import { env } from "cloudflare:workers";
 // The email gatekeeper's own check and PDF writer, as it runs them on the copy (relative paths, as
 // cos-runner's fake outbox imports its rules: core holds no copy of either).
-import { type AgreementPdf, agreementPdf } from "@composable-os/agreement-pdf";
+import { type AgreementPdf, agreementPdf } from "@composable-os/pdf";
 import { beforeAll, describe, expect, it } from "vitest";
 import { parseMessage } from "../../gatekeeper-email-send/src/validate.ts";
 import { sendAgreementCopies } from "../src/agreements/copy.ts";
