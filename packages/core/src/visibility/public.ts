@@ -43,7 +43,8 @@ export function publicProblems(object: ObjectDefinition): string[] {
  * What the public may read of a publishable object (ADR 0442): its address among the fields, when
  * it has one, and nothing computed from the working copy (a formula, a path of a document that is
  * not content). Without a slug its records are listed only (ADR 0810). With an author (a
- * `customer`) it has no slug and the public never reads whose it is; it declares no customerVia.
+ * `customer`) it has no slug, the public never reads whose it is nor, but as published, what the
+ * author writes; it declares no customerVia.
  */
 function contentProblems(object: ObjectDefinition): string[] {
   const declared = object.public;
@@ -71,6 +72,12 @@ function contentProblems(object: ObjectDefinition): string[] {
     if (publishable.slug) problems.push("a publishable object with an author has no slug");
     if (declared.read.includes(object.customer.field)) {
       problems.push(`public.read lists "${object.customer.field}", the author`);
+    }
+    // Read from the working copy, a field the author writes would reach the public unapproved.
+    for (const name of declared.read) {
+      if (object.customer.write.includes(name) && !content.has(name)) {
+        problems.push(`public.read lists "${name}", which the author writes and is not content`);
+      }
     }
   }
   return problems;

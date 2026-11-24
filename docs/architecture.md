@@ -1814,7 +1814,8 @@ and the schedule, never stored) and `publishAt`. `record.createMany` writes up t
 one object in one batch, at 4 statements a record for an object with states (ADR 0448).
 `publishIn` ([ADR 0810](adr/0810-publishable-with-an-author.md)) names the states a record may
 be published in: a publish (or a scheduled one coming due) outside them is refused or dropped,
-and a write that moves the record out of them unpublishes it in its own batch.
+and a write that moves the record out of them unpublishes it in its own batch; a publish whose
+record moved out after it was read fails at commit (a guard in its batch, `moved_meanwhile`).
 
 **Publishable with an author** ([ADR 0810](adr/0810-publishable-with-an-author.md),
 `packages/core/src/records/authored.ts`). A publishable object may declare a `customer`, its
@@ -1827,7 +1828,10 @@ assistant, MCP, automations, the extension's own code) in the record code every 
 through (`prepareValues`: record.create, record.update, record.createMany, import, restoring a
 version) and
 shown read-only in `schema.objects`; the author (through the seam) and platform code writing as
-the host pass. Staff still publish, unpublish and move its states.
+the host pass. Whose it is (the customer field) is refused to them too; the seam sets it, a
+person merge moves it. Once the record is in a final state (a withdrawn review) the author's
+fields are not written again, by the author either. `public.read` lists no field the author
+writes but as content. Staff still publish, unpublish and move its states.
 
 **What the public reads of content** ([ADR 0442](adr/0442-what-the-public-reads-of-content.md),
 [ADR 0443](adr/0443-preview-links.md), `packages/core/src/operations/content.ts`). A publishable

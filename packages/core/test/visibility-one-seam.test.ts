@@ -256,6 +256,8 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "records/erase-subject.ts": [6, WHY.write],
   "records/erase.ts": [8, WHY.write],
   "records/links.ts": [10, WHY.part],
+  // A publish's guard that its record is still in a state it may be published in (ADR 0810).
+  "records/publish.ts": [2, WHY.write],
   "records/tags.ts": [1, WHY.part],
   "retention.ts": [1, WHY.org],
   // Routine mail (ADR 0590): the host reads the record it is about, its order, its person and
