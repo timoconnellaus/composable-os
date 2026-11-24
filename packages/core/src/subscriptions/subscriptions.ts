@@ -28,8 +28,7 @@ import { subscriptionSetup } from "../orders/subscription-setup.ts";
 import { taxCodeOf } from "../orders/tax.ts";
 import { holdsPermission } from "../principals.ts";
 import { callerOf } from "../records/transitions.ts";
-import { coolingOffDaysNow } from "./cooling-off.ts";
-import { coolOffOpen } from "./cooling-off.ts";
+import { coolingOffDaysNow, coolOffOpen } from "./cooling-off.ts";
 import { loadSubscriptionRow, type SubscriptionRow } from "./events.ts";
 import { holdOfferStatements, prepareOfferTake } from "./offers.ts";
 import {
