@@ -168,6 +168,21 @@ async function progressRows(ctx: ExtensionContext, courseId: string) {
   return new Map(page.items.map((row) => [String(row.values.lessonKey), row]));
 }
 
+/** The caller's own progress row on one lesson of a course, if they have one. */
+async function progressRow(ctx: ExtensionContext, courseId: string, lessonKey: string) {
+  const page = await ctx.ops.call<ListShape>("my.list", {
+    object: PROGRESS,
+    filter: {
+      and: [
+        { field: "course", op: "eq", value: courseId },
+        { field: "lessonKey", op: "eq", value: lessonKey },
+      ],
+    },
+    limit: 1,
+  });
+  return page.items[0] ?? null;
+}
+
 const currency = z
   .string()
   .nullable()
@@ -388,7 +403,7 @@ export const lesson = defineTool({
     if (!found) throw notFound("lesson", input.lessonKey);
     const holds = isStaff(ctx) || (await held(ctx, [input.courseId])).has(input.courseId);
     if (!holds && found.preview !== true) throw notFound("lesson", input.lessonKey);
-    const row = isCustomer(ctx) ? (await progressRows(ctx, input.courseId)).get(found.key) : null;
+    const row = isCustomer(ctx) ? await progressRow(ctx, input.courseId, found.key) : null;
     const v = lessonVideo(found);
     const after = nextLesson(outline, found.key);
     const { section: _section, ...plain } = found;
@@ -436,13 +451,12 @@ export const progress = defineTool({
   risk: "write",
   audiences: ["customer"],
   async handler(input, ctx) {
-    const record = await ctx.ops.call<RecordShape>("my.get", {
-      object: COURSE,
-      id: input.courseId,
-    });
+    const [record, rows] = await Promise.all([
+      ctx.ops.call<RecordShape>("my.get", { object: COURSE, id: input.courseId }),
+      progressRows(ctx, input.courseId),
+    ]);
     const outline = asOutline(record.values.outline);
     if (!findLesson(outline, input.lessonKey)) throw notFound("lesson", input.lessonKey);
-    const rows = await progressRows(ctx, input.courseId);
     const existing = rows.get(input.lessonKey);
     const now = new Date().toISOString();
     const ended = input.position !== undefined && watchedToEnd(input.position, input.duration);
@@ -509,45 +523,54 @@ export const myCourses = defineTool({
   risk: "read",
   audiences: ["customer"],
   async handler(_input, ctx) {
-    const enrolments = await ctx.ops.call<ListShape>("my.list", { object: ENROLMENT, limit: 200 });
+    // A course subscription covers every published course (ADR 0488): the published ones the host
+    // says they hold that no enrolment of theirs explains are through it.
+    const [enrolments, published] = await Promise.all([
+      ctx.ops.call<ListShape>("my.list", { object: ENROLMENT, limit: 200 }),
+      ctx.ops.call<ListShape>("public.list", {
+        object: COURSE,
+        sort: { field: "title", direction: "asc" },
+        limit: 100,
+      }),
+    ]);
+    // Each bundle once, as its published version lists its courses; one no longer published
+    // gives nothing to list.
+    const bundleIds = new Set(enrolments.items.map((e) => text(e.values.bundle)));
+    bundleIds.delete(null);
+    const bundles = new Map(
+      await Promise.all(
+        [...bundleIds].map(async (bundleId) => {
+          const bundle = await ctx.ops
+            .call<RecordShape>("public.get", { object: BUNDLE, id: bundleId })
+            .catch(() => null);
+          return [bundleId, bundle ? bundleCourses(bundle) : []] as const;
+        }),
+      ),
+    );
     const why = new Map<string, Why>();
     const completed = new Set<string>();
-    const bundles = new Map<string, string[]>();
     for (const e of enrolments.items) {
-      const reason = WHY_BY_SOURCE.get(e.values.source) ?? "bought";
       const courseId = text(e.values.course);
       const bundleId = text(e.values.bundle);
       if (courseId) {
-        if (!why.has(courseId)) why.set(courseId, reason);
+        if (!why.has(courseId)) why.set(courseId, WHY_BY_SOURCE.get(e.values.source) ?? "bought");
         if (e.values.completed === true) completed.add(courseId);
       }
-      if (bundleId && !bundles.has(bundleId)) {
-        try {
-          const bundle = await ctx.ops.call<RecordShape>("public.get", {
-            object: BUNDLE,
-            id: bundleId,
-          });
-          bundles.set(bundleId, bundleCourses(bundle));
-          for (const c of bundleCourses(bundle)) if (!why.has(c)) why.set(c, "bundle");
-        } catch {
-          // A bundle no longer published gives nothing to list.
-        }
+      for (const c of bundleId ? (bundles.get(bundleId) ?? []) : []) {
+        if (!why.has(c)) why.set(c, "bundle");
       }
     }
-    // A course subscription covers every published course (ADR 0488): the published ones the host
-    // says they hold that no enrolment of theirs explains are through it.
-    const published = await ctx.ops.call<ListShape>("public.list", {
-      object: COURSE,
-      sort: { field: "title", direction: "asc" },
-      limit: 100,
-    });
     const others = published.items.map((c) => c.id).filter((c) => !why.has(c));
-    for (const c of await held(ctx, others)) why.set(c, "subscription");
-    // Which of these the host says they hold now (live, in its state, inside its until).
-    const holding = await held(ctx, [...why.keys()]);
+    // Which of these the host says they hold now (live, in its state, inside its until), asked once.
+    const holding = await held(ctx, [...why.keys(), ...others]);
+    for (const c of others) if (holding.has(c)) why.set(c, "subscription");
+    const publishedById = new Map(published.items.map((c) => [c.id, c]));
     const out = [];
     for (const courseId of [...why.keys()].filter((c) => holding.has(c))) {
-      const record = await ctx.ops.call<RecordShape>("my.get", { object: COURSE, id: courseId });
+      // A published course is already here as the caller reads it; another is asked for.
+      const record =
+        publishedById.get(courseId) ??
+        (await ctx.ops.call<RecordShape>("my.get", { object: COURSE, id: courseId }));
       const outline = asOutline(record.values.outline);
       const done = doneKeys(await progressRows(ctx, courseId));
       const sum = completion(outline, done, completed.has(courseId));
