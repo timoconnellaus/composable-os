@@ -387,7 +387,15 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   another currency and a locked day, and voids only the host's own documents), the fake books and
   the conformance suite. The fake books run as `cos-gatekeeper-accounting-fake` in development and
   cos-runner's tests only (`wrangler.fake.jsonc`, never released); the catalogue marks an
-  accounting gatekeeper `implements: "accounting"`.
+  accounting gatekeeper `implements: "accounting"`. **The books are the host's alone**
+  ([ADR 0881](adr/0881-the-accounting-connection-is-the-hosts-alone.md)): the integration host
+  opens a session on such a connection only for `callAsHost` with purpose `accounting` (the
+  system user; its entries apply at once unless the deploy-time floor denies them, as an order's
+  confirmation does), and that purpose opens nothing else. `integration.call`, the host's `call`
+  (which Code Mode and an extension's `codemode:<gatekeeper>` go through) and a code session are
+  refused for every caller (`accounting_host_only`); no `codemode:` module is an accounting
+  gatekeeper. A void (`accounting.void`) is in `ALWAYS_REVIEWED_KINDS` and only a human admin
+  approves it.
   `gatekeeper-booking-system` (stage 65, ADR 0920) is the **booking-system contract** in the same
   shape, and read only: the session's types and input checks, the shared facet
   (`BookingSystemGatekeeper`, which records each read as an observation, copies every answer into

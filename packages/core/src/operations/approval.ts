@@ -38,6 +38,7 @@ import {
 } from "../errors.ts";
 import { isProvisionalId, newId, replaceIds } from "../ids.ts";
 import {
+  ACCOUNTING_VOID_KINDS,
   type OutboundInput,
   outboundAppliedAudit,
   READER_KINDS,
@@ -1001,6 +1002,27 @@ async function approveActions(
         actionId: reader.id,
         permission: "integrations:manage",
       });
+    }
+  }
+  // A void of an entry the host posted to the books (stage 61, ADR 0881): it takes back what the
+  // bookkeeper may already have reconciled, so a person who is an admin (integrations:manage,
+  // which no grant gives) approves it, never an AI actor.
+  const accountingVoid = targets.find((t) => ACCOUNTING_VOID_KINDS.has(kindOf(t)));
+  if (accountingVoid) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError(
+        "A void in the books is approved by a person, never by an AI actor",
+        {
+          actionId: accountingVoid.id,
+          actor: ctx.actor,
+        },
+      );
+    }
+    if (!roleHasPermission(ctx.user.role, "integrations:manage")) {
+      throw new ForbiddenError(
+        "Approving a void in the books needs an admin (integrations:manage)",
+        { actionId: accountingVoid.id, permission: "integrations:manage" },
+      );
     }
   }
   // An AI actor's publish request (ADR 0480): only a person approves it, and only a person who
