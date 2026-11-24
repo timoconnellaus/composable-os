@@ -116,8 +116,7 @@ and an order in the same batch, and a recorded payment are host rules; a pack ca
   are read when the pack declares them; until then a record's line has no category and takes the
   rate the caller names, or the default.
 - Migration 1030 adds about 50 rows to `sqlite_master` (eight tables, their indexes and triggers,
-  three views): the rows-read budgets of `person.list` and `summary.get`, which read it once, were
-  raised by that much.
+  three views); the rows-read budgets no longer count the schema (PR #347), so none was raised.
 
 ## Checks that were broken on purpose (each made a test fail, then restored)
 - The number trigger's `next_number - 1` made `next_number`: the twenty-at-once test failed.
