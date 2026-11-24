@@ -108,7 +108,7 @@ async function page(
   return new Response(
     `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><title>${escapeHtml(title)} · ${escapeHtml(productName(product))}</title>
 <script>${THEME_SCRIPT}</script><style>${STYLE}</style></head>
-<body><main><div class="brand">${productName(product)}</div>${body}</main></body></html>`,
+<body><main><div class="brand">${escapeHtml(productName(product))}</div>${body}</main></body></html>`,
     { status, headers: h },
   );
 }
@@ -181,7 +181,7 @@ async function showConsent(
   return page(
     `Connect ${consent.clientName}`,
     `<div class="card">
-<div style="display:grid;gap:6px"><h1>Connect ${escapeHtml(consent.clientName)} to ${productName(product)}?</h1>
+<div style="display:grid;gap:6px"><h1>Connect ${escapeHtml(consent.clientName)} to ${escapeHtml(productName(product))}?</h1>
 <p class="muted">Signed in as <strong style="color:var(--fg)">${escapeHtml(user.name || user.email)}</strong>${user.name ? ` (${escapeHtml(user.email)})` : ""} · ${escapeHtml(user.role)}. The app will act as you.</p></div>
 <div class="box"><div><strong>${escapeHtml(consent.clientName)}</strong> · ${verified}</div>
 <div class="small muted">Sends you back to <code>${escapeHtml(consent.redirectHost)}</code></div></div>
