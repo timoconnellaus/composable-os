@@ -32,6 +32,7 @@ import { resolveChannelTarget } from "../notifications/channels.ts";
 import { loadDeliverySettings } from "../notifications/preferences.ts";
 import { notifyStatements } from "../notifications/send.ts";
 import { jsonList } from "../records/common.ts";
+import { ERASED } from "../records/erase-subject.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import { GUARDIAN_LINK } from "../visibility/guardians.ts";
 import type { Signature } from "./capture.ts";
@@ -1092,7 +1093,7 @@ export async function cancelUnlinkedGuardianCopies(
     AND c.acceptance_id IN ${these} AND NOT ${liveGuardianLink("c")}`;
   await db.executeQuery(
     sql`UPDATE core_pending_action SET
-        input = ${JSON.stringify("[erased]")}, reason = ${"[erased]"}, preview = '[]',
+        input = ${JSON.stringify(ERASED)}, reason = ${ERASED}, preview = '[]',
         simulated = ${JSON.stringify({ output: null, records: [] })},
         status_reason = CASE WHEN status = 'pending'
           THEN 'Rejected: the parent or guardian it was for is no longer linked to the child'
