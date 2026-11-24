@@ -13,6 +13,7 @@ import { queueScrubConversations } from "../assistant/erase.ts";
 import { queueEraseMemory } from "../assistant/memory.ts";
 import { queueEraseRoutines } from "../assistant/routines.ts";
 import { emailRef } from "../assistant/scrub.ts";
+import { queueEraseFinance } from "../finance/erase.ts";
 import { eraseJourneyStatements } from "../journeys/entries.ts";
 import { queueEraseSignals } from "../journeys/signals.ts";
 import type { HandlerContext } from "../operation.ts";
@@ -381,6 +382,8 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
 
   // Their records' lifecycle history, and what ties an order to them (stage 25, ADR 0426).
   await queueEraseOrders(ctx, subject);
+  // A reopened month's reason naming them, and closed finance rows about them (stage 52).
+  await queueEraseFinance(ctx, subject);
   // Their passes' and memberships' uses, and the uses they spent (stage 32b, ADR 0494).
   if (subject.object === "person") queueEraseAllowances(ctx, [...recordIds]);
   // Their journey entries and step log (stage 53, ADR 0800).

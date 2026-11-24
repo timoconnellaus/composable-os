@@ -174,8 +174,14 @@ export default defineExtension({
       capacity: { places: "places", pool: "event", show: "low", lowAt: 10 },
       // Where agreement may be needed (stage 44, ADR 0641): nothing is attached by default, so a
       // ticket sells as before until the business attaches a document (a waiver) to "event". The
-      // buyer agrees for themselves (ADR 0644).
-      agreements: { point: "event", label: "Buying a ticket", suggests: ["waiver"] },
+      // buyer agrees for themselves (ADR 0644). The checkout block shows what is due and lets the
+      // buyer agree on the way (issue #292).
+      agreements: {
+        point: "event",
+        label: "Buying a ticket",
+        suggests: ["waiver"],
+        inlineStep: true,
+      },
       sellable: {
         price: "price",
         saleWindow: { from: "onSaleFrom", until: "onSaleUntil" },
@@ -296,6 +302,20 @@ export default defineExtension({
           { from: "used", to: "valid", by: ["staff"] },
           { from: ["valid", "used"], to: "void", by: ["staff", "host"], final: true },
         ],
+      },
+      // A ticket made by hand starts a ticket as buying one does: the same point, asked by the
+      // engine for its holder when a caller makes one or gives it to another holder (stage 44,
+      // issue #281). Valid and used are the same ticket, so undoing a check-in asks nobody. One a
+      // paid order grants is the host's, asked when the order started.
+      agreements: {
+        point: "event",
+        label: "Buying a ticket",
+        suggests: ["waiver"],
+        enter: ["valid"],
+        keeps: ["valid", "used"],
+        person: "holder",
+        // The same point as buying one, so the checkout's step answers it too (issue #292).
+        inlineStep: true,
       },
       // The holder reads their ticket's event, type, code and state, and changes nothing.
       customer: { field: "holder", read: ["event", "tickettype", "code", "state"], write: [] },

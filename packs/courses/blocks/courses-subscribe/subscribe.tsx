@@ -12,7 +12,21 @@
 // trial ("continue, free until <date>", `useMyOffers`); taking it is the host's too (`offerId`):
 // only its own person can (ADR 0491). A guest who confirms a code and turns out to have an offer
 // is shown the offer, never sent on to the trial.
-import { agreementBlockedWords } from "@composable-os/client";
+//
+// What must be agreed to first (stage 44: the course terms) is the host's answer too: when
+// "Subscribe" is refused with it, the documents are shown inline (the web-agree block's step) and
+// "Subscribe" is tried again (issue #292). A visitor's agreements travel in subscription.start,
+// held in memory until then; a member's are recorded as they agree. A minor is told a parent or
+// guardian buys it.
+import {
+  type AgreeInput,
+  type AgreementsHooks,
+  agreementRefusal,
+  forgetAfter,
+  purchaseErrorWords,
+  type RefusedDocument,
+  withAgreements,
+} from "@composable-os/client";
 import type {
   ContinuationOffer,
   CoursesHooks,
@@ -31,6 +45,14 @@ import { Button } from "../ui-button/button.tsx";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui-card/card.tsx";
 import { Input } from "../ui-input/input.tsx";
 import { Label } from "../ui-label/label.tsx";
+import { useForgetOnLeave } from "../web-agree/agree.tsx";
+import { GuestAgreementStep, MemberAgreementStep } from "../web-agree/agreement-step.tsx";
+
+/** The agreements hooks the inline step uses: a member's (due, accept) and a visitor's (words). */
+export type SubscribeAgreements = Pick<
+  AgreementsHooks,
+  "useDue" | "useAccept" | "useGuestVersions"
+>;
 
 /**
  * Signing a guest in by an emailed code, as the app does it (the web sign-in block's two calls:
@@ -46,6 +68,7 @@ export interface SubscribeSignIn {
 
 export function Subscribe({
   courses,
+  agreements,
   returnUrl,
   signedIn,
   signInUrl,
@@ -53,6 +76,8 @@ export function Subscribe({
   signIn,
 }: {
   courses: Pick<CoursesHooks, "usePlans" | "useSubscribe" | "useMyOffers">;
+  /** For what must be agreed to first, shown inline. Without it, the refusal is only named. */
+  agreements?: SubscribeAgreements;
   /** Where the provider's page sends the subscriber back to (one of the host's listed origins). */
   returnUrl: string;
   /** A signed-in customer subscribes as themselves; a guest gives their email. */
@@ -83,6 +108,21 @@ export function Subscribe({
   const [busy, setBusy] = useState(false);
   // Confirmed, but the account waits for staff to merge people: subscribe as a guest meanwhile.
   const [waiting, setWaiting] = useState(false);
+  // What the host said must be agreed to first, for which plan, and how it was being started.
+  const [due, setDue] = useState<{
+    planId: string;
+    hasTrial: boolean;
+    customer: boolean;
+    offer: ContinuationOffer | undefined;
+    owed: boolean;
+    documents: RefusedDocument[];
+  } | null>(null);
+  // A visitor's agreements for one plan: this component's state only, kept if the subscription
+  // does not start (nothing typed twice), forgotten once it starts and when they leave the page.
+  const [agreed, setAgreed] = useState<{ planId: string; given: AgreeInput[] } | null>(null);
+  // A member's "a copy is on its way".
+  const [said, setSaid] = useState<string | null>(null);
+  useForgetOnLeave(() => setAgreed(null));
   const asCustomer = signedIn || confirmed;
   // Only a signed-in customer has offers; a guest's call would be refused, so it is not made.
   const offers = courses.useMyOffers({ enabled: asCustomer });
@@ -104,26 +144,53 @@ export function Subscribe({
     customer = asCustomer,
     offer?: ContinuationOffer,
     owed = continuing,
+    given: AgreeInput[] | null = agreed?.planId === planId ? agreed.given : null,
   ) {
     setProblem(null);
     setNoTrial(null);
     try {
-      const started: StartedSubscription = await subscribe.mutateAsync({
-        plan: { object: PLAN, id: planId },
-        returnUrl,
-        ...(customer ? {} : { email }),
-        ...(offer ? { offerId: offer.id } : {}),
-      });
+      const outcome = await withAgreements((previous) =>
+        forgetAfter(subscribe, {
+          plan: { object: PLAN, id: planId },
+          returnUrl,
+          ...(customer ? {} : { email }),
+          ...(offer ? { offerId: offer.id } : {}),
+          ...(!customer && given && previous?.kind !== "read_again" ? { agreements: given } : {}),
+        }),
+      );
+      if (outcome.kind !== "done") setAgreed(null);
+      if (outcome.kind === "due") {
+        if (agreements) {
+          setDue({ planId, hasTrial, customer, offer, owed, documents: outcome.documents });
+        } else {
+          setProblem(
+            `Something must be agreed to first: ${outcome.documents.map((d) => d.title).join(", ")}.`,
+          );
+        }
+        return;
+      }
+      if (outcome.kind === "minor_payer") {
+        setProblem(outcome.message);
+        return;
+      }
+      const started: StartedSubscription = outcome.value;
+      // Recorded with the checkout: nothing of it is kept here any more.
+      setAgreed(null);
       // Never sent to a page that charges today without a word: the host's reason for no trial,
       // or, for a member with free time owed on another plan, that this one is paid from today.
       if (!offer && (owed || (hasTrial && started.noTrial))) {
         setNoTrial({ planId, started: { ...started, noTrial: started.noTrial ?? "continuation" } });
       } else window.location.assign(started.url);
     } catch (e) {
-      // Something must be agreed to first (stage 44): no agreement step here yet.
+      const refusal = agreementRefusal(e);
+      if (refusal) setAgreed(null);
       setProblem(
-        agreementBlockedWords(e) ??
-          (e instanceof Error ? e.message : "We could not start your subscription"),
+        purchaseErrorWords(e) ??
+          (refusal
+            ? refusal.message
+            : e instanceof Error
+              ? e.message
+              : "We could not start your subscription"),
       );
     }
   }
@@ -144,7 +211,7 @@ export function Subscribe({
           setConfirmed(true);
           // Signed in now: if they have a continuation offer, they see it in place of the trial
           // (the plans again), never a trial page opened over it.
-          const fresh = onPlans((await offers.refetch()).data?.offers);
+          const fresh = onPlans(offers.refetch ? (await offers.refetch()).data?.offers : []);
           if (fresh.length) {
             setNoTrial(null);
             setCodeSent(false);
@@ -184,9 +251,39 @@ export function Subscribe({
     }
   }
 
-  if (noTrial?.started.noTrial) {
+  if (due && agreements) {
+    const { planId, hasTrial, customer, offer, owed } = due;
+    const back = () => setDue(null);
+    return customer ? (
+      <MemberAgreementStep
+        agreements={agreements}
+        documents={due.documents}
+        continueLabel="Agree and subscribe"
+        onCancel={back}
+        onAgreed={(copy) => {
+          setDue(null);
+          setSaid(copy);
+          void onSubscribe(planId, hasTrial, true, offer, owed, null);
+        }}
+      />
+    ) : (
+      <GuestAgreementStep
+        agreements={agreements}
+        documents={due.documents}
+        continueLabel="Agree and subscribe"
+        onCancel={back}
+        onAgreed={(given) => {
+          setDue(null);
+          setAgreed({ planId, given });
+          void onSubscribe(planId, hasTrial, false, offer, owed, given);
+        }}
+      />
+    );
+  }
+
+  const reason = noTrial?.started.noTrial;
+  if (noTrial && reason) {
     const { planId, started } = noTrial;
-    const reason = started.noTrial;
     return (
       <section className="grid max-w-sm gap-3" aria-label="Subscribe" data-no-trial={reason}>
         <p role="status">{noTrialWords(reason)}</p>
@@ -326,6 +423,12 @@ export function Subscribe({
           </Card>
         );
       })}
+      {said ? <p role="status">{said}</p> : null}
+      {agreed ? (
+        <p className="text-sm">
+          What you agreed to is kept for this subscription: press Subscribe to try again.
+        </p>
+      ) : null}
       {problem ? <p role="alert">{problem}</p> : null}
     </section>
   );

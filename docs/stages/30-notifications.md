@@ -32,6 +32,14 @@ Specs this one must fit: [`47-pack-screens.md`](47-pack-screens.md), `48-my-acco
 Status: **spec agreed** (owner interviewed 2026-11-24: decision 1; decisions 2 to 11 by the
 coordinator as best practice the same day). Build may start.
 
+- Step 1, routine messages (PR #339, `feat/stage-30-routine-messages`): built. Text and push
+  words in a kind's declaration, checked to fit; a row per recipient and channel, held for what
+  its own words show (`held`); quiet hours and urgent kinds, released by the minute cron; the
+  host kinds' send path; Bookings' and Ticketing's text and push words. Migration 0910, ADRs 0670
+  and 0676 (ADR 0590 amended). The name a text begins with and the zone of quiet hours are human
+  admins' routine settings (`senderName`, `quietZone`). Left: nothing reaches a phone until steps
+  3 to 5; step 2 takes migration 0915 for the subscription's card expiry and sent markers.
+
 ## Goal
 
 A business reaches its members and staff on the channel that suits each message: email, a text
@@ -633,7 +641,9 @@ notices.
 Block **BB**: migrations 0910 to 0929, ADRs 0670 to 0679. Expected:
 
 - **0910**: `core_routine_mail` grows (channel, statuses, cost, segments, provider ref, delivered,
-  wait until); `core_subscription` gains the card's expiry and the sent markers.
+  wait until, and `until_at`, the kind's moment, for `expired`; automation and run nullable for host
+  kinds). Built in step 1. `core_subscription`'s card expiry and sent markers were left to step 2,
+  which owns their design: it takes the block's next free number (0915).
 - **0911**: `core_text_spend`, `core_phone_check`.
 - **0912**: `core_push_device`.
 - **0913**: `core_contact_choice`, `core_contact_suppression`.

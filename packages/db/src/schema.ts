@@ -1455,13 +1455,16 @@ export interface CoreRoutineMailTable {
   extension_id: string;
   record_object: string;
   record_id: string;
+  /** Migration 0910 (ADR 0670): the channel this row goes on. */
+  channel: Defaulted<"email" | "text" | "push">;
   recipient: string;
   recipient_rule: "person" | "guardian" | "order";
   recipient_person_id: Defaulted<string | null>;
   recipient_key: string;
   about_person_id: Defaulted<string | null>;
-  automation_id: string;
-  run_id: string;
+  /** Null for a host kind's row (migration 0910): host code asked for it, not an automation. */
+  automation_id: string | null;
+  run_id: string | null;
   trigger_type: string;
   triggered_by: Defaulted<string | null>;
   idempotency_key: string;
@@ -1469,7 +1472,20 @@ export interface CoreRoutineMailTable {
   ordinary: Defaulted<number>;
   claimed_at: Defaulted<string | null>;
   held_reason: Defaulted<string | null>;
-  status: "off" | "ready" | "sending" | "sent" | "waiting" | "denied" | "failed";
+  status:
+    | "off"
+    | "ready"
+    | "sending"
+    | "sent"
+    | "delivered"
+    | "waiting"
+    | "held"
+    | "denied"
+    | "failed"
+    | "stopped"
+    | "expired"
+    | "over_limit"
+    | "no_channel";
   connection_id: Defaulted<string | null>;
   subject: Defaulted<string | null>;
   body: Defaulted<string | null>;
@@ -1478,6 +1494,15 @@ export interface CoreRoutineMailTable {
   sources: Defaulted<string | null>;
   pending_action_id: Defaulted<string | null>;
   error: Defaulted<string | null>;
+  /** A text's segments and cost (migration 0910). */
+  segments: Defaulted<number | null>;
+  cost_minor: Defaulted<number | null>;
+  provider_ref: Defaulted<string | null>;
+  delivered_at: Defaulted<string | null>;
+  /** Quiet hours (ADR 0676): a waiting text or push goes at this moment. */
+  wait_until: Defaulted<string | null>;
+  /** The kind's moment for the record: a text or push not sent by then is `expired`. */
+  until_at: Defaulted<string | null>;
   created_at: string;
   updated_at: string;
 }
@@ -1988,6 +2013,80 @@ export interface CorePayLineTable {
   list_taken: number | null;
   marked_by: string | null;
   flagged: number;
+}
+
+/** Migration 1150 (stage 52 step 1, ADR 0790): one version of one closed month. */
+export interface CoreFinancePeriodTable {
+  id: string;
+  /** `YYYY-MM`. */
+  month: string;
+  start_date: string;
+  end_date: string;
+  zone: string;
+  /** Local midnights as unix seconds, half-open. */
+  starts: number;
+  ends: number;
+  version: number;
+  state: "closing" | "closed" | "reopened";
+  closed_by: string;
+  closed_at: string;
+  entry_count: number;
+  line_count: number;
+  row_count: number;
+  reopened_by: string | null;
+  reopened_at: string | null;
+  reopen_reason: string | null;
+}
+
+/** Migration 1150 (stage 52 step 1, ADR 0791): one book entry of a closed version. */
+export interface CoreFinanceEntryTable {
+  period_id: string;
+  entry_key: string;
+  n: number;
+  kind: "day" | "payout" | "held" | "late";
+  date: string;
+  belongs_to: string | null;
+  fingerprint: string;
+}
+
+/** Migration 1150 (stage 52 step 1, ADR 0791): one line of a book entry. */
+export interface CoreFinanceEntryLineTable {
+  period_id: string;
+  entry_key: string;
+  n: number;
+  heading: string;
+  side: "debit" | "credit";
+  amount: number;
+  tax_code: string | null;
+  tax_country: string | null;
+  method: string | null;
+  category: string | null;
+}
+
+/** Migration 1150 (stage 52 step 1, ADR 0790): a report's row as a version closed it. */
+export interface CoreFinanceRowTable {
+  period_id: string;
+  report: "sales" | "tax" | "refunds" | "payouts" | "owed" | "held" | "unearned" | "members";
+  n: number;
+  person_id: string | null;
+  name: string | null;
+  email: string | null;
+  /** JSON: the row's amounts, dates and order ids, never a name. */
+  data: string;
+}
+
+/** Migration 1150 (stage 52 step 1, ADR 0790): a source a version counted. */
+export interface CoreFinanceCountedTable {
+  source_kind: string;
+  source_id: string;
+  period_id: string;
+  month: string;
+}
+
+/** Migration 1150 (stage 52 step 1, ADR 0790): the close's guard; nothing is stored. */
+export interface CoreFinanceGuardTable {
+  expected: number;
+  actual: number;
 }
 
 /** Migration 0812 (stage 45, ADR 0624): the local date the roster's daily work last ran. */
@@ -3603,6 +3702,12 @@ export interface CoreDatabase {
   core_staff_not_worked: CoreStaffNotWorkedTable;
   core_pay_period: CorePayPeriodTable;
   core_pay_line: CorePayLineTable;
+  core_finance_period: CoreFinancePeriodTable;
+  core_finance_entry: CoreFinanceEntryTable;
+  core_finance_entry_line: CoreFinanceEntryLineTable;
+  core_finance_row: CoreFinanceRowTable;
+  core_finance_counted: CoreFinanceCountedTable;
+  core_finance_guard: CoreFinanceGuardTable;
   core_write_guard: CoreWriteGuardTable;
   core_allowance: CoreAllowanceTable;
   core_allowance_period: CoreAllowancePeriodTable;

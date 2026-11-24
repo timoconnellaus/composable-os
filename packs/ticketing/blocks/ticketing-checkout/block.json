@@ -2,9 +2,17 @@
   "name": "ticketing-checkout",
   "pack": "ticketing",
   "skin": "web",
-  "operations": ["x.ticketing.orderStart", "order.checkout", "order.get", "order.view"],
+  "operations": [
+    "x.ticketing.orderStart",
+    "order.checkout",
+    "order.get",
+    "order.view",
+    "me.agreements.due",
+    "me.agreements.accept",
+    "agreement.guestVersions"
+  ],
   "files": ["ticket-picker.tsx", "LICENSE"],
-  "dependsOn": ["ui-button", "ui-input", "ui-label"],
+  "dependsOn": ["ui-button", "ui-input", "ui-label", "web-agree"],
   "packages": {
     "@composable-os/client": "*",
     "@composable-os/pack-ticketing": "*"

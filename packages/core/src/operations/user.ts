@@ -409,6 +409,8 @@ export async function grantable(
     "orders:discount": "Give money off an order at the desk, with a reason (up to the set limit)",
     "people:cards": "Issue and revoke members' check-in cards",
     "stock:adjust": "Record opening stock and correct how many are on hand",
+    "finance:read": "See the finance reports and download their files",
+    "finance:close": "Close and reopen a month's finance figures",
   };
   return [
     ...GRANTABLE_PERMISSIONS.map((permission) => ({

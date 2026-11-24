@@ -29,6 +29,8 @@ export interface TransitionOptions {
   by: Mover;
   /** Stage reads shared across one operation (an import touches the same few stages). */
   cache?: StageCache | undefined;
+  /** The record import (`record.import`, a person's door) is writing it: someone moving over. */
+  imported?: boolean | undefined;
 }
 
 /**
@@ -152,6 +154,7 @@ export async function applyTransition(
       before,
       { ...(before ?? {}), ...written, ...outcome.values },
       options.by,
+      options.imported === true,
     );
     // A capacity claimant's states hold and give back its place (ADR 0501), in this batch.
     // Its waitlist (ADR 0520): a promotion's hold given back before its place is claimed; a

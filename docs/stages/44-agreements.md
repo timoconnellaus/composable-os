@@ -36,7 +36,10 @@ decisions 15 to 22; step 1 built on `feat/stage-44-documents`, ADRs 0640 and 064
 amended; step 7, cooling off, built on `feat/stage-44-cooling-off`, ADR 0647; step 8, erase,
 merge and retention, built on `feat/stage-44-erase`, ADR 0646; step 6, signing at the desk, built
 on `feat/stage-44-desk-signing` together with stage 51's step 1 (the enrolled device), ADRs 0649
-and 0780; build notes at the end).
+and 0780; staff-given enrolments and hand-made tickets asked (issue #281), built on
+`fix/issue-281-agreements-staff-given`, ADR 0644 amended; the inline step in the Ticketing and
+Courses checkouts (issue #292), built on `feat/issue-292-agreement-step-checkouts`, ADR 0644
+amended; build notes at the end).
 Builds on stages 25, 31a and 32. The first client is a gym moving from another system. It must be in
 place before members pay or train on the new system (decision 13).
 
@@ -1431,8 +1434,9 @@ Every path that makes an order, a subscription, a booking or a ticket, and wheth
 | What a paid line or a subscription grants (a pass, a ticket, an enrolment, a membership), renewals and period orders | No | The host's, after a purchase that was asked |
 | `order.checkout` of an order already started, a part-paid balance, cancelling, leaving a waitlist | No | Nothing new is bought or booked |
 | A plan change or a pause of a running subscription | No | An existing membership (open to review) |
-| `x.courses.enrol` (staff give access), the courses import | No | Courses' points are on what is sold; giving access is not buying; imported students are moving over |
-| A ticket made by hand | No | Tickets are what a paid line grants |
+| `x.courses.enrol` (staff give access), an enrolment made by hand | Yes, the engine, since issue #281 (`courses.enrolment` declares `course` with `enter: ["active"]`) | Giving access starts it as buying it does; first built as No |
+| The courses import (`record.import`) | No (`importMovesOver`) | Imported students are moving over |
+| A ticket made by hand | Yes, the engine, since issue #281 (`ticketing.ticket` declares `event` with `enter: ["valid"]`, `keeps: ["valid", "used"]`) | First built as No: tickets are what a paid line grants, but staff can make one |
 
 Deviations from the text above, and why:
 
@@ -1470,6 +1474,32 @@ guest's purchase with a minor's address stands, the child stays due for a guardi
 with `agreements:manage` are told. `order.setPerson` takes only a Person with the order's
 address, and a minor only once nothing is due. Left as a follow-up (an issue): staff-given
 enrolments and hand-made tickets are not asked while `givePass` is.
+
+### Issue #281: staff-given enrolments and hand-made tickets are asked (`fix/issue-281-agreements-staff-given`, 2026-11-24)
+
+Built: `courses.enrolment` declares the `course` point (`enter: ["active"]`, `person: "holder"`,
+`importMovesOver: true`) and `ticketing.ticket` the `event` point (`enter: ["valid"]`,
+`keeps: ["valid", "used"]`, `person: "holder"`), so `x.courses.enrol`, an enrolment or a ticket
+made with `record.create`, an ended enrolment made active again and a ticket given to another
+holder ask as `givePass` does, for every actor. What a paid line grants stays the host's and is not
+asked. Two optional fields on the declaration (SDK and contract, only with `enter`):
+
+- **`keeps`**: for an object without `claims`, the states a record keeps its entry in. A record
+  created in one is asked (a ticket made straight into "used"), and a move between two of them is
+  the same entry (staff undoing a check-in after "agree again" asks nobody). It is `claims`'
+  "held or confirmed" for an object that holds no place; an object with `claims` may not declare it.
+- **`importMovesOver`**: a record `record.import` makes (the courses import's door, a person
+  only, not on MCP) is someone moving over and is not asked; a later import giving it to another
+  Person or making it active again is asked (the review of PR #357). The CSV record import
+  (`import.records.commit`) is still asked: it is open to the assistant, so leaving it out would be
+  a way round for an AI actor. A `source: "import"` value written by any other path is asked.
+
+Not built: a ticket made by hand with no holder names no Person and is not asked until it is given
+one (as a booking with no Person is not); nothing is asked of the payer on a hand-made record
+(`payer: null`, as `givePass`); a record restored from the Trash is not asked (the same entry);
+any person with `records:write` can make an enrolment through `record.import` unasked, whatever
+its `source` (the import is a person's door for moving over; open to the owner's review). Proof: `apps/runner/test/agreements-enforcement.test.ts` ("staff-given enrolments and
+hand-made tickets") and the contract checks in `packages/core/test/agreements.test.ts`.
 
 ## Step 4: build notes (`feat/stage-44-copy`, 2026-11-23)
 
@@ -1752,6 +1782,42 @@ signature drawn top to bottom and fast is not cut off or turned into a scroll; t
 finger without lag; a second finger on the pad draws nothing; Clear empties it; the keyboard does
 not cover the name field; VoiceOver and TalkBack read the tick label, the questions and the pad's
 state; the modal closes with the system back gesture; and a booking goes through after agreeing.
+
+### Issue #292: the agreement step in the Ticketing and Courses checkouts (2026-11-24)
+
+Built: the inline step in `ticketing-checkout` (`TicketPicker`, "Agree and pay"), `courses-course`
+(`CoursePage`, "Agree and buy") and `courses-subscribe` (`Subscribe`, "Agree and subscribe"), each
+with an optional `agreements` prop, as the Memberships blocks have it: the buying call goes through
+`withAgreements` and `forgetAfter`; on `agreements_due` a signed-in member gets
+`MemberAgreementStep` (each acceptance recorded at once) and a visitor `GuestAgreementStep` (held in
+the block's state, carried in `x.ticketing.orderStart`'s, `x.courses.buy`'s or
+`subscription.start`'s `agreements`, kept when the purchase fails for another reason, forgotten once
+it starts, on Back and on leaving the page); a minor is told a parent or guardian buys it. The
+packs' hooks make those calls with no cache kept after them (`gcTime: 0`, and `reset` through
+`forgetAfter`). `ticketing.tickettype` and `courses.course`, `courses.bundle` and `courses.plan`
+declare `inlineStep: true`, so the document page no longer warns at `event` or `course`. The buying
+tools already passed a visitor's `agreements` through (step 3).
+
+Decisions and deviations:
+
+- **No native step.** The issue says web and native blocks, but Ticketing's and Courses' native
+  blocks never buy (`noPurchase`, the owner's decision that buying is on the web), and the `event`
+  and `course` points are asked only at a purchase, so there is nothing in the app to put a step in.
+- **`courses-subscribe` is type-checked now** (it was missing from the blocks' `tsconfig.web.json`):
+  its two type errors are fixed without a change in behaviour (`refetch` on the pack's `UseQuery`,
+  and the no-trial reason narrowed as the Memberships plans block does).
+- **The "can't be given here yet" words stay** in `@composable-os/client` (`agreementBlockedWords`)
+  for a client app's own screen that buys without a step; no shipped block uses them now.
+
+Tests: `apps/runner/test/agreements-enforcement.test.ts` (every shipped point has its inline step;
+terms on `course` refuse a visitor's `x.courses.buy` until it carries them, recorded with the order
+as a guest's). E2E (`apps/app/e2e/agreement-blocks.spec.ts`), one journey: a signed-in member buys a
+course, agrees to its terms inline on the course page, pays, and holds the course.
+
+Not verified: the ticket checkout's step in a browser (the block takes an `onStarted` callback the
+`/blocks` page cannot pass, so no e2e mounts it; it is type-checked and is the same code as the
+course page's), and a visitor's step on the course page and on Subscribe (the drop-in's e2e covers
+the same `GuestAgreementStep`).
 
 ## Step 7: build notes (`feat/stage-44-cooling-off`, 2026-11-24)
 
