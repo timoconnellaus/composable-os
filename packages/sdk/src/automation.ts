@@ -432,6 +432,16 @@ export interface AutomationSpec<T extends AutomationTrigger = AutomationTrigger>
    * first install reads it; after that, on or off is the person's choice.
    */
   enabled?: boolean;
+  /**
+   * Other extensions, by id, this automation runs only with (ADR 0812): the extension installs
+   * without them, and the automation is listed as waiting and starts no run until every one is
+   * installed and on. Its trigger, steps and permissions may name their objects; those are
+   * checked at this extension's next install or upgrade while they are installed (`cos ext check`
+   * installs them from the directories beside it first), and listed as broken if one does not
+   * exist. Use it for one automation that needs another pack; `requires` makes the whole
+   * extension need it.
+   */
+  onlyWith?: readonly string[];
   run(event: AutomationEvent, step: AutomationStepApi, ctx: AutomationContext): Promise<unknown>;
 }
 
@@ -671,6 +681,11 @@ export const automationManifestSchema = z.object({
   rails: automationRailsSchema.optional(),
   connections: z.array(automationConnectionSchema).max(10).optional(),
   enabled: z.boolean().optional(),
+  onlyWith: z
+    .array(z.string().regex(/^[a-z][a-z0-9]*$/))
+    .min(1)
+    .max(5)
+    .optional(),
 });
 export type AutomationManifest = z.infer<typeof automationManifestSchema>;
 
