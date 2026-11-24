@@ -7,7 +7,6 @@
 // is validated explicitly, see validate.ts and sender.ts.
 
 import { DurableObject, RpcStub, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
-import { agreementPdf } from "@composable-os/agreement-pdf";
 import type {
   AccountDescription,
   ActionKind,
@@ -33,6 +32,7 @@ import {
   defineActions,
   type TaggedAction,
 } from "@composable-os/gatekeeper-kit/actions";
+import { agreementPdf } from "@composable-os/pdf";
 import { domainOf, parseDomainList } from "./address";
 import {
   AGREEMENT_FILENAME,

@@ -97,6 +97,8 @@ export const ID_PREFIXES = {
   staffOffer: "sfo",
   /** A time a staff member said they cannot work (stage 45, ADR 0622). */
   staffAway: "saw",
+  /** Open hours: when someone takes appointments, weekly or extra (stage 49, ADR 0762). */
+  staffHours: "soh",
   /** One locked version of a pay period (stage 45 step 6, ADR 0627). */
   payPeriod: "ppe",
   /** A checklist template (stage 45 step 4b, ADR 0650). */

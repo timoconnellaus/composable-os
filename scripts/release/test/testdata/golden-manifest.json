@@ -616,6 +616,10 @@
       "sha256": "de4d547480821eea343eaa81437f54d6b90926759211713f53d4ab86acf50c60"
     },
     {
+      "name": "1090_staff_hours.sql",
+      "sha256": "0480b60eb82006572545fc8963478f1de13fbfc82e956332d941a009046bae48"
+    },
+    {
       "name": "1150_finance_periods.sql",
       "sha256": "f00ea7db2b5af20416d07dbeb797fdc551ba5cbff3eaacdbc6eeaa94158bc56d"
     }
