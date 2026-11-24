@@ -32,6 +32,7 @@ import { isTimezone, loadGeneralSettings } from "../settings.ts";
 import { shiftTitle, shiftZone } from "../staffing/changes.ts";
 import { staffingDue, staffingWorkDue, uncoveredShifts } from "../staffing/due.ts";
 import { eligibilityOf, eligibleAccounts } from "../staffing/eligibility.ts";
+import { WEEKDAYS } from "../staffing/hours.ts";
 import {
   checkShift,
   doubleBooked,
@@ -96,7 +97,7 @@ export async function assertShippedToolRun(ctx: HandlerContext, name: string): P
  * `unavailable` warnings, so an AI learns clashes and qualifications but never who is away (ADR
  * 0629). Null for a person, who sees them all.
  */
-export function withoutAway(
+function withoutAway(
   ctx: HandlerContext,
 ): (<W extends { code: string }>(warnings: W[]) => W[]) | null {
   if (ctx.extension?.tool?.calledBy?.actor === "human") return null;
@@ -129,17 +130,16 @@ export async function assertRosterer(ctx: HandlerContext, what: string): Promise
   }
 }
 
-// --- Shapes ---------------------------------------------------------------------------------------
+// --- Shapes (the staffing operations' own, shared by every staffing-*.ts) ---------------------------
 
-const objectName = z.string().min(1).max(81);
-const recordId = z.string().min(1).max(64);
-const accountId = z.string().min(1).max(64);
-const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
-const localDateTime = z
+export const objectName = z.string().min(1).max(81);
+export const recordId = z.string().min(1).max(64);
+export const accountId = z.string().min(1).max(64);
+export const localDateTime = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, "a local date and time, YYYY-MM-DDTHH:MM");
-const localDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date, YYYY-MM-DD");
-const localTime = z.string().regex(/^[0-2]\d:[0-5]\d$/, "a time, HH:MM");
+export const localDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date, YYYY-MM-DD");
+export const localTime = z.string().regex(/^[0-2]\d:[0-5]\d$/, "a time, HH:MM");
 
 const otherShift = z.object({
   object: z.string(),

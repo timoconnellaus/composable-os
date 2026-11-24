@@ -18,6 +18,7 @@ import type { Compilable, CompiledQuery } from "kysely";
 import { sql } from "kysely";
 import { getObject } from "../fields/index.ts";
 import type { HandlerContext, RecordChange } from "../operation.ts";
+import { jsonList } from "../records/common.ts";
 import type { Standing } from "../routine-mail/marks.ts";
 
 /** One signal a write made: about whom, which, and the record that made it. */
@@ -108,8 +109,6 @@ export function queueMergeSignals(ctx: HandlerContext, survivorId: string, merge
 export function queueEraseSignals(ctx: HandlerContext, personIds: readonly string[]): void {
   if (!personIds.length) return;
   ctx.write(
-    sql`DELETE FROM core_person_signal WHERE person_id IN (SELECT value FROM json_each(${JSON.stringify(personIds)}))`.compile(
-      ctx.db,
-    ),
+    sql`DELETE FROM core_person_signal WHERE person_id IN ${jsonList(personIds)}`.compile(ctx.db),
   );
 }

@@ -19,6 +19,7 @@ import type { FieldDefinition, ObjectDefinition } from "../fields/types.ts";
 import { compileFilter, OPS_BY_TYPE } from "../filter.ts";
 import type { HandlerContext } from "../operation.ts";
 import { jsonList } from "../records/common.ts";
+import { isEmptyValue } from "../records/transitions.ts";
 import { visibleSource } from "../visibility/index.ts";
 
 export const ASSIGNMENT_OPS = ["eq", "in", "between", "is_null", "is_not_null"] as const;
@@ -128,18 +129,9 @@ export function validateConditions(
 
 // --- Evaluation ------------------------------------------------------------------------------
 
-function isEmpty(value: unknown): boolean {
-  return (
-    value === null ||
-    value === undefined ||
-    (typeof value === "string" && value.trim() === "") ||
-    (Array.isArray(value) && value.length === 0)
-  );
-}
-
 /** A value as the filter compiler compares it (text case-insensitively, booleans as 0/1). */
 function comparable(field: FieldDefinition, value: unknown): string | number | null {
-  if (isEmpty(value)) return null;
+  if (isEmptyValue(value)) return null;
   switch (field.type) {
     case "number": {
       const n = typeof value === "number" ? value : Number(value);

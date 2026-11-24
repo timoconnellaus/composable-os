@@ -27,6 +27,7 @@ import {
   type SeriesRule,
 } from "../recurring/index.ts";
 import { isTimezone, loadGeneralSettings } from "../settings.ts";
+import { WEEKDAYS } from "../staffing/hours.ts";
 import { kindObjectOf, personValueFor, warningsOf } from "../staffing/index.ts";
 import { localDateOf } from "../staffing/pay.ts";
 import {
@@ -52,18 +53,16 @@ import { parseLocalDate, parseLocalTime, wallClockOf, wallClockToInstant } from 
 import { visibleSource } from "../visibility/index.ts";
 import { fromRow, loadRecord, staffWarningSchema, updateRecord } from "./record.ts";
 import {
+  accountId,
   assertPersonApplies,
   assertRosterer,
   assertShippedToolRun,
+  localDate,
+  localTime,
+  objectName,
+  recordId,
   requireLiveShift,
 } from "./staffing.ts";
-
-const objectName = z.string().min(1).max(81);
-const recordId = z.string().min(1).max(64);
-const accountId = z.string().min(1).max(64);
-const localDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date, YYYY-MM-DD");
-const localTime = z.string().regex(/^[0-2]\d:[0-5]\d$/, "a time, HH:MM");
-const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 
 // biome-ignore lint/suspicious/noExplicitAny: x_* tables are not in CoreDatabase; names come from the registry.
 type AnyDb = import("kysely").Kysely<any>;
@@ -73,11 +72,11 @@ const iso = (seconds: number) => new Date(seconds * 1000).toISOString();
 const text = (value: unknown) => (typeof value === "string" && value !== "" ? value : null);
 
 /** The most people one screen's read lists (a business's staff is far fewer). */
-export const PEOPLE_MAX = 200;
+const PEOPLE_MAX = 200;
 /** The most people a shift's candidates are worked out for (each is a few indexed reads). */
-export const CANDIDATES_MAX = 100;
+const CANDIDATES_MAX = 100;
 /** The most series of one object the regular week lists. */
-export const PATTERNS_MAX = 300;
+const PATTERNS_MAX = 300;
 
 /** Active people's staff accounts (never a deactivated one, never an agent), by name. */
 async function activePeople(
@@ -253,7 +252,7 @@ export const staffingCandidates = defineOperation({
       : null;
     const claims = claimSpan
       ? await claimsOf(ctx, accounts, claimSpan.starts, claimSpan.ends)
-      : new Map();
+      : new Map<string, HeldClaim[]>();
     // Who is away is a person's to read (ADR 0629): an assistant acting for a rosterer learns
     // clashes and qualifications, never who is away.
     const person = ctx.extension?.tool?.calledBy?.actor === "human";
@@ -763,6 +762,12 @@ export const staffingPlanCheck = defineOperation({
       if (!isTimezone(zone)) throw new ValidationError(`${zone} is not a time zone`);
       const minutes = parseLocalTime(plan.time);
       if (minutes === null) throw new ValidationError(`${plan.time} is not a time`);
+      for (const field of ["date", "firstDate", "lastDate"] as const) {
+        const date = plan[field];
+        if (date !== undefined && !parseLocalDate(date)) {
+          throw new ValidationError(`${date} is not a real date`, { field });
+        }
+      }
       let occurrences: { date: string; starts: number; ends: number }[];
       if (plan.date) {
         const starts = wallClockToInstant(wallClockOf(plan.date, minutes), zone) / 1000;
@@ -825,8 +830,8 @@ export const staffingPlanCheck = defineOperation({
     const all = dated.flat();
     const lo = Math.min(...all.map((o) => o.starts), now);
     const hi = Math.max(...all.map((o) => o.ends), now);
-    const held = accounts.length ? await claimsOf(ctx, accounts, lo, hi) : new Map();
-    const awayRows = accounts.length ? await awayRowsOf(ctx, accounts, lo, hi) : new Map();
+    const held = await claimsOf(ctx, accounts, lo, hi);
+    const awayRows = await awayRowsOf(ctx, accounts, lo, hi);
     const kinds = input.plans.flatMap((p) => (p.account && p.kind ? [p.kind] : []));
     const notQualifiedFor = kinds.length ? await notQualifiedOf(ctx, accounts, kinds) : null;
     // Claims bucketed by day, so each date is checked against only its neighbours.
@@ -857,7 +862,7 @@ export const staffingPlanCheck = defineOperation({
     };
     const heldBuckets: Bucketed = new Map();
     for (const [account, list] of held) {
-      for (const c of list as HeldClaim[])
+      for (const c of list)
         bucket(heldBuckets, account, { starts: c.starts, ends: c.ends, ref: c });
     }
     const planned: Bucketed = new Map();
