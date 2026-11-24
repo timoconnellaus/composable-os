@@ -354,6 +354,34 @@ Platform use only: publish the scheduled publishes whose time has come (the minu
 | `published[].version` | number | yes |   |   |
 | `dropped` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
 
+## record.readRestricted
+
+From a pack's tool a person calls themselves (humanOnly) that names the field's restricted permission: read one restricted field (a text kept out of every view, list, search and export) of up to 50 live records of the pack's own object. Records that are not live are left out; a record with nothing kept reads null. Every read is audited with the records named, never the values. Refused to an assistant, MCP, an automation and any other pack. Read-only.
+
+|  |  |
+| --- | --- |
+| Permission | `records:read` |
+| Risk | `read` |
+| Audiences | `staff` |
+| Actors | `extension` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `object` | string | yes | min length 1, max length 80 | The pack's object, e.g. `reviews.review` |
+| `field` | string | yes | min length 1, max length 80 | Its restricted field |
+| `ids` | array of string | yes | at least 1, at most 50 |   |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `values` | array of object | yes |   |   |
+| `values[].id` | string | yes |   |   |
+| `values[].value` | string or null | yes |   |   |
+
 ## record.restore
 
 Restore a record of an extension object from Trash (within 30 days of its deletion). Returns the restored record.

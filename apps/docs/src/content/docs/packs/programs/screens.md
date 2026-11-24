@@ -14,7 +14,7 @@ Screens a shipped pack declares are built into the admin and shown to whoever co
 | --- | --- | --- | --- | --- | --- |
 | `bank` | Exercise bank | [programs-bank](/reference/blocks/programs-bank/) (`ExerciseBank`) | Programs, 10 |  writes `programs.exercise` |   |
 | `builder` | Program builder | [programs-builder](/reference/blocks/programs-builder/) (`ProgramWorkspace`) | Programs, 20 | [importText](/packs/programs/tools/#importtext) writes `programs.program` |   |
-| `client` | Programs | [programs-coach-client](/reference/blocks/programs-coach-client/) (`CoachClient`) |   | [logAdd](/packs/programs/tools/#logadd), [sessionComplete](/packs/programs/tools/#sessioncomplete) | `person` |
+| `client` | Programs | [programs-coach-client](/reference/blocks/programs-coach-client/) (`CoachClient`) |   | [logAdd](/packs/programs/tools/#logadd), [logRemove](/packs/programs/tools/#logremove), [sessionComplete](/packs/programs/tools/#sessioncomplete) | `person` |
 
 ## Blocks
 
@@ -29,8 +29,8 @@ Screens a shipped pack declares are built into the admin and shown to whoever co
 | [programs-native-coach-client](/reference/blocks/programs-native-coach-client/) | native | The coach's view of one client, for the staff app (stage 41): their sessions, newest first; pressing one opens it to log on their behalf (`onOpen`, to the session screen with `personId`). |
 | [programs-native-history](/reference/blocks/programs-native-history/) | native | A person's past sessions, for the mobile app (stage 41): newest first, each with its date, its name and how many of its sets were logged; pressing one shows it set by set, read-only, and a logged set can be corrected. |
 | [programs-native-progress](/reference/blocks/programs-native-progress/) | native | History and progress, for the mobile app (stage 41): sessions done per program, and per exercise the sets and bests the host worked out; pressing an exercise shows its sets. |
-| [programs-native-session](/reference/blocks/programs-native-session/) | native | One session to do, for the mobile app (stage 41): targets, last time's numbers, a row per set to log what was done and how hard it felt, a rest timer, and marking it done. |
+| [programs-native-session](/reference/blocks/programs-native-session/) | native | One session to do, for the mobile app (stage 41): the workout logger. |
 | [programs-native-today](/reference/blocks/programs-native-today/) | native | A member's day, for the mobile app (stage 41): their own sessions on a date; pressing one opens it (the app's navigation, `onOpen`). |
 | [programs-progress](/reference/blocks/programs-progress/) | web | History and progress (stage 41): per exercise, a person's sets over time and their bests; per program, sessions done against planned. |
-| [programs-session](/reference/blocks/programs-session/) | web | One session to do (stage 41): its plan with every target, last time's numbers at each exercise, a row per set to log what was done and how hard it felt, a rest timer after each set, and marking the session done. |
+| [programs-session](/reference/blocks/programs-session/) | web | One session to do (stage 41): the workout logger, built on the web base layer. |
 | [programs-today](/reference/blocks/programs-today/) | web | A member's day (stage 41): their own sessions on a date, each opened to do it. |

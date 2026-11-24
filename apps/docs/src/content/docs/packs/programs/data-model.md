@@ -421,7 +421,7 @@ One set someone did: the exercise, the target and what was done, how hard it fel
 | Plural | Logged sets |
 | Title field | `label` |
 | Listed in | main |
-| Behaviours | [`customer`](/reference/behaviours/#customer) |
+| Behaviours | [`unique`](/reference/behaviours/#unique), [`customer`](/reference/behaviours/#customer) |
 | Indexes | `person, exercise, date`; `session`; `exercise, date`; `person, date` |
 
 ### Fields
@@ -449,6 +449,7 @@ One set someone did: the exercise, the target and what was done, how hard it fel
 | `recordedAs` | `select` | Recorded by |   | one of `self`, `staff` |   |
 | `recordedBy` | `user` | Recorded by (coach) |   |   |   |
 | `recordedByName` | `text` | Recorded by (name) |   |   |   |
+| `setKey` | `text` | Set key |   |   | Session, item, exercise and set number: one row per set and person, however many saves of it arrive. |
 | `source` | `select` | Where it came from |   | one of `import` | Imported: brought in from before the platform; it started nothing when it was. |
 
 ### Relations
@@ -465,6 +466,14 @@ One set someone did: the exercise, the target and what was done, how hard it fel
 
 ```json
 {
+  "unique": [
+    {
+      "fields": [
+        "person",
+        "setKey"
+      ]
+    }
+  ],
   "customer": {
     "field": "person",
     "read": [
@@ -495,7 +504,8 @@ One set someone did: the exercise, the target and what was done, how hard it fel
       "actualLoad",
       "rpe",
       "note"
-    ]
+    ],
+    "delete": true
   }
 }
 ```

@@ -33,6 +33,30 @@ From a tool called by a customer: create a record that belongs to that customer.
 | `id` | string | yes |   |   |
 | `values` | map of any | yes |   |   |
 
+## my.delete
+
+From a tool called by a customer: put one of that customer's own records in the Trash, where its object lets its customer remove their own (`customer.delete`). A record that is not theirs, or of an object that does not allow it, is reported as not found or refused. Staff can restore it from the Trash. Returns the id.
+
+|  |  |
+| --- | --- |
+| Permission | `records:write` |
+| Risk | `write` |
+| Audiences | `customer` |
+| Also | called only from a tool's run (`toolOnly`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `object` | string | yes | min length 1, max length 80 | An object that declares a customer, e.g. `shop.order` |
+| `id` | string | yes | min length 1, max length 64 | Record id |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes |   |   |
+
 ## my.get
 
 One of your own records (or one that a record of yours points to, such as your ticket's event), as a signed-in customer, with only the fields you may see. A record that is not yours is not found. Read-only.

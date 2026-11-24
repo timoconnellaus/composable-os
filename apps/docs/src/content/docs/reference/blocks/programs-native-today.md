@@ -4,7 +4,7 @@ description: "A member's day, for the mobile app (stage 41): their own sessions 
 editUrl: false
 ---
 
-A member's day, for the mobile app (stage 41): their own sessions on a date; pressing one opens it (the app's navigation, `onOpen`). Which sessions are theirs is the host's (`useToday`).
+A member's day, for the mobile app (stage 41): their own sessions on a date; pressing one opens it (the app's navigation, `onOpen`). Which sessions are theirs is the host's (`useToday`). Sets logged in a session and not saved yet (no connection in the gym) are said here too, and sent again when the app comes back or goes to the background (`useUnsavedSets`).
 
 |  |  |
 | --- | --- |

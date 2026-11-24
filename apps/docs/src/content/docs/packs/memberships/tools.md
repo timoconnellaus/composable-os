@@ -251,14 +251,6 @@ None.
 The operations its code may call through `ctx.ops`, as its manifest asks for them.
 
 - [`public.list`](/reference/operations/public/#publiclist)
-- [`public.get`](/reference/operations/public/#publicget)
-- [`my.list`](/reference/operations/my/#mylist)
-- [`my.get`](/reference/operations/my/#myget)
-- [`record.create`](/reference/operations/record/#recordcreate)
-- [`record.update`](/reference/operations/record/#recordupdate)
-- [`record.get`](/reference/operations/record/#recordget)
-- [`record.list`](/reference/operations/record/#recordlist)
-- [`allowance.get`](/reference/operations/allowance/#allowanceget)
 - [`allowance.list`](/reference/operations/allowance/#allowancelist)
 - [`order.start`](/reference/operations/order/#orderstart)
 - [`me.family`](/reference/operations/me/#mefamily)

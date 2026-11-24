@@ -12,7 +12,7 @@ A tool with no permission of its own is held by admins and members as any tool i
 
 | Permission | Tools | Restricted | Grantable | Roles holding it | What a grant gives |
 | --- | --- | --- | --- | --- | --- |
-| `programs:coach` | [today](/packs/programs/tools/#today), [sessionGet](/packs/programs/tools/#sessionget), [logAdd](/packs/programs/tools/#logadd), [logUpdate](/packs/programs/tools/#logupdate), [sessionComplete](/packs/programs/tools/#sessioncomplete), [history](/packs/programs/tools/#history), [progress](/packs/programs/tools/#progress) |   |   | `programs.coach` |   |
+| `programs:coach` | [today](/packs/programs/tools/#today), [sessionGet](/packs/programs/tools/#sessionget), [logAdd](/packs/programs/tools/#logadd), [logRemove](/packs/programs/tools/#logremove), [logUpdate](/packs/programs/tools/#logupdate), [sessionComplete](/packs/programs/tools/#sessioncomplete), [history](/packs/programs/tools/#history), [progress](/packs/programs/tools/#progress) |   |   | `programs.coach` |   |
 
 ## Roles
 

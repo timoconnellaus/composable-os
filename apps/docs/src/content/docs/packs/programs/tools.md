@@ -210,7 +210,7 @@ A class type's sessions on a date (default today, UTC), with their plans: every 
 
 ### logAdd
 
-Log one set done on a session: the item (A1), the exercise when the item has more than one, the level taken when it has levels, which set (1, 2, …), what was done (reps, seconds, load) and how hard it felt (RPE). The target is taken from the session's plan, and who recorded it is the caller. A member logs on their own sessions and their class types'; a coach logs for a client (on a class session, naming them). Nobody logs on a session that is not theirs. Returns the set.
+Log one set done on a session: the item (A1), the exercise when the item has more than one, the level taken when it has levels, which set (1, 2, …), what was done (reps, seconds, load) and how hard it felt (RPE). The target is taken from the session's plan, and who recorded it is the caller. A member logs on their own sessions and their class types'; a coach logs for a client (on a class session, naming them). Nobody logs on a session that is not theirs. A set already logged (a retried save, a second device) is not logged twice: its numbers and effort become these, and its note is kept unless one is given. Returns the set.
 
 |  |  |
 | --- | --- |
@@ -257,6 +257,33 @@ Log one set done on a session: the item (A1), the exercise when the item has mor
 | `recordedAs` | string or null | yes |   |   |
 | `recordedByName` | string or null | yes |   |   |
 | `exerciseName` | string or null | yes |   | The exercise's name, as it was when logged |
+
+### logRemove
+
+Take back a set logged by mistake (un-tick it): the set with this number of a session's item and exercise. A member takes back their own; a coach a client's (on a class session, naming them). A set that is not logged changes nothing, so a retried call is safe. The row goes to the Trash, where staff can restore it. For staff the Trash is an extension's delete, so the org's approval policy may hold it for a person: `waiting` counts those. Returns how many rows were taken back.
+
+|  |  |
+| --- | --- |
+| Risk | `write` |
+| Audiences | `staff`, `customer` |
+| Permission | `programs:coach` |
+
+#### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `sessionId` | string | yes | min length 1, max length 64 |   |
+| `item` | string | yes | min length 1, max length 6 |   |
+| `exerciseId` | string | yes | min length 1, max length 64 |   |
+| `setNumber` | integer | yes | ≥ 1, ≤ 30 |   |
+| `personId` | string |   | min length 1, max length 64 | Staff: the person. A member is always themselves. |
+
+#### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `removed` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `waiting` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | Staff: rows whose removal waits for a person's approval |
 
 ### logUpdate
 
