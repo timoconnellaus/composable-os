@@ -8,38 +8,11 @@ import { seedDatabase } from "@composable-os/db/seed";
 import { beforeAll, describe, expect, it } from "vitest";
 import { type ActingUser, invokeByName } from "../src/index.ts";
 import { createUser } from "./helpers.ts";
+import { meterRowsRead } from "./rows-read-meter.ts";
 
 const PEOPLE = 3000;
-let rowsRead = 0;
-
-/** env.DB, counting meta.rows_read for every statement Kysely runs. */
-const metered = new Proxy(env.DB, {
-  get(target, prop) {
-    if (prop === "prepare") {
-      return (query: string) => {
-        const wrap = (stmt: D1PreparedStatement): D1PreparedStatement =>
-          new Proxy(stmt, {
-            get(s, p) {
-              if (p === "bind") return (...args: unknown[]) => wrap(s.bind(...args));
-              if (p === "all") {
-                return async () => {
-                  const result = await s.all();
-                  rowsRead += result.meta.rows_read;
-                  return result;
-                };
-              }
-              const value = Reflect.get(s, p);
-              return typeof value === "function" ? value.bind(s) : value;
-            },
-          });
-        return wrap(target.prepare(query));
-      };
-    }
-    const value = Reflect.get(target, prop);
-    return typeof value === "function" ? value.bind(target) : value;
-  },
-});
-const db = createCrmDb(metered);
+const meter = meterRowsRead(env.DB);
+const db = createCrmDb(meter.db);
 
 let member: ActingUser;
 let admin: ActingUser;
@@ -50,26 +23,21 @@ beforeAll(async () => {
   await seedDatabase(env.DB, { people: PEOPLE, organisations: 600, activities: 600, tasks: 400 });
 }, 120_000);
 
+/** The rows a call reads itself. A cold call may scan sqlite_master once (the schema cache). */
 async function read(name: string, input: unknown, user = member): Promise<number> {
-  rowsRead = 0;
+  meter.reset();
   await invokeByName(name, input, { actor: "human", user, origin: { surface: "ui" }, db });
-  return rowsRead;
+  expect(meter.schemaScans, name).toBeLessThanOrEqual(1);
+  return meter.rows;
 }
 
 describe("rows read on hot paths", () => {
   it("list pages in the default order walk the sort index", async () => {
-    // Includes one read of sqlite_master, a row per table, index and trigger: routine mail's log
-    // and marks (migration 0750) and stage 44's acceptances (migration 0851) took person.list
-    // from about 985 to about 1,030; stage 45's offers (migration 0812) to about 1,054; stage 44
-    // step 4's copies (migration 0854, a table, an index and its triggers) to about 1,065; stage
-    // 45's pay periods (migration 0813: four tables, five indexes, twelve triggers) to about 1,087;
-    // stage 45's checklists (migration 0815: five tables, seven indexes, ten triggers) to about 1,124;
-    // a child's paper copy to the guardian (migration 0857: an index, four triggers) to about 1,140;
-    // stage 44 step 7's cooling off (migration 0856: a column, a table, four indexes and its key's
-    // autoindex, three triggers): 1,138 measured on the merged tree; stage 38's published text and
-    // acks (migrations 0970, 0971) and stage 49's claims on a thing (migration 1095): 1,163
-    // measured on main of 2026-11-24.
-    expect(await read("person.list", { limit: 50 })).toBeLessThan(1_185);
+    // The page itself, about 420 rows; a cold call's one scan of sqlite_master (the schema
+    // cache, about 720 rows in November 2026) is counted apart. A warm call never scans it.
+    expect(await read("person.list", { limit: 50 })).toBeLessThan(500);
+    expect(await read("person.list", { limit: 50 })).toBeLessThan(500);
+    expect(meter.schemaScans).toBe(0);
     expect(await read("organisation.list", { limit: 50 })).toBeLessThan(1_050);
     expect(await read("activity.list", { limit: 50 })).toBeLessThan(1_500);
     expect(await read("task.list", { limit: 50 })).toBeLessThan(1_050);
