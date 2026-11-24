@@ -918,6 +918,13 @@ migration; no `core_write_guard` remake (0852 stays free).
   alone is unchanged. An AI's roster change is approved only by someone who could make it. See
   ADR 0626. (Step 4 as first written restricted only the tools: a member could still write a
   shift's person directly.)
+- **An AI's restore is approved only by a rosterer** (issue #285, 2026-11-24): a pending
+  `record.restore` of a shift or series in the Trash with someone on it, and a pending
+  `record.restoreVersion` of an object whose versioned content says who works it, are roster
+  changes for their approval (`rosterChangeCall` in `staffing/approvals.ts`, read by the approver
+  check and the queue's redaction); a restore of one with nobody on it is anyone's who may approve.
+  Tests: `apps/runner/test/rostering.test.ts` (a shift and a series, a member's approval refused and
+  a rosterer's applied), `packages/core/test/roster-approvals.test.ts`.
 - **A `rostering.team` account may be granted `rostering:manage`** by a human admin, and then rosters
   (ADR 0625 allows a fixed-role account any pack permission; a coach who also rosters is the case
   the spec names). This is deliberate.

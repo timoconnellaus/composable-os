@@ -473,21 +473,33 @@ export async function assertRosterRestore(
   object: ObjectDefinition,
   id: string,
 ): Promise<void> {
+  if (await namesSomeoneById(ctx.db as AnyDb, object, id)) {
+    await assertMayRoster(ctx, `restore a ${object.label.toLowerCase()} with someone on it`);
+  }
+}
+
+/**
+ * Whether `object`'s record `id`, as stored (in the Trash or not), says who works shifts: a
+ * shift's person, a series' regular person (for an approval of its restore, issue #285).
+ */
+export async function namesSomeoneById(
+  db: AnyDb,
+  object: ObjectDefinition,
+  id: string,
+): Promise<boolean> {
   const fields = rosterFields(object, true);
   const table = objectTableOf(object.name);
-  if (!fields.length || !table) return;
+  if (!fields.length || !table) return false;
   const columns = fields
     .map((f) => object.fields.find((x) => x.name === f)?.column)
     .filter((c): c is string => !!c);
-  if (!columns.length) return;
-  const row = (await (ctx.db as AnyDb)
+  if (!columns.length) return false;
+  const row = (await db
     .selectFrom(table)
     .select(columns.map((c, i) => `${c} as f${i}`))
     .where("id", "=", id)
     .executeTakeFirst()) as Record<string, unknown> | undefined;
-  if (row && columns.some((_, i) => text(row[`f${i}`]) !== null)) {
-    await assertMayRoster(ctx, `restore a ${object.label.toLowerCase()} with someone on it`);
-  }
+  return !!row && columns.some((_, i) => text(row[`f${i}`]) !== null);
 }
 
 /** Whether `values` (a write of `object`) would set who works shifts: for an approval (ADR 0626). */

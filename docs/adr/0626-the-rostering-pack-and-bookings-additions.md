@@ -98,6 +98,12 @@ ADR 0480's rule): approving a pending call of a restricted tool (`assign`, `qual
 person who holds that tool themselves (`staffAuthority`, their role or a grant); approving a
 pending record write of who works a shift needs a person who rosters (`staffing/approvals.ts`).
 The requester's authority still holds at apply too: a proposer whose grant was taken away fails.
+*Amended 2026-11-24 (issue #285):* an AI's restore is a roster change too. Approving a pending
+`record.restore` of a shift or series that names someone (read against the record in the Trash,
+as the restore's own check reads it) needs a person who rosters; one with nobody on it does not.
+Approving a pending `record.restoreVersion` of an object whose versioned content carries who works
+it needs one as well. The approval queue's redaction (ADR 0627) reads the same rule
+(`rosterChangeCall`).
 
 **`recurring.horizonSetting`**: a number setting of the extension (days) that sets a series' horizon
 when it holds a value; `horizonDays` stays the default. The duty series' is the duty horizon.
