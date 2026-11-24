@@ -3,6 +3,7 @@
 // Idempotency keys are per period (`<minute>` for schedules, `<recordId>:<date>` for date-relative
 // matches), so a repeated tick never starts a second run.
 import {
+  type AutomationDefinition,
   type AutomationSettings,
   addDaysToDate,
   cronMatches,
@@ -72,8 +73,10 @@ export async function runAutomationCron(
   const iso = at.toISOString();
 
   let schedule: StartResult | null = null;
-  const schedules = await loadEnabledAutomations(crm.query, ["schedule"]);
-  const due: RunCandidate[] = schedules
+  // One read of the enabled automations a tick serves, shared by the scans below.
+  const enabled = await loadEnabledAutomations(crm.query, ["schedule", "dateRelative"]);
+  const dateRelativeOnes = enabled.filter((a) => a.spec.trigger.type === "dateRelative");
+  const due: RunCandidate[] = enabled
     .filter((a) => a.spec.trigger.type === "schedule" && cronMatches(a.spec.trigger.cron, local))
     .map((a) => ({ automation: a, idempotencyKey: local.minuteKey, period: local.minuteKey }));
   if (due.length) {
@@ -89,7 +92,7 @@ export async function runAutomationCron(
   const dateRelative =
     local.hour > 0 || local.minute >= 5
       ? await onceFor(crm, DATE_RELATIVE_MARKER, local.date, () =>
-          runDateRelative(env, local.date, iso, settings),
+          runDateRelative(env, local.date, iso, settings, dateRelativeOnes),
         )
       : null;
   // Triggers counted in each record's own zone: once an hour, from five past, so a record's
@@ -97,11 +100,11 @@ export async function runAutomationCron(
   const zonedDateRelative =
     at.getUTCMinutes() >= 5
       ? await onceFor(crm, ZONED_DATE_RELATIVE_MARKER, iso.slice(0, 13), () =>
-          runZonedDateRelative(env, at, settings),
+          runZonedDateRelative(env, at, settings, dateRelativeOnes),
         )
       : null;
   // Triggers counted in minutes (ADR 0570): every tick.
-  const moments = await runMomentDateRelative(env, at, settings);
+  const moments = await runMomentDateRelative(env, at, settings, dateRelativeOnes);
   return { schedule, dateRelative, zonedDateRelative, moments };
 }
 
@@ -110,15 +113,16 @@ export async function runAutomationCron(
  * minutes before or after a datetime field) has passed within the look-back. The idempotency key
  * is the record and the field's value, so every tick that sees a moment starts one run for it,
  * and a record whose time changed is due again at its new one. Null when no trigger counts in
- * minutes (one read of the enabled automations, as the day scans make).
+ * minutes (one read of the enabled automations, unless the tick passes the ones it read).
  */
 export async function runMomentDateRelative(
   env: DispatchEnv,
   at: Date,
   settings?: AutomationSettings,
+  enabled?: AutomationDefinition[],
 ): Promise<StartResult | null> {
   const db = createCrmDb(env.DB).query;
-  const automations = (await loadEnabledAutomations(db, ["dateRelative"])).filter(
+  const automations = (enabled ?? (await loadEnabledAutomations(db, ["dateRelative"]))).filter(
     (a) =>
       a.spec.trigger.type === "dateRelative" &&
       (a.spec.trigger.minutesBefore !== undefined || a.spec.trigger.minutesAfter !== undefined),
@@ -174,10 +178,11 @@ export async function runZonedDateRelative(
   env: DispatchEnv,
   at: Date,
   settings?: AutomationSettings,
+  enabled?: AutomationDefinition[],
 ): Promise<StartResult> {
   const db = createCrmDb(env.DB).query;
   const loaded = settings ?? (await loadAutomationSettings(db));
-  const automations = await loadEnabledAutomations(db, ["dateRelative"]);
+  const automations = enabled ?? (await loadEnabledAutomations(db, ["dateRelative"]));
   const candidates: RunCandidate[] = [];
   for (const a of automations) {
     const t = a.spec.trigger;
@@ -214,9 +219,10 @@ export async function runDateRelative(
   date: string,
   at: string,
   settings?: AutomationSettings,
+  enabled?: AutomationDefinition[],
 ): Promise<StartResult> {
   const db = createCrmDb(env.DB).query;
-  const automations = await loadEnabledAutomations(db, ["dateRelative"]);
+  const automations = enabled ?? (await loadEnabledAutomations(db, ["dateRelative"]));
   const candidates: RunCandidate[] = [];
   for (const a of automations) {
     const t = a.spec.trigger;

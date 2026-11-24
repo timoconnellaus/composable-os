@@ -19,6 +19,7 @@
 //   before a write of the record that every shift following it stays free, naming whoever would be
 //   on two shifts at once, with each shift's warnings and notices.
 import { CompiledQuery, type Kysely, sql } from "kysely";
+import { addDaysToDate } from "../automations/cron.ts";
 import {
   checklistTemplateFields,
   checklistViaFields,
@@ -39,6 +40,7 @@ import {
 } from "../time/local.ts";
 import { orgReader, visibleSource } from "../visibility/index.ts";
 import { shiftRemoved, shiftWritten } from "./changes.ts";
+import { WEEKDAYS } from "./hours.ts";
 import { kindObjectOf } from "./kinds.ts";
 import {
   actingAccount,
@@ -539,14 +541,20 @@ export async function movesStartedShiftById(
   const table = objectTableOf(object.name);
   const column = (f: string) => object.fields.find((x) => x.name === f)?.column;
   const startsCol = def ? column(def.starts) : undefined;
-  if (!def || !table || !startsCol) return false;
+  const endsCol = def ? column(def.ends) : undefined;
+  if (!def || !table || !startsCol || !endsCol) return false;
   if (!Object.hasOwn(values, def.starts) && !Object.hasOwn(values, def.ends)) return false;
   const row = (await db
     .selectFrom(table)
-    .select(`${startsCol} as starts`)
+    .select([`${startsCol} as starts`, `${endsCol} as ends`])
     .where("id", "=", id)
-    .executeTakeFirst()) as { starts?: unknown } | undefined;
-  return movesStartedShift(object, { [def.starts]: row?.starts ?? null }, values, now);
+    .executeTakeFirst()) as { starts?: unknown; ends?: unknown } | undefined;
+  return movesStartedShift(
+    object,
+    { [def.starts]: row?.starts ?? null, [def.ends]: row?.ends ?? null },
+    values,
+    now,
+  );
 }
 
 /** Notes a claim written (or released, null) by this batch, for the batch's later reads. */
@@ -661,6 +669,16 @@ async function storedShiftValues(
   id: string,
   described = false,
 ): Promise<Record<string, unknown> | null> {
+  return (await storedShift(ctx, object, id, described))?.values ?? null;
+}
+
+/** `storedShiftValues`, and whether the record is in the Trash, in one read. */
+async function storedShift(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string,
+  described: boolean,
+): Promise<{ values: Record<string, unknown>; deleted: boolean } | null> {
   const def = object.staffed;
   const table = objectTableOf(object.name);
   if (!def || !table) return null;
@@ -680,11 +698,14 @@ async function storedShiftValues(
   if (columns.some((c) => !c)) return null;
   const row = (await (ctx.db as AnyDb)
     .selectFrom(table)
-    .select(columns.map((c, i) => `${c} as f${i}`))
+    .select([...columns.map((c, i) => `${c} as f${i}`), "deleted_at"])
     .where("id", "=", id)
     .executeTakeFirst()) as Record<string, unknown> | undefined;
   if (!row) return null;
-  return Object.fromEntries(fields.map((f, i) => [f, row[`f${i}`] ?? null]));
+  return {
+    values: Object.fromEntries(fields.map((f, i) => [f, row[`f${i}`] ?? null])),
+    deleted: Boolean(row.deleted_at),
+  };
 }
 
 /** A staffed record restored from the Trash: refused as `double_booked` if its time is taken. */
@@ -870,21 +891,15 @@ export async function loadShift(
   id: string,
 ): Promise<StoredShift | null> {
   const object = getObject(objectName);
-  const table = object ? objectTableOf(object.name) : undefined;
-  if (!object?.staffed || !table) return null;
-  const values = await storedShiftValues(ctx, object, id, true);
-  if (!values) return null;
-  const row = (await (ctx.db as AnyDb)
-    .selectFrom(table)
-    .select("deleted_at")
-    .where("id", "=", id)
-    .executeTakeFirst()) as { deleted_at: string | null } | undefined;
+  if (!object?.staffed) return null;
+  const stored = await storedShift(ctx, object, id, true);
+  if (!stored) return null;
   return {
     object,
     id,
-    values,
-    shift: (await shiftOf(ctx, object, values)) as Shift,
-    deleted: Boolean(row?.deleted_at),
+    values: stored.values,
+    shift: (await shiftOf(ctx, object, stored.values)) as Shift,
+    deleted: stored.deleted,
   };
 }
 
@@ -1316,7 +1331,7 @@ export async function awayOver(
 ): Promise<{ id: string; kind: string } | null> {
   // Only what can still overlap: one-off times ending after the shift starts, regular rules not
   // ended before its first local date (two days early, for any zone). Past leave is not read.
-  const firstDate = plusDays(iso(starts).slice(0, 10), -2);
+  const firstDate = addDaysToDate(iso(starts).slice(0, 10), -2);
   const rows = await ctx.db
     .selectFrom("core_staff_away")
     .selectAll()
@@ -1346,13 +1361,7 @@ export async function awayOver(
   return null;
 }
 
-const WEEKDAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
-
-/** Adds `days` to a `YYYY-MM-DD` date. */
-function plusDays(date: string, days: number): string {
-  const [y, m, d] = date.split("-").map(Number) as [number, number, number];
-  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
-}
+const WEEKDAY_NAMES: readonly string[] = WEEKDAYS;
 
 /**
  * Whether a regular unavailability (weekdays, a local start and end, from and until dates, a zone)
@@ -1380,16 +1389,18 @@ export function regularOverlaps(
   const from = parseLocalTime(rule.start_time ?? "");
   const until = parseLocalTime(rule.end_time ?? "");
   if (!days.size || from === null || until === null) return false;
-  const first = plusDays(localParts(starts * 1000, rule.zone).date, -1);
+  const first = addDaysToDate(localParts(starts * 1000, rule.zone).date, -1);
   const last = localParts(Math.max(starts, ends - 1) * 1000, rule.zone).date;
-  for (let date = first; date <= last; date = plusDays(date, 1)) {
+  for (let date = first; date <= last; date = addDaysToDate(date, 1)) {
     if (!days.has(isoWeekday(date))) continue;
     if (rule.from_date && date < rule.from_date) continue;
     if (rule.until_date && date > rule.until_date) continue;
     const a = wallClockToInstant(wallClockOf(date, from), rule.zone) / 1000;
     const b =
-      wallClockToInstant(wallClockOf(until > from ? date : plusDays(date, 1), until), rule.zone) /
-      1000;
+      wallClockToInstant(
+        wallClockOf(until > from ? date : addDaysToDate(date, 1), until),
+        rule.zone,
+      ) / 1000;
     if (a < ends && b > starts) return true;
   }
   return false;

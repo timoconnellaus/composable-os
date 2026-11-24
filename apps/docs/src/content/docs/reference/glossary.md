@@ -210,6 +210,16 @@ listed locked, each opening with `note.open` audited). Levels 2 and 3 are in no 
 search, embedding or summary, and no AI actor reads them with any grant. Only a note has one.
 _Avoid_: private (a synced email's `private_to`, its owner's only), confidential, clinical
 
+### Note kind
+
+The business's kinds of note (stage 56, ADR 0833): Note, Session note, Sensitive, From the client
+and its own, kept in Settings → Notes by `notes:manage`. Each has a template (labelled sections a
+person fills in, which make the note's body), the level a note of it starts at and the lowest it
+may ever have, and later its files, retention and whether it is evidence. A retired kind is no
+longer offered and keeps its notes. Every note has one; a note written without one is a Note,
+which stays `staff`.
+_Avoid_: type (an activity's type: note, email, call), category, template (a kind's part)
+
 ### Looks after
 
 A staff account that looks after a Person (stage 56, ADR 0831): it reads their `coaches` notes
@@ -697,6 +707,9 @@ each with the host's **reference** (`cos:…`) so it is found again and never wr
 only a document the host posted, always approved by a person. No delete, no edit of a posted
 entry. Each accounting system is its own gatekeeper Worker that passes the contract's
 **conformance suite**; the fake books (`accounting-fake`) are for development and tests only.
+The connection is **the host's alone** (ADR 0881): only the host's own call (`callAsHost`,
+purpose `accounting`) reaches it, never a person, an AI, Code Mode or an extension
+(`accounting_host_only`).
 _Avoid_: connector, sync adapter
 
 ### Booking system contract
@@ -1002,6 +1015,22 @@ _Avoid_: build, artifact (for the bundle as a whole), package
 Which releases a deployment is offered: **stable** (`X.Y.Z` only) or **beta** (also `X.Y.Z-beta.N`).
 Set in Settings → Updates. See ADR 0161.
 
+### Location
+
+(stage 64)
+
+One place the business works from, inside the one organisation (ADR 0910): a gym's second studio,
+in trades a branch or depot. A base record (`location`, `core_location`) with a name, a short name
+for a badge, an address, its own time zone, whether the public is shown it, an optional drop-in
+price, and `open` or `closed` (a person closes one; the last open one never). Never a tenant. The
+public reads a public open location's name, short name, address and zone (ADR 0916).
+_Avoid_: site (a site is a client app), branch (except in trades), the location hint
+
+### Main location
+
+The first location, made by migration 1390 from the organisation's name and zone. Its zone is the
+organisation's (pay periods and the books) and changes only with it, in Settings → General.
+
 ### Location hint
 
 Where a new install asks Cloudflare to create its D1 database and R2 buckets (`oc` is Oceania),
@@ -1130,7 +1159,7 @@ as the write, for every actor (ADR 0404): `stages` (the **stage behaviour**) and
 **state machine**), which exist and share the **transition engine**; `capacity` (places, holds
 and claims, ADRs 0430 to 0433) and `sellable` (prices, sale rules and what a paid line grants,
 ADR 0435), which exist; `publishable` (a working copy and published versions, ADR 0446), whose
-half without a public exists; `recurring` (a weekly series that makes dated records, ADR 0500), capacity **claimants**
+half without a public exists; `recurring` (a series that makes dated records, weekly or every N weeks, months or years, ADRs 0500 and 0860), capacity **claimants**
 (ADR 0501, with waitlists, ADR 0520) and declared uniqueness (ADR 0502), which exist since stage
 31; `allowance` (ADR 0493), which exists since stage 32b; `staffed` (a shift and its time claim,
 ADR 0621), which exists since stage 45.
@@ -1501,9 +1530,12 @@ what made it (an order line, a record or a person), who and when. Never changed 
 
 (of a recurring schedule)
 
-A record that declares `recurring`: a weekly rule in local wall-clock time (weekdays, a time, a
+A record that declares `recurring`: a rule in local wall-clock time (weekdays, a time, a
 length, from and until dates, a zone) that makes dated records of another object ahead, up to its
-horizon (a timetable line makes its classes). Each record made is its **occurrence**, keyed on the
+horizon (a timetable line makes its classes). Weekly, or by its **interval rule** every N weeks
+on its weekdays, every N months on a day (the month's last when shorter) or every N years on a
+date, fixed on the calendar from its first date, never counted from when the last was done; a
+length may be in days (ADR 0860). Each record made is its **occurrence**, keyed on the
 series and its local date so it is made once. A copied field staff change on one occurrence (its
 coach) is its **field exception**: the series never writes that field again and still writes the
 rest; one whose time or state staff change is **detached** whole and the series' no more. **Follow
@@ -1940,6 +1972,19 @@ never is. A **buffer** (minutes kept free before or after) enters the claim. One
 time: not a capacity.
 _Avoid_: reservation, slot
 
+### Room calendar
+
+and **provisional** (stage 57, built in step 1: ADR 0844)
+
+The **room calendar** is every claim on the business's rooms in a range, whatever takes them (a
+class, an appointment, a hire, an event, a block), read from the one claim by a pack's tool
+(`rooms.week`, and `rooms.check` for one room at one time). Each shows its kind, a **title** its
+object declares (an appointment's service, never its client), its times with set-up and
+pack-down, and whether it is **provisional**: held, not yet firm (a hire before its deposit). A
+provisional claim refuses a clash as a firm one does. Someone on a fixed role sees only that a
+room is taken, and when. Nobody's name and no money are on it.
+_Avoid_: availability (Venue hire's tool over it), schedule, timetable (the classes')
+
 ### Buffer
 
 (stage 49, built in step 1: ADR 0760)
@@ -2102,8 +2147,9 @@ _Avoid_: task list, to-do (a task is something else), inspection, daily task
 
 ### Finance period
 
-, **Close** and **Book entry** (stage 52, step 1 built: ADRs 0790 and 0791)
+, **Close**, **Book entry** and **Day summary** (stage 52, steps 1 and 3 built:
 
+ADRs 0790, 0791 and 0796)
 A **finance period** is a calendar month of the business's days (local, in the organisation's
 zone: a day across a clock change is 23 or 25 hours). The business **closes** each month once it has
 ended and the month before is closed: its **book entries** and report rows are kept exactly as they
@@ -2112,7 +2158,10 @@ writes the next. A book entry is one business day's summary, one payout, what is
 at the month's end, or what arrived **late** for a closed month (counted in the first open month,
 marked as belonging to the closed one): lines with headings in the host's words, debits equal to
 credits, a key the same in every version and a fingerprint of its lines. Money is counted on the
-day the host recorded it. Seen with `finance:read`, closed and reopened with `finance:close`
+day the host recorded it. A **day summary** is the `day` entry of one business day money moved:
+money in and out through the provider against sales and refunds by kind of sale and tax by code
+and country, each payment and refund shared over its order's lines in proportion; the Sales, Tax and
+Refunds reports are made from the same shares. Seen with `finance:read`, closed and reopened with `finance:close`
 (admins, and by grant); closing and reopening are a person's, never an AI's.
 _Avoid_: ledger, journal, accounting period (accounting is stage 61's), lock (the pay period's word)
 
@@ -2218,7 +2267,7 @@ an optional trial): subscribed to, never put on an order (stage 32a, ADR 0485). 
 **membership plan** (`memberships.plan`) is the second: its subscription grants a membership
 (`sellable.recurring.grants`, ADR 0510).
 _Avoid_: plan alone (a hosted plan), product; "recurring" for it alone (the `recurring` behaviour
-is a timetable's weekly rule, ADR 0500)
+is a timetable's rule, ADRs 0500 and 0860)
 
 ### Free trial
 
@@ -2470,6 +2519,19 @@ and tick), whose host operation decides what it may do. The door role is Ticketi
 Stage 14a's roles and teams will extend it.
 _Avoid_: role (alone, it means admin, member or viewer), team, scope
 
+### Owner's client
+
+(stage 60, step 6 built: ADR 0872)
+
+A client the company's mobile app may hold beside its role clients (`mobile.owner: true`,
+`roles/owner.ts`): only the operations the owner's Today needs (Today, the approvals, the notice
+inbox, who is signed in). Not a pack role: any staff account may sign in with it and the host
+decides every call, so a coach sees only what their rights allow. A change to how the system is set
+up is never approved from the app: the host refuses it on a device session ("review on a
+computer"). Its hooks and words are `@composable-os/client`'s `createOwnerHooks`, shared by the
+native block and the web Today.
+_Avoid_: admin app, staff app, owner role
+
 ### Door role
 
 Ticketing's pack role (`ticketing.door`): check tickets in, and read events, ticket types and
@@ -2686,6 +2748,35 @@ Who sent a submission, with how sure the host is of it, its **certainty**: `acco
 unconfirmed, shown to staff as such). The host fills only a Person's empty fields from the answers.
 An anonymous form's submission has no submitter at all.
 _Avoid_: sender, respondent, lead (only for `leads.lead`)
+
+### Form
+
+(stage 29, the Forms pack)
+
+Questions a business asks (`forms.form`), published as versions a person publishes: an enquiry, a
+sign-up, a survey, feedback or a **staff form** (answered by staff only, an incident report). Found
+by its address (slug) while it is open to the caller. Its "who may answer", anonymity and
+destination count from the version published.
+_Avoid_: waiver, agreement (stage 44's), survey (one kind of form, not the record)
+
+### Submission
+
+(stage 29, the Forms pack)
+
+One set of answers to one version of a form (`forms.submission`), made only by the host's door, in
+the Forms **inbox** with the states new, in hand, done and spam. Read by staff accounts only: never
+by its submitter, a customer, the public or a pack-role account. A spam submission is moved out
+only by a person (`notSpam`); an AI may only suggest spam.
+_Avoid_: response, entry, lead (only for `leads.lead`), ticket (Ticketing's)
+
+### Consent line
+
+(stage 29)
+
+A tick box on a form whose exact words are kept with the version. A ticked `marketing` line ("keep
+me updated") marks the submission (`marketing`), set only by the host and never by staff or an AI;
+the Forms pack lists them in "Asked to hear from us" until Notifications keeps a consent register.
+_Avoid_: opt-in flag, subscription (a paid plan's)
 
 ### Slug
 

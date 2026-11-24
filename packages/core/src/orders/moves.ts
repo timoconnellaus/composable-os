@@ -43,7 +43,7 @@ import { boundMoment, pathReader, UNREADABLE } from "../records/windows.ts";
 import { guardStatement } from "../recurring/bookkeeping.ts";
 import { erasedAddresses } from "../sync/ingest.ts";
 import { isLiveDependant, linkGuardStatement } from "../visibility/guardians.ts";
-import { type AnyRow, orgReader, visibleSource } from "../visibility/index.ts";
+import { orgReader, visibleSource } from "../visibility/index.ts";
 import { hashOrderToken, newOrderToken, resolveBuyer } from "./guests.ts";
 import {
   changeOrder,
@@ -52,6 +52,7 @@ import {
   type OrderRow,
   type PricedLine,
 } from "./orders.ts";
+import { viewRow } from "./sellable.ts";
 import { loadOrderCurrency, toMinorUnits } from "./settings.ts";
 
 /** An object whose records an order moves, with its declaration. */
@@ -93,8 +94,7 @@ async function buyerSees(
   id: string,
 ): Promise<boolean> {
   try {
-    // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
-    const row = await (ctx.db as any)
+    const row = await ctx.db
       .selectFrom(visibleSource({ principal }, target))
       .select("id")
       .where("id", "=", id)
@@ -422,12 +422,7 @@ async function storedValues(
   object: ObjectDefinition,
   id: string,
 ): Promise<Record<string, unknown> | null> {
-  // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
-  const row = (await (ctx.db as any)
-    .selectFrom(visibleSource(orgReader(ctx.db), object))
-    .selectAll()
-    .where("id", "=", id)
-    .executeTakeFirst()) as AnyRow | undefined;
+  const row = await viewRow(ctx.db, visibleSource(orgReader(ctx.db), object), id);
   if (!row) return null;
   const values: Record<string, unknown> = {};
   for (const field of object.fields) {

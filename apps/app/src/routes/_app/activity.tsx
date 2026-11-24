@@ -4,7 +4,6 @@
 // (a dashboard click-through) narrows the feed further until it is cleared.
 import type { Filter } from "@composable-os/core/client";
 import { Button } from "@composable-os/ui/components/button";
-import { useInfiniteQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { MessageSquareTextIcon, XIcon } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -16,8 +15,7 @@ import { type ActivityType, toTimelineItem } from "#/components/record/adapters"
 import { TimelineEntry, TimelineFilter, TimelineSkeleton } from "#/components/record/timeline";
 import { parseFilter } from "#/components/views/view-state";
 import { useRecordCount } from "#/lib/count";
-import { callOp } from "#/lib/operations";
-import { opKey } from "#/lib/query";
+import { useInfiniteOp } from "#/lib/query";
 
 export const Route = createFileRoute("/_app/activity")({
   validateSearch: (search: Record<string, unknown>): { filter?: Filter } => {
@@ -47,13 +45,7 @@ function ActivityPage() {
     sort: { field: "occurredAt", direction: "desc" as const },
     limit: 30,
   };
-  const feed = useInfiniteQuery({
-    queryKey: opKey("activity.list", input),
-    queryFn: ({ pageParam }) =>
-      callOp("activity.list", { ...input, ...(pageParam ? { cursor: pageParam } : {}) }),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (page) => page.nextCursor ?? undefined,
-  });
+  const feed = useInfiniteOp("activity.list", input);
   const items = useMemo(
     () => feed.data?.pages.flatMap((p) => p.items.map(toTimelineItem)) ?? [],
     [feed.data],

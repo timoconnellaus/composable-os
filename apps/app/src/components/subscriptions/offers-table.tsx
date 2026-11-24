@@ -26,7 +26,6 @@ import {
   TableHeader,
   TableRow,
 } from "@composable-os/ui/components/table";
-import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { DownloadIcon, MailIcon } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
@@ -35,7 +34,7 @@ import { EmptyState, ErrorState } from "#/components/empty-state";
 import { downloadText } from "#/components/list/export-csv";
 import { formatDate } from "#/lib/format";
 import { callOp } from "#/lib/operations";
-import { errorMessage, opKey, useOpMutation } from "#/lib/query";
+import { errorMessage, useInfiniteOp, useOpMutation } from "#/lib/query";
 
 type OfferStatus = NonNullable<CoreInput<"subscription.offer.list">["status"]>;
 type Offer = CoreOutput<"subscription.offer.list">["items"][number];
@@ -63,13 +62,7 @@ export function OffersTable() {
     ...(status === "all" ? {} : { status }),
     limit: 50,
   };
-  const list = useInfiniteQuery({
-    queryKey: opKey("subscription.offer.list", input),
-    queryFn: ({ pageParam }) =>
-      callOp("subscription.offer.list", { ...input, ...(pageParam ? { cursor: pageParam } : {}) }),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (page) => page.nextCursor ?? undefined,
-  });
+  const list = useInfiniteOp("subscription.offer.list", input);
   const items = useMemo(() => list.data?.pages.flatMap((p) => p.items) ?? [], [list.data]);
   const counts = list.data?.pages[0]?.counts;
 

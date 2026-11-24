@@ -146,7 +146,7 @@ export function deriveClaims(t: StaffedTables, where: string): string {
 }
 
 /** The trigger names one staffed object owns: on its table, its account's and its kind's. */
-export function staffedTriggerNames(
+function staffedTriggerNames(
   t: Pick<StaffedTables, "table" | "account" | "margins" | "required" | "times">,
 ): string[] {
   return [

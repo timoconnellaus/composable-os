@@ -57,6 +57,7 @@ import {
   EndAffiliationDialog,
 } from "#/components/record/affiliation-dialogs";
 import { AffiliationsCard } from "#/components/record/affiliations-card";
+import { CarersCard } from "#/components/record/carers-card";
 import { FamilyCard } from "#/components/record/family-card";
 import { HistoryList } from "#/components/record/history";
 import { RecordLayout, RecordLayoutSkeleton } from "#/components/record/record-layout";
@@ -150,7 +151,7 @@ function PersonRecord({
   const taskActions = useTaskActions("person", person.id);
   const affiliations = useAffiliations("person", person.id);
   const history = useRecordHistory("person", person.id);
-  const restore = useOpMutation("person.restore");
+  const restore = useOpMutation("person.restore", { invalidates: ["affiliation."] });
   const { create } = useAppCommands();
   const [dialog, setDialog] = useState<"add" | "changeJob" | null>(null);
   const [ending, setEnding] = useState<AffiliationItem | null>(null);
@@ -317,6 +318,7 @@ function PersonRecord({
             {isAdmin && <CustomerAccountCard personId={person.id} />}
             <PersonSubscriptionsCard personId={person.id} />
             <FamilyCard personId={person.id} personName={person.displayName} readOnly={deleted} />
+            <CarersCard personId={person.id} personName={person.displayName} readOnly={deleted} />
 
             <RecordSummaryCard object="person" id={person.id} />
             {recordViews.panels}
@@ -366,7 +368,7 @@ function PersonRecord({
 function DeleteAction({ id, name }: { id: string; name: string }) {
   const [open, setOpen] = useState(false);
   const remove = useOpMutation("person.delete");
-  const restore = useOpMutation("person.restore");
+  const restore = useOpMutation("person.restore", { invalidates: ["affiliation."] });
   const merge = useMergeAction("person", id);
   const enrich = useEnrichAction("person", id);
 
