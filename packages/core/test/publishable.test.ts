@@ -7,21 +7,12 @@ import { validateManifest } from "@composable-os/sdk";
 import { beforeAll, describe, expect, it } from "vitest";
 import { type ActingUser, getObject, invoke } from "../src/index.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
-import { auditChanges, context, createUser, unique } from "./helpers.ts";
+import { auditChanges, context, createUser, refusal, unique } from "./helpers.ts";
 
 const EXT = extId("pub");
 const DOC = `${EXT}.doc`;
 let admin: ActingUser;
 let member: ActingUser;
-
-async function refusal(promise: Promise<unknown>) {
-  try {
-    await promise;
-  } catch (error) {
-    return error as { code: string; message: string; details?: Record<string, unknown> };
-  }
-  throw new Error("expected a refusal");
-}
 
 const ai = (actor: "assistant" | "mcp" | "automation" | "extension") =>
   context(admin, {

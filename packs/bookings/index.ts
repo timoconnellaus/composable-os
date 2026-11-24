@@ -1,6 +1,4 @@
-// Bookings (stage 31a, build steps 3 to 5 and 7: the spine, spending, the waitlist, and
-// attendance, moves and cancelling a class; ADRs 0504, 0520 and 0553): a gym's or studio's
-// timetable and the
+// Bookings (stage 31a; ADRs 0504, 0520 and 0553): a gym's or studio's timetable and the
 // bookings members make on it. Staff set a weekly timetable once (series), the host makes each
 // week's classes from it, and members book and cancel them on the web and in the app.
 //
@@ -92,7 +90,7 @@ const WEEKDAYS = [
   { value: "sun", label: "Sunday" },
 ];
 
-/** A booking's states (spec 31, "Booking states"). Only some are reachable at this step. */
+/** A booking's states (spec 31, "Booking states"). */
 const BOOKING_STATES = [
   { value: "booked", label: "Booked" },
   { value: "pending", label: "Held while paying" },
@@ -108,10 +106,10 @@ const BOOKING_STATES = [
   { value: "expired", label: "Expired" },
 ];
 
-/** What a class the gym cancels cancels with it: every booking holding a place or a use. */
+/** Cancelled with a class the gym cancels: each booking holding a place or a use, or waiting. */
 const FOLLOW_CANCEL = ["booked", "waiting", "pending", "attended", "no_show", "late_cancelled"];
 
-/** A booking that holds or takes a place, and so counts as the Person's one for its class. */
+/** A booking that holds or waits for a place, and so counts as the Person's one for its class. */
 const ACTIVE = ["pending", "booked", "waiting", "attended", "no_show"];
 
 /** When a customer may book, and when a cancel is late, from the class type or the org. */
@@ -130,6 +128,19 @@ const lateFrom = {
 };
 /** A class's list opens for ticking an hour before it starts (guess: people arrive early). */
 const listOpens = { at: "class.startsAt", minutesBefore: 60 };
+
+/** What a customer reads of a class: on the public timetable, and of a class they booked. */
+const CLASS_READ = [
+  "title",
+  "classType",
+  "startsAt",
+  "endsAt",
+  "timezone",
+  "room",
+  "coach",
+  "notes",
+  "state",
+];
 
 // A booking rule is a person's to change (spec 31: "Change the booking rules: a person only"):
 // set by the assistant, an MCP client, an automation or extension code, it waits for a person's
@@ -155,7 +166,7 @@ export default defineExtension({
   // The class type is Programs' (spec 31): the host installs Bookings only beside Programs.
   requires: ["programs"],
   permissions: {
-    // person.get / person.create: a booking's person on a class list, and a walk-in staff book.
+    // person.get / person.createWith: a booking's person on a class list, and a walk-in staff book.
     // programs.classtype: a class type's name and booking rules on staff's day view.
     read: ["person", "programs.classtype"],
     write: ["person"],
@@ -541,34 +552,14 @@ export default defineExtension({
         only: "exclusive",
       },
       public: {
-        read: [
-          "title",
-          "classType",
-          "startsAt",
-          "endsAt",
-          "timezone",
-          "room",
-          "coach",
-          "notes",
-          "state",
-        ],
+        read: CLASS_READ,
         when: { field: "state", in: ["scheduled"] },
       },
       // A booking's member reads their class whatever its state (a cancelled one says so).
       customerVia: {
         from: "bookings.booking",
         field: "class",
-        read: [
-          "title",
-          "classType",
-          "startsAt",
-          "endsAt",
-          "timezone",
-          "room",
-          "coach",
-          "notes",
-          "state",
-        ],
+        read: CLASS_READ,
       },
       indexes: [
         ["startsAt"],
@@ -1066,8 +1057,6 @@ export default defineExtension({
       order: 35,
     },
   },
-  // The organisation's booking rules, which a class type's own values override. Changed by a
-  // person with the extensions permission (Settings → Extensions → Bookings).
   // The members' email (ADR 0590): routine mail the host sends without a person's approval.
   routineMail: bookingsRoutineMail,
   // What a journey can start or stop on (stage 53, ADR 0802): the host records the last time each
@@ -1088,6 +1077,8 @@ export default defineExtension({
       enters: ["attended"],
     },
   },
+  // The organisation's booking rules, which a class type's own values override. Changed by a
+  // person with the extensions permission (Settings → Extensions → Bookings).
   settings: {
     opensDays: {
       type: "number",

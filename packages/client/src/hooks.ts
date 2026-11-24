@@ -48,6 +48,29 @@ export interface PackClient<T extends OperationTypes> {
   };
 }
 
+/** The app's `useQuery` (TanStack Query's), as far as a pack's hooks use it. */
+export type UseQuery = <T>(options: {
+  queryKey: readonly unknown[];
+  queryFn: () => Promise<T>;
+  enabled?: boolean;
+  gcTime?: number;
+}) => { data: T | undefined; isPending: boolean; error: unknown; refetch?: () => unknown };
+
+/** The app's `useMutation` (TanStack Query's), as far as a pack's hooks use it. */
+export type UseMutation = <I, O>(options: {
+  mutationKey: readonly unknown[];
+  mutationFn: (input: I) => Promise<O>;
+  gcTime?: number;
+}) => {
+  mutate(input: I): void;
+  mutateAsync(input: I): Promise<O>;
+  data: O | undefined;
+  isPending: boolean;
+  error: unknown;
+  /** Forgets the call: its variables and its answer (TanStack Query's reset). */
+  reset?: () => void;
+};
+
 /**
  * What one hook calls: every operation of a list, or every operation of one of several lists
  * (`anyOf`, the first one the client holds), for a read each audience makes its own way.

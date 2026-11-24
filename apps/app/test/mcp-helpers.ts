@@ -6,6 +6,7 @@ import { createIdentityProvider } from "@composable-os/auth";
 import { memoryRateLimit } from "@composable-os/core";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { createAppHandler, type McpEnv } from "../src/server/mcp/handler.ts";
+import { runOperation } from "../src/server/operations.ts";
 
 export const ORIGIN = "https://crm.test";
 export const REDIRECT = "http://localhost:3333/callback";
@@ -78,6 +79,17 @@ export async function signUp(
   if (!user) throw new Error("user row missing");
   await env.DB.prepare("UPDATE core_user SET role = ? WHERE id = ?").bind(role, user.id).run();
   return { id: user.id, email, cookie: cookiesOf(response).join("; ") };
+}
+
+/** Calls an operation as a signed-up user, resolved from their cookie as a request of theirs is. */
+export async function callAs(hostEnv: object, user: TestUser, name: string, input: unknown) {
+  const principal = await createIdentityProvider(hostEnv as never).resolve(
+    new Request(ORIGIN, { headers: { cookie: user.cookie } }),
+  );
+  const result = await runOperation(hostEnv as never, principal, { name, input }, ORIGIN);
+  if (!result.ok) throw new Error(JSON.stringify(result.error));
+  // biome-ignore lint/suspicious/noExplicitAny: a test reads whatever the operation returns
+  return result.data as any;
 }
 
 function base64url(bytes: Uint8Array): string {

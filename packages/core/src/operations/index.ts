@@ -79,6 +79,7 @@ import { recordOperations } from "./record.ts";
 import { recordImportOperations } from "./record-import.ts";
 import { recordVersionOperations } from "./record-versions.ts";
 import { recurringOperations } from "./recurring.ts";
+import { restrictedOperations } from "./restricted.ts";
 import { retentionOperations } from "./retention.ts";
 import { routineOperations } from "./routine.ts";
 import { routineMailOperations } from "./routine-mail.ts";
@@ -160,6 +161,7 @@ export const coreOperations = [
   ...automationOperations,
   ...automationBindingOperations,
   ...myWriteOperations,
+  ...restrictedOperations,
   ...publicReadOperations,
   ...accessOperations,
   ...intakeOperations,

@@ -933,6 +933,12 @@ export interface CustomerSpec {
    */
   createOnly?: readonly string[];
   /**
+   * Whether a customer may put one of their own records in the Trash, through a pack tool's
+   * `my.delete` (ADR 0414, amended 2026-11-24): a logged set ticked by mistake. Left out, they
+   * cannot. A reviewed change, as `customer` is.
+   */
+  delete?: boolean;
+  /**
    * The family link (ADR 0540): a signed-in guardian also reads their live dependants' records of
    * this object (a child's bookings), with the same `read` fields. With `write: true` they also
    * make records for a dependant (`my.create`'s `forPersonId`) and change the dependant's, with
@@ -1095,6 +1101,14 @@ export interface ExtensionSpec {
    */
   screens?: Record<string, ScreenSpec>;
   /**
+   * The numbers a shipped pack adds to the owner's Today (stage 60, ADR 0870), by key: each a
+   * read-only query over `rec_*` views that the host runs for the business's local day and shows
+   * to whoever could call every tool in its `opens`. Not `today`: that names a pack role's limit
+   * (ADR 0553). Only a shipped pack may declare them, at most 8; a runtime extension declaring
+   * `todayItems` fails `cos ext check` and install, and the key is ignored at run time.
+   */
+  todayItems?: Record<string, TodayItemSpec>;
+  /**
    * The pack's sections of My account (stage 48, ADR 0710), by key: the customer's own area on
    * the business's website and in its app. Each names a web and a native block of this pack, the
    * objects whose records mean "this customer has some" (`has`), and where it sits. The host lists
@@ -1129,6 +1143,57 @@ export interface PortalSectionSpec {
    * open ("Buy a pass") is a page the client links to, not a section.
    */
   has: readonly string[];
+}
+
+/** How a Today item's value is shown. Money is never a pack's: it is the host's (stage 52). */
+export const TODAY_ITEM_FORMATS = ["count", "percent"] as const;
+export type TodayItemFormat = (typeof TODAY_ITEM_FORMATS)[number];
+
+/** What a Today item's value is compared with: the same time yesterday or a week ago, or nothing. */
+export const TODAY_ITEM_COMPARES = ["yesterday", "lastWeek", "none"] as const;
+export type TodayItemCompare = (typeof TODAY_ITEM_COMPARES)[number];
+
+/** The parameters the host binds into a Today item's SQL: the local day `[from, to)` and now. */
+export const TODAY_ITEM_PARAMS = ["today_from", "today_to", "now"] as const;
+
+/**
+ * One number a shipped pack adds to Today (stage 60, ADR 0870). The host binds `:today_from`,
+ * `:today_to` (the business's local day, as instants) and `:now`, runs `sql` under the widget
+ * rules (one `SELECT` or `WITH` over `rec_*` views, bound parameters, row and time limits) and
+ * shows its one column, `value`. For the comparison it binds the earlier day's window instead.
+ */
+export interface TodayItemSpec {
+  /** The card's label: "Came today". */
+  label: string;
+  /** Where it sits among every item on Today (lower first). Default 100. */
+  order?: number;
+  /** `count` or `percent`. No money format: a money number is a Finance reports figure. */
+  format: TodayItemFormat;
+  /** Read-only SQL returning one row with one column, `value`. */
+  sql: string;
+  /** Default `yesterday`. */
+  compare?: TodayItemCompare;
+  /** When the card needs attention: its value above or below a number. Left out, never. */
+  attention?: { above: number } | { below: number };
+  /**
+   * The rows behind the number, at most 50: read-only SQL with the same parameters returning a
+   * display column (`label`), optionally a secondary line (`detail`) and the id of a record of
+   * `record.object` (one of this pack's objects, `person` or `organisation`) in column
+   * `record.id`. Names and record ids only: never notes, health answers, pay or leave.
+   */
+  rows?: {
+    sql: string;
+    label: string;
+    detail?: string;
+    record: { object: string; id: string };
+  };
+  /**
+   * This pack's own tools, every one of which the viewer must be able to call to see the item,
+   * as a screen's `opens` (ADR 0660). At least one is for staff only.
+   */
+  opens: readonly string[];
+  /** On the web, a card opens this screen of the pack (stage 47) rather than its rows. */
+  web?: { screen: string };
 }
 
 /**
