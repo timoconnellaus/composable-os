@@ -170,7 +170,6 @@ export function createClient<T extends OperationTypes>(
 
   /** `mutationOptions` for a write: one idempotency key per mutation, kept across its retries. */
   function mutation<N extends MutationName<T>>(name: N) {
-    const spec = specs[name];
     return {
       mutationKey: [name] as readonly [N],
       mutationFn: (input: T[N]["input"]): Promise<T[N]["output"]> => {
@@ -182,7 +181,7 @@ export function createClient<T extends OperationTypes>(
         }
         return call(name, input, { idempotencyKey: key });
       },
-      meta: { invalidates: (spec?.invalidates ?? []).map((q) => [q] as const) },
+      meta: { invalidates: invalidates(name) },
     };
   }
 
