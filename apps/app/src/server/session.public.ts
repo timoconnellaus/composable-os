@@ -1,7 +1,12 @@
 // Server functions anonymous callers may use (see PUBLIC_SERVER_FN_FILE in identity.ts).
 import { env } from "cloudflare:workers";
 import { awaitingFirstUser, createIdentityProvider, signInMethods } from "@composable-os/auth";
-import { loadSupportGrant, resolveActingUser, SUPPORT_EMAIL_DOMAIN } from "@composable-os/core";
+import {
+  loadPackRole,
+  loadSupportGrant,
+  resolveActingUser,
+  SUPPORT_EMAIL_DOMAIN,
+} from "@composable-os/core";
 import { type CrmDb, createCrmDb } from "@composable-os/db";
 import { createServerFn } from "@tanstack/react-start";
 
@@ -16,9 +21,14 @@ export const getSession = createServerFn({ method: "GET" }).handler(async ({ con
   const principal = context.principal ?? null;
   const db = createCrmDb(env.DB);
   const user = principal ? await resolveActingUser(db, principal) : null;
+  // A fixed-role account (ADR 0436) gets the admin's small shell: its screens, its account, sign
+  // out (stage 47, ADR 0660). Read from the account here, by the host, on every navigation; a
+  // page that showed the full shell anyway would have every call it made refused by the host.
+  const packRole = user ? await loadPackRole(db.query, user.id) : null;
   return {
     principal,
     user: user ? { id: user.id, role: user.role } : null,
+    packRole: packRole ? { name: packRole.name, label: packRole.label } : null,
     // A support session (ADR 0212): the app shows a banner with when access ends.
     support: user ? await supportSession(db, user) : null,
     signOutUrl: provider.signOutUrl,

@@ -1112,6 +1112,9 @@ triggers). No `core_write_guard` remake (0852 stays free). All new operations ar
   shipped pack's open tool. `setPattern` refuses a date that is not real, a past one and an ended
   pattern. The calendar address is built on the host the screen's client talks to (its `baseUrl`),
   never a prop or the page's address; the app hides it when it goes to the background.
+- **Closed 2026-11-24 by [stage 47](47-pack-screens.md) ([ADR 0660](../adr/0660-pack-screens-in-the-admin.md))**:
+  the web screens are Rostering's declared screens in the product's admin, for whoever the host
+  lets open each, a team account in its role's small shell. What was written here before:
 - **Not shown in the product's admin yet (open, for the coordinator)**: the web screens mount only
   on the host app's development page (`/blocks`), as Bookings' desk and class list do; a client web
   app never serves staff. The host app (`apps/app`) has no mechanism for a pack's blocks to be staff

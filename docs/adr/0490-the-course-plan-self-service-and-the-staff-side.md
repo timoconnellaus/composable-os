@@ -69,3 +69,9 @@ subscription link to its page.
 - **`now` is in the customer API's input schema** for `subscription.cancel`: the contract
   generator has one input per operation, not one per audience. A customer's `now: true` is refused
   (`invalid_input`), tested.
+
+## Amended (2026-11-24, ADR 0714)
+- **A native block may link to the business's website account page.** Stage 48's native account
+  blocks show "Manage on the website", opening the website's account page in the browser, where
+  this ADR's native block only said so in words. No native block calls a billing operation: the
+  lint's native rule stands as above.

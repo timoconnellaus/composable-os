@@ -10,6 +10,7 @@
       "operations": [
         "record.get",
         "record.list",
+        "screens.mine",
         "x.bookings.day",
         "x.bookings.markAll",
         "x.bookings.markAttended",
@@ -25,6 +26,7 @@
       "description": "Sees the roster and their own shifts, offers and takes shifts, says when they are away, has their own calendar feed and sees their own hours for each pay period. Nothing else: no records, no people, no settings.",
       "read": [],
       "operations": [
+        "screens.mine",
         "x.rostering.away",
         "x.rostering.back",
         "x.rostering.checklist",
@@ -51,7 +53,13 @@
       "label": "Door",
       "description": "Checks tickets in at the door and sees events, ticket types and tickets. Nothing else: no people, orders, leads or settings.",
       "read": ["ticketing.event", "ticketing.ticket", "ticketing.tickettype"],
-      "operations": ["record.get", "record.list", "x.ticketing.checkIn", "x.ticketing.undoCheckIn"]
+      "operations": [
+        "record.get",
+        "record.list",
+        "screens.mine",
+        "x.ticketing.checkIn",
+        "x.ticketing.undoCheckIn"
+      ]
     }
   ],
   "grants": [

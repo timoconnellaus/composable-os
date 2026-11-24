@@ -992,6 +992,55 @@ export interface ExtensionSpec {
    * shipped extension or an org's own may declare it.
    */
   staffing?: StaffingRulesSpec;
+  /**
+   * The staff screens of a shipped pack (stage 47, ADR 0660), by key: each a web block of this
+   * pack that the product's admin builds in and shows to whoever could call every tool in its
+   * `opens`. Only a shipped pack may declare them: its blocks are code in the repository,
+   * reviewed like the rest of it. A runtime extension declaring `screens` fails `cos ext check`
+   * and install, and the key is ignored at run time.
+   */
+  screens?: Record<string, ScreenSpec>;
+}
+
+/**
+ * One staff screen of a shipped pack (stage 47, ADR 0660). The admin renders `export` of the web
+ * block `block` with the pack's hooks, inside its shell; the host lists the screen for a viewer
+ * only when they could call every tool in `opens` (`screens.mine`).
+ */
+export interface ScreenSpec {
+  /** The screen's name in the navigation and on its page: "Front desk". */
+  label: string;
+  /** A web block of this pack (`packs/<id>/blocks/<block>/`), never a native one. */
+  block: string;
+  /** The component the block exports that renders the screen: "Desk". */
+  export: string;
+  /**
+   * Where it sits in the admin's navigation: a section headed `group`, in `order`. Left out, the
+   * screen is reached only from a record (`record`) or a link.
+   */
+  nav?: { group: string; order?: number };
+  /**
+   * The tools that decide who may open the screen: this pack's own, every one of which the viewer
+   * must be able to call. Name those that decide (the screen's main read and the write its main
+   * action makes), not every tool it calls: the host refuses the rest, and the block shows its own
+   * state for that. "Could call these tools" is the gate, not a separate permission. At least one
+   * is for staff only (never a customer's or the public's tool as the only gate), unless `writes`
+   * gates the screen.
+   */
+  opens?: readonly string[];
+  /**
+   * Objects of this pack the screen writes through the host's record operations rather than a
+   * tool (a builder saving a course): the viewer must be able to write them (`record.update`), so
+   * a viewer or a pack role never gets the screen. Gates beside `opens`; one of the two names
+   * something.
+   */
+  writes?: readonly string[];
+  /**
+   * A record screen: a tab on this object's record page (one of this pack's objects, `person` or
+   * `organisation`), given the record's id as the prop `as`. With `nav` too, it is also listed in
+   * the navigation, opened without a record: its block then chooses one itself.
+   */
+  record?: { object: string; as: string };
 }
 
 /** The roster's rules an extension sets for the host (ADR 0626): see `ExtensionSpec.staffing`. */

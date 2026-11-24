@@ -16,10 +16,20 @@ import {
  * /api/v1/op/<name>. Name each one a page needs; pages rendered on the server call the host
  * directly (customerApi) and need no entry here. The agreements ones are the agreement pages'
  * (routes/before-you-go-on.tsx, routes/agreements.tsx) and the agreement blocks' (cos add
- * web-agree): a visitor reads what they are asked with agreement.guestVersions.
+ * web-agree): a visitor reads what they are asked with agreement.guestVersions. The account ones
+ * are My account's (routes/account.tsx, and the account blocks: cos add web-account).
  */
 const BROWSER_OPERATIONS = [
   "me.get",
+  "me.update",
+  "me.sessions.list",
+  "me.sessions.revoke",
+  "me.family",
+  "my.list",
+  "subscription.list",
+  "subscription.cancel",
+  "subscription.resume",
+  "subscription.portal",
   "me.agreements.due",
   "me.agreements.list",
   "me.agreements.get",

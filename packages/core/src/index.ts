@@ -206,6 +206,7 @@ export * from "./operations/record-versions.ts";
 export { type RecurringDueOptions, runRecurringDue } from "./operations/recurring.ts";
 export * from "./operations/retention.ts";
 export * from "./operations/routine.ts";
+export { personMayCall, setBuiltScreens } from "./operations/screens.ts";
 export * from "./operations/search.ts";
 export { COMMON_CURRENCIES, MAX_LOGO_LENGTH } from "./operations/settings.ts";
 export * from "./operations/setup.ts";

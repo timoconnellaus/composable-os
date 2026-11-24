@@ -18,6 +18,28 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui
 import { Input } from "../ui-input/input.tsx";
 import { Label } from "../ui-label/label.tsx";
 
+/**
+ * The staff screen as the product's admin shows it on a Person (stage 47): `PersonHoldings` with
+ * the pass types staff may give read from the host (the staff client's record list), so the
+ * admin passes it the person's id and nothing else.
+ */
+export function PersonMemberships({
+  memberships,
+  personId,
+}: {
+  memberships: Parameters<typeof PersonHoldings>[0]["memberships"] &
+    Pick<MembershipsHooks, "useStaffPassTypes">;
+  personId: string;
+}) {
+  const types = memberships.useStaffPassTypes();
+  if (types.isPending) return <p aria-busy="true">Loading…</p>;
+  const passTypes = (types.data?.items ?? []).map((t) => ({
+    id: t.id,
+    title: typeof t.values.title === "string" ? t.values.title : "Pass",
+  }));
+  return <PersonHoldings memberships={memberships} personId={personId} passTypes={passTypes} />;
+}
+
 export function PersonHoldings({
   memberships,
   personId,

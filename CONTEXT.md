@@ -556,6 +556,16 @@ waits in the Approvals inbox unless the gatekeeper marks the kind auto-approvabl
 enabled it. Approving it makes the gatekeeper apply it, in order per resource.
 _Avoid_: operation (an outbound action is not in the registry)
 
+**Accounting contract**
+The typed session every accounting gatekeeper serves (`AccountingSession`, in
+`packages/gatekeeper-accounting`, ADR 0880): read the books' accounts, tax rates, lock date and
+contacts; post a contact, a summary, a transfer, an invoice, a credit note, a payment or a refund,
+each with the host's **reference** (`cos:…`) so it is found again and never written twice; void
+only a document the host posted, always approved by a person. No delete, no edit of a posted
+entry. Each accounting system is its own gatekeeper Worker that passes the contract's
+**conformance suite**; the fake books (`accounting-fake`) are for development and tests only.
+_Avoid_: connector, sync adapter
+
 **Suggested contact**
 An external address the org has exchanged mail with at least twice that matches no person,
 shown grouped by domain in the Suggested contacts inbox for one-click add. Nothing is created
@@ -935,6 +945,15 @@ MIT, inside the release; copied into a client app with `cos add`, recorded in
 holds no rules; the block lint refuses one that does (stage 24, ADRs 0401, 0424).
 _Avoid_: component (too general), widget (a widget is a dashboard tile), template
 
+**Screen**
+A shipped pack's staff screen in the product's admin (stage 47, ADR 0660): one of its web blocks,
+declared in its manifest (`screens`: a label, the block and export, where it sits in the
+navigation, the tools that gate it, and optionally the record whose page shows it as a tab),
+built into the admin and shown to whoever could call every tool in its gate (`screens.mine`).
+Runtime extensions declare none. A fixed-role account's admin shows its screens and nothing else.
+_Avoid_: page (an admin page is the host's own), view (a view is a saved spec), app screen (the
+app's screens are native blocks, not declared screens)
+
 **Client app**
 A company's own code that its customers or staff use, in the company's repository: a web app, a
 mobile app, a TV app. It reaches the host only through the typed client (stage 24): a web app over
@@ -1007,6 +1026,14 @@ What a customer signs in to: a row of `core_customer` linked to exactly one Pers
 of its own. Never a `core_user`, never a role. A human who is both staff and a customer has two
 accounts and nothing links them (stage 22).
 _Avoid_: user (a user is staff), login
+
+**My account**
+The customer's own area on the business's website and in its app (stage 48): one shell copied
+into the client app (`web-account`, `native-account`) with base sections (orders, agreements,
+family, payment method, details, sign-in and devices) and each installed pack's section. What each
+shows is the host's answer; in the app, money opens the website (ADR 0714). "Portal" is only the
+name of the manifest key and the operation (`portal`, `me.portal`).
+_Avoid_: customer portal, dashboard
 
 **Erase request**
 What deleting a customer account leaves for staff: the Person, when it was asked and when it is
@@ -1121,7 +1148,8 @@ messages and the channels it may go on: what an admin turns on or off, and whose
 switch on, in Settings → Routine email.
 
 **Headless entry**
-A pack's functions and hooks over the typed client, with no markup (`<package>/headless`). Blocks
+A pack's functions and hooks over the typed client, with no markup (`<package>/headless`); the
+base layer's are in the client runtime itself (`@composable-os/client`: agreements, My account). Blocks
 render what it returns (ADR 0418).
 
 **Capacity**
