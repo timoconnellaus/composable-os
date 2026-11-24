@@ -234,8 +234,7 @@ export function checkObjectClaims(
     contract(path, `"${both[0]}" cannot both hold and take a place`);
   }
   states.moves.forEach((move, i) => {
-    const from = typeof move.from === "string" ? [move.from] : move.from;
-    if (held.includes(move.to) && from.some((state) => confirmed.includes(state))) {
+    if (held.includes(move.to) && moveOrigins(move).some((state) => confirmed.includes(state))) {
       contract(
         `objects.${name}.states.moves.${i}`,
         `A move from a state that takes a place cannot go back to one that only holds it ("${move.to}")`,

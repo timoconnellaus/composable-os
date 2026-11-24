@@ -113,3 +113,9 @@ The check reads one claim (the index by thing and start; it read every claim sti
 a service's buffer change clears through the partial index (it scanned the table), and a series'
 dates see each other's claims. Migration 1095 was edited in place (unmerged); a local or preview
 database that applied the earlier version must be rebuilt.
+
+## Amended 2026-11-24 (stage 57 step 1, ADR 0844)
+Two display-only keys: `provisional` (live states the room calendar marks provisional) and `title`
+(what it shows: a text or select field of the record, or of one of the extension's own records a
+relation names; the object's label otherwise). Neither changes a trigger or a claim. The claims
+are read back by the tool-only `rooms.week` and `rooms.check` ([ADR 0844](0844-the-room-calendar-and-provisional-and-title-on-occupies.md)).

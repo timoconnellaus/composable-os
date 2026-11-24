@@ -5,6 +5,7 @@
 // packages/core/src/allowance/.
 import { z } from "zod";
 import type { ExtensionManifest, FieldManifest, ObjectManifest } from "./manifest.ts";
+import { moveOrigins } from "./states.ts";
 
 /** What a holder's uses are counted over. Weeks start on Monday; both in the holder's zone. */
 export const ALLOWANCE_PERIODS = ["total", "week", "month"] as const;
@@ -511,10 +512,10 @@ export function checkObjectAllowance(
       );
     } else if (object.states) {
       for (const from of s.spendIn) {
-        const ok = object.states.moves.some((move) => {
-          const froms: readonly string[] = Array.isArray(move.from) ? move.from : [move.from];
-          return move.to === s.released && froms.includes(from) && move.by.includes("host");
-        });
+        const ok = object.states.moves.some(
+          (move) =>
+            move.to === s.released && moveOrigins(move).includes(from) && move.by.includes("host"),
+        );
         if (!ok) {
           contract(
             `${sp}.released`,

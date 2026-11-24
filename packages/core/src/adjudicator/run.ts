@@ -42,6 +42,9 @@ import {
   VERDICT_OPERATION,
 } from "./review.ts";
 
+// `sha256Hex` was written here first; the package's entry still exports it from this module.
+export { sha256Hex } from "../digest.ts";
+
 // --- Settings and the written policy ----------------------------------------------------------
 
 /** core_settings key. Missing or unreadable means off. */
@@ -136,11 +139,6 @@ export async function loadWrittenPolicy(db: Kysely<CoreDatabase>): Promise<Writt
         createdBy: row.created_by,
       }
     : null;
-}
-
-export async function sha256Hex(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 // --- Verdicts as approvers see them -----------------------------------------------------------

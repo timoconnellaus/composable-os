@@ -705,7 +705,7 @@
     },
     {
       "name": "content.search",
-      "description": "Search the published records of a content object (help pages, blog posts) by the words the public reads in them: their published versions only, never a draft or a working copy. Every word of two letters or more must match the start of a word, so partial input works. Best matches first, one result per record, each with its slug, title, the section the best match is in (its heading and anchor, to link to) and a highlighted snippet as plain and matching parts. Pass nextCursor back as cursor. Read-only.",
+      "description": "Search the published records of a content object (help pages, blog posts) by the words the public reads in them: their published versions only, never a draft or a working copy. Staff searching an object they read as published (procedures) search all its published words. Every word of two letters or more must match the start of a word, so partial input works. Best matches first, one result per record, each with its slug, title, the section the best match is in (its heading and anchor, to link to) and a highlighted snippet as plain and matching parts. Pass nextCursor back as cursor. Read-only.",
       "risk": "read",
       "audiences": ["customer"],
       "kind": "query",
@@ -993,8 +993,12 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list"
@@ -1631,8 +1635,360 @@
       "invalidates": []
     },
     {
-      "name": "me.deleteAccount",
-      "description": "Delete your customer account and ask for your personal data to be erased. You are signed out everywhere at once and can no longer sign in. Staff then erase your data, or tell you by email why some of it must be kept, by the due date returned. Asking again changes nothing.",
+      "name": "me.attention",
+      "description": "What needs your attention, as a signed-in customer, soonest first: a document to agree to (for you or a child linked to you), a card payment that failed, a payment waiting for you to confirm with your bank, the rest of a deposit to pay, an order you started paying for and did not finish, a pass about to expire with uses left or with none left (yours or a child's), and a free trial about to end. `days` is how far ahead it looks for a pass or a trial ending. An item goes once its cause is fixed. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": "number",
+            "description": "How many days ahead a pass or trial ending is listed"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "description": "Stable for the same cause: kind, record and Person"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "agree",
+                    "card_failing",
+                    "confirm_payment",
+                    "balance_due",
+                    "finish_paying",
+                    "pass_expiring",
+                    "pass_used_up",
+                    "trial_ending"
+                  ],
+                  "description": "agree: a document to agree to (me.agreements.due has it). card_failing: a card payment for a subscription you pay failed. confirm_payment: a payment waits for you to confirm it with your bank. balance_due: the rest of a deposit to pay. finish_paying: an order holding places you started paying for and did not finish. pass_expiring: a pass about to expire with uses still on it. pass_used_up: a pass with no uses left. trial_ending: a free trial about to end."
+                },
+                "person": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "self": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["id", "name", "self"],
+                  "additionalProperties": false,
+                  "description": "Whose it is: you (self), or a child linked to you"
+                },
+                "record": {
+                  "type": "object",
+                  "properties": {
+                    "object": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["object", "id", "title"],
+                  "additionalProperties": false,
+                  "description": "What it is about: an agreement document, a subscription, an order, or a pass by its object"
+                },
+                "at": {
+                  "description": "The moment it is about: the version taking effect, the first failed payment, the payment started, the balance due, the held order expiring, the pass or trial ending",
+                  "type": ["string", "null"]
+                },
+                "amount": {
+                  "description": "Money due or to be charged, in the currency's minor unit; null where none",
+                  "type": ["number", "null"]
+                },
+                "currency": {
+                  "type": ["string", "null"]
+                },
+                "usesLeft": {
+                  "description": "A pass's uses left; null for other kinds",
+                  "type": ["number", "null"]
+                }
+              },
+              "required": [
+                "key",
+                "kind",
+                "person",
+                "record",
+                "at",
+                "amount",
+                "currency",
+                "usesLeft"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["days", "items"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "me.birthday.get",
+      "description": "Your birthday as the business has it, as a signed-in customer: day and month only, or null when none is recorded. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "birthday": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "day": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 31,
+                    "description": "Day of the month, 1 to 31"
+                  },
+                  "month": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 12,
+                    "description": "Month, 1 (January) to 12 (December)"
+                  }
+                },
+                "required": ["day", "month"],
+                "additionalProperties": false,
+                "description": "A birthday: day and month only, never a year"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Day and month; null when none is recorded"
+          }
+        },
+        "required": ["birthday"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "me.birthday.set",
+      "description": "Give your birthday, as a signed-in customer: day and month only, never a year; null removes it. The business may send you a message on the day. Returns your birthday.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "birthday": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "day": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 31,
+                    "description": "Day of the month, 1 to 31"
+                  },
+                  "month": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 12,
+                    "description": "Month, 1 (January) to 12 (December)"
+                  }
+                },
+                "required": ["day", "month"],
+                "additionalProperties": false,
+                "description": "A birthday: day and month only, never a year"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Day and month; null when none is recorded"
+          }
+        },
+        "required": ["birthday"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "birthday": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "day": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 31,
+                    "description": "Day of the month, 1 to 31"
+                  },
+                  "month": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 12,
+                    "description": "Month, 1 (January) to 12 (December)"
+                  }
+                },
+                "required": ["day", "month"],
+                "additionalProperties": false,
+                "description": "A birthday: day and month only, never a year"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Day and month; null when none is recorded"
+          }
+        },
+        "required": ["birthday"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.family",
+        "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
+    },
+    {
+      "name": "me.calendarFeed.revoke",
+      "description": "Turn off your private calendar link, as a signed-in customer: it then answers as if it never existed (a calendar app subscribed to it keeps what it last fetched, and gets no more). Make a new one with me.calendarFeed.rotate.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "revoked": {
+            "type": "boolean"
+          }
+        },
+        "required": ["revoked"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.family",
+        "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
+    },
+    {
+      "name": "me.calendarFeed.rotate",
+      "description": "A new private link for your calendar, as a signed-in customer: your bookings and your children's, from two weeks ago to four months ahead, for a calendar app to subscribe to. It replaces any old link, which stops working at once. The link is shown this once and never again: anyone who has it sees your bookings, so do not share it. Your own act.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The link's address on this host (put the host's origin before it; webcal:// opens it in a calendar app). Shown once."
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": ["path", "createdAt"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.family",
+        "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
+    },
+    {
+      "name": "me.calendarFeed.status",
+      "description": "Whether you have a private calendar link (your bookings, and your children's, for a calendar app to subscribe to), and when it was made, as a signed-in customer. Never the link itself: it is shown once, when made. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": "boolean",
+            "description": "Whether a calendar link exists (it is never shown again)"
+          },
+          "createdAt": {
+            "description": "When the current link was made",
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["active", "createdAt"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "me.code",
+      "description": "Your check-in code, as a signed-in customer: the code to hold up at the gym's check-in tablet, and one for each child linked to you (by their given name), each changing every 30 seconds. It works only while this sign-in lasts. In the native app it also carries the secret the app makes the code from offline. Made the first time it is asked for on a sign-in.",
       "risk": "write",
       "audiences": ["customer"],
       "kind": "mutation",
@@ -1644,28 +2000,54 @@
       "output": {
         "type": "object",
         "properties": {
-          "disabled": {
-            "type": "boolean",
-            "const": true
+          "codes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "givenName": {
+                  "type": ["string", "null"]
+                },
+                "own": {
+                  "type": "boolean"
+                },
+                "payload": {
+                  "type": "string"
+                },
+                "secret": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["givenName", "own", "payload", "secret"],
+              "additionalProperties": false
+            }
           },
-          "sessionsEnded": {
-            "type": "number"
+          "refreshAt": {
+            "type": "string"
           },
-          "eraseRequest": {
+          "algorithm": {
             "type": "object",
             "properties": {
-              "requestedAt": {
-                "type": "string"
+              "kind": {
+                "type": "string",
+                "const": "totp"
               },
-              "dueAt": {
-                "type": "string"
+              "hash": {
+                "type": "string",
+                "const": "SHA-1"
+              },
+              "periodSeconds": {
+                "type": "number"
+              },
+              "digits": {
+                "type": "number"
               }
             },
-            "required": ["requestedAt", "dueAt"],
+            "required": ["kind", "hash", "periodSeconds", "digits"],
             "additionalProperties": false
           }
         },
-        "required": ["disabled", "sessionsEnded", "eraseRequest"],
+        "required": ["codes", "refreshAt", "algorithm"],
         "additionalProperties": false
       },
       "invalidates": [
@@ -1673,8 +2055,258 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
+    },
+    {
+      "name": "me.deleteAccount",
+      "description": "Delete your customer account and ask for your personal data to be erased. Without `confirm` it changes nothing and says what will happen: each subscription you pay ends when the period already paid for ends (nothing refunded, nothing more charged), or with a cooling off you asked for; one that cannot be ended that way (an end date set later, or waiting for payment, unpaid or paused) is left for staff and may charge until they end it. Your unpaid orders are cancelled, and your bookings, tickets and other records stay for staff to decide when they erase your data. With `confirm: true` and the preview's `expect` it does that: you are signed out everywhere at once and can no longer sign in, and staff erase your data, or tell you by email why some of it must be kept, by the due date returned. A preview that changed meanwhile is a conflict: ask for it again.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "confirm": {
+            "default": false,
+            "description": "Delete now, as the preview said",
+            "type": "boolean"
+          },
+          "expect": {
+            "description": "The preview's `expect`; required with confirm: true",
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "additionalProperties": false
+      },
+      "output": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "subscriptions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "amount": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "currency": {
+                      "type": "string"
+                    },
+                    "interval": {
+                      "type": "string"
+                    },
+                    "endsAt": {
+                      "description": "When it stops: the end of the period paid for, or an earlier end already set",
+                      "type": ["string", "null"]
+                    },
+                    "ending": {
+                      "type": "string",
+                      "enum": ["period_end", "already", "cooling_off"],
+                      "description": "period_end: it will be set to end then. already: it already ends by then. cooling_off: the cooling off you asked for ends it, with its refund"
+                    }
+                  },
+                  "required": ["id", "title", "amount", "currency", "interval", "endsAt", "ending"],
+                  "additionalProperties": false
+                },
+                "description": "Subscriptions you pay that will end when the period already paid for ends. Nothing is refunded and nothing more is charged"
+              },
+              "orders": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "total": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "currency": {
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "lines": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": ["id", "total", "currency", "createdAt", "lines"],
+                  "additionalProperties": false
+                },
+                "description": "Your unpaid orders, which will be cancelled"
+              },
+              "leftForStaff": {
+                "type": "object",
+                "properties": {
+                  "records": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "object": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "count": {
+                          "type": "number"
+                        }
+                      },
+                      "required": ["object", "label", "count"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "partPaidOrders": {
+                    "type": "number"
+                  },
+                  "moreUnpaidOrders": {
+                    "type": "number"
+                  },
+                  "subscriptions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "state": {
+                          "type": "string"
+                        },
+                        "why": {
+                          "type": "string",
+                          "enum": ["end_date_later", "state", "more"]
+                        }
+                      },
+                      "required": ["id", "title", "state", "why"],
+                      "additionalProperties": false
+                    },
+                    "description": "Subscriptions you pay that deleting does not end, which may still charge until staff end them: an end date set after the period paid for (end_date_later), waiting for a first payment, unpaid or paused (state), or more than one deletion ends (more)"
+                  },
+                  "dependantsWithoutGuardian": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "records",
+                  "partPaidOrders",
+                  "moreUnpaidOrders",
+                  "subscriptions",
+                  "dependantsWithoutGuardian"
+                ],
+                "additionalProperties": false,
+                "description": "What stays for staff to decide when they erase your data: your bookings, tickets and other open records by kind, part-paid orders, and children with no other guardian"
+              },
+              "eraseDueAt": {
+                "type": "string",
+                "description": "When staff must have erased your data or said why not"
+              },
+              "expect": {
+                "type": "string",
+                "description": "Pass back with confirm: true to do exactly this"
+              },
+              "deleted": {
+                "type": "boolean",
+                "const": false
+              }
+            },
+            "required": [
+              "subscriptions",
+              "orders",
+              "leftForStaff",
+              "eraseDueAt",
+              "expect",
+              "deleted"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "deleted": {
+                "type": "boolean",
+                "const": true
+              },
+              "disabled": {
+                "type": "boolean",
+                "const": true
+              },
+              "sessionsEnded": {
+                "type": "number"
+              },
+              "subscriptionsEnding": {
+                "type": "number"
+              },
+              "ordersCancelled": {
+                "type": "number"
+              },
+              "eraseRequest": {
+                "type": "object",
+                "properties": {
+                  "requestedAt": {
+                    "type": "string"
+                  },
+                  "dueAt": {
+                    "type": "string"
+                  }
+                },
+                "required": ["requestedAt", "dueAt"],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "deleted",
+              "disabled",
+              "sessionsEnded",
+              "subscriptionsEnding",
+              "ordersCancelled",
+              "eraseRequest"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.family",
+        "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list"
@@ -1799,6 +2431,283 @@
       "invalidates": []
     },
     {
+      "name": "me.phone.check",
+      "description": "Checks the code a text sent to one of your own numbers (me.phone.startCheck). A match marks the number as checked: your routine texts may go to it.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "number": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 40,
+            "description": "One of your own numbers, as it is in your details"
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^\\d{4,10}$"
+          }
+        },
+        "required": ["number", "code"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "checked": {
+            "type": "boolean"
+          }
+        },
+        "required": ["checked"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.family",
+        "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
+    },
+    {
+      "name": "me.phone.startCheck",
+      "description": "Sends a code by text to one of your own mobile numbers, to check it is yours. Type it back with me.phone.check within 10 minutes. At most three codes a day.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "number": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 40,
+            "description": "One of your own numbers, as it is in your details"
+          }
+        },
+        "required": ["number"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "started": {
+            "type": "boolean",
+            "const": true
+          },
+          "number": {
+            "type": "string",
+            "description": "The number the code went to, partly hidden"
+          },
+          "minutes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "How long the code may be typed back"
+          }
+        },
+        "required": ["started", "number", "minutes"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.family",
+        "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
+    },
+    {
+      "name": "me.pin.clear",
+      "description": "Remove your PIN, as a signed-in customer: nobody can then check in as you by name and PIN. Your check-in code and cards still work. Clearing when there is none changes nothing.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "cleared": {
+            "type": "boolean"
+          }
+        },
+        "required": ["cleared"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.family",
+        "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
+    },
+    {
+      "name": "me.pin.set",
+      "description": "Choose your 4-digit PIN, as a signed-in customer, to check in at the gym's tablet by typing your full name and the PIN when you do not have your phone. The most common PINs (1234, 0000 and the like) are refused. Setting it again replaces it, and turns it back on after too many wrong tries turned it off.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "pin": {
+            "type": "string",
+            "maxLength": 16,
+            "description": "4 digits"
+          }
+        },
+        "required": ["pin"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "set": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": ["set"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.family",
+        "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
+    },
+    {
+      "name": "me.portal",
+      "description": "The sections of your account, as a signed-in customer, in the order they show: your orders, agreements, family, payment method (only when you pay a subscription), details and where you are signed in, and each installed pack's section (bookings, memberships and passes, courses, tickets, training) when you, or a child linked to you, have something there. `paysSubscription` says whether you pay a subscription. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "sections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "description": "A base section's key (orders, agreements, family, payment, details, devices), or a pack's as <pack>.<key>"
+                },
+                "pack": {
+                  "description": "The pack the section is from; null for a base section",
+                  "type": ["string", "null"]
+                },
+                "label": {
+                  "type": "string"
+                },
+                "order": {
+                  "type": "number",
+                  "description": "Lower first: a pack's sections come before the base ones"
+                },
+                "web": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "block": {
+                          "type": "string"
+                        },
+                        "export": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["block", "export"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The block of the client app that draws a pack's section, and its component"
+                },
+                "native": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "block": {
+                          "type": "string"
+                        },
+                        "export": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["block", "export"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The block of the client app that draws a pack's section, and its component"
+                }
+              },
+              "required": ["key", "pack", "label", "order", "web", "native"],
+              "additionalProperties": false
+            }
+          },
+          "paysSubscription": {
+            "type": "boolean",
+            "description": "Whether you pay a subscription that has not ended"
+          }
+        },
+        "required": ["sections", "paysSubscription"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "me.sessions.list",
       "description": "The places you are signed in, as a signed-in customer: each session's id, whether it is a browser or an app on a device (with the device's name), when it began, when it was last used and when it expires, and which one is this one. Read-only.",
       "risk": "read",
@@ -1894,8 +2803,12 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list"
@@ -1926,8 +2839,12 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list"
@@ -2020,8 +2937,12 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list"
@@ -2478,6 +3399,10 @@
             "description": "The country the latest taxed payment was for",
             "type": ["string", "null"]
           },
+          "discount": {
+            "type": "number",
+            "description": "Money taken off the order (its discounts), already out of the total"
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -2510,6 +3435,10 @@
                 "taxAmount": {
                   "type": "number",
                   "description": "The tax inside this line's payments, as the payment provider calculated it"
+                },
+                "discount": {
+                  "type": "number",
+                  "description": "The line's share of the order's discounts: it costs total less this"
                 }
               },
               "required": [
@@ -2521,7 +3450,62 @@
                 "quantity",
                 "unitPrice",
                 "total",
-                "taxAmount"
+                "taxAmount",
+                "discount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "adjustments": {
+            "description": "Staff only: the discounts on the order, in the order they were given",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "lineId": {
+                  "description": "The line it is on; null: spread over the order",
+                  "type": ["string", "null"]
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["code", "automatic", "staff", "referral"]
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "What it took off, in the currency's minor unit"
+                },
+                "percent": {
+                  "description": "The percentage asked for, when it was one",
+                  "type": ["number", "null"]
+                },
+                "reason": {
+                  "type": ["string", "null"]
+                },
+                "givenBy": {
+                  "description": "The staff account that gave it",
+                  "type": ["string", "null"]
+                },
+                "approval": {
+                  "description": "The approval it waited in, when it did",
+                  "type": ["string", "null"]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "lineId",
+                "kind",
+                "amount",
+                "percent",
+                "reason",
+                "givenBy",
+                "approval",
+                "createdAt"
               ],
               "additionalProperties": false
             }
@@ -2554,6 +3538,7 @@
           "taxAmount",
           "taxRefunded",
           "taxCountry",
+          "discount",
           "lines"
         ],
         "additionalProperties": false
@@ -2697,6 +3682,10 @@
             "description": "The country the latest taxed payment was for",
             "type": ["string", "null"]
           },
+          "discount": {
+            "type": "number",
+            "description": "Money taken off the order (its discounts), already out of the total"
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -2729,6 +3718,10 @@
                 "taxAmount": {
                   "type": "number",
                   "description": "The tax inside this line's payments, as the payment provider calculated it"
+                },
+                "discount": {
+                  "type": "number",
+                  "description": "The line's share of the order's discounts: it costs total less this"
                 }
               },
               "required": [
@@ -2740,7 +3733,62 @@
                 "quantity",
                 "unitPrice",
                 "total",
-                "taxAmount"
+                "taxAmount",
+                "discount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "adjustments": {
+            "description": "Staff only: the discounts on the order, in the order they were given",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "lineId": {
+                  "description": "The line it is on; null: spread over the order",
+                  "type": ["string", "null"]
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["code", "automatic", "staff", "referral"]
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "What it took off, in the currency's minor unit"
+                },
+                "percent": {
+                  "description": "The percentage asked for, when it was one",
+                  "type": ["number", "null"]
+                },
+                "reason": {
+                  "type": ["string", "null"]
+                },
+                "givenBy": {
+                  "description": "The staff account that gave it",
+                  "type": ["string", "null"]
+                },
+                "approval": {
+                  "description": "The approval it waited in, when it did",
+                  "type": ["string", "null"]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "lineId",
+                "kind",
+                "amount",
+                "percent",
+                "reason",
+                "givenBy",
+                "approval",
+                "createdAt"
               ],
               "additionalProperties": false
             }
@@ -2773,6 +3821,7 @@
           "taxAmount",
           "taxRefunded",
           "taxCountry",
+          "discount",
           "lines"
         ],
         "additionalProperties": false
@@ -2982,6 +4031,10 @@
             "description": "The country the latest taxed payment was for",
             "type": ["string", "null"]
           },
+          "discount": {
+            "type": "number",
+            "description": "Money taken off the order (its discounts), already out of the total"
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -3014,6 +4067,10 @@
                 "taxAmount": {
                   "type": "number",
                   "description": "The tax inside this line's payments, as the payment provider calculated it"
+                },
+                "discount": {
+                  "type": "number",
+                  "description": "The line's share of the order's discounts: it costs total less this"
                 }
               },
               "required": [
@@ -3025,7 +4082,62 @@
                 "quantity",
                 "unitPrice",
                 "total",
-                "taxAmount"
+                "taxAmount",
+                "discount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "adjustments": {
+            "description": "Staff only: the discounts on the order, in the order they were given",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "lineId": {
+                  "description": "The line it is on; null: spread over the order",
+                  "type": ["string", "null"]
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["code", "automatic", "staff", "referral"]
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "What it took off, in the currency's minor unit"
+                },
+                "percent": {
+                  "description": "The percentage asked for, when it was one",
+                  "type": ["number", "null"]
+                },
+                "reason": {
+                  "type": ["string", "null"]
+                },
+                "givenBy": {
+                  "description": "The staff account that gave it",
+                  "type": ["string", "null"]
+                },
+                "approval": {
+                  "description": "The approval it waited in, when it did",
+                  "type": ["string", "null"]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "lineId",
+                "kind",
+                "amount",
+                "percent",
+                "reason",
+                "givenBy",
+                "approval",
+                "createdAt"
               ],
               "additionalProperties": false
             }
@@ -3062,6 +4174,7 @@
           "taxAmount",
           "taxRefunded",
           "taxCountry",
+          "discount",
           "lines",
           "token"
         ],
@@ -3150,6 +4263,10 @@
             "description": "The country the latest taxed payment was for",
             "type": ["string", "null"]
           },
+          "discount": {
+            "type": "number",
+            "description": "Money taken off the order (its discounts), already out of the total"
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -3182,6 +4299,10 @@
                 "taxAmount": {
                   "type": "number",
                   "description": "The tax inside this line's payments, as the payment provider calculated it"
+                },
+                "discount": {
+                  "type": "number",
+                  "description": "The line's share of the order's discounts: it costs total less this"
                 }
               },
               "required": [
@@ -3193,7 +4314,62 @@
                 "quantity",
                 "unitPrice",
                 "total",
-                "taxAmount"
+                "taxAmount",
+                "discount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "adjustments": {
+            "description": "Staff only: the discounts on the order, in the order they were given",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "lineId": {
+                  "description": "The line it is on; null: spread over the order",
+                  "type": ["string", "null"]
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["code", "automatic", "staff", "referral"]
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "What it took off, in the currency's minor unit"
+                },
+                "percent": {
+                  "description": "The percentage asked for, when it was one",
+                  "type": ["number", "null"]
+                },
+                "reason": {
+                  "type": ["string", "null"]
+                },
+                "givenBy": {
+                  "description": "The staff account that gave it",
+                  "type": ["string", "null"]
+                },
+                "approval": {
+                  "description": "The approval it waited in, when it did",
+                  "type": ["string", "null"]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "lineId",
+                "kind",
+                "amount",
+                "percent",
+                "reason",
+                "givenBy",
+                "approval",
+                "createdAt"
               ],
               "additionalProperties": false
             }
@@ -3226,8 +4402,109 @@
           "taxAmount",
           "taxRefunded",
           "taxCountry",
+          "discount",
           "lines"
         ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "stock.get",
+      "description": "How many of a thing in stock there are (a variant of an item in a shop). Staff get on hand (sold ones gone), held (by orders being paid for), available (on hand less held) and the reorder level, and the last five movements. Customers and the public get only what the object shows: in stock or sold out, a low-stock warning, or the number available. Read-only; holds nothing.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "An extension object that declares stock"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["object", "id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["in_stock", "low", "sold_out"],
+            "description": "`low` only when the object shows a low-stock warning and few are left"
+          },
+          "available": {
+            "description": "How many can be bought now. Shown to outsiders only when `show` allows",
+            "type": "number"
+          },
+          "onHand": {
+            "description": "Staff only: how many there are, sold ones gone",
+            "type": "number"
+          },
+          "held": {
+            "description": "Staff only: how many unpaid orders hold",
+            "type": "number"
+          },
+          "reorderAt": {
+            "type": ["number", "null"]
+          },
+          "reorderQty": {
+            "type": ["number", "null"]
+          },
+          "atReorderLevel": {
+            "type": "boolean"
+          },
+          "show": {
+            "type": "string",
+            "enum": ["exact", "low", "availability"]
+          },
+          "lowAt": {
+            "type": ["number", "null"]
+          },
+          "recent": {
+            "description": "Staff only: the last five movements, newest first; the rest is stock.movements",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "place": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["id", "kind", "quantity", "place", "at", "note"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["object", "id", "status"],
         "additionalProperties": false
       },
       "invalidates": []
@@ -4741,8 +6018,12 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -4916,8 +6197,12 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -5059,8 +6344,12 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -5366,8 +6655,12 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -5790,8 +7083,12 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -6568,8 +7865,12 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -6626,6 +7927,174 @@
       },
       "invalidates": [],
       "pack": "courses"
+    },
+    {
+      "name": "x.forms.form",
+      "description": "A form by its address, as the caller may answer it now: its version, title, questions and thank-you words, whether it is anonymous, whether a Turnstile token is needed, and the host's token of when it was shown (send it back with the answers). A form that is not open to the caller now (a draft, closed, not published, out of its dates, for signed-in customers only, or no such address) is not found, the same answer whatever the reason. Read-only. (Extension tool from Forms 0.1.0.)",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The form's address, e.g. ask-about-a-trial"
+          }
+        },
+        "required": ["slug"],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "number",
+            "description": "The version shown: send it with the answers"
+          },
+          "title": {
+            "type": ["string", "null"]
+          },
+          "questions": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": {}
+                }
+              }
+            },
+            "required": ["items"],
+            "additionalProperties": false,
+            "description": "The questions, in the platform's question schema, in order"
+          },
+          "thanks": {
+            "description": "The words to show once the answers are sent",
+            "type": ["string", "null"]
+          },
+          "anonymous": {
+            "type": "boolean",
+            "description": "Nothing kept says who answered"
+          },
+          "turnstile": {
+            "type": "boolean",
+            "description": "A Turnstile token must be sent with the answers"
+          },
+          "shown": {
+            "description": "Send back as `shown` with the answers",
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "title",
+          "questions",
+          "thanks",
+          "anonymous",
+          "turnstile",
+          "shown"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "forms"
+    },
+    {
+      "name": "x.forms.submit",
+      "description": "Send answers to a form the caller may answer (from `form`). The host checks the form is still open to them, a visitor's Turnstile token and when the form was shown, the caps and the answers against the version shown, then keeps them in the business's inbox, linked to the sender's person by the email answered. Answers that break the form are refused naming the question's key; a form published again since it was shown is refused with 'load it again'; too many answers just now is 'try again later'. Kept, kept as spam or dropped, the answer is the same. (Extension tool from Forms 0.1.0.)",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The form (forms.form record id)"
+          },
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "description": "The version `form` showed"
+          },
+          "answers": {
+            "propertyNames": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "description": "The answers by question key: text, email, phone and date as strings (a date YYYY-MM-DD), number and rating as numbers, a choice as a string or a list of strings, yes/no and a tick box as true or false. Leave out what was not answered.",
+            "type": "object",
+            "properties": {},
+            "additionalProperties": {}
+          },
+          "via": {
+            "type": "string",
+            "enum": ["site", "app", "page"],
+            "description": "Which way in: the business's website, its app, or the form's own page"
+          },
+          "turnstileToken": {
+            "type": "string",
+            "maxLength": 4096,
+            "description": "A visitor's Turnstile token"
+          },
+          "shown": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "`form`'s shown token"
+          },
+          "honeypot": {
+            "type": "string",
+            "maxLength": 1000,
+            "description": "The hidden field a person leaves empty"
+          }
+        },
+        "required": ["id", "version", "answers"],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "received": {
+            "type": "boolean",
+            "const": true,
+            "description": "The answers were sent: shown the same whatever the host's spam checks decided"
+          }
+        },
+        "required": ["received"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.family",
+        "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list",
+        "x.forms.form"
+      ],
+      "pack": "forms"
     },
     {
       "name": "x.memberships.buy",
@@ -6691,8 +8160,12 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -7378,7 +8851,7 @@
     },
     {
       "name": "x.programs.logAdd",
-      "description": "Log one set done on a session: the item (A1), the exercise when the item has more than one, the level taken when it has levels, which set (1, 2, …), what was done (reps, seconds, load) and how hard it felt (RPE). The target is taken from the session's plan, and who recorded it is the caller. A member logs on their own sessions and their class types'; a coach logs for a client (on a class session, naming them). Nobody logs on a session that is not theirs. Returns the set. (Extension tool from Programs 0.1.0.)",
+      "description": "Log one set done on a session: the item (A1), the exercise when the item has more than one, the level taken when it has levels, which set (1, 2, …), what was done (reps, seconds, load) and how hard it felt (RPE). The target is taken from the session's plan, and who recorded it is the caller. A member logs on their own sessions and their class types'; a coach logs for a client (on a class session, naming them). Nobody logs on a session that is not theirs. A set already logged (a retried save, a second device) is not logged twice: its numbers and effort become these, and its note is kept unless one is given. Returns the set. (Extension tool from Programs 0.1.0.)",
       "risk": "write",
       "audiences": ["customer"],
       "kind": "mutation",
@@ -7540,8 +9013,91 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list",
+        "x.programs.classToday",
+        "x.programs.history",
+        "x.programs.progress",
+        "x.programs.sessionGet",
+        "x.programs.today"
+      ],
+      "pack": "programs"
+    },
+    {
+      "name": "x.programs.logRemove",
+      "description": "Take back a set logged by mistake (un-tick it): the set with this number of a session's item and exercise. A member takes back their own; a coach a client's (on a class session, naming them). A set that is not logged changes nothing, so a retried call is safe. The row goes to the Trash, where staff can restore it. For staff the Trash is an extension's delete, so the org's approval policy may hold it for a person: `waiting` counts those. Returns how many rows were taken back. (Extension tool from Programs 0.1.0.)",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "item": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 6
+          },
+          "exerciseId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "setNumber": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 30
+          },
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Staff: the person. A member is always themselves."
+          }
+        },
+        "required": ["sessionId", "item", "exerciseId", "setNumber"],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "removed": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "waiting": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Staff: rows whose removal waits for a person's approval"
+          }
+        },
+        "required": ["removed", "waiting"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.family",
+        "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -7698,8 +9254,12 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -7934,8 +9494,12 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -8793,8 +10357,12 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",

@@ -22,6 +22,16 @@ import type { ExtensionManifest, FieldManifest, ObjectManifest } from "./manifes
  *   record a relation of this object names (a service's buffer).
  * - `only` (optional): a boolean field of the thing. Only things with it set are claimed (a room
  *   marked "one booking at a time"); without it, every thing named is.
+ *
+ * Two keys only say how the room calendar (`rooms.week`, `rooms.check`, ADR 0844) shows a claim;
+ * the claim itself is the same with or without them:
+ *
+ * - `provisional` (optional): those of `live` in which the claim is shown as provisional (a hire
+ *   held before its deposit). A provisional claim refuses a clash as a firm one does.
+ * - `title` (optional): what the calendar shows for the record: a field of this object, or
+ *   `relation.field`, a field of the record a relation of this object names (an appointment's
+ *   service, never its client). Left out, or empty on a record, the calendar shows the object's
+ *   label. Never a field that names a person.
  */
 export interface OccupiesSpec {
   thing: string;
@@ -31,7 +41,12 @@ export interface OccupiesSpec {
   before?: { field: string };
   after?: { field: string };
   only?: string;
+  provisional?: readonly string[];
+  title?: string;
 }
+
+/** Field types a calendar title may be read from: text a staff member typed or chose. */
+const TITLE_TYPES = ["text", "select"] as const;
 
 const fieldName = z.string().max(40);
 const path = z.string().max(81);
@@ -45,6 +60,8 @@ export const occupiesManifestSchema = z
     before: z.object({ field: path }).strict().optional(),
     after: z.object({ field: path }).strict().optional(),
     only: fieldName.optional(),
+    provisional: z.array(z.string().min(1).max(100)).min(1).max(20).optional(),
+    title: path.optional(),
   })
   .strict();
 export type OccupiesManifest = z.infer<typeof occupiesManifestSchema>;
@@ -115,6 +132,41 @@ export function checkObjectOccupies(
     }
     if (new Set(occupies.live).size !== occupies.live.length) {
       contract(`${at}.live`, "List each state once");
+    }
+  }
+
+  // The states shown as provisional: some of the live ones.
+  if (occupies.provisional) {
+    for (const state of occupies.provisional) {
+      if (!occupies.live.includes(state)) {
+        contract(
+          `${at}.provisional`,
+          `"${state}" is not one of live: only a state that takes the ${occupies.thing} is provisional`,
+        );
+      }
+    }
+    if (new Set(occupies.provisional).size !== occupies.provisional.length) {
+      contract(`${at}.provisional`, "List each state once");
+    }
+  }
+
+  // The calendar's title: a text or choice of this object, or of what one of its relations names
+  // (an appointment's service). A relation to a Person or an account is never one: the calendar
+  // shows no names.
+  if (occupies.title !== undefined) {
+    const [first, second, ...rest] = occupies.title.split(".");
+    const field = first === undefined ? undefined : own(object, first);
+    let ok = false;
+    if (!rest.length && second === undefined) ok = single(field, TITLE_TYPES);
+    else if (!rest.length && second !== undefined && single(field, ["relation"])) {
+      const source = named(field);
+      ok = source !== undefined && single(own(source, second), TITLE_TYPES);
+    }
+    if (!ok) {
+      contract(
+        `${at}.title`,
+        `"${occupies.title}" must be a text or select field of ${name}, or a relation of it (one record, to another of this extension's objects) and a text or select field of what it names`,
+      );
     }
   }
 

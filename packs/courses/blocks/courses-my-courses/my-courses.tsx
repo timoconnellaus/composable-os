@@ -17,7 +17,11 @@ export function MyCourses({
   onContinue,
 }: {
   courses: Pick<CoursesHooks, "useMyCourses">;
-  onContinue: (courseId: string, lessonKey: string | null) => void;
+  /**
+   * Opens a course where to carry on. Left out (as a section of My account, ADR 0710), there is no
+   * button.
+   */
+  onContinue?: (courseId: string, lessonKey: string | null) => void;
 }) {
   const { data, isPending, error } = courses.useMyCourses();
   if (isPending) return <p aria-busy="true">Loading your courses…</p>;
@@ -41,9 +45,11 @@ export function MyCourses({
                 aria-label="Progress"
                 className="w-full"
               />
-              <Button onClick={() => onContinue(course.id, course.continueWith)}>
-                {course.done ? "Carry on" : "Start"}
-              </Button>
+              {onContinue ? (
+                <Button onClick={() => onContinue(course.id, course.continueWith)}>
+                  {course.done ? "Carry on" : "Start"}
+                </Button>
+              ) : null}
             </CardContent>
           </Card>
         </li>

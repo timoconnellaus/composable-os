@@ -7,7 +7,8 @@ import { TEST_USER } from "./test-user.ts";
 const STORAGE_STATE = join(dirname(fileURLToPath(import.meta.url)), ".auth/user.json");
 
 /** Shipped packs some spec installs (`extension.install` with `shipped: true`). */
-const E2E_PACKS = ["programs", "bookings", "courses", "memberships", "ticketing", "content"];
+// Content before Courses, which requires it (and Programs).
+const E2E_PACKS = ["programs", "bookings", "content", "courses", "memberships", "ticketing"];
 
 /** The dev server, not the product, failed the call: no answer, or Vite's own error page. */
 class DevServerBroke extends Error {}

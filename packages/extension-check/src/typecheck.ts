@@ -7,6 +7,7 @@
 // the first call only the extension's own files are parsed. Synchronous and CPU-bound.
 import type { SourceIssue } from "@composable-os/core";
 import type ts from "typescript";
+import { resolveOwnImport } from "./resolve.ts";
 
 /** The declarations a check reads: virtual paths, their text and every import's resolution. */
 export interface SdkTypes {
@@ -23,18 +24,6 @@ const MAX_MESSAGE_LENGTH = 2_000;
 /** Extension files live under this virtual directory; issue paths are relative to it. */
 const ROOT = "/ext/";
 const SDK_SPECIFIER = "@composable-os/sdk";
-
-function normalise(path: string): string | null {
-  const parts: string[] = [];
-  for (const part of path.split("/")) {
-    if (part === "" || part === ".") continue;
-    if (part === "..") {
-      if (!parts.length) return null;
-      parts.pop();
-    } else parts.push(part);
-  }
-  return parts.join("/");
-}
 
 /**
  * A type checker for extension source over `types`, using compiler `ts`. Keep the result: it
@@ -76,7 +65,7 @@ export function createTypechecker(
     return file;
   }
 
-  /** The same rules as build.ts: own files (`./x`, `./x.ts`, `./x.js`, `./x/index.ts`) and the SDK. */
+  /** The same rules as build.ts: own files (resolve.ts) and the SDK. */
   function resolveFromExtension(
     from: string,
     specifier: string,
@@ -86,17 +75,12 @@ export function createTypechecker(
       return { resolvedFileName: types.entry, extension: ts.Extension.Dts };
     }
     if (!specifier.startsWith("./") && !specifier.startsWith("../")) return undefined;
-    const dir = from.slice(ROOT.length).split("/").slice(0, -1).join("/");
-    const base = normalise(`${dir}/${specifier}`);
-    if (base === null) return undefined;
-    const stem = base.replace(/\.js$/, "");
-    for (const candidate of [base, `${base}.ts`, `${stem}.ts`, `${base}.js`, `${base}/index.ts`]) {
-      if (/\.(ts|js)$/.test(candidate) && Object.hasOwn(files, candidate)) {
-        const extension = candidate.endsWith(".ts") ? ts.Extension.Ts : ts.Extension.Js;
-        return { resolvedFileName: `${ROOT}${candidate}`, extension };
-      }
-    }
-    return undefined;
+    const target = resolveOwnImport(from.slice(ROOT.length), specifier, (p) =>
+      Object.hasOwn(files, p),
+    );
+    if (target === null) return undefined;
+    const extension = target.endsWith(".ts") ? ts.Extension.Ts : ts.Extension.Js;
+    return { resolvedFileName: `${ROOT}${target}`, extension };
   }
 
   function extensionOf(fileName: string): ts.Extension {

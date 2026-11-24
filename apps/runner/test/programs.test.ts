@@ -18,27 +18,16 @@ import {
   type ExtensionHost,
   getObject,
   type InvocationContext,
-  invokeByName,
   type OutsideInvocationContext,
   refreshSchemaRegistry,
 } from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { Layout } from "../../../packs/programs/layout.ts";
 import { listedPacks } from "../src/extensions/shipped-list.ts";
-import { createAdmin, db, host, unique } from "./helpers.ts";
+import { createAdmin, db, host, newCustomer, run, unique } from "./helpers.ts";
+import { packFiles } from "./pack-files.ts";
 
-const files = Object.fromEntries(
-  Object.entries(
-    import.meta.glob<string>("../../../packs/programs/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  )
-    .map(([path, text]) => [path.split("/").pop() as string, text] as const)
-    // The pack's extension files, as a release carries them (not its config or tests).
-    .filter(([name]) => name !== "vitest.config.ts"),
-);
+const files = packFiles("programs");
 
 /** The extension host of a deployment whose product lists Programs. */
 const shippedHost: ExtensionHost = {
@@ -88,14 +77,6 @@ const guest: OutsideInvocationContext = {
   extensionHost: shippedHost,
 };
 
-function run<T = Record<string, unknown>>(
-  name: string,
-  input: unknown,
-  ctx: InvocationContext | OutsideInvocationContext,
-): Promise<T> {
-  return invokeByName(name, input, ctx) as Promise<T>;
-}
-
 /** What a call was refused with: its code, message and the host's details (unwrapped from a tool's). */
 async function refusal(call: Promise<unknown>) {
   try {
@@ -112,23 +93,7 @@ async function create(object: string, values: Record<string, unknown>): Promise<
   return (await run<{ id: string }>("record.create", { object, values }, staff(admin))).id;
 }
 
-async function createCustomer(label: string): Promise<CustomerPrincipal> {
-  const tag = unique(label).toLowerCase();
-  const email = `${tag}@members.test`;
-  const person = await run<{ id: string }>(
-    "person.create",
-    { givenName: `Given-${tag}`, emails: [{ email }] },
-    staff(admin),
-  );
-  const customerId = `cus_${tag}`;
-  const now = new Date().toISOString();
-  await env.DB.prepare(
-    "INSERT INTO core_customer (id, person_id, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
-  )
-    .bind(customerId, person.id, email, now, now)
-    .run();
-  return { kind: "customer", customerId, personId: person.id };
-}
+const createCustomer = async (label: string) => (await newCustomer(staff(admin), label)).principal;
 
 async function createStaff(role: "member", name: string): Promise<ActingUser> {
   const id = `usr_${unique("staff")}`;
@@ -926,6 +891,50 @@ describe("logging (criterion 5)", () => {
         recorded_as: "self",
       },
     ]);
+  });
+});
+
+describe("an imported session (cos programs import)", () => {
+  it("is done, and its member cannot move it back to planned; staff can", async () => {
+    const key = unique("past");
+    const made = await run<{ results: { id: string; outcome: string }[] }>(
+      "record.import",
+      {
+        object: SESSION,
+        records: [
+          {
+            key,
+            values: {
+              name: "Before the platform",
+              person: a.personId,
+              date: "2025-03-03",
+              state: "done",
+              source: "import",
+            },
+          },
+        ],
+      },
+      staff(admin),
+    );
+    const id = made.results[0]?.id as string;
+    expect(made.results[0]?.outcome).toBe("created");
+    const refused = await refusal(
+      run("x.programs.sessionComplete", { sessionId: id, state: "planned" }, as(a)),
+    );
+    // Refused by the host's staff-only rule on the move (`refusal` throws when nothing is refused).
+    expect(refused.code).toBeTruthy();
+    const kept = await run<{ values: Record<string, unknown> }>(
+      "record.get",
+      { object: SESSION, id },
+      staff(admin),
+    );
+    expect(kept.values.state).toBe("done");
+    const moved = await run<{ changed: boolean }>(
+      "x.programs.sessionComplete",
+      { sessionId: id, state: "planned" },
+      staff(admin),
+    );
+    expect(moved.changed).toBe(true);
   });
 });
 

@@ -98,11 +98,12 @@ export interface DeployablePackage {
 
 /**
  * Workers with a wrangler.jsonc that are not part of a deployment: the landing page
- * (the Composable OS site, ADR 0191) is deployed on its own by .github/workflows/marketing.yml, and
+ * (the Composable OS site, ADR 0191) is deployed on its own by .github/workflows/marketing.yml, the
+ * docs site (ADR 0930) by .github/workflows/docs.yml, and
  * the hosted control plane (products/crm/apps/control: crm-control and crm-dispatch, ADR 0210) is our own
  * service, deployed by docs/saas-go-live.md, never part of a customer's deployment.
  */
-const NOT_RELEASED = new Set(["apps/marketing"]);
+const NOT_RELEASED = new Set(["apps/marketing", "apps/docs"]);
 
 /** Every wrangler.jsonc under apps/ and packages/, sorted by directory. */
 export function readDeployablePackages(root: string): DeployablePackage[] {
@@ -240,6 +241,9 @@ const SECRET_SOURCES: Record<string, SecretSource> = {
   BETTER_AUTH_SECRET: "generated",
   BETTER_AUTH_URL: "installer",
   COS_UPDATE_TOKEN: "installer",
+  // The desk origin's secret (ADR 0649): made by the installer on a custom domain, which has a
+  // desk hostname.
+  DESK_SECRET: "installer",
   CF_ACCESS_TEAM_DOMAIN: "installer",
   CF_ACCESS_AUD: "installer",
   // Settings → AI's token (deploy.mjs and create-composable-os read it from COS_AI_ADMIN_TOKEN).

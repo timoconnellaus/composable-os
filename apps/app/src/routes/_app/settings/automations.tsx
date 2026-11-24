@@ -35,8 +35,8 @@ import { OctagonXIcon, PowerIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PageLayout, SaveBar } from "#/components/layout/page-layout";
-import { useStageMutation, useStageOp } from "#/lib/automation-ops";
-import { errorMessage } from "#/lib/query";
+import { errorMessage, useOp, useOpMutation } from "#/lib/query";
+import { supportedTimeZones } from "#/lib/time-zones";
 
 export const Route = createFileRoute("/_app/settings/automations")({
   component: AutomationSettingsPage,
@@ -52,21 +52,15 @@ const FALLBACK_ZONES = [
 
 /** Every IANA timezone the browser knows, the current one first if missing. */
 function timezones(current: string | undefined): string[] {
-  let zones: string[];
-  try {
-    zones = Intl.supportedValuesOf("timeZone");
-  } catch {
-    zones = FALLBACK_ZONES;
-  }
-  const all = new Set(["UTC", ...zones]);
+  const all = new Set(["UTC", ...supportedTimeZones(FALLBACK_ZONES)]);
   if (current) all.add(current);
   return [...all];
 }
 
 function AutomationSettingsPage() {
   const { isAdmin } = Route.useRouteContext();
-  const settings = useStageOp("automation.settings", {});
-  const update = useStageMutation("automation.updateSettings", { invalidates: ["automation."] });
+  const settings = useOp("automation.settings", {});
+  const update = useOpMutation("automation.updateSettings", { invalidates: ["automation."] });
   const [timezone, setTimezone] = useState<string | null>(null);
   const [debounce, setDebounce] = useState<string | null>(null);
   const zones = useMemo(() => timezones(settings.data?.timezone), [settings.data?.timezone]);
@@ -205,7 +199,7 @@ function AutomationSettingsPage() {
 
 function KillSwitchCard({ engaged, isAdmin }: { engaged: boolean; isAdmin: boolean }) {
   const [confirming, setConfirming] = useState(false);
-  const toggle = useStageMutation("automation.killSwitch", { invalidates: ["automation."] });
+  const toggle = useOpMutation("automation.killSwitch", { invalidates: ["automation."] });
 
   async function onConfirm() {
     try {

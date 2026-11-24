@@ -12,6 +12,7 @@ import {
   type AutomationDefinition,
   type AutomationQueueMessage,
   type AutomationSettings,
+  activeOnlyWith,
   automationsFullyBound,
   effectiveRails,
   FAN_OUT_BUDGET,
@@ -24,12 +25,14 @@ import {
   messageObjects,
   newId,
   notifyStatements,
+  parseSpec,
   type RateLimitBinding,
   type RunCandidate,
   refreshSchemaRegistry,
   registerTriggerSource,
   triggerSourceFor,
   WORKFLOW_BATCH_MAX,
+  waitingFor,
   workflowInstanceId,
 } from "@composable-os/core";
 import { type CrmDb, createCrmDb } from "@composable-os/db";
@@ -135,6 +138,8 @@ interface Deferred {
   reason: string;
 }
 
+type WithRecord = RunCandidate & { record: NonNullable<RunCandidate["record"]> };
+
 function hourKey(at: string): string {
   return at.slice(0, 13);
 }
@@ -209,31 +214,30 @@ export async function startRuns(
   }
   kept = [];
   for (const group of byAutomation.values()) {
-    const spec = (group[0] as RunCandidate).automation.spec;
-    if (!spec.conditions) {
+    const { automation } = group[0] as RunCandidate;
+    const conditions = automation.spec.conditions;
+    if (!conditions) {
       kept.push(...group);
       continue;
     }
-    const withRecord = group.filter((c) => c.record);
+    const withRecord = group.filter((c): c is WithRecord => Boolean(c.record));
     for (const c of group) if (!c.record) drop(c, "conditions (no record)");
-    const objects = [...new Set(withRecord.map((c) => (c.record as { object: string }).object))];
+    const objects = [...new Set(withRecord.map((c) => c.record.object))];
     for (const object of objects) {
-      const ofObject = withRecord.filter((c) => c.record?.object === object);
+      const ofObject = withRecord.filter((c) => c.record.object === object);
       const ok = await idsMatchingConditions(
         db,
         object,
-        ofObject.map((c) => c.record?.id as string),
-        spec.conditions,
+        ofObject.map((c) => c.record.id),
+        conditions,
         {
           // A routine's "me" is its owner (ADR 0343).
-          userId:
-            (group[0] as RunCandidate).automation.ownerUserId ??
-            `extension:${(group[0] as RunCandidate).automation.extensionId}`,
+          userId: automation.ownerUserId ?? `extension:${automation.extensionId}`,
           now,
         },
       );
       for (const c of ofObject) {
-        if (ok.has(c.record?.id as string)) kept.push(c);
+        if (ok.has(c.record.id)) kept.push(c);
         else drop(c, "conditions");
       }
     }
@@ -260,7 +264,7 @@ export async function startRuns(
   // Rate limits (ADR 0573): runs per minute (the Rate Limiting binding, per automation) shape,
   // they do not lose: a run over the rail is recorded and started on a later tick. Writes per hour
   // (core_automation_counters) pause the automation, the runs it held back recorded the same way.
-  const limited = await applyRateLimits(env, crm, kept, now, settings, result, drop);
+  const limited = await applyRateLimits(env, crm, kept, now, settings, result);
   kept = limited.out;
   const deferred = limited.deferred;
   result.deferred += deferred.length;
@@ -339,6 +343,18 @@ export async function startRuns(
     if (row.status !== "queued") continue;
     instances.push({ id: r.workflowId, params: runParams(r.candidate, row.id, origin, options) });
   }
+  await createInstances(env, instances);
+  return result;
+}
+
+/**
+ * Creates Workflow instances, at most WORKFLOW_BATCH_MAX per call. An existing id is ignored, so
+ * a repeat creates nothing twice.
+ */
+async function createInstances(
+  env: DispatchEnv,
+  instances: readonly { id: string; params: AutomationRunParams }[],
+): Promise<void> {
   for (let i = 0; i < instances.length; i += WORKFLOW_BATCH_MAX) {
     const batch = instances.slice(i, i + WORKFLOW_BATCH_MAX);
     try {
@@ -349,7 +365,6 @@ export async function startRuns(
       if (!/already exists|duplicate|10405|10415/i.test(String(error))) throw error;
     }
   }
-  return result;
 }
 
 /** The chain entry of a run: `<automationId>:<object>:<recordId>`. */
@@ -377,21 +392,38 @@ function debounced(
   };
 }
 
+/** What a run's trigger carries, as its params and its stored trigger hold it (unset ones left out). */
+function eventFields(
+  t: Pick<StoredTrigger, "record" | "change" | "approval" | "period" | "integration">,
+  manual: StoredTrigger["manual"],
+) {
+  return {
+    ...(t.record ? { record: t.record } : {}),
+    ...(t.change ? { change: t.change } : {}),
+    ...(t.approval ? { approval: t.approval } : {}),
+    ...(t.period ? { period: t.period } : {}),
+    ...(t.integration ? { integration: t.integration } : {}),
+    ...(manual ? { manual } : {}),
+  };
+}
+
+/** A retry's completed steps and the run its chain began with (unset ones left out). */
+function retryFields(t: Pick<StoredTrigger, "journal" | "originalRunId">) {
+  return {
+    ...(t.journal?.length ? { journal: t.journal } : {}),
+    ...(t.originalRunId ? { originalRunId: t.originalRunId } : {}),
+  };
+}
+
 function triggerJson(c: RunCandidate, origin: CandidateOrigin, options: StartOptions) {
   return {
     type: c.automation.spec.trigger.type,
     eventId: origin.eventId,
     key: c.idempotencyKey,
-    ...(c.record ? { record: c.record } : {}),
-    ...(c.change ? { change: c.change } : {}),
-    ...(c.approval ? { approval: c.approval } : {}),
-    ...(c.period ? { period: c.period } : {}),
-    ...(c.integration ? { integration: c.integration } : {}),
-    ...(options.manual ? { manual: options.manual } : {}),
+    ...eventFields(c, options.manual),
     // A deferred retry starts later from this row (ADR 0573): it keeps the steps that completed
     // and the run its chain began with, so it repeats no write and no send.
-    ...(options.journal?.length ? { journal: options.journal } : {}),
-    ...(options.originalRunId ? { originalRunId: options.originalRunId } : {}),
+    ...retryFields(options),
     chain: origin.chain,
   };
 }
@@ -410,18 +442,12 @@ function runParams(
     commit: c.automation.commit,
     trigger: c.automation.spec.trigger.type,
     eventId: origin.eventId,
-    ...(c.record ? { record: c.record } : {}),
-    ...(c.change ? { change: c.change } : {}),
-    ...(c.approval ? { approval: c.approval } : {}),
-    ...(c.period ? { period: c.period } : {}),
-    ...(c.integration ? { integration: c.integration } : {}),
-    ...(options.manual ? { manual: options.manual } : {}),
+    ...eventFields(c, options.manual),
     depth: origin.depth + 1,
     chain: c.record ? [...origin.chain, chainKey(c.automation.id, c.record)] : [...origin.chain],
     rootEventId: origin.rootEventId,
     ...(c.delaySeconds ? { delaySeconds: c.delaySeconds } : {}),
-    ...(options.journal?.length ? { journal: options.journal } : {}),
-    ...(options.originalRunId ? { originalRunId: options.originalRunId } : {}),
+    ...retryFields(options),
   };
 }
 
@@ -538,7 +564,6 @@ async function applyRateLimits(
   now: string,
   settings: AutomationSettings,
   result: StartResult,
-  _drop: (c: RunCandidate, reason: string) => void,
 ): Promise<{ out: RunCandidate[]; deferred: Deferred[] }> {
   const out: RunCandidate[] = [];
   const deferred: Deferred[] = [];
@@ -623,7 +648,7 @@ export async function runDeferredDue(
   const now = at.toISOString();
   const settings = await loadAutomationSettings(db);
   if (settings.killSwitch) return { started: 0, waiting: 0 };
-  const due = await db
+  let due = await db
     .selectFrom("core_automation_runs as r")
     .innerJoin("core_automations as a", "a.id", "r.automation_id")
     .select([
@@ -632,6 +657,7 @@ export async function runDeferredDue(
       "a.spec",
       "a.owner_user_id",
       sql<string>`min(r.started_at)`.as("oldest"),
+      sql<number>`count(*)`.as("queued"),
     ])
     .where("r.status", "=", "queued")
     .where("r.status_reason", "=", DEFERRED_REASON)
@@ -643,10 +669,25 @@ export async function runDeferredDue(
     .orderBy("oldest")
     .execute();
   if (!due.length) return { started: 0, waiting: 0 };
+  // Runs queued before an extension an automation runs only with went off wait for it (ADR 0812).
+  const specs = new Map(due.map((a) => [a.automation_id, parseSpec(a.spec)]));
+  const active = await activeOnlyWith(
+    db,
+    [...specs.values()].filter((spec) => spec !== null),
+  );
+  // Their runs stay queued and count as waiting.
+  let held = 0;
+  due = due.filter((a) => {
+    const spec = specs.get(a.automation_id);
+    const runs = Boolean(spec && !waitingFor(spec, active).length);
+    if (!runs) held += Number(a.queued);
+    return runs;
+  });
+  if (!due.length) return { started: 0, waiting: held };
   const share = Math.max(1, Math.ceil(perTick / due.length));
   const instances: { id: string; params: AutomationRunParams }[] = [];
   const startedIds: string[] = [];
-  let waiting = 0;
+  let waiting = held;
   for (const automation of due) {
     const spec = JSON.parse(automation.spec) as AutomationDefinition["spec"];
     const rows = await db
@@ -712,14 +753,8 @@ export async function runDeferredDue(
           commit: row.commit_oid,
           trigger: t.type,
           eventId: t.eventId,
-          ...(t.record ? { record: t.record } : {}),
-          ...(t.change ? { change: t.change } : {}),
-          ...(t.approval ? { approval: t.approval } : {}),
-          ...(t.period ? { period: t.period } : {}),
-          ...(t.integration ? { integration: t.integration } : {}),
-          ...(t.manual ? { manual: t.manual } : {}),
-          ...(t.journal?.length ? { journal: t.journal } : {}),
-          ...(t.originalRunId ? { originalRunId: t.originalRunId } : {}),
+          ...eventFields(t, t.manual),
+          ...retryFields(t),
           depth: row.depth,
           chain: t.record ? [...chain, chainKey(row.automation_id, t.record)] : [...chain],
           rootEventId: row.root_event_id ?? t.eventId,
@@ -729,14 +764,7 @@ export async function runDeferredDue(
       startedHere += 1;
     }
   }
-  for (let i = 0; i < instances.length; i += WORKFLOW_BATCH_MAX) {
-    const batch = instances.slice(i, i + WORKFLOW_BATCH_MAX);
-    try {
-      await env.AUTOMATION_WORKFLOW.createBatch(batch);
-    } catch (error) {
-      if (!/already exists|duplicate|10405|10415/i.test(String(error))) throw error;
-    }
-  }
+  await createInstances(env, instances);
   // After the instances exist: a crash between the two starts them again on the next tick, and
   // an existing instance id is ignored, so each run starts once.
   for (let i = 0; i < startedIds.length; i += 100) {

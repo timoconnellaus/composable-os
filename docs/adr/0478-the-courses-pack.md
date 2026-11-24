@@ -189,3 +189,21 @@ at setup" is its `beforeAll` failing, so every test of the file failed to run.
   pack's own source, carried as text in the release's shipped list, is 67 KiB of it (the seven
   packs carry 304 KiB). A release carries every pack in the repository whether or not a product
   lists it (ADR 0420 as amended); `COS_PACKS` chooses what is installed, not what is bundled.
+
+## Amended 2026-11-24: Courses requires Content, and a required pack is brought
+The player draws a text lesson (and a video lesson's notes) with Content's rich text blocks, but
+`requires` named only Programs, so a product listing Courses could not `cos add` Content's block
+and its host need not have Content. **Courses now requires `["programs", "content"]`**: the host
+refuses Courses until both are installed and on, and shipped packs' two passes install them
+first.
+- **The release says what each pack requires:** `packages/core/api/v1/roles.json` (shipped in the
+  client kit as `contract/roles.json`) gains `requires` (pack id → the packs it requires),
+  generated from the manifests by `pnpm --filter @composable-os/core api-contract`.
+- **`cos deploy` brings them:** a required pack product.ts does not list is added to the host's
+  `COS_PACKS` and the deploy says so ("Installing programs, content too: …"), and refuses if the
+  release does not carry it. **`cos add`** counts it as listed, so the players bring Content's
+  blocks (`dependsOn`). A kit from before the list brings nothing, as before.
+- Content's rich text blocks call no operation; requiring the pack means a Courses host has
+  Content's objects too (posts and the rest). The other way, a block depending on a block of a
+  pack the host may lack, would leave a client copying a renderer for a pack it never deploys.
+

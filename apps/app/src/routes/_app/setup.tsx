@@ -28,9 +28,11 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { CheckCircle2Icon, FileUpIcon, PlugZapIcon, SparklesIcon } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { ErrorState } from "#/components/empty-state";
 import { PageLayout } from "#/components/layout/page-layout";
 import { AiSetupSummaryView } from "#/components/setup/ai-summary";
 import { errorMessage, useOp, useOpMutation } from "#/lib/query";
+import { browserTimeZone, supportedTimeZones } from "#/lib/time-zones";
 import { useProductName } from "../../components/product-name.ts";
 
 export const Route = createFileRoute("/_app/setup")({ component: SetupPage });
@@ -65,24 +67,6 @@ const PRESET_COPY: Record<PolicyPreset, { title: string; description: string }> 
 
 const MAX_LOGO_BYTES = 140_000;
 
-function timezones(): string[] {
-  try {
-    return (Intl as unknown as { supportedValuesOf(key: string): string[] }).supportedValuesOf(
-      "timeZone",
-    );
-  } catch {
-    return ["UTC"];
-  }
-}
-
-function browserTimezone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  } catch {
-    return "UTC";
-  }
-}
-
 function SetupPage() {
   const productName = useProductName();
   const { isAdmin } = Route.useRouteContext();
@@ -102,6 +86,17 @@ function SetupPage() {
         <p className="text-sm text-muted-foreground">
           An admin sets it up. Ask one to finish setup.
         </p>
+      </PageLayout>
+    );
+  }
+  if (status.isError) {
+    return (
+      <PageLayout title={`Set up ${productName}`} width="md">
+        <ErrorState
+          title="Setup could not be loaded"
+          error={status.error}
+          onRetry={() => void status.refetch()}
+        />
       </PageLayout>
     );
   }
@@ -255,8 +250,8 @@ function OrganisationStep({
   const [timezone, setTimezone] = useState<string | null>(null);
   if (!settings.data) return <Skeleton className="h-64 w-full" />;
   const current = settings.data;
-  const tz = timezone ?? (current.timezone === "UTC" ? browserTimezone() : current.timezone);
-  const zones = [...new Set([tz, ...timezones()])];
+  const tz = timezone ?? (current.timezone === "UTC" ? browserTimeZone() : current.timezone);
+  const zones = [...new Set([tz, ...supportedTimeZones(["UTC"])])];
   const shownLogo = logo === undefined ? current.logo : logo;
 
   async function onFile(file: File | undefined) {

@@ -15,6 +15,7 @@ import {
   type FilterOp,
   GATEKEEPER_MODULES,
   type GatekeeperModuleName,
+  STAGE_TYPES,
   type StageType,
   type ViewFilter,
 } from "./contract.ts";
@@ -35,13 +36,15 @@ const UNIT_MS: Record<string, number> = {
   week: 604_800_000,
 };
 
+const DURATION_RE = /^\s*(\d+(?:\.\d+)?)\s+(second|minute|hour|day|week)s?\s*$/;
+
 /** Milliseconds in a duration. Throws on a malformed one. */
 export function durationMs(duration: Duration): number {
   if (typeof duration === "number") {
     if (!Number.isFinite(duration) || duration < 0) throw new Error("Durations are >= 0 ms");
     return duration;
   }
-  const match = /^\s*(\d+(?:\.\d+)?)\s+(second|minute|hour|day|week)s?\s*$/.exec(duration);
+  const match = DURATION_RE.exec(duration);
   if (!match) throw new Error(`"${duration}" is not a duration like "3 days" or "90 minutes"`);
   return Math.round(Number(match[1]) * (UNIT_MS[match[2] as string] as number));
 }
@@ -429,6 +432,16 @@ export interface AutomationSpec<T extends AutomationTrigger = AutomationTrigger>
    * first install reads it; after that, on or off is the person's choice.
    */
   enabled?: boolean;
+  /**
+   * Other extensions, by id, this automation runs only with (ADR 0812): the extension installs
+   * without them, and the automation is listed as waiting and starts no run until every one is
+   * installed and on. Its trigger, steps and permissions may name their objects; those are
+   * checked at this extension's next install or upgrade while they are installed (`cos ext check`
+   * installs them from the directories beside it first), and listed as broken if one does not
+   * exist. Use it for one automation that needs another pack; `requires` makes the whole
+   * extension need it.
+   */
+  onlyWith?: readonly string[];
   run(event: AutomationEvent, step: AutomationStepApi, ctx: AutomationContext): Promise<unknown>;
 }
 
@@ -445,7 +458,7 @@ const scalar = z.union([z.string().max(500), z.number(), z.boolean(), z.null()])
 export const valueMatchSchema = z.union([
   scalar,
   z.object({ in: z.array(scalar).min(1).max(50) }).strict(),
-  z.object({ stageType: z.enum(["open", "won", "lost"]) }).strict(),
+  z.object({ stageType: z.enum(STAGE_TYPES) }).strict(),
 ]);
 
 const objectName = z.string().min(1).max(80);
@@ -547,10 +560,7 @@ export const automationConnectionSchema = z
   })
   .strict();
 
-export const durationSchema = z.union([
-  z.number().int().min(0),
-  z.string().regex(/^\s*\d+(?:\.\d+)?\s+(second|minute|hour|day|week)s?\s*$/),
-]);
+export const durationSchema = z.union([z.number().int().min(0), z.string().regex(DURATION_RE)]);
 
 export const recipientSchema = z.union([
   z.literal("admins"),
@@ -671,6 +681,11 @@ export const automationManifestSchema = z.object({
   rails: automationRailsSchema.optional(),
   connections: z.array(automationConnectionSchema).max(10).optional(),
   enabled: z.boolean().optional(),
+  onlyWith: z
+    .array(z.string().regex(/^[a-z][a-z0-9]*$/))
+    .min(1)
+    .max(5)
+    .optional(),
 });
 export type AutomationManifest = z.infer<typeof automationManifestSchema>;
 

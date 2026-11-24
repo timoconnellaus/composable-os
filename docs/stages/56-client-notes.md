@@ -34,6 +34,34 @@ Status: **spec agreed** (2026-11-24: the draft's ten questions were decided as b
 the owner's standing rule on questions, with no interview needed; decisions 1 to 10 below). Build
 may start. A new stage, numbered 56.
 
+- **Step 1 built** (branch `feat/stage-56-note-levels`, ADRs 0830, 0831, 0832; migrations 1230 and
+  1231): `core_activity.level` and the note's other columns; levels 2 and 3 out of
+  `core_base_activities`, `rec_activity`, `rec_activity_link`, search, embeddings and summaries;
+  the note scope in the seam (`visibility/notes.ts`, through `visibleTable(ctx, "activity")`),
+  knowing the actor: no AI actor reads a kept note with any grant; `activity.log` and
+  `.update` take a level (a person only above `staff`, about exactly one Person; lowering needs
+  `notes:manage`); a note is changed or deleted by its author or `notes:manage`, deleted by a
+  person only; a sensitive note listed locked and read with `note.open` (every opening audited);
+  each read of a `coaches` note's text audited with ids (`ctx.auditRead`); kept notes' changes
+  audited by field name, no automation event, hidden from an AI's `audit.list` and from a
+  record's history for those who may not read them; `core_person_carer` with `carer.set`,
+  `.end`, `.list`; `notes:clients`, `notes:sensitive`, `notes:manage` (admins and grants,
+  restricted: never self-granted). Not in step 1: kinds and templates and every admin screen
+  (step 2), the shipped pack's `team` key (with Jobs), merge moving looks-after rows (step 7),
+  the digest needed nothing (it reads no activities).
+- **Step 2 built** (branch `feat/stage-56-note-kinds`, ADR 0833; migration 1232):
+  `core_note_kind` with the four kinds seeded (Note stays `staff` and is never retired) and
+  `note.kinds.list`, `.save`, `.retire` (`notes:manage`; an AI drafts a kind's name and template
+  only, waiting for a person who holds it); every note has a kind (old notes are Notes), starts at
+  its kind's level and is never below its lowest (operations and triggers); a template's sections
+  make the note's body, kept with their labels; Settings → Notes; the admin timeline's composer
+  picks a kind, fills its template and sets the level, and the timeline shows kind and level, a
+  sensitive note locked and opened with `note.open`; the "Looks after" card on the Person (step 1's
+  operations); the composer blocks `web-note-composer` and `native-note-composer` over
+  `@composable-os/client`'s notes entry. Not in step 2: the kind's files (step 3), evidence and
+  retention settings (step 7, with the typed count), client uploads and storage totals (steps 3
+  and 6); existing notes keep their level when a kind's lowest is raised.
+
 These notes can hold health and injury details. This stage is exact about who reads each note,
 records every read of a restricted one, and deletes them on erase. **It is not a clinical record**:
 allied health's clinical layer is out of scope (the owner ranked that market lower), and nothing

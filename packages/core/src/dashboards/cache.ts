@@ -9,6 +9,8 @@
 // The Cache API is a no-op on `*.workers.dev` hostnames and when no `caches` global exists
 // (Node tests): every call is then a miss, which is correct, only slower.
 
+import { sha256Hex } from "../digest.ts";
+
 export const WIDGET_CACHE_TTL_SECONDS = 60;
 const CACHE_ORIGIN = "https://widget-cache.crm.internal/v1/";
 
@@ -22,11 +24,6 @@ export interface WidgetCache {
   put<T>(key: string, value: T, cachedAt: string): Promise<void>;
 }
 
-async function sha256(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
 /** The cache key for one query run: SQL, positional params, row limit, scope and zone. */
 export async function widgetCacheKey(parts: {
   sql: string;
@@ -35,7 +32,9 @@ export async function widgetCacheKey(parts: {
   scope: string;
   zone: string;
 }): Promise<string> {
-  return sha256(JSON.stringify([parts.sql, parts.params, parts.maxRows, parts.scope, parts.zone]));
+  return sha256Hex(
+    JSON.stringify([parts.sql, parts.params, parts.maxRows, parts.scope, parts.zone]),
+  );
 }
 
 /**

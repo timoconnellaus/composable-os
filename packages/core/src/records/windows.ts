@@ -154,6 +154,21 @@ export async function boundMoment(
   const at = await reader.read(b.at);
   const instant = typeof at === "string" ? Date.parse(at) : Number.NaN;
   if (Number.isNaN(instant)) return null;
+  const moment = await boundFrom(ctx, reader, b);
+  return moment ? moment(instant) : null;
+}
+
+/**
+ * A bound's days, minutes and zone, read once: the moment it gives for a record whose `at` is
+ * `instant` (ms), or null when one of the values it is worked out from is empty. Free times judge
+ * every start time against one window with it, reading nothing per time (ADR 0763).
+ */
+export async function boundFrom(
+  ctx: HandlerContext,
+  reader: PathReader,
+  bound: WindowBoundDefinition,
+): Promise<((instant: number) => number) | null> {
+  const b = typeof bound === "string" ? { at: bound } : bound;
   const part = async (value: WindowNumberDefinition | undefined): Promise<number | null> => {
     if (value === undefined) return 0;
     if (typeof value === "number") return value;
@@ -168,18 +183,45 @@ export async function boundMoment(
   const days = await part(b.daysBefore);
   const minutes = await part(b.minutesBefore);
   if (days === null || minutes === null) return null;
-  let moment = instant;
-  if (days !== 0) {
-    const zoneValue = b.zone ? await reader.read(b.zone) : null;
-    // An empty zone is the organisation's (ADR 0507); an unreadable one is not known.
-    if (zoneValue === UNREADABLE) return null;
-    const zone =
-      typeof zoneValue === "string" && zoneValue
-        ? zoneValue
-        : (await loadGeneralSettings(ctx.db)).timezone;
-    moment = localDaysBefore(instant, Math.trunc(days), zone);
-  }
-  return moment - Math.round(minutes * 60_000);
+  const less = Math.round(minutes * 60_000);
+  if (days === 0) return (instant) => instant - less;
+  const zoneValue = b.zone ? await reader.read(b.zone) : null;
+  // An empty zone is the organisation's (ADR 0507); an unreadable one is not known.
+  if (zoneValue === UNREADABLE) return null;
+  const zone =
+    typeof zoneValue === "string" && zoneValue
+      ? zoneValue
+      : (await loadGeneralSettings(ctx.db)).timezone;
+  return (instant) => localDaysBefore(instant, Math.trunc(days), zone) - less;
+}
+
+/**
+ * Whether `ctx.now` is inside `window` for a record starting at each of many times, judged as
+ * `windowRefusal` judges one (from inclusive, until exclusive; a bound that cannot be worked out
+ * refuses): `startsField` is the record's start, the `at` of the bounds that name it; a bound at
+ * another path is read once. For free times (ADR 0763).
+ */
+export async function windowJudge(
+  ctx: HandlerContext,
+  reader: PathReader,
+  window: WindowDefinition,
+  startsField: string,
+): Promise<(startsMs: number) => boolean> {
+  const now = Date.parse(ctx.now);
+  const side = async (bound: WindowBoundDefinition | undefined) => {
+    if (bound === undefined) return undefined;
+    const b = typeof bound === "string" ? { at: bound } : bound;
+    if (b.at !== startsField) {
+      const fixed = await boundMoment(ctx, reader, b);
+      return fixed === null ? null : () => fixed;
+    }
+    return boundFrom(ctx, reader, b);
+  };
+  const from = await side(window.from);
+  const until = await side(window.until);
+  if (from === null || until === null) return () => false;
+  return (startsMs) =>
+    (from === undefined || now >= from(startsMs)) && (until === undefined || now < until(startsMs));
 }
 
 /** Why a customer is outside a window now, or null when they are inside it. */

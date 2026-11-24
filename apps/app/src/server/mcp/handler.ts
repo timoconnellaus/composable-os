@@ -15,7 +15,6 @@ import {
 } from "@cloudflare/workers-oauth-provider";
 import type { IdentityEnv } from "@composable-os/auth";
 import {
-  type ActingUser,
   bindConnectionGrant,
   isGrantActive,
   loadConnection,
@@ -24,8 +23,6 @@ import {
   parseFloor,
   type RateLimitBinding,
   RateLimitedError,
-  ROLES,
-  type Role,
   rateLimit,
   scopePermissions,
   touchConnection,
@@ -34,7 +31,9 @@ import { createCrmDb } from "@composable-os/db";
 import { productName } from "@composable-os/product";
 import { product } from "@composable-os/products/active";
 import { createMcpHandler } from "agents/mcp/server";
+import { actingUserOf } from "../acting-user.ts";
 import { aiContextFor } from "../ai.ts";
+import { approvalExpiryDays } from "../approval-expiry.ts";
 import { blobStoreFor, integrationRuntimeFor } from "../integrations.ts";
 import {
   automationWiring,
@@ -108,12 +107,7 @@ export async function serveMcp(
     const grant = await loadSupportGrant(db.query, row.support_grant_id);
     if (!isGrantActive(grant)) return bearerError(401, "invalid_token", "Support access ended");
   }
-  const user: ActingUser = {
-    id: row.id,
-    email: row.email,
-    name: row.name,
-    role: (ROLES as readonly string[]).includes(row.role) ? (row.role as Role) : "viewer",
-  };
+  const user = actingUserOf(row);
 
   const now = clock().toISOString();
   // Keyed per connected app, so refreshing a token does not reset the budget (ADR 0091).
@@ -149,7 +143,7 @@ export async function serveMcp(
       db,
       floor: parseFloor(env.APPROVAL_FLOOR),
       grantedPermissions: scopePermissions(connection.scopes),
-      approvalExpiryDays: int(env.APPROVAL_EXPIRY_DAYS, 7),
+      approvalExpiryDays: approvalExpiryDays(env.APPROVAL_EXPIRY_DAYS),
       ...(extensionHost ? { extensionHost } : {}),
       ...automationWiring(env),
       ...aiContextFor(env, db),

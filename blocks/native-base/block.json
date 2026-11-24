@@ -12,6 +12,7 @@
     "tab-bar.tsx",
     "button.tsx",
     "field.tsx",
+    "text.tsx",
     "LICENSE"
   ],
   "dependsOn": [],

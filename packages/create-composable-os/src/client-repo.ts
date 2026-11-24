@@ -260,9 +260,11 @@ export async function generateClients(
   }
   // A client per pack role the mobile app's staff sign in with (ADR 0451): only that role's
   // operations, from the release's roles.json and its staff contract. Never the staff client.
+  // And the owner's client, when the app has it (ADR 0872): Today's short list, from the same file.
   const roles = product.mobile?.roles ?? [];
-  if (roles.length && product.mobile) {
-    const { renderRoleClient } = await import("@composable-os/client-gen");
+  const owner = product.mobile?.owner === true;
+  if ((roles.length || owner) && product.mobile) {
+    const { renderOwnerClient, renderRoleClient } = await import("@composable-os/client-gen");
     const rolesFile = kit.get(`${KIT.contract}roles.json`);
     if (!rolesFile) {
       throw new CliError(
@@ -274,6 +276,18 @@ export async function generateClients(
     const staff = perAudience[2] as ApiContract;
     const dir = join(product.mobile.dir, product.mobile.clientDir ?? "src/client", "roles");
     mkdirSync(join(root, dir), { recursive: true });
+    if (owner) {
+      if (!parsed.owner) {
+        throw new CliError(
+          "The release's roles.json has no owner's client (mobile.owner): it is older than it. Upgrade the platform version first.",
+        );
+      }
+      writeFileSync(
+        join(root, dir, "owner.ts"),
+        renderOwnerClient(staff, parsed.owner, { product: product.id }),
+      );
+      written.push(join(dir, "owner.ts"));
+    }
     for (const entry of roles) {
       const { role: name, grants } = mobileRole(entry);
       const role = declared.find((r) => r.name === name);
@@ -1173,12 +1187,15 @@ export function gatekeeperPlan(
       }
       vars[worker.name] = { ...vars[worker.name], [key]: String(value) };
     }
-    if (
-      vars[worker.name]?.PAYMENTS_FAKE_PROVIDER === "true" &&
-      isLiveEnvironment(product, environment)
-    ) {
+    const fake =
+      vars[worker.name]?.PAYMENTS_FAKE_PROVIDER === "true"
+        ? "the fake payment provider"
+        : vars[worker.name]?.TEXT_PROVIDER === "fake"
+          ? "the fake text provider"
+          : null;
+    if (fake && isLiveEnvironment(product, environment)) {
       return {
-        problem: `${where} is live and turns on the fake payment provider: only an environment marked live: false may.`,
+        problem: `${where} is live and turns on ${fake}: only an environment marked live: false may.`,
       };
     }
   }
@@ -1248,12 +1265,22 @@ export async function deploy(flags: Flags, deps: Deps): Promise<number> {
   const { bundle } = await verified(source, product.platform.version, scoped);
   const manifest = bundle.manifest;
   const inRelease = kitPacks(bundle.clientFiles);
-  const missing = product.packs.filter((pack) => !inRelease.has(pack));
+  // A listed pack brings the packs it requires (Courses: Programs and Content): the host installs
+  // them too, as the pack cannot install without them.
+  const brought = requiredPacks(bundle.clientFiles, product.packs);
+  const missing = [...product.packs, ...brought].filter((pack) => !inRelease.has(pack));
   if (missing.length) {
     io.err(
-      `${release.label} ${product.platform.version} does not carry the pack${missing.length > 1 ? "s" : ""} ${missing.join(", ")} that product.ts lists (it carries ${[...inRelease].sort().join(", ") || "none"}): the platform needs it in a release first. Nothing was deployed.`,
+      `${release.label} ${product.platform.version} does not carry the pack${missing.length > 1 ? "s" : ""} ${missing.join(", ")} that product.ts lists${brought.some((p) => missing.includes(p)) ? " or its packs require" : ""} (it carries ${[...inRelease].sort().join(", ") || "none"}): the platform needs it in a release first. Nothing was deployed.`,
     );
     return 1;
+  }
+  if (brought.length) {
+    hostFlags.packs = [...product.packs, ...brought].join(",");
+    const them = brought.length > 1 ? "them" : "it";
+    io.out(
+      `Installing ${brought.join(", ")} too: a pack product.ts lists requires ${them}. Add ${them} to packs in product.ts to say so there.`,
+    );
   }
   // The gatekeepers product.ts turns on here and their settings, checked against what each
   // declares in this release before anything changes (ADR 0452).
@@ -1407,6 +1434,8 @@ export async function upgradeRepo(flags: Flags, deps: Deps): Promise<number> {
     // Compared by content: a kit rebuilt at the same version can still change the host modules.
     io.out(`Already on ${version}. Checking the host modules against its template.`);
     upgradeHostModules(root, product, kit, version, io);
+    const { rewriteAccountSections } = await import("./blocks.ts");
+    rewriteAccountSections(root, product, kit, io);
     // And the packages: run again after installing, this is where the type check happens.
     return packagesAndTypes(root, product, version, io);
   }
@@ -1431,6 +1460,10 @@ export async function upgradeRepo(flags: Flags, deps: Deps): Promise<number> {
   const moved = await loadClientProduct(root);
   await generateClients(root, moved, kit, io);
   io.out(`Skills: ${writeSkills(root, kit)} replaced.`);
+  // My account's section wiring, from the new release's packs (ADR 0710). Loaded late: blocks.ts
+  // imports this file.
+  const { rewriteAccountSections } = await import("./blocks.ts");
+  rewriteAccountSections(root, moved, kit, io);
   // The host modules: unedited ones replaced, edited ones shown as a diff (ADR 0451).
   upgradeHostModules(root, moved, kit, version, io);
   return packagesAndTypes(root, moved, version, io);
@@ -1485,6 +1518,28 @@ export function kitPacks(kit: ClientKit): Set<string> {
   const listed = kit.get("packs.json");
   if (!listed) return new Set();
   return new Set(JSON.parse(decode(listed)) as string[]);
+}
+
+/**
+ * The packs a product's packs require and it does not list, from the release's roles.json (each
+ * pack's `requires`, ADR 0478), followed to the end: Courses brings Programs and Content. A kit
+ * older than the list brings none.
+ */
+export function requiredPacks(kit: ClientKit, packs: readonly string[]): string[] {
+  const file = kit.get(`${KIT.contract}roles.json`);
+  const requires = file
+    ? ((JSON.parse(decode(file)) as { requires?: Record<string, string[]> }).requires ?? {})
+    : {};
+  const brought: string[] = [];
+  const visit = (pack: string) => {
+    for (const needed of requires[pack] ?? []) {
+      if (packs.includes(needed) || brought.includes(needed)) continue;
+      brought.push(needed);
+      visit(needed);
+    }
+  };
+  for (const pack of packs) visit(pack);
+  return brought;
 }
 
 /** `cos client generate` in a client repo: each app's typed client from its release, again. */

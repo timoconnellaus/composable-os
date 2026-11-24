@@ -50,3 +50,10 @@ the pack's grantable permission `memberships:passes`.
   itself is also staff's through `record.update` (the transition engine has no human-only move), so
   "human only" is enforced for giving (which creates value) and for the pack's void tool, not for a
   staff state move on a pass.
+
+## Amended 2026-11-24: one person per folded address (ADR 0692)
+"A Person" for `sellable.onePerPerson` now counts every Person sharing a folded address with
+them (`a+1@x` and `a+2@x`, issue #225): an order held or paid by any of them refuses the line, a
+late payment is refused when any of them has had one since, and migration 0955's trigger refuses
+the second of two holds at once by such People. A pass given by hand (ADR 0513) is still checked
+for its Person only: a person's override, which counts against the others.

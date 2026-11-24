@@ -21,6 +21,7 @@ import type { GateFloor } from "../gate.ts";
 import { invoke } from "../invoke.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { viewColumnOf } from "../records/columns.ts";
+import { FOLLOWERS_MAX } from "../records/follows.ts";
 import { SYSTEM_USER } from "../users.ts";
 import { loadRecord, updateRecord } from "./record.ts";
 
@@ -227,7 +228,11 @@ export async function runTimedMovesDue(
     }
   }
   if (!plans.length) return result;
+  // One budget of records cascades may move for the whole tick (ADR 0841): every move runs in this
+  // invocation, so its followers' reads add up. A move refused for it waits for the next tick.
+  const followerBudget = { left: FOLLOWERS_MAX };
   const ctx = {
+    followerBudget,
     actor: "automation" as const,
     user: SYSTEM_USER,
     origin: { surface: "system" as const, automationId: "system.timed-moves" },
@@ -270,6 +275,7 @@ export async function runTimedMovesDue(
       let leftHere = 0;
       for (const row of rows) {
         budget -= 1;
+        const before = followerBudget.left;
         try {
           await invoke(
             "state.after",
@@ -283,8 +289,15 @@ export async function runTimedMovesDue(
           );
           result.moved += 1;
         } catch (error) {
-          const e = error as { code?: unknown; details?: { reason?: unknown } };
+          // A move that failed moved nothing: its followers are not spent.
+          followerBudget.left = before;
+          const e = error as { code?: unknown; details?: { reason?: unknown; rule?: unknown } };
           const reason = e.details?.reason;
+          // Its cascade did not fit what the tick had left: the next tick tries it first.
+          if (e.details?.rule === "follows_too_many" && reason === "budget") {
+            leftHere += 1;
+            continue;
+          }
           // Moved by someone else meanwhile, or no longer due: nothing to do.
           if (
             e.code === "conflict" &&

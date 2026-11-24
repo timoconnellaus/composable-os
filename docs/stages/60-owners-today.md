@@ -34,6 +34,15 @@ nothing kept for the owner. Decisions 11 and 12 are the coordinator's notes on h
 others). Build may start in the order below; step 3's money items wait for stage 52, step 1 for
 nothing.
 
+- **Step 6 built** (the owner's client and the headless hooks, [ADR 0872](../adr/0872-the-owners-client.md)):
+  `OWNER_CLIENT_OPERATIONS` and `roles.json`'s `owner` (the listed operations the release serves:
+  today the approvals, the inbox and `user.me`; Today's own join with steps 3 and 5);
+  `mobile.owner: true` and `cos client generate` writing `roles/owner.ts`; `createOwnerHooks` and
+  Today's words in `@composable-os/client`; the host refusing an extension or schema operation on a
+  staff device session, called directly or approved (`origin.staffDevice`, "review on a computer",
+  criterion 6's host half).
+  No migration.
+
 ## Goal
 
 The owner opens the business's app on their phone and sees today, in the business's own time zone,
@@ -523,3 +532,18 @@ be checked with the business during setup.
 - **Needs a real device and a real account**: the native screen on phones, the staff sign-in
   there, failed renewals from the payment provider's test mode, and (with stage 30) push on both
   phone platforms.
+
+## Built
+
+- **Step 2** (branch `feat/stage-60-today-items`): `todayItems` in the manifest (`TodayItemSpec`,
+  `TODAY_ITEM_FORMATS`, `TODAY_ITEM_COMPARES`, `TODAY_ITEM_PARAMS` in `packages/sdk/src/contract.ts`;
+  `todayItemManifestSchema`, `todayItemIssues` and `toManifest` in `manifest.ts`): at most 8, keys
+  camelCase, `count` or `percent` (a money format refused with the reason), the gate of the pack's
+  own tools as a screen's, rows opening its own object or a base one, `web.screen` one of its
+  screens. The SQL check is the host's, in `checkManifest` (`todayItemSqlIssues` in
+  `packages/core/src/today/declaration.ts`): the widget guards with only `:today_from`, `:today_to`
+  and `:now`, the pack's own views counted as present, and exactly `value` (or the rows' declared
+  columns) returned. A runtime extension declaring items is refused (`outside_audience`) by its check
+  and at install. [ADR 0870](../adr/0870-todays-items-and-the-today-items-declaration.md) (amends
+  0010 and 0057). No migration. Criterion 12 is met; nothing yet reads the items (step 3), and no
+  pack declares any (step 4).

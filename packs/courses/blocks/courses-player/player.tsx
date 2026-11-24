@@ -23,7 +23,7 @@ export function LessonPlayer({
   courseId: string;
   lessonKey: string;
   onNext: (lessonKey: string) => void;
-  /** Draws rich text (the Content pack's renderer, `content-rich-text`). */
+  /** Draws rich text: the Content pack's renderer, `content-rich-text`, copied with this block. */
   renderText?: (value: unknown) => ReactNode;
   /** Draws a session lesson's own Programs session (the Programs session block). */
   renderSession?: (courseId: string, lessonKey: string) => ReactNode;

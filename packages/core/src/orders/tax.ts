@@ -5,8 +5,9 @@
 //   - a line is taxed when a human admin has turned tax on (`order.settings.tax`) and the line's
 //     object declares a product tax code (`sellable.tax`), possibly overridden per object by a
 //     human admin (`order.settings.taxCodes`). Otherwise the checkout is exactly as before;
-//   - the payment is split over the order's lines in proportion to their totals, so each share
-//     carries its own code, and an in-person event's share its place;
+//   - the payment is split over the order's lines in proportion to their totals after
+//     adjustments (their net, ADR 0690), so each share carries its own code, and an in-person
+//     event's share its place;
 //   - what the provider says the tax was is stored as it said it (orders/payments.ts). The host
 //     never calculates a tax amount.
 import type { CoreDatabase } from "@composable-os/db";
@@ -17,6 +18,7 @@ import { orderLineObject } from "../fields/order.ts";
 import type { ObjectDefinition, TaxDefinition } from "../fields/types.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { type AnyRow, orgReader, visibleSource } from "../visibility/index.ts";
+import { viewRow } from "./sellable.ts";
 import { loadOrderTax, loadOrderTaxCodes } from "./settings.ts";
 
 /** An event's address for tax, as the provider takes it. */
@@ -82,12 +84,7 @@ async function readRow(
   object: ObjectDefinition,
   id: string,
 ): Promise<AnyRow | undefined> {
-  // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
-  return (await (db as any)
-    .selectFrom(visibleSource(orgReader(db), object))
-    .selectAll()
-    .where("id", "=", id)
-    .executeTakeFirst()) as AnyRow | undefined;
+  return viewRow(db, visibleSource(orgReader(db), object), id);
 }
 
 function fieldValue(object: ObjectDefinition, row: AnyRow, field: string | undefined): unknown {
@@ -158,7 +155,16 @@ export async function checkoutTax(
   // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
   const rows = (await (db as any)
     .selectFrom(visibleSource(orgReader(db), lineObject))
-    .select(["id", "position", "object_type", "record_id", "title", "quantity", "line_total"])
+    .select([
+      "id",
+      "position",
+      "object_type",
+      "record_id",
+      "title",
+      "quantity",
+      "line_total",
+      "line_discount",
+    ])
     .where("order_id", "=", orderId)
     .orderBy("position")
     .execute()) as {
@@ -169,6 +175,7 @@ export async function checkoutTax(
     title: string;
     quantity: number;
     line_total: number;
+    line_discount: number;
   }[];
   const lines = rows.map((row) => {
     const object = getObject(row.object_type);
@@ -183,11 +190,10 @@ export async function checkoutTax(
       { rule: "tax_mixed" },
     );
   }
-  const priced = lines.filter((line) => line.row.line_total > 0);
-  const shares = splitInProportion(
-    amount,
-    priced.map((line) => line.row.line_total),
-  );
+  // Each line weighs what it costs after its adjustments: the provider taxes what it charges.
+  const net = (line: (typeof lines)[number]) => line.row.line_total - line.row.line_discount;
+  const priced = lines.filter((line) => net(line) > 0);
+  const shares = splitInProportion(amount, priced.map(net));
   const out: CheckoutTaxLine[] = [];
   for (const [index, line] of priced.entries()) {
     const share = shares[index] ?? 0;

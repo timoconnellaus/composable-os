@@ -14,9 +14,9 @@
 import { env } from "cloudflare:workers";
 import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
+import { csvText } from "../src/csv.ts";
 import { type ActingUser, getObject, invokeByName, objectTableOf } from "../src/index.ts";
 import {
-  csvText,
   fingerprintGuards,
   hoursOf,
   periodContaining,

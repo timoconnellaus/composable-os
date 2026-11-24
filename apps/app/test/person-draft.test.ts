@@ -23,6 +23,7 @@ const person: Person = {
   ownerId: null,
   description: null,
   tags: ["VIP"],
+  birthday: null,
   jobTitle: null,
   primaryAffiliation: null,
   createdAt: "2026-11-01T00:00:00.000Z",

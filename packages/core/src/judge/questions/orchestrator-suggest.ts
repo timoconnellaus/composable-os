@@ -6,7 +6,7 @@
 // looks like work across 20 records"). It never forces a choice: the model decides. Nothing is
 // stored, so its spend is not counted. When the judge is off or cannot answer, no hint is added
 // (fails open: advice only). The short timeout keeps it from holding up the reply.
-import { choice } from "../questions.ts";
+import { choice, clip } from "../questions.ts";
 import { failureOf, type Judge, type JudgeUnavailableReason } from "../types.ts";
 
 export const ORCHESTRATOR_PLACEMENT = "orchestrator.suggest" as const;
@@ -43,11 +43,6 @@ export interface OrchestratorState {
   /** Records selected on the page, when any are. */
   selected?: number;
 }
-
-const clip = (text: string, max: number) => {
-  const flat = text.replace(/\s+/g, " ").trim();
-  return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`;
-};
 
 export function orchestratorState(input: { said: string; selected?: number }): OrchestratorState {
   return {

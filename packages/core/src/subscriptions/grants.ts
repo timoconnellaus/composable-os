@@ -67,17 +67,18 @@ export function grantUntil(row: SubscriptionRow, now: string): string | null {
   return ends.length ? ([...ends].sort()[0] as string) : null;
 }
 
-/** The plan object's grant declaration, or undefined when its subscriptions grant nothing. */
+/** The plan object's grant declaration, or null when its subscriptions grant nothing. */
 function grantsOf(planObject: string): {
   plan: ObjectDefinition;
   grants: RecurringGrantDefinition;
   granted: ObjectDefinition;
+  states: NonNullable<ObjectDefinition["states"]>;
 } | null {
   const plan = getObject(planObject);
   const grants = plan?.sellable?.recurring?.grants;
   const granted = grants ? getObject(grants.object) : undefined;
   if (!plan || !grants || !granted?.states) return null;
-  return { plan, grants, granted };
+  return { plan, grants, granted, states: granted.states };
 }
 
 async function tellStaff(ctx: HandlerContext, row: SubscriptionRow, title: string, body: string) {
@@ -109,9 +110,7 @@ export async function followSubscriptionGrant(
 ): Promise<void> {
   const declared = grantsOf(row.plan_object);
   if (!declared) return;
-  const { plan, grants, granted } = declared;
-  const states = granted.states;
-  if (!states) return;
+  const { plan, grants, granted, states } = declared;
   const existing = await ctx.db
     .selectFrom("core_subscription_grant")
     .select(["object_type", "record_id"])

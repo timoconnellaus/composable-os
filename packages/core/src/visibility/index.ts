@@ -23,6 +23,7 @@ import type { ObjectDefinition } from "../fields/types.ts";
 import { type Principal, staffPrincipal } from "../principals.ts";
 import { type CustomerScope, customerObject, customerScope, unknownObject } from "./customer.ts";
 import { ownersWhere } from "./guardians.ts";
+import { type NoteViewer, noteScopeWhere } from "./notes.ts";
 import {
   type Condition,
   type PublicScope,
@@ -34,6 +35,7 @@ import { customerViaScope, type ViaScope, viaObject } from "./via.ts";
 
 export { type CustomerScope, customerProblems } from "./customer.ts";
 export {
+  dependantFirstNames,
   type Family,
   type FamilyMember,
   familyOf,
@@ -41,10 +43,25 @@ export {
   recordsMadeFor,
   sharedEmailWarning,
 } from "./guardians.ts";
+export {
+  hiddenNoteIds,
+  NOTE_LEVELS,
+  type NoteLevel,
+  type NoteRights,
+  type NoteViewer,
+  noteLevelGuard,
+  noteRights,
+  noteScopeWhere,
+  readsEveryNote,
+} from "./notes.ts";
 export { type PublicScope, publicProblems, signedInProblems } from "./public.ts";
 export { customerViaProblems, type ViaScope } from "./via.ts";
 
-/** Who is reading. A handler's context is one. */
+/**
+ * Who is reading. A handler's context is one. A staff handler's context also carries its actor
+ * and grants, which the note scope reads (`NoteViewer`, stage 56): a viewer without them reads
+ * `staff` notes only.
+ */
 export interface Viewer {
   readonly principal: Principal;
 }
@@ -337,6 +354,25 @@ export function ownedSource(
 }
 
 /**
+ * The ids of a customer's own records of `object` as they read them, with `owner` (whose Person's
+ * record it is): their Person's, and a live dependant's where the object opens to guardians
+ * (ADR 0540), never what is only shared with them (ADR 0447). For reads that show a customer their
+ * own records and say whose each is (the calendar feed, ADR 0890): join it to `visibleSource` by
+ * id. Anyone but a customer, or an object without a customer, has none.
+ */
+export function ownReadSource(
+  ctx: Viewer,
+  object: ObjectDefinition,
+  alias: string,
+): VisibleSource<AnyRow, string> {
+  const scope = scopeOf(ctx.principal, object);
+  if (scope.kind !== "customer") throw unknownObject(object.name);
+  return sql<AnyRow>`(SELECT id, ${sql.ref(scope.column)} AS owner FROM ${sql.table(object.source)} WHERE ${ownersWhere(scope.column, scope.personId, scope.dependants)})`.as(
+    alias,
+  );
+}
+
+/**
  * The table behind an object, with its soft-deleted rows: for the loads that need them (a get
  * that may include the Trash, the snapshot before a write). Staff only: a customer and the
  * public are refused. Prefer `visibleSource` for anything that only reads live records.
@@ -369,8 +405,17 @@ export function visibleTable(
   if (!table) throw new Error(`${definition.name} has no record table`);
   const scope = scopeOf(ctx.principal, definition);
   switch (scope.kind) {
-    case "all":
+    case "all": {
+      // Activities: the notes kept from the whole staff that this caller may not read are not
+      // in the source (stage 56, ADR 0830). For a person who reads every level, the plain table.
+      const notes = definition.name === "activity" ? noteScopeWhere(ctx as NoteViewer, "n") : null;
+      if (notes) {
+        return sql<AnyRow>`(SELECT * FROM ${sql.table(ident(table))} n WHERE ${notes})`.as(
+          alias ?? table,
+        );
+      }
       return sql<AnyRow>`${sql.table(ident(table))}`.as(alias ?? table);
+    }
     default:
       // Tables hold the Trash and every column. Only staff read them.
       throw unknownObject(definition.name);

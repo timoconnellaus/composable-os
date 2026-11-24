@@ -30,7 +30,8 @@ buttons, fields, lists, sheets, or a pack's screens. Blocks ship inside the plat
      `mobile.roles` in `product.ts`), never the staff client. The sign-in
      blocks call no operation: `web-sign-in` posts to the web app's `/auth/*` routes, which its
      host module serves; `native-sign-in` takes `actions` with `requestCode` and `signIn`, which
-     the mobile app's `hostSession` has.
+     the mobile app's `hostSession` has, and says what went wrong when one fails (sign-in not
+     switched on, too many tries, offline) with `signInErrorWords` from `@composable-os/client`.
 3. **Copy it.** `pnpm cos add <name>`. Its files go to `<app>/src/blocks/<name>/`, with the blocks
    it depends on, and `blocks.lock.json` records each block's version and files. If it prints an
    install line, run it: those are the packages the block's files import, the platform's at the
@@ -41,7 +42,10 @@ buttons, fields, lists, sheets, or a pack's screens. Blocks ship inside the plat
    the template's `apps/web/src/styles.css` (`--primary`, `--primary-foreground`, `--destructive`,
    `--input`, `--ring`, `--accent`, `--muted-foreground`, `--background`, `--foreground`, ...):
    brand the app by changing those values. The native blocks take their look from
-   `native-base/theme.ts`. Change the copied files freely (layout, wording); keep their calls to
+   `native-base/theme.ts`: every text, spinner and surface reads its colours, so a dark theme is
+   those values changed. When you change a copied native block, write its text with
+   `native-base/text.tsx`'s `Text` (or a style with `color: theme.color.*`), never a bare React
+   Native `<Text>`, which draws black. Change the copied files freely (layout, wording); keep their calls to
    operations as they are. With no brand given, leave the defaults.
 5. **Wire it** to a route. In the template web app, replace the body of the route file, for
    example `apps/web/src/routes/sign-in.tsx`:
@@ -66,8 +70,13 @@ buttons, fields, lists, sheets, or a pack's screens. Blocks ship inside the plat
    `createAccountHooks({ useQuery, useMutation }, api)` from `@composable-os/client`, beside the
    same `agreements`. Pass the web shell `returnUrl` (the account page) and `onSignOut` (post to
    `/auth/sign-out`), and the native one `websiteUrl` (the website's account page: money is
-   managed there, ADR 0714) and `onSignOut` (`session.signOut`). A pack's section goes in
-   `sections` with its key, label, order and `render`.
+   managed there, ADR 0714) and `onSignOut` (`session.signOut`). Once the shell is copied, `cos
+   add` also copies the sections of the packs `product.ts` lists and writes
+   `src/blocks/account-sections.gen.ts` (do not edit it: `cos add` and `cos upgrade` write it
+   again). Pass the shell `sections={usePackSections(ACCOUNT_SECTIONS, react, api, returnUrl)}`
+   (the native one without `returnUrl`), with `react` a module-level `{ useQuery, useMutation,
+   useState, useEffect }` so the packs' hooks are made once, and the page names no pack; the shell shows what the host's `me.portal` lists. After adding a pack to
+   `product.ts`, run `cos add web-account` again to copy its section.
    Rostering's blocks (`rostering-*`) take `rostering`: `createRosteringHooks({ useQuery,
    useMutation }, api)` from `@composable-os/pack-rostering/client`. They are staff screens: in
    the app, `api` is a role client, `rostering.team`'s for someone rostered with no other access,
@@ -81,7 +90,10 @@ buttons, fields, lists, sheets, or a pack's screens. Blocks ship inside the plat
    `src/server.ts` calls, forwarding `GET /api/media/<id>?w=` to the host over the binding (in an
    adopted site, call `mediaRoute(request, env)` from the site's own Worker before its pages; pass
    `mediaBase` for another origin). In the app, pass `mediaUrl={mediaUrlFor({ hostUrl })}` from the
-   mobile template's `src/host.ts`: the host's `/api/v1/media/<id>`, and the native one an `openUrl` (React Native's `Linking.openURL`). `api` is the client the
+   mobile template's `src/host.ts`: the host's `/api/v1/media/<id>`, and the native one an `openUrl` (React Native's `Linking.openURL`). The Courses
+   players (`courses-player`, `courses-native-player`) bring Content's rich text block with them
+   (Courses requires Content): pass `renderText` drawing the lesson's value with it: `RichText` on
+   the web, `RichTextView` with `mediaUrl` and `openUrl` in the app. `api` is the client the
    screen's user holds: the customer client on a customer's screen, the role client
    (`staff.client(createTicketingDoorClient)`) on the door scanner. The hooks returned are only
    those that client can back, and the block's prop names the hooks it calls

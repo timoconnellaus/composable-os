@@ -25,6 +25,7 @@
 // row. It never repairs a value: a client trims and converts before it sends.
 import { z } from "zod";
 import {
+  DOCUMENT_MAX_ISSUES,
   type DocumentIssue,
   type DocumentNode,
   type DocumentObjectNode,
@@ -382,7 +383,7 @@ export function checkQuestions(
   const questions = value as Questions;
   const issues: DocumentIssue[] = [];
   const fault = (path: (string | number)[], message: string) => {
-    if (issues.length < 20) issues.push({ path, message });
+    if (issues.length < DOCUMENT_MAX_ISSUES) issues.push({ path, message });
   };
   const before = new Map<string, QuestionItem>();
   const mapped = new Map<string, string>();
@@ -537,7 +538,7 @@ export function checkAnswers(questions: Questions, input: unknown): AnswersResul
   const given = input as Record<string, unknown>;
   const issues: AnswerIssue[] = [];
   const fault = (key: string | null, kind: AnswerFault, message: string) => {
-    if (issues.length < 20) issues.push({ key, fault: kind, message });
+    if (issues.length < DOCUMENT_MAX_ISSUES) issues.push({ key, fault: kind, message });
   };
   const byKey = new Map(questions.items.map((item) => [item.key, item]));
   for (const key of Object.keys(given)) {

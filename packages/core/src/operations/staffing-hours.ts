@@ -4,6 +4,7 @@
 // verified as its caller. Set by the person themselves or by someone who rosters, for anyone
 // (decision 9); an AI's change waits for a person (the calling tool must ask one). Time off stays
 // `staffing.away`: a one-off "not open" is never an entry here. Free times (step 4) read these.
+import type { CoreStaffHoursTable } from "@composable-os/db";
 import { sql } from "kysely";
 import { z } from "zod";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
@@ -12,25 +13,23 @@ import { newId } from "../ids.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { jsonList } from "../records/common.ts";
 import { isTimezone, loadGeneralSettings } from "../settings.ts";
-import { HOURS_MAX, type KindRef } from "../staffing/hours.ts";
+import { HOURS_MAX, type KindRef, onlyForOf, WEEKDAYS } from "../staffing/hours.ts";
 import { actingAccount, mayRoster } from "../staffing/rosterers.ts";
+import { namesOf } from "../staffing/sets.ts";
 import { localParts } from "../time/local.ts";
 import {
+  accountId,
   assertPersonApplies,
   assertRosterer,
   assertShippedToolRun,
   instantOf,
+  localDate,
+  localDateTime,
+  localTime,
   requireAccount,
   requireKindObject,
 } from "./staffing.ts";
 
-const accountId = z.string().min(1).max(64);
-const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
-const localDateTime = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, "a local date and time, YYYY-MM-DDTHH:MM");
-const localDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date, YYYY-MM-DD");
-const localTime = z.string().regex(/^[0-2]\d:[0-5]\d$/, "a time, HH:MM");
 const kindRef = z.object({ object: z.string().min(1).max(81), id: z.string().min(1).max(64) });
 
 /** The longest extra hours one entry gives: hours on a date, overnight at most. */
@@ -97,23 +96,7 @@ async function requireKinds(ctx: HandlerContext, kinds: readonly KindRef[]): Pro
   }
 }
 
-function itemOf(
-  r: {
-    id: string;
-    account_id: string;
-    kind: "weekly" | "extra";
-    weekdays: string | null;
-    start_time: string | null;
-    end_time: string | null;
-    from_date: string | null;
-    until_date: string | null;
-    starts_at: string | null;
-    ends_at: string | null;
-    zone: string;
-    only_for: string | null;
-  },
-  name: string,
-): HoursItem {
+function itemOf(r: Omit<CoreStaffHoursTable, "set_by" | "set_at">, name: string): HoursItem {
   return {
     id: r.id,
     account: r.account_id,
@@ -127,18 +110,8 @@ function itemOf(
     startsAt: r.starts_at,
     endsAt: r.ends_at,
     zone: r.zone,
-    onlyFor: r.only_for ? (JSON.parse(r.only_for) as KindRef[]) : [],
+    onlyFor: onlyForOf(r) ?? [],
   };
-}
-
-async function namesOf(ctx: HandlerContext, accounts: string[]): Promise<Map<string, string>> {
-  if (!accounts.length) return new Map();
-  const users = await ctx.db
-    .selectFrom("core_user")
-    .select(["id", "name", "email"])
-    .where("id", "in", jsonList([...new Set(accounts)]))
-    .execute();
-  return new Map(users.map((u) => [u.id, u.name || u.email]));
 }
 
 export const staffingHoursSet = defineOperation({
@@ -205,15 +178,10 @@ export const staffingHoursSet = defineOperation({
         );
       }
     }
-    let row: {
-      weekdays: string | null;
-      start_time: string | null;
-      end_time: string | null;
-      from_date: string | null;
-      until_date: string | null;
-      starts_at: string | null;
-      ends_at: string | null;
-    };
+    let row: Pick<
+      CoreStaffHoursTable,
+      "weekdays" | "start_time" | "end_time" | "from_date" | "until_date" | "starts_at" | "ends_at"
+    >;
     if (input.kind === "weekly") {
       if (!input.weekdays || !input.startTime || !input.endTime) {
         throw new ValidationError("Weekly open hours need weekdays, a start time and an end time", {
@@ -330,8 +298,13 @@ export const staffingHoursList = defineOperation({
   mcp: { expose: false },
   async handler(input, ctx) {
     await assertShippedToolRun(ctx, "staffing.hours.list");
-    const account = input.account ?? ((await mayRoster(ctx)) ? undefined : actingAccount(ctx));
-    if (account !== actingAccount(ctx)) await assertRosterer(ctx, "read someone else's open hours");
+    // Left out: everyone's for someone who rosters, else the caller's own.
+    let account = input.account;
+    if (account === undefined) {
+      if (!(await mayRoster(ctx))) account = actingAccount(ctx);
+    } else if (account !== actingAccount(ctx)) {
+      await assertRosterer(ctx, "read someone else's open hours");
+    }
     const from = input.from ?? ctx.now.slice(0, 10);
     let query = ctx.db.selectFrom("core_staff_hours").selectAll();
     if (account !== undefined) query = query.where("account_id", "=", account);

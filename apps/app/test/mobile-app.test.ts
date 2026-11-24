@@ -5,7 +5,7 @@
 // screens (App.tsx) and Expo itself are not run here: there is no simulator in this suite.
 import { env } from "cloudflare:workers";
 import { createIdentityProvider } from "@composable-os/auth";
-import type { FetchLike, Tokens } from "@composable-os/client";
+import type { FetchLike } from "@composable-os/client";
 import { inviteCustomer } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -17,6 +17,7 @@ import {
 import { handleApi } from "../src/server/http/api.ts";
 import { runOperation } from "../src/server/operations.ts";
 import { boundTestEnv, sentCodes } from "./bound-env.ts";
+import { memoryStore } from "./helpers.ts";
 import { ORIGIN, signUp, type TestUser, unique } from "./mcp-helpers.ts";
 
 const hostEnv = boundTestEnv(env);
@@ -46,17 +47,6 @@ const host: FetchLike = async (url, init) => {
   for (const set of response.headers.getSetCookie()) cookies.push(`set ${set}`);
   return response;
 };
-
-function memoryStore() {
-  let saved: Tokens | null = null;
-  return {
-    load: async () => saved,
-    save: async (tokens: Tokens | null) => {
-      saved = tokens;
-    },
-    peek: () => saved,
-  };
-}
 
 beforeAll(async () => {
   admin = await signUp(hostEnv as never, "admin");

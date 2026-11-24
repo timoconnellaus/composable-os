@@ -10,8 +10,7 @@ import { cn } from "@composable-os/ui/lib/utils";
 import { Link } from "@tanstack/react-router";
 import { SparklesIcon } from "lucide-react";
 import { Fragment, useState } from "react";
-import { useStageMutation } from "#/lib/automation-ops";
-import { errorMessage } from "#/lib/query";
+import { errorMessage, useOpMutation } from "#/lib/query";
 import { useObjectInfo } from "#/lib/schema";
 import { ConnectionSlots } from "./connections.tsx";
 import { connectionSlots } from "./connections-model.ts";
@@ -60,7 +59,7 @@ export function OverviewTab({
 }
 
 function SummaryCard({ detail }: { detail: AutomationDetailData }) {
-  const explain = useStageMutation("automation.explain");
+  const explain = useOpMutation("automation.explain");
   const [shown, setShown] = useState(false);
   return (
     <InfoCard title="What it does" name="plain english summary">

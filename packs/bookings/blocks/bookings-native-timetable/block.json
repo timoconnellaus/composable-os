@@ -2,6 +2,7 @@
   "name": "bookings-native-timetable",
   "pack": "bookings",
   "skin": "native",
+  "screens": ["timetable"],
   "operations": [
     "x.bookings.timetable",
     "x.bookings.mine",

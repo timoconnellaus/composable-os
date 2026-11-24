@@ -173,3 +173,33 @@ must read and has confirmed) and `ack.confirm` (confirming it read the current v
 it is asked to read). Each acts only for the calling person, so they open nothing of anyone else's.
 `PACK_ROLE_OWN` in `pack-roles.ts`; the API contract's `roles.json` lists them for each role. See
 [ADR 0702](0702-acknowledgements-read-again-and-a-confirmation-nobody-changes.md).
+
+## Amendment, 2026-11-24 (stage 41, ADR 0889)
+A role may also declare `looksAfter: { <object>: <relation to person> }`: its holder reaches those
+objects' records only for the People it looks after, through a `team` its pack declares on an
+object (the staff named on a live record about a Person), on the role's reads and inside its tools.
+Programs declares the third pack role, `programs.coach`, which does. See
+[ADR 0889](0889-a-pack-role-limited-to-the-people-its-holder-looks-after.md).
+
+## Amendment, 2026-11-24 (checklists on their own, ADR 0652)
+A pack role also reaches a shipped pack's tools declared `anyStaff` (any pack's, wherever it is
+installed): Daily checklists' `today`, `day`, `tick` and `done`, whose host operations answer with
+only the checklists the account may do (ADR 0651). Nothing else is opened: the registry walk in
+`packages/core/test/screens.test.ts` lists exactly these beside each role's own tools, its reads
+and `screens.mine`, and `api/v1/roles.json` lists them for each role's client.
+
+## Amendment, 2026-11-24 (stage 38 step 2, ADR 0701)
+Every pack role also reaches three reads of published versions: `content.staffGet`,
+`content.staffList` and `content.search`, allowed only when the input names an object that
+declares `publishable.staffRead` (a procedure). They read the current published version's content
+and slug, never a working copy, and through them a role reaches no other object.
+`PACK_ROLE_STAFF_READS` in `pack-roles.ts`; `roles.json` lists them for each role. See
+[ADR 0701](0701-staff-read-of-published-versions-and-its-reach-for-pack-roles.md).
+
+## Amendment, 2026-11-24 (stage 51 step 2, ADR 0781)
+A pack may also declare **device roles** (`deviceRoles`), held by an enrolled device rather than a
+staff account: the role's tools (each open to the new `device` audience only) and
+`device.heartbeat` are all the device may do, decided by the pipeline from the device's row and
+the pack's manifest as this ADR decides a pack role's (`loadDeviceRole`, `deviceRoleReaches` in
+`pack-roles.ts`). `ctx.caller` gains `{ kind: "device", deviceId, name }`; the tool's own calls run
+as the extension. See [ADR 0781](0781-a-device-as-a-caller-the-device-audience-and-device-roles.md).

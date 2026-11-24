@@ -125,3 +125,17 @@ does not check first) claimed nothing and could sit over another of its person's
 trigger on the staffed object's table now refuses it (`core_staff_time_unreadable`, answered
 `rule: "staffed_time"`), and the datetime field no longer accepts such a value
 ([ADR 0765](0765-occupies-the-claim-on-a-thing.md)).
+
+## Amended 2026-11-24 (stage 49 step 1, ADR 0760)
+The claim is no longer always the shift's own time: a shift may declare minutes kept free before
+and after it (`claimBefore`, `claimAfter`, read from its kind), which widen its claim and are kept
+on it (migration 1091); classes declare none, so back to back stays allowed. A shift may also
+require an account (`account: "required"`): one naming a profile with no account is refused while
+it has not ended. See [ADR 0760](0760-claim-margins-and-a-required-account-on-staffed.md).
+
+## Amended 2026-11-24 (stage 39 step 2, ADR 0751)
+A shift's times may be another record's: `timesFrom` names a relation to a record of the same
+extension (a crew place's visit) whose start, end, zone and kind the host copies onto it, by
+triggers on both tables, so the claim of every crew place follows its visit and a move that would
+double-book anyone fails whole, named by the read before the write. See
+[ADR 0751](0751-times-that-follow.md).

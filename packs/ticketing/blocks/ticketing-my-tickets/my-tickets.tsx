@@ -1,9 +1,7 @@
 // A signed-in customer's tickets, for a site (stage 27). Which tickets are theirs, and what of them
 // they may see, is the host's (`useMyTickets` reads through the seam).
 import type { TicketingHooks } from "@composable-os/pack-ticketing/client";
-import { eventTime } from "@composable-os/pack-ticketing/client";
-
-const STATE = { valid: "Valid", used: "Used", void: "Cancelled" } as const;
+import { eventTime, ticketStateLabel } from "@composable-os/pack-ticketing/client";
 
 export function MyTickets({
   ticketing,
@@ -26,7 +24,7 @@ export function MyTickets({
             {ticket.ticketTypeName ? ` · ${ticket.ticketTypeName}` : ""}
             {ticket.startsAt ? ` · ${eventTime(ticket)}` : ""}
           </span>
-          <span>{STATE[ticket.state as keyof typeof STATE] ?? ticket.state}</span>
+          <span>{ticketStateLabel(ticket.state)}</span>
           {onShow && ticket.state === "valid" ? (
             <button type="button" onClick={() => onShow({ id: ticket.id, code: ticket.code })}>
               Show code

@@ -13,7 +13,13 @@
 //   away over the shift (`unavailable`), not qualified for its kind (`not_qualified`), or a live
 //   shift left with nobody on it within the uncovered window (`uncovered`). The write's answer and
 //   its audit row carry them; `staffing.check` gives the same answer before the write.
+// - **Times that follow** (ADR 0751): a shift whose time is another record's (`staffed.timesFrom`,
+//   a crew place on a visit) takes its start, end, zone and kind from that record. Triggers copy
+//   them in the database (staffing/sql.ts); what is here fills them in a create's values, and reads
+//   before a write of the record that every shift following it stays free, naming whoever would be
+//   on two shifts at once, with each shift's warnings and notices.
 import { CompiledQuery, type Kysely, sql } from "kysely";
+import { addDaysToDate } from "../automations/cron.ts";
 import {
   checklistTemplateFields,
   checklistViaFields,
@@ -24,7 +30,7 @@ import { objectTableOf } from "../extensions/schema.ts";
 import { getObject, listObjects } from "../fields/index.ts";
 import type { ObjectDefinition, StaffedDefinition } from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
-import type { Mover } from "../records/transitions.ts";
+import { callerOf, type Mover } from "../records/transitions.ts";
 import {
   isoWeekday,
   localParts,
@@ -34,6 +40,7 @@ import {
 } from "../time/local.ts";
 import { orgReader, visibleSource } from "../visibility/index.ts";
 import { shiftRemoved, shiftWritten } from "./changes.ts";
+import { openCovers, WEEKDAYS } from "./hours.ts";
 import { kindObjectOf } from "./kinds.ts";
 import {
   actingAccount,
@@ -44,9 +51,9 @@ import {
   rosterNumbers,
   shiftLink,
 } from "./rosterers.ts";
-import { literal, type StaffedTables, selectClaims } from "./sql.ts";
+import { literal, marginSeconds, type StaffedTables, selectClaims } from "./sql.ts";
 
-/** One account's claim on a span of time: unix seconds, half-open. */
+/** One account's claim on a span of time: unix seconds, half-open, margins included. */
 export interface Claim {
   account: string;
   starts: number;
@@ -65,18 +72,23 @@ export interface Shift {
   live: boolean;
   /** The kind record (a class type), when it has one. */
   kind: string | null;
+  /** Seconds kept free before and after it, read from its kind (ADR 0760); 0 without margins. */
+  before: number;
+  after: number;
+  /** A booked shift's client (`staffed.open.client`, ADR 0763), when it has one. */
+  client?: string | null;
 }
 
 /** A warning a write is made with (ADR 0622). */
 export interface StaffWarning {
-  code: "unavailable" | "not_qualified" | "uncovered";
+  code: "unavailable" | "not_qualified" | "uncovered" | "outside_hours" | "client_busy";
   object: string;
   id: string;
   account: string | null;
   message: string;
 }
 
-/** The other shift a write would clash with. */
+/** The other shift a write would clash with: its own time, without its margins. */
 export interface Clash {
   object: string;
   id: string;
@@ -119,6 +131,14 @@ function batchOf(ctx: { write: object }): StaffBatch {
   return state;
 }
 
+/**
+ * The claims this batch has written (a claim) or released (null), by `object\u0000id`: free times
+ * read them over what is held (ADR 0763).
+ */
+export function queuedClaims(ctx: { write: object }): ReadonlyMap<string, Claim | null> {
+  return batchOf(ctx).claims;
+}
+
 /** Notes that this batch takes `offer` (ADR 0623): the person's write that follows is the take's. */
 export function noteTaking(ctx: { write: object }, offer: string): void {
   batchOf(ctx).taking = offer;
@@ -149,6 +169,37 @@ async function holderAccount(
   return text(row?.account);
 }
 
+/**
+ * The seconds a kind record keeps free before and after its shifts (ADR 0760), read from its row
+ * by the same expression the triggers use (staffing/sql.ts), in or out of the Trash.
+ */
+async function marginsOf(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  kind: string | null,
+): Promise<{ before: number; after: number }> {
+  const def = object.staffed;
+  if (!def || kind === null || (!def.claimBefore && !def.claimAfter))
+    return { before: 0, after: 0 };
+  const kindObject = kindObjectOf(object);
+  const target = kindObject ? getObject(kindObject) : undefined;
+  const table = kindObject ? objectTableOf(kindObject) : undefined;
+  const column = (path: { field: string } | undefined) => {
+    const local = path?.field.split(".")[1];
+    return local ? target?.fields.find((f) => f.name === local)?.column : undefined;
+  };
+  if (!table) return { before: 0, after: 0 };
+  const row = await sql
+    .raw<{ before: number; after: number }>(
+      `SELECT ${marginSeconds(column(def.claimBefore))} AS before, ${marginSeconds(column(def.claimAfter))} AS after FROM ${table} m WHERE m.id = ${literal(kind)}`,
+    )
+    .execute(ctx.db);
+  return {
+    before: Number(row.rows[0]?.before ?? 0),
+    after: Number(row.rows[0]?.after ?? 0),
+  };
+}
+
 /** The shift a staffed object's values describe. */
 export async function shiftOf(
   ctx: HandlerContext,
@@ -161,13 +212,23 @@ export async function shiftOf(
   const account = who === null ? null : def.who.account ? await holderAccount(ctx, def, who) : who;
   const stateField = object.states?.field;
   const state = stateField ? values[stateField] : null;
+  const kind = text(values[def.kind]);
+  const starts = secondsOf(values[def.starts]);
+  const ends = secondsOf(values[def.ends]);
+  // Only the margins still ahead count, as the triggers derive them (staffing/sql.ts): the
+  // buffer before until the shift starts, the buffer after until it has passed.
+  const margins = await marginsOf(ctx, object, kind);
+  const now = Math.floor(Date.parse(ctx.now) / 1000);
   return {
     covered: who !== null,
     account,
-    starts: secondsOf(values[def.starts]),
-    ends: secondsOf(values[def.ends]),
+    starts,
+    ends,
     live: typeof state === "string" && def.live.includes(state),
-    kind: text(values[def.kind]),
+    kind,
+    before: starts !== null && starts > now ? margins.before : 0,
+    after: ends !== null && ends + margins.after > now ? margins.after : 0,
+    ...(def.open?.client ? { client: text(values[def.open.client]) } : {}),
   };
 }
 
@@ -175,7 +236,12 @@ export async function shiftOf(
 export function claimOf(shift: Shift | null): Claim | null {
   if (!shift?.live || !shift.account || shift.starts === null || shift.ends === null) return null;
   if (!(shift.ends > shift.starts)) return null;
-  return { account: shift.account, starts: shift.starts, ends: shift.ends };
+  // Widened by the minutes kept free around it (ADR 0760).
+  return {
+    account: shift.account,
+    starts: shift.starts - shift.before,
+    ends: shift.ends + shift.after,
+  };
 }
 
 /**
@@ -192,7 +258,7 @@ export async function clashWith(
   const queued = batchOf(ctx).claims;
   const held = await ctx.db
     .selectFrom("core_staff_time")
-    .select(["object_type", "record_id", "starts", "ends"])
+    .select(["object_type", "record_id", "starts", "ends", "margin_before", "margin_after"])
     .where("account_id", "=", claim.account)
     .where("starts", "<", claim.ends)
     .where("ends", ">", claim.starts)
@@ -201,7 +267,12 @@ export async function clashWith(
   for (const row of held) {
     const k = key(row.object_type, row.record_id);
     if (k === self || queued.has(k)) continue;
-    return { object: row.object_type, id: row.record_id, starts: row.starts, ends: row.ends };
+    return {
+      object: row.object_type,
+      id: row.record_id,
+      starts: row.starts + row.margin_before,
+      ends: row.ends - row.margin_after,
+    };
   }
   for (const [k, other] of queued) {
     if (k === self || !other || other.account !== claim.account) continue;
@@ -240,10 +311,35 @@ async function nameOf(ctx: HandlerContext, account: string): Promise<string> {
   return row?.name || row?.email || "This person";
 }
 
-/** The other shift, as an answer names it. */
+/**
+ * A shift's title as anyone may be told it: its own, or, for a shift whose title may name a client
+ * (`staffed.private`, ADR 0761), its kind's (the service), whoever is answered.
+ */
+async function openTitleOf(
+  ctx: HandlerContext,
+  objectName: string,
+  id: string,
+): Promise<string | null> {
+  const object = getObject(objectName);
+  const def = object?.staffed;
+  if (!object || !def?.private) return titleOf(ctx, objectName, id);
+  const table = objectTableOf(objectName);
+  const column = object.fields.find((f) => f.name === def.kind)?.column;
+  const kindObject = kindObjectOf(object);
+  if (!table || !column || !kindObject) return null;
+  const row = (await (ctx.db as AnyDb)
+    .selectFrom(table)
+    .select(`${column} as kind`)
+    .where("id", "=", id)
+    .executeTakeFirst()) as { kind?: unknown } | undefined;
+  const kind = text(row?.kind);
+  return kind ? titleOf(ctx, kindObject, kind) : null;
+}
+
+/** The other shift, as an answer names it (a private one by its kind, ADR 0761). */
 export async function described(ctx: HandlerContext, clash: Clash) {
   const label = getObject(clash.object)?.label ?? "shift";
-  const title = await titleOf(ctx, clash.object, clash.id);
+  const title = await openTitleOf(ctx, clash.object, clash.id);
   return {
     object: clash.object,
     id: clash.id,
@@ -356,6 +452,9 @@ export async function assertRosterWrite(
   by: Mover | undefined,
 ): Promise<void> {
   if (by === "host" || batchOf(ctx).taking) return;
+  // A customer booking a shift that is booked at free times names its provider: the customer's
+  // check decides that (a qualified provider, free then, ADR 0763), not who rosters.
+  if (by === "customer" && object.staffed?.open?.customer) return;
   const changes = (fields: readonly string[]) =>
     fields.filter((f) =>
       before === null
@@ -402,21 +501,33 @@ export async function assertRosterRestore(
   object: ObjectDefinition,
   id: string,
 ): Promise<void> {
+  if (await namesSomeoneById(ctx.db as AnyDb, object, id)) {
+    await assertMayRoster(ctx, `restore a ${object.label.toLowerCase()} with someone on it`);
+  }
+}
+
+/**
+ * Whether `object`'s record `id`, as stored (in the Trash or not), says who works shifts: a
+ * shift's person, a series' regular person (for an approval of its restore, issue #285).
+ */
+export async function namesSomeoneById(
+  db: AnyDb,
+  object: ObjectDefinition,
+  id: string,
+): Promise<boolean> {
   const fields = rosterFields(object, true);
   const table = objectTableOf(object.name);
-  if (!fields.length || !table) return;
+  if (!fields.length || !table) return false;
   const columns = fields
     .map((f) => object.fields.find((x) => x.name === f)?.column)
     .filter((c): c is string => !!c);
-  if (!columns.length) return;
-  const row = (await (ctx.db as AnyDb)
+  if (!columns.length) return false;
+  const row = (await db
     .selectFrom(table)
     .select(columns.map((c, i) => `${c} as f${i}`))
     .where("id", "=", id)
     .executeTakeFirst()) as Record<string, unknown> | undefined;
-  if (row && columns.some((_, i) => text(row[`f${i}`]) !== null)) {
-    await assertMayRoster(ctx, `restore a ${object.label.toLowerCase()} with someone on it`);
-  }
+  return !!row && columns.some((_, i) => text(row[`f${i}`]) !== null);
 }
 
 /** Whether `values` (a write of `object`) would set who works shifts: for an approval (ADR 0626). */
@@ -444,14 +555,20 @@ export async function movesStartedShiftById(
   const table = objectTableOf(object.name);
   const column = (f: string) => object.fields.find((x) => x.name === f)?.column;
   const startsCol = def ? column(def.starts) : undefined;
-  if (!def || !table || !startsCol) return false;
+  const endsCol = def ? column(def.ends) : undefined;
+  if (!def || !table || !startsCol || !endsCol) return false;
   if (!Object.hasOwn(values, def.starts) && !Object.hasOwn(values, def.ends)) return false;
   const row = (await db
     .selectFrom(table)
-    .select(`${startsCol} as starts`)
+    .select([`${startsCol} as starts`, `${endsCol} as ends`])
     .where("id", "=", id)
-    .executeTakeFirst()) as { starts?: unknown } | undefined;
-  return movesStartedShift(object, { [def.starts]: row?.starts ?? null }, values, now);
+    .executeTakeFirst()) as { starts?: unknown; ends?: unknown } | undefined;
+  return movesStartedShift(
+    object,
+    { [def.starts]: row?.starts ?? null, [def.ends]: row?.ends ?? null },
+    values,
+    now,
+  );
 }
 
 /** Notes a claim written (or released, null) by this batch, for the batch's later reads. */
@@ -496,17 +613,36 @@ export async function staffedWritten(
       { field, rule: "staffed_time" },
     );
   }
+  // A shift that requires an account, with a person holding none, has not ended (ADR 0760): it
+  // would escape the claim (the trigger refuses it too). Nobody on it is allowed.
+  if (
+    object.staffed.account === "required" &&
+    shift.live &&
+    shift.covered &&
+    !shift.account &&
+    (shift.ends === null || shift.ends > Math.floor(Date.parse(ctx.now) / 1000))
+  ) {
+    const field = object.staffed.who.field;
+    throw new ValidationError(
+      `${object.label}: ${object.fields.find((f) => f.name === field)?.label ?? field} must be someone with an account`,
+      { field, rule: "staffed_account" },
+    );
+  }
   const claim = claimOf(shift);
   if (claim) {
     const clash = await clashWith(ctx, object.name, id, claim);
     if (clash) throw await doubleBooked(ctx, object.name, id, claim, clash);
   }
   noteClaim(ctx, object.name, id, claim);
+  // A customer's or the public's booking of a shift booked at free times (ADR 0763) is answered
+  // with no staff warnings, and tells the roster nobody: a booked shift is never offered, and
+  // its provider hears from the pack's own messages.
+  const outside = callerOf(ctx).kind !== "staff" && object.staffed.open !== undefined;
   const changes = changesStaffing(object, before, after);
-  const warnings = changes ? await warningsFor(ctx, object, id, shift) : [];
+  const warnings = changes && !outside ? await warningsFor(ctx, object, id, shift) : [];
   batchOf(ctx).warnings.set(key(object.name, id), warnings);
   // Its open offer and who is told (ADRs 0623 and 0624), in this write's batch.
-  if (changes && !options.restore) {
+  if (changes && !options.restore && !outside) {
     const now = Math.floor(Date.parse(ctx.now) / 1000);
     await shiftWritten(ctx, {
       object,
@@ -551,6 +687,16 @@ async function storedShiftValues(
   id: string,
   described = false,
 ): Promise<Record<string, unknown> | null> {
+  return (await storedShift(ctx, object, id, described))?.values ?? null;
+}
+
+/** `storedShiftValues`, and whether the record is in the Trash, in one read. */
+async function storedShift(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string,
+  described: boolean,
+): Promise<{ values: Record<string, unknown>; deleted: boolean } | null> {
   const def = object.staffed;
   const table = objectTableOf(object.name);
   if (!def || !table) return null;
@@ -570,11 +716,14 @@ async function storedShiftValues(
   if (columns.some((c) => !c)) return null;
   const row = (await (ctx.db as AnyDb)
     .selectFrom(table)
-    .select(columns.map((c, i) => `${c} as f${i}`))
+    .select([...columns.map((c, i) => `${c} as f${i}`), "deleted_at"])
     .where("id", "=", id)
     .executeTakeFirst()) as Record<string, unknown> | undefined;
   if (!row) return null;
-  return Object.fromEntries(fields.map((f, i) => [f, row[`f${i}`] ?? null]));
+  return {
+    values: Object.fromEntries(fields.map((f, i) => [f, row[`f${i}`] ?? null])),
+    deleted: Boolean(row.deleted_at),
+  };
 }
 
 /** A staffed record restored from the Trash: refused as `double_booked` if its time is taken. */
@@ -586,6 +735,162 @@ export async function staffedRestored(
   if (!object.staffed) return;
   const values = await storedShiftValues(ctx, object, id);
   if (values) await staffedWritten(ctx, object, id, null, values, { restore: true });
+}
+
+// --- Times that follow (stage 39 step 2, ADR 0751) ----------------------------------------------
+
+/** At most this many shifts follow one record's times (a visit's crew), read before it moves. */
+export const TIMES_FOLLOWERS_MAX = 25;
+
+/**
+ * The fields of a shift whose times follow a record (`staffed.timesFrom`) that the host copies from
+ * it: its start, end, zone and kind. Nobody else writes them, the declaring pack's code included.
+ */
+export function followedTimeFields(object: ObjectDefinition): ReadonlySet<string> {
+  const def = object.staffed;
+  if (!def?.timesFrom) return new Set();
+  return new Set(
+    [def.starts, def.ends, def.zone, def.kind].filter((f): f is string => typeof f === "string"),
+  );
+}
+
+/**
+ * The values a shift whose times follow a record takes from the record its `values` name (ADR
+ * 0751), as that record holds them (in or out of the Trash), or nothing when they name none.
+ */
+export async function timesFollowed(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  values: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const def = object.staffed;
+  const parent = def?.timesFromObject ? getObject(def.timesFromObject) : undefined;
+  const table = parent ? objectTableOf(parent.name) : undefined;
+  const id = def?.timesFrom ? text(values[def.timesFrom]) : null;
+  if (!parent || !table || id === null) return {};
+  const fields = [...followedTimeFields(object)];
+  const columns = fields.map((f) => parent.fields.find((x) => x.name === f)?.column);
+  if (columns.some((c) => !c)) return {};
+  const row = (await (ctx.db as AnyDb)
+    .selectFrom(table)
+    .select(columns.map((c, i) => `${c} as f${i}`))
+    .where("id", "=", id)
+    .executeTakeFirst()) as Record<string, unknown> | undefined;
+  if (!row) return {};
+  return Object.fromEntries(fields.map((f, i) => [f, row[`f${i}`] ?? null]));
+}
+
+/**
+ * A shift whose times follow a record, made or pointed at one (ADR 0751): refused when that record
+ * already has TIMES_FOLLOWERS_MAX shifts of this object following it, so no record gets into a
+ * state whose time cannot change (the review of PR #419).
+ */
+export async function assertFollowerRoom(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string | null,
+  values: Record<string, unknown>,
+): Promise<void> {
+  const def = object.staffed;
+  const parent = def?.timesFrom ? text(values[def.timesFrom]) : null;
+  const table = objectTableOf(object.name);
+  const link = object.fields.find((f) => f.name === def?.timesFrom)?.column;
+  if (!def || parent === null || !table || !link) return;
+  let query = (ctx.db as AnyDb)
+    .selectFrom(table)
+    .select("id")
+    .where(link, "=", parent)
+    .where("deleted_at", "is", null);
+  if (id !== null) query = query.where("id", "!=", id);
+  const rows = await query.limit(TIMES_FOLLOWERS_MAX).execute();
+  if (rows.length >= TIMES_FOLLOWERS_MAX) {
+    const parentLabel = def.timesFromObject
+      ? (getObject(def.timesFromObject)?.label ?? "This record")
+      : "This record";
+    throw new ConflictError(
+      `${parentLabel} already has ${TIMES_FOLLOWERS_MAX} ${(object.plural ?? "shifts").toLowerCase()}, the most whose times can follow it`,
+      { rule: "times_follow_too_many", object: object.name },
+    );
+  }
+}
+
+/**
+ * A record that shifts follow the times of (a visit) written with other times, a zone or a kind
+ * (ADR 0751). The triggers copy them onto every shift naming it in the record's own statement;
+ * this reads first, for each shift not in the Trash, what that copy does: a move that would put
+ * one person on two overlapping shifts is refused whole, naming them (`double_booked`); a shift
+ * that has started is moved only by someone who rosters, as its own times would be; each shift's
+ * warnings join the record's answer, and its person is told, as for a shift moved by hand. More
+ * than TIMES_FOLLOWERS_MAX shifts following one record refuses the write.
+ */
+export async function followersMoved(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string,
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+  by: Mover,
+  /** The state this write moves the record into, when it moves: its cascade runs in the batch. */
+  movedTo?: string,
+): Promise<ReadonlySet<string>> {
+  // The fields to write after this write's cascade: shifts it takes out of their live states would
+  // otherwise take the new time, and claim it, before the cascade moves them.
+  const afterCascade = new Set<string>();
+  for (const follower of listObjects()) {
+    const def = follower.staffed;
+    if (!def?.timesFrom || def.timesFromObject !== object.name) continue;
+    const fields = [...followedTimeFields(follower)];
+    if (fields.every((f) => same(before[f], after[f]))) continue;
+    const table = objectTableOf(follower.name);
+    const link = follower.fields.find((f) => f.name === def.timesFrom)?.column;
+    if (!table || !link) continue;
+    const rows = (await (ctx.db as AnyDb)
+      .selectFrom(table)
+      .select("id")
+      .where(link, "=", id)
+      .where("deleted_at", "is", null)
+      .orderBy("id")
+      .limit(TIMES_FOLLOWERS_MAX + 1)
+      .execute()) as { id: string }[];
+    if (rows.length > TIMES_FOLLOWERS_MAX) {
+      throw new ConflictError(
+        `${object.label} has more than ${TIMES_FOLLOWERS_MAX} ${(follower.plural ?? "shifts").toLowerCase()} whose times follow it: remove some before changing its time`,
+        { rule: "times_follow_too_many", object: follower.name },
+      );
+    }
+    const copied = Object.fromEntries(fields.map((f) => [f, after[f] ?? null]));
+    // The state cascade of this same write (ADR 0507): a shift it moves out of its live states
+    // claims nothing at the new time, and its own move tells its person (the review of PR #419).
+    const follows = follower.states?.follows;
+    const cascade =
+      movedTo && follows && follows.relation === def.timesFrom ? follows.when[movedTo] : undefined;
+    const warnings: StaffWarning[] = [];
+    for (const row of rows) {
+      const values = await storedShiftValues(ctx, follower, row.id, true);
+      if (!values) continue;
+      const next = { ...values, ...copied };
+      const stateField = follower.states?.field;
+      const state = stateField ? values[stateField] : undefined;
+      if (cascade && stateField && typeof state === "string" && follows?.from.includes(state)) {
+        if (!def.live.includes(cascade)) {
+          for (const f of fields) if (!same(before[f], after[f])) afterCascade.add(f);
+          continue;
+        }
+        next[stateField] = cascade;
+      }
+      // Every rule a write of the shift's own fields meets (ADR 0626): a started shift's times, the
+      // checklist its kind carries, and whatever is added there later (the review of PR #419).
+      await assertRosterWrite(ctx, follower, values, next, by);
+      await staffedWritten(ctx, follower, row.id, values, next, { by });
+      warnings.push(...warningsOf(ctx, follower.name, row.id));
+    }
+    if (warnings.length) {
+      const k = key(object.name, id);
+      const batch = batchOf(ctx).warnings;
+      batch.set(k, [...(batch.get(k) ?? []), ...warnings]);
+    }
+  }
+  return afterCascade;
 }
 
 /** A shift as stored, with what it is and whether it is in the Trash (the offers read it). */
@@ -604,21 +909,15 @@ export async function loadShift(
   id: string,
 ): Promise<StoredShift | null> {
   const object = getObject(objectName);
-  const table = object ? objectTableOf(object.name) : undefined;
-  if (!object?.staffed || !table) return null;
-  const values = await storedShiftValues(ctx, object, id, true);
-  if (!values) return null;
-  const row = (await (ctx.db as AnyDb)
-    .selectFrom(table)
-    .select("deleted_at")
-    .where("id", "=", id)
-    .executeTakeFirst()) as { deleted_at: string | null } | undefined;
+  if (!object?.staffed) return null;
+  const stored = await storedShift(ctx, object, id, true);
+  if (!stored) return null;
   return {
     object,
     id,
-    values,
-    shift: (await shiftOf(ctx, object, values)) as Shift,
-    deleted: Boolean(row?.deleted_at),
+    values: stored.values,
+    shift: (await shiftOf(ctx, object, stored.values)) as Shift,
+    deleted: stored.deleted,
   };
 }
 
@@ -664,7 +963,35 @@ function tablesOf(object: ObjectDefinition): StaffedTables | null {
     if (!holderTable || !holderColumn) return null;
     account = { table: holderTable, column: holderColumn };
   }
-  return { object: object.name, table, who, account, starts, ends, state, live: def.live };
+  let margins: StaffedTables["margins"];
+  if (def.claimBefore || def.claimAfter) {
+    const kindObject = kindObjectOf(object);
+    const target = kindObject ? getObject(kindObject) : undefined;
+    const kindTable = kindObject ? objectTableOf(kindObject) : undefined;
+    const kind = column(def.kind);
+    const minutes = (path: { field: string } | undefined) => {
+      const local = path?.field.split(".")[1];
+      return local ? target?.fields.find((f) => f.name === local)?.column : undefined;
+    };
+    if (!kindTable || !kind) return null;
+    margins = {
+      kind,
+      table: kindTable,
+      before: minutes(def.claimBefore),
+      after: minutes(def.claimAfter),
+    };
+  }
+  return {
+    object: object.name,
+    table,
+    who,
+    account,
+    starts,
+    ends,
+    state,
+    live: def.live,
+    ...(margins ? { margins } : {}),
+  };
 }
 
 /**
@@ -691,7 +1018,12 @@ export async function holderWritten(
     // Its shifts are someone else's now: their open offers were the old person's to make, so they
     // are cancelled, at commit (an offer made meanwhile too), and their offerers told (ADR 0623).
     await holderOffersCancelled(ctx, staffed, t, id);
-    if (!account) continue;
+    if (!account) {
+      // A profile on shifts that require an account, not yet ended, keeps one (ADR 0760): a
+      // person gives those shifts to someone else first (the trigger refuses it too).
+      if (def.account === "required") await assertNoRequiredShifts(ctx, object, staffed, t, id);
+      continue;
+    }
     const mine = selectClaims(t, `r.${t.who} = ${literal(id)}`, literal(account));
     const outside = await sql
       .raw<{
@@ -704,7 +1036,8 @@ export async function holderWritten(
         s_ends: number;
       }>(
         `WITH s AS MATERIALIZED (${mine}) SELECT s.record_id AS shift, s.starts AS s_starts, ` +
-          "s.ends AS s_ends, c.object_type, c.record_id, c.starts, c.ends FROM s " +
+          "s.ends AS s_ends, c.object_type, c.record_id, c.starts + c.margin_before AS starts, " +
+          "c.ends - c.margin_after AS ends FROM s " +
           "JOIN core_staff_time c ON c.account_id = s.account_id AND c.ends > s.starts " +
           "AND c.starts < s.ends AND NOT (c.object_type = s.object_type AND c.record_id = s.record_id) " +
           "ORDER BY s.starts LIMIT 1",
@@ -733,7 +1066,8 @@ export async function holderWritten(
           "w AS (SELECT s.*, MAX(ends) OVER (ORDER BY starts, record_id ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev_end FROM s), " +
           "f AS (SELECT * FROM w WHERE prev_end > starts ORDER BY starts LIMIT 1) " +
           "SELECT f.record_id AS a, f.starts AS a_starts, f.ends AS a_ends, b.record_id AS b, " +
-          "b.starts AS b_starts, b.ends AS b_ends FROM f JOIN s b ON b.ends > f.starts " +
+          "b.starts + b.margin_before AS b_starts, b.ends - b.margin_after AS b_ends " +
+          "FROM f JOIN s b ON b.ends > f.starts " +
           "AND b.starts <= f.starts AND b.record_id != f.record_id ORDER BY b.starts LIMIT 1",
       )
       .execute(ctx.db);
@@ -777,6 +1111,34 @@ async function holderOffersCancelled(
       body: why,
       link: shiftLink(staffed.name, offer.record_id),
     });
+  }
+}
+
+/**
+ * Refuses leaving a profile with no account while a live shift of `staffed` that requires one and
+ * has not ended names it (ADR 0760), answering how many.
+ */
+async function assertNoRequiredShifts(
+  ctx: HandlerContext,
+  holder: ObjectDefinition,
+  staffed: ObjectDefinition,
+  t: StaffedTables,
+  id: string,
+): Promise<void> {
+  const now = Math.floor(Date.parse(ctx.now) / 1000);
+  const row = await sql
+    .raw<{ n: number }>(
+      `SELECT count(*) AS n FROM ${t.table} r WHERE r.${t.who} = ${literal(id)} ` +
+        `AND r.deleted_at IS NULL AND r.${t.state} IN (${t.live.map(literal).join(", ")}) ` +
+        `AND (strftime('%s', r.${t.ends}) IS NULL OR CAST(strftime('%s', r.${t.ends}) AS INTEGER) > ${now})`,
+    )
+    .execute(ctx.db);
+  const n = Number(row.rows[0]?.n ?? 0);
+  if (n > 0) {
+    throw new ConflictError(
+      `${holder.label} is on ${n} ${(staffed.plural ?? "shifts").toLowerCase()} that need someone with an account and have not ended. Give them to someone else before taking its account away.`,
+      { rule: "staffed_account", object: staffed.name, count: n },
+    );
   }
 }
 
@@ -844,6 +1206,21 @@ export async function personDeactivated(
     .where("id", "=", shift.account)
     .executeTakeFirst();
   return Boolean(row?.deactivated_at);
+}
+
+/**
+ * Whether the person a record's values name is a profile holding no account, on an object that
+ * requires one (ADR 0760): the host's generation makes such a date with nobody on it rather than
+ * fail (the review of PR #360), as for a leaver.
+ */
+export async function personWithoutAccount(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  values: Record<string, unknown>,
+): Promise<boolean> {
+  if (object.staffed?.account !== "required") return false;
+  const shift = await shiftOf(ctx, object, values);
+  return Boolean(shift?.covered && !shift.account);
 }
 
 /**
@@ -972,7 +1349,7 @@ export async function awayOver(
 ): Promise<{ id: string; kind: string } | null> {
   // Only what can still overlap: one-off times ending after the shift starts, regular rules not
   // ended before its first local date (two days early, for any zone). Past leave is not read.
-  const firstDate = plusDays(iso(starts).slice(0, 10), -2);
+  const firstDate = addDaysToDate(iso(starts).slice(0, 10), -2);
   const rows = await ctx.db
     .selectFrom("core_staff_away")
     .selectAll()
@@ -1002,13 +1379,7 @@ export async function awayOver(
   return null;
 }
 
-const WEEKDAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
-
-/** Adds `days` to a `YYYY-MM-DD` date. */
-function plusDays(date: string, days: number): string {
-  const [y, m, d] = date.split("-").map(Number) as [number, number, number];
-  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
-}
+const WEEKDAY_NAMES: readonly string[] = WEEKDAYS;
 
 /**
  * Whether a regular unavailability (weekdays, a local start and end, from and until dates, a zone)
@@ -1036,16 +1407,18 @@ export function regularOverlaps(
   const from = parseLocalTime(rule.start_time ?? "");
   const until = parseLocalTime(rule.end_time ?? "");
   if (!days.size || from === null || until === null) return false;
-  const first = plusDays(localParts(starts * 1000, rule.zone).date, -1);
+  const first = addDaysToDate(localParts(starts * 1000, rule.zone).date, -1);
   const last = localParts(Math.max(starts, ends - 1) * 1000, rule.zone).date;
-  for (let date = first; date <= last; date = plusDays(date, 1)) {
+  for (let date = first; date <= last; date = addDaysToDate(date, 1)) {
     if (!days.has(isoWeekday(date))) continue;
     if (rule.from_date && date < rule.from_date) continue;
     if (rule.until_date && date > rule.until_date) continue;
     const a = wallClockToInstant(wallClockOf(date, from), rule.zone) / 1000;
     const b =
-      wallClockToInstant(wallClockOf(until > from ? date : plusDays(date, 1), until), rule.zone) /
-      1000;
+      wallClockToInstant(
+        wallClockOf(until > from ? date : addDaysToDate(date, 1), until),
+        rule.zone,
+      ) / 1000;
     if (a < ends && b > starts) return true;
   }
   return false;
@@ -1095,6 +1468,58 @@ export async function warningsFor(
     out.push(
       warn("not_qualified", `${name} is not marked as qualified for this kind of ${label}.`),
     );
+  }
+  // A booked shift staff make outside its person's open hours, or over its client's own (ADR
+  // 0763): made, and said. A customer's is refused instead (staffing/free.ts).
+  out.push(...(await bookedWarnings(ctx, object, id, shift, name, warn)));
+  return out;
+}
+
+/** The `outside_hours` and `client_busy` warnings of a booked shift not yet ended (ADR 0763). */
+async function bookedWarnings(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string,
+  shift: Shift,
+  name: string,
+  warn: (code: StaffWarning["code"], message: string) => StaffWarning,
+): Promise<StaffWarning[]> {
+  const def = object.staffed;
+  const now = Math.floor(Date.parse(ctx.now) / 1000);
+  const { starts, ends, account } = shift;
+  if (!def?.open || !account || starts === null || ends === null || !(ends > starts)) return [];
+  if (ends <= now) return [];
+  const out: StaffWarning[] = [];
+  const label = object.label.toLowerCase();
+  const kindObject = kindObjectOf(object);
+  const hours = await ctx.db
+    .selectFrom("core_staff_hours")
+    .selectAll()
+    .where("account_id", "=", account)
+    .execute();
+  const kind = shift.kind && kindObject ? { object: kindObject, id: shift.kind } : undefined;
+  if (!openCovers(hours, starts, ends, kind)) {
+    out.push(warn("outside_hours", `This ${label} is outside ${name}'s open hours.`));
+  }
+  const table = objectTableOf(object.name);
+  const clientCol = object.fields.find((f) => f.name === def.open?.client)?.column;
+  const column = (f: string | undefined) => object.fields.find((x) => x.name === f)?.column;
+  const startsCol = column(def.starts);
+  const endsCol = column(def.ends);
+  const stateCol = column(object.states?.field);
+  if (shift.client && table && clientCol && startsCol && endsCol && stateCol) {
+    const s = `CAST(strftime('%s', ${startsCol}) AS INTEGER)`;
+    const e = `CAST(strftime('%s', ${endsCol}) AS INTEGER)`;
+    const busy = await sql
+      .raw<{ id: string }>(
+        `SELECT id FROM ${table} WHERE ${clientCol} = ${literal(shift.client)} AND deleted_at IS NULL ` +
+          `AND ${stateCol} IN (${def.live.map(literal).join(", ")}) AND id != ${literal(id)} ` +
+          `AND ${s} < ${ends} AND ${e} > ${starts} LIMIT 1`,
+      )
+      .execute(ctx.db);
+    if (busy.rows.length) {
+      out.push(warn("client_busy", `The client already has another ${label} at that time.`));
+    }
   }
   return out;
 }

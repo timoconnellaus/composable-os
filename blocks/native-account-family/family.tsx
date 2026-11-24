@@ -9,7 +9,7 @@ import { theme } from "../native-base/theme.ts";
 
 export function YourFamily({ account }: { account: Pick<AccountHooks, "useFamily"> }) {
   const family = account.useFamily();
-  if (family.isPending) return <ActivityIndicator />;
+  if (family.isPending) return <ActivityIndicator color={theme.color.muted} />;
   if (family.error || !family.data) {
     return (
       <Text style={styles.body} accessibilityRole="alert">

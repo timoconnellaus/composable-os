@@ -26,7 +26,7 @@ import {
 } from "../src/index.ts";
 import { managedObjects, personCalling } from "../src/records/acknowledge.ts";
 import { reconcile } from "./extension-helpers.ts";
-import { context, createUser, db, setPreset, unique } from "./helpers.ts";
+import { context, createUser, db, refusal, setPreset, unique } from "./helpers.ts";
 
 const dbQuery = db.query;
 
@@ -111,15 +111,6 @@ let viewer: ActingUser;
 let cleaner: ActingUser;
 let desk: ActingUser;
 let manager: ActingUser;
-
-async function refusal(promise: Promise<unknown>) {
-  try {
-    await promise;
-  } catch (error) {
-    return error as { code: string; message: string; details?: Record<string, unknown> };
-  }
-  throw new Error("expected a refusal");
-}
 
 const as = (user: ActingUser, actor: Actor = "human") =>
   context(user, {

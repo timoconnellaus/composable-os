@@ -21,45 +21,22 @@ import {
   coreRegistry,
   type ExtensionHost,
   type InvocationContext,
-  invokeByName,
   loadExtensionOperations,
   newId,
+  objectTableOf,
   readStaffFeed,
   refreshSchemaRegistry,
 } from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, unique } from "./helpers.ts";
+import { createAdmin, db, host, refusal, run, unique } from "./helpers.ts";
+import { packFiles } from "./pack-files.ts";
 
-const packFiles = (glob: Record<string, string>) =>
-  Object.fromEntries(
-    Object.entries(glob)
-      .map(([path, text]) => [path.split("/").pop() as string, text] as const)
-      .filter(([name]) => name !== "vitest.config.ts"),
-  );
 const files: Record<string, Record<string, string>> = {
-  programs: packFiles(
-    import.meta.glob<string>("../../../packs/programs/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-  bookings: packFiles(
-    import.meta.glob<string>("../../../packs/bookings/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-  rostering: packFiles(
-    import.meta.glob<string>("../../../packs/rostering/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
+  programs: packFiles("programs"),
+  bookings: packFiles("bookings"),
+  rostering: packFiles("rostering"),
 };
 // A shipped fixture pack whose tool calls Rostering's restricted tool and the host's roster read:
 // a restricted tool is never reached from another extension's code, whoever called it.
@@ -209,21 +186,10 @@ const staff = (extra: Partial<InvocationContext> = {}): InvocationContext => ({
 });
 const asUser = (user: ActingUser, extra: Partial<InvocationContext> = {}) =>
   staff({ user, ...extra });
-const run = <T = Record<string, unknown>>(name: string, input: unknown, ctx: InvocationContext) =>
-  invokeByName(name, input, ctx) as Promise<T>;
 const create = async (object: string, values: Record<string, unknown>) =>
   (await run<{ id: string }>("record.create", { object, values }, staff())).id;
 const get = async (object: string, id: string) =>
   (await run<{ values: Record<string, unknown> }>("record.get", { object, id }, staff())).values;
-async function refusal(promise: Promise<unknown>) {
-  const error = await promise.then(
-    () => null,
-    (e: unknown) => e,
-  );
-  expect(error).toBeTruthy();
-  return error as { code: string; message?: string; details?: Record<string, unknown> };
-}
-
 /** A staff account with the role `role` and nothing else. */
 async function account(name: string, role: "member" | "viewer"): Promise<ActingUser> {
   const id = newId("user");
@@ -494,10 +460,19 @@ describe("the team role (criterion 7)", () => {
   it("is refused every operation in the registry but Rostering's team tools", async () => {
     const cleaner = await fixedRole("Cleaner Walk", "rostering.team");
     const open = await reach(asUser(cleaner));
-    // And the screens of the admin it may open (stage 47, ADR 0660), and every pack role's own
-    // read-and-understood list and confirmations (ADR 0702).
+    // And the screens of the admin it may open (stage 47, ADR 0660), every pack role's own
+    // read-and-understood list and confirmations (ADR 0702), and the published versions every
+    // staff account reads (ADR 0701, allowed on a staff-read object only).
     expect([...open].sort()).toEqual(
-      [...TEAM_TOOLS, "screens.mine", "ack.confirm", "ack.mine"].sort(),
+      [
+        ...TEAM_TOOLS,
+        "screens.mine",
+        "ack.confirm",
+        "ack.mine",
+        "content.search",
+        "content.staffGet",
+        "content.staffList",
+      ].sort(),
     );
     // No record read, not even of Rostering's own objects.
     for (const object of [SHIFT, DUTY, SERIES, CLASS, "person"]) {
@@ -1142,6 +1117,62 @@ describe("an AI's roster change is approved only by someone who could make it (t
     expect((await get(CLASS, k)).coach).toBe(a.profile);
     await run("approval.approve", { actionIds: [id] }, asUser(rosterer));
     expect((await get(CLASS, k)).coach).toBe(b.profile);
+  });
+
+  it("an AI's restore of a shift or a series with someone on it: a member's approval is refused, a rosterer's applies (issue #285)", async () => {
+    const rosterer = await account("Rosterer Rae", "member");
+    await grant(rosterer, [MANAGE]);
+    const plain = await account("Plain Pip", "member");
+    const on = await account("On Shift Oli", "member");
+    const assistant = staff({ actor: "assistant", origin: { surface: "assistant" } });
+    // A restore waits for a person when the policy asks for writes to (the cautious preset).
+    const restoreOf = async (object: string, id: string) => {
+      await run("record.delete", { object, id }, staff());
+      await setPreset("cautious");
+      try {
+        return await pendingId(run("record.restore", { object, id }, assistant));
+      } finally {
+        await setPreset("balanced");
+      }
+    };
+    const trashed = async (object: string, id: string) =>
+      (
+        await env.DB.prepare(`SELECT deleted_at FROM ${objectTableOf(object)} WHERE id = ?`)
+          .bind(id)
+          .first<{ deleted_at: string | null }>()
+      )?.deleted_at;
+    // A shift with its person.
+    const shift = await dutyShift(92 * DAY, on.id);
+    const shiftAction = await restoreOf(SHIFT, shift);
+    expect(
+      (await refusal(run("approval.approve", { actionIds: [shiftAction] }, asUser(plain)))).code,
+    ).toBe("forbidden");
+    expect(await trashed(SHIFT, shift)).not.toBeNull();
+    await run("approval.approve", { actionIds: [shiftAction] }, asUser(rosterer));
+    expect((await get(SHIFT, shift)).staff).toBe(on.id);
+    // A series with its regular person.
+    const series = await create(SERIES, {
+      duty,
+      weekdays: ["mon"],
+      time: "05:30",
+      length: 30,
+      firstDate: localDate(120 * DAY),
+      timezone: ZONE,
+      staff: on.id,
+    });
+    const seriesAction = await restoreOf(SERIES, series);
+    expect(
+      (await refusal(run("approval.approve", { actionIds: [seriesAction] }, asUser(plain)))).code,
+    ).toBe("forbidden");
+    expect(await trashed(SERIES, series)).not.toBeNull();
+    await run("approval.approve", { actionIds: [seriesAction] }, asUser(rosterer));
+    expect(await trashed(SERIES, series)).toBeNull();
+    await run("record.update", { object: SERIES, id: series, values: { state: "ended" } }, staff());
+    // With nobody on it, it says nothing of who works it: anyone who may approve applies it.
+    const empty = await dutyShift(93 * DAY, null);
+    const emptyAction = await restoreOf(SHIFT, empty);
+    await run("approval.approve", { actionIds: [emptyAction] }, asUser(plain));
+    expect(await trashed(SHIFT, empty)).toBeNull();
   });
 });
 

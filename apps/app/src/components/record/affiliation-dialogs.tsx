@@ -14,10 +14,10 @@ import { Input } from "@composable-os/ui/components/input";
 import { Label } from "@composable-os/ui/components/label";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { localDay } from "#/lib/format";
 import { errorMessage, useOpMutation } from "#/lib/query";
 import type { AffiliationItem } from "./adapters.ts";
 import { OrganisationPicker, type PickedOrganisation } from "./organisation-picker.tsx";
-import { localToday } from "./tasks.tsx";
 
 const AFFILIATION_READS = ["affiliation.", "person.", "organisation."];
 
@@ -206,7 +206,7 @@ export function ChangeJobDialog({
         organisationId: state.organisation.id,
         title: text(form, "title") || null,
         role: text(form, "role") || null,
-        startedOn: text(form, "startedOn") || localToday(),
+        startedOn: text(form, "startedOn") || localDay(),
         ...(previousEndedOn ? { previousEndedOn } : {}),
       });
       onOpenChange(false);
@@ -250,7 +250,7 @@ export function ChangeJobDialog({
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field id="job-start" label="Starts on">
-          <Input id="job-start" name="startedOn" type="date" defaultValue={localToday()} />
+          <Input id="job-start" name="startedOn" type="date" defaultValue={localDay()} />
         </Field>
         {current && (
           <Field id="job-end" label="Previous job ended">
@@ -279,7 +279,7 @@ export function EndAffiliationDialog({
   async function submit(form: FormData) {
     if (!affiliation) return;
     try {
-      await end.mutateAsync({ id: affiliation.id, endedOn: text(form, "endedOn") || localToday() });
+      await end.mutateAsync({ id: affiliation.id, endedOn: text(form, "endedOn") || localDay() });
       onOpenChange(false);
       toast.success(`Ended ${affiliation.organisationName ?? "affiliation"}`);
     } catch (caught) {
@@ -300,7 +300,7 @@ export function EndAffiliationDialog({
       submitLabel="End"
     >
       <Field id="end-on" label="Ended on">
-        <Input id="end-on" name="endedOn" type="date" defaultValue={localToday()} />
+        <Input id="end-on" name="endedOn" type="date" defaultValue={localDay()} />
       </Field>
     </FormDialog>
   );

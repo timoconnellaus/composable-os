@@ -1364,6 +1364,32 @@ describe("one notice per person for a change of many shifts", () => {
     const told = await notices(staff.id);
     expect(told).toHaveLength(1);
     expect(told[0]?.title).toBe("You are on 3 shifts");
+    expect(told[0]?.body?.split("\n")).toEqual([
+      "From 2026-06-15 07:00 to 2026-06-17 07:00, by admin user.",
+      "On: Imported 15, 2026-06-15 07:00",
+      "On: Imported 16, 2026-06-16 07:00",
+      "On: Imported 17, 2026-06-17 07:00",
+    ]);
+  });
+
+  it("a shift sent to the Trash cancels its offer and tells its person both", async () => {
+    const k = await kind("Removed");
+    const staff = await createUser("member");
+    const other = await createUser("member");
+    await qualify(other.id, k);
+    const shift = await duty("Removed duty", k, staff.id, "18");
+    const { offer } = await invoke("staffing.offer", { object: DUTY, id: shift }, tool(staff));
+    await invoke("record.delete", { object: DUTY, id: shift }, as(admin));
+    expect(await offerState(offer.id)).toBe("cancelled");
+    const told = await notices(staff.id);
+    expect(told.map((n) => [n.title, n.body])).toEqual([
+      ["You are on a shift: Removed duty", "admin user put you on Removed duty, 2026-06-18 18:00."],
+      ["Your offer was cancelled: Removed duty", "The shift was removed."],
+      [
+        "Your shift was removed: Removed duty",
+        "Removed duty, 2026-06-18 18:00, was removed by admin user.",
+      ],
+    ]);
   });
 });
 

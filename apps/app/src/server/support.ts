@@ -7,6 +7,8 @@
 // support user. Without COS_SUPPORT_PUBLIC_KEY (every self-hosted install) none of this exists.
 import type { Principal } from "@composable-os/auth";
 import {
+  base64url,
+  fromBase64url,
   invokeByName,
   isGrantActive,
   loadSupportGrant,
@@ -48,22 +50,12 @@ export interface SupportTokenClaims {
 
 const encoder = new TextEncoder();
 
-export function base64urlDecode(value: string): Uint8Array<ArrayBuffer> {
-  const b64 = value.replace(/-/g, "+").replace(/_/g, "/");
-  const binary = atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4));
-  return Uint8Array.from(binary, (c) => c.charCodeAt(0));
-}
-
-export function base64urlEncode(bytes: ArrayBuffer | Uint8Array): string {
-  const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  let binary = "";
-  for (const byte of view) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
+// The support test signs its tokens with these.
+export { base64url as base64urlEncode, fromBase64url as base64urlDecode };
 
 function parseJson(segment: string): unknown {
   try {
-    return JSON.parse(new TextDecoder().decode(base64urlDecode(segment)));
+    return JSON.parse(new TextDecoder().decode(fromBase64url(segment)));
   } catch {
     return null;
   }
@@ -93,7 +85,7 @@ export async function verifySupportToken(
   try {
     const key = await crypto.subtle.importKey(
       "raw",
-      base64urlDecode(publicKey),
+      fromBase64url(publicKey),
       { name: "Ed25519" },
       false,
       ["verify"],
@@ -101,7 +93,7 @@ export async function verifySupportToken(
     valid = await crypto.subtle.verify(
       { name: "Ed25519" },
       key,
-      base64urlDecode(s),
+      fromBase64url(s),
       encoder.encode(`${h}.${p}`),
     );
   } catch {
@@ -149,7 +141,7 @@ export async function signSupportCookie(
     await hmacKey(secret),
     encoder.encode(`${grantId}.${exp}`),
   );
-  return `${grantId}.${exp}.${base64urlEncode(mac)}`;
+  return `${grantId}.${exp}.${base64url(mac)}`;
 }
 
 /** The grant id a cookie value names, when its MAC is good and it has not expired. */
@@ -166,7 +158,7 @@ export async function verifySupportCookie(
   if (exp <= nowSeconds) return null;
   let signature: Uint8Array<ArrayBuffer>;
   try {
-    signature = base64urlDecode(mac);
+    signature = fromBase64url(mac);
   } catch {
     return null;
   }
