@@ -23,7 +23,7 @@
     "@composable-os/auth": "workspace:*",
     "@composable-os/core": "workspace:*",
     "@composable-os/db": "workspace:*",
-    "@composable-os/agreement-pdf": "workspace:*",
+    "@composable-os/pdf": "workspace:*",
     "@composable-os/calendar-file": "workspace:*",
     "@composable-os/pack-bookings": "workspace:*",
     "@composable-os/pack-courses": "workspace:*",
