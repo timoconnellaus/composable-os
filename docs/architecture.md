@@ -1626,12 +1626,13 @@ run's person and people who roster, at the screen, never an AI; the tables are i
 `staffing.week` gives everyone a shift's checklist name and its state only to its person and
 rosterers. Notes and reasons are redacted from the audit log and never answered by a write.
 **Checklists on their own** ([ADR 0651](adr/0651-checklists-on-their-own-a-schedule-a-run-a-day-and-who-may-do-it.md),
-`checklists/days.ts`, `operations/checklist-days.ts`, migration 0816): a template may carry a
+`checklists/days.ts`, `operations/checklist-days.ts`, migrations 0816 and 0817): a template may carry a
 schedule (weekdays, a due time, who may do it: staff, a role or pack role, or a grant). Each due day
 gets one run in the same table (`object_type` `checklist.day`, `record_id` `<template>:<date>`),
 made by the same cron for the business's local day (`localDay`) and closed as missed when the day
 ends (the managers, holders of `checklists:write`, told); it copies who may do it, which triggers
-check on every tick and finish, on someone's behalf only by a manager. The tool-only
+check on every tick and finish, on someone's behalf only by a manager; a tick only inside its day,
+and missed only after it, by nobody (0817). A day's run is found by the date in its record. The tool-only
 `checklist.today`, `.day`, `.dayTick`, `.dayDone` and `.days` serve the Daily checklists pack
 (`packs/dailychecks`), whose tools are open to every staff account, pack roles included
 (`anyStaff`), or held to `checklists:write` (`corePermission`, ADR 0652). Rostering's checklist

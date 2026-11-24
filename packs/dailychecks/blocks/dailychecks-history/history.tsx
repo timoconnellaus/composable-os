@@ -99,6 +99,9 @@ export function ChecklistHistory({
                     : ""}
                   {d.late ? (d.state === "done" ? " (after it was due)" : " (past due)") : ""}
                   {d.missed.length ? ` · Not done: ${d.missed.join("; ")}` : ""}
+                  {d.notDone
+                    ? ` · ${d.notDone} ${d.notDone === 1 ? "step" : "steps"} ticked not done`
+                    : ""}
                   {d.onBehalf ? ` · ${d.onBehalf} ticked for someone` : ""}
                 </td>
                 <td>

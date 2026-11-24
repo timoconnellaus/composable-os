@@ -247,14 +247,17 @@ export const checklistWhoChoices = defineOperation({
     "Who a checklist done on its own can be for (ADR 0651), for the form that writes one: the " +
     "roles (admins, members, and the fixed roles installed packs give, such as a cleaner's or a " +
     "coach's) and the permissions an admin can grant one by one, each with its label. Names no " +
-    "account. Read-only.",
+    "account. For those who write checklists, a person's own read (the grantable permissions are " +
+    "otherwise an admin's to read). Read-only.",
   input: z.object({}),
   output: z.object({
     roles: z.array(z.object({ role: z.string(), label: z.string() })),
     grants: z.array(z.object({ permission: z.string(), label: z.string() })),
   }),
-  permission: "records:read",
+  permission: "checklists:write",
   risk: "read",
+  actors: ["human"],
+  mcp: { expose: false },
   async handler(_input, ctx) {
     const packRoles = await availablePackRoles(ctx.db);
     return {

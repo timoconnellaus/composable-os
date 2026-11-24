@@ -58,11 +58,14 @@ describe("core registry", () => {
         // ADR 0730): what was paid, by which method, is that permission's. The accounting sync's
         // settings and mapping with accounting:manage (stage 61).
         // The shared inbox is read with inbox:read (ADR 0740).
+        // Whom a checklist done on its own can be for (checklist.whoChoices, ADR 0651: the
+        // grantable permissions among them) is read by whoever writes checklists.
         if (op.risk === "read") {
           expect([
             "accounting:manage",
             "bookingSystem:manage",
             "invoices:payments",
+            "checklists:write",
             "journeys:read",
             "journeys:manage",
             "agreements:desk",

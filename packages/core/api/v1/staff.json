@@ -22246,7 +22246,7 @@
     },
     {
       "name": "checklist.whoChoices",
-      "description": "Who a checklist done on its own can be for (ADR 0651), for the form that writes one: the roles (admins, members, and the fixed roles installed packs give, such as a cleaner's or a coach's) and the permissions an admin can grant one by one, each with its label. Names no account. Read-only.",
+      "description": "Who a checklist done on its own can be for (ADR 0651), for the form that writes one: the roles (admins, members, and the fixed roles installed packs give, such as a cleaner's or a coach's) and the permissions an admin can grant one by one, each with its label. Names no account. For those who write checklists, a person's own read (the grantable permissions are otherwise an admin's to read). Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -90229,7 +90229,7 @@
     },
     {
       "name": "x.dailychecks.history",
-      "description": "How each day went, from `from` to `to` (local dates, at most 62 days): every checklist done on its own, whether it was done (by whom, for whom, when, late or not) or missed (with the steps nobody ticked). Those who manage checklists, a person only. (Extension tool from Daily checklists 0.1.0.)",
+      "description": "How each day went, from `from` to `to` (local dates, at most 62 days): every checklist done on its own, whether it was done (by whom, for whom, when, late or not, and how many steps were ticked not done) or missed (with the steps nobody ticked). Those who manage checklists, a person only. (Extension tool from Daily checklists 0.1.0.)",
       "risk": "read",
       "audiences": [
         "staff"
@@ -90332,6 +90332,9 @@
                 "ticked": {
                   "type": "number"
                 },
+                "notDone": {
+                  "type": "number"
+                },
                 "onBehalf": {
                   "type": "number"
                 },
@@ -90354,6 +90357,7 @@
                 "finishedFor",
                 "steps",
                 "ticked",
+                "notDone",
                 "onBehalf",
                 "missed"
               ],
