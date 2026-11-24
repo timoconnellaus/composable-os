@@ -4,17 +4,14 @@
 // - HostHookInitiator: a bound hook's `HookInitiator`, whose startHook() opens one firing.
 // Both forward to the connection's integration host Durable Object.
 import { WorkerEntrypoint } from "cloudflare:workers";
-
-function host(env: Env, connectionId: string) {
-  return env.INTEGRATION_HOST.getByName(connectionId);
-}
+import { hostFor } from "./runtime.ts";
 
 export class ConnectCallback extends WorkerEntrypoint<
   Env,
   { connectionId: string; vendor: string }
 > {
   async complete(user: unknown, expiresAt?: Date) {
-    return host(this.env, this.ctx.props.connectionId).stage(
+    return hostFor(this.env, this.ctx.props.connectionId).stage(
       this.ctx.props.vendor,
       user,
       expiresAt,
@@ -22,18 +19,18 @@ export class ConnectCallback extends WorkerEntrypoint<
   }
 
   async reconnectComplete(stageId: string, _expiresAt?: Date) {
-    return host(this.env, this.ctx.props.connectionId).stageReconnect(
+    return hostFor(this.env, this.ctx.props.connectionId).stageReconnect(
       this.ctx.props.vendor,
       stageId,
     );
   }
 
   async credentialsExpired(): Promise<void> {
-    await host(this.env, this.ctx.props.connectionId).credentialsChanged("expired");
+    await hostFor(this.env, this.ctx.props.connectionId).credentialsChanged("expired");
   }
 
   async credentialsRestored(_expiresAt?: Date): Promise<void> {
-    await host(this.env, this.ctx.props.connectionId).credentialsChanged("restored");
+    await hostFor(this.env, this.ctx.props.connectionId).credentialsChanged("restored");
   }
 }
 
@@ -42,6 +39,6 @@ export class HostHookInitiator extends WorkerEntrypoint<
   { connectionId: string; hookId: string }
 > {
   async startHook() {
-    return host(this.env, this.ctx.props.connectionId).startHook(this.ctx.props.hookId);
+    return hostFor(this.env, this.ctx.props.connectionId).startHook(this.ctx.props.hookId);
   }
 }

@@ -3,7 +3,7 @@
 // first delivery did not, and tell staff of subscriptions with no event: stage 32a).
 import {
   applyPendingPaymentEvents,
-  invokeByName,
+  invoke,
   type PaymentEventDeps,
   parseFloor,
   queueEventSink,
@@ -33,7 +33,7 @@ export function paymentEventDeps(env: Env, clock?: () => Date): PaymentEventDeps
 export async function runOrdersTick(env: Env, at: Date) {
   const deps = paymentEventDeps(env, () => at);
   const events = await applyPendingPaymentEvents(deps);
-  const expired = (await invokeByName(
+  const expired = await invoke(
     "order.expireDue",
     {},
     {
@@ -45,7 +45,7 @@ export async function runOrdersTick(env: Env, at: Date) {
       ...(deps.events ? { events: deps.events } : {}),
       ...(deps.floor ? { floor: deps.floor } : {}),
     },
-  )) as { expired: string[] };
+  );
   // Subscriptions with no event (stage 32a): past due too long, or events not arriving.
   const subscriptions = await sweepSubscriptions(deps.crm, at.toISOString());
   // Refunds the host owes (ADR 0560): a paid drop-in cancelled in time or by the gym. Each is
