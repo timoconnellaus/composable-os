@@ -24,7 +24,7 @@ import type { CoreDatabase, CrmDb } from "@composable-os/db";
 import type { ExtensionManifest, RoleManifest } from "@composable-os/sdk";
 import { type Kysely, sql } from "kysely";
 import type { AnyOperation } from "./operation.ts";
-import { holdsPermission, type Role } from "./principals.ts";
+import { FIXED_ROLE_CORE_GRANTS, holdsPermission, type Role } from "./principals.ts";
 
 /** A pack role as an account holds it. */
 export interface HeldPackRole {
@@ -168,11 +168,14 @@ export function packRoleReaches(role: HeldPackRole, op: AnyOperation): boolean {
 
 /**
  * Whether a permission granted to the account opens the pack tool `op`: one of the tool's
- * permissions its installed pack still declares grantable (ADR 0449). Never a core operation, so
- * for an account holding a pack role a grant opens exactly the tools naming the granted
- * permission, and no record read, list, search or setting (ADR 0600).
+ * permissions its installed pack still declares grantable (ADR 0449), or a core operation whose
+ * permission is one of FIXED_ROLE_CORE_GRANTS (ADR 0783). So for an account holding a pack role a
+ * grant opens exactly the tools naming the granted permission and those few core operations, and
+ * no record read, list, search or setting (ADR 0600).
  */
 export function grantOpens(grants: readonly string[], op: AnyOperation): boolean {
+  // The few core permissions a fixed role's account may be granted (ADR 0783): `people:cards`.
+  if (FIXED_ROLE_CORE_GRANTS.includes(op.permission) && grants.includes(op.permission)) return true;
   return (op.packGrantable ?? []).some((p) => grants.includes(p));
 }
 

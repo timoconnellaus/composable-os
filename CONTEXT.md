@@ -1653,6 +1653,21 @@ The long, random, unguessable value the host gives a granted record that asks fo
 ticket's): read-only, unique across every grant. A QR shows only the code.
 _Avoid_: ticket number, PIN
 
+**Person's code**
+What identifies a Person at a check-in tablet, kept in the host: an **app code**, a rotating
+8-digit code (changing every 30 seconds, good for 60) made for one sign-in of the member's app or
+browser and ended with it, with one for each live dependant shown on a guardian's app; or a
+**card**, a fixed long code on a card or key tag staff issue and revoke (`people:cards`), kept
+only as an HMAC. Only a device tool identifies by it, and every miss answers the same "not found"
+(stage 51, ADR 0783).
+_Avoid_: member number, barcode (a card's code is one), ticket code (a grant's **Code**)
+
+**Check-in PIN**
+Four digits a member chooses in their app to check in by their full name and the PIN when they
+have no phone; kept as a slow hash, the most common ones refused, disabled after ten wrong tries in
+a day until they set it again. Never set by staff or a guardian (stage 51, ADR 0783).
+_Avoid_: password, passcode
+
 **Deposit**
 Paying part of an order now and the balance by a date, when what is bought offers it. The amount
 and the date come from the records, never from the buyer. A part-paid order keeps its place and

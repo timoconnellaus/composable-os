@@ -47802,6 +47802,241 @@
       ]
     },
     {
+      "name": "personCode.issueCard",
+      "description": "Give a person a check-in card or key tag: scan or type the card's code (at least 8 characters) and a label to tell it apart. The card then checks them in at the check-in tablet until it is revoked. The code is never stored or shown again (only a keyed hash), and a code already on someone's live card is refused. Only a person on the staff with people:cards can do this: never the assistant, an MCP client or code. Audited.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string",
+            "maxLength": 64,
+            "format": "starts_with",
+            "pattern": "^per_.*",
+            "description": "Who the card is for (per_…)"
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The card's code, as scanned or printed"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "To tell it apart, e.g. \"blue key tag\""
+          }
+        },
+        "required": [
+          "personId",
+          "code",
+          "label"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "app",
+              "card"
+            ]
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "issuedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "onGuardiansApp": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "lastUsedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revokedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "label",
+          "issuedBy",
+          "onGuardiansApp",
+          "createdAt",
+          "lastUsedAt",
+          "revokedAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "personCode.list"
+      ]
+    },
+    {
+      "name": "personCode.list",
+      "description": "A person's check-in cards and app codes: each card's label, who issued it, when it was issued, last used and revoked, and each app sign-in showing a code. Never a code. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string",
+            "maxLength": 64,
+            "format": "starts_with",
+            "pattern": "^per_.*",
+            "description": "The person (per_…)"
+          }
+        },
+        "required": [
+          "personId"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "app",
+                    "card"
+                  ]
+                },
+                "label": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "issuedBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "onGuardiansApp": {
+                  "type": "boolean"
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "lastUsedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "revokedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "label",
+                "issuedBy",
+                "onGuardiansApp",
+                "createdAt",
+                "lastUsedAt",
+                "revokedAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "personCode.revokeCard",
+      "description": "Revoke a person's check-in card (lost, or handed back), by its id from personCode.list: from now on it checks no one in. Revoking one already revoked changes nothing. Only a person on the staff with people:cards can do this. Audited.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "codeId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The card's id (pc_…)"
+          }
+        },
+        "required": [
+          "codeId"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "revokedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "revokedAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "personCode.list"
+      ]
+    },
+    {
       "name": "plan.get",
       "description": "The deployment's hosted plan (free, team, business or enterprise) and its limits: users, records (people plus organisations; null = unlimited) and whether the platform's AI is included, with current usage. managed is false on a self-hosted install, which has no limits. Admins only. Read-only: plans change only through billing.",
       "risk": "read",
