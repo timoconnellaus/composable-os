@@ -5,7 +5,7 @@
 // Nothing here decides who may watch, what is for sale or what a course costs. A lesson's material
 // arrives only for a holder (the host removes it for everyone else), and a video plays only with a
 // token the host signs in `media.play`, which `usePlayback` asks for again before it expires.
-import { type ClientHolding, type PackClient, packHooks } from "@composable-os/client";
+import { accountDay, type ClientHolding, type PackClient, packHooks } from "@composable-os/client";
 import type { z } from "@composable-os/sdk";
 import {
   LESSON_KINDS,
@@ -28,6 +28,7 @@ import type {
   stats,
 } from "../tools.ts";
 
+export { accountDay as day, formatMinor } from "@composable-os/client";
 export { completion, findLesson, lessonsOf, nextLesson, watchedToEnd } from "../outline.ts";
 export type { Lesson, LessonKind, Outline, Section };
 
@@ -37,6 +38,7 @@ type Io<T extends { input: z.ZodType; output: z.ZodType }> = {
 };
 
 export const COURSE = "courses.course";
+export const PLAN = "courses.plan";
 
 /** What media.play answers (ADR 0476). */
 export interface Playback {
@@ -50,8 +52,6 @@ export interface Playback {
   duration: number | null;
   captions: { language: string; label: string }[];
 }
-
-export const PLAN = "courses.plan";
 
 /** A subscription as its payer reads it (`subscription.list`, stage 32a). */
 export interface CourseSubscription {
@@ -130,12 +130,13 @@ export function offerFor(
 
 /** What a member is told about their offer, in words. Display only. */
 export function offerWords(offer: ContinuationOffer): string {
+  const until = accountDay(offer.freeUntil);
   if (offer.askUs) {
-    return `Your subscription with us is paid up to ${day(offer.freeUntil)}. The plan it continues on is not on sale just now: ask us, and nothing is charged before then.`;
+    return `Your subscription with us is paid up to ${until}. The plan it continues on is not on sale just now: ask us, and nothing is charged before then.`;
   }
   return offer.chargedNow
-    ? `Your subscription with us was paid up to ${day(offer.freeUntil)}, which is too soon for free time here: continuing is charged from today.`
-    : `Your subscription with us is paid up to ${day(offer.freeUntil)}. Continue it here: nothing is charged until then.`;
+    ? `Your subscription with us was paid up to ${until}, which is too soon for free time here: continuing is charged from today.`
+    : `Your subscription with us is paid up to ${until}. Continue it here: nothing is charged until then.`;
 }
 
 /** What subscription.start answers. */
@@ -247,6 +248,7 @@ export type CoursesOperations = {
 };
 
 type In<N extends keyof CoursesOperations> = CoursesOperations[N]["input"];
+type Out<N extends keyof CoursesOperations> = CoursesOperations[N]["output"];
 
 export type CoursesClient = PackClient<CoursesOperations>;
 
@@ -281,29 +283,6 @@ export function formatPrice(
 }
 
 /**
- * An amount the host gave in the currency's minor unit (a subscription's price per period), in
- * that currency: `29.00 AUD`. Display only: the minor unit's digits are the currency's own.
- */
-export function formatMinor(minor: number, currency: string): string {
-  try {
-    const format = new Intl.NumberFormat(undefined, { style: "currency", currency });
-    const digits = format.resolvedOptions().maximumFractionDigits ?? 2;
-    return format.format(minor / 10 ** digits);
-  } catch {
-    return `${minor} ${currency}`;
-  }
-}
-
-/** A date as a reader sees it (`3 Dec 2026`), from the host's ISO timestamp. Display only. */
-export function day(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const at = new Date(iso);
-  return Number.isNaN(at.getTime())
-    ? ""
-    : at.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
-}
-
-/**
  * What a subscription's state means to its member, in words, from what the host reports. Display
  * only: whether it gives access is the host's (the seam), never worked out from this.
  */
@@ -313,12 +292,12 @@ export function subscriptionStatus(sub: CourseSubscription): string {
     case "trialing":
       // A trial, or a continuation's free time until its paid-up date: both are free until then.
       return ends
-        ? `Free, ending on ${day(ends)}: nothing will be charged`
-        : `Free until ${day(sub.trialEnd ?? sub.currentPeriodEnd)}, then charged each ${sub.interval}`;
+        ? `Free, ending on ${accountDay(ends)}: nothing will be charged`
+        : `Free until ${accountDay(sub.trialEnd ?? sub.currentPeriodEnd)}, then charged each ${sub.interval}`;
     case "active":
       return ends
-        ? `Active until ${day(ends)}, then it ends`
-        : `Active: next charge on ${day(sub.currentPeriodEnd)}`;
+        ? `Active until ${accountDay(ends)}, then it ends`
+        : `Active: next charge on ${accountDay(sub.currentPeriodEnd)}`;
     case "past_due":
       return sub.actionUrl
         ? "A payment needs you to confirm it"
@@ -332,7 +311,7 @@ export function subscriptionStatus(sub: CourseSubscription): string {
     case "expired":
       return "Never started: its first payment did not go through";
     case "ended":
-      return `Ended${sub.endedAt ? ` on ${day(sub.endedAt)}` : ""}`;
+      return `Ended${sub.endedAt ? ` on ${accountDay(sub.endedAt)}` : ""}`;
   }
 }
 
@@ -462,8 +441,6 @@ interface QueryOptions<T> {
   queryFn: () => Promise<T>;
 }
 
-type Out<N extends keyof CoursesOperations> = CoursesOperations[N]["output"];
-
 /** The app's `useMutation`, as far as these hooks use it. */
 export type UseMutation = <I, O>(options: {
   mutationKey: readonly unknown[];
@@ -575,9 +552,11 @@ function allCoursesHooks(
             ...(video.field ? { field: video.field } : {}),
           }
         : null;
-      const options = input ? api.query("media.play", input) : none<Playback>("playback");
-      return useQuery<Playback>({
-        ...(options as { queryKey: readonly unknown[]; queryFn: () => Promise<Playback> }),
+      const options: QueryOptions<Playback> = input
+        ? api.query("media.play", input)
+        : none("playback");
+      return useQuery({
+        ...options,
         enabled: input !== null,
         refetchInterval: (query) => {
           const data = query.state.data;
