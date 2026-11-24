@@ -26,6 +26,17 @@ import type { ExtensionManifest, FieldManifest, ObjectManifest } from "./manifes
  *   series' `recurring.link` on this object, `who` the series field copied onto `who.field`).
  * - `payBefore`, `payAfter` (optional): `kind.field` number paths, minutes counted for pay only
  *   (preparation and pack-down); they never enter the time claim.
+ * - `claimBefore`, `claimAfter` (optional, ADR 0760): `kind.field` number paths, minutes kept free
+ *   before and after the shift (a service's buffer). They enter the time claim, never the shift's
+ *   own times or pay; the kind must be another of this extension's objects, so the host follows a
+ *   change of its minutes. Classes declare none: two back to back stay allowed.
+ * - `account` (optional, ADR 0760): `"required"`: a live shift whose person is a profile holding
+ *   no account is refused, at write and by the database, so no shift with a person escapes the
+ *   claim (an appointment). A shift with nobody on it stays allowed (uncovered). Only with
+ *   `who.account`: a user field always is the account.
+ * - `private` (optional, ADR 0761): the record's title may name a client (an appointment). The
+ *   roster shows the shift as its kind to anyone but its person and those who roster, a clash
+ *   answer names it by its kind, and it is never offered to others. The feed never shows a title.
  * - `evidence` (optional): what shows a shift was worked, beside its pay line (ADR 0627): another
  *   object of this extension whose records name the shift (`link`, a relation to this object) and
  *   the staff account that marked each (`by`, a user field): a class's bookings, ticked by whoever
@@ -44,6 +55,10 @@ export interface StaffedSpec {
   pattern?: { link: string; who: string };
   payBefore?: { field: string };
   payAfter?: { field: string };
+  claimBefore?: { field: string };
+  claimAfter?: { field: string };
+  account?: "required";
+  private?: boolean;
   evidence?: { object: string; link: string; by: string };
 }
 
@@ -62,6 +77,10 @@ export const staffedManifestSchema = z
     pattern: z.object({ link: fieldName, who: fieldName }).strict().optional(),
     payBefore: z.object({ field: path }).strict().optional(),
     payAfter: z.object({ field: path }).strict().optional(),
+    claimBefore: z.object({ field: path }).strict().optional(),
+    claimAfter: z.object({ field: path }).strict().optional(),
+    account: z.literal("required").optional(),
+    private: z.boolean().optional(),
     evidence: z.object({ object: fieldName, link: fieldName, by: fieldName }).strict().optional(),
   })
   .strict();
@@ -179,6 +198,46 @@ export function checkObjectStaffed(
         `"${declared.field}" must be ${staffed.kind}.<a number field of what it names>`,
       );
     }
+  }
+
+  // Minutes kept free around the shift, in its claim (ADR 0760): a number field of its kind, which
+  // is another of this extension's objects (the host builds triggers on its table to follow it).
+  const kindTarget = kind?.type === "relation" && !kind.many ? kind.to : undefined;
+  const kindLocal = kindTarget?.startsWith(`${m.id}.`)
+    ? kindTarget.slice(m.id.length + 1)
+    : undefined;
+  const kindObject =
+    kindLocal && kindLocal !== name && Object.hasOwn(m.objects, kindLocal)
+      ? m.objects[kindLocal]
+      : undefined;
+  for (const key of ["claimBefore", "claimAfter"] as const) {
+    const declared = staffed[key];
+    if (!declared) continue;
+    const [via, field, ...rest] = declared.field.split(".");
+    if (via !== staffed.kind || !field || rest.length) {
+      contract(
+        `${at}.${key}.field`,
+        `"${declared.field}" must be ${staffed.kind}.<a number field of what it names>`,
+      );
+    } else if (!kindObject) {
+      contract(
+        `${at}.${key}.field`,
+        `"${staffed.kind}" must name another of this extension's objects for minutes in the claim`,
+      );
+    } else if (!single(own(kindObject, field), ["number"])) {
+      contract(
+        `${at}.${key}.field`,
+        `"${field}" must be a number field of ${kindTarget as string}`,
+      );
+    }
+  }
+
+  // An account required: only a profile can hold none.
+  if (staffed.account === "required" && staffed.who.account === undefined) {
+    contract(
+      `${at}.account`,
+      `"required" needs who.account: "${staffed.who.field}" is a user field, always an account`,
+    );
   }
 
   // The evidence a shift was worked: another object of this extension naming it, and who marked.

@@ -195,3 +195,10 @@ with `back`, a publish without `records:publish`) shows the host's words.
   `/api/assistant/*` and `system.ts` calls.
 - A screen's code is a static asset anyone who knows its address can download; it holds the
   repository's open-source block code and no data, which the spec accepts.
+
+## Amendment, 2026-11-24 (checklists on their own, ADRs 0651 and 0652)
+A gate's tool may be one every staff account may call (`anyStaff`) or one held to a grantable core
+permission (`corePermission`); both are in the gate fingerprint when set. Daily checklists declares
+two screens: Today's checklists (`today`, `tick`: every staff account that may write, pack roles
+included, so a fixed-role shell lists it too, and the host answers each with only what they may
+do) and Checklist history (`history`: `checklists:write`, admins and those granted it).

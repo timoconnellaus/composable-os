@@ -245,6 +245,18 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
       });
     }
   }
+  // Who may call a tool beyond its role and grants (ADR 0652) is access too: a tool open to every
+  // staff account, pack roles included, or one held to a core permission.
+  for (const [name, tool] of Object.entries(manifest.tools)) {
+    if (tool.anyStaff || tool.corePermission !== undefined) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `tools.${name}.${tool.anyStaff ? "anyStaff" : "corePermission"}`,
+        message: `A runtime extension cannot open a tool to every staff account or hold it to a core permission. ${why}`,
+      });
+    }
+  }
   // What the host keeps of a tool's answer is the audit trail's (ADR 0628): only reviewed pack
   // code may keep part of it out.
   for (const [name, tool] of Object.entries(manifest.tools)) {
@@ -302,6 +314,16 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
       code: "outside_audience",
       path: `routineMail.${name}`,
       message: `A runtime extension cannot declare routine mail. ${why}`,
+    });
+  }
+  // A journey signal is recorded by the host in every write's batch and starts journeys that mail
+  // members (stage 53, ADR 0802): only a shipped extension's reviewed declaration says what is one.
+  for (const name of Object.keys(manifest.journeySignals ?? {})) {
+    issues.push({
+      stage: "contract",
+      code: "outside_audience",
+      path: `journeySignals.${name}`,
+      message: `A runtime extension cannot declare journey signals. ${why}`,
     });
   }
   manifest.permissions.modules.forEach((module, i) => {
@@ -393,6 +415,24 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
         code: "outside_audience",
         path: `objects.${name}.staffed`,
         message: `A runtime extension cannot declare ${name} a shift staff work. ${why}`,
+      });
+    }
+    // Time recorded against a record feeds pay and is a staff record (ADR 0850): a reviewed change.
+    if (object.workedOn) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.workedOn`,
+        message: `A runtime extension cannot declare ${name} something staff record their time against. ${why}`,
+      });
+    }
+    // Who looks after whom opens a pack role's reach to a Person's records (ADRs 0831, 0881).
+    if (object.team) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.team`,
+        message: `A runtime extension cannot declare who on the staff looks after the People ${name} is about. ${why}`,
       });
     }
     // Who ticks what is a staff record, read by the person and rosterers only (ADR 0650).

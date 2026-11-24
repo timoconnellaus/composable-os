@@ -232,6 +232,8 @@ export default defineExtension({
         // a human admin turns tax on (ADR 0479). Whether the provider needs the gym's address as
         // the place is an open check of the test-mode runbook.
         tax: { code: "txcd_50021001" },
+        // In the finance reports (ADR 0792): a paid period is earned day by day over it.
+        finance: { category: { key: "memberships", label: "Memberships" }, earned: "over_period" },
         recurring: {
           interval: "month",
           trialDays: "trialDays",
@@ -451,6 +453,9 @@ export default defineExtension({
           valid: { from: "from", until: "until", days: "item.validDays" },
         },
         onePerPerson: "onePerPerson",
+        // In the finance reports (ADR 0792, decision 4): earned class by class as the pass is
+        // used, the rest when it expires.
+        finance: { category: { key: "passes", label: "Class passes" }, earned: "per_use" },
       },
       // Where agreement may be needed (stage 44, ADR 0641): the business attaches its documents
       // (its terms, a waiver) to "membership"; nothing is needed until it does. The host asks
@@ -659,6 +664,35 @@ export default defineExtension({
   // Giving or voiding a pass by hand: a person on the staff, with this permission, which admins
   // and members hold and a human admin may grant to anyone else (ADR 0449).
   grantable: ["memberships:passes"],
+  // What a journey can start or stop on (stage 53, ADR 0802): the host records the last time each
+  // member had each, in the write's batch. A trial that turns into a paid membership is not a
+  // trial ended: that is the member joining.
+  journeySignals: {
+    started: {
+      label: "Membership started",
+      description: "A membership begins, on trial or paid.",
+      object: "membership",
+    },
+    ended: {
+      label: "Membership ended",
+      description: "A membership ends.",
+      object: "membership",
+      enters: ["ended"],
+    },
+    trialEnded: {
+      label: "Trial ended without joining",
+      description: "A trial stops without becoming a paid membership.",
+      object: "membership",
+      enters: ["past_due", "unpaid", "paused", "ended"],
+      from: ["trialing"],
+      created: false,
+    },
+    passStarted: {
+      label: "Pass started",
+      description: "A member gets a pass: bought, or given by staff.",
+      object: "pass",
+    },
+  },
   // Cooling off (stage 44 step 7, decision 11, ADR 0647): the business's own number, for every
   // plan. Off until a person sets it; what any law requires is the business's to confirm.
   settings: {
