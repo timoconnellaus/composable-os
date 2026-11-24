@@ -754,8 +754,10 @@ How stage 4a built it:
 - **Dashboards** ([ADR 0057](adr/0057-dashboards-params-cache-and-click-through.md)):
   `core_dashboards` plus the code-defined Overview, Home per user (`core_user_home`). Widget SQL
   uses named params (`:date_from`, `:owner`, `:now`, …) rewritten to `?N` and run through
-  `runReadOnlySql`; results are cached 60 s in the Workers Cache API by a hash of SQL, params and
-  visibility scope; click-through templates resolve to list filters.
+  `runReadOnlySql`; results are cached 60 s in the Workers Cache API by a hash of SQL, params,
+  visibility scope and time zone; click-through templates resolve to list filters. Date presets
+  and `:today` are the business's day, in the organisation's time zone (`localDay` in
+  `time/local.ts`, [ADR 0871](adr/0871-day-windows-in-the-business-zone.md)).
 - **Record tabs and panels, settings** ([ADR 0058](adr/0058-record-tabs-panels-and-extension-settings.md)):
   extensions declare `recordTabs`, `recordPanels` and typed `settings`; `view.recordViews` and
   `extensionSettings.*` serve them to the UI.
@@ -821,6 +823,8 @@ packages/
                        and `cos ext check`; and the Node side of `cos ext check` / `cos ext test`
   ui/                  shared shadcn/ui components and the view-spec renderer
   config/              shared tsconfig, biome and vitest presets
+  pdf/                 the PDF writer, no dependencies: a safe core (standard fonts, every text a hex
+                       string), a table layout, the agreement, invoice and receipt renderers (ADRs 0645, 0737)
   agent-core/, agent-a2ui/, agent-voice/, agent-plugins/
                        the assistant's general machinery, MIT, no CRM imports (ADR 0350; agent-core is
                        real since stage 17 W1, the others are placeholders for later waves)
@@ -1210,6 +1214,16 @@ or a Person. A leave note reaches only a person, never an assistant or the audit
 declares who rosters, a caller's write of who works a shift (a shift's person, a pattern's person,
 a coach profile's account), by any path, is a rosterer's (`assertRosterWrite`); an AI's such change,
 or its call of a restricted tool, is approved only by someone who could make it.
+
+**Open hours** (stage 49 step 3, [ADR 0762](adr/0762-open-hours-and-free-times.md),
+`packages/core/src/staffing/hours.ts`, `operations/staffing-hours.ts`, migration 1090): when
+someone takes appointments, in `core_staff_hours` beside `core_staff_away` and in no `rec_*` view:
+weekly entries in local time (overnight when the end is at or before the start) and one-off extra
+hours, each for every kind of work or for some kinds only (a service). Read by wall clock on the
+fly (`openRanges`, `openCovers`), merged where they touch; "not open" is time off, never an entry.
+Set, changed and removed by the person or a rosterer through the tool-only `staffing.hours.set`,
+`.clear` and `.list`; an AI's change waits for a person; at most 50 entries a person;
+`user.deactivate` removes a leaver's. Free times (step 4) subtract time off, claims and rooms.
 
 **Pay periods** (stage 45 step 6, [ADR 0627](adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md),
 `packages/core/src/staffing/pay.ts`, `operations/staffing-pay.ts`, migration 0813): who is counted
@@ -1790,8 +1804,8 @@ with `agreements:paper`); no caller names an address and none can be changed. Er
 denies it, with a system origin so no AI's outbound check reads it, and the idempotency key
 `agreement-copy:<id>` (a crashed send is retried with the same key; a new key only after a try
 the gatekeeper proved was not sent; an unknown outcome is never retried). The email gatekeeper
-attaches `agreement.pdf`, made by the PDF writer (`packages/agreement-pdf`, a package of its own: standard fonts, every
-text a hex string, deterministic) from checked values (`validate.ts`), only for the host's
+attaches `agreement.pdf`, made by the PDF writer (`packages/pdf`, a package of its own: standard fonts, every
+text a hex string, deterministic; shared since stage 35 with the invoice and receipt renderers, ADR 0737) from checked values (`validate.ts`), only for the host's
 agreements queue (`isHostAgreementMail`) and only in the copy's shape; health answers have no
 field there (the copy says they are in the app). The same writer draws the downloads
 (`apps/app/src/server/http/agreement-pdf.ts`): `me.agreements.pdf` (a customer, their own and a

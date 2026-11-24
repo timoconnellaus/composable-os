@@ -216,7 +216,7 @@ export type DashboardSpecInput = z.input<typeof dashboardSpecSchema>;
 /** Parameters every widget can use, besides its dashboard's filters. */
 export const SYSTEM_PARAMS = {
   now: "The current time (ISO-8601 UTC, to the minute)",
-  today: "Today's date (YYYY-MM-DD, UTC)",
+  today: "Today's date in the business's time zone (YYYY-MM-DD)",
   me: "The id of the user viewing the dashboard",
   record_id: "On a record tab or panel: the record's id (null elsewhere)",
 } as const;

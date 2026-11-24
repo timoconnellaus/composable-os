@@ -2,7 +2,7 @@
 // shifts and the patterns that name them and, confirmed with that count (as `recurring.change`
 // is), in the same batch: clears them from every future shift and pattern (each now uncovered),
 // which releases their time claims (the staffed triggers), cancels their open offers and those
-// named to them, and tells the rosterers with the list. Past shifts, and shifts already under way,
+// named to them, removes their open hours, and tells the rosterers with the list. Past shifts, and shifts already under way,
 // keep them. Reactivating puts nothing back.
 //
 // Set-based, so a coach with a long future and a longer past is a handful of statements: the
@@ -174,6 +174,9 @@ export async function leaveRoster(
   account: string,
   confirm: number | undefined,
 ): Promise<LeavingAnswer> {
+  // Their open hours (stage 49, ADR 0762): a leaver takes no more appointments. One statement,
+  // in the same batch (a refusal below queues nothing).
+  ctx.write(ctx.db.deleteFrom("core_staff_hours").where("account_id", "=", account));
   if (!listObjects().some((o) => o.staffed)) return { shifts: 0, patterns: 0, offers: 0 };
   const shifts = await futureShifts(ctx, account);
   const patterns = await patternsOf(ctx, account);
