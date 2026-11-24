@@ -763,6 +763,12 @@ export const staffingPlanCheck = defineOperation({
       if (!isTimezone(zone)) throw new ValidationError(`${zone} is not a time zone`);
       const minutes = parseLocalTime(plan.time);
       if (minutes === null) throw new ValidationError(`${plan.time} is not a time`);
+      for (const field of ["date", "firstDate", "lastDate"] as const) {
+        const date = plan[field];
+        if (date !== undefined && !parseLocalDate(date)) {
+          throw new ValidationError(`${date} is not a real date`, { field });
+        }
+      }
       let occurrences: { date: string; starts: number; ends: number }[];
       if (plan.date) {
         const starts = wallClockToInstant(wallClockOf(plan.date, minutes), zone) / 1000;

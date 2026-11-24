@@ -599,6 +599,24 @@ describe("the import's dry run (x.rostering.planCheck)", () => {
     );
     expect(error.code).toBe("forbidden");
   });
+
+  it("refuses a date that is not on the calendar, saying so", async () => {
+    for (const plan of [
+      { account: null, date: "2026-02-30", time: "10:00", length: 60 },
+      { account: null, weekdays: ["mon"], time: "06:00", length: 60, firstDate: "2026-13-01" },
+      {
+        account: null,
+        weekdays: ["mon"],
+        time: "06:00",
+        length: 60,
+        firstDate: localDate(0),
+        lastDate: "2026-04-31",
+      },
+    ]) {
+      const error = await refusal(run("x.rostering.planCheck", { plans: [plan] }, staff()));
+      expect(error.message).toMatch(/is not a real date/);
+    }
+  });
 });
 
 // --- pay's people ---------------------------------------------------------------------------------
