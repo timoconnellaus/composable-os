@@ -1194,6 +1194,16 @@ declares who rosters, a caller's write of who works a shift (a shift's person, a
 a coach profile's account), by any path, is a rosterer's (`assertRosterWrite`); an AI's such change,
 or its call of a restricted tool, is approved only by someone who could make it.
 
+**Open hours** (stage 49 step 3, [ADR 0762](adr/0762-open-hours-and-free-times.md),
+`packages/core/src/staffing/hours.ts`, `operations/staffing-hours.ts`, migration 1090): when
+someone takes appointments, in `core_staff_hours` beside `core_staff_away` and in no `rec_*` view:
+weekly entries in local time (overnight when the end is at or before the start) and one-off extra
+hours, each for every kind of work or for some kinds only (a service). Read by wall clock on the
+fly (`openRanges`, `openCovers`), merged where they touch; "not open" is time off, never an entry.
+Set, changed and removed by the person or a rosterer through the tool-only `staffing.hours.set`,
+`.clear` and `.list`; an AI's change waits for a person; at most 50 entries a person;
+`user.deactivate` removes a leaver's. Free times (step 4) subtract time off, claims and rooms.
+
 **Pay periods** (stage 45 step 6, [ADR 0627](adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md),
 `packages/core/src/staffing/pay.ts`, `operations/staffing-pay.ts`, migration 0813): who is counted
 (`core_staff_pay_basis`, by time or by class from a date), the not-worked mark
