@@ -37,8 +37,10 @@ Migrations:
 flags, first admin, FTS sync, append-only audit and its redaction path, views).
 
 To add a migration: create `migrations/NNNN_name.sql`, end it by updating
-`core_meta.schema_version`, bump `CORE_SCHEMA_VERSION`, and update `src/schema.ts`. Numbers may skip
-(parallel stages reserve ranges); `CORE_SCHEMA_VERSION` is the highest. Ranges mean migrations can
+`core_meta.schema_version`, and update `src/schema.ts`. Numbers may skip (parallel stages reserve
+ranges); `CORE_SCHEMA_VERSION` is the highest, generated from the files by
+`scripts/schema-version.mjs` into the gitignored `src/generated/` (on install and before this
+package's typecheck, test and build), so nobody edits it. Ranges mean migrations can
 be applied out of numeric order, so the schema version is the highest migration recorded in
 `core_migrations`: `applyMigrations` writes it to `core_meta` after applying and
 `getMigrationLevel` reads it that way (ADR 0002 amendment). Change the person,

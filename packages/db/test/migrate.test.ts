@@ -49,9 +49,10 @@ describe("migration runner", () => {
     expect(tmp).toBeNull();
   });
 
-  it("the last migration's number is CORE_SCHEMA_VERSION", () => {
-    // Numbers can skip (0009 is unused: ranges were reserved for parallel stages), so compare
-    // the highest number rather than the count.
+  it("CORE_SCHEMA_VERSION is the highest migration file's number", () => {
+    // It is generated from the files (scripts/schema-version.mjs), never hand-edited. Numbers can
+    // skip (0009 is unused: ranges were reserved for parallel stages), so compare the highest
+    // number rather than the count.
     const numbers = env.TEST_MIGRATIONS.map((m) => Number.parseInt(m.name, 10));
     expect(Math.max(...numbers)).toBe(CORE_SCHEMA_VERSION);
     expect(new Set(numbers).size).toBe(numbers.length);
