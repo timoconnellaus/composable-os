@@ -14,8 +14,9 @@
 // ordinary staff role holds every pack tool), but a block asks `useMe()` first and shows the
 // rosterers' and pay screens only when the host says `rosters` or `pays`, so it never fetches what
 // the viewer may not see. What someone writes about their time off, why a period was reopened,
-// why a shift was not worked, and pay figures are kept in the app's cache no longer than they are
-// on screen (`gcTime: 0`), and what was sent is forgotten once the call is over (`forgetAfter`).
+// why a shift was not worked, and pay figures (a person's own hours too) are kept in the app's
+// cache no longer than they are on screen (`gcTime: 0`), and what was sent is forgotten once the
+// call is over (`forgetAfter`).
 // A checklist (step 4b, ADR 0650) is the same: what someone wrote on a step, why it was not done
 // and why it was ticked for them are on screen only, and never sent in a query's key.
 import { type ClientHolding, forgetAfter, type PackClient, packHooks } from "@composable-os/client";
@@ -42,6 +43,8 @@ import type {
   me,
   mine,
   myAway,
+  myPay,
+  myPayPeriods,
   offer,
   offers,
   patterns,
@@ -81,6 +84,8 @@ export type RosteringOperations = {
   "x.rostering.away": { kind: "mutation" } & Io<typeof away>;
   "x.rostering.back": { kind: "mutation" } & Io<typeof back>;
   "x.rostering.myAway": { kind: "query" } & Io<typeof myAway>;
+  "x.rostering.myPayPeriods": { kind: "query" } & Io<typeof myPayPeriods>;
+  "x.rostering.myPay": { kind: "query" } & Io<typeof myPay>;
   "x.rostering.assign": { kind: "mutation" } & Io<typeof assign>;
   "x.rostering.check": { kind: "query" } & Io<typeof check>;
   "x.rostering.candidates": { kind: "query" } & Io<typeof candidates>;
@@ -139,6 +144,11 @@ export type Periods = Out<"x.rostering.periods">;
 export type Period = Periods["periods"][number];
 export type PeriodTotals = Out<"x.rostering.periodTotals">;
 export type PayExport = Out<"x.rostering.export">;
+export type MyPayPeriods = Out<"x.rostering.myPayPeriods">;
+export type MyPayPeriod = MyPayPeriods["periods"][number];
+export type MyPay = Out<"x.rostering.myPay">;
+export type MyPayLine = MyPay["lines"][number];
+export type MyPayTotal = MyPay["totals"][number];
 export type PlanCheck = Out<"x.rostering.planCheck">;
 export type FeedState = Out<"x.rostering.feed">;
 export type ShiftChecklist = Out<"x.rostering.checklist">;
@@ -620,6 +630,8 @@ export const ROSTERING_HOOKS_CALL = {
   useAway: ["x.rostering.away"],
   useBack: ["x.rostering.back"],
   useMyAway: ["x.rostering.myAway"],
+  useMyPayPeriods: ["x.rostering.myPayPeriods"],
+  useMyPay: ["x.rostering.myPay"],
   useAssign: ["x.rostering.assign"],
   useCheck: ["x.rostering.check"],
   useCandidates: ["x.rostering.candidates"],
@@ -715,6 +727,21 @@ function allRosteringHooks(
     /** My time off, with my notes: kept no longer than it is on screen. */
     useMyAway(input: In<"x.rostering.myAway"> = {}) {
       return useQuery({ ...api.query("x.rostering.myAway", input), gcTime: 0 });
+    },
+    /** The pay periods I can see my own hours for: dates and state only. */
+    useMyPayPeriods(enabled = true) {
+      return useQuery({ ...api.query("x.rostering.myPayPeriods", {}), enabled, gcTime: 0 });
+    },
+    /**
+     * My own hours for one pay period: pay figures, kept no longer than they are on screen. The
+     * query's key holds the period's first date only, never a figure.
+     */
+    useMyPay(input: In<"x.rostering.myPay"> | null) {
+      return useQuery({
+        ...api.query("x.rostering.myPay", input ?? {}),
+        enabled: input !== null,
+        gcTime: 0,
+      });
     },
     /** A rosterer: put someone (or nobody) on a shift. */
     useAssign() {

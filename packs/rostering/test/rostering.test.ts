@@ -167,6 +167,36 @@ function hostWith(): TestHost {
         minutes: 0,
         hours: "0.00",
       }),
+      "staffing.myPay.periods": () => ({
+        set: true,
+        periods: [
+          {
+            start: "2026-06-01",
+            end: "2026-06-14",
+            zone: "Australia/Sydney",
+            state: "open",
+            ended: false,
+            version: null,
+          },
+        ],
+      }),
+      "staffing.myPay": (input) => ({
+        period: {
+          start: (input as { start?: string }).start ?? "2026-06-01",
+          end: "2026-06-14",
+          zone: "Australia/Sydney",
+          ended: false,
+          locked: false,
+          preview: true,
+          version: null,
+        },
+        counted: true,
+        basis: "by_time",
+        totals: [],
+        lines: [],
+        minutes: 0,
+        hours: "0.00",
+      }),
       "staffing.payPeriod.lock": (input) => ({
         id: "ppe_1",
         start: input.start,
@@ -264,6 +294,8 @@ describe("the manifest", () => {
       "feed",
       "feedRotate",
       "feedRevoke",
+      "myPayPeriods",
+      "myPay",
       "checklist",
       "tick",
       "checklistDone",
@@ -601,6 +633,31 @@ describe("the pay tools", () => {
       reason: "A late correction",
     });
     expect(callsTo(host, "staffing.payPeriod.export")[0]?.input).toEqual({ start: "2026-06-01" });
+  });
+});
+
+describe("my own hours (the owner's decision of 2026-11-24)", () => {
+  it("are a person's own read, the team's, and name nobody", async () => {
+    const tools = hostWith().manifest.tools;
+    for (const name of ["myPayPeriods", "myPay"]) {
+      expect(tools[name]?.humanOnly, name).toBe(true);
+      expect(tools[name]?.risk, name).toBe("read");
+      // No input can name another person.
+      expect(Object.keys(tools[name]?.inputSchema.properties ?? {}), name).not.toContain("account");
+    }
+    const host = hostWith();
+    const periods = await host.runTool<{ periods: unknown[] }>("myPayPeriods", {}, { caller: ME });
+    expect(periods.periods).toHaveLength(1);
+    const out = await host.runTool<{ counted: boolean }>(
+      "myPay",
+      { start: "2026-06-01" },
+      { caller: ME },
+    );
+    expect(out.counted).toBe(true);
+    expect(callsTo(host, "staffing.myPay.periods")[0]?.input).toEqual({});
+    expect(callsTo(host, "staffing.myPay")[0]?.input).toEqual({ start: "2026-06-01" });
+    await host.runTool("myPay", {}, { caller: ME });
+    expect(callsTo(host, "staffing.myPay")[1]?.input).toEqual({});
   });
 });
 

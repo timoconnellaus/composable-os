@@ -78116,6 +78116,8 @@
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
+        "x.rostering.myPay",
+        "x.rostering.myPayPeriods",
         "x.rostering.offers",
         "x.rostering.patterns",
         "x.rostering.payBases",
@@ -78277,6 +78279,8 @@
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
+        "x.rostering.myPay",
+        "x.rostering.myPayPeriods",
         "x.rostering.offers",
         "x.rostering.patterns",
         "x.rostering.payBases",
@@ -78444,6 +78448,8 @@
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
+        "x.rostering.myPay",
+        "x.rostering.myPayPeriods",
         "x.rostering.offers",
         "x.rostering.patterns",
         "x.rostering.payBases",
@@ -78633,6 +78639,8 @@
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
+        "x.rostering.myPay",
+        "x.rostering.myPayPeriods",
         "x.rostering.offers",
         "x.rostering.patterns",
         "x.rostering.payBases",
@@ -79531,6 +79539,8 @@
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
+        "x.rostering.myPay",
+        "x.rostering.myPayPeriods",
         "x.rostering.offers",
         "x.rostering.patterns",
         "x.rostering.payBases",
@@ -79604,6 +79614,8 @@
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
+        "x.rostering.myPay",
+        "x.rostering.myPayPeriods",
         "x.rostering.offers",
         "x.rostering.patterns",
         "x.rostering.payBases",
@@ -79911,6 +79923,8 @@
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
+        "x.rostering.myPay",
+        "x.rostering.myPayPeriods",
         "x.rostering.offers",
         "x.rostering.patterns",
         "x.rostering.payBases",
@@ -79965,6 +79979,8 @@
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
+        "x.rostering.myPay",
+        "x.rostering.myPayPeriods",
         "x.rostering.offers",
         "x.rostering.patterns",
         "x.rostering.payBases",
@@ -80073,6 +80089,8 @@
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
+        "x.rostering.myPay",
+        "x.rostering.myPayPeriods",
         "x.rostering.offers",
         "x.rostering.patterns",
         "x.rostering.payBases",
@@ -80142,6 +80160,8 @@
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
+        "x.rostering.myPay",
+        "x.rostering.myPayPeriods",
         "x.rostering.offers",
         "x.rostering.patterns",
         "x.rostering.payBases",
@@ -80227,6 +80247,8 @@
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
+        "x.rostering.myPay",
+        "x.rostering.myPayPeriods",
         "x.rostering.offers",
         "x.rostering.patterns",
         "x.rostering.payBases",
@@ -80717,6 +80739,342 @@
       "pack": "rostering"
     },
     {
+      "name": "x.rostering.myPay",
+      "description": "Your own hours for a pay period (the current one when start is left out): how you are counted, your shifts and hours per kind of work, and each of your shifts with its minutes and whether it was marked not worked. Exactly what payroll is given for you: a locked period's locked figures, or a preview of an open one, which may still change. Nothing about anyone else. A person's own read. (Extension tool from Rostering 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "period": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "string"
+              },
+              "end": {
+                "type": "string"
+              },
+              "zone": {
+                "type": "string"
+              },
+              "ended": {
+                "type": "boolean"
+              },
+              "locked": {
+                "type": "boolean"
+              },
+              "preview": {
+                "type": "boolean"
+              },
+              "version": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "start",
+              "end",
+              "zone",
+              "ended",
+              "locked",
+              "preview",
+              "version"
+            ],
+            "additionalProperties": false
+          },
+          "counted": {
+            "type": "boolean",
+            "description": "False: you are not counted for pay then, and there are no figures"
+          },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "by_time",
+              "by_class",
+              "not_counted"
+            ]
+          },
+          "totals": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "basis": {
+                  "type": "string",
+                  "enum": [
+                    "by_time",
+                    "by_class"
+                  ]
+                },
+                "kind": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "object": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "object",
+                        "id"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "kindName": {
+                  "type": "string"
+                },
+                "shifts": {
+                  "type": "number"
+                },
+                "minutes": {
+                  "type": "number"
+                },
+                "hours": {
+                  "type": "string"
+                },
+                "notWorked": {
+                  "type": "number"
+                },
+                "flagged": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "basis",
+                "kind",
+                "kindName",
+                "shifts",
+                "minutes",
+                "hours",
+                "notWorked",
+                "flagged"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "kindName": {
+                  "type": "string"
+                },
+                "basis": {
+                  "type": "string",
+                  "enum": [
+                    "by_time",
+                    "by_class"
+                  ]
+                },
+                "place": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "localDate": {
+                  "type": "string"
+                },
+                "localStart": {
+                  "type": "string"
+                },
+                "localEnd": {
+                  "type": "string"
+                },
+                "shiftMinutes": {
+                  "type": "number"
+                },
+                "beforeMinutes": {
+                  "type": "number"
+                },
+                "afterMinutes": {
+                  "type": "number"
+                },
+                "countedMinutes": {
+                  "type": "number"
+                },
+                "notWorked": {
+                  "type": "boolean"
+                },
+                "listTaken": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "flagged": {
+                  "type": "boolean"
+                },
+                "clockChange": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "object",
+                "id",
+                "title",
+                "kindName",
+                "basis",
+                "place",
+                "localDate",
+                "localStart",
+                "localEnd",
+                "shiftMinutes",
+                "beforeMinutes",
+                "afterMinutes",
+                "countedMinutes",
+                "notWorked",
+                "listTaken",
+                "flagged",
+                "clockChange"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "minutes": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "hours": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "period",
+          "counted",
+          "basis",
+          "totals",
+          "lines",
+          "minutes",
+          "hours"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "rostering"
+    },
+    {
+      "name": "x.rostering.myPayPeriods",
+      "description": "The pay periods you can look up your own hours for: the current one and the twelve before it, each with its dates and whether it is open or locked. A person's own read. (Extension tool from Rostering 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 12
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "set": {
+            "type": "boolean",
+            "description": "False until the date a period starts is set: nothing is totalled"
+          },
+          "periods": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "start": {
+                  "type": "string"
+                },
+                "end": {
+                  "type": "string"
+                },
+                "zone": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "open",
+                    "locked"
+                  ]
+                },
+                "ended": {
+                  "type": "boolean"
+                },
+                "version": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "start",
+                "end",
+                "zone",
+                "state",
+                "ended",
+                "version"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "set",
+          "periods"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "rostering"
+    },
+    {
       "name": "x.rostering.offer",
       "description": "Offer one of your shifts for someone else to take: to everyone who could take it, or to one named person (`to`). It stays yours, in your list and your pay, until someone takes it. Offers close at the cut-off before the shift starts. Whoever rosters may offer any shift, and one with nobody on it. A person's own act. (Extension tool from Rostering 0.1.0.)",
       "risk": "write",
@@ -80881,6 +81239,8 @@
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
+        "x.rostering.myPay",
+        "x.rostering.myPayPeriods",
         "x.rostering.offers",
         "x.rostering.patterns",
         "x.rostering.payBases",
@@ -81450,6 +81810,8 @@
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
+        "x.rostering.myPay",
+        "x.rostering.myPayPeriods",
         "x.rostering.offers",
         "x.rostering.patterns",
         "x.rostering.payBases",
@@ -82485,6 +82847,8 @@
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
+        "x.rostering.myPay",
+        "x.rostering.myPayPeriods",
         "x.rostering.offers",
         "x.rostering.patterns",
         "x.rostering.payBases",
@@ -82556,6 +82920,8 @@
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
+        "x.rostering.myPay",
+        "x.rostering.myPayPeriods",
         "x.rostering.offers",
         "x.rostering.patterns",
         "x.rostering.payBases",
@@ -82653,6 +83019,8 @@
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
+        "x.rostering.myPay",
+        "x.rostering.myPayPeriods",
         "x.rostering.offers",
         "x.rostering.patterns",
         "x.rostering.payBases",
@@ -82789,6 +83157,8 @@
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
+        "x.rostering.myPay",
+        "x.rostering.myPayPeriods",
         "x.rostering.offers",
         "x.rostering.patterns",
         "x.rostering.payBases",
@@ -82901,6 +83271,8 @@
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
+        "x.rostering.myPay",
+        "x.rostering.myPayPeriods",
         "x.rostering.offers",
         "x.rostering.patterns",
         "x.rostering.payBases",
@@ -83426,6 +83798,8 @@
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
+        "x.rostering.myPay",
+        "x.rostering.myPayPeriods",
         "x.rostering.offers",
         "x.rostering.patterns",
         "x.rostering.payBases",

@@ -1,5 +1,5 @@
-// Who may approve an AI's roster change (stage 45 step 4, the review of PR #284; ADRs 0480,
-// 0625 and 0626). The requester's authority never stands in for the approver's:
+// Who may approve an AI's roster change (stage 45 step 4, the review of PR #284, the owner's
+// decision of 2026-11-24; ADRs 0480, 0625 and 0626). The requester's authority never stands in for the approver's:
 // - an AI's call of a restricted pack tool (Rostering's `assign`, `qualify`) is approved only by a
 //   person who could call that tool themselves (their role or a grant of it, `staffAuthority`);
 // - an AI's write of who works a shift (a class's coach, a duty shift's person, a series' regular
