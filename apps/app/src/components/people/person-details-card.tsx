@@ -27,6 +27,7 @@ import { toast } from "sonner";
 import { useHotkey } from "#/lib/hotkeys";
 import { patchRecord, plainPatch } from "#/lib/optimistic";
 import { errorMessage, useOpMutation } from "#/lib/query";
+import { supportedTimeZones } from "#/lib/time-zones";
 import { useUserLabel, useUsers } from "#/lib/users-adapter";
 import { RowList, TagInput } from "../fields.tsx";
 import { Markdown, MarkdownEditor } from "../markdown.tsx";
@@ -39,14 +40,6 @@ export interface PersonDetailsCardProps {
 }
 
 const NO_OWNER = "__none__";
-
-function timezones(): string[] {
-  try {
-    return Intl.supportedValuesOf("timeZone");
-  } catch {
-    return [];
-  }
-}
 
 function localTime(timezone: string | null): string | null {
   if (!timezone) return null;
@@ -232,7 +225,7 @@ function DetailsForm({
   const client = useQueryClient();
   const update = useOpMutation("person.update");
   const users = useUsers();
-  const zones = useMemo(timezones, []);
+  const zones = useMemo(() => supportedTimeZones(), []);
   const formRef = useRef<HTMLFormElement>(null);
   const set = <K extends keyof PersonDraft>(key: K, value: PersonDraft[K]) =>
     setDraft((d) => ({ ...d, [key]: value }));

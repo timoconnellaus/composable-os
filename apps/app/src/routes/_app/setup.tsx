@@ -32,6 +32,7 @@ import { ErrorState } from "#/components/empty-state";
 import { PageLayout } from "#/components/layout/page-layout";
 import { AiSetupSummaryView } from "#/components/setup/ai-summary";
 import { errorMessage, useOp, useOpMutation } from "#/lib/query";
+import { browserTimeZone, supportedTimeZones } from "#/lib/time-zones";
 import { useProductName } from "../../components/product-name.ts";
 
 export const Route = createFileRoute("/_app/setup")({ component: SetupPage });
@@ -65,22 +66,6 @@ const PRESET_COPY: Record<PolicyPreset, { title: string; description: string }> 
 };
 
 const MAX_LOGO_BYTES = 140_000;
-
-function timezones(): string[] {
-  try {
-    return Intl.supportedValuesOf("timeZone");
-  } catch {
-    return ["UTC"];
-  }
-}
-
-function browserTimezone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  } catch {
-    return "UTC";
-  }
-}
 
 function SetupPage() {
   const productName = useProductName();
@@ -265,8 +250,8 @@ function OrganisationStep({
   const [timezone, setTimezone] = useState<string | null>(null);
   if (!settings.data) return <Skeleton className="h-64 w-full" />;
   const current = settings.data;
-  const tz = timezone ?? (current.timezone === "UTC" ? browserTimezone() : current.timezone);
-  const zones = [...new Set([tz, ...timezones()])];
+  const tz = timezone ?? (current.timezone === "UTC" ? browserTimeZone() : current.timezone);
+  const zones = [...new Set([tz, ...supportedTimeZones(["UTC"])])];
   const shownLogo = logo === undefined ? current.logo : logo;
 
   async function onFile(file: File | undefined) {
