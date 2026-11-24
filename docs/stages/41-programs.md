@@ -327,4 +327,8 @@ Found while moving the first client's programs onto the platform, before step 7 
   - Erase deletes the import door's kept keys and values that name the subject (ADR 0470).
   - A member cannot move an imported session back to planned.
   - `importText`'s read-then-write window is stated in ADR 0448, not closed.
+- **Merged with past sessions in the app:**
+  - The history blocks list imported sessions too: `kind` personal, or `source` import.
+  - A session with no plan lists the sets logged on it.
+  - An item with exercises for everyone lists theirs before the level's (`sessionSets`).
 
