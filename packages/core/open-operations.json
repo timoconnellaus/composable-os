@@ -105,6 +105,20 @@
       "deskOnly": true
     },
     {
+      "name": "intake.open",
+      "audiences": ["staff", "customer", "public"],
+      "risk": "read",
+      "hostInternal": true,
+      "toolOnly": true
+    },
+    {
+      "name": "intake.submit",
+      "audiences": ["staff", "customer", "public"],
+      "risk": "write",
+      "hostInternal": true,
+      "toolOnly": true
+    },
+    {
       "name": "me.agreements.accept",
       "audiences": ["customer"],
       "risk": "write",
@@ -130,6 +144,12 @@
     },
     {
       "name": "me.agreements.pdf",
+      "audiences": ["customer"],
+      "risk": "read",
+      "hostInternal": true
+    },
+    {
+      "name": "me.attention",
       "audiences": ["customer"],
       "risk": "read",
       "hostInternal": true
@@ -279,6 +299,11 @@
       "risk": "read",
       "hostInternal": true,
       "toolOnly": true
+    },
+    {
+      "name": "stock.get",
+      "audiences": ["staff", "customer", "public"],
+      "risk": "read"
     },
     {
       "name": "subscription.cancel",
