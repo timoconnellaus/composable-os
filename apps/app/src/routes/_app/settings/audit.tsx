@@ -111,7 +111,12 @@ function AuditLog() {
     navigate({ search: { pendingActionId: id } });
     set("pendingActionId", id);
   };
-  const typed = useDebounced({ operation: filters.operation, recordId: filters.recordId }, 300);
+  // Debounced one string at a time: an object made here is new on every render, so debouncing it
+  // would set state every 300 ms and re-render the page forever.
+  const typed = {
+    operation: useDebounced(filters.operation, 300),
+    recordId: useDebounced(filters.recordId, 300),
+  };
 
   const operationValid = !typed.operation || /^[a-zA-Z0-9.]+(\.\*)?$/.test(typed.operation.trim());
   const input = useMemo(() => {
@@ -131,7 +136,7 @@ function AuditLog() {
       ...(from ? { from } : {}),
       ...(to ? { to } : {}),
     };
-  }, [filters, typed, operationValid]);
+  }, [filters, typed.operation, typed.recordId, operationValid]);
 
   const log = useInfiniteQuery({
     queryKey: opKey("audit.list", input),
