@@ -618,10 +618,13 @@ async function writeOrderChange(
     state: to,
     updated_at: ctx.now,
     version: row.version + 1,
-    // A guest's link outlives the order's closing by a while, then stops.
-    access_until: CLOSED.has(to)
-      ? new Date(Date.parse(ctx.now) + ORDER_ACCESS_DAYS_AFTER_CLOSE * 86_400_000).toISOString()
-      : null,
+    // A guest's link outlives the order's closing by a while, then stops. A later change to a
+    // closed order (its Person given, a refund) keeps the date it closed with.
+    access_until: !CLOSED.has(to)
+      ? null
+      : CLOSED.has(row.state) && row.access_until
+        ? row.access_until
+        : new Date(Date.parse(ctx.now) + ORDER_ACCESS_DAYS_AFTER_CLOSE * 86_400_000).toISOString(),
   };
   // The engine and the move hooks see the order as this write leaves it (what is now paid).
   const outcome = await applyTransition(ctx, order(), row.id, before, orderSnapshot(next), { by });
