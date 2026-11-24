@@ -14,12 +14,18 @@
 //   order.honourLate       staff (a person, orders:refund)   keep a late payment
 //   order.refund           staff (orders:refund)             ask for a refund; a person approves
 //   order.payments         staff                             checkouts, payments and refunds
+//   order.adjust           staff (orders:discount)           money off a pending order, with a reason;
+//                                                            over the limit, or from an AI, a human
+//                                                            admin approves (ADR 0691)
+//   order.unadjust         staff (orders:discount)           take that money off again
 //   order.startHeld        a pack's tool: staff, customers, the public   a record made with its order
 //   order.applyPaymentEvent, order.expireDue, order.refundDue the host's own (actor automation)
 //   order.settings.*       staff; changed by a human admin only
 //
 // No operation here takes a price, a total or an amount paid, and none makes an order paid: that
-// is `applyVerifiedPayment` (orders/payments.ts), which is not an operation.
+// is `applyVerifiedPayment` (orders/payments.ts), which is not an operation. The one amount a
+// caller names is a staff discount's (order.adjust): money off, given by a person with
+// `orders:discount` and a reason, within a limit only a human admin sets.
 //
 // order.start, order.view, order.cancel and order.checkout are `hostInternal` (ADR 0428): the host itself starts
 // and changes the order for a caller outside the org, so they keep the database. They touch only
@@ -62,6 +68,8 @@ import { requestDueRefund } from "../orders/refund-due.ts";
 import { refundablePayments, requestRefund } from "../orders/refunds.ts";
 import {
   currencySchema,
+  discountLimitSchema,
+  loadDiscountLimit,
   loadMinPartPayment,
   loadOrderCurrency,
   loadOrderExpiryMinutes,
@@ -70,6 +78,7 @@ import {
   loadReturnOrigins,
   minPartPaymentSchema,
   ORDER_CURRENCY_SETTING,
+  ORDER_DISCOUNT_LIMIT_SETTING,
   ORDER_EXPIRY_SETTING,
   ORDER_MIN_PART_SETTING,
   ORDER_RETURN_ORIGINS_SETTING,
@@ -79,6 +88,14 @@ import {
   returnOriginsSchema,
   taxCodesSchema,
 } from "../orders/settings.ts";
+import {
+  type AdjustmentRow,
+  giveStaffDiscount,
+  liveAdjustments,
+  type Repriced,
+  removeAdjustment,
+  staffDiscountWithinLimit,
+} from "../orders/staff-discounts.ts";
 import { taxCodeOf } from "../orders/tax.ts";
 import { callerMover } from "../records/lifecycle.ts";
 import type { VisibleRecord } from "../visibility/records.ts";
@@ -99,6 +116,22 @@ const lineSchema = z.object({
   taxAmount: z
     .number()
     .describe("The tax inside this line's payments, as the payment provider calculated it"),
+  discount: z
+    .number()
+    .describe("The line's share of the order's discounts: it costs total less this"),
+});
+
+/** Money off an order, as staff read it (ADR 0690). */
+const adjustmentSchema = z.object({
+  id: z.string(),
+  lineId: z.string().nullable().describe("The line it is on; null: spread over the order"),
+  kind: z.enum(["code", "automatic", "staff", "referral"]),
+  amount: z.number().describe("What it took off, in the currency's minor unit"),
+  percent: z.number().nullable().describe("The percentage asked for, when it was one"),
+  reason: z.string().nullable(),
+  givenBy: z.string().nullable().describe("The staff account that gave it"),
+  approval: z.string().nullable().describe("The approval it waited in, when it did"),
+  createdAt: z.string(),
 });
 
 /**
@@ -127,7 +160,14 @@ export const orderSchema = z.object({
     ),
   taxRefunded: z.number().describe("The tax the provider said went back with refunds"),
   taxCountry: z.string().nullable().describe("The country the latest taxed payment was for"),
+  discount: z
+    .number()
+    .describe("Money taken off the order (its discounts), already out of the total"),
   lines: z.array(lineSchema),
+  adjustments: z
+    .array(adjustmentSchema)
+    .optional()
+    .describe("Staff only: the discounts on the order, in the order they were given"),
   personId: z.string().nullable().optional(),
   email: z.string().nullable().optional(),
   placedAs: z.enum(["customer", "public", "staff"]).optional(),
@@ -155,6 +195,7 @@ function fromRow(row: OrderRow, lines: readonly Order["lines"][number][], staff:
     taxAmount: row.tax_amount,
     taxRefunded: row.tax_refunded,
     taxCountry: row.tax_country,
+    discount: row.discount,
     lines: [...lines],
     ...(staff ? { personId: row.person_id, email: row.email, placedAs: row.placed_as } : {}),
   };
@@ -170,6 +211,7 @@ const toLine = (line: PricedLine): Order["lines"][number] => ({
   unitPrice: line.unitPrice,
   total: line.total,
   taxAmount: 0,
+  discount: line.discount,
 });
 
 /** The lines of an order the host has already established the caller may see. */
@@ -190,8 +232,21 @@ async function linesOf(ctx: HandlerContext, id: string): Promise<Order["lines"]>
     unitPrice: row.unit_price,
     total: row.line_total,
     taxAmount: row.tax_amount,
+    discount: row.line_discount,
   }));
 }
+
+const toAdjustment = (row: AdjustmentRow): z.infer<typeof adjustmentSchema> => ({
+  id: row.id,
+  lineId: row.line_id,
+  kind: row.kind,
+  amount: row.amount,
+  percent: row.percent,
+  reason: row.reason,
+  givenBy: row.given_by,
+  approval: row.approval,
+  createdAt: row.created_at,
+});
 
 const text = (value: unknown) => (value == null ? null : String(value));
 
@@ -215,6 +270,7 @@ function fromRecord(record: VisibleRecord, staff: boolean): Omit<Order, "lines">
     taxAmount: v.taxAmount ?? 0,
     taxRefunded: v.taxRefunded ?? 0,
     taxCountry: text(v.taxCountry),
+    discount: v.discount ?? 0,
     ...(staff ? { personId: text(v.personId), email: text(v.email), placedAs: v.placedAs } : {}),
   });
 }
@@ -246,6 +302,7 @@ async function throughSeam(ctx: HandlerContext, id: string): Promise<Order> {
     taxAmount: v.taxAmount ?? 0,
     taxRefunded: v.taxRefunded ?? 0,
     taxCountry: text(v.taxCountry),
+    discount: v.discount ?? 0,
     lines: page.items.map((line) => ({
       id: line.id,
       position: line.values.position,
@@ -256,7 +313,9 @@ async function throughSeam(ctx: HandlerContext, id: string): Promise<Order> {
       unitPrice: line.values.unitPrice,
       total: line.values.total,
       taxAmount: line.values.taxAmount ?? 0,
+      discount: line.values.discount ?? 0,
     })),
+    ...(staff ? { adjustments: (await liveAdjustments(ctx.db, id)).map(toAdjustment) } : {}),
     ...(staff ? { personId: text(v.personId), email: text(v.email), placedAs: v.placedAs } : {}),
   });
 }
@@ -924,6 +983,89 @@ export const orderPayments = defineOperation({
   },
 });
 
+// --- Staff discounts (stage 34, ADR 0691) -------------------------------------------------------
+
+const adjustInput = z
+  .object({
+    id: orderId,
+    lineId: z
+      .string()
+      .min(1)
+      .max(64)
+      .optional()
+      .describe(
+        "The line to take it off (orl_…). Left out: the whole order, spread over its lines",
+      ),
+    percent: z
+      .number()
+      .gt(0)
+      .max(100)
+      .multipleOf(0.01)
+      .optional()
+      .describe("A percentage off what is left to pay, rounded down on each line. Or pass amount"),
+    amount: z
+      .number()
+      .int()
+      .min(1)
+      .max(100_000_000)
+      .optional()
+      .describe("An amount off, in the currency's minor unit (cents). Or pass percent"),
+    reason: z.string().trim().min(1).max(500).describe("Why: shown to staff on the order"),
+  })
+  .refine((v) => (v.percent === undefined) !== (v.amount === undefined), {
+    message: "Pass percent or amount, not both",
+  });
+
+/** The order as a change to its adjustments leaves it: its lines' shares are not written yet. */
+async function repriced(ctx: HandlerContext, result: Repriced): Promise<Order> {
+  const lines = await linesOf(ctx, result.order.id);
+  return fromRow(
+    result.order,
+    lines.map((line) => ({ ...line, discount: result.discounts.get(line.id) ?? line.discount })),
+    true,
+  );
+}
+
+export const orderAdjust = defineOperation({
+  name: "order.adjust",
+  description:
+    "Give a discount on a pending order whose payment page has not opened: a percentage or an " +
+    "amount, off one line or the whole order, with a reason. Within the limit an admin set it " +
+    "applies at once and the order's total drops; above it, the discount waits in the Approvals " +
+    "inbox for an admin, and the order cannot be paid until it is decided. An AI's request " +
+    "always waits. A discount cannot take an order to nothing. Returns the order.",
+  input: adjustInput,
+  output: orderSchema,
+  permission: "orders:discount",
+  risk: "write",
+  actors: ["human", "assistant", "mcp"],
+  // An AI asks; a person decides (ADR 0480): whatever the preset or the amount.
+  alwaysReview: ["assistant", "mcp"],
+  // A person's discount over the limit a human admin set waits for an admin.
+  reviewWhen: (input, db) => staffDiscountWithinLimit(db, input).then((within) => !within),
+  async handler(input, ctx) {
+    return repriced(ctx, await giveStaffDiscount(ctx, input.id, input));
+  },
+});
+
+export const orderUnadjust = defineOperation({
+  name: "order.unadjust",
+  description:
+    "Take a discount off a pending order whose payment page has not opened: the order's total " +
+    "goes back up by what it took off. Get the discount's id from order.get. Returns the order.",
+  input: z.object({
+    id: orderId,
+    adjustmentId: z.string().min(1).max(64).describe("The discount to take off (oad_…)"),
+  }),
+  output: orderSchema,
+  permission: "orders:discount",
+  risk: "write",
+  actors: ["human", "assistant", "mcp"],
+  async handler(input, ctx) {
+    return repriced(ctx, await removeAdjustment(ctx, input.id, input.adjustmentId));
+  },
+});
+
 // --- Settings ----------------------------------------------------------------------------------
 
 const orderSettings = z.object({
@@ -947,6 +1089,10 @@ const orderSettings = z.object({
   taxCodes: z
     .record(z.string(), z.string())
     .describe("A human admin's product tax code per object, over the one its pack declares."),
+  discountLimit: discountLimitSchema.describe(
+    "How much staff may take off one order on their own (order.adjust). Above it, a discount " +
+      "waits for an admin. Nothing (0) until a human admin sets it.",
+  ),
 });
 
 async function loadSettings(ctx: HandlerContext) {
@@ -957,6 +1103,7 @@ async function loadSettings(ctx: HandlerContext) {
     returnOrigins: await loadReturnOrigins(ctx.db),
     tax: await loadOrderTax(ctx.db),
     taxCodes: await loadOrderTaxCodes(ctx.db),
+    discountLimit: await loadDiscountLimit(ctx.db),
   };
 }
 
@@ -1005,8 +1152,8 @@ export const orderSettingsUpdate = defineOperation({
   description:
     "Change the order settings: the currency every order is in, the minutes an unpaid order " +
     "lasts, the least part payment, the sites a buyer may come back to after paying, whether " +
-    "the payment provider calculates tax at checkout, or the product tax code of an object for " +
-    "sale. Only what you pass changes. Orders already started keep the currency they were " +
+    "the payment provider calculates tax at checkout, the product tax code of an object for " +
+    "sale, or how much staff may take off an order on their own. Only what you pass changes. Orders already started keep the currency they were " +
     "started in; turning tax on or off changes only payments made from then on. Admins only, " +
     "and only a human can call it: AI assistants, MCP clients, automations and extensions are " +
     "refused.",
@@ -1033,6 +1180,12 @@ export const orderSettingsUpdate = defineOperation({
           "txcd_50010001). Only objects that declare a tax code may be given one; an object left " +
           "out is taxed at its pack's code.",
       ),
+    discountLimit: discountLimitSchema
+      .optional()
+      .describe(
+        "How much staff may take off one order without an admin's approval: at most this " +
+          "percentage of the order and at most this amount (minor units), both at once.",
+      ),
   }),
   output: orderSettings.extend({ previous: orderSettings }),
   permission: "settings:manage",
@@ -1042,7 +1195,7 @@ export const orderSettingsUpdate = defineOperation({
   async handler(input, ctx) {
     if (Object.values(input).every((value) => value === undefined)) {
       throw new ValidationError(
-        "Pass currency, expiryMinutes, minPartPayment, returnOrigins, tax or taxCodes",
+        "Pass currency, expiryMinutes, minPartPayment, returnOrigins, tax, taxCodes or discountLimit",
       );
     }
     for (const object of Object.keys(input.taxCodes ?? {})) {
@@ -1063,6 +1216,7 @@ export const orderSettingsUpdate = defineOperation({
         : previous.returnOrigins,
       tax: input.tax ?? previous.tax,
       taxCodes: input.taxCodes ?? previous.taxCodes,
+      discountLimit: input.discountLimit ?? previous.discountLimit,
     };
     const store = (key: string, field: keyof typeof next) => {
       const value = JSON.stringify(next[field]);
@@ -1088,6 +1242,7 @@ export const orderSettingsUpdate = defineOperation({
     if (input.returnOrigins !== undefined) store(ORDER_RETURN_ORIGINS_SETTING, "returnOrigins");
     if (input.tax !== undefined) store(ORDER_TAX_SETTING, "tax");
     if (input.taxCodes !== undefined) store(ORDER_TAX_CODES_SETTING, "taxCodes");
+    if (input.discountLimit !== undefined) store(ORDER_DISCOUNT_LIMIT_SETTING, "discountLimit");
     return { ...next, previous };
   },
 });
@@ -1220,6 +1375,8 @@ export const orderOperations = [
   orderHonourLate,
   orderRefund,
   orderPayments,
+  orderAdjust,
+  orderUnadjust,
   orderSettingsGet,
   orderSettingsUpdate,
 ] as const;

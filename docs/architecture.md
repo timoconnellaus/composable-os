@@ -1676,6 +1676,25 @@ the lines and the order, after checking it fits what was asked, and never works 
 amount charged is unchanged, so the match rule above holds. Otherwise the checkout is exactly as
 before.
 
+**Adjustments and the pricing seam** (stage 34, ADRs
+[0690](adr/0690-adjustments-on-orders-net-lines-and-the-pricing-seam.md) and
+[0691](adr/0691-staff-discounts-orders-discount-the-limit-and-approval-above-it.md),
+`orders/adjustments.ts`, `orders/staff-discounts.ts`). Money off is an adjustment, kept by the
+host in `core_order_adjustment`: on a line, or on the whole order and spread over its lines in
+proportion. Each line keeps its price (`line_total`) and its share (`line_discount`); the order's
+`total` is what is owed after adjustments and `discount` their sum, so the checkout, its tax
+shares (split over the net lines), the deposit rule, the amount a verified payment must match and
+what a refund gives back all read the net. An order is priced through one seam: `priceLines`
+reads the records, then `applyAdjustments` takes the adjustments off; `createOrder` and every
+change to a pending order's adjustments go through it. Today only staff give one:
+`order.adjust` / `order.unadjust` (`orders:discount`, grantable, admin by default) on a pending
+order whose checkout has not opened, with a reason. Within the limit a human admin sets
+(`discountLimit`, a percentage and an amount per order, nothing until set) it applies at once;
+over it the call waits in Approvals (the operation's `reviewWhen`), an AI's always waits, only a
+human admin approves, and the order's checkout cannot open meanwhile. A discount cannot take an
+order to nothing yet. Codes and members' prices (the `discount` behaviour) join the seam in a
+later step.
+
 **Subscriptions** (stage 32a, ADRs [0485](adr/0485-recurring-billing-the-provider-runs-the-schedule.md)
 to [0487](adr/0487-the-payer-and-the-holder.md), `packages/core/src/subscriptions/`). The provider
 runs the schedule: it keeps the card, charges each period, retries and ends the subscription; the

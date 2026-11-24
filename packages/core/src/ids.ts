@@ -62,6 +62,8 @@ export const ID_PREFIXES = {
   /** An order and one of its lines (stage 25, ADR 0426). */
   order: "ord",
   orderLine: "orl",
+  /** Money off an order (stage 34, ADR 0690). */
+  orderAdjustment: "oad",
   /** A refund of an order's payment (stage 25, ADR 0429). */
   refund: "rfd",
   /** A subscription the payment provider runs (stage 32a, ADR 0485). */

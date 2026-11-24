@@ -7,6 +7,8 @@
 //   - a caller names records and quantities, and whether to pay in full or by deposit;
 //   - the host reads every price, the deposit and the balance's due date from the records, and
 //     works out the total. No function here takes an amount from a caller for a new order;
+//   - money off is an adjustment (ADR 0690): the total is what is owed after the adjustments,
+//     priced through the seam (`priceLines`, then `applyAdjustments`), never sent by a caller;
 //   - a move to `paid`, `part_paid`, `expired` or `refunded` is a `host` move (fields/order.ts):
 //     only platform code passes `by: "host"`, and no operation takes the mover from its input.
 import type { CoreDatabase, CoreOrderTable } from "@composable-os/db";
@@ -34,6 +36,7 @@ import {
   type VisibleSource,
   visibleSource,
 } from "../visibility/index.ts";
+import { applyAdjustments } from "./adjustments.ts";
 import { claimOrderPlaces } from "./holds.ts";
 import { holdOncePerPerson } from "./once.ts";
 import {
@@ -85,6 +88,7 @@ export function orderSnapshot(row: OrderRow): Record<string, unknown> {
     taxAmount: row.tax_amount,
     taxRefunded: row.tax_refunded,
     taxCountry: row.tax_country,
+    discount: row.discount,
   };
 }
 
@@ -115,7 +119,10 @@ export interface PricedLine {
   title: string;
   quantity: number;
   unitPrice: number;
+  /** What the line costs before adjustments: `unitPrice * quantity`. */
   total: number;
+  /** The line's share of the order's adjustments (ADR 0690); it costs `total - discount`. */
+  discount: number;
   /** Deposit for one unit and when the balance is due, when the record offers a deposit. */
   deposit: { amount: number; balanceDueAt: string } | null;
   /** A plan's period and trial (ADR 0485): only when priced as a plan. */
@@ -328,6 +335,7 @@ export async function priceLines(
       quantity: line.quantity,
       unitPrice,
       total: unitPrice * line.quantity,
+      discount: 0,
       deposit,
     });
   }
@@ -390,10 +398,15 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
   if (!currency) {
     throw new ConfigError("No currency is set for orders yet, so nothing can be sold");
   }
-  const lines = input.priced
+  const priced = input.priced
     ? [...input.priced]
     : await priceLines(ctx.db, input.lines, currency, ctx.now, callerOf(ctx));
-  const total = lines.reduce((sum, line) => sum + line.total, 0);
+  // The seam's adjustment stage (ADR 0690): nothing is taken off an order as it starts yet (a
+  // code or a member's price joins here with the discount behaviour); staff take money off a
+  // pending order afterwards (orders/staff-discounts.ts), through the same function.
+  const adjusted = applyAdjustments(priced, []);
+  const lines = priced.map((line, i) => ({ ...line, discount: adjusted.discounts[i] ?? 0 }));
+  const total = adjusted.total;
   if (total <= 0) {
     throw new ValidationError("An order with nothing to pay cannot be started", { rule: "total" });
   }
@@ -472,6 +485,7 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
     created_at: ctx.now,
     updated_at: ctx.now,
     version: 0,
+    discount: adjusted.discount,
   };
   // The host creates the order: its first history row is the host's, whoever is buying.
   const outcome = await applyTransition(
@@ -501,6 +515,7 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
         quantity: line.quantity,
         unit_price: line.unitPrice,
         line_total: line.total,
+        line_discount: line.discount,
         created_at: ctx.now,
       }),
     ),
@@ -560,11 +575,39 @@ export type OrderChange = Partial<
  * from platform code that has itself established why: a verified payment, an expiry, a refund
  * the provider confirmed.
  */
-export async function changeOrder(
+export function changeOrder(
   ctx: HandlerContext,
   row: OrderRow,
   to: OrderState,
   change: OrderChange,
+  by: Mover,
+): Promise<OrderRow> {
+  return writeOrderChange(ctx, row, to, change, by);
+}
+
+/** What a change to a pending order's adjustments sets: its total and their sum (ADR 0690). */
+export type OrderPriceChange = Pick<OrderRow, "total" | "discount">;
+
+/**
+ * Queues a pending order's new price after its adjustments changed, in the calling batch, with
+ * the version check and the audit row of any change. Only orders/staff-discounts.ts calls it, with
+ * a total `applyAdjustments` worked out from the order's lines.
+ */
+export function changeOrderPrice(
+  ctx: HandlerContext,
+  row: OrderRow,
+  change: OrderPriceChange,
+  by: Mover,
+): Promise<OrderRow> {
+  requireState(row, ["pending"], "repriced");
+  return writeOrderChange(ctx, row, row.state, change, by);
+}
+
+async function writeOrderChange(
+  ctx: HandlerContext,
+  row: OrderRow,
+  to: OrderState,
+  change: OrderChange | OrderPriceChange,
   by: Mover,
 ): Promise<OrderRow> {
   const before = orderSnapshot(row);
@@ -666,6 +709,8 @@ export interface Charge {
  * What a checkout for `row` may charge (the payments gatekeeper asks before it opens the
  * provider's page, and a verified payment is checked against the same rule).
  * - Nothing paid yet: the whole price, or the deposit when the buyer chose one. No other amount.
+ *   A deposit an adjustment left at or above the total (ADR 0690) is not taken: the whole price
+ *   is, and the order is paid in full.
  * - Part paid: the balance, or a part of it the buyer names, at least `minPart` (or the balance,
  *   when less is owed) and never more than the balance.
  * - Any other state: nothing.
@@ -675,7 +720,8 @@ export function chargeFor(row: OrderRow, minPart: number, amount?: number): Char
     throw new ValidationError(message, { rule, order: row.id, ...extra });
   };
   if (row.state === "pending") {
-    const due = row.pay === "deposit" ? (row.deposit as number) : row.total;
+    const byDeposit = row.pay === "deposit" && (row.deposit as number) < row.total;
+    const due = byDeposit ? (row.deposit as number) : row.total;
     if (amount !== undefined && amount !== due) {
       refuse("The first payment on an order is not the buyer's to choose", "charge_amount", {
         due,
@@ -684,7 +730,7 @@ export function chargeFor(row: OrderRow, minPart: number, amount?: number): Char
     return {
       amount: due,
       currency: row.currency,
-      kind: row.pay === "deposit" ? "deposit" : "full",
+      kind: byDeposit ? "deposit" : "full",
     };
   }
   if (row.state === "part_paid") {

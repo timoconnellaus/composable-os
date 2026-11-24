@@ -973,6 +973,17 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
       ),
   );
   const orders = await ctx.db.selectFrom("core_order").selectAll().where(theirOrder).execute();
+  // Their orders' adjustments (stage 34, ADR 0690) keep their amounts, kinds and sources (the
+  // order is a financial record); a staff reason, which may say something about them, is blanked.
+  if (orders.length) {
+    ctx.write(
+      ctx.db
+        .updateTable("core_order_adjustment")
+        .set({ reason: null })
+        .where("reason", "is not", null)
+        .where("order_id", "in", jsonList(orders.map((row) => row.id))),
+    );
+  }
   // Their purchases still open (stage 44 step 8, ADR 0646): an order nothing was paid on is
   // cancelled by the host, so a payment that comes after the erase never makes it paid (a
   // drop-in's is owed back automatically, `oweLateRefund`, ADR 0429; another's is on the paid-late

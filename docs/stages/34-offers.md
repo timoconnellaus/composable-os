@@ -40,6 +40,28 @@ interview settles its shape (the first question at the end). The shared platform
 paid another way" (step 3) is shared with stage 35 (invoices and quotes) and the point of sale
 module (the till): whichever is built first builds it once, to this design.
 
+## Status
+
+- **Step 1, adjustments and the pricing seam** (`feat/stage-34-adjustments`, migration 0950, ADRs
+  0690 and 0691): `core_order_adjustment` (kept as given: only marked removed, or a reason blanked
+  by erase), each line's `line_discount`, the order's `discount` and its `total` after
+  adjustments; `applyAdjustments` (`orders/adjustments.ts`) as the adjustment stage after
+  `priceLines`, used by `createOrder` and by every change to a pending order's adjustments; the
+  checkout's tax shares split over the net lines; a deposit kept and taken off the balance (one a
+  discount leaves at or above the total is not taken: pay in full); `rec_order.discount`,
+  `rec_order_line.line_discount` and `line_net`, `rec_order_adjustment`. `order.adjust` and
+  `order.unadjust` (`orders:discount`, a new grantable core permission), the human admin's
+  `discountLimit` setting (nothing until set: every staff discount waits), a new operation option
+  `reviewWhen` that queues a person's call over the limit, an AI's call always queued, approval by
+  a human admin only, and the checkout refused while a discount waits. Refunds and refunds owed
+  needed no change: they give back what was paid, which is the net. Deviations: an adjustment
+  cannot take an order to nothing until step 3 adds a way to pay one (the spec lets a staff
+  adjustment make an order free); a price changes only before the order's checkout has opened; the
+  spec's ADR table had staff discounts as 0693, this step was given 0690 and 0691, so staff
+  discounts are 0691 and the `discount` behaviour moves to 0693 (table below). Left for later
+  steps: codes, members' prices and referrals as adjustments (4, 5, 9), the order's adjustments
+  and "Give a discount" on staff screens (10), e2e journeys (10).
+
 ## Goal
 
 A business can give money off, and say why, everywhere it sells: a promo code typed at checkout on
@@ -652,10 +674,10 @@ Block **BD** in [`parallel-work.md`](../parallel-work.md): migrations 0950 to 09
 
 | ADR | Decision | Amends |
 | --- | --- | --- |
-| 0690 | Adjustments on orders: net lines, the total after adjustments, the pricing seam | 0427, 0479 |
-| 0691 | The `discount` behaviour: codes, automatic prices, one deal per order, limits held by the database | 0435 |
+| 0690 | Adjustments on orders: net lines, the total after adjustments, the pricing seam (built in step 1) | 0427, 0479 |
+| 0691 | Staff discounts: `orders:discount`, the limit, approval above it (built in step 1) | 0449 |
 | 0692 | One person per folded address (#225) | 0489, 0512 |
-| 0693 | Staff discounts: `orders:discount`, the limit, approval above it | 0449 |
+| 0693 | The `discount` behaviour: codes, automatic prices, one deal per order, limits held by the database (was 0691: step 1 took 0690 and 0691) | 0435 |
 | 0694 | **An order paid another way**: the second door, payment methods, who may make each, reversal, refunds by method, reports (shared: if stage 35 or the till builds the step first, it writes this ADR in its own block and 0694 stays free) | 0427, 0429, 0479 |
 | 0695 | Discounts on subscriptions for 1 or N periods, and a one-period reward | 0486, 0530 |
 | 0696 | Gift vouchers and gift cards: stored value held by the host, part payment at checkout | 0435 |

@@ -768,12 +768,17 @@ async function invokeOnce<O extends AnyOperation>(
   // Some changes always wait for a person (extension installs and upgrades, ADR 0041).
   // A person's own fields and settings (a gym's booking rules, ADR 0507): anyone else's write of
   // one waits for a person, as an AI's publish does (ADR 0480).
+  // An operation's own rule for when a call waits (a staff discount over the limit, ADR 0691).
   const forced =
     op.alwaysReview === true ||
     (Array.isArray(op.alwaysReview) && op.alwaysReview.includes(ctx.actor)) ||
     (!ctx.approval &&
       ALWAYS_REVIEWED_PUBLISHERS.includes(ctx.actor) &&
-      (await touchesPersonApproves(ctx.db.query, op.name, input)));
+      (await touchesPersonApproves(ctx.db.query, op.name, input))) ||
+    (!ctx.approval &&
+      decision === "auto" &&
+      op.reviewWhen !== undefined &&
+      (await op.reviewWhen(input, ctx.db.query)));
   if (forced && decision === "auto" && !ctx.approval) decision = "review";
   // Applied by the adjudicator, asked again: what a person approves may have joined the action
   // since it was queued (a family link on a merge, ADR 0540). Then it is a person's to apply.

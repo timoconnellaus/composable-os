@@ -1009,6 +1009,23 @@ async function approveActions(
       );
     }
   }
+  // A staff discount over the limit, or asked by an AI (stage 34, ADR 0691): approved only by a
+  // human admin, so money off beyond what the owner allowed is always the owner's decision.
+  const discount = targets.find((t) => t.operation === "order.adjust");
+  if (discount) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError("A discount is approved by a person, never by an AI actor", {
+        actionId: discount.id,
+        actor: ctx.actor,
+      });
+    }
+    if (!roleHasPermission(ctx.user.role, "settings:manage")) {
+      throw new ForbiddenError("Approving a discount over the limit needs an admin", {
+        actionId: discount.id,
+        permission: "settings:manage",
+      });
+    }
+  }
   const targetIds = new Set(targets.map((t) => t.id));
   // Out-of-order approval is refused: dependencies must be applied or approved together.
   const depIds = [...new Set(targets.flatMap((t) => parse<string[]>(t.depends_on, [])))];

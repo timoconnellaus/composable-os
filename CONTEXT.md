@@ -1546,8 +1546,24 @@ something (a ticket, later a pass). A base record from stage 25, with its own `o
 operations. With tax at checkout on, its amounts include tax: it keeps the provider's tax per
 payment, per line and in total, and what is owed does not change (ADR 0479). Each paid period of a
 subscription is an order too, born paid from the provider's verified invoice, with the period's
-dates (ADR 0486).
+dates (ADR 0486). Its total is what is owed after its adjustments (ADR 0690).
 _Avoid_: purchase, sale, booking (a booking is a place in a class), invoice (stage 35)
+
+**Adjustment**
+An amount taken off an order, on one line or spread over its lines in proportion, with its kind
+(`staff` today; `code`, `automatic` and `referral` with later steps of stage 34), its source (a
+discount, or the person who gave it) and why (`core_order_adjustment`, ADR 0690). Each line keeps
+its price and its share of the adjustments; the order's total is what is owed after them, and
+the checkout, the tax shares, the deposit rule and refunds all read that net. Never changed once
+given: one taken off a pending order is marked removed.
+_Avoid_: coupon, rebate, discount line (it is not a line with a negative price)
+
+**Staff discount**
+An adjustment a person with `orders:discount` gives on a pending order at the desk, with a
+reason (`order.adjust`). Within the limit a human admin sets it applies at once; above it, and
+always when an AI asks, it waits in Approvals for a human admin, and the order cannot be paid
+until it is decided (ADR 0691).
+_Avoid_: comp, override, markdown
 
 **Sellable**
 The behaviour of an object whose records can be put on an order (stage 27, ADR 0435): its price
