@@ -831,6 +831,7 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -1469,6 +1470,115 @@
       "invalidates": []
     },
     {
+      "name": "me.attention",
+      "description": "What needs your attention, as a signed-in customer, soonest first: a document to agree to (for you or a child linked to you), a card payment that failed, a payment waiting for you to confirm with your bank, the rest of a deposit to pay, an order you started paying for and did not finish, a pass about to expire with uses left or with none left (yours or a child's), and a free trial about to end. `days` is how far ahead it looks for a pass or a trial ending. An item goes once its cause is fixed. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": "number",
+            "description": "How many days ahead a pass or trial ending is listed"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "description": "Stable for the same cause: kind, record and Person"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "agree",
+                    "card_failing",
+                    "confirm_payment",
+                    "balance_due",
+                    "finish_paying",
+                    "pass_expiring",
+                    "pass_used_up",
+                    "trial_ending"
+                  ],
+                  "description": "agree: a document to agree to (me.agreements.due has it). card_failing: a card payment for a subscription you pay failed. confirm_payment: a payment waits for you to confirm it with your bank. balance_due: the rest of a deposit to pay. finish_paying: an order holding places you started paying for and did not finish. pass_expiring: a pass about to expire with uses still on it. pass_used_up: a pass with no uses left. trial_ending: a free trial about to end."
+                },
+                "person": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "self": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["id", "name", "self"],
+                  "additionalProperties": false,
+                  "description": "Whose it is: you (self), or a child linked to you"
+                },
+                "record": {
+                  "type": "object",
+                  "properties": {
+                    "object": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["object", "id", "title"],
+                  "additionalProperties": false,
+                  "description": "What it is about: an agreement document, a subscription, an order, or a pass by its object"
+                },
+                "at": {
+                  "description": "The moment it is about: the version taking effect, the first failed payment, the payment started, the balance due, the held order expiring, the pass or trial ending",
+                  "type": ["string", "null"]
+                },
+                "amount": {
+                  "description": "Money due or to be charged, in the currency's minor unit; null where none",
+                  "type": ["number", "null"]
+                },
+                "currency": {
+                  "type": ["string", "null"]
+                },
+                "usesLeft": {
+                  "description": "A pass's uses left; null for other kinds",
+                  "type": ["number", "null"]
+                }
+              },
+              "required": [
+                "key",
+                "kind",
+                "person",
+                "record",
+                "at",
+                "amount",
+                "currency",
+                "usesLeft"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["days", "items"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "me.deleteAccount",
       "description": "Delete your customer account and ask for your personal data to be erased. You are signed out everywhere at once and can no longer sign in. Staff then erase your data, or tell you by email why some of it must be kept, by the due date returned. Asking again changes nothing.",
       "risk": "write",
@@ -1511,6 +1621,7 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -1732,6 +1843,7 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -1764,6 +1876,7 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -1858,6 +1971,7 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -4290,6 +4404,7 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -4465,6 +4580,7 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -4608,6 +4724,7 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -4915,6 +5032,7 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -5339,6 +5457,7 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -6117,6 +6236,7 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -6240,6 +6360,7 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -7089,6 +7210,7 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -7247,6 +7369,7 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -7483,6 +7606,7 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
         "me.family",
         "me.get",
         "me.sessions.list",
@@ -8342,6 +8466,7 @@
         "me.agreements.get",
         "me.agreements.list",
         "me.agreements.pdf",
+        "me.attention",
         "me.family",
         "me.get",
         "me.sessions.list",

@@ -80,6 +80,12 @@
       "hostInternal": true
     },
     {
+      "name": "me.attention",
+      "audiences": ["customer"],
+      "risk": "read",
+      "hostInternal": true
+    },
+    {
       "name": "me.deleteAccount",
       "audiences": ["customer"],
       "risk": "write",

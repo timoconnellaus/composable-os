@@ -1035,6 +1035,14 @@ shows is the host's answer; in the app, money opens the website (ADR 0714). "Por
 name of the manifest key and the operation (`portal`, `me.portal`).
 _Avoid_: customer portal, dashboard
 
+**Needs your attention**
+The top of My account: what a customer, or a child they act for, has to do now, answered by the
+host (`me.attention`, ADR 0711) as items of eight kinds worked out in core from agreements, orders,
+subscriptions and allowances: a document to agree to, a card payment that failed, a payment to
+confirm with the bank, a deposit's balance, an unfinished held order, a pass expiring or used up,
+a free trial ending. How far ahead it looks is `account.attentionDays` (default 7).
+_Avoid_: notifications, alerts, to-do
+
 **Erase request**
 What deleting a customer account leaves for staff: the Person, when it was asked and when it is
 due. Staff erase the person or decline with a reason; either closes it (stage 22).

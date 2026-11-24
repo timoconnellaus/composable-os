@@ -79,6 +79,8 @@ describe("default closed (criterion 1)", () => {
       "me.agreements.get",
       "me.agreements.list",
       "me.agreements.pdf",
+      // Stage 48 step 4 (ADR 0711): what needs their attention, worked out in core.
+      "me.attention",
       "me.deleteAccount",
       // Stage 31a step 6 (ADR 0540): their own family, the children staff linked to them.
       "me.family",
@@ -419,6 +421,8 @@ describe("the closed handler context (ADR 0413)", () => {
       "me.agreements.get",
       "me.agreements.list",
       "me.agreements.pdf",
+      // Stage 48 step 4 (ADR 0711): it reads the host's subscription, order and allowance rows.
+      "me.attention",
       "me.deleteAccount",
       "me.sessions.list",
       "me.sessions.revoke",

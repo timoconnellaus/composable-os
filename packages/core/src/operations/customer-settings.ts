@@ -2,16 +2,20 @@
 // when invited (or as buyers, ADR 0458, and anyone starting a subscription, ADR 0459), and how
 // long staff have to action an erase request. Staff only. Changing them is admins only and humans
 // only: no assistant, MCP client, automation or extension may open or close sign-up or give staff
-// longer to erase someone.
+// longer to erase someone, or change how far ahead a customer's "Needs your attention" looks
+// (stage 48, ADR 0711).
 import { z } from "zod";
 import { findPlanOnSale, forgetPlanOnSale, hasPlanOnSale } from "../customers/plan-on-sale.ts";
 import {
+  ACCOUNT_ATTENTION_DAYS_SETTING,
+  attentionDaysSchema,
   CUSTOMER_EMAIL_CONNECTION_SETTING,
   CUSTOMER_ERASE_DUE_SETTING,
   CUSTOMER_SIGNUP_SETTING,
   CUSTOMER_SIGNUP_SUBSCRIBERS_SETTING,
   customerSignupModeSchema,
   eraseDueDaysSchema,
+  loadAttentionDays,
   loadCustomerEmailConnection,
   loadCustomerSignup,
   loadCustomerSignupSubscribers,
@@ -44,6 +48,11 @@ const eraseDueDays = eraseDueDaysSchema.describe(
   "Days staff have to erase the person or decline, after a customer deletes their account " +
     "(default 30). Admins are notified daily about a request past it.",
 );
+const attentionDays = attentionDaysSchema.describe(
+  "account.attentionDays: how many days ahead a customer's Needs your attention (me.attention) " +
+    "lists a pass about to expire with uses left and a free trial about to end (default 7, 1 " +
+    "to 30).",
+);
 const emailConnectionId = z
   .string()
   .min(1)
@@ -58,6 +67,7 @@ const customerSettings = z.object({
   signup,
   startingSubscription,
   eraseDueDays,
+  attentionDays,
   emailConnectionId,
 });
 /** Whether sign-in codes go out at once through that connection now (ADR 0456). */
@@ -73,6 +83,7 @@ async function load(ctx: HandlerContext) {
     signup: await loadCustomerSignup(ctx.db),
     startingSubscription: await loadCustomerSignupSubscribers(ctx.db),
     eraseDueDays: await loadEraseDueDays(ctx.db),
+    attentionDays: await loadAttentionDays(ctx.db),
     emailConnectionId: await loadCustomerEmailConnection(ctx.db),
   };
 }
@@ -82,7 +93,8 @@ export const customerSettingsGet = defineOperation({
   description:
     "Get the customer account settings: whether customer sign-up is open or invite only, " +
     "whether anyone starting a subscription may sign in too (and whether a plan is on sale), " +
-    "how many days staff have to action a deleted account's erase request, which email " +
+    "how many days staff have to action a deleted account's erase request, how many days ahead " +
+    "a customer's Needs your attention looks, which email " +
     "connection the host's mail goes out from, and whether sign-in codes go out through it " +
     "now (signInMail: not until an admin lets its sign-in kind apply without review). Read-only.",
   input: z.object({}),
@@ -112,13 +124,14 @@ export const customerSettingsUpdate = defineOperation({
   description:
     "Change whether customer sign-up is open or invite only, whether anyone starting a " +
     "subscription may sign in too, the days staff have to action " +
-    "an erase request, or the email connection customer mail goes out from. Only what you " +
+    "an erase request, the days ahead a customer's Needs your attention looks, or the email connection customer mail goes out from. Only what you " +
     "pass changes. Admins only, and only a human can call it: " +
     "AI assistants, MCP clients, automations and extensions are refused.",
   input: z.object({
     signup: signup.optional(),
     startingSubscription: startingSubscription.optional(),
     eraseDueDays: eraseDueDays.optional(),
+    attentionDays: attentionDays.optional(),
     emailConnectionId: emailConnectionId.optional(),
   }),
   output: customerSettings.extend({ previous: customerSettings }),
@@ -131,10 +144,12 @@ export const customerSettingsUpdate = defineOperation({
       input.signup === undefined &&
       input.startingSubscription === undefined &&
       input.eraseDueDays === undefined &&
+      input.attentionDays === undefined &&
       input.emailConnectionId === undefined
     ) {
       throw new ValidationError(
-        "Pass signup, startingSubscription, eraseDueDays, emailConnectionId or any of them",
+        "Pass signup, startingSubscription, eraseDueDays, attentionDays, emailConnectionId or " +
+          "any of them",
       );
     }
     if (input.emailConnectionId) {
@@ -151,6 +166,7 @@ export const customerSettingsUpdate = defineOperation({
       signup: input.signup ?? previous.signup,
       startingSubscription: input.startingSubscription ?? previous.startingSubscription,
       eraseDueDays: input.eraseDueDays ?? previous.eraseDueDays,
+      attentionDays: input.attentionDays ?? previous.attentionDays,
       emailConnectionId:
         input.emailConnectionId === undefined
           ? previous.emailConnectionId
@@ -158,7 +174,12 @@ export const customerSettingsUpdate = defineOperation({
     };
     const store = (
       key: string,
-      field: "signup" | "startingSubscription" | "eraseDueDays" | "emailConnectionId",
+      field:
+        | "signup"
+        | "startingSubscription"
+        | "eraseDueDays"
+        | "attentionDays"
+        | "emailConnectionId",
     ) => {
       const value = JSON.stringify(next[field]);
       ctx.write(
@@ -199,6 +220,9 @@ export const customerSettingsUpdate = defineOperation({
       }
     }
     if (input.eraseDueDays !== undefined) store(CUSTOMER_ERASE_DUE_SETTING, "eraseDueDays");
+    if (input.attentionDays !== undefined) {
+      store(ACCOUNT_ATTENTION_DAYS_SETTING, "attentionDays");
+    }
     if (input.emailConnectionId !== undefined) {
       store(CUSTOMER_EMAIL_CONNECTION_SETTING, "emailConnectionId");
       // Its vendor's sign-in kind is made known now (auto-approvable, not auto-approved), so an

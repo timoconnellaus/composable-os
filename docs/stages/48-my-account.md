@@ -29,9 +29,18 @@ beyond the provider's receipt), [#293](https://github.com/timoconnellaus/composa
 and `templates/client/apps/mobile/App.tsx`.
 
 Status: **spec agreed** (owner interviewed 2026-11-24: decisions 1 to 9). Build may start. No
-question for the owner is open. Step 1, the base headless entry and blocks over the existing
-operations, built on `feat/stage-48-account-blocks`, ADR 0714 (written with step 1, where the
-native link to the website is built).
+question for the owner is open.
+
+- Step 1, the base headless entry and blocks over the existing operations, built on
+  `feat/stage-48-account-blocks`, ADR 0714 (written with step 1, where the native link to the
+  website is built).
+- Step 4, `me.attention` and its setting, built on `feat/stage-48-attention`, ADR 0711: the eight
+  kinds worked out in core (`packages/core/src/customers/attention.ts`, the operation in
+  `operations/me-attention.ts`), the setting as `customer.settings` `attentionDays` (stored as
+  `account_attention_days`), `open-operations.json`, the contracts and the template's clients
+  regenerated, and `packages/core/test/me-attention.test.ts` (every kind, each one clearing, the
+  setting at 14, another member's items, a fixed statement count). No migration. The attention
+  block is step 7's.
 
 Vocabulary: "My account" is the customer's own area on the business's website and in its app.
 The draft called it the customer portal; "portal" stays only as the name of the manifest key and

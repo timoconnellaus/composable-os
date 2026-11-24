@@ -23516,7 +23516,7 @@
     },
     {
       "name": "customer.settings.get",
-      "description": "Get the customer account settings: whether customer sign-up is open or invite only, whether anyone starting a subscription may sign in too (and whether a plan is on sale), how many days staff have to action a deleted account's erase request, which email connection the host's mail goes out from, and whether sign-in codes go out through it now (signInMail: not until an admin lets its sign-in kind apply without review). Read-only.",
+      "description": "Get the customer account settings: whether customer sign-up is open or invite only, whether anyone starting a subscription may sign in too (and whether a plan is on sale), how many days staff have to action a deleted account's erase request, how many days ahead a customer's Needs your attention looks, which email connection the host's mail goes out from, and whether sign-in codes go out through it now (signInMail: not until an admin lets its sign-in kind apply without review). Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -23547,6 +23547,12 @@
             "minimum": 1,
             "maximum": 365,
             "description": "Days staff have to erase the person or decline, after a customer deletes their account (default 30). Admins are notified daily about a request past it."
+          },
+          "attentionDays": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 30,
+            "description": "account.attentionDays: how many days ahead a customer's Needs your attention (me.attention) lists a pass about to expire with uses left and a free trial about to end (default 7, 1 to 30)."
           },
           "emailConnectionId": {
             "anyOf": [
@@ -23617,6 +23623,7 @@
           "signup",
           "startingSubscription",
           "eraseDueDays",
+          "attentionDays",
           "emailConnectionId",
           "signInMail",
           "planOnSale"
@@ -23627,7 +23634,7 @@
     },
     {
       "name": "customer.settings.update",
-      "description": "Change whether customer sign-up is open or invite only, whether anyone starting a subscription may sign in too, the days staff have to action an erase request, or the email connection customer mail goes out from. Only what you pass changes. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
+      "description": "Change whether customer sign-up is open or invite only, whether anyone starting a subscription may sign in too, the days staff have to action an erase request, the days ahead a customer's Needs your attention looks, or the email connection customer mail goes out from. Only what you pass changes. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -23654,6 +23661,12 @@
             "minimum": 1,
             "maximum": 365,
             "description": "Days staff have to erase the person or decline, after a customer deletes their account (default 30). Admins are notified daily about a request past it."
+          },
+          "attentionDays": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 30,
+            "description": "account.attentionDays: how many days ahead a customer's Needs your attention (me.attention) lists a pass about to expire with uses left and a free trial about to end (default 7, 1 to 30)."
           },
           "emailConnectionId": {
             "anyOf": [
@@ -23692,6 +23705,12 @@
             "maximum": 365,
             "description": "Days staff have to erase the person or decline, after a customer deletes their account (default 30). Admins are notified daily about a request past it."
           },
+          "attentionDays": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 30,
+            "description": "account.attentionDays: how many days ahead a customer's Needs your attention (me.attention) lists a pass about to expire with uses left and a free trial about to end (default 7, 1 to 30)."
+          },
           "emailConnectionId": {
             "anyOf": [
               {
@@ -23727,6 +23746,12 @@
                 "maximum": 365,
                 "description": "Days staff have to erase the person or decline, after a customer deletes their account (default 30). Admins are notified daily about a request past it."
               },
+              "attentionDays": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 30,
+                "description": "account.attentionDays: how many days ahead a customer's Needs your attention (me.attention) lists a pass about to expire with uses left and a free trial about to end (default 7, 1 to 30)."
+              },
               "emailConnectionId": {
                 "anyOf": [
                   {
@@ -23745,6 +23770,7 @@
               "signup",
               "startingSubscription",
               "eraseDueDays",
+              "attentionDays",
               "emailConnectionId"
             ],
             "additionalProperties": false
@@ -23754,6 +23780,7 @@
           "signup",
           "startingSubscription",
           "eraseDueDays",
+          "attentionDays",
           "emailConnectionId",
           "previous"
         ],
