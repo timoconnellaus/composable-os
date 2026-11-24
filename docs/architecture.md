@@ -998,7 +998,10 @@ As built (stage 23; ADRs [0415](adr/0415-the-http-surface-as-built.md),
   (the pipeline's `inBatch` hook), a claim makes a second call with the same key wait for the
   first, and the daily cron purges keys after 24 hours.
   Erasing a person deletes the stored replies that name them. A key costs a write one round trip.
-- Cross-origin calls only from `API_ALLOWED_ORIGINS`; customers are limited per account and
+- Cross-origin calls only from `API_ALLOWED_ORIGINS`, and only for customers and the public: a
+  staff cookie (Better Auth's, Access's, hosted support's) is used only from the host's own pages,
+  on every route that reads one (`staffCookieAllowed`, `apps/app/src/server/staff-origin.ts`,
+  ADR 0660); customers are limited per account and
   operation by `CUSTOMER_RATE_LIMIT`. Public calls need a Cloudflare rate limiting rule at the
   edge (`docs/deploying.md`).
 - **The contract** (`packages/core/src/http/contract.ts`) is the manifest per audience, committed
@@ -1493,7 +1496,8 @@ Training dashboard, saved views, the Person page's Training tab and panels. Its 
 (`@composable-os/pack-programs/client`) holds the layout's pure edits and a self-saving working
 copy; twelve blocks (the program builder, the exercise bank, today and session, class today,
 history and progress, the coach's client view; web and native) are built on it. In development
-`apps/app` mounts any pack's web block at `/blocks` (ADR 0424, amended).
+`apps/app` mounts any pack's web block at `/blocks` (ADR 0424, amended); the bank, the builder and
+the client view are its screens in the admin (stage 47, ADR 0660).
 
 **Bookings** (`packs/bookings`, stage 31a, step 3 the spine, steps 4 and 5 spending and the
 waitlist; [ADRs 0504](adr/0504-the-bookings-pack.md) and [0520](adr/0520-a-waitlist-on-a-claimant.md)):
@@ -1863,6 +1867,22 @@ in the release's client kit and copied with `cos add`. The web base layer (`bloc
 generated from `packages/ui` (Radix underneath); the native base layer is `blocks/native-base`;
 sign-in ships in both skins. `scripts/check-blocks.mjs` (in `pnpm lint`) refuses a block that
 calculates a price, checks a capacity or checks a permission.
+
+**Screens in the admin** (stage 47, [ADR 0660](adr/0660-pack-screens-in-the-admin.md)): a shipped
+pack declares its staff screens (`screens` in its manifest: label, web block and export, `nav`,
+the tools in `opens` that gate it, and `record` for a tab on a record page); a runtime extension
+declaring any is refused. `apps/app/screens-plugin.ts` reads every pack's declaration at build
+time and emits `virtual:cos-screens`, one lazy chunk per screen (a missing block or export fails
+the build; the server's build holds none), so the admin's source names no pack. The core read
+`screens.mine` answers which screens the caller may open (the pack active and shipped, and the
+pipeline's `staffAuthority` for every gate tool, as a person; empty for any other actor; the one
+core read every pack role reaches). The admin's navigation, `/s/<pack>/<screen>` (client-only,
+"not found" when not listed) and the record tabs render that answer; each screen sits in an error
+boundary, with its pack's hooks over the staff client on the app's own origin
+(`src/lib/staff-client.ts`), and its data is forgotten when it closes. An account with a pack role
+gets a small shell (its screens, its account, sign out) that makes no call its role is refused;
+every other server function and `/api/*` route refuses it, and MCP holds it to its role
+(ADR 0436).
 
 | Pack | Built from | Status |
 | --- | --- | --- |

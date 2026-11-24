@@ -629,4 +629,32 @@ export default defineExtension({
     draft,
     importText,
   },
+  // Staff screens in the product's admin (stage 47, ADR 0660). Programs' tools declare no
+  // permission, so each is gated by what it writes: the bank its exercises and the builder its
+  // programs (core record writes: any member, never a viewer or a pack role), the builder's import
+  // too; the client view, a tab on Person, by logging and completing a client's sessions.
+  screens: {
+    bank: {
+      label: "Exercise bank",
+      block: "programs-bank",
+      export: "ExerciseBank",
+      nav: { group: "Programs", order: 10 },
+      writes: ["programs.exercise"],
+    },
+    builder: {
+      label: "Program builder",
+      block: "programs-builder",
+      export: "ProgramWorkspace",
+      nav: { group: "Programs", order: 20 },
+      opens: ["importText"],
+      writes: ["programs.program"],
+    },
+    client: {
+      label: "Programs",
+      block: "programs-coach-client",
+      export: "CoachClient",
+      opens: ["logAdd", "sessionComplete"],
+      record: { object: "person", as: "personId" },
+    },
+  },
 });

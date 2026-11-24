@@ -158,3 +158,9 @@ grant no roster); `packages/create-composable-os/test/client-repo.test.ts` and
 never made, one dry run for every row, nothing written without `--apply`, a clashing one-off shift
 with nobody on it, a re-run that makes nothing twice); `apps/app/e2e/rostering-blocks.spec.ts`
 (one test per journey).
+
+## Amendment, 2026-11-24 (stage 47, ADR 0660)
+The open item above is closed: the roster's web screens are declared screens of the Rostering pack
+and shown in the product's admin, for whoever the host lets open each (the team's, the rosterers',
+pay), a rostered account with no other access in its role's small shell. See
+[ADR 0660](0660-pack-screens-in-the-admin.md).

@@ -458,4 +458,16 @@ export default defineExtension({
     draft,
     startSession,
   },
+  // A staff screen in the product's admin (stage 47, ADR 0660): the course builder, a tab on the
+  // course (it builds one course). It saves the course through the host's record writes, so it is
+  // gated by writing a course: any member, never a viewer or a pack role.
+  screens: {
+    builder: {
+      label: "Builder",
+      block: "courses-builder",
+      export: "CourseBuilder",
+      writes: ["courses.course"],
+      record: { object: "courses.course", as: "courseId" },
+    },
+  },
 });

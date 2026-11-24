@@ -4,6 +4,7 @@ import { createExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vitest";
 import {
+  devOrgPacks,
   listedPacks,
   orgExtensionsKey,
   packsProblem,
@@ -133,6 +134,40 @@ describe("the org's own extensions", () => {
     await expect(
       shippedExtensions({ COS_PACKS: "*", COS_ORG_EXTENSIONS: hash, BLOBS: env.BLOBS }),
     ).rejects.toThrow(/has a pack's id/);
+  });
+
+  it("may not take the id of a pack the release carries, even one not listed (ADR 0660)", async () => {
+    // Bookings is carried by every release and listed by no product's COS_PACKS here: an org
+    // extension holding its id would be keyed as Bookings (its built-in screens, its roles).
+    const hash = await putOrg([{ ...renewals, id: "bookings" }]);
+    await expect(
+      shippedExtensions({ COS_PACKS: "deals", COS_ORG_EXTENSIONS: hash, BLOBS: env.BLOBS }),
+    ).rejects.toThrow(/bookings has a pack's id/);
+    // Local development alone delivers unlisted packs as org extensions (dev-setup.mjs).
+    const dev = await shippedExtensions({
+      COS_PACKS: "deals",
+      COS_ORG_EXTENSIONS: hash,
+      COS_DEV_ORG_PACKS: "1",
+      BLOBS: env.BLOBS,
+    });
+    expect(dev.map((e) => e.id)).toEqual(["deals", "bookings"]);
+  });
+
+  it("ignores COS_DEV_ORG_PACKS outside a development build: it fails closed (ADR 0660)", async () => {
+    // A var set by hand on a deployed Worker (wrangler deploy --var, the dashboard) is not enough.
+    const hash = await putOrg([{ ...renewals, id: "bookings" }]);
+    const deployed = {
+      COS_PACKS: "deals",
+      COS_ORG_EXTENSIONS: hash,
+      COS_DEV_ORG_PACKS: "1",
+      BLOBS: env.BLOBS,
+    };
+    await expect(shippedExtensions(deployed, false)).rejects.toThrow(/bookings has a pack's id/);
+    expect(devOrgPacks(deployed, false)).toBe(false);
+    expect(devOrgPacks({ COS_DEV_ORG_PACKS: "true" }, true)).toBe(false);
+    expect(devOrgPacks({}, true)).toBe(false);
+    // These tests run as a Vite development build, as `vite dev` does.
+    expect(devOrgPacks(deployed)).toBe(true);
   });
 
   it("are none when nothing is pinned", async () => {

@@ -159,3 +159,10 @@ code. Stage 45's Rostering declares `rostering.team` (its team's tools, no recor
 restricted `rostering:manage` (rostering other people). See
 [ADR 0625](0625-restricted-pack-permissions.md). Tools also learn the account they were called
 for on the run (`ctx.extension.tool.calledBy`), for the host's operations about "me".
+
+## Amendment, 2026-11-24 (stage 47, ADR 0660)
+"A door account that signs in to the admin sees a viewer's screens and is refused every call" no
+longer holds: an account with a pack role gets the admin's small shell (its screens, its account,
+sign out), which makes no call the role is refused, and every other page is "not found". Every pack
+role reaches one core read beside its tools and reads, `screens.mine` (the screens it may open);
+nothing else is opened to pack roles. See [ADR 0660](0660-pack-screens-in-the-admin.md).
