@@ -148,6 +148,8 @@ export interface ObjectDefinition {
   recurring?: RecurringDefinition;
   /** Extension objects: a shift, who works it, when and on what (stage 45, ADR 0621). */
   staffed?: StaffedDefinition;
+  /** Extension objects: a claim on a thing (a room) for the record's time (stage 49, ADR 0765). */
+  occupies?: OccupiesDefinition;
   /** A checklist its person ticks off (stage 45 step 4b, ADR 0650), with registry names. */
   checklists?: ChecklistsDefinition;
   /**
@@ -211,6 +213,11 @@ export interface PublishableDefinition {
   readonly slug?: string;
   /** The date a reader is shown: a date or datetime content field, filled on publish (ADR 0441). */
   readonly date?: string;
+  /**
+   * Read and understood (ADR 0702): `who`, the object's "must read" document field; `manage`, the
+   * restricted, grantable permission whose holders (and admins) read who has confirmed.
+   */
+  readonly acknowledge?: { readonly who: string; readonly manage: string };
 }
 
 /**
@@ -314,6 +321,8 @@ export type AllowanceDefinition =
       readonly paidBy: readonly string[];
       /** A boolean field: while true, entering a spend state spends nothing (ADR 0506). */
       readonly waived?: string | undefined;
+      /** The return state the host moves it into when its holder is cooled off (ADR 0647). */
+      readonly released?: string | undefined;
     };
 
 /** The capacity behaviour as the host enforces it (the SDK's CapacitySpec, validated). */
@@ -357,6 +366,8 @@ export interface SellableDefinition {
         grants?: RecurringGrantDefinition | undefined;
         /** Staff may pause one, within these number fields' days (ADR 0531). */
         pause?: { minDays?: string | undefined; maxDays?: string | undefined } | undefined;
+        /** The extension's number setting holding the cooling-off days (ADR 0647). */
+        coolingOff?: { setting: string } | undefined;
       }
     | undefined;
   /** A boolean field: while true, a Person buys the record once across the object (ADR 0512). */
@@ -562,6 +573,29 @@ export interface StaffedDefinition {
   payAfter?: { field: string } | undefined;
   /** What shows a shift was worked (ADR 0627): `object` is the evidence object's registry name. */
   evidence?: { object: string; link: string; by: string } | undefined;
+}
+
+/**
+ * The SDK's OccupiesSpec (ADR 0765) with registry names: fields are the object's own, `thingObject`
+ * is the registry name of what `thing` names, and a margin read through a relation (`via`) names
+ * its object (`viaObject`) and that object's number field (`field`).
+ */
+export interface OccupiesDefinition {
+  thing: string;
+  thingObject: string;
+  starts: string;
+  ends: string;
+  live: readonly string[];
+  before?: OccupiesMargin | undefined;
+  after?: OccupiesMargin | undefined;
+  only?: string | undefined;
+}
+
+/** A margin of a claim on a thing, in minutes: a field of the record, or of what `via` names. */
+export interface OccupiesMargin {
+  field: string;
+  via?: string | undefined;
+  viaObject?: string | undefined;
 }
 
 /**

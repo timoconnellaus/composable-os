@@ -85,7 +85,7 @@ export {
   contentCacheStore,
   setContentCacheStore,
 } from "./content/cache.ts";
-export { type PublishDueOptions, runPublishDue } from "./content/schedule.ts";
+export { type PublishDueOptions, runPublishDue, runReindexDue } from "./content/schedule.ts";
 export * from "./customers/index.ts";
 export * from "./dashboards/cache.ts";
 export * from "./dashboards/click-through.ts";

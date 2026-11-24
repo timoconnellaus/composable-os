@@ -50,6 +50,12 @@
       "hostInternal": true
     },
     {
+      "name": "content.search",
+      "audiences": ["staff", "customer", "public"],
+      "risk": "read",
+      "hostInternal": true
+    },
+    {
       "name": "desk.accept",
       "audiences": ["public"],
       "risk": "write",
@@ -264,6 +270,18 @@
     },
     {
       "name": "subscription.change",
+      "audiences": ["staff", "customer"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
+      "name": "subscription.coolingOff",
+      "audiences": ["staff", "customer"],
+      "risk": "read",
+      "hostInternal": true
+    },
+    {
+      "name": "subscription.coolOff",
       "audiences": ["staff", "customer"],
       "risk": "write",
       "hostInternal": true

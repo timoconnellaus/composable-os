@@ -421,11 +421,14 @@ describe("a pack role reaches screens.mine and nothing else new (registry walk)"
             : role.read.length > 0 && PACK_ROLE_READS.includes(op.name),
         )
         .map((op) => op.name);
-      expect(reached.sort()).toEqual([...before, "screens.mine"].sort());
+      // Beside it, every pack role's own read-and-understood list and confirmations (stage 38,
+      // ADR 0702).
+      const own = ["ack.confirm", "ack.mine"];
+      expect(reached.sort()).toEqual([...before, "screens.mine", ...own].sort());
       // And no core operation but those.
       const core = reached.filter((n) => !n.startsWith("x."));
       expect(core.sort()).toEqual(
-        [...(role.read.length ? PACK_ROLE_READS : []), "screens.mine"].sort(),
+        [...(role.read.length ? PACK_ROLE_READS : []), "screens.mine", ...own].sort(),
       );
       // Through the pipeline: the role's account calls it, and gets its own screens.
       await expect(invoke("screens.mine", {}, context(user))).resolves.toHaveProperty("screens");

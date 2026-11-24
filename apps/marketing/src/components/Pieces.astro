@@ -20,10 +20,9 @@
 // and in the app (step 7, not yet tried on phones; the web screens are in the product's admin,
 // stage 47) and checklists on a duty (step 4b) are merged.
 // Agreements (stage 44) is being built: documents and versions (step 1), acceptances (step 2),
-// the check before paying, subscribing and booking (step 3), the copy and the signed PDF (step 4)
-// the screens on the web and in the app (step 5), erase and retention (step 8) and signing at the
-// desk on the enrolled tablet (step 6, with stage 51's step 1) are merged; cooling off (step 7) is
-// not yet.
+// the check before paying, subscribing and booking (step 3), the copy and the signed PDF (step 4),
+// the screens on the web and in the app (step 5), cooling off (step 7), erase and retention (step
+// 8) and signing at the desk on the enrolled tablet (step 6, with stage 51's step 1) are merged.
 // The last card is the piece built only for this business.
 import { STATUS } from "../status.ts";
 import Icon from "./Icon.astro";
@@ -75,7 +74,7 @@ const pieces = [
   {
     soon: STATUS.building,
     title: "Agreements",
-    body: "Terms, waivers, health questions and a parent's consent, written by the business and agreed to on the web or in the app, with a typed name or a drawn signature. Visitors agree on the way to paying, parents agree for their children, and nobody books a class or buys a membership or pass without agreeing first. A copy goes by email to whoever agrees online, and the business can download the signed PDF at any time. The app's screens are built but not yet tried on phones. A member can also sign at the desk, on the business's own tablet: someone on the staff starts a session for them, the tablet holds no sign-in, and the copy is emailed to them (not yet tried on a real tablet or a live host). Still to come: a cooling-off period.",
+    body: "Terms, waivers, health questions and a parent's consent, written by the business and agreed to on the web or in the app, with a typed name or a drawn signature. Visitors agree on the way to paying, parents agree for their children, and nobody books a class or buys a membership or pass without agreeing first. A copy goes by email to whoever agrees online, and the business can download the signed PDF at any time. The app's screens are built but not yet tried on phones. The business can set a cooling-off period: a new member can end their membership on the website inside it, once, and what they paid in that period is refunded once a member of staff approves it (not for members moving over from another system). A member can also sign at the desk, on the business's own tablet: someone on the staff starts a session for them, the tablet holds no sign-in, and the copy is emailed to them (not yet tried on a real tablet or a live host).",
   },
 ];
 ---
