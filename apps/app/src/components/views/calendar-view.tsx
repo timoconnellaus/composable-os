@@ -36,7 +36,7 @@ export interface CalendarSpec {
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-/** A local day key, YYYY-MM-DD. */
+/** The local midnight of a day key (YYYY-MM-DD, as localDay writes it). */
 function fromKey(key: string): Date {
   const [y, m, d] = key.split("-").map(Number);
   return new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1);
