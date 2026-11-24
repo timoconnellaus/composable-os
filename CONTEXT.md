@@ -374,7 +374,10 @@ roadmap's stages are a different word (see **Stage** below).
 **Stage rule**
 A field a stage requires before a record may enter it (Proposal needs a value and an expected close
 date; Lost needs a lost reason). The host enforces it in the record operations for every actor and
-refuses a move with an error naming the missing fields.
+refuses a move with an error naming the missing fields. A stage rule may require a **host fact**: a
+read-only field only the host (or a person's own tool of the declaring pack) sets, such as a job's
+`acceptedAt`, so nobody moves a job into Accepted by hand; the stages it gates are an admin's to
+change, in person (ADR 0750).
 
 **Stage behaviour**
 The contract's declarative `stages` key (ADR 0100): it makes an extension object move through stage
@@ -1586,6 +1589,8 @@ _Avoid_: task list, to-do (a task is something else), inspection, daily task
 **Follows** (a state cascade)
 An object whose records move when the record a relation points to moves (`states.follows`): a
 class cancelled moves its bookings to `cancelled_by_us`, as the host, in the same batch (ADR 0507).
+The parent is in the follower's extension or one it requires (an event's crew shifts and room uses);
+a child that draws places from a pool never follows it (ADR 0841).
 
 **Approved by a person** (a `personApproves` field or setting)
 A field or extension setting only a person changes: the assistant's, an MCP client's, an
@@ -1724,8 +1729,8 @@ _Avoid_: trial (a subscription plan's free first days), coupon, discount
 An address with its `+tag` dropped, on every domain (`a+1@x` and `a+2@x` are both `a@x`); dots
 are not folded (`a.b@x` and `ab@x` stay two). Used only to decide "the same person" for the
 one-per-Person rules (a free trial, an intro offer; later a per-person code, a new-customer check
-and a referral): every live Person with an address folding to one of a Person's counts as them
-(ADR 0692, `core_person_emails.folded`, `samePeople`). Never an identity: the Person, the account
+and a referral): every Person with an address folding to one of a Person's counts as them, one in
+the Trash too (ADR 0692, `foldedSql` and its index, `samePeople`). Never an identity: the Person, the account
 and the address mailed stay as typed.
 _Avoid_: mailbox key (the sign-in code limit's and routine mail's `mailboxKey`, which also folds
 Gmail's dots, for counting sends only), normalised address (trimmed and lower-cased only)
@@ -1793,6 +1798,14 @@ The provider's own page a buyer pays one payment on, opened by the host for what
 be charged now. Card details are typed there and never reach the platform. Coming back from it
 tells the host nothing: only the provider's verified event does (stage 25, ADR 0429).
 _Avoid_: payment form, cart (there is no cart: an order is what is bought)
+
+**Card reader**
+A device on the business's own payment account that takes a card in person: registered to the
+account at its address by a person approving the action, and driven from the server (the host
+puts an order's amount on it; the buyer taps or inserts their card; the provider's verified event
+says it was paid, as for a checkout). Nothing of the provider's runs on the tablet, and card
+details never reach the platform (stage 50, ADR 0774).
+_Avoid_: terminal (Stripe's product name), card machine, POS (the till is the whole desk)
 
 **Paid late**
 A payment the provider confirmed for an order that had already expired or been cancelled. It

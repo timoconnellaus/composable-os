@@ -3,7 +3,9 @@
 // keys are this Worker's secrets and never leave it. Each provider is one resource,
 // `payments://merchant/<provider>`; its facet opens checkouts (an observation: no money moves),
 // submits refunds as `payments.refund` actions that the host must apply, and binds a hook that
-// receives every verified payment and refund event. README.md explains the design.
+// receives every verified payment and refund event. Card readers (stage 50, ADR 0774) are
+// registered and removed as actions a person approves, and payments are presented on them by the
+// host's own call. README.md explains the design.
 //
 // No capnweb-validate decorators (the CRM's Vite dev server runs this Worker as an auxiliary
 // worker and cannot transform them): every RPC input is checked by the guards in validate.ts.
@@ -64,9 +66,15 @@ import type {
   PaymentsPayment,
   PaymentsPortal,
   PaymentsPortalInput,
+  PaymentsPresentation,
+  PaymentsPresentInput,
   PaymentsProviderName,
+  PaymentsReader,
+  PaymentsReaderChangeReceipt,
   PaymentsRefundInput,
   PaymentsRefundReceipt,
+  PaymentsRegisterReaderInput,
+  PaymentsRemoveReaderInput,
   PaymentsResumeSubscriptionInput,
   PaymentsSession,
   PaymentsSubscription,
@@ -80,6 +88,7 @@ import TYPES_CODE from "./types.txt";
 import {
   assertProviderName,
   assertProviderRef,
+  assertReaderRef,
   MERCHANT_URL_PATTERN,
   merchantUrl,
   PROVIDER_NAMES,
@@ -88,7 +97,10 @@ import {
   parseCheckoutInput,
   parsePauseSubscriptionInput,
   parsePortalInput,
+  parsePresentInput,
   parseRefundInput,
+  parseRegisterReaderInput,
+  parseRemoveReaderInput,
   parseResumeSubscriptionInput,
   parseSubscriptionCheckoutInput,
   parseUnpauseSubscriptionInput,
@@ -183,7 +195,12 @@ type StoredChange = { provider: PaymentsProviderName; input: PaymentsChangeSubsc
 type StoredPause = { provider: PaymentsProviderName; input: PaymentsPauseSubscriptionInput };
 type StoredUnpause = { provider: PaymentsProviderName; input: PaymentsUnpauseSubscriptionInput };
 type StoredVoid = { provider: PaymentsProviderName; input: PaymentsVoidUpdateInput };
+/** A reader's registration and removal (stage 50, ADR 0774). */
+type StoredRegisterReader = { provider: PaymentsProviderName; input: PaymentsRegisterReaderInput };
+type StoredRemoveReader = { provider: PaymentsProviderName; input: PaymentsRemoveReaderInput };
 type Actions = {
+  register_reader: StoredRegisterReader;
+  remove_reader: StoredRemoveReader;
   refund: StoredRefund;
   cancel: StoredCancel;
   resume: StoredResume;
@@ -214,6 +231,14 @@ const VOID_UPDATE_KIND: ActionKind = {
   tag: "payments.subscription.void_update",
   label: "Withdraw a subscription's upgrade",
 };
+const REGISTER_READER_KIND: ActionKind = {
+  tag: "payments.reader.register",
+  label: "Register a card reader",
+};
+const REMOVE_READER_KIND: ActionKind = {
+  tag: "payments.reader.remove",
+  label: "Remove a card reader",
+};
 const UNPAUSE_KIND: ActionKind = {
   tag: "payments.subscription.unpause",
   label: "End a subscription's pause",
@@ -221,6 +246,8 @@ const UNPAUSE_KIND: ActionKind = {
 
 /** What the action handlers may do. Not the Durable Object: provider calls live behind approval. */
 type PaymentsHost = {
+  sendRegisterReader(change: StoredRegisterReader): Promise<void>;
+  sendRemoveReader(change: StoredRemoveReader): Promise<void>;
   sendRefund(refund: StoredRefund): Promise<void>;
   sendCancel(change: StoredCancel): Promise<void>;
   sendResume(change: StoredResume): Promise<void>;
@@ -349,6 +376,51 @@ function describeVoid(change: StoredVoid) {
   };
 }
 
+/**
+ * The approver's view of a reader's registration: which device, at which address. The pairing code
+ * is not shown: it is the admin's to type, and single-use.
+ */
+function describeRegisterReader(change: StoredRegisterReader) {
+  const { input } = change;
+  const { address } = input;
+  const where = [address.line1, address.city, address.region, address.postcode, address.country]
+    .filter((part) => part !== undefined)
+    .join(", ");
+  const builder = buildDescription(
+    `Registers a card reader to the business's ${PROVIDER_TITLES[change.provider]} account at ` +
+      "the address below. It moves no money, but once registered the reader can take card " +
+      "payments that the host puts on it.",
+  )
+    .inline("Provider", PROVIDER_TITLES[change.provider])
+    .inline("Reader", input.readerId)
+    .verbatim("Label", input.label)
+    .verbatim("Location", input.locationName)
+    .verbatim("Address", where);
+  return {
+    title: sanitizeTitle(`Register card reader ${input.label}`),
+    ...builder.finish(),
+    implementsRevert: false,
+  };
+}
+
+function describeRemoveReader(change: StoredRemoveReader) {
+  const { input } = change;
+  const builder = buildDescription(
+    `Removes card reader ${input.readerId} from the business's ` +
+      `${PROVIDER_TITLES[change.provider]} account. It can take no payment after this, and is ` +
+      "registered again with a new code.",
+  )
+    .inline("Provider", PROVIDER_TITLES[change.provider])
+    .inline("Reader", input.readerId)
+    .inline("Provider's reference", input.readerRef)
+    .verbatim("Reason", input.reason);
+  return {
+    title: sanitizeTitle(`Remove card reader ${input.readerId}`),
+    ...builder.finish(),
+    implementsRevert: false,
+  };
+}
+
 /** The approver's view of one refund: how much, to which payment, on which order, and why. */
 function describeRefund(refund: StoredRefund) {
   const { input } = refund;
@@ -372,6 +444,30 @@ function describeRefund(refund: StoredRefund) {
 
 const actions = defineActions<PaymentsHost, Actions>(
   {
+    // A reader moves no money, but adds a device that can take it (stage 50, ADR 0774): never
+    // auto-approvable, and asked only by the host's own operation, which a human admin runs.
+    register_reader: {
+      kind: REGISTER_READER_KIND,
+      autoApprovable: false,
+      delivery: "continue-with-simulation",
+      claimBeforeApply: true,
+      describe: (change) => describeRegisterReader(change),
+      apply: async (change, host) => {
+        await host.sendRegisterReader(change);
+      },
+      reject: async () => {},
+    },
+    remove_reader: {
+      kind: REMOVE_READER_KIND,
+      autoApprovable: false,
+      delivery: "continue-with-simulation",
+      claimBeforeApply: true,
+      describe: (change) => describeRemoveReader(change),
+      apply: async (change, host) => {
+        await host.sendRemoveReader(change);
+      },
+      reject: async () => {},
+    },
     refund: {
       kind: REFUND_KIND,
       // Money leaves the org: a human decides every refund.
@@ -476,6 +572,11 @@ type SessionBackend = {
   submitPause(queue: RpcStub<ApprovalQueue>, change: StoredPause): Promise<number>;
   submitUnpause(queue: RpcStub<ApprovalQueue>, change: StoredUnpause): Promise<number>;
   submitVoid(queue: RpcStub<ApprovalQueue>, change: StoredVoid): Promise<number>;
+  submitRegisterReader(
+    queue: RpcStub<ApprovalQueue>,
+    change: StoredRegisterReader,
+  ): Promise<number>;
+  submitRemoveReader(queue: RpcStub<ApprovalQueue>, change: StoredRemoveReader): Promise<number>;
   wasApplied(id: number): boolean;
   subscribe(queue: RpcStub<ApprovalQueue>, hook: RpcStub<PaymentsHookTarget>): Promise<void>;
 };
@@ -515,6 +616,15 @@ async function requireHostQueue(queue: unknown): Promise<void> {
   if (!(await isHostOrdersQueue(queue))) {
     throw new Error(
       "Plan changes and pauses are asked only by the host, through its own subscription operations.",
+    );
+  }
+}
+
+/** Card readers are the host's own call only (stage 50, ADR 0774). */
+async function requireHostReaderQueue(queue: unknown): Promise<void> {
+  if (!(await isHostOrdersQueue(queue))) {
+    throw new Error(
+      "Card readers and the payments on them are asked only by the host, through its own operations.",
     );
   }
 }
@@ -749,6 +859,75 @@ class PaymentsSessionImpl extends RpcTarget implements PaymentsSession {
     return provider.openPortal(parsed);
   }
 
+  // --- Card readers (stage 50, ADR 0774) ------------------------------------------------------
+  // The host's own call only: the host keeps which till a reader serves and the presentation it
+  // matches the payment on, so a reader registered or a payment presented any other way (Code
+  // Mode, an extension's tool, MCP, the assistant) is one the host never asked for. The list too:
+  // a reader's reference is all the fake reader's public page needs (review of PR #348).
+
+  async registerReader(input: PaymentsRegisterReaderInput): Promise<PaymentsReaderChangeReceipt> {
+    const parsed = parseRegisterReaderInput(input);
+    await requireHostReaderQueue(this.#queue);
+    this.#backend.open();
+    const id = await this.#backend.submitRegisterReader(this.#queue, {
+      provider: this.#backend.provider,
+      input: parsed,
+    });
+    return { status: this.#backend.wasApplied(id) ? "sent" : "pending", id };
+  }
+
+  async removeReader(input: PaymentsRemoveReaderInput): Promise<PaymentsReaderChangeReceipt> {
+    const parsed = parseRemoveReaderInput(input);
+    await requireHostReaderQueue(this.#queue);
+    this.#backend.open();
+    const id = await this.#backend.submitRemoveReader(this.#queue, {
+      provider: this.#backend.provider,
+      input: parsed,
+    });
+    return { status: this.#backend.wasApplied(id) ? "sent" : "pending", id };
+  }
+
+  async listReaders(): Promise<PaymentsReader[]> {
+    await requireHostReaderQueue(this.#queue);
+    const provider = this.#backend.open();
+    await this.#queue.authorizeObservation({
+      title: "List card readers",
+      description: `Read the card readers registered to the ${PROVIDER_TITLES[provider.name]} account.`,
+    });
+    return provider.listReaders();
+  }
+
+  async presentPayment(input: PaymentsPresentInput): Promise<PaymentsPresentation> {
+    const parsed = parsePresentInput(input);
+    await requireHostReaderQueue(this.#queue);
+    const provider = this.#backend.open();
+    const amount = formatMinor(parsed.amount, parsed.currency);
+    await this.#queue.authorizeObservation({
+      title: sanitizeTitle(`Put ${amount} for order ${parsed.orderId} on a card reader`),
+      description:
+        `Handed a payment of ${amount} to reader \`${parsed.readerRef}\` on ` +
+        `${PROVIDER_TITLES[provider.name]}. No money moves until the buyer's card does.`,
+      fields: [
+        { label: "Order", kind: "inline", value: parsed.orderId },
+        { label: "Amount", kind: "inline", value: `${amount} (${parsed.amount} minor units)` },
+        { label: "Reader", kind: "inline", value: parsed.readerRef },
+      ],
+    });
+    const presented = await provider.presentPayment(parsed);
+    return { provider: provider.name, ...presented };
+  }
+
+  async cancelPresented(readerRef: string): Promise<void> {
+    const checked = assertReaderRef(readerRef);
+    await requireHostReaderQueue(this.#queue);
+    const provider = this.#backend.open();
+    await this.#queue.authorizeObservation({
+      title: "Clear a card reader",
+      description: `Cleared the payment on reader \`${checked}\` on ${PROVIDER_TITLES[provider.name]}; it stays unpaid.`,
+    });
+    await provider.cancelPresented(checked);
+  }
+
   async subscribe(hook: PaymentsEventHook): Promise<void> {
     if (hook === null || (typeof hook !== "object" && typeof hook !== "function")) {
       throw new TypeError("subscribe() takes a stub implementing PaymentsEventHook.");
@@ -773,6 +952,11 @@ export class PaymentsGatekeeper
   });
 
   readonly #host: PaymentsHost = {
+    sendRegisterReader: async (change) => {
+      await (await this.#openForApply(change.provider)).registerReader(change.input);
+    },
+    sendRemoveReader: async (change) =>
+      (await this.#openForApply(change.provider)).removeReader(change.input),
     sendRefund: (refund) => this.#sendRefund(refund),
     sendCancel: async (change) =>
       (await this.#openForApply(change.provider)).cancelSubscription(change.input),
@@ -832,7 +1016,7 @@ export class PaymentsGatekeeper
       title: `Payments with ${PROVIDER_TITLES[provider]}`,
       snippet:
         `Open ${PROVIDER_TITLES[provider]} checkouts, read them, and refund payments. Each ` +
-        "refund waits for approval.",
+        "refund waits for approval. The host also puts payments on registered card readers.",
       suggestedBindingName: "PAYMENTS",
       tsType: "PaymentsSession",
       hookTsType: "PaymentsEventHook",
@@ -860,6 +1044,9 @@ export class PaymentsGatekeeper
       submitPause: (queue, change) => this.#actions().submit(queue, "pause", change),
       submitUnpause: (queue, change) => this.#actions().submit(queue, "unpause", change),
       submitVoid: (queue, change) => this.#actions().submit(queue, "void_update", change),
+      submitRegisterReader: (queue, change) =>
+        this.#actions().submit(queue, "register_reader", change),
+      submitRemoveReader: (queue, change) => this.#actions().submit(queue, "remove_reader", change),
       wasApplied: (id) => this.#journal.wasApplied(id),
       subscribe: (queue, hook) => this.#subscribe(queue, hook),
     };
@@ -883,8 +1070,9 @@ export class PaymentsGatekeeper
       {
         title: `Receive payment events (${PROVIDER_TITLES[provider]})`,
         description:
-          `Deliver each verified payment and refund event from ${PROVIDER_TITLES[provider]}: ` +
-          "the order, amounts, currency and the provider's references. Never card details.",
+          `Deliver each verified payment, refund and card reader event from ` +
+          `${PROVIDER_TITLES[provider]}: the order, amounts, currency and the provider's ` +
+          "references. Never card details.",
       },
     );
   }

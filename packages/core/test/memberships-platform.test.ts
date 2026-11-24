@@ -78,8 +78,44 @@ const DAY = 86_400_000;
 
 const RUNNING = ["trialing", "active", "past_due", "unpaid", "paused"] as const;
 
+/** A Person's journey signals (stage 53), by name. */
+async function signalsOf(personId: string) {
+  const { results } = await env.DB.prepare(
+    "SELECT signal, object_type, record_id, standing, bulk FROM core_person_signal WHERE person_id = ? ORDER BY signal",
+  )
+    .bind(personId)
+    .all<{
+      signal: string;
+      object_type: string;
+      record_id: string;
+      standing: string;
+      bulk: number;
+    }>();
+  return Object.fromEntries(results.map((r) => [r.signal.slice(GYM.length + 1), r]));
+}
+
 function fixture(id: string): ExtensionManifest {
   return manifest(id, {
+    // The Memberships pack's journey signals, as it declares them (stage 53, ADR 0802).
+    journeySignals: {
+      started: { label: "Membership started", object: "membership" },
+      joined: {
+        label: "Joined after a trial",
+        object: "membership",
+        enters: ["active"],
+        from: ["trialing"],
+        created: false,
+      },
+      ended: { label: "Membership ended", object: "membership", enters: ["ended"] },
+      trialEnded: {
+        label: "Trial ended without joining",
+        object: "membership",
+        enters: ["past_due", "unpaid", "paused", "ended"],
+        from: ["trialing"],
+        created: false,
+      },
+      passStarted: { label: "Pass started", object: "pass" },
+    },
     objects: {
       plan: {
         label: "Plan",
@@ -428,8 +464,15 @@ describe("a subscription's grant follows it (recurring.grants, ADR 0510)", () =>
     const id = await subscribe(buyer);
     await deliver("checkout_completed", read(id, { status: "trialing", trialEnd: later() }));
     expect((await grantOf(id))?.values.status).toBe("trialing");
+    // The membership starting is its member's journey signal; nobody has joined yet.
+    expect(Object.keys(await signalsOf(buyer.principal.personId))).toEqual(["started"]);
 
     await deliver("invoice_payment_failed", read(id, { status: "past_due" }));
+    // A trial that fails its first payment ended without joining.
+    expect(Object.keys(await signalsOf(buyer.principal.personId))).toEqual([
+      "started",
+      "trialEnded",
+    ]);
     const failing = await grantOf(id);
     expect(failing?.values.status).toBe("past_due");
     const sub = await env.DB.prepare("SELECT failing_since FROM core_subscription WHERE id = ?")
@@ -460,6 +503,28 @@ describe("a subscription's grant follows it (recurring.grants, ADR 0510)", () =>
     await deliver("deleted", read(id, { status: "canceled", endedAt }));
     const ended = await grantOf(id);
     expect(ended?.values).toMatchObject({ status: "ended", until: endedAt });
+    // Paid again after failing, and back from a pause: neither is joining. Ended is.
+    expect(Object.keys(await signalsOf(buyer.principal.personId))).toEqual([
+      "ended",
+      "started",
+      "trialEnded",
+    ]);
+  });
+
+  it("a trial that becomes paid is the member joining (AC 2), written by the host in its batch", async () => {
+    const buyer = await createBuyer(admin, "joiner");
+    const id = await subscribe(buyer);
+    await deliver("checkout_completed", read(id, { status: "trialing", trialEnd: later() }));
+    await deliver("updated", read(id, { status: "active" }));
+    expect((await grantOf(id))?.values.status).toBe("active");
+    const signals = await signalsOf(buyer.principal.personId);
+    expect(Object.keys(signals)).toEqual(["joined", "started"]);
+    expect(signals.joined).toMatchObject({
+      object_type: MEMBERSHIP,
+      record_id: (await grantOf(id))?.record_id,
+      standing: "host",
+      bulk: 0,
+    });
   });
 
   it("is a holder its member spends from while it runs, and not once it has ended", async () => {
@@ -766,9 +831,10 @@ describe("an intro offer: one per Person (onePerPerson, ADR 0512)", () => {
     }
     await run("order.checkout", { id: order.id, returnUrl: RETURN }, as(one));
     await providerPays(order.id);
-    expect(await refusal(startFor(as(two), intro))).toMatchObject({
-      details: { rule: "once_per_person", reason: "used" },
-    });
+    const refused = await refusal(startFor(as(two), intro));
+    expect(refused).toMatchObject({ details: { rule: "once_per_person", reason: "used" } });
+    // Named as the same address, not as this Person's own (review of step 2).
+    expect(refused.message).toMatch(/bought for someone with this address \(a \+tag aside\)/);
     // Staff buying it for +2 are refused the same way.
     expect(await refusal(startFor(staff(), intro, two.email))).toMatchObject({
       details: { rule: "once_per_person", reason: "used" },

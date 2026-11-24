@@ -17,10 +17,10 @@ import {
   localDay,
   subscriptionStatus,
 } from "@composable-os/pack-memberships/client";
-import { Text } from "react-native";
 import { List } from "../native-base/list.tsx";
 import { Row } from "../native-base/row.tsx";
 import { Screen } from "../native-base/screen.tsx";
+import { Text } from "../native-base/text.tsx";
 
 export function MyMembershipsScreen({
   memberships,
@@ -38,7 +38,11 @@ export function MyMembershipsScreen({
   );
   return (
     <Screen title="My memberships">
-      {isPending ? <Text accessibilityRole="progressbar">Loading your memberships…</Text> : null}
+      {isPending ? (
+        <Text tone="muted" accessibilityRole="progressbar">
+          Loading your memberships…
+        </Text>
+      ) : null}
       {error ? <Text accessibilityRole="alert">We could not load your memberships.</Text> : null}
       {data ? (
         <List empty="You have no membership or pass yet.">

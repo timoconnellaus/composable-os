@@ -228,7 +228,9 @@ How stage 3a built it ([ADR 0040](adr/0040-extension-runtime-build.md)):
 - **Stage behaviour** ([ADR 0100](adr/0100-stage-behaviour-and-object-contract-additions.md)):
   an object's declarative `stages` key is enforced by the host inside `record.create`,
   `record.update` and `import.records.commit` (`packages/core/src/records/stages.ts`): stage rules
-  (a `StageRuleError` naming the missing fields), default stage and pipeline, probability,
+  (a `StageRuleError` naming the missing fields; a rule may require a read-only host fact, set
+  only by the host or a person's tool, whose stages only an admin in person changes, ADR 0750),
+  default stage and pipeline, probability,
   status and won/lost date, `core_transition_history` rows (read as `rec_stage_history`) and
   "Moved to <stage>" timeline posts on the record and its `timelineLinks`. Since stage 25 it runs
   on the transition engine it shares with `states` (see Behaviours,
@@ -1080,16 +1082,19 @@ move, which is how `capacity` and `sellable` act when an order is paid. Extensio
 `packages/core/src/journeys/signals.ts`, migration 1175). A shipped pack declares in its manifest
 the moments about a Person a journey can start or stop on (`journeySignals`): a record of one of its
 objects created, or entering one of its states (optionally only from some), and the relation field
-naming its Person, by default the object's customer field. Memberships declares `started`, `ended`,
-`trialEnded` and `passStarted`; Bookings `booked` and `attended`; Ticketing `ticketBought` and
+naming its Person, by default the object's customer field; the check refuses one no declared move
+or create can make. Memberships declares `started`, `joined`, `ended`, `trialEnded` and
+`passStarted`; Bookings `booked` and `attended`; Ticketing `ticketBought` and
 `checkedIn`. The reconciler puts each object's signals on its registry definition; the pipeline,
 beside the value marks, reads every write's recorded changes and queues in that write's batch one
 upsert into `core_person_signal` (one row per Person and signal: the last time, the record that
-made it, the write's standing as its marks say it, and whether the operation was a bulk one), so
+made it, the write's standing as its marks say it, and whether the operation was a bulk one, a
+`bulk-write` operation at any size included), so
 every actor and every path records it (the host's own moves through the transition engine
 included) and an approval's dry run records nothing. One statement a batch, its rows in one JSON
 parameter. The rows are in no `rec_*` view; erase and the Trash's purge delete a Person's, and
-merge keeps the later of each. A runtime extension may not declare them.
+merge keeps the later of each; a signal no longer declared, or a dropped object, loses its rows. A
+runtime extension may not declare them.
 
 **Windows, staff-only rules and requested moves**
 ([ADR 0503](adr/0503-time-windows-and-staff-only-on-the-transition-engine.md),
@@ -1142,7 +1147,15 @@ one batch each, through `state.after` (system origin only, a host step), within 
 `ifAnyIn` requires another record on the same related record in one of those states. Bookings'
 no-shows. The cascade (`states.follows`) guards the parent's counter at commit, and a create judged
 against `create.closed` guards that the record it reads has not moved (migration 0670), so a class
-cancel and a booking racing it never leave a booking on a cancelled class. A window may sit on a move
+cancel and a booking racing it never leave a booking on a cancelled class. Widened
+([ADR 0841](adr/0841-cascades-widened.md)): a follower may name a parent in an extension it
+requires (the host checks the parent's states at install and on every upgrade of either), a child
+that draws no places may follow a pool, the counter guard is queued only for a follower claiming
+places on the parent, any follower made under the move fails it at commit, and one move moves at
+most 80 records a call, across every following object, every parent the call moves and the
+followers' own cascades (`FOLLOWERS_MAX`, sized from the reads a follower costs against D1's 1,000
+queries; the minute cron's timed moves share one budget a tick), a follower is not restored from
+the Trash onto a parent that moved it, and a runtime extension cannot follow another's record. A window may sit on a move
 staff alone make when it binds staff, and a spender's `movedFrom.state` is entered only inside the
 new record's create ([ADR 0551](adr/0551-staff-bound-windows-and-a-move-only-by-its-new-record.md)).
 A tool may declare `personApproves`: anyone but a person is queued for one, whatever the preset, and
@@ -1202,7 +1215,8 @@ are core tables in no `rec_*` view (`core_staff_qualification`, `core_staff_away
 declares it. **Claim margins** (stage 49 step 1, [ADR 0760](adr/0760-claim-margins-and-a-required-account-on-staffed.md)):
 `claimBefore` and `claimAfter` (`kind.field` minutes, a service's buffer) widen the claim and are
 kept on it (`margin_before`, `margin_after`, migration 1091); triggers on the kind's table follow a
-change of its minutes for shifts not yet ended (history is never refused), and readers of a shift's
+change of its minutes for shifts not yet ended, a margin counts only while it lies ahead (the
+buffer before until the shift starts, after until it has passed: history is never widened), and readers of a shift's
 own time (the feed, leaving, the away notice) take them off. Classes declare none.
 `account: "required"` refuses a live shift not yet ended whose profile holds no account, at write
 and by triggers on the shift's and the profile's tables (`rule: "staffed_account"`); nobody on it
@@ -1701,7 +1715,8 @@ the runner carries the packs' sources as a Text module.
 **Courses** (`packs/courses`, stage 42; [ADR 0478](adr/0478-the-courses-pack.md)): themes,
 courses and bundles (publishable, sellable with a tax code, granting an enrolment), enrolments and
 progress, an outline of sections of lessons (video, text, a Programs session, a download) whose
-material is for holders. It requires Programs (`requires`, checked at install); progress is
+material is for holders. It requires Programs and Content (`requires`, checked at install; Content
+draws a text lesson, and `cos deploy` installs a required pack product.ts does not list); progress is
 written only with access (`customer.requireAccess`); a session lesson's program is assigned on the
 student's first open by an automation calling `x.programs.assign` (a tool's writes start
 automations, and a tool or an automation may call another extension's tool). Its tools ask the
@@ -1824,6 +1839,18 @@ provider confirms. The host's own calls (a checkout, the confirmation email) use
 `IntegrationRuntime.callAsHost`. An order's move hook confirms and releases its places
 (`orders/holds.ts`), and each move posts on its Person's timeline.
 
+**Card readers** (stage 50, [ADR 0774](adr/0774-card-on-a-reader.md)). The gatekeeper also takes
+cards in person on readers driven from the server: `registerReader` and `removeReader` are its
+actions `payments.reader.register` and `.remove`, which a person approves; `presentPayment` puts
+an order's amount on a named reader (an observation, keyed per presentation so a retry charges
+once) and `cancelPresented` clears it. Every reader call is the host's own call only, and core
+always reviews the two reader actions (`READER_KINDS`): only a human admin approves one. A
+payment on a reader arrives as the same verified `payment` event (its reference as both
+`checkoutRef` and `paymentRef`); a reader's action that took no payment is a `reader` event. The
+fake provider has fake readers with a page each (Tap card, Decline, Cancel). The host's half (the
+operations, the `reader` checkout kind it matches on, the till) is the stage's later steps; until
+then the host ignores `reader` events.
+
 **Tax at checkout** ([ADR 0479](adr/0479-tax-at-checkout.md), `orders/tax.ts`). Prices are
 tax-inclusive. When a human admin has turned it on and the lines' objects declare a product tax
 code (`sellable.tax`, overridable per object in Settings → Orders), `openCheckout` splits the
@@ -1869,10 +1896,12 @@ address with a code on the plan when "anyone starting a subscription" is on, ADR
 checkout (`core_subscription_trial`, a trigger refusing a second unreleased hold, so two starts at
 once give one trial), released only when the gatekeeper says its page expired uncompleted
 (`getSubscriptionCheckout`), and used when the provider's verified event confirms it. "Per
-holder" and the intro offer's "per Person" count every live Person sharing a folded address
-(`a+1@x` and `a+2@x`, [ADR 0692](adr/0692-one-person-per-folded-address.md), #225):
-`core_person_emails.folded` is kept by triggers, `samePeople` (`customers/accounts.ts`) is the
-subquery the checks read, and migration 0955's triggers refuse a second hold by such People. A person
+holder" and the intro offer's "per Person" count every Person sharing a folded address (`a+1@x`
+and `a+2@x`, one in the Trash too; [ADR 0692](adr/0692-one-person-per-folded-address.md), #225):
+the folded form is an expression over `core_person_emails.email` with an index (migration 0955;
+`foldedSql`, nothing stored), `samePeople` (`customers/accounts.ts`) is the subquery the checks
+read, and migration 0955's triggers refuse a second hold by such People. A trial page goes back
+only to whoever opened it for the same holder. A person
 merge moves subscriptions and trials to the survivor. With no event, past due gives access for 30
 days of failing, and an active one past its period keeps access while staff are told the events
 are not arriving (the minute cron, `subscriptions/sweep.ts`). Staff end one at once
@@ -1970,7 +1999,7 @@ and delete them when an order closes unpaid. Step 4 (migration 0854,
 acceptance never changes); triggers make the row when a person agrees (to the acceptance's own
 address) and when a guest's acceptance settles to its purchase (to the address it was bought
 with), and `agreement.copy.send` makes one for a paper form (an adult's to the Person's own address; a child's to the live parent or guardian staff pick, recorded as `guardian_id`, at that guardian's own address, ADR 0648, migration 0857; shown first by `agreement.copy.preview` and confirmed; a person
-with `agreements:paper`); no caller names an address and none can be changed. Erasing that guardian clears their address from the child's copy and owes its scrub; erasing the child never takes the guardian's address. Idempotency keys are kept apart by the class of queue sending (`hostPurpose`), the copy's refused to any other, and a caller's `listSent` never shows the host's agreements, sign-in or orders mail.
+with `agreements:paper`); no caller names an address and none can be changed. Erasing that guardian clears their address from the child's copy and owes its scrub; erasing the child never takes the guardian's address. Idempotency keys are kept apart by the class of queue sending (`hostPurpose`), and an ordinary caller's by the caller the host names (`callerKeySpace`, issue #286), the copy's refused to any other, and a caller's `listSent` never shows the host's agreements, sign-in or orders mail.
 `agreements/copy.ts` sends it after the commit, and the minute cron sends what did not go, through
 `callAsHost` with purpose `agreements`: the host's own mail, applied unless the deploy-time floor
 denies it, with a system origin so no AI's outbound check reads it, and the idempotency key
@@ -2073,7 +2102,11 @@ skin, operations, files, dependsOn, packages) in `blocks/` or `packs/<id>/blocks
 in the release's client kit and copied with `cos add`. The web base layer (`blocks/ui-*`) is
 generated from `packages/ui` (Radix underneath); the native base layer is `blocks/native-base`;
 sign-in ships in both skins. `scripts/check-blocks.mjs` (in `pnpm lint`) refuses a block that
-calculates a price, checks a capacity or checks a permission.
+calculates a price, checks a capacity or checks a permission, and a native block whose text or
+spinner takes no colour from `native-base/theme.ts` or that names a colour of its own (ADR 0424,
+amended 2026-11-24): a dark theme is the theme changed. A block may depend on a block of a pack its
+pack requires (the Courses players on Content's rich text); `cos add` and `cos deploy` read each
+pack's `requires` from the release's `roles.json`.
 
 **Screens in the admin** (stage 47, [ADR 0660](adr/0660-pack-screens-in-the-admin.md)): a shipped
 pack declares its staff screens (`screens` in its manifest: label, web block and export, `nav`,
@@ -2116,7 +2149,7 @@ and the mobile Account tab are plain pages over the same entry.
 | Ticketing | `states`, `capacity`, `sellable`, `customer`, `public`, `customerVia`, a `timezone` field, a pack role, payments | stage 27: objects, tools, check-in and the door role built |
 | Programs | `document`, `publishable` (no public half), `states`, `customer`, `signedIn` | stage 41: steps 1 to 6 built (the spine, the dashboard, views and Person tab, hooks and blocks, draft and import); Ghetto's app is step 7 |
 | Content | `publishable`, rich text, slugs, media | stage 28: steps 1 to 6 built (rich text, `publishable` completed, public reads, media, the editor, the pack: posts and categories, hooks, web and native renderers); the first client's import and blog routes are its own repository's |
-| Courses | `publishable`, `sellable` (grants and a tax code), `access` and holders' parts, `states`, `customer` with `requireAccess`, `requires: ["programs"]`, video media and `media.play` | stage 42: steps 1 to 4, 6, 7 and the draft built ([ADR 0478](adr/0478-the-courses-pack.md)); the import and the first client to come |
+| Courses | `publishable`, `sellable` (grants and a tax code), `access` and holders' parts, `states`, `customer` with `requireAccess`, `requires: ["programs", "content"]`, video media and `media.play` | stage 42: steps 1 to 4, 6, 7 and the draft built ([ADR 0478](adr/0478-the-courses-pack.md)); the import and the first client to come |
 | Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `staffed` (a class is its coach's shift, stage 45), `occupies` (a class takes a room marked "one booking at a time", stage 49 step 2, [ADR 0765](adr/0765-occupies-the-claim-on-a-thing.md)), `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer` with `guardians`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 6 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md); parents booking for their children, [ADR 0540](adr/0540-the-family-link.md)); step 7, attendance, moves and cancelling a class; step 8, drop-ins with `sellable.moves`, [ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md)); step 9, messages, the reminder, the dashboard and the coach's app screen, [ADR 0572](adr/0572-bookings-messages-the-dashboard-and-the-coachs-app-screen.md); step 10 to come |
 | Rostering | `recurring` (duty series, a horizon from its setting), `staffed` (a duty shift is its person's shift), `states`, a pack role (`rostering.team`), grantable and restricted permissions, the roster's rules (`staffing`), the host's tool-only `staffing.*` operations | stage 45: step 4 built (duties, duty series and shifts, the team role, the roster's tools, settings, [ADR 0626](adr/0626-the-rostering-pack-and-bookings-additions.md)); step 6 built (pay periods: `rostering:pay`, restricted and a person's only, who is counted, totals, the not-worked mark, lock, reopen and export, [ADR 0627](adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md)); step 5 built (each person's private calendar feed: `feed`, `feedRotate`, `feedRevoke`, [ADR 0628](adr/0628-the-staff-calendar-feed-and-the-shared-calendar-writer.md)); step 7 built (the screens as blocks over `@composable-os/pack-rostering/client`, my calendar among them, role clients with grants, `cos rostering import`, [ADR 0629](adr/0629-the-rosters-screens-role-clients-with-grants-and-the-roster-import.md)); checklists (4b) built (a duty's checklist, [ADR 0650](adr/0650-checklists-templates-runs-ticks-and-a-done-run-kept-unchanged.md)) |
 | Daily checklists | no objects: screens and tools over the host's tool-only day-run operations (`checklist.today`, `.day`, `.dayTick`, `.dayDone`, `.days`), tools open to every staff account (`anyStaff`) or held to `checklists:write` (`corePermission`) | built (checklists on their own, [ADR 0651](adr/0651-checklists-on-their-own-a-schedule-a-run-a-day-and-who-may-do-it.md), [ADR 0652](adr/0652-a-tool-for-every-staff-account-and-a-tool-held-to-a-core-permission.md)): Today's checklists (web and the app) and Checklist history; requires nothing |

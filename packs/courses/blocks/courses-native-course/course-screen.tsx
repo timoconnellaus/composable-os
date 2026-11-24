@@ -3,10 +3,10 @@
 // the web only (`noPurchase`). Whether the student holds the course is the host's (`useCourse`).
 import type { CoursesHooks } from "@composable-os/pack-courses/client";
 import { minutes } from "@composable-os/pack-courses/client";
-import { Text } from "react-native";
 import { List } from "../native-base/list.tsx";
 import { Row } from "../native-base/row.tsx";
 import { Screen } from "../native-base/screen.tsx";
+import { Text } from "../native-base/text.tsx";
 
 export function CourseScreen({
   courses,
@@ -21,7 +21,11 @@ export function CourseScreen({
   const { data: course, isPending, error } = courses.useCourse(slug);
   return (
     <Screen title={course?.title ?? "Course"}>
-      {isPending ? <Text accessibilityRole="progressbar">Loading the course…</Text> : null}
+      {isPending ? (
+        <Text tone="muted" accessibilityRole="progressbar">
+          Loading the course…
+        </Text>
+      ) : null}
       {error ? <Text accessibilityRole="alert">This course is not here.</Text> : null}
       {course ? (
         <>

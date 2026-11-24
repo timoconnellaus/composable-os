@@ -23,11 +23,12 @@ import {
   shiftTime,
 } from "@composable-os/pack-rostering/client";
 import { type ReactNode, useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { Button } from "../native-base/button.tsx";
 import { List } from "../native-base/list.tsx";
 import { Row } from "../native-base/row.tsx";
 import { Screen } from "../native-base/screen.tsx";
+import { Text } from "../native-base/text.tsx";
 import { type MyHoursHooks, MyHoursNative } from "./my-hours-screen.tsx";
 
 type Hooks = Pick<RosteringHooks, "useMe" | "useMine" | "useOffers" | "useOffer" | "useWithdraw"> &
@@ -76,7 +77,9 @@ export function MyShiftsScreen({
   return (
     <Screen title="My shifts">
       {me.isPending || mine.isPending ? (
-        <Text accessibilityRole="progressbar">Loading your shifts…</Text>
+        <Text tone="muted" accessibilityRole="progressbar">
+          Loading your shifts…
+        </Text>
       ) : null}
       {me.error || mine.error ? (
         <Text accessibilityRole="alert">{rosterRefusal(me.error ?? mine.error).message}</Text>

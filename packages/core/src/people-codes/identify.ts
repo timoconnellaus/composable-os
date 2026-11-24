@@ -13,19 +13,25 @@
 //   its slow hash; exactly one Person matching both.
 // A Person in the Trash (or merged away) is never found. Every miss answers the same `not_found`.
 //
-// Lock-outs (core_identify_lockout, per device, never per Person):
+// Lock-outs (core_identify_lockout per device; core_person_pin's count per Person):
 // - five failed name-and-PIN tries from one device in a minute lock name entry there for five
 //   minutes;
 // - twenty unknown codes from one device in a minute lock code entry there for a minute;
 // - ten wrong PINs for one Person in a day disable that PIN until the member sets it again.
 // A locked entry answers `locked` without checking anything.
 //
-// The counters are written at once, not in the calling tool's batch: a failed try counts even
-// when the tool then fails, and the calling tool is a read. Nothing typed is written anywhere.
+// Every try is counted before it is checked, and given back only when it finds someone: tries
+// sent together each see the ones before them, so parallel tries get no further than tries one by
+// one (the review of PR #382). The counters are written at once, not in the calling tool's batch:
+// a failed try counts even when the tool then fails, and the calling tool is a read. Nothing typed
+// is written anywhere.
+//
+// Time: a name and PIN always runs `NAME_CANDIDATES` slow hashes, stand-ins for the People there
+// are not, so a miss takes as long whether or not the name is someone's.
 //
 // Cost: an app code is one read of the code, its sign-in and its account, one of the idle setting,
 // and one of the link for a dependant's code; a card one read; a name at most `NAME_CANDIDATES`
-// People with PINs by the indexed name key. Each try writes at most two rows.
+// People with PINs by the indexed name key. Each try writes at most three statements.
 import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, sql } from "kysely";
 import { personNameKey } from "../duplicates/normalise.ts";
@@ -37,6 +43,7 @@ import {
   appCodeValue,
   normaliseCardCode,
   type PersonCodeKeys,
+  PIN_ITERATIONS,
   parseAppPayload,
   pinHash,
   sameInConstantTime,
@@ -87,50 +94,62 @@ export async function identifyPerson(
   input: IdentifyInput,
 ): Promise<Identified> {
   const entry = "code" in input ? "code" : "name";
-  if (await locked(db, at, entry)) return { outcome: "locked", entry };
+  // The try is counted before anything is checked (the review of PR #382): tries in flight at
+  // once each see the ones before them, so sending many together gets no more than one by one.
+  const window = await claimTry(db, at, entry);
+  if (window === null) return { outcome: "locked", entry };
   const found =
     "code" in input
       ? await byCode(db, keys, at.now, input.code)
       : await byNameAndPin(db, keys, at.now, input.name, input.pin);
-  if (!found) {
-    await countFailure(db, at, entry);
-    return NOT_FOUND;
-  }
+  if (!found) return NOT_FOUND;
+  await refundTry(db, at, entry, window);
   return found;
 }
 
-async function locked(
+/**
+ * Counts a try on the device, in one statement: a minute's window (an older one starts again at
+ * one), and the entry locked once a try goes past the limit. Null when the entry is locked; else
+ * when the try's window began, to give the try back if it finds someone.
+ */
+async function claimTry(
   db: Kysely<CoreDatabase>,
   at: { deviceId: string; now: Date },
   entry: "name" | "code",
-): Promise<boolean> {
-  const row = await db
-    .selectFrom("core_identify_lockout")
-    .select("locked_until")
-    .where("device_id", "=", at.deviceId)
-    .where("entry", "=", entry)
-    .executeTakeFirst();
-  return Boolean(row?.locked_until && row.locked_until > at.now.toISOString());
-}
-
-/** One failed try on the device: a minute's window, locking the entry at its limit. */
-async function countFailure(
-  db: Kysely<CoreDatabase>,
-  at: { deviceId: string; now: Date },
-  entry: "name" | "code",
-): Promise<void> {
+): Promise<string | null> {
   const now = at.now.toISOString();
   const windowOpen = new Date(at.now.getTime() - WINDOW_MS).toISOString();
   const limit = entry === "name" ? NAME_TRIES_PER_MINUTE : CODE_TRIES_PER_MINUTE;
-  const until = new Date(at.now.getTime() + (entry === "name" ? NAME_LOCK_MS : CODE_LOCK_MS));
-  // Every SET reads the row as it was: a window older than a minute starts again at one.
-  const failures = sql`CASE WHEN window_started_at <= ${windowOpen} THEN 1 ELSE failures + 1 END`;
-  await sql`INSERT INTO core_identify_lockout (device_id, entry, window_started_at, failures, locked_until)
-    VALUES (${at.deviceId}, ${entry}, ${now}, 1, ${limit <= 1 ? until.toISOString() : null})
+  const until = new Date(
+    at.now.getTime() + (entry === "name" ? NAME_LOCK_MS : CODE_LOCK_MS),
+  ).toISOString();
+  // Every SET reads the row as it was.
+  const tries = sql`CASE WHEN window_started_at <= ${windowOpen} THEN 1 ELSE failures + 1 END`;
+  const { rows } = await sql<{ window_started_at: string; locked_until: string | null }>`
+    INSERT INTO core_identify_lockout (device_id, entry, window_started_at, failures, locked_until)
+    VALUES (${at.deviceId}, ${entry}, ${now}, 1, NULL)
     ON CONFLICT (device_id, entry) DO UPDATE SET
-      locked_until = CASE WHEN ${failures} >= ${limit} THEN ${until.toISOString()} ELSE locked_until END,
-      failures = ${failures},
-      window_started_at = CASE WHEN window_started_at <= ${windowOpen} THEN ${now} ELSE window_started_at END`.execute(
+      locked_until = CASE
+        WHEN locked_until > ${now} THEN locked_until
+        WHEN ${tries} > ${limit} THEN ${until}
+        ELSE locked_until END,
+      failures = ${tries},
+      window_started_at = CASE WHEN window_started_at <= ${windowOpen} THEN ${now} ELSE window_started_at END
+    RETURNING window_started_at, locked_until`.execute(db);
+  const row = rows[0];
+  if (!row || (row.locked_until && row.locked_until > now)) return null;
+  return row.window_started_at;
+}
+
+/** A try that found someone was not a failure: given back, if its window is still the row's. */
+async function refundTry(
+  db: Kysely<CoreDatabase>,
+  at: { deviceId: string },
+  entry: "name" | "code",
+  window: string,
+): Promise<void> {
+  await sql`UPDATE core_identify_lockout SET failures = MAX(failures - 1, 0)
+    WHERE device_id = ${at.deviceId} AND entry = ${entry} AND window_started_at = ${window}`.execute(
     db,
   );
 }
@@ -242,6 +261,9 @@ async function used(db: Kysely<CoreDatabase>, codeId: string, now: Date): Promis
     .execute();
 }
 
+/** A salt no PIN has: the stand-in checks run against it, so every try costs the same. */
+const STAND_IN_SALT = new Uint8Array(16);
+
 async function byNameAndPin(
   db: Kysely<CoreDatabase>,
   keys: PersonCodeKeys,
@@ -250,27 +272,66 @@ async function byNameAndPin(
   pin: string,
 ): Promise<Identified | null> {
   const key = personNameKey(name);
-  if (!key || !/^\d{4}$/.test(pin)) return null;
+  const wellFormed = key !== null && /^\d{4}$/.test(pin);
   // People with a PIN whose name, as their record lists it, has the same key (indexed).
-  const named = await db
-    .selectFrom("core_person as p")
-    .innerJoin("core_person_pin as n", "n.person_id", "p.id")
-    .select(["p.id", "n.hash", "n.salt", "n.iterations"])
-    .where("p.name_key", "=", key)
-    .where("p.deleted_at", "is", null)
-    .where("n.disabled_at", "is", null)
-    .orderBy("p.id")
-    .limit(NAME_CANDIDATES)
-    .execute();
-  if (!named.length) return null;
+  const named = wellFormed
+    ? await db
+        .selectFrom("core_person as p")
+        .innerJoin("core_person_pin as n", "n.person_id", "p.id")
+        .select(["p.id", "n.hash", "n.salt", "n.iterations"])
+        .where("p.name_key", "=", key)
+        .where("p.deleted_at", "is", null)
+        .where("n.disabled_at", "is", null)
+        .orderBy("p.id")
+        .limit(NAME_CANDIDATES)
+        .execute()
+    : [];
+  const at = now.toISOString();
+  // Each candidate's try is counted before the PIN is checked (the review of PR #382): a try past
+  // the day's limit disables the PIN at once and is not checked, however many arrive together.
+  let counted = new Map<string, number>();
+  if (named.length) {
+    const dayOpen = new Date(now.getTime() - DAY_MS).toISOString();
+    const fresh = sql<boolean>`failed_since IS NULL OR failed_since <= ${dayOpen}`;
+    const count = sql<number>`CASE WHEN ${fresh} THEN 1 ELSE failed_count + 1 END`;
+    const claimed = await db
+      .updateTable("core_person_pin")
+      .set({
+        disabled_at: sql`CASE WHEN ${count} > ${PIN_TRIES_PER_DAY} THEN ${at} ELSE disabled_at END`,
+        failed_count: count,
+        failed_since: sql`CASE WHEN ${fresh} THEN ${at} ELSE failed_since END`,
+      })
+      .where(
+        "person_id",
+        "in",
+        named.map((row) => row.id),
+      )
+      .where("disabled_at", "is", null)
+      .returning(["person_id", "failed_count", "disabled_at"])
+      .execute();
+    counted = new Map(
+      claimed
+        .filter((row) => row.disabled_at === null)
+        .map((row) => [row.person_id, row.failed_count]),
+    );
+  }
+  const checked = named.filter((row) => counted.has(row.id));
+  // Always NAME_CANDIDATES slow hashes, stand-ins for the candidates there are not, so how long a
+  // miss takes says nothing about whether the name is someone's (the review of PR #382).
   const matched: string[] = [];
   const wrong: string[] = [];
-  for (const row of named) {
-    const hash = await pinHash(keys, pin, fromBase64url(row.salt), row.iterations);
-    (sameInConstantTime(hash, row.hash) ? matched : wrong).push(row.id);
+  for (let i = 0; i < NAME_CANDIDATES; i += 1) {
+    const row = checked[i];
+    const hash = await pinHash(
+      keys,
+      pin,
+      row ? fromBase64url(row.salt) : STAND_IN_SALT,
+      row?.iterations ?? PIN_ITERATIONS,
+    );
+    if (row) (sameInConstantTime(hash, row.hash) ? matched : wrong).push(row.id);
   }
-  const at = now.toISOString();
   if (matched.length === 1) {
+    // The right PIN: its try was not a wrong one.
     await db
       .updateTable("core_person_pin")
       .set({ failed_count: 0, failed_since: null })
@@ -278,19 +339,14 @@ async function byNameAndPin(
       .execute();
     return { outcome: "found", personId: matched[0] as string, via: "pin", family: false };
   }
-  // Two People of the same name with the same PIN: neither is found, and neither PIN was wrong.
-  if (!matched.length && wrong.length) {
-    const dayOpen = new Date(now.getTime() - DAY_MS).toISOString();
-    const fresh = sql<boolean>`failed_since IS NULL OR failed_since <= ${dayOpen}`;
-    const count = sql<number>`CASE WHEN ${fresh} THEN 1 ELSE failed_count + 1 END`;
+  // The tenth wrong PIN of the day disables it. (Two People of the same name with the same PIN find
+  // neither; their tries stay counted.)
+  const spent = wrong.filter((id) => (counted.get(id) ?? 0) >= PIN_TRIES_PER_DAY);
+  if (spent.length) {
     await db
       .updateTable("core_person_pin")
-      .set({
-        disabled_at: sql`CASE WHEN ${count} >= ${PIN_TRIES_PER_DAY} THEN ${at} ELSE disabled_at END`,
-        failed_count: count,
-        failed_since: sql`CASE WHEN ${fresh} THEN ${at} ELSE failed_since END`,
-      })
-      .where("person_id", "in", wrong)
+      .set({ disabled_at: at })
+      .where("person_id", "in", spent)
       .where("disabled_at", "is", null)
       .execute();
   }

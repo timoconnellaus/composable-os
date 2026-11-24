@@ -341,6 +341,22 @@ describe("cos deploy", () => {
     );
   });
 
+  it("installs the packs a listed pack requires with it (Courses: Programs and Content)", async () => {
+    await publish("1.0.0");
+    const dir = await created();
+    setPacks(dir, ["courses"]);
+    const deployed = await cos("deploy", "--skip-build", "--no-typecheck");
+    expect(deployed.code, deployed.output).toBe(0);
+    expect(deployed.output).toContain("Installing programs, content too");
+    expect(world.cf.liveBinding("shop-runner", "COS_PACKS")?.text).toBe("courses,programs,content");
+    // Listed already, nothing is brought or said.
+    setPacks(dir, ["content", "programs", "courses"]);
+    const again = await cos("deploy", "--skip-build", "--no-typecheck");
+    expect(again.code, again.output).toBe(0);
+    expect(again.output).not.toContain("too: a pack product.ts lists requires");
+    expect(world.cf.liveBinding("shop-runner", "COS_PACKS")?.text).toBe("content,programs,courses");
+  });
+
   it("trusts only packs.json: a tool in the contract does not make a pack carried", async () => {
     // A release built before every pack was carried: its runner had the CRM's three packs, while
     // its contract (the union over the repository) already named Ticketing's tools.
@@ -1189,6 +1205,38 @@ describe("blocks (criterion 10)", () => {
     const generated = await cos("client", "generate");
     expect(generated.code, generated.output).toBe(0);
     expect(read(dir, "apps/web/src/client/customer.ts")).toContain('"me.get"');
+  });
+
+  it("copies Content's rich text with the Courses player, which a text lesson needs", async () => {
+    await publish("1.0.0");
+    const dir = await created();
+    // Only Courses listed: it requires Content, so the host installs it and its block may come.
+    setPacks(dir, ["courses"]);
+    writeFileSync(
+      join(dir, "product.ts"),
+      read(dir, "product.ts").replace(
+        /(\n\s*web: \{[^\n]*\},)/,
+        '$1\n  mobile: { dir: "apps/mobile" },',
+      ),
+    );
+    const web = await cos("add", "courses-player");
+    expect(web.code, web.output).toBe(0);
+    const native = await cos("add", "courses-native-player");
+    expect(native.code, native.output).toBe(0);
+    expect(existsSync(join(dir, "apps/web/src/blocks/content-rich-text/rich-text.tsx"))).toBe(true);
+    expect(
+      existsSync(join(dir, "apps/mobile/src/blocks/content-native-rich-text/rich-text-view.tsx")),
+    ).toBe(true);
+    expect(web.output).toMatch(/@composable-os\/pack-content@1\.0\.0/);
+    expect(Object.keys(JSON.parse(read(dir, "blocks.lock.json"))).sort()).toEqual([
+      "content-native-rich-text",
+      "content-rich-text",
+      "courses-native-player",
+      "courses-player",
+      "native-base",
+      "ui-button",
+      "ui-utils",
+    ]);
   });
 
   it("refuses a block of a pack the product does not list", async () => {

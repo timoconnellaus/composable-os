@@ -297,8 +297,9 @@ export const staffingCandidates = defineOperation({
             object: c.object,
             id: c.id,
             title: titles.get(`${c.object}\u0000${c.id}`) ?? getObject(c.object)?.label ?? "shift",
-            startsAt: iso(c.starts),
-            endsAt: iso(c.ends),
+            // The other shift's own time, not its claim's margins (ADR 0760).
+            startsAt: iso(c.own.starts),
+            endsAt: iso(c.own.ends),
           }
         : null;
       const strict = quals?.strict.has(p.account) ?? false;
