@@ -14,7 +14,6 @@
 import { env } from "cloudflare:workers";
 import {
   type ActingUser,
-  type ExtensionHost,
   extensionDashboardId,
   type InvocationContext,
   invokeByName,
@@ -25,56 +24,8 @@ import {
 import { beforeAll, describe, expect, it } from "vitest";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host } from "./helpers.ts";
-
-const packFiles = (glob: Record<string, string>) =>
-  Object.fromEntries(
-    Object.entries(glob)
-      .map(([path, text]) => [path.split("/").pop() as string, text] as const)
-      .filter(([name]) => name !== "vitest.config.ts"),
-  );
-const files: Record<string, Record<string, string>> = {
-  programs: packFiles(
-    import.meta.glob<string>("../../../packs/programs/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-  bookings: packFiles(
-    import.meta.glob<string>("../../../packs/bookings/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-  memberships: packFiles(
-    import.meta.glob<string>("../../../packs/memberships/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-};
-const OURS = new Set(Object.keys(files));
-const shippedHost: ExtensionHost = {
-  ...host,
-  shipped: async () => [
-    ...(await host.shipped()).filter((s) => !OURS.has(s.id)),
-    { id: "bookings", version: "0.1.0" },
-    { id: "memberships", version: "0.1.0" },
-    { id: "programs", version: "0.1.0" },
-  ],
-  commitShipped: (id) =>
-    files[id]
-      ? host.commit({
-          id,
-          files: files[id] as Record<string, string>,
-          message: `Shipped ${id} 0.1.0`,
-          author: { name: "Composable OS", email: "release@composableos.dev" },
-        })
-      : host.commitShipped(id),
-};
+import { createAdmin, db } from "./helpers.ts";
+import { gymHost as shippedHost } from "./pack-files.ts";
 
 const integrations = integrationRuntime(env);
 const DAY = 86_400_000;

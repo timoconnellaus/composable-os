@@ -20,7 +20,6 @@ import {
   type ExtensionHost,
   getObject,
   type InvocationContext,
-  invokeByName,
   type OutsideInvocationContext,
   refreshSchemaRegistry,
   setVideoHost,
@@ -35,36 +34,13 @@ import type { Outline } from "../../../packs/courses/outline.ts";
 import { automationHost } from "../src/automations/host.ts";
 import { blobStore, integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, unique } from "./helpers.ts";
+import { createAdmin, db, host, newCustomer, refusal, run } from "./helpers.ts";
+import { packFiles } from "./pack-files.ts";
 
-const packFiles = (glob: Record<string, string>) =>
-  Object.fromEntries(
-    Object.entries(glob)
-      .map(([path, text]) => [path.split("/").pop() as string, text] as const)
-      .filter(([name]) => name !== "vitest.config.ts"),
-  );
 const files = {
-  programs: packFiles(
-    import.meta.glob<string>("../../../packs/programs/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-  content: packFiles(
-    import.meta.glob<string>("../../../packs/content/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-  courses: packFiles(
-    import.meta.glob<string>("../../../packs/courses/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
+  programs: packFiles("programs"),
+  content: packFiles("content"),
+  courses: packFiles("courses"),
 };
 
 /** The extension host of a deployment whose product lists Programs, Content and Courses. */
@@ -125,47 +101,12 @@ const as = (principal: CustomerPrincipal, extra: Partial<OutsideInvocationContex
     ...extra,
   }) as OutsideInvocationContext;
 
-function run<T = Record<string, unknown>>(
-  name: string,
-  input: unknown,
-  ctx: InvocationContext | OutsideInvocationContext,
-): Promise<T> {
-  return invokeByName(name, input, ctx) as Promise<T>;
-}
-
-async function refusal(call: Promise<unknown>) {
-  try {
-    await call;
-  } catch (error) {
-    const e = error as { code?: string; message?: string; details?: Record<string, unknown> };
-    return { code: e.code, message: e.message, inner: e.details?.code, details: e.details };
-  }
-  throw new Error("expected a refusal");
-}
-
 const create = async (object: string, values: Record<string, unknown>) =>
   (await run<{ id: string }>("record.create", { object, values }, staff(admin))).id;
 const publish = (object: string, id: string) => run("record.publish", { object, id }, staff(admin));
 
-async function createCustomer(
-  label: string,
-): Promise<{ principal: CustomerPrincipal; email: string }> {
-  const tag = unique(label).toLowerCase();
-  const email = `${tag}@students.test`;
-  const person = await run<{ id: string }>(
-    "person.create",
-    { givenName: `Given-${tag}`, emails: [{ email }] },
-    staff(admin),
-  );
-  const customerId = `cus_${tag}`;
-  const now = new Date().toISOString();
-  await env.DB.prepare(
-    "INSERT INTO core_customer (id, person_id, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
-  )
-    .bind(customerId, person.id, email, now, now)
-    .run();
-  return { principal: { kind: "customer", customerId, personId: person.id }, email };
-}
+const createCustomer = (label: string) =>
+  newCustomer(staff(admin), label, { domain: "students.test" });
 
 /** A ready video in the library, uploaded the way the admin does (the fake Stream). */
 async function readyVideo(name: string): Promise<string> {

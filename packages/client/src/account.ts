@@ -11,7 +11,7 @@
 // Later steps add to it: what needs the customer's attention (`me.attention`), which pack sections
 // a customer has (`me.portal`), changing the sign-in address and deleting the account.
 import type { QueryName } from "./client.ts";
-import type { ClientHolding, PackClient } from "./hooks.ts";
+import type { ClientHolding, PackClient, UseMutation, UseQuery } from "./hooks.ts";
 import { packHooks } from "./hooks.ts";
 
 // --- What the host answers ------------------------------------------------------------------------
@@ -607,25 +607,9 @@ export async function loadOrders(api: AccountClient, cursor?: string): Promise<O
 
 // --- Hooks ---------------------------------------------------------------------------------------
 
-/** The app's `useQuery`, as far as these hooks use it. */
-export type AccountUseQuery = <T>(options: {
-  queryKey: readonly unknown[];
-  queryFn: () => Promise<T>;
-  enabled?: boolean;
-}) => { data: T | undefined; isPending: boolean; error: unknown; refetch?: () => unknown };
-
-/** The app's `useMutation`, as far as these hooks use it. */
-export type AccountUseMutation = <I, O>(options: {
-  mutationKey: readonly unknown[];
-  mutationFn: (input: I) => Promise<O>;
-}) => {
-  mutate(input: I): void;
-  mutateAsync(input: I): Promise<O>;
-  data: O | undefined;
-  isPending: boolean;
-  error: unknown;
-  reset?: () => void;
-};
+/** The app's `useQuery` and `useMutation`, as far as these hooks use them. */
+export type AccountUseQuery = UseQuery;
+export type AccountUseMutation = UseMutation;
 
 /** The operations each hook calls (ADR 0453). */
 export const ACCOUNT_HOOKS_CALL = {

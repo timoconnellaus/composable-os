@@ -3,28 +3,18 @@
 // natively (tokens, no cookie), and reads their order. An address with only an abandoned
 // checkout, and one with no order, get the same answer and no code.
 import { env } from "cloudflare:workers";
-import { createIdentityProvider } from "@composable-os/auth";
 import { newId } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
 import { handleApi, handleCustomerAuth } from "../src/server/http/api.ts";
-import { runOperation } from "../src/server/operations.ts";
 import { boundTestEnv, sentCodes, WEB_ORIGIN } from "./bound-env.ts";
-import { ORIGIN, signUp, type TestUser, unique } from "./mcp-helpers.ts";
+import { callAs, ORIGIN, signUp, type TestUser, unique } from "./mcp-helpers.ts";
 
 const hostEnv = boundTestEnv(env);
 const db = createCrmDb(env.DB);
 let admin: TestUser;
 
-async function asAdmin(name: string, input: unknown) {
-  const principal = await createIdentityProvider(hostEnv as never).resolve(
-    new Request(ORIGIN, { headers: { cookie: admin.cookie } }),
-  );
-  const result = await runOperation(hostEnv as never, principal, { name, input }, ORIGIN);
-  if (!result.ok) throw new Error(JSON.stringify(result.error));
-  // biome-ignore lint/suspicious/noExplicitAny: a test reads whatever the operation returns
-  return result.data as any;
-}
+const asAdmin = (name: string, input: unknown) => callAs(hostEnv, admin, name, input);
 
 /** An order for `email` as stage 25 leaves one: its Person, its state, what was paid. */
 async function order(email: string, state: string, paid: number): Promise<string> {

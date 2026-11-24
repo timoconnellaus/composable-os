@@ -19,6 +19,7 @@ import {
   TRASH_RETENTION_DAYS,
 } from "../records/common.ts";
 import { queueEraseLinks } from "../records/person-links.ts";
+import { queueEraseRestricted } from "../records/restricted.ts";
 import { visibleTable } from "../visibility/index.ts";
 
 /**
@@ -276,6 +277,11 @@ export const trashPurge = defineOperation({
     // And their agreements as an erased Person's (ADRs 0642 and 0646): answers gone, acceptances
     // kept detached for the retention period, a copy's waiting approval turned down.
     await queueEraseAgreements(
+      ctx,
+      purged.filter((r) => r.object === "person").map((r) => r.id),
+    );
+    // And the restricted values of what they wrote as a customer (ADR 0811).
+    await queueEraseRestricted(
       ctx,
       purged.filter((r) => r.object === "person").map((r) => r.id),
     );

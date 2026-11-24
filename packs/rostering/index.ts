@@ -15,7 +15,8 @@
 //     are the host's (ADRs 0622 to 0625), read from this pack's settings (`staffing`);
 //   - who is on a duty shift, and a duty series' regular person, are a person's to change
 //     (`personApproves`): an assistant's change waits for a person.
-// The tools in tools.ts compose the host's tool-only `staffing.*` operations and add no rules.
+// The tools in tools.ts compose the host's tool-only `staffing.*` operations (and `checklist.*`
+// for a duty shift's checklist) and add no rules.
 //
 // Who may do what (the permissions are the pack's, ADRs 0600 and 0625):
 //   - `rostering:team`: the team role's (a cleaner with no other access): the roster, their own
