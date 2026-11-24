@@ -547,8 +547,8 @@ may override any of them.
   the next free numbers. No migration. Tests: `packages/core/test/pack-role-mine.test.ts`
   (criterion 6's reach on a fixture pack: the window, the states, the Trash, another account, a
   filter, a page, a projection, a carried limit's writes and refusals, the declaration's checks,
-  the bound values) and `apps/runner/test/pack-role-mine.test.ts` (inside a tool run and a tool it
-  calls). Left for step 5: the `jobs.crew` role declaring it on jobs, visits, crew places and sites;
+  the bound values) and `apps/runner/test/pack-role-mine.test.ts` (inside a tool run and another
+  pack's tool it calls). Left for step 5: the `jobs.crew` role declaring it on jobs, visits, crew places and sites;
   opening, each with a check against the reach, the core operations the crew tools call (tasks,
   stage 58's clocking, checklist ticks); prices without `jobs:prices` and access notes on the
   visit's day only (field rules, not the reach).

@@ -124,6 +124,7 @@ values; a reach naming what the registry cannot read matches nothing. The declar
 refuse each bad declaration above. Removing the list's predicate fails eight of its tests;
 dropping the deciding-field check fails two.
 `apps/runner/test/pack-role-mine.test.ts`, in the real sandbox: a tool run carrying the limit
-lists and opens only the reached job, follows into a tool that tool calls, renames only the
-reached job, cannot repoint a crew place, and is refused `record.count`.
+lists and opens only the reached job, follows into another pack's tool it calls (an extension
+cannot call its own), renames only the reached job, cannot repoint a crew place, and is refused
+`record.count`; without the carry in the executor all three of its tests fail.
 `packages/extension-check/test/check.test.ts`: `cos ext check` names the reach.

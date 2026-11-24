@@ -3,11 +3,13 @@
 // sandbox: a member's call carrying a crew account's limit (as the pipeline gives a tool the role
 // allows) reaches through the tool only the jobs the account has a place on, finds no other,
 // changes no field deciding the reach and runs no operation the limit cannot check.
+import { env } from "cloudflare:workers";
 import { type ActingUser, invokeByName, type MineLimit } from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import { call, context, createAdmin, install, source, unique } from "./helpers.ts";
 
 const id = unique("mine");
+const relay = unique("relay");
 const JOB = `${id}.job`;
 const PLACE = `${id}.place`;
 let admin: ActingUser;
@@ -33,8 +35,17 @@ async function outcome(run: Promise<unknown>) {
   try {
     return { ok: true as const, value: await run };
   } catch (error) {
-    const e = error as { code?: string; details?: { code?: string; rule?: string } };
-    return { ok: false as const, code: e.details?.code ?? e.code, rule: e.details?.rule };
+    const e = error as {
+      code?: string;
+      message?: string;
+      details?: { code?: string; rule?: string };
+    };
+    return {
+      ok: false as const,
+      code: e.details?.code ?? e.code,
+      rule: e.details?.rule,
+      message: e.message,
+    };
   }
 }
 
@@ -46,7 +57,7 @@ beforeAll(async () => {
     id,
     source(
       id,
-      `permissions: { modules: ["ops"], operations: ["x.${id}.peek"] },
+      `permissions: { modules: ["ops"] },
   objects: {
     job: { label: "Job", plural: "Jobs", titleField: "name", fields: { name: { type: "text", label: "Name", required: true } } },
     place: {
@@ -61,13 +72,35 @@ beforeAll(async () => {
   tools: {
     ${tool("peek", "id: z.string()", `return ctx.ops.call("record.get", { object: "${JOB}", id: input.id });`)}
     ${tool("all", "", `return ctx.ops.call("record.list", { object: "${JOB}" });`)}
-    ${tool("relay", "id: z.string()", `return ctx.ops.call("x.${id}.peek", { id: input.id });`)}
     ${tool("rename", "id: z.string()", `return ctx.ops.call("record.update", { object: "${JOB}", id: input.id, values: { name: "renamed" } });`)}
     ${tool("repoint", "id: z.string(), job: z.string()", `return ctx.ops.call("record.update", { object: "${PLACE}", id: input.id, values: { job: input.job } });`)}
     ${tool("count", "", `return ctx.ops.call("record.count", { object: "${JOB}" });`)}
   },`,
     ),
   );
+  // A second pack whose tool calls the first's. A runtime extension may not call another's tool:
+  // make it what a shipped one would be, its stored manifest edited in place (as
+  // customer-tool.test.ts does).
+  await install(
+    admin,
+    relay,
+    source(
+      relay,
+      `permissions: { modules: ["ops"] },
+  objects: {},
+  tools: {
+    ${tool("relay", "id: z.string()", `return ctx.ops.call("x.${id}.peek", { id: input.id });`)}
+  },`,
+    ),
+  );
+  const row = await env.DB.prepare("SELECT manifest FROM core_extensions WHERE id = ?")
+    .bind(relay)
+    .first<{ manifest: string }>();
+  const stored = JSON.parse(row?.manifest ?? "{}");
+  stored.permissions.operations = [`x.${id}.peek`];
+  await env.DB.prepare("UPDATE core_extensions SET source = 'shipped', manifest = ? WHERE id = ?")
+    .bind(JSON.stringify(stored), relay)
+    .run();
   const create = async (object: string, values: Record<string, unknown>) =>
     (await call<{ id: string }>(admin, "record.create", { object, values })).id;
   reached = await create(JOB, { name: unique("reached") });
@@ -94,14 +127,18 @@ describe("a tool run carrying the mine reach", () => {
     ).toMatchObject({ ok: true });
   });
 
-  it("follows the run into a tool it calls", async () => {
-    expect(await outcome(invokeByName(`x.${id}.relay`, { id: reached }, carrying()))).toMatchObject(
-      { ok: true },
-    );
-    expect(await outcome(invokeByName(`x.${id}.relay`, { id: theirs }, carrying()))).toMatchObject({
-      ok: false,
-      code: "not_found",
-    });
+  it("follows the run into another pack's tool it calls", async () => {
+    expect(
+      await outcome(invokeByName(`x.${relay}.relay`, { id: reached }, carrying())),
+    ).toMatchObject({ ok: true });
+    // The called tool's not-found comes back inside the calling tool's error.
+    const refused = await outcome(invokeByName(`x.${relay}.relay`, { id: theirs }, carrying()));
+    expect(refused.ok).toBe(false);
+    expect(JSON.stringify(refused)).toContain(`No ${JOB} with id ${theirs}`);
+    // Without the limit the same nested call reaches it.
+    expect(
+      await outcome(invokeByName(`x.${relay}.relay`, { id: theirs }, context(admin))),
+    ).toMatchObject({ ok: true });
   });
 
   it("changes only what it reaches, never what decides the reach, and nothing it cannot check", async () => {
