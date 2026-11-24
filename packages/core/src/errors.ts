@@ -489,6 +489,27 @@ export function toOperationError(error: unknown): OperationError {
       { rule: "checklist_closed" },
     );
   }
+  // A day's checklist (migration 0816, ADR 0651) ticked or finished for someone who may not do it,
+  // or for someone by someone who does not manage checklists: the host reads this first, so here
+  // it is a race (an account deactivated, made a viewer or losing its role or grant meanwhile).
+  if (message.includes("core_checklist_not_allowed")) {
+    return new ForbiddenError(
+      "You may not tick or finish this checklist, so nothing was changed.",
+      {
+        rule: "checklist_not_allowed",
+      },
+    );
+  }
+  // A day's checklist ticked outside its day, or closed as missed before its day ended or by
+  // someone (migration 0817): the host reads its window first.
+  if (message.includes("core_checklist_window")) {
+    return new ConflictError(
+      "This checklist is ticked on its own day only, and missed only after it.",
+      {
+        rule: "checklist_window",
+      },
+    );
+  }
   if (message.includes("core_checklist_incomplete")) {
     return new ValidationError(
       "Not every required step of this checklist is ticked, so it was not marked done.",

@@ -184,8 +184,8 @@ export const done = defineTool({
 export const history = defineTool({
   description:
     "How each day went, from `from` to `to` (local dates, at most 62 days): every checklist " +
-    "done on its own, whether it was done (by whom, for whom, when, late or not) or missed " +
-    "(with the steps nobody ticked). Those who manage checklists, a person only.",
+    "done on its own, whether it was done (by whom, for whom, when, late or not, and how many " +
+    "steps were ticked not done) or missed (with the steps nobody ticked). Those who manage checklists, a person only.",
   input: z.object({
     from: localDate,
     to: localDate,
@@ -206,6 +206,7 @@ export const history = defineTool({
         finishedFor: z.string().nullable(),
         steps: z.number(),
         ticked: z.number(),
+        notDone: z.number(),
         onBehalf: z.number(),
         missed: z.array(z.string()),
       }),

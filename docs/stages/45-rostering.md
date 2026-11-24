@@ -1255,6 +1255,14 @@ alone: opening, closing, cleaning; the roster and hours later).
 - **Not in this step**: corrections beside a day run, several runs a day, schedules by date or
   closures, reminders before the due time, offline ticking, an export; not yet tried on a live host
   or the app's screen on a phone.
+- **Review fixes (2026-11-24, after #383)**: migration 0817 (block AV) holds *when* in the database
+  too (a tick inside its day; missed only after the day ends, and by nobody); a day's run is found
+  by the date in its record, so moving the business's zone never shows a missed day as open; the
+  triggers' `core_checklist_not_allowed` and `_window` are answered as refusals, not internal
+  errors; `checklist.whoChoices` (it lists the grantable permissions) is held to
+  `checklists:write`, a person only, off MCP; every manager is told of a missed day however many
+  accounts hold other grants; a tick and a finish answer the run as committed; the history counts
+  the steps ticked not done.
 
 **The spine is steps 2 to 4**: without the claim, the rules and the permissions, nothing can be
 rostered safely. Step 1 is built; step 2 can start now and is the riskiest (every write that covers

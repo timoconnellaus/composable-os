@@ -54,10 +54,12 @@ describe("core registry", () => {
         // may start a desk session, agreements:desk (ADR 0649).
         // The finance months and figures are read only with finance:read (stage 52, ADR 0794).
         // The booking system's copy, its lists and To match with bookingSystem:manage (stage 65,
-        // ADR 0922).
+        // ADR 0922). Whom a checklist done on its own can be for (checklist.whoChoices, ADR 0651:
+        // the grantable permissions among them) is read by whoever writes checklists.
         if (op.risk === "read") {
           expect([
             "bookingSystem:manage",
+            "checklists:write",
             "journeys:read",
             "journeys:manage",
             "agreements:desk",
