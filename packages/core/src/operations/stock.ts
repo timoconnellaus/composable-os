@@ -14,6 +14,8 @@ import { getObject } from "../fields/index.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { movementStatements, readStockNumbers, STOCK_PLACE } from "../stock/index.ts";
+import { watchLow } from "../stock/low.ts";
+import "../stock/sold.ts";
 import { unknownObject } from "../visibility/customer.ts";
 import { orgReader, visibleTable } from "../visibility/index.ts";
 
@@ -244,6 +246,7 @@ export const stockOpening = defineOperation({
       ctx.now,
     );
     ctx.write(...movement.statements);
+    watchLow(ctx, input.object, [input.id]);
     ctx.recordChange({
       object: "stock_movement",
       id: movement.id,
@@ -305,6 +308,7 @@ export const stockAdjust = defineOperation({
       ctx.now,
     );
     ctx.write(...movement.statements);
+    watchLow(ctx, input.object, [input.id]);
     ctx.recordChange({
       object: "stock_movement",
       id: movement.id,

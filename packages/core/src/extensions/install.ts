@@ -430,6 +430,15 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
         message: `A runtime extension cannot give ${name} stock the host sells from. ${why}`,
       });
     }
+    // A state moving stock writes the host's ledger (ADR 0681): a reviewed change, as stock is.
+    if (object.stockMoves) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.stockMoves`,
+        message: `A runtime extension cannot make ${name}'s states move stock. ${why}`,
+      });
+    }
     // Who works when feeds pay, and claims staff accounts' time (ADR 0621): a reviewed change.
     if (object.staffed) {
       issues.push({

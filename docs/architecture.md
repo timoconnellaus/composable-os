@@ -2121,6 +2121,29 @@ what `show` allows; `stock.movements` and `rec_stock_movement` read the ledger. 
 refuses adding `stock` to an object that has records, or taking it off one, so every stock counter
 started with nothing on hand.
 
+**`stockMoves`** (stage 37 step 2, [ADR 0681](adr/0681-stock-moves-a-record-s-state-moves-stock.md),
+`packages/core/src/stock/moves.ts`). A record's state moves stock:
+`stockMoves: { move: "add" | "remove" | "set", on, quantity, when, through?, kind?, unitCost?, note? }`.
+When the record enters `when` (a state nothing leaves), the transition engine (`records/lifecycle.ts`)
+writes a movement of its `quantity` on the record `on` points to, in the move's batch, for every
+actor: a receipt `received` adds (`received`, with its unit cost), a write-off removes
+(`written_off` or `used`), a count line sets on hand to the number counted (`counted`, the
+difference from on hand worked out as the batch commits). With `through`, the state is another
+record's (a count's `applied`) and all its live lines move at once. Three statements whatever the
+number of lines (up to 500), the lines as one JSON parameter; too few on hand, or a count below what
+unpaid orders hold, fails the batch with the counter's numbers. What fed a movement cannot change
+afterwards, and a moved record's lines cannot be added or changed. A runtime extension cannot
+declare it.
+
+**Low stock** (stage 37 step 2, ADR 0681, `packages/core/src/stock/low.ts`). When a write takes a
+stock record's on hand to or below its reorder level (`stock.reorderAt`), the staff who hold the
+pack's `stock.notify` permission (else the admins) get an in-app notice, once until it rises above
+again. Every write that changes on hand (opening, a correction, `stockMoves`, a paid order's sale in
+`stock/sold.ts`, a changed level) notes its records; at the end of its batch (`beforeCommit`) three
+statements per object end the crossings of records now above, begin one (`core_stock_low`,
+migration 0931) for records at or below, and tell each keeper once per crossing (the notice's
+dedupe key is the crossing's).
+
 **`allowance`** (stage 32b, ADRs [0493](adr/0493-the-allowance-behaviour.md) and
 [0494](adr/0494-which-holder-pays-and-what-happens-to-uses.md), `packages/sdk/src/allowance.ts`,
 `packages/core/src/allowance/`). An object `holds` uses (a pass, a membership: its Person, uses per

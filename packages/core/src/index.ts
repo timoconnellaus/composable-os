@@ -368,6 +368,8 @@ export {
 } from "./staffing/feed.ts";
 export * from "./staffing/index.ts";
 export * from "./stock/index.ts";
+export * from "./stock/low.ts";
+export * from "./stock/moves.ts";
 export * from "./subscriptions/index.ts";
 export * from "./support.ts";
 export * from "./sync/ingest.ts";

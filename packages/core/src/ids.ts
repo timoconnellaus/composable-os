@@ -78,6 +78,8 @@ export const ID_PREFIXES = {
   capacityClaim: "clm",
   /** A movement in the stock ledger (stage 37, ADR 0680); a sale's is named after its claim. */
   stockMovement: "stm",
+  /** A stock record's time at or below its reorder level (ADR 0681). */
+  stockLow: "stl",
   /** A use spent from an allowance holder by a spender (stage 32b, ADR 0493). */
   allowanceUse: "alu",
   /** A Person's one purchase of something sold once per Person (stage 32b, ADR 0512). */

@@ -54,7 +54,24 @@ questions at the end refine later steps and block none of the first ones.
   `stock:adjust`); "sellable with `goods` or
   used by `stockMoves`" is checked when steps 2 and 3 add those. After review: the reconciler
   refuses adding `stock` to an object with records, or taking it off one (`stock_change`), and
-  `stock.get` gives staff the last five movements. Left: steps 2 to 14.
+  `stock.get` gives staff the last five movements.
+- **Step 2, `stockMoves` and low stock** (`feat/stage-37-stock-moves`; migration 0931, ADR 0681,
+  which amends ADR 0680): the SDK declaration `stockMoves: { move: add | remove | set, on,
+  quantity, when, through?, kind?, unitCost?, note? }` and its checks (a target with stock in the
+  same extension, a state no move leaves, `through` a relation to an object with states; refused
+  in a runtime extension), run by the transition engine for every actor in the move's batch
+  (`stock/moves.ts`): add (`received`, with unit cost and note), remove (`written_off` or `used`),
+  set (`counted`, the difference from on hand at the commit; refused below what unpaid orders hold
+  with the numbers); `through` moves all of a record's lines at once (a count applied, up to 500
+  lines, three statements whatever the number); what moved stock cannot change, and a moved
+  record's lines cannot be added or changed. Low stock (`stock/low.ts`, `core_stock_low`): the
+  holders of the pack's `stock.notify` permission (else the admins) told once per crossing of the
+  reorder level, by opening, adjust, `stockMoves`, a paid order's sale or a changed level, in the
+  write's batch. Deviations: who is told is the permission the pack names in `stock.notify`
+  (core cannot name `shop:stock`); a stock object is "sellable, or moved by a `stockMoves`" until
+  step 3 adds `goods`; a `stockMoves` target must be in the same extension (stage 39 widens it for
+  Jobs). The over-receipt warning and notice, and a count's "differences over a threshold" notice,
+  are the pack's step 6 (they need the purchase line). Left: steps 3 to 14.
 
 Vocabulary: "product" is the platform's word for a composition (ADR 0400) and is avoided for what
 a business sells. This spec says **item** (a thing in the shop: "Club hoodie") and **variant** (one

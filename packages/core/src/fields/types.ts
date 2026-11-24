@@ -128,6 +128,8 @@ export interface ObjectDefinition {
   sellable?: SellableDefinition;
   /** Extension objects: things counted on a shelf, kept from a ledger (stage 37, ADR 0680). */
   stock?: StockDefinition;
+  /** Extension objects: a state whose entering moves stock (stage 37, ADR 0681). */
+  stockMoves?: StockMovesDefinition;
   /** Extension objects: uses held (a pass) or spent (a booking) (stage 32b, ADR 0493). */
   allowance?: AllowanceDefinition;
   /**
@@ -377,6 +379,24 @@ export interface StockDefinition {
   show: "exact" | "low" | "availability";
   /** `low`'s threshold. */
   lowAt?: number | undefined;
+  /** The extension's tool permission whose holders are told of low stock (ADR 0681); else admins. */
+  notify?: string | undefined;
+}
+
+/** The stockMoves declaration as the host enforces it (the SDK's StockMovesSpec), registry names. */
+export interface StockMovesDefinition {
+  move: "add" | "remove" | "set";
+  /** The relation field to the record whose stock moves, and that record's object. */
+  on: string;
+  object: string;
+  quantity: string;
+  /** The state entered: this object's, or with `through`, the state of `throughObject`'s record. */
+  when: string;
+  through?: string | undefined;
+  throughObject?: string | undefined;
+  kind: "received" | "written_off" | "used" | "counted";
+  unitCost?: string | undefined;
+  note?: string | undefined;
 }
 
 /**

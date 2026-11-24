@@ -935,6 +935,16 @@ function stockRefusal(payload: CapacityRefusalPayload): ValidationError {
       },
     );
   }
+  // Nothing held: a movement out of more than is on hand (a write-off of too many).
+  if (Number(payload.held) === 0) {
+    return new ValidationError(`Not enough on hand: this would leave ${onHand}`, {
+      rule: "stock",
+      object: payload.object,
+      record: payload.record,
+      onHand,
+      held: 0,
+    });
+  }
   return new ValidationError(
     `Stock cannot go below what unpaid orders hold: ${payload.held} held. Count again in a few minutes.`,
     {

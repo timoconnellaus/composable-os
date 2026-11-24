@@ -25,6 +25,7 @@ import {
   type StagesManifest,
   type StatesManifest,
   type StockManifest,
+  type StockMovesManifest,
   sellableFinance,
   spendsOnList,
   type UniqueManifest,
@@ -85,6 +86,7 @@ export interface ObjectDefinitionJson {
   capacity?: CapacityManifest;
   sellable?: SellableManifest;
   stock?: StockManifest;
+  stockMoves?: StockMovesManifest;
   allowance?: AllowanceManifest;
   /** An agreement point (stage 44, ADR 0641), as declared. */
   agreements?: AgreementsManifest;
@@ -873,6 +875,36 @@ function stockDefinition(object: ObjectState, own: FieldState[]): ObjectDefiniti
     ...(declared.reorderQty ? { reorderQty: nameOf(declared.reorderQty) } : {}),
     show: declared.show ?? "availability",
     ...(declared.lowAt !== undefined ? { lowAt: declared.lowAt } : {}),
+    ...(declared.notify ? { notify: declared.notify } : {}),
+  };
+}
+
+/** The stockMoves declaration (ADR 0681), with registry field names and the objects it names. */
+function stockMovesDefinition(
+  object: ObjectState,
+  own: FieldState[],
+): ObjectDefinition["stockMoves"] {
+  const declared = object.definition.stockMoves;
+  if (!declared) return undefined;
+  const fieldOf = (local: string) => own.find((f) => f.localName === local);
+  const on = fieldOf(declared.on);
+  const through = declared.through ? fieldOf(declared.through) : undefined;
+  if (!on?.definition.to || (declared.through && !through?.definition.to)) return undefined;
+  const nameOf = (local: string | undefined) =>
+    local === undefined ? undefined : (fieldOf(local)?.name ?? local);
+  const kind =
+    declared.kind ??
+    (declared.move === "add" ? "received" : declared.move === "set" ? "counted" : "written_off");
+  return {
+    move: declared.move,
+    on: on.name,
+    object: on.definition.to,
+    quantity: nameOf(declared.quantity) as string,
+    when: declared.when,
+    ...(through ? { through: through.name, throughObject: through.definition.to } : {}),
+    kind: kind as NonNullable<ObjectDefinition["stockMoves"]>["kind"],
+    ...(declared.unitCost ? { unitCost: nameOf(declared.unitCost) } : {}),
+    ...(declared.note ? { note: nameOf(declared.note) } : {}),
   };
 }
 
@@ -1310,6 +1342,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
     const capacity = capacityDefinition(object, own);
     const sellable = sellableDefinition(object, own);
     const stock = stockDefinition(object, own);
+    const stockMoves = stockMovesDefinition(object, own);
     const allowance = allowanceDefinition(object);
     const publishable = object.definition.publishable;
     const fields = [
@@ -1341,6 +1374,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...(capacity ? { capacity } : {}),
       ...(sellable ? { sellable } : {}),
       ...(stock ? { stock } : {}),
+      ...(stockMoves ? { stockMoves } : {}),
       ...(allowance ? { allowance } : {}),
       ...(object.definition.agreements ? { agreements: object.definition.agreements } : {}),
       ...(object.definition.healthNotes ? { healthNotes: object.definition.healthNotes } : {}),
