@@ -84,6 +84,7 @@ export type ProgramsOperations = {
   "x.programs.importText": { kind: "mutation" } & Io<typeof importText>;
   "record.get": { kind: "query"; input: { object: string; id: string }; output: RecordOut };
   "record.list": { kind: "query"; input: ListInput; output: Page };
+  /** A customer's read of what they may see (the class types, ADR 0447). */
   "my.list": { kind: "query"; input: ListInput; output: Page };
   "record.create": {
     kind: "mutation";
@@ -997,7 +998,8 @@ export const PROGRAMS_HOOKS_CALL = {
   usePastSessions: ["my.list"],
   useClientPastSessions: ["record.list"],
   usePeople: ["person.list"],
-  useClassTypes: ["record.list"],
+  // Staff read them with record.list, a member with my.list (every signed-in member reads them).
+  useClassTypes: { anyOf: [["record.list"], ["my.list"]] },
   useBank: ["record.list"],
   useExercises: ["record.list"],
   useCreateExercise: ["record.create"],
@@ -1028,12 +1030,16 @@ type ProgramsReact = {
  * not compile.
  */
 export function createProgramsHooks<C extends ClientHolding>(react: ProgramsReact, client: C) {
-  return packHooks(client, PROGRAMS_HOOKS_CALL, (api: ProgramsClient) =>
-    allProgramsHooks(react, api),
+  return packHooks(client, PROGRAMS_HOOKS_CALL, (api: ProgramsClient, holds) =>
+    allProgramsHooks(react, api, holds),
   );
 }
 
-function allProgramsHooks(react: ProgramsReact, api: ProgramsClient) {
+function allProgramsHooks(
+  react: ProgramsReact,
+  api: ProgramsClient,
+  holds: (operation: Name) => boolean = () => true,
+) {
   const { useQuery, useMutation, useState } = react;
   const useEffect: UseEffect = react.useEffect ?? (() => undefined);
   return {
@@ -1119,14 +1125,16 @@ function allProgramsHooks(react: ProgramsReact, api: ProgramsClient) {
         enabled: search.trim().length > 1,
       });
     },
-    /** The class types, for a member choosing their class. */
+    /**
+     * The class types, for a member choosing their class (`my.list`) or a coach assigning one
+     * (`record.list`): whichever read the client holds, staff's first.
+     */
     useClassTypes() {
-      return useQuery(
-        api.query("record.list", {
-          object: "programs.classtype",
-          sort: { field: "order", direction: "asc" },
-        }),
-      );
+      const input: ListInput = {
+        object: "programs.classtype",
+        sort: { field: "order", direction: "asc" },
+      };
+      return useQuery(api.query(holds("record.list") ? "record.list" : "my.list", input));
     },
 
     // The bank.

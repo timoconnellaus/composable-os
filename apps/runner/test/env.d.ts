@@ -17,6 +17,11 @@ declare global {
         writesOf(books: string, reference: string): Promise<number>;
         state(books: string): Promise<{ records: { reference: string | null; kind: string }[] }>;
       };
+      /** The fake booking system's controls (packages/gatekeeper-booking-system, vitest.config.ts). */
+      TEST_BOOKING_SYSTEM: Fetcher & {
+        reset(site: string, options?: { now?: string }): Promise<void>;
+        callCount(site: string): Promise<{ used: number; byMethod: Record<string, number> }>;
+      };
     }
   }
   // Vite's glob import, as same-issues.test.ts uses it (source text of the fixture extensions).

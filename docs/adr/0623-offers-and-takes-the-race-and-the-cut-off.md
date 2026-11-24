@@ -79,3 +79,8 @@ reassign the shift at the same moment. A read before the write is not a guarante
   kind, or the shift has no kind. It is decided from qualifications alone, before anyone's leave or
   shifts are read, so the refusal says nothing about either. An offer to one named person is
   checked as before.
+
+## Amended 2026-11-24 (stage 49 step 1, ADR 0761)
+A shift whose title may name a client (`staffed.private`, an appointment) is never offered
+(`conflict`, `rule: "offer_private"`): an offer shows it to others. A rosterer reassigns it. See
+[ADR 0761](0761-a-shift-that-names-a-client-kept-off-the-roster-and-the-feed.md).

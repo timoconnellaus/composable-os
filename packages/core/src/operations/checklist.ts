@@ -21,6 +21,7 @@
 import type { CrmDb } from "@composable-os/db";
 import { sql } from "kysely";
 import { z } from "zod";
+import { DAY_OBJECT, scheduleOf } from "../checklists/days.ts";
 import {
   declaredOf,
   GRACE_SECONDS,
@@ -55,6 +56,7 @@ import type { GateFloor } from "../gate.ts";
 import { newId } from "../ids.ts";
 import { invoke } from "../invoke.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
+import { availablePackRoles } from "../pack-roles.ts";
 import { jsonList } from "../records/common.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import { isRosterer, toolCaller } from "../staffing/rosterers.ts";
@@ -62,6 +64,7 @@ import { titles } from "../staffing/week.ts";
 import { addLocalDays, parseLocalDate, wallClockToInstant } from "../time/local.ts";
 import { SYSTEM_USER } from "../users.ts";
 import { assertShippedToolRun } from "./staffing.ts";
+import { grantable } from "./user.ts";
 
 // --- Templates ------------------------------------------------------------------------------------
 
@@ -71,6 +74,65 @@ const stepInput = z.object({
   note: z.boolean().default(false).describe("Asks for a note: ticking it done needs one"),
 });
 
+/** Who may do a scheduled checklist (ADR 0651). */
+export const whoInput = z
+  .discriminatedUnion("kind", [
+    z.object({ kind: z.literal("staff") }),
+    z.object({
+      kind: z.literal("role"),
+      role: z
+        .string()
+        .min(1)
+        .max(81)
+        .describe("admin, member, or a pack's fixed role (rostering.team, bookings.coach)"),
+    }),
+    z.object({
+      kind: z.literal("grant"),
+      permission: z
+        .string()
+        .min(1)
+        .max(81)
+        .describe("A permission an admin grants one by one (user.grantablePermissions)"),
+    }),
+  ])
+  .describe(
+    "Who may do it: everyone on staff, the people with a role, or those granted a permission",
+  );
+
+const scheduleInput = z.object({
+  days: z
+    .array(z.number().int().min(1).max(7))
+    .min(1)
+    .max(7)
+    .describe("The days of the week it is due, 1 Monday to 7 Sunday, in the business's time zone"),
+  dueBy: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "a time, HH:MM")
+    .nullable()
+    .optional()
+    .describe("The local time it is due by"),
+  who: whoInput,
+});
+
+export const scheduleShape = z
+  .object({
+    days: z.array(z.number().int()),
+    dueBy: z.string().nullable(),
+    who: z.object({ kind: z.enum(["staff", "role", "grant"]), value: z.string().nullable() }),
+  })
+  .nullable()
+  .describe("Its standing schedule, when it is done on its own (not only on a duty)");
+
+const scheduleView = (row: {
+  days: string | null;
+  due_by: string | null;
+  doers_kind: "staff" | "role" | "grant" | null;
+  doers_value: string | null;
+}) => {
+  const s = scheduleOf(row);
+  return s ? { days: s.days, dueBy: s.dueBy, who: s.doers } : null;
+};
+
 const templateShape = z.object({
   id: z.string(),
   name: z.string(),
@@ -78,6 +140,7 @@ const templateShape = z.object({
   active: z.boolean(),
   version: z.number().int(),
   steps: z.array(z.object({ text: z.string(), required: z.boolean(), note: z.boolean() })),
+  schedule: scheduleShape,
   updatedAt: z.string(),
   updatedBy: z.string(),
 });
@@ -87,8 +150,9 @@ export const checklistList = defineOperation({
   description:
     "The business's checklists (templates of steps staff tick off on a duty: a close-down " +
     "clean, opening up), each with its purpose, whether it is in use (`active`: only an active " +
-    "one can be picked), its version and how many steps it has. Not how any shift's checklist " +
-    "went. Read-only.",
+    "one can be picked), its version and how many steps it has, and its standing schedule if " +
+    "it is done on its own (the days it is due, the time it is due by, who may do it). Not how " +
+    "any checklist went. Read-only.",
   input: z.object({
     active: z.boolean().optional().describe("Only active ones (true) or inactive ones (false)"),
   }),
@@ -101,6 +165,7 @@ export const checklistList = defineOperation({
         active: z.boolean(),
         version: z.number().int(),
         steps: z.number().int(),
+        schedule: scheduleShape,
         updatedAt: z.string(),
       }),
     ),
@@ -117,6 +182,10 @@ export const checklistList = defineOperation({
         "c.active",
         "c.version",
         "c.updated_at",
+        "c.days",
+        "c.due_by",
+        "c.doers_kind",
+        "c.doers_value",
         sql<number>`(SELECT count(*) FROM core_checklist_step s WHERE s.checklist_id = c.id)`.as(
           "steps",
         ),
@@ -134,6 +203,7 @@ export const checklistList = defineOperation({
         active: r.active === 1,
         version: r.version,
         steps: Number(r.steps),
+        schedule: scheduleView(r),
         updatedAt: r.updated_at,
       })),
     };
@@ -164,8 +234,36 @@ export const checklistGet = defineOperation({
       active: row.active === 1,
       version: row.version,
       steps: copy?.steps ?? [],
+      schedule: scheduleView(row),
       updatedAt: row.updated_at,
       updatedBy: row.updated_by,
+    };
+  },
+});
+
+export const checklistWhoChoices = defineOperation({
+  name: "checklist.whoChoices",
+  description:
+    "Who a checklist done on its own can be for (ADR 0651), for the form that writes one: the " +
+    "roles (admins, members, and the fixed roles installed packs give, such as a cleaner's or a " +
+    "coach's) and the permissions an admin can grant one by one, each with its label. Names no " +
+    "account. Read-only.",
+  input: z.object({}),
+  output: z.object({
+    roles: z.array(z.object({ role: z.string(), label: z.string() })),
+    grants: z.array(z.object({ permission: z.string(), label: z.string() })),
+  }),
+  permission: "records:read",
+  risk: "read",
+  async handler(_input, ctx) {
+    const packRoles = await availablePackRoles(ctx.db);
+    return {
+      roles: [
+        { role: "admin", label: "Admins" },
+        { role: "member", label: "Members" },
+        ...packRoles.map((r) => ({ role: r.name, label: r.label })),
+      ],
+      grants: (await grantable(ctx)).map((g) => ({ permission: g.permission, label: g.label })),
     };
   },
 });
@@ -175,7 +273,12 @@ export const checklistSave = defineOperation({
   description:
     "Write a checklist: a new one (no `id`), or a change to one (its name, purpose, whether it " +
     "is in use, and its steps, given whole and in order; at most 50). Shifts already given a run " +
-    "of it keep the steps as they were; later runs copy the new ones. Needs checklists:write. An " +
+    "of it keep the steps as they were; later runs copy the new ones. A standing `schedule` " +
+    "makes it a checklist done on its own (ADR 0651): due on those days of the week in the " +
+    "business's time zone, by a time, by whoever it names (everyone on staff, a role or pack " +
+    "role, or a grant); each due day gets one run, opened at the start of the day and missed if " +
+    "not finished by its end. Left out, a change keeps the schedule; null removes it. Needs " +
+    "checklists:write. An " +
     "assistant's or MCP client's write always waits for a person who holds it too, so staff " +
     "are only ever asked to follow a checklist a person approved.",
   input: z.object({
@@ -184,6 +287,7 @@ export const checklistSave = defineOperation({
     purpose: z.string().trim().max(500).nullable().optional(),
     active: z.boolean().default(true),
     steps: z.array(stepInput).min(1).max(MAX_STEPS),
+    schedule: scheduleInput.nullable().optional(),
   }),
   output: z.object({ id: z.string(), version: z.number().int(), changed: z.boolean() }),
   permission: "checklists:write",
@@ -195,6 +299,8 @@ export const checklistSave = defineOperation({
   async handler(input, ctx) {
     const steps = input.steps.map((s) => ({ text: s.text, required: s.required, note: s.note }));
     const purpose = input.purpose?.trim() ? input.purpose.trim() : null;
+    const schedule =
+      input.schedule === undefined ? undefined : await scheduleColumns(ctx, input.schedule);
     if (!input.id) {
       const id = newId("checklist");
       ctx.write(
@@ -204,6 +310,7 @@ export const checklistSave = defineOperation({
           purpose,
           active: input.active ? 1 : 0,
           version: 1,
+          ...(schedule ?? {}),
           created_by: ctx.user.id,
           created_at: ctx.now,
           updated_by: ctx.user.id,
@@ -215,7 +322,13 @@ export const checklistSave = defineOperation({
         object: "checklist",
         id,
         action: "create",
-        after: { name: input.name, purpose, active: input.active, steps: steps.length },
+        after: {
+          name: input.name,
+          purpose,
+          active: input.active,
+          steps: steps.length,
+          schedule: schedule?.days ? schedule : null,
+        },
       });
       return { id, version: 1, changed: true };
     }
@@ -227,8 +340,17 @@ export const checklistSave = defineOperation({
     if (!before) throw new NotFoundError("checklist", input.id);
     const old = (await templateCopies(ctx.db, [before.id])).get(before.id)?.steps ?? [];
     const stepsChanged = JSON.stringify(old) !== JSON.stringify(steps);
+    const beforeSchedule = {
+      days: before.days,
+      due_by: before.due_by,
+      doers_kind: before.doers_kind,
+      doers_value: before.doers_value,
+    };
+    const scheduleChanged =
+      schedule !== undefined && JSON.stringify(schedule) !== JSON.stringify(beforeSchedule);
     const changed =
       stepsChanged ||
+      scheduleChanged ||
       before.name !== input.name ||
       before.purpose !== purpose ||
       (before.active === 1) !== input.active;
@@ -248,6 +370,7 @@ export const checklistSave = defineOperation({
           purpose,
           active: input.active ? 1 : 0,
           version,
+          ...(scheduleChanged ? schedule : {}),
           updated_by: ctx.user.id,
           updated_at: ctx.now,
         })
@@ -268,12 +391,60 @@ export const checklistSave = defineOperation({
         purpose: before.purpose,
         active: before.active === 1,
         steps: old.length,
+        ...(scheduleChanged ? { schedule: before.days ? beforeSchedule : null } : {}),
       },
-      after: { name: input.name, purpose, active: input.active, steps: steps.length },
+      after: {
+        name: input.name,
+        purpose,
+        active: input.active,
+        steps: steps.length,
+        ...(scheduleChanged ? { schedule: schedule?.days ? schedule : null } : {}),
+      },
     });
     return { id: before.id, version, changed: true };
   },
 });
+
+/**
+ * A schedule's columns, checked: a role is admin, member or a pack role an admin can give now; a
+ * grant is one an admin can grant now (ADR 0651). Null clears the schedule.
+ */
+async function scheduleColumns(
+  ctx: HandlerContext,
+  schedule: z.output<typeof scheduleInput> | null,
+): Promise<{
+  days: string | null;
+  due_by: string | null;
+  doers_kind: "staff" | "role" | "grant" | null;
+  doers_value: string | null;
+}> {
+  if (schedule === null) return { days: null, due_by: null, doers_kind: null, doers_value: null };
+  const who = schedule.who;
+  if (who.kind === "role" && who.role !== "admin" && who.role !== "member") {
+    const roles = await availablePackRoles(ctx.db);
+    if (!roles.some((r) => r.name === who.role)) {
+      throw new ValidationError(
+        `${who.role} is not a role: name admin, member or a pack's fixed role that is installed.`,
+        { field: "schedule.who.role", rule: "checklist_who" },
+      );
+    }
+  }
+  if (who.kind === "grant") {
+    const choices = await grantable(ctx);
+    if (!choices.some((g) => g.permission === who.permission)) {
+      throw new ValidationError(
+        `${who.permission} is not a permission an admin can grant (user.grantablePermissions).`,
+        { field: "schedule.who.permission", rule: "checklist_who" },
+      );
+    }
+  }
+  return {
+    days: JSON.stringify([...new Set(schedule.days)].sort((a, b) => a - b)),
+    due_by: schedule.dueBy ?? null,
+    doers_kind: who.kind,
+    doers_value: who.kind === "role" ? who.role : who.kind === "grant" ? who.permission : null,
+  };
+}
 
 function stepWrites(
   ctx: HandlerContext,
@@ -297,7 +468,7 @@ function stepWrites(
  * A run's caller: a shipped pack's tool a person calls themselves (never an AI acting for one),
  * for their own account. Answers that account.
  */
-async function personAtScreen(ctx: HandlerContext, name: string): Promise<string> {
+export async function personAtScreen(ctx: HandlerContext, name: string): Promise<string> {
   await assertShippedToolRun(ctx, name);
   const tool = ctx.extension?.tool;
   if (tool?.humanOnly !== true || tool.calledBy?.actor !== "human") {
@@ -364,7 +535,7 @@ const notThere = (object: string, id: string) => new NotFoundError(`checklist of
 
 // --- Shapes ---------------------------------------------------------------------------------------
 
-const tickShape = z.object({
+export const tickShape = z.object({
   id: z.string(),
   state: z.enum(["done", "not_done", "cleared"]),
   done: z.boolean(),
@@ -385,7 +556,7 @@ const tickShape = z.object({
     .describe('"Ticked by X", or "Ticked by X for Y" for a tick on someone\'s behalf'),
 });
 
-const runShape = z.object({
+export const runShape = z.object({
   id: z.string(),
   object: z.string(),
   record: z.string(),
@@ -609,7 +780,7 @@ async function prepareTick(
   };
 }
 
-const PRIVATE_INPUTS = ["note", "why", "forWhy"];
+export const PRIVATE_INPUTS = ["note", "why", "forWhy"];
 
 export const checklistTick = defineOperation({
   name: "checklist.tick",
@@ -825,10 +996,11 @@ export const checklistCorrect = defineOperation({
     const account = await assertRostererAtScreen(ctx, "checklist.correct");
     const run = await ctx.db
       .selectFrom("core_checklist_run")
-      .select(["id", "state"])
+      .select(["id", "state", "object_type"])
       .where("id", "=", input.run)
       .executeTakeFirst();
-    if (!run) throw new NotFoundError("checklist run", input.run);
+    // A checklist done on its own (ADR 0651) is not a shift's: whoever rosters has no say in it.
+    if (!run || run.object_type === DAY_OBJECT) throw new NotFoundError("checklist run", input.run);
     if (run.state === "open") {
       throw new ConflictError("This checklist is still open: tick it instead of correcting it.", {
         rule: "checklist_open",
@@ -922,6 +1094,8 @@ export const checklistRuns = defineOperation({
       ])
       .where("r.opens", ">=", start)
       .where("r.opens", "<", end)
+      // Shifts' runs only: a checklist done on its own is its managers' (checklist.days).
+      .where("r.object_type", "!=", DAY_OBJECT)
       .orderBy("r.opens")
       .limit(RUNS_MAX + 1);
     if (input.template) q = q.where("r.checklist_id", "=", input.template);
@@ -1058,6 +1232,7 @@ export async function runChecklistDue(
 export const checklistOperations = [
   checklistList,
   checklistGet,
+  checklistWhoChoices,
   checklistSave,
   checklistForRecord,
   checklistTick,
