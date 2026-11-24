@@ -15,17 +15,12 @@
 import type { CoreDatabase } from "@composable-os/db";
 import { CompiledQuery, type Kysely, type RawBuilder, sql } from "kysely";
 import { listObjects } from "../fields/index.ts";
-import type { GuardiansDeclaration, ObjectDefinition } from "../fields/types.ts";
+import type { ObjectDefinition } from "../fields/types.ts";
 import type { Principal } from "../principals.ts";
 import { viewColumnOf } from "../records/columns.ts";
 
 /** The one kind of link today. */
 export const GUARDIAN_LINK = "guardian";
-
-/** An object's guardians declaration, or null when it does not opt in. */
-export function guardiansOf(object: ObjectDefinition): GuardiansDeclaration | null {
-  return object.customer?.guardians ?? null;
-}
 
 /** What is wrong with an object's `customer.guardians` (empty when nothing is). */
 export function guardianProblems(object: ObjectDefinition): string[] {
@@ -64,7 +59,7 @@ export function guardianProblems(object: ObjectDefinition): string[] {
  * The live dependants of `personId`, as a subquery of ids: links not ended, of kind guardian,
  * whose guardian and dependant are both out of the Trash. The id is a bound parameter.
  */
-export function dependantsSql(personId: string): RawBuilder<unknown> {
+function dependantsSql(personId: string): RawBuilder<unknown> {
   return sql`SELECT l.dependant_id FROM core_person_link l JOIN core_person d ON d.id = l.dependant_id AND d.deleted_at IS NULL JOIN core_person g ON g.id = l.guardian_id AND g.deleted_at IS NULL WHERE l.guardian_id = ${personId} AND l.kind = ${GUARDIAN_LINK} AND l.ended_at IS NULL`;
 }
 
@@ -134,23 +129,26 @@ export async function familyOf(reader: {
   const principal = reader.principal;
   if (principal.kind !== "customer") return { self: null, dependants: [], guardians: [] };
   const me = principal.personId;
-  const own = await sql<{
-    name: string;
-  }>`SELECT display_name AS name FROM core_person WHERE id = ${me} AND deleted_at IS NULL`.execute(
-    reader.db,
-  );
-  const dependants = await sql<{
-    id: string;
-    name: string;
-  }>`SELECT p.id AS id, p.display_name AS name FROM core_person p WHERE p.id IN (${dependantsSql(me)}) ORDER BY p.display_name, p.id`.execute(
-    reader.db,
-  );
-  const guardians = await sql<{
-    id: string;
-    name: string;
-  }>`SELECT p.id AS id, p.display_name AS name FROM core_person_link l JOIN core_person p ON p.id = l.guardian_id AND p.deleted_at IS NULL JOIN core_person me ON me.id = l.dependant_id AND me.deleted_at IS NULL WHERE l.dependant_id = ${me} AND l.kind = ${GUARDIAN_LINK} AND l.ended_at IS NULL ORDER BY p.display_name, p.id`.execute(
-    reader.db,
-  );
+  // Three independent reads, sent together.
+  const [own, dependants, guardians] = await Promise.all([
+    sql<{
+      name: string;
+    }>`SELECT display_name AS name FROM core_person WHERE id = ${me} AND deleted_at IS NULL`.execute(
+      reader.db,
+    ),
+    sql<{
+      id: string;
+      name: string;
+    }>`SELECT p.id AS id, p.display_name AS name FROM core_person p WHERE p.id IN (${dependantsSql(me)}) ORDER BY p.display_name, p.id`.execute(
+      reader.db,
+    ),
+    sql<{
+      id: string;
+      name: string;
+    }>`SELECT p.id AS id, p.display_name AS name FROM core_person_link l JOIN core_person p ON p.id = l.guardian_id AND p.deleted_at IS NULL JOIN core_person me ON me.id = l.dependant_id AND me.deleted_at IS NULL WHERE l.dependant_id = ${me} AND l.kind = ${GUARDIAN_LINK} AND l.ended_at IS NULL ORDER BY p.display_name, p.id`.execute(
+      reader.db,
+    ),
+  ]);
   const shown = (rows: { id: string; name: string }[]) =>
     rows.map((row) => ({ personId: String(row.id), name: String(row.name) }));
   return {
