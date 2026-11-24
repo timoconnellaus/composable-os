@@ -345,6 +345,9 @@ export class Executor {
         : {}),
       // The caller's pack role limit to today, from the pipeline (ADR 0553).
       ...(input.caller.roleToday ? { roleToday: input.caller.roleToday } : {}),
+      ...(input.caller.roleToday && input.caller.roleTodayAt
+        ? { roleTodayAt: input.caller.roleTodayAt }
+        : {}),
       // And its limit to the People it looks after (ADR 0889).
       ...(input.caller.roleLooksAfter ? { roleLooksAfter: input.caller.roleLooksAfter } : {}),
       // Which tool this run is, from the installed manifest (ADR 0513): a move only named tools

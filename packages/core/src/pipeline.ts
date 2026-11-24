@@ -184,6 +184,12 @@ export interface InvocationContext {
    */
   roleToday?: TodayLimits | undefined;
   /**
+   * Set by platform code only, with `roleToday` (a tool run): the moment of the call that took the
+   * limit, whose local day the limit holds to. A run's calls stay on the day the run was started
+   * on, whatever the clock reads by then (issue #290).
+   */
+  roleTodayAt?: string | undefined;
+  /**
    * Set by platform code only (a tool run, for the staff account that started it, ADR 0889): the
    * caller's pack role limit to the People they look after, held on this call as on the account's.
    */
@@ -779,6 +785,8 @@ async function invokeOnce<O extends AnyOperation>(
   // The limit to today: the account's pack role's when the role is what allows this call (not a
   // pack permission granted to it, ADR 0600), or one a tool run carries for its caller.
   const roleToday: TodayLimits | undefined = roleLimitsFor(rights, op) ?? ctx.roleToday;
+  // The day it holds to: a tool run's, carried from the call that started it; else this call's.
+  const roleTodayAt = ctx.roleTodayAt ?? now;
   // The limit to the People the account looks after (ADR 0889), the same way.
   const roleLooksAfter: LooksAfterLimit | undefined =
     roleLooksAfterFor(rights, op, ctx.user.id) ?? ctx.roleLooksAfter;
@@ -969,7 +977,7 @@ async function invokeOnce<O extends AnyOperation>(
     grantedPermissions: ctx.grantedPermissions,
     permissionGrants: packRole ? [] : grants,
     ...(ctx.followerBudget ? { followerBudget: ctx.followerBudget } : {}),
-    ...(roleToday ? { roleToday } : {}),
+    ...(roleToday ? { roleToday, roleTodayAt } : {}),
     ...(roleLooksAfter ? { roleLooksAfter } : {}),
     ...(ctx.markStanding ? { markStanding: ctx.markStanding } : {}),
     ...(ctx.markGiven ? { markGiven: ctx.markGiven } : {}),
@@ -1323,7 +1331,7 @@ async function invokeOnce<O extends AnyOperation>(
     // A pack role limited to today reaches only today's records of its objects (ADR 0553):
     // held before the operation runs, a list's in its own query.
     const limited = roleToday
-      ? await holdRoleToday(ctx.db.query, roleToday, op.name, input, Date.parse(now))
+      ? await holdRoleToday(ctx.db.query, roleToday, op.name, input, Date.parse(roleTodayAt))
       : input;
     result = await op.handler(limited as typeof input, handlerCtx);
     // What the handler's helpers gathered over the whole call (one notice per person, not one per
