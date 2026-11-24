@@ -84,6 +84,8 @@ export const ID_PREFIXES = {
   media: "med",
   /** A family link: a guardian and a dependant (stage 31a, ADR 0540). */
   personLink: "pln",
+  /** A Person's check-in code: an app code or a card (stage 51, ADR 0783). */
+  personCode: "pc",
   refundDue: "rdu",
   /** A routine email the host was asked to send (ADR 0590). */
   routineMail: "rml",
@@ -101,6 +103,8 @@ export const ID_PREFIXES = {
   staffHours: "soh",
   /** One locked version of a pay period (stage 45 step 6, ADR 0627). */
   payPeriod: "ppe",
+  /** A stretch of time a staff member worked (stage 58, ADR 0850). */
+  timeEntry: "tme",
   /** A kind of leave the business offers (stage 58 step 4, ADR 0853). */
   leaveType: "lvt",
   /** An ask for time off, approved, declined or cancelled (ADR 0853). */

@@ -182,7 +182,7 @@ export interface TestHost {
   /**
    * Publishes a record of a publishable object as a person would (`record.publish`, which no
    * tool may call): its content fields become the next version, which `record.version` reads.
-   * Returns the version's number.
+   * Refused outside the object's `publishable.publishIn` states. Returns the version's number.
    */
   publish(object: string, id: string): number;
 }
@@ -243,6 +243,16 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
     if (!content) throw new ExtensionToolError("invalid_input", `${object} is not publishable`);
     const row = table(object).get(id);
     if (!row) throw new ExtensionToolError("not_found", `No ${object} with id ${id}`);
+    // Only in the states the object lists (ADR 0810), as the host refuses.
+    const spec = manifest.objects[local];
+    const stateField = spec?.states?.field;
+    const publishIn = spec?.publishable?.publishIn;
+    if (publishIn && stateField && !publishIn.includes(String(row[stateField] ?? ""))) {
+      throw new ExtensionToolError(
+        "invalid_input",
+        `${object} ${id} is ${String(row[stateField] ?? "in no state")}: it is published only when ${publishIn.join(" or ")}`,
+      );
+    }
     const list = versions.get(`${object}|${id}`) ?? [];
     const version = list.length + 1;
     list.push({

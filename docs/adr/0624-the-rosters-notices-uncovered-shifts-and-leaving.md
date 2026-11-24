@@ -80,8 +80,10 @@ An assistant or MCP acting for a rosterer no longer gets `unavailable` warnings 
 
 ## Amended 2026-11-24 (stage 58 step 4, ADR 0853)
 
-Leaving also cancels the leaver's leave requests still waiting, in `user.deactivate`'s batch
-(`staffing/leaving.ts`); approved leave and leave balances stay as they are, as payroll records.
+Leaving also cancels the leaver's leave requests still waiting, and marks a time entry they left
+open finish missing (no finish is written; ADR 0850), in `user.deactivate`'s batch
+(`staffing/leaving.ts`); approved leave, approved entries and leave balances stay as they are, as
+payroll records.
 Approving leave takes the person off each covered shift that has not started and offers it, and
 the rosterers get this ADR's notice of someone away over their shifts with which were offered and
 which nobody could be. See

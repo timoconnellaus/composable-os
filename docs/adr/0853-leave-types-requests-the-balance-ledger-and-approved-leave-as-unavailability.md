@@ -92,7 +92,8 @@ business to confirm with its accountant.
   answers which rows came from a request, and leaves them out for an assistant acting for its own
   person (reading leave is a person's).
 - **Leaving, amended (ADR 0624).** `user.deactivate` cancels the leaver's waiting requests in its
-  batch; approved leave and balances stay, as payroll records.
+  batch, and marks a time entry they left open finish missing (ADR 0850; no finish is written);
+  approved leave, approved entries and balances stay, as payroll records.
 
 ## Consequences
 

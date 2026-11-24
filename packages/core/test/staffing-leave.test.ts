@@ -1059,7 +1059,7 @@ describe("races the database decides (the review of PR #374)", () => {
 });
 
 describe("leaving", () => {
-  it("deactivating someone cancels their leave still waiting and keeps what was approved", async () => {
+  it("deactivating someone cancels their leave still waiting, keeps what was approved, and marks an open entry finish missing", async () => {
     const leaver = await createUser("member");
     const waiting = await call<Asked>(
       "staffing.leave.request",
@@ -1072,7 +1072,17 @@ describe("leaving", () => {
       leaver,
     );
     await call("staffing.leave.approve", { id: approved.request?.id }, manager);
+    // An entry they left open (stage 58 step 1's table).
+    await env.DB.prepare(
+      "INSERT INTO core_time_entry (id, account_id, starts, zone, local_date, how, state, made_by, created_at, updated_at) VALUES ('tme_leaver', ?, ?, ?, '2026-06-01', 'clocked', 'open', ?, ?, ?)",
+    )
+      .bind(leaver.id, Date.parse(NOW) / 1000 - 3600, ZONE, leaver.id, NOW, NOW)
+      .run();
     await invoke("user.deactivate", { id: leaver.id }, as(admin));
+    const entry = await env.DB.prepare(
+      "SELECT ends, finish_missing FROM core_time_entry WHERE id = 'tme_leaver'",
+    ).first();
+    expect(entry).toEqual({ ends: null, finish_missing: 1 });
     const states = await env.DB.prepare(
       "SELECT id, state, why FROM core_leave_request WHERE account_id = ? ORDER BY start_date",
     )

@@ -14,8 +14,15 @@ Status: **spec agreed** (owner interviewed 2026-11-24: decision 1; the owner's e
 decisions of 2026-11-24 stand as decisions 2 to 4; decisions 5 to 13 decided as best practice by
 the coordinator, open to override). Build may start.
 
-## Status
-
+- **Step 1, time entries** (built 2026-11-24, migration 1270, [ADR 0850](../adr/0850-time-entries-the-hosts-clock-overlaps-refused-and-worked-on.md)):
+  `core_time_entry` with the overlap triggers (every statement shape), one open entry per person
+  and a start's idempotency key; the tool-only `staffing.time.clockIn`, `clockOut` (the host's
+  clock), `enter`, `edit`, `withdraw` and `mine`, a person's own act on their own entries, working
+  once the pack's `staffing.settings.recordsTime` is on (`enterDays`, `finishMissingHours` read
+  beside it); what an entry is against (an own live shift, a live `workedOn` record, or other
+  work); finish missing on the minute cron (`staffing.due`); `workedOn` in the SDK, refused to a
+  runtime extension. Until step 2 every finished or entered entry waits. Leaving does not yet mark
+  an open entry finish missing (step 4 amends `leaving.ts`).
 - **Step 4, leave** (branch `feat/stage-58-leave`; migration 1271, ADR 0853; amends ADRs 0622,
   0624, 0629): built in core. `core_leave_type`, `core_leave_request`, `core_leave_day`,
   `core_leave_balance_entry` (insert only) and `core_staff_away.leave_request`, with triggers
@@ -29,9 +36,10 @@ the coordinator, open to override). Build may start.
   the offer notices set-based; at most 40 shifts an approval, 670 queries at that size with four
   kinds of 100 qualified people, `staffing-leave-cost.test.ts`). Approved leave is cancelled only
   with its away row removed and its balance reversed (a stale cancel fails whole). Open: a weekly
-  pattern's later generation can name the person on a shift inside approved leave (ADR 0853). `staffing.back` refuses a request's row;
+  pattern's later generation can name the person on a shift inside approved leave (ADR 0853).
+  `staffing.back` refuses a request's row;
   `staffing.away` makes no new kind `leave` once a type exists; `user.deactivate` cancels waiting
-  requests. Tests: `packages/core/test/staffing-leave.test.ts`. Left for later steps: the lock's
+  requests and marks an entry left open finish missing (no finish written). Tests: `packages/core/test/staffing-leave.test.ts`. Left for later steps: the lock's
   triggers over leave and leave lines in pay (step 3, migration 1272), Rostering's tools and
   notification words (step 5), the screens (step 6), the `forget` additions (with `staffing.forget`).
 
