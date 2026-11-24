@@ -175,13 +175,37 @@ describe("the declaration", () => {
     ).toContain("a publishable object the public reads declares no customerVia");
   });
 
+  it("refuses an author's field the public reads outside content, and an author's publish date", () => {
+    expect(
+      issues((r) => {
+        (r.fields as Record<string, unknown>).blurb = { type: "text", label: "Blurb" };
+        (r.customer as { write: string[] }).write.push("blurb", "date");
+        (r.public as { read: string[] }).read.push("blurb");
+      }),
+    ).toEqual(
+      expect.arrayContaining([
+        'public.read lists "blurb", which the author writes: list it in publishable.content, so the public reads it only as a person published it',
+        'publishable.date "date" is filled when it is published: the author does not write it',
+      ]),
+    );
+    const review = getObject(REVIEW);
+    if (!review?.public || !review.customer) throw new Error("no review");
+    expect(
+      publicProblems({
+        ...review,
+        customer: { ...review.customer, write: [...review.customer.write, "staffNote"] },
+        public: { ...review.public, read: [...review.public.read, "staffNote"] },
+      }),
+    ).toEqual(['public.read lists "staffNote", which the author writes and is not content']);
+  });
+
   it("tells staff and the assistant the author's fields are read-only", async () => {
     const { objects } = await invoke("schema.objects", {}, context(admin));
     const review = (
       objects as { name: string; fields: { name: string; readOnly: boolean }[] }[]
     ).find((o) => o.name === REVIEW);
     const readOnly = review?.fields.filter((f) => f.readOnly).map((f) => f.name);
-    expect(readOnly).toEqual(expect.arrayContaining([...AUTHOR_FIELDS, "about"]));
+    expect(readOnly).toEqual(expect.arrayContaining([...AUTHOR_FIELDS, "person", "about"]));
     expect(readOnly).not.toContain("state");
     expect(readOnly).not.toContain("staffNote");
   });
@@ -262,6 +286,60 @@ describe("the author's fields are the author's alone", () => {
       .bind(`%${id}%`)
       .all<{ n: number }>();
     expect(results[0]?.n).toBe(0);
+  });
+});
+
+describe("whose it is, and a withdrawn review", () => {
+  it("staff, the assistant and an MCP client never move a review to another Person", async () => {
+    const id = await write({ rating: 5, words: "Mine", shownName: "Ida", state: "consented" });
+    await publish(id);
+    for (const ctx of [
+      context(admin),
+      context(admin, { actor: "assistant" }),
+      context(admin, { actor: "mcp" }),
+    ]) {
+      expect(await refusal(staffUpdate(id, { person: other.personId }, ctx))).toMatchObject({
+        code: "forbidden",
+        details: { field: "person", reason: "author_only" },
+      });
+    }
+    // Nor make one in a Person's name, or import one.
+    expect(
+      await refusal(
+        invoke(
+          "record.create",
+          { object: REVIEW, values: { person: author.personId, staffNote: "Made by staff" } },
+          context(admin),
+        ),
+      ),
+    ).toMatchObject({ code: "forbidden", details: { field: "person", reason: "author_only" } });
+    expect(
+      await refusal(
+        invoke(
+          "record.import",
+          { object: REVIEW, records: [{ key: "old-2", values: { person: author.personId } }] },
+          context(admin),
+        ),
+      ),
+    ).toMatchObject({ code: "forbidden", details: { field: "person", reason: "author_only" } });
+    // Still the author's: another customer reads nothing, and the author can withdraw it.
+    expect(await call("fixture.myGet", { object: REVIEW, id }, outside(other))).toMatchObject({
+      ok: false,
+      error: { code: "not_found" },
+    });
+    expect(await authorUpdate(id, { state: "withdrawn" })).toMatchObject({ ok: true });
+    expect((await listed()).some((r) => r.id === id)).toBe(false);
+  });
+
+  it("a withdrawn review's words are not changed again, by its author either", async () => {
+    const id = await write({ rating: 4, words: "Was fine", shownName: "Una", state: "consented" });
+    expect(await authorUpdate(id, { state: "withdrawn" })).toMatchObject({ ok: true });
+    expect(await authorUpdate(id, { words: "Changed after" })).toMatchObject({
+      ok: false,
+      error: { code: "invalid_input", details: { field: "words", reason: "final_state" } },
+    });
+    // Staff may still keep a note on it.
+    await staffUpdate(id, { staffNote: "Withdrawn on request" });
   });
 });
 
@@ -351,6 +429,59 @@ describe("published only in the listed states, listed only", () => {
     const due = await runPublishDue(db, { clock: () => new Date(at.getTime() + 1000) });
     expect(due).toMatchObject({ published: 0 });
     expect((await listed()).some((r) => r.id === later)).toBe(false);
+  });
+});
+
+describe("a publish racing a move out", () => {
+  const current = async (object: string, id: string) =>
+    (
+      await env.DB.prepare(
+        "SELECT count(*) AS n FROM core_publish_version WHERE object_type = ? AND record_id = ? AND current = 1",
+      )
+        .bind(object, id)
+        .first<{ n: number }>()
+    )?.n ?? 0;
+
+  it("never leaves a version current outside the listed states, with or without when", async () => {
+    // Without `when`, only publishIn keeps a withdrawn review off the website.
+    const bare = structuredClone(REVIEW_OBJECT) as { public: Record<string, unknown> };
+    delete bare.public.when;
+    const bareExt = extId("rvb");
+    const BARE = `${bareExt}.review`;
+    await reconcile(manifest(bareExt, { objects: { review: bare } } as never));
+    for (const [object, out] of [
+      [REVIEW, "private"],
+      [BARE, "withdrawn"],
+    ] as const) {
+      for (let i = 0; i < 6; i++) {
+        const made = await call(
+          "fixture.myCreate",
+          { object, values: { rating: 5, words: `Raced ${i}`, shownName: "Raj" } },
+          outside(author),
+        );
+        const { id } = (made as { value: { id: string } }).value;
+        await call(
+          "fixture.myUpdate",
+          { object, id, values: { state: "consented" } },
+          outside(author),
+        );
+        const [published] = await Promise.allSettled([
+          invoke("record.publish", { object, id }, context(admin)),
+          call("fixture.myUpdate", { object, id, values: { state: out } }, outside(author)),
+        ]);
+        const record = (await invoke("record.get", { object, id }, context(admin))) as {
+          values: Record<string, unknown>;
+        };
+        expect(record.values.state).toBe(out);
+        expect(await current(object, id)).toBe(0);
+        // The publish that lost is answered as a conflict: look again.
+        if (published.status === "rejected") {
+          expect(published.reason).toMatchObject({ details: { reason: "moved_meanwhile" } });
+        }
+        const shown = await call("content.list", { object }, outside(PUBLIC));
+        expect(JSON.stringify(shown)).not.toContain(id);
+      }
+    }
   });
 });
 

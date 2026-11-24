@@ -1982,6 +1982,24 @@ export function validateManifest(
           `public.read lists "${object.customer.field}", the author: the public never reads whose it is`,
         );
       }
+      // The public reads a field that is not content from the working copy, as it is now: one
+      // the author writes would reach the website unapproved (the review of #367).
+      const content = new Set(p.content);
+      for (const field of object.public?.read ?? []) {
+        if (object.customer.write.includes(field) && !content.has(field)) {
+          contract(
+            `objects.${name}.public.read`,
+            `public.read lists "${field}", which the author writes: list it in publishable.content, so the public reads it only as a person published it`,
+          );
+        }
+      }
+      // The day it goes live is filled by the publish, which the author's fields refuse.
+      if (p.date !== undefined && object.customer.write.includes(p.date)) {
+        contract(
+          `${path}.date`,
+          `publishable.date "${p.date}" is filled when it is published: the author does not write it`,
+        );
+      }
     }
     for (const taken of PUBLISHED_FIELD_NAMES) {
       const clash =

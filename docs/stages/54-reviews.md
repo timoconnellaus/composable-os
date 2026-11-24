@@ -480,6 +480,11 @@ the trades' moment and review sites are to be checked with each business during 
   a write that moves the record out unpublishes it in its batch (`records/publish.ts`). Tests:
   `packages/core/test/publishable-author.test.ts`. Deviation: consent taken back unpublishes too
   (not only `when`), so consenting again waits for a person's publish (ADR 0810, Consequences).
+  Review fixes (ADR 0810, amendment of 2026-11-24): the customer field is refused to staff as
+  the author's fields are; a publish, schedule or due publish fails at commit unless the record
+  is still in a `publishIn` state (a guard in its batch); `public.read` may not list an author's
+  field outside `content`, nor `publishable.date` be one; and a withdrawn review's author's fields
+  are not written again, by the author either.
 - **Step 2, P2: restricted fields** (`feat/stage-54-restricted-fields`, migration 1190, ADR 0811):
   built. A pack's `text` or `longText` field may declare `restricted: "<pack>:<word>"` (one of its
   restricted permissions) on an object whose customer reads and writes it; the contract refuses

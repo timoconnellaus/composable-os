@@ -98,3 +98,30 @@ out dropped when due; and another customer's and the public's reads (lists, host
 staff note and the author, a guessed address, a private review's id) carrying nothing but the
 published version's declared fields. With the author check and the unpublish on leaving both
 removed, 4 tests fail (restored after).
+
+## Amendment, 2026-11-24: the review of #367
+An independent review of the first build found three gaps; all are closed in the record code and
+the declaration checks, with tests in `publishable-author.test.ts` that fail without them.
+- **Whose it is is the author's too.** The customer field was not in `customer.write`, so staff,
+  the assistant or an MCP client could point a review at another Person, who then read it, and
+  its author could no longer withdraw it. It is now refused to every staff-side caller as the
+  author's fields are (`forbidden`, `author_only`), on create, update and import, and shown
+  read-only. The seam sets it when the author makes the record; a person merge moves it as the
+  host.
+- **A publish racing a move out.** `record.publish`, `record.schedulePublish` and
+  `record.publishDue` read the state when they plan, and a withdrawal or consent taken back
+  committed in between left a version current outside `publishIn` (with the spec's `when`, back
+  on the website when the author consented again; without `when`, a withdrawn review listed).
+  Their batches now carry a guard (`stillPublishableGuard` in `records/publish.ts`, migration
+  0670's `unmoved` kind, no migration) that fails them unless the record is still in a listed
+  state at commit: the publish is answered as a conflict (`moved_meanwhile`), and a due run fails
+  whole and drops that schedule on the next minute. So "never read in between" holds by the
+  guard, not by `when`, which is optional.
+- **The public reads what is not content from the working copy.** A field the author writes
+  listed in `public.read` but not in `publishable.content` would reach the public as written, never
+  approved. The SDK and `publicProblems` now refuse it.
+
+Two smaller points from the same review: an author's field is refused, to the author too, once
+the record is in a final state (a withdrawn review is not written again, as the stage spec says:
+"while the review is private or consented"); and `publishable.date` may not be an author's field,
+since the publish fills it as the publisher, whom the author's fields refuse.

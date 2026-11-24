@@ -58,7 +58,7 @@ import type { RecordRef } from "../operation.ts";
 import { defineOperation, type HandlerContext, personsTool } from "../operation.ts";
 import { looksAfterWhere } from "../pack-role-looks-after.ts";
 import { assertMayChangeMustRead } from "../records/acknowledge.ts";
-import { assertAuthorWrite, authorFields } from "../records/authored.ts";
+import { assertAuthorOpen, assertAuthorWrite, staffRefusedFields } from "../records/authored.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { jsonList, restorableUntil, TRASH_RETENTION_DAYS } from "../records/common.ts";
 import {
@@ -1205,6 +1205,13 @@ export async function updateRecord(
   if (by !== "host") await assertMayChangeMustRead(ctx, object, id, asked, before.values);
   let prepared = await prepareValues(ctx, object, asked, "update", options);
   if (!prepared.length) return false;
+  // A withdrawn review is not written again, by its author either (ADR 0810).
+  assertAuthorOpen(
+    object,
+    before.values,
+    prepared.map((p) => p.field.name),
+    by === "host",
+  );
   // Pointed at another record its times follow: they are that record's now (ADR 0751).
   const timesFrom = object.staffed?.timesFrom;
   if (timesFrom && prepared.some((p) => p.field.name === timesFrom)) {
@@ -2031,7 +2038,7 @@ export function objectInfo(object: ObjectDefinition): ObjectInfo {
       sortable: f.sortable,
       // The author's fields of a publishable record (ADR 0810) are read-only to everyone who
       // reads this: staff, the assistant and MCP clients.
-      readOnly: Boolean(f.readOnly) || authorFields(object).has(f.name),
+      readOnly: Boolean(f.readOnly) || staffRefusedFields(object).has(f.name),
       required: Boolean(f.required),
       track: f.track === "timeline",
       extension: f.extension ?? null,

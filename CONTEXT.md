@@ -2312,7 +2312,8 @@ _Avoid_: go live (as a verb in code), release (a release is the platform's)
 The Person a publishable record belongs to, declared as its `customer` (ADR 0810): a review's
 writer. The author reads and writes the working copy; the public reads only the published
 version. The fields the author writes are **author-only**: no one on the staff side, and no AI,
-changes them, so what is published is the author's words; staff publish, unpublish and move it.
+changes them, nor whose the record is, so what is published is the author's words; staff
+publish, unpublish and move it.
 _Avoid_: owner (a record's owner is a staff user), submitter
 
 **Content** (stage 28)
