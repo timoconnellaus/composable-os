@@ -23,7 +23,7 @@ import {
 } from "../src/index.ts";
 import { call, outside } from "./customer-fixtures.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
-import { context, createUser, setPreset, unique } from "./helpers.ts";
+import { context, createUser, refusal, setPreset, unique } from "./helpers.ts";
 
 /** A small layout: weeks of sessions of items, each naming an exercise, with notes. */
 const LAYOUT: DocumentSchema = {
@@ -110,15 +110,6 @@ const good = () => ({
     },
   ],
 });
-
-async function refusal(promise: Promise<unknown>) {
-  try {
-    await promise;
-  } catch (error) {
-    return error as { code: string; message: string; details?: Record<string, unknown> };
-  }
-  throw new Error("expected a refusal");
-}
 
 beforeAll(async () => {
   admin = await createUser("admin");

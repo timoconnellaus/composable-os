@@ -21,7 +21,7 @@ import {
 } from "../src/index.ts";
 import { outside } from "./customer-fixtures.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
-import { context, createUser, db, unique } from "./helpers.ts";
+import { context, createUser, db, refusal, unique } from "./helpers.ts";
 
 const SECRET = "fixture-desk-secret-fixture-desk-secret";
 const ORIGIN = "https://desk.crm.example.test";
@@ -35,15 +35,6 @@ let member: ActingUser;
 
 const staff = (user: ActingUser, extra: Parameters<typeof context>[1] = {}) =>
   context(user, { desk: DESK, ...extra });
-
-async function refusal(promise: Promise<unknown>) {
-  try {
-    await promise;
-  } catch (error) {
-    return error as { code: string; message: string; details?: Record<string, unknown> };
-  }
-  throw new Error("expected a refusal");
-}
 
 const body = (text: string) => ({
   blocks: [{ type: "paragraph", content: [{ type: "text", text }] }],

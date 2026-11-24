@@ -22,7 +22,7 @@ import {
 import { testRunner } from "./ai-helpers.ts";
 import { outside } from "./customer-fixtures.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
-import { context, createUser, db, setPreset, unique } from "./helpers.ts";
+import { context, createUser, db, refusal, setPreset, unique } from "./helpers.ts";
 
 let admin: ActingUser;
 let member: ActingUser;
@@ -65,15 +65,6 @@ beforeAll(async () => {
     }),
   );
 }, 60_000);
-
-async function refusal(promise: Promise<unknown>) {
-  try {
-    await promise;
-  } catch (error) {
-    return error as { code: string; message: string; details?: Record<string, unknown> };
-  }
-  throw new Error("expected a refusal");
-}
 
 type Kind = "terms" | "waiver" | "health" | "guardian" | "other";
 
