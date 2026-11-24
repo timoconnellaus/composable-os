@@ -14,6 +14,7 @@ import { allowanceManifestSchema, checkObjectAllowance } from "./allowance.ts";
 import { automationManifestSchema } from "./automation.ts";
 import { checkAutomation, laterObject } from "./automation-check.ts";
 import { checkObjectBehaviour } from "./behaviour.ts";
+import { calendarEntryManifestSchema, checkObjectCalendarEntry } from "./calendar-entry.ts";
 import {
   capacityManifestSchema,
   checkObjectCapacity,
@@ -240,6 +241,7 @@ export const objectManifestSchema = z.object({
   workedOn: workedOnManifestSchema.optional(),
   team: teamManifestSchema.optional(),
   occupies: occupiesManifestSchema.optional(),
+  calendarEntry: calendarEntryManifestSchema.optional(),
   intake: intakeManifestSchema.optional(),
   checklists: checklistsManifestSchema.optional(),
   owner: z.string().max(40).optional(),
@@ -1596,6 +1598,7 @@ export function validateManifest(
     checkObjectWorkedOn(m, name, object, contract);
     checkObjectTeam(m, name, object, contract);
     checkObjectOccupies(m, name, object, contract);
+    checkObjectCalendarEntry(m, name, object, contract);
     checkObjectIntake(m, name, object, contract);
     checkObjectChecklists(m, name, object, contract);
     object.requireOneOf?.forEach((group, i) => {

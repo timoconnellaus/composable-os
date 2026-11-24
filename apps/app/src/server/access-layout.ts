@@ -38,6 +38,18 @@ export const ACCESS_BYPASS: readonly BypassedPath[] = [
       "other path under it, is a 404 like a missing route; limited per token and per address.",
   },
   {
+    // The same, for a customer's own calendar feed (stage 62, ADR 0890).
+    path: "/api/v1/me/feed/*",
+    when: "always",
+    authenticates:
+      "A customer's private calendar feed (ADR 0890), polled by a calendar app with no sign-in: " +
+      "the 32-byte random token in the address is the credential, looked up by its SHA-256 in its " +
+      "own table (a staff feed's token opens nothing here), answering only that customer's own " +
+      "and their live dependants' bookings, read as the customer, while the account is active. " +
+      "Any other token, and any other path under it, is a 404 like a missing route; limited per " +
+      "token and per address.",
+  },
+  {
     path: "/api/v1/*",
     when: "always",
     authenticates:

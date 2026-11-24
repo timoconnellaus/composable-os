@@ -2131,6 +2131,20 @@ pack's permission. The format is the **calendar writer** (`@composable-os/calend
 the booking email's calendar file shares.
 _Avoid_: calendar sync, invite (the booking email's calendar file)
 
+### Customer calendar feed
+
+and **Calendar entry** (stage 62, built in step 1: ADRs 0890, 0891)
+
+The same kind of private address for a customer account: their own live bookings, and those of the
+children they are a live guardian of (each prefixed with the child's first name), from 14 days back
+to 120 days ahead, each with its public name, place and times, nothing of anyone else. Made only by
+the customer, in My account; revoked by them or by staff, and when the account is disabled, deleted
+or erased. Both feeds share one **feed module** (token, hash, limits, headers, the one 404), but
+keep their tokens apart. Which records appear is a pack's **calendar entry** (`calendarEntry` on an
+object with a customer): its start, end, title and place as paths the customer may read, and the
+states in which a record shows; shipped packs only.
+_Avoid_: calendar sync (nothing is written into anyone's calendar), subscription (a paid plan)
+
 ### Counted for pay
 
 and **Pay period** (stage 45, built in step 6: ADR 0627)

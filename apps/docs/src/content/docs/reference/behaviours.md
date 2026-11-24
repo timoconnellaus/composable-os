@@ -102,6 +102,12 @@ A claim on a thing (see OccupiesSpec, ADR 0765): while live, the record takes th
 
 Declared as `occupies: OccupiesSpec` on an object. Declared by: [`bookings.class`](/packs/bookings/data-model/).
 
+## calendarEntry
+
+Events in the customer's private calendar feed (see CalendarEntrySpec, ADR 0891): the record's start, end, public title and place as paths the customer may read, and the states in which it shows. The host reads them as the customer, through the visibility seam, and shows a live dependant's to their guardian. Only shipped extensions may declare it.
+
+Declared as `calendarEntry: CalendarEntrySpec` on an object. Declared by: no shipped pack.
+
 ## intake
 
 The public-write door (see IntakeSpec, ADR 0720): a form the public answers, the submission the host makes from the answers, or another pack's record a form may also make. Only the host's `intake.submit` creates a submission; nothing else opens a write to the public.

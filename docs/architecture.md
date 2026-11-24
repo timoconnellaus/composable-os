@@ -1471,6 +1471,24 @@ no Referer. The file is written by `packages/calendar-file`, the zero-dependency
 email gatekeeper's calendar file (ADR 0571) shares. A tool may declare `redactResult`: answer keys
 never kept in the audit log, an approval or a stored idempotent reply.
 
+**The customer calendar feed** (stage 62 step 1, [ADR 0890](adr/0890-the-customer-calendar-feed-and-the-shared-feed-module.md),
+[ADR 0891](adr/0891-calendar-entry-packs-declare-what-a-customer-feed-shows.md),
+`packages/core/src/customers/calendar-feed.ts`, `operations/me-calendar-feed.ts`,
+`apps/app/src/server/http/customer-feed.ts`, migration 1350): `GET /api/v1/me/feed/<token>.ics`, the
+staff feed's machine shared as one **feed module** (`packages/core/src/feeds/token.ts` for the token,
+hash, lookup and window; `apps/app/src/server/http/calendar-feed.ts` for the limits, headers, the one
+404 and the writer call), with its own token table (`core_customer_feed`) and bindings
+(`CUSTOMER_FEED_RATE_LIMIT`, `CUSTOMER_FEED_ADDRESS_RATE_LIMIT`). Made only by the customer
+(`me.calendarFeed.rotate`, `actors: ["human"]`, the address once, `redactResult`); revoked by them,
+by staff (`customer.revokeCalendarFeed`), and in the batch of `customer.disable`,
+`me.deleteAccount`, an erase or a merge that deletes the account. A fetch checks the account is
+active and linked, then reads as that customer through the visibility seam every object a shipped,
+active pack declares a **`calendarEntry`** on (start, end, title, place as paths, the live states;
+checked by the SDK within a pack and by the host into another pack's objects: every field on the
+way one the customer reads, and past the first field a title's or place's only what the related
+object makes public or signedIn), their own records and a live dependant's (`ownReadSource`), in the
+window, one statement per declaring object.
+
 **Checklists** (stage 45 step 4b, [ADR 0650](adr/0650-checklists-templates-runs-ticks-and-a-done-run-kept-unchanged.md),
 `packages/core/src/checklists/`, `operations/checklist.ts`, migration 0815): a platform piece any
 pack composes. Templates (`core_checklist`, `core_checklist_step`) are read by every staff account

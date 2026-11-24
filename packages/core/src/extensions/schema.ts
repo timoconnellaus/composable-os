@@ -4,6 +4,7 @@ import type { CoreDatabase } from "@composable-os/db";
 import {
   type AgreementsManifest,
   type AllowanceManifest,
+  type CalendarEntryManifest,
   type CapacityManifest,
   type ChecklistsManifest,
   type ClaimsManifest,
@@ -106,6 +107,8 @@ export interface ObjectDefinitionJson {
   workedOn?: WorkedOnManifest;
   /** A claim on a thing (stage 49, ADR 0765), as declared. */
   occupies?: OccupiesManifest;
+  /** Events in a customer's calendar feed (stage 62, ADR 0891), as declared. */
+  calendarEntry?: CalendarEntryManifest;
   /** The public-write door (stage 29, ADR 0720), as declared. */
   intake?: IntakeManifest;
   /** A checklist its person ticks off (stage 45 step 4b, ADR 0650), as declared. */
@@ -1417,6 +1420,14 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...staffedDefinition(object, own),
       ...workedOnDefinition(object, own),
       ...occupiesDefinition(object, own),
+      ...(object.definition.calendarEntry
+        ? {
+            calendarEntry: {
+              ...object.definition.calendarEntry,
+              live: [...object.definition.calendarEntry.live],
+            },
+          }
+        : {}),
       ...intakeDefinition(object, own),
       ...checklistsDefinition(object, own),
       ...(object.definition.owner ? { ownerField: object.definition.owner } : {}),

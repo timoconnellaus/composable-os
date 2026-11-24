@@ -241,6 +241,17 @@ extension declares it; it never implements it. Each behaviour the platform has i
   `title: "<a text or select field, or relation.field of one of your objects>"` (never the
   client's name; left out, the object's label). See `OccupiesSpec` in
   `packages/sdk/src/occupies.ts` and ADRs 0765 and 0844.
+- **`calendarEntry`** (shipped packs only) on an object with a `customer` whose records are a
+  customer's appointments (a booking, a ticket): `calendarEntry: { starts, ends: "<datetime
+  paths>", title, place?: "<text paths>", live: [<states in which it shows>] }`. A path is a
+  field, or up to two relations and a field (`klass.startsAt`, `klass.room.name`). Its first field
+  and the states field must be in `customer.read`. Further on, a `title` or `place` field must be
+  one that object makes `public` or `signedIn` (never a class's own title, which may name a
+  member); a `starts` or `ends` field may also be, one relation away, its `customerVia` from this
+  object. The host then shows the records, read as the customer, in their private calendar feed
+  (and a live dependant's in their guardian's). Never put a name, note or price there that the
+  customer cannot already read. See `CalendarEntrySpec` in `packages/sdk/src/calendar-entry.ts`
+  and ADR 0891.
 - **`intake`** when the public or customers send answers (a form, its submissions, a record a
   form may also make): `intake: { role: "form", questions: "<document field with
   QUESTIONS_SCHEMA, in publishable.content>", answeredBy: "<select: public, customers, links,

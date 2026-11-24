@@ -892,7 +892,7 @@ export async function customerAddresses(
 /**
  * A person's customer account (stage 22, ADR 0402): the accounts linked to them or signed up with
  * one of their addresses (one waiting for a merge included), every session of those accounts,
- * one-time sign-in codes sent to their addresses, invites for their addresses, and their erase
+ * their calendar links, one-time sign-in codes sent to their addresses, invites for their addresses, and their erase
  * requests. All deleted, so nothing is left but the audit trail; an open request is closed as
  * `erased` in the audit first. Returns how many requests were closed.
  */
@@ -932,6 +932,8 @@ export async function queueEraseCustomers(ctx: HandlerContext, s: StoreSubject):
   for (const part of chunk(accountIds)) {
     ctx.write(
       ctx.db.deleteFrom("core_customer_session").where("customer_id", "in", part),
+      // Their calendar link (ADR 0890), before the account (the cascade would too).
+      ctx.db.deleteFrom("core_customer_feed").where("customer_id", "in", part),
       ctx.db.deleteFrom("core_customer").where("id", "in", part),
     );
   }

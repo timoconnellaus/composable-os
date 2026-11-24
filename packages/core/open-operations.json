@@ -160,6 +160,24 @@
       "hostInternal": true
     },
     {
+      "name": "me.calendarFeed.revoke",
+      "audiences": ["customer"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
+      "name": "me.calendarFeed.rotate",
+      "audiences": ["customer"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
+      "name": "me.calendarFeed.status",
+      "audiences": ["customer"],
+      "risk": "read",
+      "hostInternal": true
+    },
+    {
       "name": "me.code",
       "audiences": ["customer"],
       "risk": "write",

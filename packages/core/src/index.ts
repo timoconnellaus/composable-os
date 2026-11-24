@@ -86,6 +86,14 @@ export {
   setContentCacheStore,
 } from "./content/cache.ts";
 export { type PublishDueOptions, runPublishDue, runReindexDue } from "./content/schedule.ts";
+// A customer's private calendar feed (stage 62 step 1, ADR 0890), and what both feeds share.
+export {
+  CUSTOMER_FEED_PATH_PREFIX,
+  type CustomerFeedEvent,
+  customerFeedEvents,
+  customerFeedPath,
+  readCustomerFeed,
+} from "./customers/calendar-feed.ts";
 export * from "./customers/index.ts";
 export * from "./dashboards/cache.ts";
 export * from "./dashboards/click-through.ts";
@@ -126,6 +134,7 @@ export * from "./extensions/schema.ts";
 export * from "./extensions/seed.ts";
 export * from "./extensions/shipped.ts";
 export * from "./extensions/tools.ts";
+export { FEED_MAX_EVENTS, feedWindow, newFeedToken } from "./feeds/token.ts";
 export * from "./fields/field-types.ts";
 export * from "./fields/index.ts";
 export * from "./filter.ts";
