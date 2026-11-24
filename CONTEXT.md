@@ -1794,6 +1794,14 @@ be charged now. Card details are typed there and never reach the platform. Comin
 tells the host nothing: only the provider's verified event does (stage 25, ADR 0429).
 _Avoid_: payment form, cart (there is no cart: an order is what is bought)
 
+**Card reader**
+A device on the business's own payment account that takes a card in person: registered to the
+account at its address by a person approving the action, and driven from the server (the host
+puts an order's amount on it; the buyer taps or inserts their card; the provider's verified event
+says it was paid, as for a checkout). Nothing of the provider's runs on the tablet, and card
+details never reach the platform (stage 50, ADR 0774).
+_Avoid_: terminal (Stripe's product name), card machine, POS (the till is the whole desk)
+
 **Paid late**
 A payment the provider confirmed for an order that had already expired or been cancelled. It
 never makes the order paid by itself: staff honour it or refund it (ADR 0429).

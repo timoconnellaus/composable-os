@@ -38,9 +38,10 @@ import {
 } from "../errors.ts";
 import { isProvisionalId, newId, replaceIds } from "../ids.ts";
 import {
-  ALWAYS_REVIEWED_KINDS,
   type OutboundInput,
   outboundAppliedAudit,
+  READER_KINDS,
+  REFUND_KINDS,
 } from "../integrations/outbound.ts";
 import type { IntegrationRuntime } from "../integrations/runtime.ts";
 import {
@@ -965,13 +966,11 @@ async function approveActions(
   }
   // A refund sends money back (ADR 0429): only a person approves one, and only a person who may
   // refund. No AI actor, under any policy, and not by relaying the person's words.
-  const refund = targets.find(
-    (t) =>
-      t.connection_id !== null &&
-      ALWAYS_REVIEWED_KINDS.has(
-        parse<{ actionKind?: { tag?: string } | null }>(t.input, {}).actionKind?.tag ?? "",
-      ),
-  );
+  const kindOf = (t: (typeof targets)[number]) =>
+    t.connection_id === null
+      ? ""
+      : (parse<{ actionKind?: { tag?: string } | null }>(t.input, {}).actionKind?.tag ?? "");
+  const refund = targets.find((t) => REFUND_KINDS.has(kindOf(t)));
   if (refund) {
     if (ctx.actor !== "human") {
       throw new ForbiddenError("A refund is approved by a person, never by an AI actor", {
@@ -983,6 +982,24 @@ async function approveActions(
       throw new ForbiddenError("Approving a refund needs the refund permission (orders:refund)", {
         actionId: refund.id,
         permission: "orders:refund",
+      });
+    }
+  }
+  // A card reader registered to or removed from the payment account (stage 50, ADR 0774): a device
+  // that takes money, so a person who is an admin (integrations:manage, which no grant gives)
+  // approves it, never an AI actor.
+  const reader = targets.find((t) => READER_KINDS.has(kindOf(t)));
+  if (reader) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError("A card reader is approved by a person, never by an AI actor", {
+        actionId: reader.id,
+        actor: ctx.actor,
+      });
+    }
+    if (!roleHasPermission(ctx.user.role, "integrations:manage")) {
+      throw new ForbiddenError("Approving a card reader needs an admin (integrations:manage)", {
+        actionId: reader.id,
+        permission: "integrations:manage",
       });
     }
   }
