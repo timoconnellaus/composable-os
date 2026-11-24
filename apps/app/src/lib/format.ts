@@ -11,6 +11,18 @@ export function initials(name: string): string {
   );
 }
 
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/** A moment's local calendar day, `YYYY-MM-DD`: today's when none is given. */
+export function localDay(date: Date = new Date()): string {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+/** A moment as a `datetime-local` input's value (`YYYY-MM-DDTHH:mm`), in local time. */
+export function localDateTimeInput(date: Date): string {
+  return `${localDay(date)}T${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+}
+
 const dateTime = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" });
 const dateOnly = new Intl.DateTimeFormat("en", { dateStyle: "medium" });
 

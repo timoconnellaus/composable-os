@@ -14,6 +14,7 @@ import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-quer
 import { CalendarDaysIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { localDay } from "#/lib/format";
 import { errorMessage } from "#/lib/query";
 import type { ObjectInfo } from "#/lib/schema";
 import {
@@ -35,11 +36,7 @@ export interface CalendarSpec {
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const pad = (n: number) => String(n).padStart(2, "0");
 /** A local day key, YYYY-MM-DD. */
-export function dayKey(date: Date): string {
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
 function fromKey(key: string): Date {
   const [y, m, d] = key.split("-").map(Number);
   return new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1);
@@ -59,7 +56,7 @@ export function valueDay(value: unknown): string | null {
   if (typeof value !== "string" || !value) return null;
   if (DATE_RE.test(value)) return value;
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : dayKey(date);
+  return Number.isNaN(date.getTime()) ? null : localDay(date);
 }
 /** `value` moved to the local day `key`: date-only stays date-only; a datetime keeps its time. */
 export function moveToDay(value: unknown, key: string, fieldType: string): string {
@@ -80,7 +77,7 @@ const dayTitle = new Intl.DateTimeFormat("en", {
 
 /** The [from, to) bound values a range filter on the field compares with. */
 function rangeFilter(field: string, type: string, from: Date, to: Date): Filter {
-  const bound = (d: Date) => (type === "date" ? dayKey(d) : d.toISOString());
+  const bound = (d: Date) => (type === "date" ? localDay(d) : d.toISOString());
   return {
     and: [
       { field, op: "gte", value: bound(from) },
@@ -246,7 +243,7 @@ function Grid({
   }, [records.data, spec.dateField]);
   const days: Date[] = [];
   for (let d = from; d < to; d = addDays(d, 1)) days.push(d);
-  const today = dayKey(new Date());
+  const today = localDay(new Date());
   const week = month === null;
   const [over, setOver] = useState<string | null>(null);
 
@@ -262,7 +259,7 @@ function Grid({
           </div>
         ))}
         {days.map((day) => {
-          const key = dayKey(day);
+          const key = localDay(day);
           const items = byDay.get(key) ?? [];
           const shown = week ? items : items.slice(0, 3);
           const outside = month !== null && day.getMonth() !== month;
@@ -366,7 +363,7 @@ function MoveToDate({
   onMove: (record: ViewRecord, key: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const current = valueDay(record.values[spec.dateField]) ?? dayKey(new Date());
+  const current = valueDay(record.values[spec.dateField]) ?? localDay(new Date());
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -455,7 +452,7 @@ function Agenda({
   const filter = andFilters(spec.filter, {
     field: spec.dateField,
     op: "gte",
-    value: fieldType === "date" ? dayKey(start) : start.toISOString(),
+    value: fieldType === "date" ? localDay(start) : start.toISOString(),
   });
   const fields = [spec.dateField, ...spec.cardFields];
   const query = useInfiniteQuery({
