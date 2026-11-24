@@ -46,3 +46,16 @@ admin and are refused close, reopen and the settings.
 The read operations take every actor, an automation acting for an account with `finance:read`
 included (an extension's code is refused, holding no core grant). Step 1 reads states and versions
 only; whether automations may read figures is for step 3 to decide with the report reads.
+
+## Amended 2026-11-24 (stage 52 step 3, the review of PR #423)
+- **Over MCP**: `finance:read` joins the `read` and `write` scopes (`SCOPE_PERMISSIONS`,
+  `packages/core/src/principals.ts`). A scope only intersects what the account holds, so a client
+  reads figures (`finance.periods`, `finance.report`, `finance.entries`, `finance.settings.get`)
+  only for an account holding `finance:read`, by role or by a grant: a member granted it (the
+  bookkeeper or manager of decision 2) reads on a `read` connection, which before needed an
+  admin's `admin` scope. Nothing else moves: closing, reopening, the settings and the file
+  (`finance.export`) stay `actors: ["human"]` and off MCP. This supersedes the note above that
+  only the `admin` scope carried it.
+- **Automations**: the report reads take every actor, as the periods read does, so an automation
+  acting for an account with `finance:read` may read figures; it never closes, reopens or
+  downloads.
