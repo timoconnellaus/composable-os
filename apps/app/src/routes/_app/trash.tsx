@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from "@composable-os/ui/components/select";
 import { Skeleton } from "@composable-os/ui/components/skeleton";
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   Building2Icon,
@@ -31,7 +31,7 @@ import { PageCount, PageLayout } from "#/components/layout/page-layout";
 import { formatDate, formatDateTime } from "#/lib/format";
 import { callOp } from "#/lib/operations";
 import { updateCached } from "#/lib/optimistic";
-import { errorMessage, invalidateAfterWrite, opKey } from "#/lib/query";
+import { errorMessage, invalidateAfterWrite, useInfiniteOp } from "#/lib/query";
 import { useUserLabel } from "#/lib/users-adapter";
 
 export const Route = createFileRoute("/_app/trash")({ component: TrashPage });
@@ -89,13 +89,7 @@ function TrashPage() {
   const [object, setObject] = useState<TrashObject | typeof ALL>(ALL);
   const [restoring, setRestoring] = useState<string | null>(null);
   const input = { ...(object === ALL ? {} : { object }), limit: 50 };
-  const trash = useInfiniteQuery({
-    queryKey: opKey("trash.list", input),
-    queryFn: ({ pageParam }) =>
-      callOp("trash.list", { ...input, ...(pageParam ? { cursor: pageParam } : {}) }),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (page) => page.nextCursor ?? undefined,
-  });
+  const trash = useInfiniteOp("trash.list", input);
   const items = useMemo(() => trash.data?.pages.flatMap((p) => p.items) ?? [], [trash.data]);
 
   async function onRestore(item: (typeof items)[number]) {

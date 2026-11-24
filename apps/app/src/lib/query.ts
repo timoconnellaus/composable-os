@@ -6,6 +6,7 @@ import {
   QueryClient,
   type QueryKey,
   type UseQueryOptions,
+  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
@@ -49,6 +50,32 @@ export function useOp<N extends CoreOperationName>(
   return useQuery<CoreOutput<N>, Error>({
     queryKey: opKey(name, input),
     queryFn: () => callOp(name, input),
+    ...options,
+  });
+}
+
+/** The read operations that page by cursor: `cursor` in, `nextCursor` out. */
+type PagedOperationName = {
+  [N in CoreOperationName]: CoreInput<N> extends { cursor?: string | undefined }
+    ? CoreOutput<N> extends { nextCursor: string | null }
+      ? N
+      : never
+    : never;
+}[CoreOperationName];
+
+/** Runs a cursor-paged read as an infinite query, under the same key as `useOp` would use. */
+export function useInfiniteOp<N extends PagedOperationName>(
+  name: N,
+  input: CoreInput<N>,
+  options: { staleTime?: number } = {},
+) {
+  return useInfiniteQuery({
+    queryKey: opKey(name, input),
+    queryFn: ({ pageParam }) =>
+      // The cursor is the one field every paged input has (PagedOperationName).
+      callOp(name, { ...input, ...(pageParam ? { cursor: pageParam } : {}) } as CoreInput<N>),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (page: CoreOutput<N>) => page.nextCursor ?? undefined,
     ...options,
   });
 }
