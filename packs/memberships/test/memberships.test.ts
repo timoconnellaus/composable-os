@@ -5,6 +5,7 @@
 // grant following its subscription, the pass's uses and expiry, one intro offer per person, the
 // spend refused past the limit) are tested against the real host in
 // apps/runner/test/memberships.test.ts and packages/core/test/memberships-platform.test.ts.
+import { checkGrant } from "@composable-os/sdk";
 import { createTestHost, type TestHost } from "@composable-os/sdk/testing";
 import { describe, expect, it } from "vitest";
 import {
@@ -220,6 +221,21 @@ describe("the manifest", () => {
     ]);
     // A plan names its period: empty is not "in all" (review 5).
     expect(plan.fields.per.required).toBe(true);
+  });
+
+  it("grants record and my operations by object only: its own objects, never another's", () => {
+    const { permissions } = createTestHost(memberships).manifest;
+    expect(permissions.operations).toEqual([
+      "public.list",
+      "allowance.list",
+      "order.start",
+      "me.family",
+    ]);
+    const write = (object: string) =>
+      checkGrant("memberships", permissions, { operation: "record.create", risk: "write", object });
+    expect(write("memberships.pass").ok).toBe(true);
+    expect(write("bookings.booking").ok).toBe(false);
+    expect(write("person").ok).toBe(false);
   });
 });
 

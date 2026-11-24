@@ -56316,6 +56316,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -56661,6 +56662,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -56726,6 +56728,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -56784,6 +56787,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -57149,6 +57153,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -57479,6 +57484,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -57548,11 +57554,85 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
         "recurring.exceptions"
       ]
+    },
+    {
+      "name": "record.readRestricted",
+      "description": "From a pack's tool a person calls themselves (humanOnly) that names the field's restricted permission: read one restricted field (a text kept out of every view, list, search and export) of up to 50 live records of the pack's own object. Records that are not live are left out; a record with nothing kept reads null. Every read is audited with the records named, never the values. Refused to an assistant, MCP, an automation and any other pack. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "The pack's object, e.g. `reviews.review`"
+          },
+          "field": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "Its restricted field"
+          },
+          "ids": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        },
+        "required": [
+          "object",
+          "field",
+          "ids"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "value"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "values"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
     },
     {
       "name": "record.restore",
@@ -57635,6 +57715,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -57744,6 +57825,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -57858,6 +57940,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -58081,6 +58164,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -58224,6 +58308,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -58535,6 +58620,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -58608,6 +58694,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -58781,6 +58868,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -58844,6 +58932,7 @@
         "record.get",
         "record.groups",
         "record.list",
+        "record.readRestricted",
         "record.similar",
         "record.version",
         "record.versions",
@@ -87243,7 +87332,7 @@
     },
     {
       "name": "x.programs.logAdd",
-      "description": "Log one set done on a session: the item (A1), the exercise when the item has more than one, the level taken when it has levels, which set (1, 2, …), what was done (reps, seconds, load) and how hard it felt (RPE). The target is taken from the session's plan, and who recorded it is the caller. A member logs on their own sessions and their class types'; a coach logs for a client (on a class session, naming them). Nobody logs on a session that is not theirs. Returns the set. (Extension tool from Programs 0.1.0.)",
+      "description": "Log one set done on a session: the item (A1), the exercise when the item has more than one, the level taken when it has levels, which set (1, 2, …), what was done (reps, seconds, load) and how hard it felt (RPE). The target is taken from the session's plan, and who recorded it is the caller. A member logs on their own sessions and their class types'; a coach logs for a client (on a class session, naming them). Nobody logs on a session that is not theirs. A set already logged (a retried save, a second device) is not logged twice: its numbers and effort become these, and its note is kept unless one is given. Returns the set. (Extension tool from Programs 0.1.0.)",
       "risk": "write",
       "audiences": [
         "staff"
@@ -87457,6 +87546,82 @@
           "recordedAs",
           "recordedByName",
           "exerciseName"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.programs.classToday",
+        "x.programs.history",
+        "x.programs.progress",
+        "x.programs.sessionGet",
+        "x.programs.today"
+      ],
+      "pack": "programs"
+    },
+    {
+      "name": "x.programs.logRemove",
+      "description": "Take back a set logged by mistake (un-tick it): the set with this number of a session's item and exercise. A member takes back their own; a coach a client's (on a class session, naming them). A set that is not logged changes nothing, so a retried call is safe. The row goes to the Trash, where staff can restore it. For staff the Trash is an extension's delete, so the org's approval policy may hold it for a person: `waiting` counts those. Returns how many rows were taken back. (Extension tool from Programs 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "item": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 6
+          },
+          "exerciseId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "setNumber": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 30
+          },
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Staff: the person. A member is always themselves."
+          }
+        },
+        "required": [
+          "sessionId",
+          "item",
+          "exerciseId",
+          "setNumber"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "removed": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "waiting": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Staff: rows whose removal waits for a person's approval"
+          }
+        },
+        "required": [
+          "removed",
+          "waiting"
         ],
         "additionalProperties": false
       },

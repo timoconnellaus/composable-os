@@ -8365,7 +8365,7 @@
     },
     {
       "name": "x.programs.logAdd",
-      "description": "Log one set done on a session: the item (A1), the exercise when the item has more than one, the level taken when it has levels, which set (1, 2, …), what was done (reps, seconds, load) and how hard it felt (RPE). The target is taken from the session's plan, and who recorded it is the caller. A member logs on their own sessions and their class types'; a coach logs for a client (on a class session, naming them). Nobody logs on a session that is not theirs. Returns the set. (Extension tool from Programs 0.1.0.)",
+      "description": "Log one set done on a session: the item (A1), the exercise when the item has more than one, the level taken when it has levels, which set (1, 2, …), what was done (reps, seconds, load) and how hard it felt (RPE). The target is taken from the session's plan, and who recorded it is the caller. A member logs on their own sessions and their class types'; a coach logs for a client (on a class session, naming them). Nobody logs on a session that is not theirs. A set already logged (a retried save, a second device) is not logged twice: its numbers and effort become these, and its note is kept unless one is given. Returns the set. (Extension tool from Programs 0.1.0.)",
       "risk": "write",
       "audiences": ["customer"],
       "kind": "mutation",
@@ -8520,6 +8520,82 @@
           "recordedByName",
           "exerciseName"
         ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.family",
+        "me.get",
+        "me.sessions.list",
+        "my.get",
+        "my.list",
+        "x.programs.classToday",
+        "x.programs.history",
+        "x.programs.progress",
+        "x.programs.sessionGet",
+        "x.programs.today"
+      ],
+      "pack": "programs"
+    },
+    {
+      "name": "x.programs.logRemove",
+      "description": "Take back a set logged by mistake (un-tick it): the set with this number of a session's item and exercise. A member takes back their own; a coach a client's (on a class session, naming them). A set that is not logged changes nothing, so a retried call is safe. The row goes to the Trash, where staff can restore it. For staff the Trash is an extension's delete, so the org's approval policy may hold it for a person: `waiting` counts those. Returns how many rows were taken back. (Extension tool from Programs 0.1.0.)",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "item": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 6
+          },
+          "exerciseId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "setNumber": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 30
+          },
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Staff: the person. A member is always themselves."
+          }
+        },
+        "required": ["sessionId", "item", "exerciseId", "setNumber"],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "removed": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "waiting": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Staff: rows whose removal waits for a person's approval"
+          }
+        },
+        "required": ["removed", "waiting"],
         "additionalProperties": false
       },
       "invalidates": [

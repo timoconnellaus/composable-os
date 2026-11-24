@@ -1,4 +1,4 @@
-// my.create and my.update (ADR 0414): the generic record writes a pack's tool makes for the
+// my.create, my.update and my.delete (ADR 0414): the generic record writes a pack's tool makes for the
 // customer who called it. A customer never calls them directly (`toolOnly`): the stage 22 rule
 // is that a customer changes records only through a tool a pack opens. They write through the
 // visibility seam, so the record is always the caller's own, and the fields are the object's
@@ -86,4 +86,26 @@ export const myUpdate = defineOperation({
   },
 });
 
-export const myWriteOperations = [myCreate, myUpdate] as const;
+export const myDelete = defineOperation({
+  name: "my.delete",
+  description:
+    "From a tool called by a customer: put one of that customer's own records in the Trash, " +
+    "where its object lets its customer remove their own (`customer.delete`). A record that is " +
+    "not theirs, or of an object that does not allow it, is reported as not found or refused. " +
+    "Staff can restore it from the Trash. Returns the id.",
+  input: z.object({
+    object: objectName,
+    id: z.string().min(1).max(64).describe("Record id"),
+  }),
+  output: z.object({ id: z.string() }),
+  permission: "records:write",
+  risk: "write",
+  audiences: ["customer"],
+  toolOnly: true,
+  async handler(input, ctx) {
+    await ctx.records.delete(input.object, input.id);
+    return { id: input.id };
+  },
+});
+
+export const myWriteOperations = [myCreate, myUpdate, myDelete] as const;

@@ -3,9 +3,11 @@ import { env } from "cloudflare:workers";
 import {
   type ActingUser,
   type Actor,
+  type CustomerPrincipal,
   type InvocationContext,
   invokeByName,
   newId,
+  type OutsideInvocationContext,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { automationHost } from "../src/automations/host.ts";
@@ -30,6 +32,53 @@ export async function createAdmin(): Promise<ActingUser> {
     .bind(id, email, now, now)
     .run();
   return { id, email, name: "Admin", role: "admin" };
+}
+
+/**
+ * A Person, made by `staff`, with a verified customer account at `<label…>@<domain>`: the row a
+ * customer's first sign-in writes. Its principal and its address.
+ */
+export async function newCustomer(
+  staff: InvocationContext,
+  label: string,
+  { domain = "members.test", givenName }: { domain?: string; givenName?: string } = {},
+): Promise<{ principal: CustomerPrincipal; email: string }> {
+  const tag = unique(label).toLowerCase();
+  const email = `${tag}@${domain}`;
+  const person = (await invokeByName(
+    "person.create",
+    { givenName: givenName ?? `Given-${tag}`, emails: [{ email }] },
+    staff,
+  )) as { id: string };
+  const customerId = `cus_${tag}`;
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    "INSERT INTO core_customer (id, person_id, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
+  )
+    .bind(customerId, person.id, email, now, now)
+    .run();
+  return { principal: { kind: "customer", customerId, personId: person.id }, email };
+}
+
+/**
+ * What a call that must be refused was refused with: its code, message and details, and the inner
+ * code of a tool's refusal.
+ */
+export async function refusal(call: Promise<unknown>) {
+  try {
+    await call;
+  } catch (error) {
+    const e = error as { code?: string; message?: string; details?: Record<string, unknown> };
+    return { code: e.code, message: e.message, inner: e.details?.code, details: e.details };
+  }
+  throw new Error("expected a refusal");
+}
+
+/** A staff user with the member role. */
+export async function createMember(): Promise<ActingUser> {
+  const user = await createAdmin();
+  await env.DB.prepare("UPDATE core_user SET role = 'member' WHERE id = ?").bind(user.id).run();
+  return { ...user, role: "member" };
 }
 
 export function context(
@@ -101,4 +150,35 @@ export default defineExtension({
 });
 `,
   };
+}
+
+/** How many statements `call` prepares against D1 (each is one query), and "ok" or its refusal. */
+export async function queriesOf(
+  call: () => Promise<unknown>,
+): Promise<{ queries: number; outcome: string }> {
+  const d1 = env.DB as unknown as { prepare: (...a: unknown[]) => unknown };
+  const prepare = d1.prepare.bind(d1);
+  let queries = 0;
+  d1.prepare = (...a: unknown[]) => {
+    queries++;
+    return prepare(...a);
+  };
+  try {
+    const outcome = await call().then(
+      () => "ok",
+      (e: { code?: string }) => String(e.code),
+    );
+    return { queries, outcome };
+  } finally {
+    d1.prepare = prepare;
+  }
+}
+
+/** Calls an operation in `ctx`, staff or outside, and returns its output as `T`. */
+export function run<T = Record<string, unknown>>(
+  name: string,
+  input: unknown,
+  ctx: InvocationContext | OutsideInvocationContext,
+): Promise<T> {
+  return invokeByName(name, input, ctx) as Promise<T>;
 }

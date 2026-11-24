@@ -62,3 +62,8 @@ Date presets, custom ranges and `:today` are resolved in the organisation's time
 (`localDay` and `localDateStart` in `time/local.ts`): a day starts at the business's midnight and
 is 23 or 25 hours across a change of clocks; rolling and custom ranges step back by their number of
 local days for the comparison. The cache key also holds the zone. Closes issue #306.
+
+## Amendment, 2026-11-24 (stage 60 step 2, [ADR 0870](0870-todays-items-and-the-today-items-declaration.md))
+A Today item's SQL names its parameters as a widget's does, through `bindNamedParams`, but only
+Today's: `:today_from`, `:today_to` (the business's local day, ADR 0871) and `:now`. Its drill-in
+`rows` replace a click-through.

@@ -21,7 +21,7 @@ import {
 } from "../src/index.ts";
 import { call, outside } from "./customer-fixtures.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
-import { context, createUser, unique } from "./helpers.ts";
+import { context, createUser, refusal, unique } from "./helpers.ts";
 
 const EXT = extId("frm");
 const FORM = `${EXT}.form`;
@@ -85,15 +85,6 @@ const m = () =>
       },
     },
   });
-
-async function refusal(promise: Promise<unknown>) {
-  try {
-    await promise;
-  } catch (error) {
-    return error as { code: string; message: string };
-  }
-  throw new Error("expected a refusal");
-}
 
 beforeAll(async () => {
   admin = await createUser("admin");

@@ -919,25 +919,24 @@ export const mine = defineTool({
       CLASS,
       page.items.map((b) => text(b.values.class)),
     );
-    const coaches = await byIds(
-      ctx,
-      "public.list",
-      COACH,
-      [...classes.values()].map((c) => text(c.coach)),
-    );
-    const rooms = await byIds(
-      ctx,
-      "public.list",
-      ROOM,
-      [...classes.values()].map((c) => text(c.room)),
-    );
+    const waitingIds = page.items.filter((b) => b.values.state === "waiting").map((b) => b.id);
+    const [coaches, rooms, waitingAt] = await Promise.all([
+      byIds(
+        ctx,
+        "public.list",
+        COACH,
+        [...classes.values()].map((c) => text(c.coach)),
+      ),
+      byIds(
+        ctx,
+        "public.list",
+        ROOM,
+        [...classes.values()].map((c) => text(c.room)),
+      ),
+      Promise.all(waitingIds.map((id) => positionOf(ctx, id))),
+    ]);
     const now = Date.now();
-    const positions = new Map<string, number | null>();
-    for (const booking of page.items) {
-      if (booking.values.state === "waiting") {
-        positions.set(booking.id, (await positionOf(ctx, booking.id)).position);
-      }
-    }
+    const positions = new Map(waitingIds.map((id, i) => [id, waitingAt[i]?.position ?? null]));
     const bookings = page.items
       .map((booking) => {
         const classId = text(booking.values.class);
