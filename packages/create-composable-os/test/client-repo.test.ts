@@ -146,12 +146,15 @@ describe("cos create", () => {
     const dir = join(scratch(), "gym");
     const made = await runIn(world, "create", dir, "--with-mobile", "--label", "Gym");
     expect(made.code, made.output).toBe(0);
-    expect(read(dir, "product.ts")).toContain('mobile: { dir: "apps/mobile" }');
+    expect(read(dir, "product.ts")).toContain('mobile: {\n    dir: "apps/mobile",');
+    // The app's store identity is there to fill in (stage 63).
+    expect(read(dir, "product.ts")).toContain("// app: {");
     expect(JSON.parse(read(dir, "apps/mobile/package.json")).name).toBe("gym-mobile");
-    expect(JSON.parse(read(dir, "apps/mobile/app.json")).expo).toMatchObject({
-      name: "Gym",
-      slug: "gym",
-    });
+    // The app's identity comes from product.ts through app.config.ts (stage 63): no app.json.
+    expect(existsSync(join(dir, "apps/mobile/app.json"))).toBe(false);
+    expect(read(dir, "apps/mobile/app.config.ts")).toContain('from "../../product.ts"');
+    expect(existsSync(join(dir, ".github/workflows/app.yml"))).toBe(true);
+    expect(existsSync(join(plain, ".github/workflows/app.yml"))).toBe(false);
     expect(read(dir, "apps/mobile/src/client/customer.ts")).toBe(
       read(dir, "apps/web/src/client/customer.ts"),
     );

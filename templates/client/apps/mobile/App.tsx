@@ -101,8 +101,8 @@ interface Loaded {
 /**
  * My account (stage 48), plain: the sections the account entry gives (`accountSections`), each
  * the host's answer. Money is the website's (ADR 0714): the card opens the business's website
- * account page (`extra.websiteUrl` in app.json). Copy the native-account block (cos add
- * native-account) for the styled screen with the packs' sections.
+ * account page (`extra.websiteUrl`, from product.ts by app.config.ts). Copy the native-account
+ * block (cos add native-account) for the styled screen with the packs' sections.
  */
 function Account({ session, onSignedOut }: { session: Session; onSignedOut: () => void }) {
   const [data, setData] = useState<Loaded | null>(null);

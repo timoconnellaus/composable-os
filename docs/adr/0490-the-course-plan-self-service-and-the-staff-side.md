@@ -75,3 +75,9 @@ subscription link to its page.
   blocks show "Manage on the website", opening the website's account page in the browser, where
   this ADR's native block only said so in words. No native block calls a billing operation: the
   lint's native rule stands as above.
+
+## Amended (2026-11-24, ADR 0905)
+- **The client's own app code is held to it too.** `cos app check` scans a client's mobile app
+  (its own code and its copied blocks) for buying and billing operations and hooks, with the rules
+  the block lint uses, now shared from `packages/create-composable-os/src/purchase-rules.ts`.
+  `mobile.app.purchases` takes only `"none"` (stage 63).

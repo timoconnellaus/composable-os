@@ -447,10 +447,21 @@ A pack role (the door role, ADR 0436) can be used from the company's own app (AD
 Staff sign in with the template's `staffSession`, by an emailed code or in the system browser.
 For the browser, `cos deploy` sets the host's `NATIVE_REDIRECT_URIS` to `<scheme>://staff-sign-in`,
 the scheme being `mobile.scheme` (default the product's id; per environment,
-`environments.<name>.mobile.scheme`), which must match `expo.scheme` in the app's `app.json`. The
+`environments.<name>.mobile.scheme`), which the template's `app.config.ts` sets as `expo.scheme`
+(an adopted app's `app.json` must match it). The
 native sign-in routes the app uses are ADR 0455's (`/api/v1/auth/{customer,staff}/code` and
 `/sign-in`, `/api/v1/auth/staff/exchange`, `/api/v1/auth/sign-out`); they answer with tokens and
 never a cookie. Staff need an invite with the role first (Settings → Users).
+
+### The mobile app in the phone app stores
+The app's store identity is `mobile.app` in `product.ts` (stage 63, ADR 0900): its name, version,
+store ids, icon, splash, colours and listing, per environment where it differs. `pnpm cos app
+check` says what a store build still needs; the template's `.github/workflows/app.yml` builds,
+signs and sends the app to the stores' testing tracks from the client's own store accounts, behind
+protected CI environments a person approves, and records each build in the host
+(`cos app record`). `pnpm cos app credentials` lists the secrets a person sets. A person releases
+to the public. The runbook is [`docs/app-publishing.md`](app-publishing.md); none of it has been
+tried on a real store account yet.
 
 ### Gatekeepers and their settings
 `product.ts` names the gatekeepers a host installs and their settings, for the whole product
