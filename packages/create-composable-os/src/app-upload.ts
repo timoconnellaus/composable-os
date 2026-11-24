@@ -8,7 +8,7 @@
 // by the workflow with the platform's own upload tool, so there is no `--platform ios` here.
 //
 // Not yet tried against the real store: the API calls follow its public reference (v3, "edits").
-import { readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { buildFor, envFlag, type LISTING_FILES, listingLocales, listingText } from "./app.ts";
 import { loadClientProduct } from "./client-repo.ts";
@@ -201,7 +201,7 @@ export async function upload(flags: Flags, deps: Deps): Promise<number> {
   const text = (locale: string, name: (typeof LISTING_FILES)[number]["file"]) =>
     listingText(root, listing, locale, name) ?? "";
   const path = resolve(file);
-  statSync(path);
+  if (!existsSync(path) || !statSync(path).isFile()) throw new CliError(`There is no ${file}.`);
   const account = serviceAccount(deps);
   const env = deps.env as Record<string, string | undefined>;
   const versionCode = await uploadAndroid(
