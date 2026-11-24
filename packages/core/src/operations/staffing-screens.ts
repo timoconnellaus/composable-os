@@ -27,6 +27,7 @@ import {
   type SeriesRule,
 } from "../recurring/index.ts";
 import { isTimezone, loadGeneralSettings } from "../settings.ts";
+import { WEEKDAYS } from "../staffing/hours.ts";
 import { kindObjectOf, personValueFor, warningsOf } from "../staffing/index.ts";
 import { localDateOf } from "../staffing/pay.ts";
 import {
@@ -52,18 +53,16 @@ import { parseLocalDate, parseLocalTime, wallClockOf, wallClockToInstant } from 
 import { visibleSource } from "../visibility/index.ts";
 import { fromRow, loadRecord, staffWarningSchema, updateRecord } from "./record.ts";
 import {
+  accountId,
   assertPersonApplies,
   assertRosterer,
   assertShippedToolRun,
+  localDate,
+  localTime,
+  objectName,
+  recordId,
   requireLiveShift,
 } from "./staffing.ts";
-
-const objectName = z.string().min(1).max(81);
-const recordId = z.string().min(1).max(64);
-const accountId = z.string().min(1).max(64);
-const localDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date, YYYY-MM-DD");
-const localTime = z.string().regex(/^[0-2]\d:[0-5]\d$/, "a time, HH:MM");
-const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 
 // biome-ignore lint/suspicious/noExplicitAny: x_* tables are not in CoreDatabase; names come from the registry.
 type AnyDb = import("kysely").Kysely<any>;
