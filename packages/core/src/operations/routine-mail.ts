@@ -202,9 +202,7 @@ const logEntry = z.object({
   object: z.string(),
   recordId: z.string(),
   channel: z.enum(ROUTINE_CHANNELS),
-  recipient: z
-    .string()
-    .describe("The address an email went to; always empty for a text or push"),
+  recipient: z.string().describe("The address an email went to; always empty for a text or push"),
   recipientRule: z
     .enum(["person", "guardian", "order"])
     .describe(
