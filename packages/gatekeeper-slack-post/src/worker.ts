@@ -65,6 +65,7 @@ import {
   CredentialsExpiredError,
   type CredentialsWithIdentity,
   isConnectionSuperseded,
+  isCredentialsExpired,
   type RejectionVerdict,
 } from "@composable-os/gatekeeper-kit/credentials";
 import {
@@ -208,6 +209,8 @@ export class SlackPostUserAccount extends DurableObject<Env> {
   #refresh = async (current: SlackBotGrant): Promise<SlackBotGrant> => {
     const client = clientOf(this.env);
     if (!client) throw new Error("Slack posting is not configured.");
+    // A non-rotating token has nothing to heal with: Slack refusing it is the grant's death.
+    if (!current.refreshToken) throw new CredentialsExpiredError(EXPIRED_MESSAGE);
     try {
       return await refreshGrant(slackEndpoints(this.env), client, current);
     } catch (error) {
@@ -852,7 +855,14 @@ export class SlackPostGatekeeper
       const verdict = await this.#account().reportCredentialsRejected(options.staleToken.identity);
       if (verdict === "expired") throw new CredentialsExpiredError(EXPIRED_MESSAGE);
     }
-    const { creds, identity } = await this.#account().getCredentials();
+    const { creds, identity } = await this.#account()
+      .getCredentials()
+      .catch((error: unknown) => {
+        // The error class does not survive RPC: give an expired account's message by its name.
+        if (isCredentialsExpired(error))
+          throw new CredentialsExpiredError(EXPIRED_MESSAGE, { cause: error });
+        throw error;
+      });
     const token: CachedToken = {
       token: creds.token,
       identity,
