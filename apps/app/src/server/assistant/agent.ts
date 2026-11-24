@@ -104,6 +104,7 @@ import { createCrmDb } from "@composable-os/db";
 import { Agent, type Connection, type ConnectionContext, type WSMessage } from "agents";
 import "./routine-agents.ts";
 import { aiContextFor } from "../ai.ts";
+import { approvalExpiryDays } from "../approval-expiry.ts";
 import { blobStoreFor, integrationRuntimeFor } from "../integrations.ts";
 import type { McpCaller } from "../mcp/tools.ts";
 import {
@@ -202,11 +203,6 @@ function sseFrame(event: AssistantEvent): Uint8Array {
   return encoder.encode(
     `id: ${event.seq}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`,
   );
-}
-
-function int(value: string | undefined, fallback: number): number {
-  const n = Number.parseInt(value ?? "", 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
 export class AssistantAgent extends withAssistantVoice(Agent<Cloudflare.Env>) implements VoiceHost {
@@ -1055,7 +1051,7 @@ export class AssistantAgent extends withAssistantVoice(Agent<Cloudflare.Env>) im
       origin: { surface: "assistant", sessionId: threadId },
       db,
       floor: parseFloor(env.APPROVAL_FLOOR),
-      approvalExpiryDays: int(env.APPROVAL_EXPIRY_DAYS, 7),
+      approvalExpiryDays: approvalExpiryDays(env.APPROVAL_EXPIRY_DAYS),
       ...(extensionHost ? { extensionHost } : {}),
       ...automationWiring(env),
       ...aiContextFor(env, db),

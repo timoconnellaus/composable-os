@@ -60,6 +60,7 @@ import {
 import { createCrmDb } from "@composable-os/db";
 import { getAgentByName } from "agents";
 import { aiContextFor } from "../ai.ts";
+import { approvalExpiryDays } from "../approval-expiry.ts";
 import { blobStoreFor, integrationRuntimeFor } from "../integrations.ts";
 import { curatedToolName, type McpCaller } from "../mcp/tools.ts";
 import {
@@ -101,11 +102,6 @@ interface JobSpec {
 }
 
 type Phase = "running" | "reviewing" | "finished";
-
-function int(value: string | undefined, fallback: number): number {
-  const n = Number.parseInt(value ?? "", 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
 
 export class AgentJob extends DurableObject<Cloudflare.Env> {
   #abort: AbortController | null = null;
@@ -310,7 +306,7 @@ export class AgentJob extends DurableObject<Cloudflare.Env> {
       origin: { surface: "assistant", sessionId: jobSession(spec.id), jobId: spec.id },
       db,
       floor: parseFloor(env.APPROVAL_FLOOR),
-      approvalExpiryDays: int(env.APPROVAL_EXPIRY_DAYS, 7),
+      approvalExpiryDays: approvalExpiryDays(env.APPROVAL_EXPIRY_DAYS),
       ...(extensionHost ? { extensionHost } : {}),
       ...automationWiring(env),
       ...aiContextFor(env, db),
