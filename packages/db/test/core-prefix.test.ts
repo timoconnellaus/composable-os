@@ -60,6 +60,8 @@ it("after migrations every read view is rec_<object>, and none keeps the old pre
     "rec_record_tag",
     "rec_stage_history",
     "rec_state_history",
+    // Stage 37 (migration 0930): the stock ledger.
+    "rec_stock_movement",
     "rec_subscription",
     // Stage 32b (migration 0630): plan changes and pauses asked of the provider.
     "rec_subscription_change",

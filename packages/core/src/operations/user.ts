@@ -406,6 +406,7 @@ export async function grantable(
     "journeys:manage": "Write journeys, set them live, pause them and add people to them",
     "journeys:publish": "Approve a journey's wording by publishing it",
     "people:cards": "Issue and revoke members' check-in cards",
+    "stock:adjust": "Record opening stock and correct how many are on hand",
   };
   return [
     ...GRANTABLE_PERMISSIONS.map((permission) => ({

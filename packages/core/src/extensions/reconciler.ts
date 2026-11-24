@@ -47,6 +47,7 @@ import {
   resyncClaims,
   type StaffedTables,
 } from "../staffing/sql.ts";
+import { backfillStockCounters } from "../stock/index.ts";
 import { orgReader, visibleSource } from "../visibility/index.ts";
 import {
   columnName,
@@ -109,7 +110,8 @@ export interface ReconcileIssue {
     | "claims_conflict"
     | "grants_conflict"
     | "staffed_conflict"
-    | "occupies_conflict";
+    | "occupies_conflict"
+    | "stock_change";
   path: string;
   message: string;
   suggestion?: string;
@@ -279,6 +281,26 @@ async function dataIssues(
           code: "unique_conflict",
           path: `objects.${object.localName}.unique.${index.rule}`,
           message: `${object.name}: live records already share these values: ${clash.map((r) => r.ids).join("; ")}. Change or delete them first.`,
+        });
+      }
+    }
+    // Stock added to or taken from an object that has records (ADR 0680, the review of #370):
+    // its counters would keep what they held before (a capacity's places, NULL being unlimited,
+    // or units sold with no `sold` row), so on hand would no longer be the ledger's sum and the
+    // database could sell without limit. Refused while any record or counter exists.
+    if (Boolean(before.definition.stock) !== Boolean(object.definition.stock)) {
+      const rows = await sql<{
+        n: number;
+      }>`SELECT (SELECT count(*) FROM (SELECT 1 FROM ${sql.table(object.tableName)} LIMIT 1)) + (SELECT count(*) FROM (SELECT 1 FROM core_capacity WHERE object_type = ${object.name} LIMIT 1)) AS n`.execute(
+        db,
+      );
+      if (Number(rows.rows[0]?.n ?? 0) > 0) {
+        issues.push({
+          code: "stock_change",
+          path: `objects.${object.localName}.stock`,
+          message: object.definition.stock
+            ? `${object.name} already has records: stock can only be declared on a new object, whose records start with nothing on hand. Declare a new object for the things you count.`
+            : `${object.name} has records with stock: stock cannot be taken off it, or orders being paid would sell with no record in the ledger.`,
         });
       }
     }
@@ -456,6 +478,7 @@ export function planFromState(
       ...(object.stages ? { stages: object.stages } : {}),
       ...(object.capacity ? { capacity: object.capacity } : {}),
       ...(object.sellable ? { sellable: object.sellable } : {}),
+      ...(object.stock ? { stock: object.stock } : {}),
       ...(object.allowance ? { allowance: object.allowance } : {}),
       ...(object.agreements ? { agreements: object.agreements } : {}),
       ...(object.healthNotes ? { healthNotes: object.healthNotes } : {}),
@@ -1077,8 +1100,9 @@ export async function planDropHidden(
     }
   }
   // Counters and claims of a dropped object go with its table (ADR 0431).
+  // A stock object's counters and claims too (ADR 0680); its ledger stays, append-only.
   const capacityDrops = droppedObjects
-    .filter((o) => o.definition.capacity)
+    .filter((o) => o.definition.capacity || o.definition.stock)
     .flatMap((o) => dropCapacityStatements(o.name));
   // A dropped claimant gives back the places its records held and took (ADR 0501), and a
   // dropped series or generated object takes its recurring bookkeeping with it (ADR 0500).
@@ -1164,6 +1188,10 @@ function exceptionCleanup(state: SchemaState, ext: string): CompiledQuery[] {
 }
 
 function capacityBackfill(state: SchemaState, ext: string, now: string): CompiledQuery[] {
+  // Stock objects' records each get a counter with nothing on hand (ADR 0680).
+  const stocked = state.objects
+    .filter((o) => o.extensionId === ext && o.status === "active" && o.definition.stock)
+    .map((o) => backfillStockCounters({ object: o.name, table: ident(o.tableName), now }));
   const objects = state.objects.filter(
     (o) => o.extensionId === ext && o.status === "active" && o.definition.capacity,
   );
@@ -1171,7 +1199,7 @@ function capacityBackfill(state: SchemaState, ext: string, now: string): Compile
     ...objects.filter((o) => !o.definition.capacity?.pool),
     ...objects.filter((o) => o.definition.capacity?.pool),
   ];
-  const statements: CompiledQuery[] = [];
+  const statements: CompiledQuery[] = [...stocked];
   for (const object of ordered) {
     const capacity = object.definition.capacity;
     if (!capacity) continue;

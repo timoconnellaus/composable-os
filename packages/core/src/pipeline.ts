@@ -2003,6 +2003,11 @@ function outsideError(error: unknown): OperationError {
   ) {
     return new ValidationError("There are not enough places left", { rule: "capacity" });
   }
+  // Sold out (stage 37, ADR 0680): the same, for a thing in stock. No numbers (the object's
+  // `show` decides what outsiders are told, through stock.get).
+  if (typed.code === "invalid_input" && (typed.details as { rule?: unknown })?.rule === "stock") {
+    return new ValidationError("There are not enough in stock", { rule: "stock" });
+  }
   // A free trial another start took a moment before (migration 0531, ADR 0489): the caller's own
   // start, so they are told to start again (which gives them that page), and no more than that.
   if (typed.code === "conflict" && (typed.details as { rule?: unknown })?.rule === "trial_held") {

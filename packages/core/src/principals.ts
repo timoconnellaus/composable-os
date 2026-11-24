@@ -108,6 +108,9 @@ export type Role = (typeof ROLES)[number];
  * - `people:cards` issue, revoke and list the check-in cards a business gives its members (stage
  *   51, ADR 0783). Admins and members by default, grantable to any staff account (a fixed-role
  *   one included, ADR 0600). A person only whatever is granted (`actors: ["human"]`).
+ * - `stock:adjust` record a record's opening stock and correct it (stage 37, ADR 0680). Admins by
+ *   default, grantable as `orders:refund` is. An AI acting for an account that holds it may ask,
+ *   never make one: its call always waits for a person who holds it too.
  */
 export const PERMISSIONS = [
   "records:read",
@@ -134,6 +137,7 @@ export const PERMISSIONS = [
   "journeys:manage",
   "journeys:publish",
   "people:cards",
+  "stock:adjust",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -177,6 +181,7 @@ export const GRANTABLE_PERMISSIONS = [
   "journeys:manage",
   "journeys:publish",
   "people:cards",
+  "stock:adjust",
 ] as const;
 
 /**

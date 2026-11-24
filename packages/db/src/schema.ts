@@ -1044,6 +1044,37 @@ export interface CoreCapacityClaimTable {
 export type CapacityClaimState = "held" | "confirmed" | "released";
 
 /**
+ * Migration 0930 (stage 37, ADR 0680): the stock ledger. Every change of a stock record's count,
+ * append-only (no update, delete or replace), each at a place ('default' until several).
+ */
+export interface CoreStockMovementTable {
+  id: string;
+  object_type: string;
+  record_id: string;
+  place: Defaulted<string>;
+  /** Signed: in is positive, out negative. */
+  quantity: number;
+  kind: StockMovementKind;
+  source_type: string;
+  source_id: string;
+  /** The staff account; null when the host made it (a paid order's sale). */
+  by_user: string | null;
+  at: string;
+  note: string | null;
+  /** Minor units, for what was received. */
+  unit_cost: number | null;
+}
+export type StockMovementKind =
+  | "opening"
+  | "received"
+  | "sold"
+  | "returned"
+  | "written_off"
+  | "counted"
+  | "adjusted"
+  | "used";
+
+/**
  * Migration 0650 (ADR 0540): a family link. While live (`ended_at` null) the guardian, signed in
  * as a customer, reads and acts for the dependant where an object's customer declaration opts in.
  */
@@ -3390,6 +3421,7 @@ export interface CoreDatabase {
   core_native_sign_in_confirm: CoreNativeSignInConfirmTable;
   core_capacity: CoreCapacityTable;
   core_capacity_claim: CoreCapacityClaimTable;
+  core_stock_movement: CoreStockMovementTable;
   core_person_link: CorePersonLinkTable;
   core_person_carer: CorePersonCarerTable;
   core_agreement_document: CoreAgreementDocumentTable;

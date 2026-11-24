@@ -48,6 +48,7 @@ import { routineMailIssues, routineMailManifestSchema } from "./routine-mail.ts"
 import { checkObjectSellable, sellableManifestSchema } from "./sellable.ts";
 import { checkObjectStaffed, staffedManifestSchema } from "./staffed.ts";
 import { checkObjectStates, resolveFieldPath, statesManifestSchema } from "./states.ts";
+import { checkObjectStock, stockManifestSchema } from "./stock.ts";
 import { checkObjectTeam, teamManifestSchema } from "./team.ts";
 import { checkObjectUnique, uniqueManifestSchema } from "./unique.ts";
 import { checkObjectWorkedOn, workedOnManifestSchema } from "./worked-on.ts";
@@ -216,6 +217,7 @@ export const objectManifestSchema = z.object({
   stages: stagesManifestSchema.optional(),
   capacity: capacityManifestSchema.optional(),
   sellable: sellableManifestSchema.optional(),
+  stock: stockManifestSchema.optional(),
   allowance: allowanceManifestSchema.optional(),
   agreements: agreementsManifestSchema.optional(),
   healthNotes: healthNotesManifestSchema.optional(),
@@ -1275,6 +1277,7 @@ export function validateManifest(
     checkObjectBehaviour(m, name, object, contract);
     checkObjectCapacity(m, name, object, contract);
     checkObjectSellable(m, name, object, contract);
+    checkObjectStock(m, name, object, contract);
     checkObjectAllowance(m, name, object, contract);
     checkObjectAgreements(m, name, object, contract);
     checkObjectHealthNotes(m, name, object, contract);
