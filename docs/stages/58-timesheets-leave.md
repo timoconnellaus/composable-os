@@ -25,8 +25,11 @@ the coordinator, open to override). Build may start.
   `cancel`, `mine`, `pending`, `approve`, `decline`, `cancelApproved`, `balances`, `setBalance`,
   `adjust` (`staffing/leave.ts`, `operations/staffing-leave.ts`). Approval in one batch writes the
   balance entry, the away row and takes the person off each covered shift not started, offering
-  each to everyone eligible (eligibility read set-based; at most 40 shifts an approval, about 680
-  queries at that size, `staffing-leave-cost.test.ts`). `staffing.back` refuses a request's row;
+  each to everyone eligible (each take-off guarded on the person still holding it; eligibility and
+  the offer notices set-based; at most 40 shifts an approval, 670 queries at that size with four
+  kinds of 100 qualified people, `staffing-leave-cost.test.ts`). Approved leave is cancelled only
+  with its away row removed and its balance reversed (a stale cancel fails whole). Open: a weekly
+  pattern's later generation can name the person on a shift inside approved leave (ADR 0853). `staffing.back` refuses a request's row;
   `staffing.away` makes no new kind `leave` once a type exists; `user.deactivate` cancels waiting
   requests. Tests: `packages/core/test/staffing-leave.test.ts`. Left for later steps: the lock's
   triggers over leave and leave lines in pay (step 3, migration 1272), Rostering's tools and

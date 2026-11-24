@@ -9,10 +9,41 @@
 // would call it (the extension's account as `ctx.user`, the person as the verified caller). Every
 // clock is injected.
 import { env } from "cloudflare:workers";
+import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
 import { type ActingUser, invoke, invokeByName } from "../src/index.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
 import { context, createUser } from "./helpers.ts";
+
+/**
+ * A database whose first batch waits until released: a call made through it reads, plans its
+ * batch, and then commits only after whatever the test runs meanwhile (a race forced, not hoped
+ * for).
+ */
+function heldDb() {
+  let release = () => {};
+  const gate = new Promise<void>((r) => {
+    release = r;
+  });
+  let reached = () => {};
+  const waiting = new Promise<void>((r) => {
+    reached = r;
+  });
+  const held = new Proxy(env.DB, {
+    get(target, prop) {
+      if (prop === "batch") {
+        return async (statements: D1PreparedStatement[]) => {
+          reached();
+          await gate;
+          return target.batch(statements);
+        };
+      }
+      const value = Reflect.get(target, prop);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return { db: createCrmDb(held), release, waiting };
+}
 
 const ext = extId("stlv");
 const COACH = `${ext}.coach`;
@@ -140,6 +171,7 @@ const STAFFING = [
   "staffing.back",
   "staffing.awayList",
   "staffing.check",
+  "staffing.assign",
 ];
 
 let admin: ActingUser;
@@ -915,6 +947,114 @@ describe("who sees what (criterion 12)", () => {
       "SELECT name, sql FROM sqlite_master WHERE type = 'view' AND name LIKE 'rec_%'",
     ).all<{ name: string; sql: string }>();
     for (const v of results) expect(v.sql, v.name).not.toMatch(/core_leave|core_staff_away/);
+  });
+});
+
+describe("races the database decides (the review of PR #374)", () => {
+  it("a cancel planned while the request waited fails whole once it has been approved", async () => {
+    await duty("Race clean", di.id, "2026-07-10T08:00", "2026-07-10T10:00");
+    const asked = await call<Asked>(
+      "staffing.leave.request",
+      { type: annual, startDate: "2026-07-10" },
+      di,
+    );
+    const id = asked.request?.id as string;
+    const held = heldDb();
+    const cancel = invokeByName("staffing.leave.cancel", { id }, { ...tool(di), db: held.db });
+    await held.waiting;
+    await call("staffing.leave.approve", { id }, manager);
+    held.release();
+    const e = await refusal(cancel);
+    expect(e.details?.rule).toBe("leave_closed");
+    const row = await env.DB.prepare("SELECT state FROM core_leave_request WHERE id = ?")
+      .bind(id)
+      .first<{ state: string }>();
+    expect(row?.state).toBe("approved");
+    // Still undoable, whole: the away row goes and the balance comes back.
+    const before = await balance(di.id, annual);
+    await call("staffing.leave.cancelApproved", { id, why: "Not needed" }, manager);
+    expect(await balance(di.id, annual)).toBe(before + 120);
+    const away = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_staff_away WHERE leave_request = ?",
+    )
+      .bind(id)
+      .first<{ n: number }>();
+    expect(away?.n).toBe(0);
+  });
+
+  it("approved leave is cancelled only with its away row removed and its balance reversed", async () => {
+    const asked = await call<Asked>(
+      "staffing.leave.request",
+      { type: annual, startDate: "2026-07-13", amounts: [{ date: "2026-07-13", amount: 60 }] },
+      di,
+    );
+    const id = asked.request?.id as string;
+    await call("staffing.leave.approve", { id }, manager);
+    await expect(
+      env.DB.prepare(
+        "UPDATE core_leave_request SET state = 'cancelled', updated_at = 'x' WHERE id = ?",
+      )
+        .bind(id)
+        .run(),
+    ).rejects.toThrow(/core_leave_request_held/);
+    await env.DB.prepare("DELETE FROM core_staff_away WHERE leave_request = ?").bind(id).run();
+    // The away row gone, the ledger still not reversed: refused too.
+    await expect(
+      env.DB.prepare(
+        "UPDATE core_leave_request SET state = 'cancelled', updated_at = 'x' WHERE id = ?",
+      )
+        .bind(id)
+        .run(),
+    ).rejects.toThrow(/core_leave_request_held/);
+  });
+
+  it("an approval planned before a shift was given to someone else fails whole, leaving them on it", async () => {
+    const shift = await duty("Clean B", di.id, "2026-07-20T08:00", "2026-07-20T10:00");
+    const asked = await call<Asked>(
+      "staffing.leave.request",
+      { type: unpaid, startDate: "2026-07-20" },
+      di,
+    );
+    const id = asked.request?.id as string;
+    const held = heldDb();
+    const approving = invokeByName(
+      "staffing.leave.approve",
+      { id },
+      { ...tool(manager), db: held.db },
+    );
+    await held.waiting;
+    await invokeByName(
+      "staffing.assign",
+      { object: DUTY, id: shift, account: eve.id },
+      tool(admin, { personApproves: true }),
+    );
+    held.release();
+    const e = await refusal(approving);
+    expect(e.details?.rule).toBe("roster_changed");
+    expect(await claim(DUTY, shift)).toEqual({ account_id: eve.id });
+    const row = await env.DB.prepare("SELECT state FROM core_leave_request WHERE id = ?")
+      .bind(id)
+      .first<{ state: string }>();
+    expect(row?.state).toBe("requested");
+    // Approved again, with what is there now: Eve keeps the shift.
+    const done = await call<Approved>("staffing.leave.approve", { id }, manager);
+    expect(done.offered.length + done.uncovered.length).toBe(0);
+    expect(await claim(DUTY, shift)).toEqual({ account_id: eve.id });
+  });
+
+  it("an assistant reading its person's time off never gets their approved leave", async () => {
+    const own = await call<{ items: { leaveRequest: string | null }[] }>(
+      "staffing.awayList",
+      { from: "2026-06-01" },
+      di,
+    );
+    expect(own.items.some((a) => a.leaveRequest)).toBe(true);
+    const ai = (await invokeByName(
+      "staffing.awayList",
+      { from: "2026-06-01" },
+      tool(di, { actor: "assistant" }),
+    )) as { items: { leaveRequest: string | null }[] };
+    expect(ai.items.some((a) => a.leaveRequest)).toBe(false);
   });
 });
 

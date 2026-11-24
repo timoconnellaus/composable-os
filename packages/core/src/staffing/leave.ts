@@ -13,16 +13,20 @@
 // through the same statements as `staffing.assign` (the record write) and `staffing.offer`
 // (`takeOffShifts`, operations/staffing-leave.ts).
 import type { CoreDatabase } from "@composable-os/db";
-import type { Kysely } from "kysely";
-import { sql } from "kysely";
+import { CompiledQuery, type Kysely, sql } from "kysely";
 import { ConflictError, ValidationError } from "../errors.ts";
+import { getObject } from "../fields/index.ts";
+import { newId } from "../ids.ts";
+import type { NotificationLink } from "../notifications/types.ts";
 import type { HandlerContext } from "../operation.ts";
-import { jsonList } from "../records/common.ts";
+import { chunk, jsonList } from "../records/common.ts";
 import { addLocalDays, parseLocalDate, parseLocalTime, wallClockToInstant } from "../time/local.ts";
+import { orgReader, visibleSource } from "../visibility/index.ts";
 import { shiftTitle } from "./changes.ts";
 import { ELIGIBLE_MAX } from "./eligibility.ts";
 import { kindObjectOf, loadShift, type StoredShift } from "./index.ts";
-import { awayIn, awayRowsOf, claimsOf, clashIn, profilesOf, qualifiedOf } from "./sets.ts";
+import { actingAccount } from "./rosterers.ts";
+import { awayIn, awayRowsOf, claimsOf, clashIn, profilesOf } from "./sets.ts";
 
 /** The most dates one request covers (two months: longer leave is asked for in parts). */
 export const MAX_LEAVE_DAYS = 62;
@@ -242,9 +246,10 @@ export function coveredOf(s: StoredShift): CoveredShift {
 /**
  * Who each of `shifts` may be offered to (as `eligibleAccounts` decides it for one: qualified for
  * its kind, active, with a profile its person field can name, not away over it, free), read once
- * for all of them: per kind its qualified people, then their accounts, profiles, unavailability
- * and claims over the shifts' whole span in a few set-based reads (stage 45's sets.ts), checked
- * in memory. Keyed by object and id; `exclude` is never offered one.
+ * for all of them, whatever their kinds: the qualified people of every kind (at most ELIGIBLE_MAX
+ * a kind, as an offer reads), which kinds are live, who is active, everyone's unavailability and
+ * claims over the shifts' whole span (stage 45's sets.ts) and the profiles, in a few set-based
+ * reads; then checked in memory. Keyed by object and id; `exclude` is never offered one.
  */
 export async function eligibleForShifts(
   ctx: HandlerContext,
@@ -253,66 +258,121 @@ export async function eligibleForShifts(
 ): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
   const timed = shifts.filter(
-    (s) => s.shift.starts !== null && s.shift.ends !== null && s.shift.ends > s.shift.starts,
+    (s) =>
+      kindObjectOf(s.object) &&
+      s.shift.kind &&
+      s.shift.starts !== null &&
+      s.shift.ends !== null &&
+      s.shift.ends > s.shift.starts,
   );
-  const groups = new Map<string, { kindObject: string; kind: string; shifts: StoredShift[] }>();
+  if (!timed.length) return out;
+  const kindKey = (object: string, kind: string) => `${object}\u0000${kind}`;
+  const kindsByObject = new Map<string, Set<string>>();
   for (const s of timed) {
-    const kindObject = kindObjectOf(s.object);
-    if (!kindObject || !s.shift.kind) continue;
-    const key = `${kindObject}\u0000${s.shift.kind}`;
-    const group = groups.get(key) ?? { kindObject, kind: s.shift.kind, shifts: [] };
-    group.shifts.push(s);
-    groups.set(key, group);
+    const object = kindObjectOf(s.object) as string;
+    kindsByObject.set(object, (kindsByObject.get(object) ?? new Set()).add(s.shift.kind as string));
   }
-  for (const { kindObject, kind, shifts: mine } of groups.values()) {
+  // Each kind's qualified people (one read per kind object), and which kinds are live (one more).
+  const qualified = new Map<string, string[]>();
+  const live = new Set<string>();
+  for (const [object, kinds] of kindsByObject) {
     const rows = await ctx.db
       .selectFrom("core_staff_qualification")
-      .select("account_id")
-      .where("kind_object", "=", kindObject)
-      .where("kind_record", "=", kind)
+      .select(["kind_record", "account_id"])
+      .where("kind_object", "=", object)
+      .where("kind_record", "in", jsonList([...kinds]))
+      .orderBy("kind_record")
       .orderBy("account_id")
-      .limit(ELIGIBLE_MAX)
+      .limit(ELIGIBLE_MAX * kinds.size)
       .execute();
-    const candidates = rows.map((r) => r.account_id).filter((a) => !exclude.has(a));
-    if (!candidates.length) continue;
-    const active = new Set(
-      (
-        await ctx.db
-          .selectFrom("core_user")
-          .select("id")
-          .where("id", "in", jsonList(candidates))
-          .where("kind", "=", "human")
-          .where("deactivated_at", "is", null)
-          .execute()
-      ).map((r) => r.id),
-    );
-    // A kind in the Trash or gone qualifies nobody.
-    const { strict } = await qualifiedOf(ctx, kindObject, kind, [...active]);
-    const people = candidates.filter((a) => active.has(a) && strict.has(a));
-    if (!people.length) continue;
-    const lo = Math.min(...mine.map((s) => s.shift.starts as number));
-    const hi = Math.max(...mine.map((s) => s.shift.ends as number));
-    const away = await awayRowsOf(ctx, people, lo, hi);
-    const claims = await claimsOf(ctx, people, lo, hi);
-    const profiles = new Map<string, Map<string, string>>();
-    for (const s of mine) {
-      if (!profiles.has(s.object.name)) {
-        profiles.set(s.object.name, await profilesOf(ctx, s.object, people));
-      }
-      const named = profiles.get(s.object.name) as Map<string, string>;
-      const starts = s.shift.starts as number;
-      const ends = s.shift.ends as number;
-      const self = { object: s.object.name, id: s.id };
-      out.set(
-        `${s.object.name}\u0000${s.id}`,
-        people.filter(
-          (a) =>
-            named.has(a) &&
-            !awayIn(away.get(a), starts, ends) &&
-            !clashIn(claims.get(a), starts, ends, self),
-        ),
-      );
+    for (const r of rows) {
+      const list = qualified.get(kindKey(object, r.kind_record)) ?? [];
+      if (list.length < ELIGIBLE_MAX && !exclude.has(r.account_id)) list.push(r.account_id);
+      qualified.set(kindKey(object, r.kind_record), list);
+    }
+    const target = getObject(object);
+    if (!target) continue;
+    const found = (await ctx.db
+      .selectFrom(visibleSource(orgReader(ctx.db), target))
+      .select("id")
+      .where("id", "in", jsonList([...kinds]))
+      .execute()) as { id: string }[];
+    for (const r of found) live.add(kindKey(object, r.id));
+  }
+  const candidates = [...new Set([...qualified.values()].flat())];
+  if (!candidates.length) return out;
+  const active = new Set<string>();
+  for (const part of chunk(candidates)) {
+    const rows = await ctx.db
+      .selectFrom("core_user")
+      .select("id")
+      .where("id", "in", jsonList(part))
+      .where("kind", "=", "human")
+      .where("deactivated_at", "is", null)
+      .execute();
+    for (const r of rows) active.add(r.id);
+  }
+  const people = candidates.filter((a) => active.has(a));
+  if (!people.length) return out;
+  const lo = Math.min(...timed.map((s) => s.shift.starts as number));
+  const hi = Math.max(...timed.map((s) => s.shift.ends as number));
+  const away = await awayRowsOf(ctx, people, lo, hi);
+  const claims = await claimsOf(ctx, people, lo, hi);
+  const profiles = new Map<string, Map<string, string>>();
+  for (const s of timed) {
+    if (!profiles.has(s.object.name)) {
+      profiles.set(s.object.name, await profilesOf(ctx, s.object, people));
     }
   }
+  for (const s of timed) {
+    const key = kindKey(kindObjectOf(s.object) as string, s.shift.kind as string);
+    // A kind in the Trash or gone qualifies nobody.
+    if (!live.has(key)) continue;
+    const named = profiles.get(s.object.name) as Map<string, string>;
+    const starts = s.shift.starts as number;
+    const ends = s.shift.ends as number;
+    const self = { object: s.object.name, id: s.id };
+    out.set(
+      `${s.object.name}\u0000${s.id}`,
+      (qualified.get(key) ?? []).filter(
+        (a) =>
+          active.has(a) &&
+          named.has(a) &&
+          !awayIn(away.get(a), starts, ends) &&
+          !clashIn(claims.get(a), starts, ends, self),
+      ),
+    );
+  }
   return out;
+}
+
+/**
+ * One statement writing each notice (in-app, delivered by email as each person's preferences say,
+ * as `queueNotice` writes them), for people the caller has already read as active staff: one
+ * bound value however many. The caller is never told what it just did. Null when there is none.
+ */
+export function noticesStatement(
+  ctx: HandlerContext,
+  notices: readonly {
+    to: string;
+    title: string;
+    body: string;
+    link: NotificationLink | null;
+  }[],
+): CompiledQuery | null {
+  const me = actingAccount(ctx);
+  const rows = notices
+    .filter((n) => n.to && n.to !== me)
+    .map((n) => ({
+      id: newId("notification"),
+      to: n.to,
+      title: n.title.slice(0, 200),
+      body: n.body,
+      link: n.link ? JSON.stringify(n.link) : null,
+    }));
+  if (!rows.length) return null;
+  return CompiledQuery.raw(
+    "INSERT OR IGNORE INTO core_notifications (id, user_id, type, title, body, link, source, dedupe_key, human_only, read_at, created_at) SELECT json_extract(value, '$.id'), json_extract(value, '$.to'), 'system.message', json_extract(value, '$.title'), json_extract(value, '$.body'), json_extract(value, '$.link'), ?, NULL, 0, NULL, ? FROM json_each(?)",
+    [JSON.stringify({ actor: ctx.actor, userId: me }), ctx.now, JSON.stringify(rows)],
+  );
 }

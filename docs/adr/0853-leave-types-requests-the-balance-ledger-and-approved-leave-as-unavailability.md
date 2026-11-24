@@ -40,7 +40,10 @@ business to confirm with its accountant.
 - **The database keeps the rules** (triggers, for every statement shape, D1's recursive triggers
   being off): a request is never replaced (an id that exists is refused before a REPLACE could
   delete it); `requested` moves once to `approved`, `declined` or `cancelled`, and `approved` only
-  to `cancelled`, so of **two approvals at once one applies** and the other fails whole; what it
+  to `cancelled`, so of **two approvals at once one applies** and the other fails whole; approved
+  leave moves to `cancelled` only once its away row is gone and its ledger entry reversed, earlier
+  in the same batch, so a cancel planned while it waited that lands after the approval fails whole
+  (`core_leave_request_held`) instead of leaving the person away for good; what it
   asked never changes (its note may only be cleared); an approved request is never deleted; its days
   change only while it waits. The ledger is never updated, deleted or replaced. An `approved` entry
   of a type that refuses a balance below zero is refused when it would take the sum below zero,
@@ -59,11 +62,15 @@ business to confirm with its accountant.
   column naming the request, no note), and, for each covered shift that has not started, **the
   person taken off it** (the record write `staffing.assign` makes, so its claim, its open offer and
   its notices follow) and **an offer to everyone eligible** (the statement `staffing.offer` makes
-  for an uncovered shift; none past the cut-off, none when nobody could take it). Eligibility is
-  read once for every shift (`eligibleForShifts`, over stage 45's set-based reads); each person
-  offered is told once. The rosterers get stage 45's notice with which shifts were offered and
-  which nobody could be. At most **40 shifts** an approval (about 680 queries at that size, inside
-  D1's 1,000 an invocation); more is refused whole, with what to do.
+  for an uncovered shift; none past the cut-off, none when nobody could take it). Each take-off is
+  guarded on the person still holding the shift at commit (`core_staff_guard`): a shift given to
+  someone else after the approval read it fails the approval whole (`roster_changed`), never
+  taking the new person off. Eligibility is read once for every shift, whatever their kinds
+  (`eligibleForShifts`, over stage 45's set-based reads); each person offered is told once, every
+  such notice written by one statement. The rosterers get stage 45's notice with which shifts were
+  offered and which nobody could be. At most **40 shifts** an approval: 670 queries at that size
+  with four kinds of 100 qualified people each (400 told), inside D1's 1,000 an invocation; more
+  is refused whole, with what to do.
 - **Declining** (with why) and **cancelling**: the person cancels their own waiting request, or an
   approved one before it starts; an approver cancels approved leave (with why) while no locked pay
   period holds it. Cancelling approved leave removes its away row and writes the reversing ledger
@@ -82,7 +89,8 @@ business to confirm with its accountant.
 - **Unavailability, amended (ADR 0622).** `staffing.back` refuses a request's row (cancel the
   request). Once the business has a leave type, `staffing.away` makes no new kind `leave` row (a
   person says `other` or `regular`; leave is asked for); rows already made stay. `staffing.awayList`
-  answers which rows came from a request.
+  answers which rows came from a request, and leaves them out for an assistant acting for its own
+  person (reading leave is a person's).
 - **Leaving, amended (ADR 0624).** `user.deactivate` cancels the leaver's waiting requests in its
   batch; approved leave and balances stay, as payroll records.
 
@@ -96,6 +104,12 @@ business to confirm with its accountant.
 - Two overlapping requests asked at the same instant are not refused by the database (the overlap
   is read first); an approver sees both waiting.
 - Rostering's tools and screens over these operations are steps 5 and 6.
+- **Open: a weekly pattern can put the person back on a shift inside approved leave.** Approval
+  takes them off the shifts that exist when it runs; a series' generation later (its horizon is
+  eight weeks, leave up to 62 days) names the pattern's person, made with the `unavailable`
+  warning as stage 45 makes any shift over unavailability, and does not consult leave. Making the
+  generation leave such a date uncovered is recurring work outside this step, for the
+  coordinator to place (the review of PR #374).
 
 ## Considered and rejected
 

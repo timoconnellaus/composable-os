@@ -1,6 +1,7 @@
 // Stage 58 step 4 (ADR 0853), what approving leave costs at its largest: a cleaner with 1,000 days
-// of past shifts on leave over 40 future shifts (the most one approval takes someone off), each
-// of a kind 20 colleagues are qualified for. The approval is one batch: each shift's record write
+// of past shifts on leave over 40 future shifts (the most one approval takes someone off), of four
+// kinds in turn, each kind with 100 qualified colleagues (the most an offer reads, ELIGIBLE_MAX):
+// 400 people offered something. The approval is one batch: each shift's record write
 // and offer, the notices, the balance entry and the unavailability row; it reads the leave's
 // shifts through the claims index (never the history), and stays well inside D1's 1,000 queries
 // an invocation. A request's days are one statement with one bound value, however many.
@@ -14,6 +15,7 @@ import {
   invokeByName,
   objectTableOf,
 } from "../src/index.ts";
+import { ELIGIBLE_MAX } from "../src/staffing/eligibility.ts";
 import { MAX_TAKEN_OFF } from "../src/staffing/leave.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
 import { createUser } from "./helpers.ts";
@@ -166,32 +168,41 @@ beforeAll(async () => {
     )
     .run();
   cleaner = (await createUser("member")).id;
-  const kind = (await invokeByName(
-    "record.create",
-    { object: KIND, values: { name: "Cleaning" } },
-    { actor: "human", user: admin, origin: { surface: "ui" }, db },
-  )) as { id: string };
-  const colleagues: string[] = [];
-  for (let i = 0; i < 20; i++) {
-    const user = await createUser("member");
-    colleagues.push(user.id);
-    await env.DB.prepare(
-      "INSERT INTO core_staff_qualification (account_id, kind_object, kind_record, set_by, set_at) VALUES (?, ?, ?, ?, ?)",
-    )
-      .bind(user.id, KIND, kind.id, admin.id, NOW)
-      .run();
+  const kinds: string[] = [];
+  for (const name of ["Cleaning", "Front desk", "Opening", "Closing"]) {
+    const made = (await invokeByName(
+      "record.create",
+      { object: KIND, values: { name } },
+      { actor: "human", user: admin, origin: { surface: "ui" }, db },
+    )) as { id: string };
+    kinds.push(made.id);
   }
+  const people: D1PreparedStatement[] = [];
+  for (const [k, kindId] of kinds.entries()) {
+    for (let i = 0; i < ELIGIBLE_MAX; i++) {
+      const id = `usr_lvcost_${k}_${i}`;
+      people.push(
+        env.DB.prepare(
+          "INSERT INTO core_user (id, name, email, email_verified, role, created_at, updated_at) VALUES (?, ?, ?, 1, 'member', ?, ?)",
+        ).bind(id, `Colleague ${k} ${i}`, `${id}@example.com`, NOW, NOW),
+        env.DB.prepare(
+          "INSERT INTO core_staff_qualification (account_id, kind_object, kind_record, set_by, set_at) VALUES (?, ?, ?, ?, ?)",
+        ).bind(id, KIND, kindId, admin.id, NOW),
+      );
+    }
+  }
+  for (let i = 0; i < people.length; i += 200) await env.DB.batch(people.slice(i, i + 200));
   const object = getObject(DUTY);
   const col = (f: string) => object?.fields.find((x) => x.name === f)?.column as string;
   const table = objectTableOf(DUTY) as string;
-  const insert = (id: string, staff: string, starts: string) =>
+  const insert = (id: string, staff: string, starts: string, kindId = kinds[0] as string) =>
     env.DB.prepare(
       `INSERT INTO ${table} (id, created_at, updated_at, name, ${col("kind")}, ${col("staff")}, ${col("startsAt")}, ${col("endsAt")}, ${col("state")}) VALUES (?, ?, ?, 'Clean', ?, ?, ?, ?, 'scheduled')`,
     ).bind(
       id,
       NOW,
       NOW,
-      kind.id,
+      kindId,
       staff,
       starts,
       new Date(Date.parse(starts) + 3_600_000).toISOString(),
@@ -202,7 +213,7 @@ beforeAll(async () => {
   for (let d = 0; d < HISTORY_DAYS; d++) {
     statements.push(insert(`h${d}`, cleaner, new Date(first + d * 86_400_000).toISOString()));
   }
-  // Two a day for 20 days from 8 June: the leave's 40.
+  // Two a day for 20 days from 8 June, the four kinds in turn: the leave's 40.
   const leave = Date.parse("2026-06-08T00:00:00.000Z");
   for (let d = 0; d < 20; d++) {
     for (const h of [1, 4]) {
@@ -211,6 +222,7 @@ beforeAll(async () => {
           `f${d}_${h}`,
           cleaner,
           new Date(leave + d * 86_400_000 + h * 3_600_000).toISOString(),
+          kinds[(d * 2 + (h === 1 ? 0 : 1)) % kinds.length],
         ),
       );
     }
@@ -240,7 +252,7 @@ describe("approving leave at its largest", () => {
     expect(queries).toBeLessThan(40);
   });
 
-  it(`taking someone off ${MAX_TAKEN_OFF} shifts, each offered to 20 people, stays well inside D1's limits`, async () => {
+  it(`taking someone off ${MAX_TAKEN_OFF} shifts of four kinds, each offered to 100 people, stays well inside D1's limits`, async () => {
     const asked = (await invokeByName(
       "staffing.leave.request",
       { type: annual, startDate: "2026-06-08", endDate: "2026-06-27" },
@@ -256,7 +268,12 @@ describe("approving leave at its largest", () => {
       tool(admin.id),
     )) as { offered: { told: number }[] };
     expect(done.offered.length).toBe(MAX_TAKEN_OFF);
-    expect(done.offered.every((o) => o.told === 20)).toBe(true);
+    expect(done.offered.every((o) => o.told === ELIGIBLE_MAX)).toBe(true);
+    // Each of the 400 told once, with their ten shifts.
+    const told = await env.DB.prepare(
+      "SELECT count(*) AS n, count(DISTINCT user_id) AS people FROM core_notifications WHERE title = '10 shifts offered to you'",
+    ).first<{ n: number; people: number }>();
+    expect(told).toEqual({ n: 400, people: 400 });
     // Measured 2026-11-24; D1 allows 1,000 an invocation.
     expect(queries).toBeLessThan(800);
     expect(mostBound).toBeLessThan(100);

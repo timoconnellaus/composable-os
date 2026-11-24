@@ -1272,10 +1272,13 @@ zero has the approving entry refused by the database. Approval is one batch: the
 request, the balance entry, stage 45's `core_staff_away` row (kind `leave`, `leave_request` naming
 it, so the `unavailable` warning, eligibility and the notice hold unchanged), and the person taken
 off each covered shift that has not started, by the record write `staffing.assign` makes, each
-offered to everyone eligible as `staffing.offer` makes (eligibility read set-based for all of them,
-`eligibleForShifts`; at most 40 shifts an approval, about 680 queries at that size); the rosterers
+offered to everyone eligible as `staffing.offer` makes (each take-off guarded on the person still
+holding the shift at commit; eligibility read set-based for all of them, `eligibleForShifts`, and
+every offer notice one statement; at most 40 shifts an approval, 670 queries at that size with 400
+people told); the rosterers
 get the list of what was offered and what nobody could be. Cancelling approved leave removes the row
-and reverses the entry, and puts nobody back. `staffing.back` refuses a request's row;
+and reverses the entry, and puts nobody back; the request's trigger moves it to `cancelled` only
+once both are done, so a stale cancel fails whole. `staffing.back` refuses a request's row;
 `staffing.away` makes no new kind `leave` once a type exists; `user.deactivate` cancels a leaver's
 waiting requests. Approvers are the rosterers, never for their own request (an admin may when nobody
 else can); types and balances are a pay holder's. Every leave tool is a person's at the screen,

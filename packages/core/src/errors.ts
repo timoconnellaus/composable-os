@@ -428,7 +428,10 @@ export function toOperationError(error: unknown): OperationError {
   // Leave (migration 1271, ADR 0853): a request decided a moment before (of two approvals at once
   // one applies), what was asked never changes, the ledger is insert only, and a type that refuses
   // a balance below zero. The answer names no note, amount or balance.
-  if (message.includes("core_leave_request_closed")) {
+  if (
+    message.includes("core_leave_request_closed") ||
+    message.includes("core_leave_request_held")
+  ) {
     return new ConflictError(
       "This leave request was decided or cancelled a moment before, so nothing was changed. Look again.",
       { rule: "leave_closed" },

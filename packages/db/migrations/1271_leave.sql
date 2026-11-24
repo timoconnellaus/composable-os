@@ -94,11 +94,20 @@ BEGIN
 END;
 
 -- `requested` moves once; `approved` only to `cancelled`; a decided request never moves again. Of
--- two approvals at once the second fails whole here. What was asked never changes; its note may
--- only be cleared (erasing a person's notes).
+-- two approvals at once the second fails whole here. Approved leave is cancelled only once its
+-- unavailability row is gone and its ledger entry reversed (earlier in the same batch), so a write
+-- planned while it waited (a cancel racing the approval) fails whole rather than leave it away for
+-- good. What was asked never changes; its note may only be cleared (erasing a person's notes).
 CREATE TRIGGER core_leave_request_update
 BEFORE UPDATE ON core_leave_request
 BEGIN
+  SELECT RAISE(ABORT, 'core_leave_request_held')
+  WHERE OLD.state = 'approved' AND NEW.state = 'cancelled' AND (
+    EXISTS (SELECT 1 FROM core_staff_away WHERE leave_request = OLD.id)
+    OR (EXISTS (SELECT 1 FROM core_leave_balance_entry WHERE request_id = OLD.id
+          AND why = 'approved')
+      AND NOT EXISTS (SELECT 1 FROM core_leave_balance_entry WHERE request_id = OLD.id
+          AND why = 'cancelled')));
   SELECT RAISE(ABORT, 'core_leave_request_closed')
   WHERE NOT (
     (OLD.state = 'requested' AND NEW.state IN ('approved', 'declined', 'cancelled'))

@@ -37,6 +37,7 @@ import {
   MAX_AMOUNT,
   MAX_LEAVE_DAYS,
   MAX_TAKEN_OFF,
+  noticesStatement,
   proposedAmounts,
 } from "../staffing/leave.ts";
 import { makeOfferStatement, pastCutoff, whenOf } from "../staffing/offers.ts";
@@ -736,6 +737,14 @@ async function takeOffShifts(
   const toldOf = new Map<string, { line: string; link: ReturnType<typeof shiftLink> }[]>();
   for (const s of shifts) {
     const field = s.object.staffed?.who.field as string;
+    // Still theirs at commit: a shift given to someone else after this read fails the batch whole
+    // (`roster_changed`), never taking the new person off it.
+    ctx.write(
+      CompiledQuery.raw(
+        "INSERT INTO core_staff_guard (expected, actual) SELECT 1, count(*) FROM core_staff_time WHERE object_type = ? AND record_id = ? AND account_id = ?",
+        [s.object.name, s.id, account],
+      ),
+    );
     await updateRecord(
       ctx,
       getObject(s.object.name) ?? s.object,
@@ -770,10 +779,11 @@ async function takeOffShifts(
     }
     answer.offered.push({ ...covered, told: told.length });
   }
-  for (const [a, offers] of toldOf) {
+  // Every person offered something told in one statement, however many (D1's 1,000 queries).
+  const notices = [...toldOf].map(([to, offers]) => {
     const first = offers[0] as (typeof offers)[number];
-    await queueNotice(ctx, {
-      to: [a],
+    return {
+      to,
       title:
         offers.length === 1
           ? `Shift offered: ${first.line}`
@@ -787,8 +797,10 @@ async function takeOffShifts(
         `Take one in the app until ${cutoffMinutes} minutes before it starts.`,
       ].join("\n"),
       link: offers.length === 1 ? first.link : null,
-    });
-  }
+    };
+  });
+  const statement = noticesStatement(ctx, notices);
+  if (statement) ctx.write(statement);
   // Stage 45's notice of someone away over their shifts, with what became of each: that they are
   // away, never why, and to people at the screen only.
   const name = await staffName(ctx.db, account);
@@ -1018,13 +1030,9 @@ export const staffingLeaveDecline = defineOperation({
 async function cancelApproved(ctx: HandlerContext, request: RequestRow, reason: string | null) {
   if (await lockedOver(ctx.db, request.start_date, request.end_date)) throw lockedRefusal();
   const me = actingAccount(ctx);
-  ctx.write(
-    ctx.db
-      .updateTable("core_leave_request")
-      .set({ state: "cancelled", why: reason, updated_at: ctx.now })
-      .where("id", "=", request.id),
-    ctx.db.deleteFrom("core_staff_away").where("leave_request", "=", request.id),
-  );
+  // The away row and the reversing entry first: the request's trigger moves it to `cancelled`
+  // only once both are done in this batch, so a write planned from a stale read fails whole.
+  ctx.write(ctx.db.deleteFrom("core_staff_away").where("leave_request", "=", request.id));
   const entry = await ctx.db
     .selectFrom("core_leave_balance_entry")
     .select(["amount", "type_id"])
@@ -1046,6 +1054,12 @@ async function cancelApproved(ctx: HandlerContext, request: RequestRow, reason: 
       }),
     );
   }
+  ctx.write(
+    ctx.db
+      .updateTable("core_leave_request")
+      .set({ state: "cancelled", why: reason, updated_at: ctx.now })
+      .where("id", "=", request.id),
+  );
   const type = await loadType(ctx, request.type_id);
   const name = await staffName(ctx.db, request.account_id);
   const when =

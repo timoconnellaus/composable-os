@@ -777,22 +777,26 @@ export const staffingAwayList = defineOperation({
     // person at the screen reads it (ADR 0626).
     const person = ctx.extension?.tool?.calledBy?.actor === "human";
     return {
-      items: rows.map((r) => ({
-        id: r.id,
-        account: r.account_id,
-        name: names.get(r.account_id) ?? "",
-        kind: r.kind,
-        note: person ? r.note : null,
-        startsAt: r.starts_at,
-        endsAt: r.ends_at,
-        weekdays: r.weekdays ? r.weekdays.split(",") : [],
-        startTime: r.start_time,
-        endTime: r.end_time,
-        fromDate: r.from_date,
-        untilDate: r.until_date,
-        zone: r.zone,
-        leaveRequest: r.leave_request,
-      })),
+      // Approved leave is a person's to read (stage 58, ADR 0853): an assistant acting for its
+      // own person gets the times they said they cannot work, never their leave.
+      items: rows
+        .filter((r) => person || !r.leave_request)
+        .map((r) => ({
+          id: r.id,
+          account: r.account_id,
+          name: names.get(r.account_id) ?? "",
+          kind: r.kind,
+          note: person ? r.note : null,
+          startsAt: r.starts_at,
+          endsAt: r.ends_at,
+          weekdays: r.weekdays ? r.weekdays.split(",") : [],
+          startTime: r.start_time,
+          endTime: r.end_time,
+          fromDate: r.from_date,
+          untilDate: r.until_date,
+          zone: r.zone,
+          leaveRequest: r.leave_request,
+        })),
     };
   },
 });
