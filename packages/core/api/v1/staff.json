@@ -915,6 +915,52 @@
           },
           "locked": {
             "type": "boolean"
+          },
+          "kind": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "sections": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "label",
+                    "text"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -1259,6 +1305,52 @@
                 },
                 "locked": {
                   "type": "boolean"
+                },
+                "kind": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ],
+                  "additionalProperties": false
+                },
+                "sections": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "key",
+                          "label",
+                          "text"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               },
               "required": [
@@ -1477,6 +1569,52 @@
                 },
                 "locked": {
                   "type": "boolean"
+                },
+                "kind": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ],
+                  "additionalProperties": false
+                },
+                "sections": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "key",
+                          "label",
+                          "text"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               },
               "required": [
@@ -1514,7 +1652,7 @@
     },
     {
       "name": "activity.log",
-      "description": "Log a note, email, call or meeting on one or more records' timelines (people, organisations, tasks). Each type takes a typed payload: email needs a direction and optional from/to/cc; call takes direction, durationSeconds and outcome; meeting takes startsAt/endsAt, location, url and attendees; note takes none. Notes need a body. occurredAt defaults to now. System activities cannot be logged; the CRM posts them itself. Returns the activity with its links.",
+      "description": "Log a note, email, call or meeting on one or more records' timelines (people, organisations, tasks). Each type takes a typed payload: email needs a direction and optional from/to/cc; call takes direction, durationSeconds and outcome; meeting takes startsAt/endsAt, location, url and attendees; note takes none. A note has a kind (note.kinds.list; default Note) and a level (default the kind's, never below its lowest); a kind with a template takes its sections instead of a body. Notes need a body or sections. occurredAt defaults to now. System activities cannot be logged; the CRM posts them itself. Returns the activity with its links.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -1592,15 +1730,46 @@
                 "properties": {},
                 "additionalProperties": false
               },
+              "kindId": {
+                "type": "string",
+                "maxLength": 64,
+                "format": "starts_with",
+                "pattern": "^nkd_.*",
+                "description": "The kind of note (note.kinds.list). Default: Note"
+              },
+              "sections": {
+                "maxItems": 12,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 40,
+                      "description": "The template section's key"
+                    },
+                    "text": {
+                      "type": "string",
+                      "maxLength": 20000,
+                      "description": "What the person wrote under it (Markdown)"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "text"
+                  ]
+                },
+                "description": "A note from its kind's template: each section's key and text. The body is made from them; give one or the other. A kind with a required section takes its sections."
+              },
               "level": {
-                "default": "staff",
+                "description": "Who may read the note: staff (every staff account, the default), coaches (its author, the staff who look after the one Person it is about, and managers) or sensitive (its author and the people the business named one by one; every opening is recorded). A note at coaches or sensitive is about exactly one Person. Notes only. Default: the kind's own; never below the kind's lowest.",
                 "type": "string",
                 "enum": [
                   "staff",
                   "coaches",
                   "sensitive"
-                ],
-                "description": "Who may read the note: staff (every staff account, the default), coaches (its author, the staff who look after the one Person it is about, and managers) or sensitive (its author and the people the business named one by one; every opening is recorded). A note at coaches or sensitive is about exactly one Person. Notes only."
+                ]
               }
             },
             "required": [
@@ -2120,6 +2289,52 @@
           },
           "locked": {
             "type": "boolean"
+          },
+          "kind": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "sections": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "label",
+                    "text"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2325,6 +2540,52 @@
           },
           "locked": {
             "type": "boolean"
+          },
+          "kind": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "sections": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "label",
+                    "text"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2510,6 +2771,52 @@
           },
           "locked": {
             "type": "boolean"
+          },
+          "kind": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "sections": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "label",
+                    "text"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2699,6 +3006,52 @@
           },
           "locked": {
             "type": "boolean"
+          },
+          "kind": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "sections": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "label",
+                    "text"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2727,7 +3080,7 @@
     },
     {
       "name": "activity.update",
-      "description": "Edit a note, email, call or meeting: subject, body, occurredAt, payload (validated for the activity's type, replacing the old payload), links (replacing the list) or a note's level. The type cannot change. System activities cannot be edited. A note is changed by its author or someone allowed to manage notes; lowering a level is a person's, with that permission. Returns the updated activity.",
+      "description": "Edit a note, email, call or meeting: subject, body, occurredAt, payload (validated for the activity's type, replacing the old payload), links (replacing the list), or a note's level, kind (kindId) and template sections (which remake its body). The type cannot change. System activities cannot be edited. A note is changed by its author or someone allowed to manage notes; lowering a level is a person's, with that permission, and never below the kind's lowest. Returns the updated activity.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -2816,6 +3169,38 @@
               "sensitive"
             ],
             "description": "Who may read the note: staff (every staff account, the default), coaches (its author, the staff who look after the one Person it is about, and managers) or sensitive (its author and the people the business named one by one; every opening is recorded). A note at coaches or sensitive is about exactly one Person. Notes only."
+          },
+          "kindId": {
+            "type": "string",
+            "maxLength": 64,
+            "format": "starts_with",
+            "pattern": "^nkd_.*",
+            "description": "The kind of note (note.kinds.list). Default: Note"
+          },
+          "sections": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40,
+                  "description": "The template section's key"
+                },
+                "text": {
+                  "type": "string",
+                  "maxLength": 20000,
+                  "description": "What the person wrote under it (Markdown)"
+                }
+              },
+              "required": [
+                "key",
+                "text"
+              ]
+            },
+            "description": "A note from its kind's template: each section's key and text. The body is made from them; give one or the other. A kind with a required section takes its sections."
           }
         },
         "required": [
@@ -2958,6 +3343,52 @@
           },
           "locked": {
             "type": "boolean"
+          },
+          "kind": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "sections": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "label",
+                    "text"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -43530,6 +43961,516 @@
       ]
     },
     {
+      "name": "note.kinds.list",
+      "description": "The kinds of note the business keeps (Note, Session note, Sensitive, From the client and its own), in the composer's order: each with its template's sections (label, hint, required), the level a note of it starts at and the levels it may have. Retired kinds are left out unless includeRetired. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "includeRetired": {
+            "default": false,
+            "type": "boolean"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "defaultLevel": {
+                  "type": "string",
+                  "enum": [
+                    "staff",
+                    "coaches",
+                    "sensitive"
+                  ]
+                },
+                "lowestLevel": {
+                  "type": "string",
+                  "enum": [
+                    "staff",
+                    "coaches",
+                    "sensitive"
+                  ]
+                },
+                "levels": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "staff",
+                      "coaches",
+                      "sensitive"
+                    ]
+                  }
+                },
+                "sections": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "hint": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "required": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "label",
+                      "hint",
+                      "required"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "filesAllowed": {
+                  "type": "boolean"
+                },
+                "evidence": {
+                  "type": "boolean"
+                },
+                "retentionYears": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "active": {
+                  "type": "boolean"
+                },
+                "position": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "updatedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "key",
+                "name",
+                "defaultLevel",
+                "lowestLevel",
+                "levels",
+                "sections",
+                "filesAllowed",
+                "evidence",
+                "retentionYears",
+                "active",
+                "position",
+                "updatedAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "note.kinds.retire",
+      "description": "Retire a kind of note (retired: true): the composer no longer offers it and its notes keep it. retired: false offers it again. Note, the kind of a note written without one, is never retired. Needs notes:manage; a person only.",
+      "risk": "destructive",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 64,
+            "format": "starts_with",
+            "pattern": "^nkd_.*",
+            "description": "The kind (nkd_…)"
+          },
+          "retired": {
+            "default": true,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "defaultLevel": {
+            "type": "string",
+            "enum": [
+              "staff",
+              "coaches",
+              "sensitive"
+            ]
+          },
+          "lowestLevel": {
+            "type": "string",
+            "enum": [
+              "staff",
+              "coaches",
+              "sensitive"
+            ]
+          },
+          "levels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "staff",
+                "coaches",
+                "sensitive"
+              ]
+            }
+          },
+          "sections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "hint": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "required": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "hint",
+                "required"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "filesAllowed": {
+            "type": "boolean"
+          },
+          "evidence": {
+            "type": "boolean"
+          },
+          "retentionYears": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "position": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "key",
+          "name",
+          "defaultLevel",
+          "lowestLevel",
+          "levels",
+          "sections",
+          "filesAllowed",
+          "evidence",
+          "retentionYears",
+          "active",
+          "position",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "note.kinds.list",
+        "note.open"
+      ]
+    },
+    {
+      "name": "note.kinds.save",
+      "description": "Write a kind of note: a new one (no id), or a change to one's name, the level a note of it starts at (defaultLevel), the lowest level a note of it may have (lowestLevel) and its template (sections given whole and in order, at most 12: label, an optional hint, required). A changed level applies to notes written from now on. Needs notes:manage. An assistant's or MCP client's write always waits for a person who holds it too, and may change only the name and the template: who reads a kind's notes is a person's to set.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "The kind to change; empty: a new one",
+            "type": "string",
+            "maxLength": 64,
+            "format": "starts_with",
+            "pattern": "^nkd_.*"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "defaultLevel": {
+            "description": "Where a note of it starts. Default: staff",
+            "type": "string",
+            "enum": [
+              "staff",
+              "coaches",
+              "sensitive"
+            ]
+          },
+          "lowestLevel": {
+            "description": "The lowest level a note of it may have",
+            "type": "string",
+            "enum": [
+              "staff",
+              "coaches",
+              "sensitive"
+            ]
+          },
+          "sections": {
+            "default": [],
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "description": "Keep a section's key when changing its label; a new section gets one",
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]{0,39}$"
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "hint": {
+                  "description": "A line under the label, as a prompt",
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 200
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "required": {
+                  "default": false,
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "label"
+              ]
+            }
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "defaultLevel": {
+            "type": "string",
+            "enum": [
+              "staff",
+              "coaches",
+              "sensitive"
+            ]
+          },
+          "lowestLevel": {
+            "type": "string",
+            "enum": [
+              "staff",
+              "coaches",
+              "sensitive"
+            ]
+          },
+          "levels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "staff",
+                "coaches",
+                "sensitive"
+              ]
+            }
+          },
+          "sections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "hint": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "required": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "hint",
+                "required"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "filesAllowed": {
+            "type": "boolean"
+          },
+          "evidence": {
+            "type": "boolean"
+          },
+          "retentionYears": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "position": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "key",
+          "name",
+          "defaultLevel",
+          "lowestLevel",
+          "levels",
+          "sections",
+          "filesAllowed",
+          "evidence",
+          "retentionYears",
+          "active",
+          "position",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "note.kinds.list",
+        "note.open"
+      ]
+    },
+    {
       "name": "note.open",
       "description": "Open a note to read its text: a sensitive note is listed on timelines without it. Only a person who may read the note (its author, admins, and people the business named one by one) can open it; anyone else gets not found. Every opening is recorded in the audit log, without the text. Read-only.",
       "risk": "read",
@@ -43688,6 +44629,52 @@
           },
           "locked": {
             "type": "boolean"
+          },
+          "kind": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "sections": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "label",
+                    "text"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [

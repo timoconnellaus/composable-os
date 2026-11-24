@@ -57,6 +57,7 @@ import {
   EndAffiliationDialog,
 } from "#/components/record/affiliation-dialogs";
 import { AffiliationsCard } from "#/components/record/affiliations-card";
+import { CarersCard } from "#/components/record/carers-card";
 import { FamilyCard } from "#/components/record/family-card";
 import { HistoryList } from "#/components/record/history";
 import { RecordLayout, RecordLayoutSkeleton } from "#/components/record/record-layout";
@@ -317,6 +318,7 @@ function PersonRecord({
             {isAdmin && <CustomerAccountCard personId={person.id} />}
             <PersonSubscriptionsCard personId={person.id} />
             <FamilyCard personId={person.id} personName={person.displayName} readOnly={deleted} />
+            <CarersCard personId={person.id} personName={person.displayName} readOnly={deleted} />
 
             <RecordSummaryCard object="person" id={person.id} />
             {recordViews.panels}

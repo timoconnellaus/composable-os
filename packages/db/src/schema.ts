@@ -272,7 +272,7 @@ export interface CoreActivityTable extends RecordColumns {
   disclosure: Defaulted<"full" | "metadata" | null>;
   /** Migration 1230 (stage 56, ADR 0830): who may read a note. Only a note is not `staff`. */
   level: Defaulted<NoteLevel>;
-  /** Migration 1230: the note's kind (core_note_kind, stage 56 step 2). */
+  /** Migration 1230: the note's kind (core_note_kind, migration 1232). Every note has one. */
   kind_id: Defaulted<string | null>;
   /** Migration 1230: when and by whom the note was shared with its client (stage 56 step 5). */
   shared_at: Defaulted<string | null>;
@@ -1089,6 +1089,37 @@ export interface CorePersonLinkTable {
   ended_at: Defaulted<string | null>;
   ended_by: Defaulted<string | null>;
   end_reason: Defaulted<string | null>;
+}
+
+/** A section of a note kind's template (migration 1232). */
+export interface NoteKindSection {
+  key: string;
+  label: string;
+  hint: string | null;
+  required: boolean;
+}
+
+/** Migration 1232 (stage 56 step 2, ADR 0833): a kind of note and its template. */
+export interface CoreNoteKindTable {
+  id: string;
+  /** The shipped kinds' stable key; null for a business's own. */
+  key: Defaulted<"note" | "session" | "sensitive" | "from_client" | null>;
+  name: string;
+  default_level: Defaulted<NoteLevel>;
+  lowest_level: Defaulted<NoteLevel>;
+  /** JSON: NoteKindSection[]. */
+  sections: Defaulted<JsonText>;
+  /** Read by record files (stage 56 step 3). */
+  files_allowed: Defaulted<0 | 1>;
+  /** Read by erase and retention (stage 56 step 7). */
+  evidence: Defaulted<0 | 1>;
+  retention_years: Defaulted<number | null>;
+  active: Defaulted<0 | 1>;
+  position: Defaulted<number>;
+  created_by: Defaulted<string | null>;
+  created_at: string;
+  updated_by: Defaulted<string | null>;
+  updated_at: string;
 }
 
 /** Migration 1231 (stage 56, ADR 0831): a staff account that looks after a Person. */
@@ -3651,6 +3682,7 @@ export interface CoreDatabase {
   core_stock_movement: CoreStockMovementTable;
   core_person_link: CorePersonLinkTable;
   core_person_carer: CorePersonCarerTable;
+  core_note_kind: CoreNoteKindTable;
   core_agreement_document: CoreAgreementDocumentTable;
   core_agreement_version: CoreAgreementVersionTable;
   core_agreement_point: CoreAgreementPointTable;

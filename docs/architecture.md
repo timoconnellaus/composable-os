@@ -996,6 +996,12 @@ As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
   `coaches` note's text writes an audit row naming its id (`ctx.auditRead`); a sensitive note is
   listed locked and read with `note.open`, every opening audited. Its changes are audited by
   field name and are no automation event.
+  A note has a **kind** (`core_note_kind`, migration 1232, ADR
+  [0833](adr/0833-note-kinds-and-templates.md)): it starts at its kind's level and is never below
+  its kind's lowest (the operations, and triggers for every writer); a kind's template's sections
+  make its body. Kinds are kept by `notes:manage` (an AI drafts wording only, waiting for a
+  person), and composed by the `web-note-composer` and `native-note-composer` blocks over
+  `@composable-os/client`'s notes entry.
 - **The audience check** is the pipeline's first step. A caller outside an operation's audiences
   gets the answer an unknown operation gets. `packages/core/open-operations.json` lists what is
   open, and a test keeps it equal to the registry.

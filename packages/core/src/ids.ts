@@ -90,6 +90,8 @@ export const ID_PREFIXES = {
   personLink: "pln",
   /** Stage 56 (ADR 0831): a staff account that looks after a Person. */
   personCarer: "pcr",
+  /** A kind of note and its template (stage 56 step 2, ADR 0833). */
+  noteKind: "nkd",
   /** A Person's check-in code: an app code or a card (stage 51, ADR 0783). */
   personCode: "pc",
   refundDue: "rdu",

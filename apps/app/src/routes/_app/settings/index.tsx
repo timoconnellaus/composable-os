@@ -18,6 +18,7 @@ import {
   ListOrderedIcon,
   MailCheckIcon,
   MicIcon,
+  NotebookPenIcon,
   PlugIcon,
   PlugZapIcon,
   PuzzleIcon,
@@ -50,6 +51,7 @@ function Section({
     | "/settings/agreements"
     | "/settings/devices"
     | "/settings/checklists"
+    | "/settings/notes"
     | "/settings/approval-policy"
     | "/settings/agents"
     | "/settings/assistant-memory"
@@ -270,6 +272,12 @@ function SettingsPage() {
             title="Checklists"
             description="Lists of steps staff tick off on a duty (a close-down clean, opening up), and which are in use."
             to="/settings/checklists"
+          />
+          <Section
+            icon={<NotebookPenIcon className="size-5" />}
+            title="Notes"
+            description="The kinds of note staff write about a client, their templates, and who reads each."
+            to="/settings/notes"
           />
           {isAdmin && (
             <Section
