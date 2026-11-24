@@ -4,7 +4,7 @@
 // address gets the same answer and no code. Codes to such new addresses are also limited for the
 // whole host, and over that limit nothing is sent and the answer does not change.
 import { env } from "cloudflare:workers";
-import { createCustomerAuth, createIdentityProvider, customerIdentity } from "@composable-os/auth";
+import { createCustomerAuth, customerIdentity } from "@composable-os/auth";
 import {
   applyPlan,
   forgetPlanOnSale,
@@ -17,9 +17,8 @@ import { createCrmDb } from "@composable-os/db";
 import { manifestSchema } from "@composable-os/sdk";
 import { beforeAll, describe, expect, it } from "vitest";
 import { handleApi, handleCustomerAuth } from "../src/server/http/api.ts";
-import { runOperation } from "../src/server/operations.ts";
 import { boundTestEnv, sentCodes, WEB_ORIGIN } from "./bound-env.ts";
-import { ORIGIN, signUp, type TestUser, unique } from "./mcp-helpers.ts";
+import { callAs, ORIGIN, signUp, type TestUser, unique } from "./mcp-helpers.ts";
 
 const hostEnv = boundTestEnv(env);
 const db = createCrmDb(env.DB);
@@ -28,15 +27,7 @@ const PLAN = `${SCHOOL}.plan`;
 let admin: TestUser;
 let plan: string;
 
-async function asAdmin(name: string, input: unknown) {
-  const principal = await createIdentityProvider(hostEnv as never).resolve(
-    new Request(ORIGIN, { headers: { cookie: admin.cookie } }),
-  );
-  const result = await runOperation(hostEnv as never, principal, { name, input }, ORIGIN);
-  if (!result.ok) throw new Error(JSON.stringify(result.error));
-  // biome-ignore lint/suspicious/noExplicitAny: a test reads whatever the operation returns
-  return result.data as any;
-}
+const asAdmin = (name: string, input: unknown) => callAs(hostEnv, admin, name, input);
 
 const web = (path: string, body: unknown) =>
   handleCustomerAuth(

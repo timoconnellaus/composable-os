@@ -10,7 +10,7 @@ and permission model as AI-written extensions, as principal `extension:deals`.
 | --- | --- | --- |
 | `deals.pipeline` | A sales process: name, order, description | `navigation: "settings"`; seeded: New business, Renewals |
 | `deals.stage` | A pipeline step: name, pipeline, order, type (`open`/`won`/`lost`), default probability, required fields | `navigation: "settings"`; seeded (below) |
-| `deals.deal` | name, value (base currency), pipeline (default: the Default pipeline setting), stage, status, expected close, probability, probability set by hand, weighted value (formula), owner, organisation, source, lost reason, next step and date, won/lost date | stage behaviour, `timelineLinks: ["organisation"]`, 6 indexes |
+| `deals.deal` | name, value (base currency), pipeline (default: the Default pipeline setting), stage, status, expected close, probability, probability set by hand, weighted value (formula), owner, organisation, source, lost reason, next step and date, won/lost date | stage behaviour, `timelineLinks: ["organisation"]`, 7 indexes |
 | `deals.participant` | A person on a deal and their role (decision maker, champion, influencer, user, other) | `navigation: "none"` |
 
 Seeded stages (stage rules in brackets):

@@ -1,0 +1,25 @@
+{
+  "name": "@composable-os/docs",
+  "version": "0.0.0",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "description": "The technical documentation for Composable OS: an Astro Starlight site whose reference pages are generated from the code, and whose guides live beside the code they describe.",
+  "type": "module",
+  "scripts": {
+    "generate": "node scripts/generate.mjs",
+    "check": "node scripts/generate.mjs --check",
+    "dev": "ASTRO_TELEMETRY_DISABLED=1 astro dev --port 4322",
+    "build": "node scripts/generate.mjs --check && ASTRO_TELEMETRY_DISABLED=1 astro build && node scripts/check-links.mjs",
+    "preview": "pnpm build && wrangler dev --port 4322",
+    "deploy": "pnpm build && wrangler deploy",
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "@astrojs/starlight": "0.43.1",
+    "@fontsource/poppins": "5.3.0",
+    "astro": "7.4.2",
+    "esbuild": "0.28.2",
+    "typescript": "6.0.3",
+    "wrangler": "4.157.0"
+  }
+}

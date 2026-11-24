@@ -1,13 +1,12 @@
 // Stage 31a, build step 3: the Bookings pack (packs/bookings) in the real host, beside Programs,
 // installed as shipped, with real D1 and the sandbox. The holders that pay for a booking are the
-// Memberships pack's (stage 32b, built in parallel); here a fixture holder stands in for it
-// (`bkfixture.pass`, a runtime extension, never the real pack's id, so both can share a database),
-// and this file installs a test variant of the pack whose `paidBy` also names the fixture (the
-// shipped declaration names only `memberships.membership` and `memberships.pass`), so the
-// spender's declaration
-// (`paidBy`, `at` the class's start, the class type copied, the local weekday and minute) is
-// proved against the host's allowance behaviour before the real holder exists (step 4 connects
-// it). `cos ext test`'s harness does not simulate allowances (ADR 0493), hence this file.
+// Memberships pack's; here a fixture holder stands in for them (`bkfixture.pass`, a runtime
+// extension, never the real pack's id, so both can share a database), and this file installs a
+// test variant of the pack whose `paidBy` also names the fixture (the shipped declaration names
+// only `memberships.membership` and `memberships.pass`). So the spender's declaration (`paidBy`,
+// `at` the class's start, the class type copied, the local weekday and minute) is proved against
+// the host's allowance behaviour on its own; bookings-memberships.test.ts proves it with the real
+// holder. `cos ext test`'s harness does not simulate allowances (ADR 0493), hence this file.
 //
 // What it shows: Bookings is refused before Programs; a series makes its classes in local time,
 // titled after their class type, and far enough ahead for a class type that opens booking 70 days
@@ -25,44 +24,23 @@
 // A pack's tool's own operation calls are made by the runner's executor, which reads the real
 // clock, so the classes a member books through a tool are placed hours from the real now, far
 // from any boundary; the boundaries to the second are proved by packages/core/test/claimants.test.ts.
-import { env } from "cloudflare:workers";
 import {
   type ActingUser,
   type CustomerPrincipal,
   type ExtensionHost,
   getObject,
   type InvocationContext,
-  invokeByName,
   type OutsideInvocationContext,
   refreshSchemaRegistry,
 } from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import { setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, source, unique } from "./helpers.ts";
+import { createAdmin, db, host, newCustomer, refusal, run, source, unique } from "./helpers.ts";
+import { packFiles } from "./pack-files.ts";
 
-const packFiles = (glob: Record<string, string>) =>
-  Object.fromEntries(
-    Object.entries(glob)
-      .map(([path, text]) => [path.split("/").pop() as string, text] as const)
-      .filter(([name]) => name !== "vitest.config.ts"),
-  );
 const files = {
-  programs: packFiles(
-    import.meta.glob<string>("../../../packs/programs/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-  bookings: testVariant(
-    packFiles(
-      import.meta.glob<string>("../../../packs/bookings/*.ts", {
-        query: "?raw",
-        import: "default",
-        eager: true,
-      }),
-    ),
-  ),
+  programs: packFiles("programs"),
+  bookings: testVariant(packFiles("bookings")),
 };
 
 /** The pack as shipped, with the fixture holder added to `paidBy` (tests only). */
@@ -128,46 +106,12 @@ const as = (principal: CustomerPrincipal): OutsideInvocationContext => ({
   extensionHost: shippedHost,
 });
 
-function run<T = Record<string, unknown>>(
-  name: string,
-  input: unknown,
-  ctx: InvocationContext | OutsideInvocationContext,
-): Promise<T> {
-  return invokeByName(name, input, ctx) as Promise<T>;
-}
-
-async function refusal(call: Promise<unknown>) {
-  try {
-    await call;
-  } catch (error) {
-    const e = error as { code?: string; message?: string; details?: Record<string, unknown> };
-    return { code: e.code, message: e.message, details: e.details };
-  }
-  throw new Error("expected a refusal");
-}
-
 const create = async (object: string, values: Record<string, unknown>) =>
   (await run<{ id: string }>("record.create", { object, values }, staff())).id;
 const get = (object: string, id: string) =>
   run<{ id: string; values: Record<string, unknown> }>("record.get", { object, id }, staff());
 
-async function member(label: string): Promise<CustomerPrincipal> {
-  const tag = unique(label).toLowerCase();
-  const email = `${tag}@members.test`;
-  const person = await run<{ id: string }>(
-    "person.create",
-    { givenName: `Given-${tag}`, emails: [{ email }] },
-    staff(),
-  );
-  const customerId = `cus_${tag}`;
-  const now = new Date().toISOString();
-  await env.DB.prepare(
-    "INSERT INTO core_customer (id, person_id, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
-  )
-    .bind(customerId, person.id, email, now, now)
-    .run();
-  return { kind: "customer", customerId, personId: person.id };
-}
+const member = async (label: string) => (await newCustomer(staff(), label)).principal;
 
 /** A pass (the fixture holder) for `who`: uses per week, for the class types listed (empty: any). */
 const pass = (who: CustomerPrincipal, uses = 3, classTypes: string[] = []) =>

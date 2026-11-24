@@ -239,11 +239,7 @@ function DayChecklistNative({
           }
         />
       ) : null}
-      {said ? (
-        <Text tone="danger" accessibilityRole="alert">
-          {said}
-        </Text>
-      ) : null}
+      {said ? <Text accessibilityRole="alert">{said}</Text> : null}
       {refusal && refusal.step === null ? alert(refusal.refusal) : null}
     </View>
   );

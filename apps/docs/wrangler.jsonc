@@ -1,0 +1,17 @@
+// cos-docs: the docs site at docs.composableos.dev (ADR 0930). Astro builds the static site into
+// dist/; this Worker serves it as static assets and has no code of its own. No account or
+// resource IDs are committed. Deployed by .github/workflows/docs.yml on pushes to main, with the
+// marketing site's deploy secrets; never from a laptop by default.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cos-docs",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./dist",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page"
+  },
+  "routes": [{ "pattern": "docs.composableos.dev", "custom_domain": true }],
+  "workers_dev": false,
+  "preview_urls": false
+}
