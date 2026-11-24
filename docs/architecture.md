@@ -1172,7 +1172,8 @@ are core tables in no `rec_*` view (`core_staff_qualification`, `core_staff_away
 declares it. **Claim margins** (stage 49 step 1, [ADR 0760](adr/0760-claim-margins-and-a-required-account-on-staffed.md)):
 `claimBefore` and `claimAfter` (`kind.field` minutes, a service's buffer) widen the claim and are
 kept on it (`margin_before`, `margin_after`, migration 1091); triggers on the kind's table follow a
-change of its minutes for shifts not yet ended (history is never refused), and readers of a shift's
+change of its minutes for shifts not yet ended, a margin counts only while it lies ahead (the
+buffer before until the shift starts, after until it has passed: history is never widened), and readers of a shift's
 own time (the feed, leaving, the away notice) take them off. Classes declare none.
 `account: "required"` refuses a live shift not yet ended whose profile holds no account, at write
 and by triggers on the shift's and the profile's tables (`rule: "staffed_account"`); nobody on it
