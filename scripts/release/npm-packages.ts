@@ -14,14 +14,7 @@
 // publishes: the release workflow runs `npm publish --dry-run` on each tarball, and publishes them
 // only when publishing is turned on (docs/deploying.md, "Publishing to npm").
 import { execFileSync } from "node:child_process";
-import {
-  cpSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
