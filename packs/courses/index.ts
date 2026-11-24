@@ -156,6 +156,8 @@ export default defineExtension({
         saleWindow: { from: "onSaleFrom" },
         // On-demand online courses, no place (ADR 0479): taxed only once an admin turns tax on.
         tax: { code: "txcd_20060158" },
+        // In the finance reports (ADR 0792): earned when it is bought.
+        finance: { category: { key: "courses", label: "Courses" }, earned: "at_sale" },
         grants: {
           object: "enrolment",
           set: { holder: "order.person", course: "item", order: "order", code: "code" },
@@ -217,6 +219,8 @@ export default defineExtension({
       sellable: {
         price: "price",
         tax: { code: "txcd_20060158" },
+        // In the finance reports (ADR 0792): earned when it is bought.
+        finance: { category: { key: "courses", label: "Courses" }, earned: "at_sale" },
         grants: {
           object: "enrolment",
           set: { holder: "order.person", bundle: "item", order: "order", code: "code" },
@@ -256,6 +260,8 @@ export default defineExtension({
         price: "price",
         // As its courses (ADR 0479): taxed only once a human admin turns tax on.
         tax: { code: "txcd_20060158" },
+        // In the finance reports (ADR 0792): courses, but a paid month is earned over the month.
+        finance: { category: { key: "courses", label: "Courses" }, earned: "over_period" },
         // A plan (ADR 0485): subscribed to with subscription.start, never put on an order.
         recurring: { interval: "month", trialDays: "trialDays" },
       },

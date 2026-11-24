@@ -301,8 +301,18 @@ export default defineExtension({
         },
         assignedBy: { type: "user", label: "Assigned by" },
         assignedByName: { type: "text", label: "Assigned by (name)" },
+        coach: {
+          type: "user",
+          label: "Coach",
+          description:
+            "Who looks after this client on it. With the coach role, they see and log this " +
+            "person's training while it is active, and no one else's.",
+        },
       },
       requireOneOf: [["person", "classType"]],
+      // Who looks after whom (ADR 0831): a client's coach while their program is live. What the
+      // coach role reaches through it is the host's (`roles.coach.looksAfter`, ADR 0881).
+      team: { person: "person", staff: ["coach"], live: ["generating", "active"] },
       states: {
         field: "state",
         initial: "generating",
@@ -323,7 +333,14 @@ export default defineExtension({
       },
       timelineLinks: ["person"],
       // A member reads their own (person) or the shared (kind): one index for each side of the OR.
-      indexes: [["person", "state"], ["kind", "state"], ["classType", "state"], ["program"]],
+      // The coach's People are read on every call of the coach role: one index for it.
+      indexes: [
+        ["person", "state"],
+        ["kind", "state"],
+        ["classType", "state"],
+        ["program"],
+        ["coach", "state"],
+      ],
     },
     session: {
       label: "Session",
@@ -673,6 +690,26 @@ export default defineExtension({
         sort: { field: "date", direction: "desc" },
       },
       order: 41,
+    },
+  },
+  // The coach role (ADR 0881): a coach's own clients, in the app: their sessions and sets, logging
+  // and marking for them, their history and progress. Only the People an active assignment names
+  // them coach of; nothing else: no class sessions, no programs or the builder, no assigning, no
+  // people, no settings.
+  roles: {
+    coach: {
+      label: "Coach",
+      description:
+        "Sees the clients they coach (an active program naming them their coach): their " +
+        "sessions, sets, history and progress, and logs sets and marks sessions for them. " +
+        "Nothing else: no other clients, no class sessions, no programs, no assigning, no people.",
+      permissions: ["programs:coach"],
+      read: ["programs.assignment", "programs.session"],
+      looksAfter: {
+        "programs.assignment": "person",
+        "programs.session": "person",
+        "programs.log": "person",
+      },
     },
   },
   tools: {

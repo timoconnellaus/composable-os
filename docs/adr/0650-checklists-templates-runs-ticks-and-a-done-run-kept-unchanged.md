@@ -203,3 +203,20 @@ cancelled, in the Trash and its person deactivated mid-run, the operations' own 
 another shipped pack's tools, and the statement counts); `apps/runner/test/rostering.test.ts` (the
 team role's and the restricted tools' walks); `packs/rostering/test/rostering.test.ts`;
 `packages/core/test/visibility-one-seam.test.ts`; `apps/app/e2e/rostering-checklists.spec.ts`.
+
+## Amendment, 2026-11-24 (checklists on their own, ADR 0651)
+The owner decided on 2026-11-24 that the first client starts with checklists alone (opening,
+closing, cleaning), the roster and hours later. So the follow-on "a checklist with no shift" is
+built (ADR 0651, migration 0816): a template may have a standing schedule (the weekdays it is due in
+the business's time zone, a time it is due by, and who may do it: everyone on staff, a role or pack
+role, or a grant). Each due day gets one run in `core_checklist_run` (`object_type` `checklist.day`,
+`record_id` `<template>:<date>`), open for that local day with no grace, ticked by anyone who may do
+it; whoever ticks the last step finishes it; one not finished by the end of its day is missed. This
+ADR's two host rules hold for it: every trigger above applies unchanged, and migration 0816 adds the
+day run's own (only someone who may do it ticks or finishes it; on someone's behalf only someone who
+manages checklists, `checklists:write`, with why; its who, day and due time fixed). The managers of
+these checklists are the holders of `checklists:write`, not those who roster: Rostering's
+operations (`checklist.forRecord`, `.tick`, `.complete`, `.runs`, `.correct`) never see a day run,
+and a duty's checklist is unchanged. Its screens are a pack of their own, Daily checklists, so a
+business without Rostering has them (ADR 0651), and its tools are open to every staff account, pack
+roles included (ADR 0652). The "Left out" list above loses "a checklist with no shift".
