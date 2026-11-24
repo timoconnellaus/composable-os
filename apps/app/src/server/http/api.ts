@@ -186,7 +186,19 @@ export async function apiContext(request: Request, env: ApiEnv): Promise<AnyInvo
         "This request carries a staff session and a customer session. Sign out of one.",
       );
     }
-    return staffContext(env, staff, { surface: "client" }, new URL(request.url).origin);
+    // A staff session rides on a cookie the browser sends by itself (Better Auth's, Cloudflare
+    // Access's, hosted support's). Only the host's own pages may use it: a call from another
+    // origin, even one API_ALLOWED_ORIGINS lets in (the company's website, for its customers),
+    // is refused, so no script on that site can act as the staff browser it runs in (stage 47,
+    // ADR 0660). A native app's bearer token above, and customer cookies, are unchanged.
+    const origin = request.headers.get("origin");
+    const own = new URL(request.url).origin;
+    if (origin !== null && origin !== own) {
+      throw new ForbiddenError("A staff session is used only from the host's own pages", {
+        rule: "staff_cross_origin",
+      });
+    }
+    return staffContext(env, staff, { surface: "client" }, own);
   }
   const identity = customers(env);
   const { principal, sessionId } = identity
