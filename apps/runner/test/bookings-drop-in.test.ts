@@ -30,7 +30,7 @@ import {
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, newCustomer, unique } from "./helpers.ts";
+import { createAdmin, db, host, newCustomer, refusal, unique } from "./helpers.ts";
 import { packFiles } from "./pack-files.ts";
 
 const files: Record<string, Record<string, string>> = {
@@ -99,16 +99,6 @@ const create = async (object: string, values: Record<string, unknown>) =>
   (await run<{ id: string }>("record.create", { object, values }, staff())).id;
 const get = async (object: string, id: string) =>
   (await run<{ values: Record<string, unknown> }>("record.get", { object, id }, staff())).values;
-
-async function refusal(call: Promise<unknown>) {
-  try {
-    await call;
-  } catch (error) {
-    const e = error as { code?: string; message?: string; details?: Record<string, unknown> };
-    return { code: e.code, message: e.message, details: e.details };
-  }
-  throw new Error("expected a refusal");
-}
 
 const member = async (label: string) =>
   (await newCustomer(staff(), label, { domain: "dropin.test" })).principal;

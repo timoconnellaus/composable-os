@@ -35,7 +35,7 @@ import type { Outline } from "../../../packs/courses/outline.ts";
 import { automationHost } from "../src/automations/host.ts";
 import { blobStore, integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, newCustomer } from "./helpers.ts";
+import { createAdmin, db, host, newCustomer, refusal } from "./helpers.ts";
 import { packFiles } from "./pack-files.ts";
 
 const files = {
@@ -108,16 +108,6 @@ function run<T = Record<string, unknown>>(
   ctx: InvocationContext | OutsideInvocationContext,
 ): Promise<T> {
   return invokeByName(name, input, ctx) as Promise<T>;
-}
-
-async function refusal(call: Promise<unknown>) {
-  try {
-    await call;
-  } catch (error) {
-    const e = error as { code?: string; message?: string; details?: Record<string, unknown> };
-    return { code: e.code, message: e.message, inner: e.details?.code, details: e.details };
-  }
-  throw new Error("expected a refusal");
 }
 
 const create = async (object: string, values: Record<string, unknown>) =>

@@ -59,6 +59,20 @@ export async function newCustomer(
   return { principal: { kind: "customer", customerId, personId: person.id }, email };
 }
 
+/**
+ * What a call that must be refused was refused with: its code, message and details, and the inner
+ * code of a tool's refusal.
+ */
+export async function refusal(call: Promise<unknown>) {
+  try {
+    await call;
+  } catch (error) {
+    const e = error as { code?: string; message?: string; details?: Record<string, unknown> };
+    return { code: e.code, message: e.message, inner: e.details?.code, details: e.details };
+  }
+  throw new Error("expected a refusal");
+}
+
 /** A staff user with the member role. */
 export async function createMember(): Promise<ActingUser> {
   const user = await createAdmin();

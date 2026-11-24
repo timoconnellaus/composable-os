@@ -10,7 +10,7 @@ import {
 } from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import { setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, newCustomer, source, unique } from "./helpers.ts";
+import { createAdmin, db, host, newCustomer, refusal, source, unique } from "./helpers.ts";
 import { packFiles } from "./pack-files.ts";
 
 const files = {
@@ -87,16 +87,6 @@ function run<T = Record<string, unknown>>(
   ctx: InvocationContext | OutsideInvocationContext,
 ): Promise<T> {
   return invokeByName(name, input, ctx) as Promise<T>;
-}
-
-async function refusal(call: Promise<unknown>) {
-  try {
-    await call;
-  } catch (error) {
-    const e = error as { code?: string; message?: string; details?: Record<string, unknown> };
-    return { code: e.code, message: e.message, details: e.details };
-  }
-  throw new Error("expected a refusal");
 }
 
 const create = async (object: string, values: Record<string, unknown>) =>

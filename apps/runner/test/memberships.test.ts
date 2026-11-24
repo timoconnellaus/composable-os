@@ -24,7 +24,7 @@ import {
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, newCustomer, unique } from "./helpers.ts";
+import { createAdmin, db, host, newCustomer, refusal, unique } from "./helpers.ts";
 import { filesByName, packFiles } from "./pack-files.ts";
 
 const files: Record<string, Record<string, string>> = {
@@ -98,16 +98,6 @@ function run<T = Record<string, unknown>>(
   ctx: InvocationContext | OutsideInvocationContext,
 ): Promise<T> {
   return invokeByName(name, input, ctx) as Promise<T>;
-}
-
-async function refusal(call: Promise<unknown>) {
-  try {
-    await call;
-  } catch (error) {
-    const e = error as { code?: string; message?: string; details?: Record<string, unknown> };
-    return { code: e.code, message: e.message, inner: e.details?.code, details: e.details };
-  }
-  throw new Error("expected a refusal");
 }
 
 const create = async (object: string, values: Record<string, unknown>) =>

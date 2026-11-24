@@ -31,7 +31,7 @@ import {
 import { beforeAll, describe, expect, it } from "vitest";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, unique } from "./helpers.ts";
+import { createAdmin, db, host, refusal, unique } from "./helpers.ts";
 import { packFiles } from "./pack-files.ts";
 
 const files: Record<string, Record<string, string>> = {
@@ -193,15 +193,6 @@ const create = async (object: string, values: Record<string, unknown>) =>
   (await run<{ id: string }>("record.create", { object, values }, staff())).id;
 const get = async (object: string, id: string) =>
   (await run<{ values: Record<string, unknown> }>("record.get", { object, id }, staff())).values;
-async function refusal(promise: Promise<unknown>) {
-  const error = await promise.then(
-    () => null,
-    (e: unknown) => e,
-  );
-  expect(error).toBeTruthy();
-  return error as { code: string; message?: string; details?: Record<string, unknown> };
-}
-
 /** A staff account with the role `role` and nothing else. */
 async function account(name: string, role: "member" | "viewer"): Promise<ActingUser> {
   const id = newId("user");

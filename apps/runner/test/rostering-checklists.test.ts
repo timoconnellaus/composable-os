@@ -23,7 +23,7 @@ import {
 import { beforeAll, describe, expect, it } from "vitest";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, queriesOf, unique } from "./helpers.ts";
+import { createAdmin, db, host, queriesOf, refusal, unique } from "./helpers.ts";
 import { packFiles } from "./pack-files.ts";
 
 const files: Record<string, Record<string, string>> = {
@@ -104,14 +104,6 @@ const run = <T = Record<string, unknown>>(name: string, input: unknown, ctx: Inv
   invokeByName(name, input, ctx) as Promise<T>;
 const create = async (object: string, values: Record<string, unknown>) =>
   (await run<{ id: string }>("record.create", { object, values }, staff())).id;
-async function refusal(promise: Promise<unknown>) {
-  const error = await promise.then(
-    () => null,
-    (e: unknown) => e,
-  );
-  expect(error).toBeTruthy();
-  return error as { code: string; message?: string; details?: Record<string, unknown> };
-}
 const rule = async (promise: Promise<unknown>) => {
   const e = await refusal(promise);
   const details = (e.details ?? {}) as Record<string, unknown>;
