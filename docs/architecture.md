@@ -1270,8 +1270,10 @@ names a required relation to another of the extension's objects (a crew place's 
 whose own copies are read-only and written by nobody else. Triggers on the record's table copy them
 onto every shift naming it in the same statement, and on the shift's table copy them back on any
 other write, so the claims follow and `core_staff_time` refuses a move that would double-book
-anyone, whole; the record code reads each following shift first (at most 25), naming the person,
-with each shift's warnings and notices. Not with a series making the shift.
+anyone, whole; the record code reads each following shift first, naming the person, with each
+shift's roster rules, warnings and notices (a move that also cancels them writes their times after
+its cascade). At most 25 follow one record, refused when the 26th is made; a shift naming no record
+is refused by its trigger. Not with a series making the shift, nor a chain of them.
 
 **`occupies`** ([ADR 0765](adr/0765-occupies-the-claim-on-a-thing.md), `packages/core/src/occupies/`;
 stage 49 step 2). The time claim's twin for things: a record that declares

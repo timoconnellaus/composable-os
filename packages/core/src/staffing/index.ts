@@ -742,6 +742,40 @@ export async function timesFollowed(
 }
 
 /**
+ * A shift whose times follow a record, made or pointed at one (ADR 0751): refused when that record
+ * already has TIMES_FOLLOWERS_MAX shifts of this object following it, so no record gets into a
+ * state whose time cannot change (the review of PR #419).
+ */
+export async function assertFollowerRoom(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string | null,
+  values: Record<string, unknown>,
+): Promise<void> {
+  const def = object.staffed;
+  const parent = def?.timesFrom ? text(values[def.timesFrom]) : null;
+  const table = objectTableOf(object.name);
+  const link = object.fields.find((f) => f.name === def?.timesFrom)?.column;
+  if (!def || parent === null || !table || !link) return;
+  let query = (ctx.db as AnyDb)
+    .selectFrom(table)
+    .select("id")
+    .where(link, "=", parent)
+    .where("deleted_at", "is", null);
+  if (id !== null) query = query.where("id", "!=", id);
+  const rows = await query.limit(TIMES_FOLLOWERS_MAX).execute();
+  if (rows.length >= TIMES_FOLLOWERS_MAX) {
+    const parentLabel = def.timesFromObject
+      ? (getObject(def.timesFromObject)?.label ?? "This record")
+      : "This record";
+    throw new ConflictError(
+      `${parentLabel} already has ${TIMES_FOLLOWERS_MAX} ${(object.plural ?? "shifts").toLowerCase()}, the most whose times can follow it`,
+      { rule: "times_follow_too_many", object: object.name },
+    );
+  }
+}
+
+/**
  * A record that shifts follow the times of (a visit) written with other times, a zone or a kind
  * (ADR 0751). The triggers copy them onto every shift naming it in the record's own statement;
  * this reads first, for each shift not in the Trash, what that copy does: a move that would put
@@ -757,8 +791,12 @@ export async function followersMoved(
   before: Record<string, unknown>,
   after: Record<string, unknown>,
   by: Mover,
-): Promise<void> {
-  let rostered = false;
+  /** The state this write moves the record into, when it moves: its cascade runs in the batch. */
+  movedTo?: string,
+): Promise<ReadonlySet<string>> {
+  // The fields to write after this write's cascade: shifts it takes out of their live states would
+  // otherwise take the new time, and claim it, before the cascade moves them.
+  const afterCascade = new Set<string>();
   for (const follower of listObjects()) {
     const def = follower.staffed;
     if (!def?.timesFrom || def.timesFromObject !== object.name) continue;
@@ -782,18 +820,28 @@ export async function followersMoved(
       );
     }
     const copied = Object.fromEntries(fields.map((f) => [f, after[f] ?? null]));
+    // The state cascade of this same write (ADR 0507): a shift it moves out of its live states
+    // claims nothing at the new time, and its own move tells its person (the review of PR #419).
+    const follows = follower.states?.follows;
+    const cascade =
+      movedTo && follows && follows.relation === def.timesFrom ? follows.when[movedTo] : undefined;
     const warnings: StaffWarning[] = [];
     for (const row of rows) {
       const values = await storedShiftValues(ctx, follower, row.id, true);
       if (!values) continue;
       const next = { ...values, ...copied };
-      if (!rostered && by !== "host" && movesStartedShift(follower, values, next, ctx.now)) {
-        await assertMayRoster(
-          ctx,
-          `change the times of a ${follower.label.toLowerCase()} that has started`,
-        );
-        rostered = true;
+      const stateField = follower.states?.field;
+      const state = stateField ? values[stateField] : undefined;
+      if (cascade && stateField && typeof state === "string" && follows?.from.includes(state)) {
+        if (!def.live.includes(cascade)) {
+          for (const f of fields) if (!same(before[f], after[f])) afterCascade.add(f);
+          continue;
+        }
+        next[stateField] = cascade;
       }
+      // Every rule a write of the shift's own fields meets (ADR 0626): a started shift's times, the
+      // checklist its kind carries, and whatever is added there later (the review of PR #419).
+      await assertRosterWrite(ctx, follower, values, next, by);
       await staffedWritten(ctx, follower, row.id, values, next, { by });
       warnings.push(...warningsOf(ctx, follower.name, row.id));
     }
@@ -803,6 +851,7 @@ export async function followersMoved(
       batch.set(k, [...(batch.get(k) ?? []), ...warnings]);
     }
   }
+  return afterCascade;
 }
 
 /** A shift as stored, with what it is and whether it is in the Trash (the offers read it). */

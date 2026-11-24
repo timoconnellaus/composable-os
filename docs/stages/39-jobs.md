@@ -546,4 +546,8 @@ may override any of them.
   and 0621). No migration. Tests: `packages/core/test/staffed-times-follow.test.ts` (criteria 2 and
   3 on a fixture of visits and crew places, raw statement shapes, Trash and restore, the cascade,
   declaring it over existing records) and `staffed-times-follow-cost.test.ts` (25 crew places moved
-  in about 360 queries). Left for step 5: the Jobs pack's `jobs.assignment` declaring it.
+  in about 360 queries). After review: every roster rule runs for each following shift (a visit's
+type changing its crew's checklist is a rosterer's), a move that also cancels the crew is not
+refused at its new time, the bound of 25 is checked when a crew place is made, chains are refused,
+and a shift naming no record is refused by the database. Left for step 5: the Jobs pack's
+`jobs.assignment` declaring it.

@@ -65,3 +65,21 @@ fail whole, naming who.
   repointing, a crew of three moved and a clash refused whole naming the person, raw statement
   shapes on both tables, a restore from the Trash, the cascade, two assigns at once, the bound,
   declaring it over existing records) and `staffed-times-follow-cost.test.ts`.
+
+## Amended 2026-11-24 (review of PR #419, before merge)
+- **Every roster rule, not one.** Each shift that follows a moved record runs the whole of
+  `assertRosterWrite` on its new values, so a member who does not roster cannot change the
+  checklist a crew ticks by changing the visit's type (ADR 0650), nor move a visit under way, and
+  the next rule added there applies too. The first version checked only a started shift's times.
+- **A move and a cancel in one write.** Shifts this write's own cascade takes out of their live
+  states are not checked at the new time, and the record's copied columns are written after the
+  cascade in the same batch, so the copy never claims a time for a shift being cancelled. The first
+  version refused such a write when the new time clashed.
+- **The bound holds when a shift is made**: the 26th shift made or pointed at one record is refused
+  (`times_follow_too_many`), so no record reaches a state whose time cannot change. A move still
+  refuses more than 25 that some other path made.
+- **One step only**: the record a shift's times follow may not have times that follow another
+  (the contract refuses a chain), since the read before a move reads only its direct followers.
+- **A shift naming no record** (a raw insert, a link to a record deleted for good) is refused by
+  its table's trigger (`core_staff_times_no_record`, answered `rule: "times_follow"`), rather than
+  kept with whatever times it was given.

@@ -26,7 +26,10 @@ const fixture = (id: string, options: { follows?: boolean } = {}) =>
         label: "Visit type",
         plural: "Visit types",
         titleField: "name",
-        fields: { name: { type: "text", label: "Name", required: true } },
+        fields: {
+          name: { type: "text", label: "Name", required: true },
+          checklist: { type: "checklist", label: "Checklist" },
+        },
       },
       visit: {
         label: "Visit",
@@ -80,6 +83,13 @@ const fixture = (id: string, options: { follows?: boolean } = {}) =>
           live: ["booked"],
           ...(options.follows === false ? {} : { timesFrom: "visit" }),
         },
+        checklists: {
+          template: "visitType.checklist",
+          who: "staff",
+          opens: "startsAt",
+          closes: "endsAt",
+          live: ["booked"],
+        },
       },
       duty: {
         label: "Duty",
@@ -103,6 +113,13 @@ const fixture = (id: string, options: { follows?: boolean } = {}) =>
           starts: "startsAt",
           ends: "endsAt",
           kind: "kind",
+          live: ["booked"],
+        },
+        checklists: {
+          template: "kind.checklist",
+          who: "staff",
+          opens: "startsAt",
+          closes: "endsAt",
           live: ["booked"],
         },
       },
@@ -202,6 +219,16 @@ describe("the declaration", () => {
     delete visitObject.fields.zone;
     const duty = objects.duty as (typeof objects)[string];
     duty.staffed = { ...duty.staffed, timesFrom: "name" };
+    // A visit whose own times follow another record is not followed in turn (a chain).
+    visitObject.fields.parent = { type: "relation", label: "Parent", to: "badstf.visit" };
+    visitObject.staffed = {
+      who: { field: "name" },
+      starts: "startsAt",
+      ends: "endsAt",
+      kind: "visitType",
+      live: ["booked"],
+      timesFrom: "parent",
+    };
     const issues = validateManifest(broken).issues;
     expect(issues.map((i) => i.path)).toEqual(
       expect.arrayContaining([
@@ -214,6 +241,7 @@ describe("the declaration", () => {
     expect(messages).toMatch(/"visit" must be required/);
     expect(messages).toMatch(/must have "zone"/);
     expect(messages).toMatch(/"name" must be a relation field/);
+    expect(messages).toMatch(/badstf\.visit's own times follow another record/);
   });
 
   it("builds the triggers on both tables and the crew places' index by visit", async () => {
@@ -449,6 +477,21 @@ describe("every statement shape", () => {
       endsAt: at("08", "16:00"),
     });
     expect((await claims(other.id)).map((c) => c.starts)).toEqual([s(at("08", "15:00"))]);
+    // One naming no record, or one that does not exist, has no times to take: refused.
+    for (const link of [null, "no-such-visit"]) {
+      await expect(
+        env.DB.prepare(
+          `INSERT INTO ${pt} (id, created_at, updated_at, ${column(PLACE, "visit")}, ${column(PLACE, "staff")}, ${column(PLACE, "state")}, ${column(PLACE, "startsAt")}, ${column(PLACE, "endsAt")}) VALUES ('orphan', ?, ?, ?, ?, 'booked', ?, ?)`,
+        )
+          .bind(NOW, NOW, link, other.id, at("08", "18:00"), at("08", "19:00"))
+          .run(),
+      ).rejects.toThrow(/core_staff_times_no_record/);
+    }
+    await expect(
+      env.DB.prepare(`UPDATE ${pt} SET ${column(PLACE, "visit")} = 'no-such-visit' WHERE id = ?`)
+        .bind(id)
+        .run(),
+    ).rejects.toThrow(/core_staff_times_no_record/);
   });
 
   it("keeps a crew place in the Trash in step, so a restore claims the visit's time", async () => {
@@ -470,6 +513,25 @@ describe("every statement shape", () => {
     expect(await get(PLACE, id)).toMatchObject({ state: "cancelled" });
     expect(await claims(user.id)).toEqual([]);
   });
+
+  it("cancels and moves in one write a visit whose new time its crew is busy at", async () => {
+    const v = await visit(at("11", "09:00"), at("11", "10:00"));
+    const user = await createUser("member");
+    const id = await place(v, user.id);
+    const duty = await create(DUTY, {
+      name: "Busy",
+      staff: user.id,
+      startsAt: at("11", "13:00"),
+      endsAt: at("11", "14:00"),
+    });
+    await update(VISIT, v, {
+      state: "cancelled",
+      startsAt: at("11", "13:00"),
+      endsAt: at("11", "14:00"),
+    });
+    expect(await get(PLACE, id)).toMatchObject({ state: "cancelled", startsAt: at("11", "13:00") });
+    expect((await claims(user.id)).map((c) => c.record_id)).toEqual([duty.id]);
+  });
 });
 
 describe("two people assigning one person to overlapping visits at once (criterion 3)", () => {
@@ -486,10 +548,29 @@ describe("two people assigning one person to overlapping visits at once (criteri
 });
 
 describe("how many follow one visit", () => {
-  it(`refuses moving a visit with more than ${TIMES_FOLLOWERS_MAX} crew places`, async () => {
+  it(`refuses a crew place beyond ${TIMES_FOLLOWERS_MAX}, so the visit can always move`, async () => {
     const v = await visit(at("14", "09:00"), at("14", "10:00"));
-    for (let i = 0; i <= TIMES_FOLLOWERS_MAX; i += 1) await place(v, null);
-    await expect(update(VISIT, v, { startsAt: at("14", "08:00") })).rejects.toMatchObject({
+    for (let i = 0; i < TIMES_FOLLOWERS_MAX; i += 1) await place(v, null);
+    const full = { code: "conflict", details: { rule: "times_follow_too_many", object: PLACE } };
+    await expect(place(v, null)).rejects.toMatchObject(full);
+    // Nor pointed at it from another visit.
+    const other = await visit(at("14", "11:00"), at("14", "12:00"));
+    const moving = await place(other, null);
+    await expect(update(PLACE, moving, { visit: v })).rejects.toMatchObject(full);
+    // A full visit still moves.
+    await update(VISIT, v, { startsAt: at("14", "08:00") });
+  });
+
+  it("refuses moving a visit whose crew places passed the bound some other way", async () => {
+    const v = await visit(at("15", "09:00"), at("15", "10:00"));
+    const pt = table(PLACE);
+    const rows = Array.from({ length: TIMES_FOLLOWERS_MAX + 1 }, (_, i) =>
+      env.DB.prepare(
+        `INSERT INTO ${pt} (id, created_at, updated_at, ${column(PLACE, "visit")}, ${column(PLACE, "state")}) VALUES (?, ?, ?, ?, 'booked')`,
+      ).bind(`bulk-${i}`, NOW, NOW, v),
+    );
+    await env.DB.batch(rows);
+    await expect(update(VISIT, v, { startsAt: at("15", "08:00") })).rejects.toMatchObject({
       code: "conflict",
       details: { rule: "times_follow_too_many", object: PLACE },
     });
@@ -558,6 +639,36 @@ describe("where a pack declares who rosters", () => {
       await place(later, other.id, admin);
       await update(VISIT, later, { startsAt: at("20", "08:00") }, member);
       expect((await claims(other.id)).map((c) => c.starts)).toEqual([s(at("20", "08:00"))]);
+      // Changing the type of a visit with crew changes which checklist they tick: a rosterer's,
+      // as changing a shift's own kind is (ADR 0650, the review of PR #419).
+      const checklist = "chk-safety";
+      await env.DB.prepare(
+        "INSERT INTO core_checklist (id, name, created_by, created_at, updated_by, updated_at) VALUES (?, 'Safety check', ?, ?, ?, ?)",
+      )
+        .bind(checklist, admin.id, NOW, admin.id, NOW)
+        .run();
+      const withList = (await create(VISIT_TYPE, { name: "Gas", checklist })).id;
+      const plain = (await kindsOnce()).plumbing;
+      const duty = await create(DUTY, { name: "Control", kind: withList });
+      await expect(update(DUTY, duty.id, { kind: plain }, member)).rejects.toMatchObject({
+        details: { rule: "rostering" },
+      });
+      const gas = (
+        await create(VISIT, {
+          name: "Gas",
+          visitType: withList,
+          startsAt: at("21", "09:00"),
+          endsAt: at("21", "10:00"),
+        })
+      ).id;
+      const crewPlace = await place(gas, (await createUser("member")).id, admin);
+      await expect(update(VISIT, gas, { visitType: plain }, member)).rejects.toMatchObject({
+        code: "forbidden",
+        details: { rule: "rostering" },
+      });
+      expect(await get(PLACE, crewPlace)).toMatchObject({ visitType: withList });
+      await update(VISIT, gas, { visitType: plain }, admin);
+      expect(await get(PLACE, crewPlace)).toMatchObject({ visitType: plain });
     } finally {
       await env.DB.prepare("DELETE FROM core_extensions WHERE id = ?").bind(roster).run();
     }

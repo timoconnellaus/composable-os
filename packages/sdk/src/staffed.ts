@@ -339,6 +339,14 @@ function checkTimesFrom(
       );
     }
   }
+  // One step only (the review of PR #419): the host reads the shifts that follow a record before it
+  // moves, not theirs in turn, so a record whose own times follow another is not followed.
+  if (parent.staffed?.timesFrom !== undefined) {
+    contract(
+      at,
+      `${target as string}'s own times follow another record: a shift's times follow a record whose times are its own`,
+    );
+  }
   const series = Object.values(m.objects).some((o) => o.recurring?.generates === name);
   if (staffed.pattern || series) {
     contract(

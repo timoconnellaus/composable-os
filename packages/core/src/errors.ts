@@ -564,6 +564,14 @@ export function toOperationError(error: unknown): OperationError {
       rule: "staffed_time",
     });
   }
+  // A shift whose times follow a record naming none that exists (ADR 0751), written by a path
+  // that does not check first: it would keep whatever times it was given.
+  if (message.includes("core_staff_times_no_record")) {
+    return new ValidationError(
+      "This shift's times follow a record it does not name, so nothing was changed.",
+      { rule: "times_follow" },
+    );
+  }
   // A live shift that requires an account naming a profile that holds none, or a profile left
   // without one under such a shift (ADR 0760), by a path that does not check first.
   if (message.includes("core_staff_time_no_account")) {

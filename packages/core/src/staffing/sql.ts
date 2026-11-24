@@ -373,7 +373,11 @@ function createTimesTriggers(t: StaffedTables): string[] {
   const differs = (row: string, from: string) =>
     columns.map(([m, r]) => `${row}${m} IS NOT ${from}.${r}`).join(" OR ");
   const toShifts = `UPDATE ${shift} SET ${set("NEW")} WHERE ${link} = NEW.id AND (${differs("", "NEW")});`;
+  // A shift naming no record (a raw insert, or a link to one deleted for good) has no times to
+  // take: refused, rather than left with whatever times it was given (the review of PR #419).
   const fromRecord =
+    `SELECT RAISE(ABORT, 'core_staff_times_no_record') WHERE NEW.${link} IS NULL ` +
+    `OR NOT EXISTS (SELECT 1 FROM ${record} p WHERE p.id = NEW.${link}); ` +
     `UPDATE ${shift} SET ${columns.map(([m, r]) => `${m} = (SELECT p.${r} FROM ${record} p WHERE p.id = NEW.${link})`).join(", ")} ` +
     `WHERE id = NEW.id AND EXISTS (SELECT 1 FROM ${record} p WHERE p.id = NEW.${link} AND (${differs("NEW.", "p")}));`;
   const watched = [...new Set([t.times.link, ...t.times.columns.map(([m]) => m)])].map(ident);

@@ -95,6 +95,7 @@ import {
 import { type ChangeMarks, CREATED, type MarkSource } from "../routine-mail/marks.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import {
+  assertFollowerRoom,
   assertHolderTrashable,
   assertRosterRestore,
   assertRosterWrite,
@@ -799,6 +800,8 @@ export async function createRecord(
     object,
     await prepareValues(ctx, object, withDefaults, "create", options),
   );
+  // At most so many shifts follow one record's times (ADR 0751), counted when one is made.
+  await assertFollowerRoom(ctx, object, null, valuesOf(prepared));
   assertOneOf(object, valuesOf(prepared));
   assertRuleValues(object, valuesOf(prepared));
   // A form's questions, with its anonymous flag and destination (ADR 0720).
@@ -1205,6 +1208,7 @@ export async function updateRecord(
   const timesFrom = object.staffed?.timesFrom;
   if (timesFrom && prepared.some((p) => p.field.name === timesFrom)) {
     prepared = await followedValues(ctx, object, prepared);
+    await assertFollowerRoom(ctx, object, id, valuesOf(prepared));
   }
   assertRuleValues(object, { ...before.values, ...valuesOf(prepared) });
   assertFormQuestions(object, { ...before.values, ...valuesOf(prepared) });
@@ -1284,15 +1288,19 @@ export async function updateRecord(
   await holderWritten(ctx, object, id, before.values, { ...before.values, ...valuesOf(prepared) });
   // Shifts whose times follow this record move with it (ADR 0751): its own statement copies them,
   // after the host has read that none would put its person on two shifts at once.
-  await followersMoved(
+  // A write that also cancels them (its cascade) writes their new times after the cascade has
+  // moved them, so the copy never claims a time for a shift being cancelled (the review of #419).
+  const afterCascade = await followersMoved(
     ctx,
     object,
     id,
     before.values,
     { ...before.values, ...valuesOf(prepared) },
     by,
+    outcome.moved?.id,
   );
-  const own = prepared.filter((p) => p.own);
+  const later = prepared.filter((p) => p.own && afterCascade.has(p.field.name));
+  const own = prepared.filter((p) => p.own && !afterCascade.has(p.field.name));
   if (own.length || !isCoreObject(object.name)) {
     const table = objectTableOf(object.name);
     if (table) {
@@ -1335,6 +1343,14 @@ export async function updateRecord(
   );
   // Records that follow this one's moves move with it, as the host, in this batch (ADR 0507).
   await moveFollowers(ctx, object, id, outcome.moved?.id);
+  if (later.length) {
+    ctx.write(
+      CompiledQuery.raw(
+        `UPDATE ${objectTableOf(object.name)} SET ${later.map((p) => `${p.column} = ?`).join(", ")} WHERE id = ? AND deleted_at IS NULL`,
+        [...later.map((p) => p.stored), id],
+      ),
+    );
+  }
   // A series' future records follow it; a closure cancels what it covers (ADR 0500).
   await seriesChanged(ctx, object, id, before.values, after, {
     confirm: options.recurringConfirm,
