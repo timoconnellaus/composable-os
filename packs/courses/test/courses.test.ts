@@ -6,6 +6,7 @@
 import { redactDocument, validateDocument } from "@composable-os/sdk";
 import { createTestHost, type TestHost } from "@composable-os/sdk/testing";
 import { describe, expect, it } from "vitest";
+import { levelName } from "../client/index.ts";
 import courses from "../index.ts";
 import {
   completion,
@@ -192,6 +193,13 @@ describe("the manifest and the outline", () => {
     const twice = structuredClone(outline);
     twice.sections[1]?.lessons.push({ kind: "text", key: "wrists", title: "Again" });
     expect(outlineProblems(twice)).toEqual(['The lesson key "wrists" is in start and train']);
+  });
+});
+
+describe("the client's words", () => {
+  it("names the three levels, and nothing else", () => {
+    expect([1, 2, 3].map(levelName)).toEqual(["Beginner", "Intermediate", "Advanced"]);
+    expect([0, 4, null, undefined].map(levelName)).toEqual([null, null, null, null]);
   });
 });
 

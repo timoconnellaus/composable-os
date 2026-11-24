@@ -29,7 +29,14 @@ import type {
 } from "../tools.ts";
 
 export { accountDay as day, formatMinor } from "@composable-os/client";
-export { completion, findLesson, lessonsOf, nextLesson, watchedToEnd } from "../outline.ts";
+export {
+  asOutline,
+  completion,
+  findLesson,
+  lessonsOf,
+  nextLesson,
+  watchedToEnd,
+} from "../outline.ts";
 export type { Lesson, LessonKind, Outline, Section };
 
 type Io<T extends { input: z.ZodType; output: z.ZodType }> = {
@@ -317,6 +324,11 @@ export function subscriptionStatus(sub: CourseSubscription): string {
 
 /** Whether a subscription is still the member's to cancel, resume or pay (not ended). */
 export const isLive = (sub: CourseSubscription) => sub.state !== "ended" && sub.state !== "expired";
+
+/** A course's level (1 to 3) as a reader sees it: `Beginner`. Display only. */
+export function levelName(level: number | null | undefined): string | null {
+  return level === 1 ? "Beginner" : level === 2 ? "Intermediate" : level === 3 ? "Advanced" : null;
+}
 
 /** A lesson's length as a reader sees it: `12 min`. Display only. */
 export function minutes(duration: number | null | undefined): string {
