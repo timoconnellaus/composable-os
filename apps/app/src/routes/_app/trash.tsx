@@ -1,6 +1,7 @@
 // Trash: soft-deleted people, organisations, activities and tasks (trash.list), newest first, in
 // a virtualised list that loads more as you scroll. Each is restorable with its object's restore
 // operation until its restorable-until date; restoring is optimistic and offers Undo.
+import type { CoreInput } from "@composable-os/core";
 import { Badge } from "@composable-os/ui/components/badge";
 import { Button } from "@composable-os/ui/components/button";
 import {
@@ -36,7 +37,7 @@ import { useUserLabel } from "#/lib/users-adapter";
 
 export const Route = createFileRoute("/_app/trash")({ component: TrashPage });
 
-type TrashObject = "person" | "organisation" | "activity" | "task" | "media";
+type TrashObject = NonNullable<CoreInput<"trash.list">["object"]>;
 
 const OBJECTS: Record<TrashObject, { label: string; icon: LucideIcon }> = {
   person: { label: "Person", icon: UserIcon },
