@@ -114,10 +114,13 @@ describe("rows read on the AI paths", () => {
     // triggers) to about 691; stage 45's checklists (migration 0815: five tables, seven indexes, ten
     // triggers) to about 728; a child's paper copy to the guardian (migration 0857: an index, four
     // triggers) to about 744; stage 44 step 7's cooling off (migration 0856: a column, a table,
-    // four indexes and its key's autoindex, three triggers): 742 measured on the merged tree.
+    // four indexes and its key's autoindex, three triggers): 742 measured on the merged tree; the
+    // migrations merged since (stage 49's rooms, stage 38's acknowledgements and others) to 767,
+    // measured without migration 0816 on the tree merged with main at b4f334cf; checklists on
+    // their own (migration 0816: an index, three triggers): 771.
     expect(
       await measure("summary.get", { subject: { kind: "record", object: "person", id: personId } }),
-    ).toBeLessThan(760);
+    ).toBeLessThan(790);
     expect(
       await measure("summary.get", {
         subject: { kind: "record", object: "organisation", id: orgId },
