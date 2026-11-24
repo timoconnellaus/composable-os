@@ -331,6 +331,18 @@ export default defineExtension({
           { from: ["active", "ended"], to: "void", by: ["host"], final: true },
         ],
       },
+      // An enrolment staff give (`enrol`, or a record made by hand) starts access as buying one
+      // does: the same point, asked by the engine when a caller makes one active or makes an ended
+      // one active again (stage 44, issue #281). One a paid order grants is the host's, asked when
+      // the order started; one the courses import writes is a student moving over, not asked.
+      agreements: {
+        point: "course",
+        label: "Buying a course",
+        suggests: ["terms"],
+        enter: ["active"],
+        person: "holder",
+        importMovesOver: true,
+      },
       customer: {
         field: "holder",
         read: ["course", "bundle", "source", "from", "until", "completed", "status"],

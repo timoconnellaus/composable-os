@@ -575,6 +575,64 @@ describe("the agreements declaration (inert in step 1)", () => {
     expect(paths).toContain("objects.thing.agreements.enter");
     expect(paths).toContain("objects.thing.agreements.person");
   });
+
+  it("checks keeps and importMovesOver (issue #281): only with enter, naming states", async () => {
+    type Thing = NonNullable<Parameters<typeof manifest>[1]>["objects"];
+    const thing = (agreements: Record<string, unknown>): NonNullable<Thing>[string] => ({
+      label: "Thing",
+      plural: "Things",
+      titleField: "name",
+      fields: {
+        name: { type: "text", label: "Name" },
+        person: { type: "relation", label: "Person", to: "person" },
+        state: {
+          type: "select",
+          label: "State",
+          options: [
+            { value: "valid", label: "Valid" },
+            { value: "used", label: "Used" },
+          ],
+        },
+      },
+      states: {
+        field: "state",
+        initial: "valid",
+        moves: [{ from: "valid", to: "used", by: ["staff"] }],
+      },
+      // The declarations under test, some deliberately wrong: the contract reads them as given.
+      agreements: agreements as never,
+    });
+    const bad = manifest(extId("agk"), {
+      objects: {
+        loose: thing({ point: "loose", label: "Loose", keeps: ["valid"], importMovesOver: true }),
+        named: thing({
+          point: "named",
+          label: "Named",
+          enter: ["valid"],
+          keeps: ["valid", "gone"],
+          person: "person",
+        }),
+      },
+    });
+    const paths = JSON.stringify(await check(bad));
+    expect(paths).toContain("objects.loose.agreements.keeps");
+    expect(paths).toContain("objects.loose.agreements.importMovesOver");
+    expect(paths).toContain("objects.named.agreements.keeps.1");
+    expect(paths).not.toContain("objects.named.agreements.keeps.0");
+    const good = manifest(extId("agk"), {
+      objects: {
+        named: thing({
+          point: "named",
+          label: "Named",
+          enter: ["valid"],
+          keeps: ["valid", "used"],
+          person: "person",
+          importMovesOver: true,
+        }),
+      },
+    });
+    expect((await check(good)).issues).toEqual([]);
+  });
 });
 
 // The security review of PR #266: each of these failed before its fix.
