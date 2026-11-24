@@ -179,7 +179,9 @@ export async function handGrantValues(
         { rule: "once_per_person", reason: had.state },
       );
     }
-    // Refused by the unique index if another write took it a moment before.
+    // Refused by the unique index if another write took it a moment before. Checked for this
+    // Person only, not for those sharing a folded address (ADR 0692): giving one by hand is a
+    // person's deliberate act (a family sharing one mailbox), and it still counts for the others.
     ctx.write(
       ctx.db.insertInto("core_sellable_once").values({
         id: newId("sellableOnce"),

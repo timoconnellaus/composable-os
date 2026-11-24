@@ -7,6 +7,7 @@ import { queueEraseAgreements } from "../agreements/people.ts";
 import { queueEraseAllowances } from "../allowance/people.ts";
 import { ValidationError } from "../errors.ts";
 import { mediaObject } from "../fields/media.ts";
+import { queueEraseSignals } from "../journeys/signals.ts";
 import { decodeCursor, encodeCursor } from "../list.ts";
 import { defineOperation } from "../operation.ts";
 import {
@@ -259,6 +260,11 @@ export const trashPurge = defineOperation({
     );
     // A purged Person's passes' and memberships' uses go as an erased Person's do (ADR 0494).
     queueEraseAllowances(
+      ctx,
+      purged.filter((r) => r.object === "person").map((r) => r.id),
+    );
+    // And their journey signals (stage 53, ADR 0802).
+    queueEraseSignals(
       ctx,
       purged.filter((r) => r.object === "person").map((r) => r.id),
     );

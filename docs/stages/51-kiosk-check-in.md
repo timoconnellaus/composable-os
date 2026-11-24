@@ -642,3 +642,26 @@ may override any of them.
   pinned-browser mode (the design does not rely on it).
 - **Needs a real client** (decision 1): how members arrive today, whether cards exist, and how busy
   the door is at peak (whether 4 seconds per member is fast enough).
+
+## Status
+
+One bullet per build step, written by that step (CONTRIBUTING.md, Working in parallel).
+
+- **Step 3, the person's code and PIN** (branch `feat/stage-51-person-code`; migration 1135, ADR
+  [0783](../adr/0783-a-persons-code-the-rotating-app-code-cards-and-the-pin.md), ADR 0600 amended).
+  Built:
+  - `core_person_code` (app codes tied to one sign-in, cards by HMAC), `core_person_pin` and
+    `core_identify_lockout`;
+  - `me.code`, `me.pin.set` and `me.pin.clear` (customer, `hostInternal`, in
+    `open-operations.json`);
+  - `personCode.issueCard`, `revokeCard` and `list` with the new core permission `people:cards`
+    (admins and members, grantable, to a fixed-role account too: `FIXED_ROLE_CORE_GRANTS`);
+  - `identifyPerson` (`packages/core/src/people-codes/identify.ts`): host code with the lock-outs
+    and one answer for every miss; erase and merge.
+  - Keys come from `BETTER_AUTH_SECRET` (HKDF), passed as `ctx.personCodes`.
+  - Deviations, in the ADR: it is ADR 0783 (the spec said 0782; block BM gave this step 0783 and
+    0784); `me.code` is risk `write` (it makes the code on a sign-in's first call); a name is
+    compared by the indexed name key of the Person's listed name.
+  - Left: the host path from step 4's `doorNow` to `identifyPerson` (steps 2 and 4); the door
+    log's and handles' erase (step 4); Cards on the Person page (step 6); the member's blocks
+    (step 5).

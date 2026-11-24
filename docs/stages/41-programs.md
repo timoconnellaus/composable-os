@@ -256,3 +256,33 @@ refusal is gone; the coaches' grants are unchanged. The pack changes no code: `u
 `usePublishOffered` are a person's controls. Proof: `apps/runner/test/programs-authoring.test.ts`
 (the assistant's draft, its request, a person's approval) and `apps/runner/test/programs.test.ts`
 (the assistant acting for a coach without the permission cannot even ask).
+
+## As built: the coach role and class types for a member's client (2026-11-24)
+- **The coach role** ([ADR 0881](../adr/0881-a-pack-role-limited-to-the-people-its-holder-looks-after.md)):
+  `programs.coach`, declared in the pack: the tools `today`, `sessionGet`, `logAdd`, `logUpdate`,
+  `sessionComplete`, `history` and `progress` (permission `programs:coach`), and reads of
+  assignments and sessions, all limited to the People an active assignment names the account
+  coach of (`coach` on the assignment, `coachId` on `x.programs.assign`, the object's `team`). The
+  platform gained a role's `looksAfter` and an object's `team`, held by the host on the role's
+  reads and inside its tools. Its client (`roles.json`) backs `programs-native-coach-client` and
+  the session screen for a client. Tests of what it must not reach: `apps/runner/test/programs-coach.test.ts`.
+- **Class types for a member's client:** `useClassTypes` reads with `my.list` on a customer's
+  client and `record.list` on staff's (a hook may name alternatives, `anyOf`, ADR 0453 amended), so
+  `programs-native-class-today` is wired in a member's app as shipped.
+- No migration (the coach field comes from the reconciler). ADR 0881 from numbers 0870 to 0889.
+
+## As built: past sessions in the app (2026-11-24)
+- **The history blocks** (found while putting the first client's app on the platform: Progress
+  showed each exercise's history, but nothing listed a person's past sessions): `programs-history`
+  (web, `SessionHistory`) and `programs-native-history` (native, `HistoryScreen`) list a person's
+  own sessions dated on or before `until` (their local today), newest first, 20 a page, each with
+  its date, name and sets done of planned; one opened is read-only set by set (target beside what
+  was done, who recorded it) and a logged set is corrected through `x.programs.logUpdate`, the
+  rule the host already had (the numbers done, effort and the note; a member their own sets only;
+  the target, the exercise and who recorded it never). The logic is in the pack's client
+  (`loadPastSessions`, `sessionSets`, `plannedSets`, `correctionOf`; hooks `usePastSessions` over
+  the member's `my.list`, `useClientPastSessions` over the staff's `record.list`); no new tool or
+  permission. A page is at most 15 statements and 25 bound variables for a member or a coach
+  (`apps/runner/test/programs-history.test.ts`); the member's e2e journey now corrects its set in
+  the history. Only personal sessions are listed: a class session a member logged on is not
+  (ADR 0448, amended).
