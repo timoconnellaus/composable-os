@@ -364,6 +364,12 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   the conformance suite. The fake books run as `cos-gatekeeper-accounting-fake` in development and
   cos-runner's tests only (`wrangler.fake.jsonc`, never released); the catalogue marks an
   accounting gatekeeper `implements: "accounting"`.
+  `gatekeeper-booking-system` (stage 65, ADR 0920) is the **booking-system contract** in the same
+  shape, and read only: the session's types and input checks, the shared facet
+  (`BookingSystemGatekeeper`, which records each read as an observation, copies every answer into
+  the contract's shape and declares no action), the fake booking system and the conformance suite.
+  The fake runs as `cos-gatekeeper-booking-system-fake` in development and cos-runner's tests only;
+  the catalogue marks a booking-system gatekeeper `implements: "booking-system"`.
   Inbound webhooks and sync events land in `core_integration_event`; cos-runner's cron turns them
   into `webhook` and `syncEvent` automation triggers (ADR 0173), dropping private activities.
 - **Notification delivery** ([ADR 0172](adr/0172-notification-delivery.md)): cos-runner's minute

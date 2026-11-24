@@ -80,6 +80,12 @@ ADR 0880): fake accounting books behind the accounting contract, with invented a
 and contacts. An admin connects it for the org and binds `accounting-fake://books/<name>`; each name
 is its own set of books. It is bound only in development and cos-runner's tests, never deployed.
 
+It also runs **Fake booking system (development)** (`cos-gatekeeper-booking-system-fake`, stage
+65, ADR 0920): an invented site behind the read-only booking-system contract, with people,
+memberships and passes, a timetable of classes 7 days back and 28 ahead, bookings and staff. An
+admin connects it for the org and binds `booking-system-fake://site/<name>`; each name is its own
+site. It is bound only in development and cos-runner's tests, never deployed.
+
 ## Manual end-to-end check (needs a human)
 
 Stage 6 acceptance criterion 8 needs real Google and Microsoft test accounts, which automated tests

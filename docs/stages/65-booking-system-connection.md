@@ -39,6 +39,22 @@ what its API returns (below, "The outside system's terms"). Whether a business's
 is for the business and its lawyer, or the booking system's support, to confirm. The connect screen
 says so.
 
+## Status
+
+- **Step 1** (built 2026-11-24, branch `feat/stage-65-booking-contract`; ADR 0920; no migration):
+  `packages/gatekeeper-booking-system`: `BookingSystemSession` and its types (`types.d.ts`, served
+  as the resource's types), the input checks and limits and the contract's shape every answer is
+  copied into (`validate.ts`, `reads.ts`), the refusal codes (`refusal.ts`), the shared facet
+  `BookingSystemGatekeeper` (each read an observation, no action kind, apply, reject and revert
+  refused), `BookingSystem` for a connector to implement, the fake (`FakeBookingSystem`, with every
+  control the spec lists), `directSession`, and the conformance suite (21 checks), passing against
+  the fake in memory and through the fake gatekeeper's session. The fake gatekeeper
+  (`cos-gatekeeper-booking-system-fake`, vendor `booking-system-fake`, `wrangler.fake.jsonc`) is
+  bound to cos-runner in its tests (`GATEKEEPER_BOOKING_SYSTEM_FAKE`, controls
+  `TEST_BOOKING_SYSTEM`) and the CRM's dev server; the catalogue has `implements:
+  "booking-system"` and the dev-only entry. Left for later steps: the Settings → Integrations
+  heading and the one-connection rule (with step 3 or 6), the host path (step 3), everything else.
+
 ## Goal
 
 A business that keeps its booking system for months still gets the new system's worth from the
