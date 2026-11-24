@@ -9,7 +9,13 @@ import { defineObject } from "../fields/types.ts";
 import { listInputSchema, pageQuery, pageSchema, selectFields } from "../list.ts";
 import { defineOperation } from "../operation.ts";
 import { availablePackRoles, PACK_ROLE_NAME_RE, parseGrants } from "../pack-roles.ts";
-import { GRANTABLE_PERMISSIONS, holdsPermission, PERMISSIONS, ROLES } from "../principals.ts";
+import {
+  FIXED_ROLE_CORE_GRANTS,
+  GRANTABLE_PERMISSIONS,
+  holdsPermission,
+  PERMISSIONS,
+  ROLES,
+} from "../principals.ts";
 import { feedRevocations } from "../staffing/feed.ts";
 
 /** Users are not a record object (no tags, links or timeline); this only drives user.list. */
@@ -251,7 +257,8 @@ export async function checkPackRole(
  * Refuses permissions that cannot be granted (ADR 0449); returns the list sorted, once each. An
  * account holding a pack role (`packRole`) may be granted pack permissions only, never a core one
  * (ADR 0600): a core permission opens a core operation over every record, which is not what a
- * fixed role's account is for, and it would count for nothing beside the role.
+ * fixed role's account is for, and it would count for nothing beside the role. The exceptions are
+ * FIXED_ROLE_CORE_GRANTS (ADR 0783): `people:cards`, for a desk account issuing members' cards.
  */
 export async function checkGrants(
   ctx: Pick<Parameters<typeof userPackRoles.handler>[1], "db">,
@@ -261,7 +268,7 @@ export async function checkGrants(
 ): Promise<string[]> {
   const choices = await grantable(ctx);
   const available = new Set(
-    choices.filter((g) => packRole === null || g.from !== "core").map((g) => g.permission),
+    choices.filter((g) => packRole === null || g.forFixedRole).map((g) => g.permission),
   );
   const unknown = permissions.filter((p) => !available.has(p));
   if (unknown.length) {
@@ -308,8 +315,10 @@ export const userSetPackRole = defineOperation({
       await checkPackRole(ctx, input.role, before.role, "role");
       // Its grants must be ones a fixed role's account may hold (ADR 0600): a core grant would
       // count for nothing beside the role, so it is taken away by a person first, not silently.
-      const core = parseGrants(before.granted_permissions).filter((p) =>
-        (GRANTABLE_PERMISSIONS as readonly string[]).includes(p),
+      const core = parseGrants(before.granted_permissions).filter(
+        (p) =>
+          (GRANTABLE_PERMISSIONS as readonly string[]).includes(p) &&
+          !(FIXED_ROLE_CORE_GRANTS as readonly string[]).includes(p),
       );
       if (core.length) {
         throw new ConflictError(
@@ -391,13 +400,15 @@ export async function grantable(
     "agreements:health": "Read members' health form answers (every read is logged)",
     "checklists:write": "Write the checklists staff tick off (their steps, and which are in use)",
     "orders:discount": "Give money off an order at the desk, with a reason (up to the set limit)",
+    "people:cards": "Issue and revoke members' check-in cards",
   };
   return [
     ...GRANTABLE_PERMISSIONS.map((permission) => ({
       permission,
       label: labels[permission],
       from: "core",
-      forFixedRole: false,
+      // A few core permissions open person-scoped operations a desk account needs (ADR 0783).
+      forFixedRole: FIXED_ROLE_CORE_GRANTS.includes(permission),
       restricted: false,
     })),
     ...packs,

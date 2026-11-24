@@ -22,6 +22,8 @@ coordinator, recorded below; no interview was needed and none is open). Builds a
 public-write door and personal links, and after stage 30's preferences and one-tap stop. Number
 54.
 
+Built so far (see "Built" at the end): step 1 (P1, publishable with an author).
+
 ## Goal
 
 A business asks the right people for a review at the right moment (a member after their tenth
@@ -462,3 +464,18 @@ the trades' moment and review sites are to be checked with each business during 
 - **Money:** none.
 - **Needs a real client:** the Nth class and the wording; the website block with real quotes; the
   bot check on a real site; routine mail on a real email connection.
+
+## Built
+
+- **Step 1 (P1), 2026-11-24.** [ADR 0810](../adr/0810-publishable-with-an-author.md) (amends 0442
+  and 0446). No migration: P1 needs no table (1190 stays P2's; 1191 to 1194, given to this step,
+  are unused). A publishable object may declare a `customer`, its author, beside `public`; it has
+  no slug and is listed only (`content.list`; `content.get` not found); `public.read` never lists
+  the author; read-only fields may be content. The author's fields (`customer.write` but the state
+  field) are refused, `forbidden` / `author_only`, to every staff-side caller in the record code
+  every write goes through (`records/authored.ts`, called from `prepareValues`), and shown
+  read-only in `schema.objects`. `publishable.publishIn` (`packages/sdk` contract, manifest checks,
+  the test host): a publish or schedule outside the states is refused, a due schedule dropped, and
+  a write that moves the record out unpublishes it in its batch (`records/publish.ts`). Tests:
+  `packages/core/test/publishable-author.test.ts`. Deviation: consent taken back unpublishes too
+  (not only `when`), so consenting again waits for a person's publish (ADR 0810, Consequences).

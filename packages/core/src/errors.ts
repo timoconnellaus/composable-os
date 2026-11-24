@@ -231,8 +231,9 @@ export function toOperationError(error: unknown): OperationError {
       reason: "subscription_stale",
     });
   }
-  // A second hold of one person's free trial on a plan (migration 0531, ADR 0489): another start
-  // took it a moment before. Nothing of this start was recorded; starting again gives that page.
+  // A second hold of one person's free trial on a plan (migration 0531, ADR 0489; or of a Person
+  // sharing a folded address with them, migration 0955, ADR 0692): another start took it a
+  // moment before. Nothing of this start was recorded; starting again gives that page.
   if (message.includes("core_subscription_trial_taken")) {
     return new ConflictError(
       "A checkout with this free trial was opened at the same moment. Start again to get it.",
@@ -240,8 +241,12 @@ export function toOperationError(error: unknown): OperationError {
     );
   }
   // A second hold of something sold once per Person (migration 0581, ADR 0512): another order for
-  // it was started a moment before. Nothing of this one was recorded.
-  if (message.includes("UNIQUE constraint failed: core_sellable_once")) {
+  // it was started a moment before, for the Person or one sharing a folded address with them
+  // (migration 0955, ADR 0692). Nothing of this one was recorded.
+  if (
+    message.includes("UNIQUE constraint failed: core_sellable_once") ||
+    message.includes("core_sellable_once_folded")
+  ) {
     return new ConflictError(
       "This is one per person, and another order for it was started at the same moment",
       { rule: "once_per_person", reason: "held" },
@@ -338,6 +343,18 @@ export function toOperationError(error: unknown): OperationError {
     return new ConflictError(
       "This person is already on another shift at that time, so nothing was changed.",
       { rule: "double_booked" },
+    );
+  }
+  // Two time entries of one staff account that overlap (migration 1270, ADR 0850), or a second
+  // open one: refused by the database for every writer. A write the host read as free names the
+  // other entry itself; this is a race it could not see (twenty starts at once).
+  if (
+    message.includes("core_time_overlap") ||
+    message.includes("UNIQUE constraint failed: core_time_entry.account_id")
+  ) {
+    return new ConflictError(
+      "This overlaps another of this person's time entries (or one is already open), so nothing was changed.",
+      { rule: "time_overlap" },
     );
   }
   // Two live records in one thing at once (a room marked "one booking at a time", migration
@@ -445,6 +462,14 @@ export function toOperationError(error: unknown): OperationError {
     return new ValidationError("A shift must end after it starts, so nothing was changed.", {
       rule: "staffed_time",
     });
+  }
+  // A live shift that requires an account naming a profile that holds none, or a profile left
+  // without one under such a shift (ADR 0760), by a path that does not check first.
+  if (message.includes("core_staff_time_no_account")) {
+    return new ValidationError(
+      "This shift needs someone with an account: the profile on it holds none, so nothing was changed.",
+      { rule: "staffed_account" },
+    );
   }
   // A live record in a claimed room, or a live shift, with a time the database cannot read
   // (ADRs 0765 and 0621), written by a path that does not check first.

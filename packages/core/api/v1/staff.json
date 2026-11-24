@@ -19943,7 +19943,8 @@
       },
       "invalidates": [
         "checklist.get",
-        "checklist.list"
+        "checklist.list",
+        "checklist.whoChoices"
       ]
     },
     {
@@ -20013,6 +20014,63 @@
               "additionalProperties": false
             }
           },
+          "schedule": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "days": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "dueBy": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "who": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "staff",
+                          "role",
+                          "grant"
+                        ]
+                      },
+                      "value": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "days",
+                  "dueBy",
+                  "who"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its standing schedule, when it is done on its own (not only on a duty)"
+          },
           "updatedAt": {
             "type": "string"
           },
@@ -20027,6 +20085,7 @@
           "active",
           "version",
           "steps",
+          "schedule",
           "updatedAt",
           "updatedBy"
         ],
@@ -20036,7 +20095,7 @@
     },
     {
       "name": "checklist.list",
-      "description": "The business's checklists (templates of steps staff tick off on a duty: a close-down clean, opening up), each with its purpose, whether it is in use (`active`: only an active one can be picked), its version and how many steps it has. Not how any shift's checklist went. Read-only.",
+      "description": "The business's checklists (templates of steps staff tick off on a duty: a close-down clean, opening up), each with its purpose, whether it is in use (`active`: only an active one can be picked), its version and how many steps it has, and its standing schedule if it is done on its own (the days it is due, the time it is due by, who may do it). Not how any checklist went. Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -20084,6 +20143,63 @@
                   "minimum": -9007199254740991,
                   "maximum": 9007199254740991
                 },
+                "schedule": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "days": {
+                          "type": "array",
+                          "items": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "dueBy": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "who": {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "staff",
+                                "role",
+                                "grant"
+                              ]
+                            },
+                            "value": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "value"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "days",
+                        "dueBy",
+                        "who"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Its standing schedule, when it is done on its own (not only on a duty)"
+                },
                 "updatedAt": {
                   "type": "string"
                 }
@@ -20095,6 +20211,7 @@
                 "active",
                 "version",
                 "steps",
+                "schedule",
                 "updatedAt"
               ],
               "additionalProperties": false
@@ -20110,7 +20227,7 @@
     },
     {
       "name": "checklist.save",
-      "description": "Write a checklist: a new one (no `id`), or a change to one (its name, purpose, whether it is in use, and its steps, given whole and in order; at most 50). Shifts already given a run of it keep the steps as they were; later runs copy the new ones. Needs checklists:write. An assistant's or MCP client's write always waits for a person who holds it too, so staff are only ever asked to follow a checklist a person approved.",
+      "description": "Write a checklist: a new one (no `id`), or a change to one (its name, purpose, whether it is in use, and its steps, given whole and in order; at most 50). Shifts already given a run of it keep the steps as they were; later runs copy the new ones. A standing `schedule` makes it a checklist done on its own (ADR 0651): due on those days of the week in the business's time zone, by a time, by whoever it names (everyone on staff, a role or pack role, or a grant); each due day gets one run, opened at the start of the day and missed if not finished by its end. Left out, a change keeps the schedule; null removes it. Needs checklists:write. An assistant's or MCP client's write always waits for a person who holds it too, so staff are only ever asked to follow a checklist a person approved.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -20173,6 +20290,100 @@
                 "text"
               ]
             }
+          },
+          "schedule": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "days": {
+                    "minItems": 1,
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 7
+                    },
+                    "description": "The days of the week it is due, 1 Monday to 7 Sunday, in the business's time zone"
+                  },
+                  "dueBy": {
+                    "description": "The local time it is due by",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "who": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "staff"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "role"
+                          },
+                          "role": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 81,
+                            "description": "admin, member, or a pack's fixed role (rostering.team, bookings.coach)"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "role"
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "grant"
+                          },
+                          "permission": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 81,
+                            "description": "A permission an admin grants one by one (user.grantablePermissions)"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "permission"
+                        ]
+                      }
+                    ],
+                    "description": "Who may do it: everyone on staff, the people with a role, or those granted a permission"
+                  }
+                },
+                "required": [
+                  "days",
+                  "who"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -20204,8 +20415,71 @@
       },
       "invalidates": [
         "checklist.get",
-        "checklist.list"
+        "checklist.list",
+        "checklist.whoChoices"
       ]
+    },
+    {
+      "name": "checklist.whoChoices",
+      "description": "Who a checklist done on its own can be for (ADR 0651), for the form that writes one: the roles (admins, members, and the fixed roles installed packs give, such as a cleaner's or a coach's) and the permissions an admin can grant one by one, each with its label. Names no account. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "role",
+                "label"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "grants": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "permission": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "permission",
+                "label"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "roles",
+          "grants"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
     },
     {
       "name": "code.run",
@@ -49929,6 +50203,241 @@
       ]
     },
     {
+      "name": "personCode.issueCard",
+      "description": "Give a person a check-in card or key tag: scan or type the card's code (at least 8 characters) and a label to tell it apart. The card then checks them in at the check-in tablet until it is revoked. The code is never stored or shown again (only a keyed hash), and a code already on someone's live card is refused. Only a person on the staff with people:cards can do this: never the assistant, an MCP client or code. Audited.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string",
+            "maxLength": 64,
+            "format": "starts_with",
+            "pattern": "^per_.*",
+            "description": "Who the card is for (per_…)"
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The card's code, as scanned or printed"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "To tell it apart, e.g. \"blue key tag\""
+          }
+        },
+        "required": [
+          "personId",
+          "code",
+          "label"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "app",
+              "card"
+            ]
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "issuedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "onGuardiansApp": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "lastUsedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revokedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "label",
+          "issuedBy",
+          "onGuardiansApp",
+          "createdAt",
+          "lastUsedAt",
+          "revokedAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "personCode.list"
+      ]
+    },
+    {
+      "name": "personCode.list",
+      "description": "A person's check-in cards and app codes: each card's label, who issued it, when it was issued, last used and revoked, and each app sign-in showing a code. Never a code. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string",
+            "maxLength": 64,
+            "format": "starts_with",
+            "pattern": "^per_.*",
+            "description": "The person (per_…)"
+          }
+        },
+        "required": [
+          "personId"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "app",
+                    "card"
+                  ]
+                },
+                "label": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "issuedBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "onGuardiansApp": {
+                  "type": "boolean"
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "lastUsedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "revokedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "label",
+                "issuedBy",
+                "onGuardiansApp",
+                "createdAt",
+                "lastUsedAt",
+                "revokedAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "personCode.revokeCard",
+      "description": "Revoke a person's check-in card (lost, or handed back), by its id from personCode.list: from now on it checks no one in. Revoking one already revoked changes nothing. Only a person on the staff with people:cards can do this. Audited.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "codeId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The card's id (pc_…)"
+          }
+        },
+        "required": [
+          "codeId"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "revokedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "revokedAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "personCode.list"
+      ]
+    },
+    {
       "name": "plan.get",
       "description": "The deployment's hosted plan (free, team, business or enterprise) and its limits: users, records (people plus organisations; null = unlimited) and whether the platform's AI is included, with current usage. managed is false on a self-hosted install, which has no limits. Admins only. Read-only: plans change only through billing.",
       "risk": "read",
@@ -51506,7 +52015,7 @@
     },
     {
       "name": "record.publishDue",
-      "description": "Platform use only: publish the scheduled publishes whose time has come (the minute cron), each as the snapshot the person who scheduled it took, in their name. A record deleted meanwhile loses its schedule. Returns the records published.",
+      "description": "Platform use only: publish the scheduled publishes whose time has come (the minute cron), each as the snapshot the person who scheduled it took, in their name. A record deleted meanwhile, or no longer in a state it may be published in, loses its schedule. Returns the records published.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -58473,7 +58982,7 @@
     },
     {
       "name": "staffing.due",
-      "description": "Platform use only (the minute cron, as the host): open offers past their cut-off lapse and their offerers and the rosterers are told; once a day the rosterers hear of every shift with nobody on it in the uncovered window. Returns what it did.",
+      "description": "Platform use only (the minute cron, as the host): open offers past their cut-off lapse and their offerers and the rosterers are told; once a day the rosterers hear of every shift with nobody on it in the uncovered window; a time entry left open past its finish is marked finish missing and its person told. Returns what it did.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -58500,12 +59009,18 @@
             "type": "integer",
             "minimum": -9007199254740991,
             "maximum": 9007199254740991
+          },
+          "finishMissing": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
           }
         },
         "required": [
           "lapsed",
           "cancelled",
-          "uncovered"
+          "uncovered",
+          "finishMissing"
         ],
         "additionalProperties": false
       },
@@ -77566,6 +78081,1440 @@
       "pack": "courses"
     },
     {
+      "name": "x.dailychecks.day",
+      "description": "One checklist on one day: its steps and ticks, whether it is done (by whom, when) or missed. Today's for whoever may do it; any day's, with who may do it, for someone who manages checklists. A person's own read. (Extension tool from Daily checklists 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "template": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          }
+        },
+        "required": [
+          "template",
+          "date"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "item": {
+            "type": "object",
+            "properties": {
+              "template": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "purpose": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "purpose"
+                ],
+                "additionalProperties": false
+              },
+              "date": {
+                "type": "string"
+              },
+              "who": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "staff",
+                      "role",
+                      "grant"
+                    ]
+                  },
+                  "value": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind",
+                  "value"
+                ],
+                "additionalProperties": false
+              },
+              "dueBy": {
+                "description": "The local time it is due by",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "dueAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "opens": {
+                "type": "string"
+              },
+              "closes": {
+                "type": "string",
+                "description": "The end of its day: not finished by then, it is missed"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "not_started",
+                  "open",
+                  "done",
+                  "missed"
+                ]
+              },
+              "late": {
+                "type": "boolean"
+              },
+              "run": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "object": {
+                        "type": "string"
+                      },
+                      "record": {
+                        "type": "string"
+                      },
+                      "template": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "version": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "version"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "open",
+                          "done",
+                          "missed",
+                          "cancelled"
+                        ]
+                      },
+                      "account": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "name": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "opens": {
+                        "type": "string"
+                      },
+                      "closes": {
+                        "type": "string"
+                      },
+                      "tickUntil": {
+                        "type": "string"
+                      },
+                      "madeAt": {
+                        "type": "string"
+                      },
+                      "closedAt": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "closedBy": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "closedByName": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "closedWhy": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "steps": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "position": {
+                              "type": "number"
+                            },
+                            "text": {
+                              "type": "string"
+                            },
+                            "required": {
+                              "type": "boolean"
+                            },
+                            "asksNote": {
+                              "type": "boolean"
+                            },
+                            "tick": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "state": {
+                                      "type": "string",
+                                      "enum": [
+                                        "done",
+                                        "not_done",
+                                        "cleared"
+                                      ]
+                                    },
+                                    "done": {
+                                      "type": "boolean"
+                                    },
+                                    "why": {
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "note": {
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "onBehalfWhy": {
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "withheld": {
+                                      "type": "boolean",
+                                      "description": "Has words only its author and those who manage checklists read"
+                                    },
+                                    "by": {
+                                      "type": "string"
+                                    },
+                                    "byName": {
+                                      "type": "string"
+                                    },
+                                    "for": {
+                                      "type": "string"
+                                    },
+                                    "forName": {
+                                      "type": "string"
+                                    },
+                                    "onBehalf": {
+                                      "type": "boolean"
+                                    },
+                                    "at": {
+                                      "type": "string"
+                                    },
+                                    "label": {
+                                      "type": "string",
+                                      "description": "\"Ticked by X\", or \"Ticked by X for Y\""
+                                    }
+                                  },
+                                  "required": [
+                                    "id",
+                                    "state",
+                                    "done",
+                                    "why",
+                                    "note",
+                                    "onBehalfWhy",
+                                    "withheld",
+                                    "by",
+                                    "byName",
+                                    "for",
+                                    "forName",
+                                    "onBehalf",
+                                    "at",
+                                    "label"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "The latest tick"
+                            },
+                            "history": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string"
+                                  },
+                                  "state": {
+                                    "type": "string",
+                                    "enum": [
+                                      "done",
+                                      "not_done",
+                                      "cleared"
+                                    ]
+                                  },
+                                  "done": {
+                                    "type": "boolean"
+                                  },
+                                  "why": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "note": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "onBehalfWhy": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "withheld": {
+                                    "type": "boolean",
+                                    "description": "Has words only its author and those who manage checklists read"
+                                  },
+                                  "by": {
+                                    "type": "string"
+                                  },
+                                  "byName": {
+                                    "type": "string"
+                                  },
+                                  "for": {
+                                    "type": "string"
+                                  },
+                                  "forName": {
+                                    "type": "string"
+                                  },
+                                  "onBehalf": {
+                                    "type": "boolean"
+                                  },
+                                  "at": {
+                                    "type": "string"
+                                  },
+                                  "label": {
+                                    "type": "string",
+                                    "description": "\"Ticked by X\", or \"Ticked by X for Y\""
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "state",
+                                  "done",
+                                  "why",
+                                  "note",
+                                  "onBehalfWhy",
+                                  "withheld",
+                                  "by",
+                                  "byName",
+                                  "for",
+                                  "forName",
+                                  "onBehalf",
+                                  "at",
+                                  "label"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "description": "Earlier ticks, the latest 20"
+                            },
+                            "historyTruncated": {
+                              "type": "boolean"
+                            },
+                            "missed": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "position",
+                            "text",
+                            "required",
+                            "asksNote",
+                            "tick",
+                            "history",
+                            "historyTruncated",
+                            "missed"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "corrections": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "text": {
+                              "type": "string"
+                            },
+                            "by": {
+                              "type": "string"
+                            },
+                            "byName": {
+                              "type": "string"
+                            },
+                            "at": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "text",
+                            "by",
+                            "byName",
+                            "at"
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "object",
+                      "record",
+                      "template",
+                      "state",
+                      "account",
+                      "name",
+                      "opens",
+                      "closes",
+                      "tickUntil",
+                      "madeAt",
+                      "closedAt",
+                      "closedBy",
+                      "closedByName",
+                      "closedWhy",
+                      "steps",
+                      "corrections"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "preview": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "text": {
+                          "type": "string"
+                        },
+                        "required": {
+                          "type": "boolean"
+                        },
+                        "asksNote": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "text",
+                        "required",
+                        "asksNote"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "mayDo": {
+                "type": "boolean",
+                "description": "You may do it yourself"
+              },
+              "canTick": {
+                "type": "boolean",
+                "description": "You may tick it now (yourself, or for someone)"
+              }
+            },
+            "required": [
+              "template",
+              "date",
+              "who",
+              "dueBy",
+              "dueAt",
+              "opens",
+              "closes",
+              "state",
+              "late",
+              "run",
+              "preview",
+              "mayDo",
+              "canTick"
+            ],
+            "additionalProperties": false
+          },
+          "zone": {
+            "type": "string"
+          },
+          "doers": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "you": {
+            "type": "string"
+          },
+          "youManage": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "item",
+          "zone",
+          "doers",
+          "you",
+          "youManage"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "dailychecks"
+    },
+    {
+      "name": "x.dailychecks.done",
+      "description": "Finish today's checklist with optional steps left, once every required step is ticked. Finished is final. Someone who manages checklists may finish it for someone who may do it, saying why. A person's own act. (Extension tool from Daily checklists 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "template": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "for": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Ticking for someone who may do it"
+          },
+          "forWhy": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Ticking for someone else: why"
+          }
+        },
+        "required": [
+          "template",
+          "date"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "run": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "const": "done"
+          }
+        },
+        "required": [
+          "run",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.dailychecks.day",
+        "x.dailychecks.history",
+        "x.dailychecks.today"
+      ],
+      "pack": "dailychecks"
+    },
+    {
+      "name": "x.dailychecks.history",
+      "description": "How each day went, from `from` to `to` (local dates, at most 62 days): every checklist done on its own, whether it was done (by whom, for whom, when, late or not) or missed (with the steps nobody ticked). Those who manage checklists, a person only. (Extension tool from Daily checklists 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "template": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string"
+          },
+          "days": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "run": {
+                  "type": "string"
+                },
+                "template": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ],
+                  "additionalProperties": false
+                },
+                "date": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "open",
+                    "done",
+                    "missed"
+                  ]
+                },
+                "dueAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "late": {
+                  "type": "boolean"
+                },
+                "finishedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "finishedBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "finishedFor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "steps": {
+                  "type": "number"
+                },
+                "ticked": {
+                  "type": "number"
+                },
+                "onBehalf": {
+                  "type": "number"
+                },
+                "missed": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "run",
+                "template",
+                "date",
+                "state",
+                "dueAt",
+                "late",
+                "finishedAt",
+                "finishedBy",
+                "finishedFor",
+                "steps",
+                "ticked",
+                "onBehalf",
+                "missed"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "zone",
+          "days",
+          "truncated"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "dailychecks"
+    },
+    {
+      "name": "x.dailychecks.tick",
+      "description": "Tick one step of today's checklist: done (with a note where the step asks for one), not done (with why), or clear your tick. Whoever ticks the last step finishes it, and a finished checklist never changes. Someone who manages checklists may tick for someone who may do it (`for`), saying why (`forWhy`). A person's own act. (Extension tool from Daily checklists 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "template": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "step": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 49
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "done",
+              "not_done",
+              "clear"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "why": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "for": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Ticking for someone who may do it"
+          },
+          "forWhy": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Ticking for someone else: why"
+          }
+        },
+        "required": [
+          "template",
+          "date",
+          "step",
+          "state"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "run": {
+            "type": "string"
+          },
+          "step": {
+            "type": "number"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "done",
+              "not_done",
+              "clear"
+            ]
+          },
+          "ticked": {
+            "type": "number"
+          },
+          "of": {
+            "type": "number"
+          },
+          "finished": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "run",
+          "step",
+          "state",
+          "ticked",
+          "of",
+          "finished"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.dailychecks.day",
+        "x.dailychecks.history",
+        "x.dailychecks.today"
+      ],
+      "pack": "dailychecks"
+    },
+    {
+      "name": "x.dailychecks.today",
+      "description": "Today's checklists (the ones done on their own, not a shift's): each one you may do, and every one if you manage checklists, with when it is due by, its steps and who ticked each and when, and whether you may tick it now. A person's own read. (Extension tool from Daily checklists 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "template": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "purpose": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "purpose"
+                  ],
+                  "additionalProperties": false
+                },
+                "date": {
+                  "type": "string"
+                },
+                "who": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "staff",
+                        "role",
+                        "grant"
+                      ]
+                    },
+                    "value": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "value"
+                  ],
+                  "additionalProperties": false
+                },
+                "dueBy": {
+                  "description": "The local time it is due by",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "dueAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "opens": {
+                  "type": "string"
+                },
+                "closes": {
+                  "type": "string",
+                  "description": "The end of its day: not finished by then, it is missed"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "not_started",
+                    "open",
+                    "done",
+                    "missed"
+                  ]
+                },
+                "late": {
+                  "type": "boolean"
+                },
+                "run": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "object": {
+                          "type": "string"
+                        },
+                        "record": {
+                          "type": "string"
+                        },
+                        "template": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "version": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "version"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "open",
+                            "done",
+                            "missed",
+                            "cancelled"
+                          ]
+                        },
+                        "account": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "name": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "opens": {
+                          "type": "string"
+                        },
+                        "closes": {
+                          "type": "string"
+                        },
+                        "tickUntil": {
+                          "type": "string"
+                        },
+                        "madeAt": {
+                          "type": "string"
+                        },
+                        "closedAt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "closedBy": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "closedByName": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "closedWhy": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "steps": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "position": {
+                                "type": "number"
+                              },
+                              "text": {
+                                "type": "string"
+                              },
+                              "required": {
+                                "type": "boolean"
+                              },
+                              "asksNote": {
+                                "type": "boolean"
+                              },
+                              "tick": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string"
+                                      },
+                                      "state": {
+                                        "type": "string",
+                                        "enum": [
+                                          "done",
+                                          "not_done",
+                                          "cleared"
+                                        ]
+                                      },
+                                      "done": {
+                                        "type": "boolean"
+                                      },
+                                      "why": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      },
+                                      "note": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      },
+                                      "onBehalfWhy": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      },
+                                      "withheld": {
+                                        "type": "boolean",
+                                        "description": "Has words only its author and those who manage checklists read"
+                                      },
+                                      "by": {
+                                        "type": "string"
+                                      },
+                                      "byName": {
+                                        "type": "string"
+                                      },
+                                      "for": {
+                                        "type": "string"
+                                      },
+                                      "forName": {
+                                        "type": "string"
+                                      },
+                                      "onBehalf": {
+                                        "type": "boolean"
+                                      },
+                                      "at": {
+                                        "type": "string"
+                                      },
+                                      "label": {
+                                        "type": "string",
+                                        "description": "\"Ticked by X\", or \"Ticked by X for Y\""
+                                      }
+                                    },
+                                    "required": [
+                                      "id",
+                                      "state",
+                                      "done",
+                                      "why",
+                                      "note",
+                                      "onBehalfWhy",
+                                      "withheld",
+                                      "by",
+                                      "byName",
+                                      "for",
+                                      "forName",
+                                      "onBehalf",
+                                      "at",
+                                      "label"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "The latest tick"
+                              },
+                              "history": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "state": {
+                                      "type": "string",
+                                      "enum": [
+                                        "done",
+                                        "not_done",
+                                        "cleared"
+                                      ]
+                                    },
+                                    "done": {
+                                      "type": "boolean"
+                                    },
+                                    "why": {
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "note": {
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "onBehalfWhy": {
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "withheld": {
+                                      "type": "boolean",
+                                      "description": "Has words only its author and those who manage checklists read"
+                                    },
+                                    "by": {
+                                      "type": "string"
+                                    },
+                                    "byName": {
+                                      "type": "string"
+                                    },
+                                    "for": {
+                                      "type": "string"
+                                    },
+                                    "forName": {
+                                      "type": "string"
+                                    },
+                                    "onBehalf": {
+                                      "type": "boolean"
+                                    },
+                                    "at": {
+                                      "type": "string"
+                                    },
+                                    "label": {
+                                      "type": "string",
+                                      "description": "\"Ticked by X\", or \"Ticked by X for Y\""
+                                    }
+                                  },
+                                  "required": [
+                                    "id",
+                                    "state",
+                                    "done",
+                                    "why",
+                                    "note",
+                                    "onBehalfWhy",
+                                    "withheld",
+                                    "by",
+                                    "byName",
+                                    "for",
+                                    "forName",
+                                    "onBehalf",
+                                    "at",
+                                    "label"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "description": "Earlier ticks, the latest 20"
+                              },
+                              "historyTruncated": {
+                                "type": "boolean"
+                              },
+                              "missed": {
+                                "type": "boolean"
+                              }
+                            },
+                            "required": [
+                              "position",
+                              "text",
+                              "required",
+                              "asksNote",
+                              "tick",
+                              "history",
+                              "historyTruncated",
+                              "missed"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "corrections": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "text": {
+                                "type": "string"
+                              },
+                              "by": {
+                                "type": "string"
+                              },
+                              "byName": {
+                                "type": "string"
+                              },
+                              "at": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "text",
+                              "by",
+                              "byName",
+                              "at"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "object",
+                        "record",
+                        "template",
+                        "state",
+                        "account",
+                        "name",
+                        "opens",
+                        "closes",
+                        "tickUntil",
+                        "madeAt",
+                        "closedAt",
+                        "closedBy",
+                        "closedByName",
+                        "closedWhy",
+                        "steps",
+                        "corrections"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "preview": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "text": {
+                            "type": "string"
+                          },
+                          "required": {
+                            "type": "boolean"
+                          },
+                          "asksNote": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "text",
+                          "required",
+                          "asksNote"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "mayDo": {
+                  "type": "boolean",
+                  "description": "You may do it yourself"
+                },
+                "canTick": {
+                  "type": "boolean",
+                  "description": "You may tick it now (yourself, or for someone)"
+                }
+              },
+              "required": [
+                "template",
+                "date",
+                "who",
+                "dueBy",
+                "dueAt",
+                "opens",
+                "closes",
+                "state",
+                "late",
+                "run",
+                "preview",
+                "mayDo",
+                "canTick"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "you": {
+            "type": "string"
+          },
+          "youManage": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "zone",
+          "date",
+          "items",
+          "you",
+          "youManage"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "dailychecks"
+    },
+    {
       "name": "x.deals.stageMetrics",
       "description": "Time in stage and velocity for a deal pipeline, from stage history: for each stage how many deals entered it, how many are in it now, and the average days deals spent in it; and for won deals how many were won, the average days from entering the pipeline to being won, and their total value. Optionally only stage entries since a date. Read-only. (Extension tool from Deals 1.2.0.)",
       "risk": "read",
@@ -78158,6 +80107,12 @@
           "startDate": {
             "type": "string",
             "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "coachId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A staff account (usr_…): the client's coach on it, who with the coach role sees and logs their training"
           }
         },
         "required": [

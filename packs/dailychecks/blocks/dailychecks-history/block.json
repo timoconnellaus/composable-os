@@ -1,0 +1,11 @@
+{
+  "name": "dailychecks-history",
+  "pack": "dailychecks",
+  "skin": "web",
+  "operations": ["x.dailychecks.history", "x.dailychecks.day"],
+  "files": ["history.tsx", "LICENSE"],
+  "dependsOn": ["ui-button"],
+  "packages": {
+    "@composable-os/pack-dailychecks": "*"
+  }
+}

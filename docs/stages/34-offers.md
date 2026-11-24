@@ -65,6 +65,14 @@ module (the till): whichever is built first builds it once, to this design.
   the handler's read; an AI's `order.unadjust` waits for an admin; erase redacts the discount
   calls' audit rows; a whole-order percentage gives each line its own rounded-down share; only a
   person's waiting discount holds the checkout, not an AI's.
+- **Step 2, folding plus addresses** (branch `feat/stage-34-address-folding`, issue #225;
+  migration 0955, ADR 0692, amending 0489 and 0512): `core_person_emails.folded` kept by triggers
+  (the `+tag` dropped on every domain, dots kept), `foldAddress` and `samePeople` in
+  `customers/accounts.ts`; free trials (`subscriptions/trial.ts`) and things sold once per Person
+  (`orders/once.ts`) count every live Person sharing a folded address, and two triggers refuse the
+  second of two holds at once by such People. A pass given by hand stays per Person (a person's
+  override). Left for later steps: per-person codes and the new-customer check (step 4) and
+  referrals (step 9) read `samePeople`; migrations 0956 and 0957 of this step's range are unused.
 
 ## Goal
 

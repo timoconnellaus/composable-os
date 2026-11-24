@@ -21,6 +21,7 @@ import {
   AGREEMENTS_HOOKS_CALL,
   type AgreementsClient,
   createAgreementsHooks,
+  type HookCalls,
 } from "@composable-os/client";
 
 /** A client holding every operation (the `operations` is what the hooks read). */
@@ -66,7 +67,7 @@ const files: Record<string, () => Promise<Record<string, unknown>>> = import.met
 /** A typed client's shape over the browser's own calls (#/lib/staff-client), holding every
  * operation a pack's hooks call (`calls`, the pack's `*_HOOKS_CALL`): this page shows every block
  * (ADR 0453). */
-function browserClient<C>(calls: Record<string, readonly string[]>): C {
+function browserClient<C>(calls: Readonly<Record<string, HookCalls>>): C {
   return staffClient<C>(calls, "blocks");
 }
 
@@ -112,7 +113,7 @@ function usePackHooks(pack: string): AnyHooks {
       const make = createHooks as (react: unknown, client: unknown) => AnyHooks;
       setHooks({
         pack,
-        hooks: make(react, browserClient(calls as Record<string, readonly string[]>)),
+        hooks: make(react, browserClient(calls as Record<string, HookCalls>)),
       });
     });
     return () => {

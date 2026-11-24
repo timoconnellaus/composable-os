@@ -1,0 +1,11 @@
+{
+  "name": "programs-native-history",
+  "pack": "programs",
+  "skin": "native",
+  "operations": ["my.list", "record.list", "x.programs.sessionGet", "x.programs.logUpdate"],
+  "files": ["history-screen.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/pack-programs": "*"
+  }
+}

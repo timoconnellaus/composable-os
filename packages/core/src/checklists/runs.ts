@@ -24,6 +24,17 @@ import { loadGeneralSettings } from "../settings.ts";
 import { whenOf } from "../staffing/offers.ts";
 import { queueNotice, rosterers, shiftLink } from "../staffing/rosterers.ts";
 import {
+  checklistManagers,
+  DAY_OBJECT,
+  dayRunsEnded,
+  dayRunsNeeded,
+  dayWorkDue,
+  makeDayRunsStatements,
+  newDayRunValues,
+  parseDayRecord,
+  scheduledTemplates,
+} from "./days.ts";
+import {
   type Declared,
   declaredObjects,
   GRACE_SECONDS,
@@ -59,6 +70,10 @@ export type RunRow = {
   closed_by: string | null;
   closed_why: string | null;
   missed_steps: string | null;
+  /** A day run's (ADR 0651): who may do it, and when it is due by; null on a record's run. */
+  doers_kind?: "staff" | "role" | "grant" | null;
+  doers_value?: string | null;
+  due_at?: number | null;
 };
 
 export type TickState = "done" | "not_done" | "cleared";
@@ -207,7 +222,8 @@ export async function runViews(
       name: r.account_id ? nameOf(r.account_id) : null,
       opens: iso(r.opens),
       closes: iso(r.closes),
-      tickUntil: iso(r.closes + GRACE_SECONDS),
+      // A day run has no grace: it is ticked until its day ends (ADR 0651).
+      tickUntil: iso(r.object_type === DAY_OBJECT ? r.closes : r.closes + GRACE_SECONDS),
       madeAt: r.made_at,
       closedAt: r.closed_at,
       closedBy: r.closed_by,
@@ -425,7 +441,9 @@ export async function checklistWorkDue(
     if (step === "close" && (await staleRuns(db, d, now, 1)).length) return true;
     if (step === "make" && (await needingRuns(db, d, now, 1)).length) return true;
   }
-  return false;
+  // Checklists on their own (ADR 0651): today's runs to make, past days' to close.
+  const { timezone } = await loadGeneralSettings(db);
+  return dayWorkDue(db, nowIso, timezone, step);
 }
 
 /**
@@ -434,7 +452,7 @@ export async function checklistWorkDue(
  * person as it closes, and `closers` who closed it (a cancel by someone who rosters). A missed run
  * keeps the positions of the required steps whose latest tick is none or a clear.
  */
-function closeStatements(
+export function closeStatements(
   ids: readonly string[],
   state: "missed" | "cancelled",
   people: Record<string, string | null>,
@@ -572,7 +590,80 @@ export async function checklistDue(
     }
   }
   if (missedRuns.length) await tellMissed(ctx, missedRuns);
-  return { made, missed: missedRuns.length, cancelled: cancelledRuns, moved };
+  const days = await checklistDaysDue(ctx, step);
+  return {
+    made: made + days.made,
+    missed: missedRuns.length + days.missed,
+    cancelled: cancelledRuns,
+    moved,
+  };
+}
+
+/**
+ * Checklists on their own (ADR 0651), in the same batch: `make` makes today's run of each
+ * scheduled checklist due today (in the business's zone) that has none; `close` closes every open
+ * day run whose day has ended as missed (the required steps nobody ticked kept), and tells the
+ * people who manage checklists in one notice.
+ */
+async function checklistDaysDue(
+  ctx: HandlerContext,
+  step: DueStep,
+): Promise<{ made: number; missed: number }> {
+  const { timezone } = await loadGeneralSettings(ctx.db);
+  if (step === "make") {
+    const { date, ids } = await dayRunsNeeded(ctx.db, ctx.now, timezone);
+    // At most 200 a minute, as for a shift's (the next minute makes the rest).
+    const scheduled = await scheduledTemplates(ctx.db, ids.slice(0, PER_TICK));
+    const runs = [...scheduled.values()].map((s) =>
+      newDayRunValues(newId("checklistRun"), s, date, timezone, ctx.now),
+    );
+    if (runs.length) ctx.write(...makeDayRunsStatements(runs));
+    return { made: runs.length, missed: 0 };
+  }
+  const ended = (await dayRunsEnded(ctx.db, Math.floor(Date.parse(ctx.now) / 1000))) as RunRow[];
+  if (!ended.length) return { made: 0, missed: 0 };
+  const nobody = Object.fromEntries(ended.map((r) => [r.id, null]));
+  ctx.write(...closeStatements(Object.keys(nobody), "missed", nobody, nobody, ctx.now));
+  await tellDaysMissed(ctx, ended);
+  return { made: 0, missed: ended.length };
+}
+
+/**
+ * The people who manage checklists hear of the days missed this minute, in one notice: each
+ * checklist, its day and the required steps nobody ticked. Never a note.
+ */
+async function tellDaysMissed(ctx: HandlerContext, runs: readonly RunRow[]): Promise<void> {
+  const shown = runs.slice(0, NOTICE_LINES);
+  const latest = await latestTicks(
+    ctx.db,
+    shown.map((r) => r.id),
+  );
+  const lines = shown.map((r) => {
+    const byStep = latest.get(r.id);
+    const left = stepsOf(r.steps).filter((s, i) => s.required && !ticked(byStep?.get(i)));
+    const date = parseDayRecord(r.record_id)?.date ?? "";
+    const steps =
+      left.length > 10
+        ? `${left
+            .slice(0, 10)
+            .map((s) => s.text)
+            .join("; ")}; and ${left.length - 10} more`
+        : left.map((s) => s.text).join("; ");
+    return `${r.name} on ${date} was not finished. Not done: ${steps || "it was not marked done"}`;
+  });
+  if (runs.length > shown.length) lines.push(`and ${runs.length - shown.length} more`);
+  const first = runs[0] as RunRow;
+  await queueNotice(ctx, {
+    to: await checklistManagers(ctx.db),
+    title:
+      runs.length === 1
+        ? `A checklist was missed: ${first.name}, ${parseDayRecord(first.record_id)?.date ?? ""}`
+        : `${runs.length} checklists were missed`,
+    body: lines.join("\n"),
+    // How a checklist went is a person's to read: no AI acting for a manager lists it.
+    humanOnly: true,
+    dedupeKey: `checklist.missed.${first.id}`,
+  });
 }
 
 /** The most missed runs one notice names. */
