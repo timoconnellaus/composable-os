@@ -217,24 +217,42 @@ CREATE UNIQUE INDEX core_journey_entry_live_idx ON core_journey_entry (journey_i
 -- The tick: due entries by state and time, in batches.
 CREATE INDEX core_journey_entry_due_idx ON core_journey_entry (state, next_at);
 CREATE INDEX core_journey_entry_person_idx ON core_journey_entry (person_id, journey_id);
+-- A journey's entries by state, newest first: its counts and its list of entries, finished and
+-- stopped ones included, without reading every entry ever made.
+CREATE INDEX core_journey_entry_journey_idx ON core_journey_entry (journey_id, state, entered_at);
 
--- An entry is made only on a live journey, on that journey's own version.
+-- An entry is made only on a live journey, on that journey's own version, and never over an
+-- existing id: D1 runs with recursive triggers off, so the row an INSERT OR REPLACE deletes fires
+-- no trigger, and a REPLACE could otherwise bring back a stopped entry with another standing.
 CREATE TRIGGER core_journey_entry_new
 BEFORE INSERT ON core_journey_entry
 BEGIN
-  SELECT RAISE(ABORT, 'core_journey_not_live')
-  WHERE NOT EXISTS (
-    SELECT 1 FROM core_journey j JOIN core_journey_version v ON v.journey_id = j.id
-    WHERE j.id = NEW.journey_id AND v.id = NEW.version_id AND j.status = 'live'
-  ) OR NEW.state IN ('finished', 'stopped');
+  SELECT CASE
+    WHEN EXISTS (SELECT 1 FROM core_journey_entry e WHERE e.id = NEW.id)
+      THEN RAISE(ABORT, 'core_journey_entry_fixed')
+    WHEN NEW.state IN ('finished', 'stopped') OR NOT EXISTS (
+      SELECT 1 FROM core_journey j JOIN core_journey_version v ON v.journey_id = j.id
+      WHERE j.id = NEW.journey_id AND v.id = NEW.version_id AND j.status = 'live'
+    )
+      THEN RAISE(ABORT, 'core_journey_not_live')
+  END;
 END;
 
--- An entry stays on its journey and Person; a finished or stopped one stays so.
+-- An entry stays on its journey and Person, keeps how and why it entered, and moves only to a
+-- newer version of its own journey (a publish that moves entries); a finished or stopped one
+-- stays so.
 CREATE TRIGGER core_journey_entry_fixed
 BEFORE UPDATE ON core_journey_entry
 WHEN NEW.id IS NOT OLD.id OR NEW.journey_id IS NOT OLD.journey_id
-  OR NEW.entered_at IS NOT OLD.entered_at OR NEW.entered_by IS NOT OLD.entered_by
-  OR NEW.cause_standing IS NOT OLD.cause_standing OR OLD.state IN ('finished', 'stopped')
+  OR NEW.person_id IS NOT OLD.person_id OR NEW.entered_at IS NOT OLD.entered_at
+  OR NEW.entered_by IS NOT OLD.entered_by OR NEW.entered_by_user IS NOT OLD.entered_by_user
+  OR NEW.cause_standing IS NOT OLD.cause_standing OR NEW.cause_record IS NOT OLD.cause_record
+  OR OLD.state IN ('finished', 'stopped')
+  OR (NEW.version_id IS NOT OLD.version_id AND NOT EXISTS (
+    SELECT 1 FROM core_journey_version v
+    WHERE v.id = NEW.version_id AND v.journey_id = OLD.journey_id
+      AND v.number > (SELECT o.number FROM core_journey_version o WHERE o.id = OLD.version_id)
+  ))
 BEGIN
   SELECT RAISE(ABORT, 'core_journey_entry_fixed');
 END;
@@ -254,9 +272,17 @@ CREATE TABLE core_journey_step_log (
 );
 CREATE INDEX core_journey_step_log_entry_idx ON core_journey_step_log (entry_id, at);
 
--- The log is added to, never rewritten (erase deletes it).
+-- The log is added to, never rewritten (erase deletes it): no update, and no insert over an
+-- existing id (a REPLACE is an insert).
 CREATE TRIGGER core_journey_step_log_no_update
 BEFORE UPDATE ON core_journey_step_log
+BEGIN
+  SELECT RAISE(ABORT, 'core_journey_step_log_fixed');
+END;
+
+CREATE TRIGGER core_journey_step_log_new
+BEFORE INSERT ON core_journey_step_log
+WHEN EXISTS (SELECT 1 FROM core_journey_step_log l WHERE l.id = NEW.id)
 BEGIN
   SELECT RAISE(ABORT, 'core_journey_step_log_fixed');
 END;

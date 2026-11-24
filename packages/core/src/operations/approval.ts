@@ -1022,6 +1022,24 @@ async function approveActions(
       );
     }
   }
+  // An AI's manual journey entry (ADR 0800): the entry counts as a person's (its messages are
+  // not held for the AI's cause) only because a person approved it, so the approver must be one
+  // who could have added those people themselves.
+  const journeyEnter = targets.find((t) => t.operation === "journey.enter");
+  if (journeyEnter) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError("People are added to a journey by a person, never by an AI actor", {
+        actionId: journeyEnter.id,
+        actor: ctx.actor,
+      });
+    }
+    if (!holdsPermission(ctx.user, ctx.permissionGrants, "journeys:manage")) {
+      throw new ForbiddenError(
+        "Approving people added to a journey needs the journeys permission (journeys:manage)",
+        { actionId: journeyEnter.id, permission: "journeys:manage" },
+      );
+    }
+  }
   // A roster change (stage 45, ADRs 0625 and 0626): a restricted tool's call is approved only by
   // someone who holds the tool, and a write of who works a shift only by someone who rosters.
   await assertRosterApprover(ctx, ctx.db, targets);

@@ -34,7 +34,11 @@ Built:
   `journeys:publish` approves, never the adjudicator), `goLive`, `pause`, `resume`, `enter`, `stop`,
   `entries`, `log`, `settings` and `settings.update`; the permissions `journeys:read`,
   `journeys:manage` and `journeys:publish`; the four starter journeys seeded as drafts with no
-  reply-to. Nothing sends. Not in this step: signals are checked for their form only (step 2
+  reply-to. Nothing sends. After the review: a publish request shows its approver every message's
+  words; archiving and changing the owner are a person's; an AI's entry is approved only with
+  `journeys:manage`; the Trash's purge erases entries; entry and log rows are fixed for every
+  statement shape; settings saves change only what they name; a manual entry leaves out an erased
+  address; `journey.list` pages. Not in this step: signals are checked for their form only (step 2
   declares them); going live does not yet count who already qualifies (the scan, step 4); an
   organisation reply-to address confirmed by a code (it needs a send, step 4); merge moving entries
   (step 4's exits, with step 7's merge rules); a plan's or class type's name as a slot (with step

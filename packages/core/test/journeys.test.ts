@@ -19,6 +19,7 @@ import {
   PendingApprovalError,
 } from "../src/index.ts";
 import { journeyProblems, parseDefinition } from "../src/journeys/index.ts";
+import { erasedAddressHash } from "../src/records/erase-subject.ts";
 import { context, createUser, db, setPreset, unique } from "./helpers.ts";
 
 let admin: ActingUser;
@@ -294,7 +295,7 @@ describe("the reply-to (criterion 17)", () => {
     expect(
       (await refusal(invoke("journey.settings.update", { sendOnOwn: true }, context(member)))).code,
     ).toBe("forbidden");
-    const settings = await invoke("journey.settings", {}, context(member));
+    const settings = await invoke("journey.settings", {}, context(admin));
     expect(settings).toMatchObject({ sendOnOwn: false, weekCap: 3, dayCap: 1 });
     expect(settings.replyTo.map((r) => r.address)).toEqual([admin.email.toLowerCase()]);
   });
@@ -581,6 +582,231 @@ describe("entries", () => {
       .bind(someone, entered[0]?.entryId ?? "")
       .first<{ entries: number; log: number }>();
     expect(left).toEqual({ entries: 0, log: 0 });
+  });
+});
+
+describe("the review of PR #378", () => {
+  it("lists more journeys than D1 binds variables, a page at a time (finding 1)", async () => {
+    for (let i = 0; i < 110; i += 10) {
+      await Promise.all(
+        Array.from({ length: 10 }, () =>
+          invoke("journey.create", { name: unique("Many"), kind: "service" }, context(admin)),
+        ),
+      );
+    }
+    const seen = new Set<string>();
+    let cursor: string | undefined;
+    let pages = 0;
+    do {
+      const page = await invoke(
+        "journey.list",
+        { archived: true, ...(cursor ? { cursor } : {}) },
+        context(member),
+      );
+      for (const item of page.items) seen.add(item.id);
+      cursor = page.nextCursor ?? undefined;
+      pages += 1;
+    } while (cursor && pages < 20);
+    expect(pages).toBeGreaterThan(1);
+    const total = await env.DB.prepare("SELECT COUNT(*) AS n FROM core_journey").first<{
+      n: number;
+    }>();
+    expect(seen.size).toBe(total?.n);
+  });
+
+  it("an AI never archives a journey, a starter included (finding 2)", async () => {
+    const id = await liveJourney();
+    for (const target of [id, "jny_starter_welcome"]) {
+      expect((await refusal(invoke("journey.archive", { id: target }, assistant()))).code).toBe(
+        "forbidden",
+      );
+    }
+    const starter = await invoke("journey.get", { id: "jny_starter_welcome" }, context(admin));
+    expect(starter.status).toBe("draft");
+  });
+
+  it("purging a Person from the Trash removes their entries and step log (finding 3)", async () => {
+    const id = await liveJourney();
+    const someone = await createPerson("Purged");
+    const { entered } = await invoke("journey.enter", { id, personIds: [someone] }, context(admin));
+    await invoke("person.delete", { id: someone }, context(admin));
+    await env.DB.prepare(
+      "UPDATE core_person SET deleted_at = '2000-01-01T00:00:00.000Z' WHERE id = ?",
+    )
+      .bind(someone)
+      .run();
+    await invoke(
+      "trash.purge",
+      { limit: 50 },
+      {
+        ...context(admin),
+        actor: "automation",
+        origin: { surface: "system", automationId: "trash.purge" },
+      },
+    );
+    const left = await env.DB.prepare(
+      `SELECT (SELECT COUNT(*) FROM core_person WHERE id = ?1) AS person,
+        (SELECT COUNT(*) FROM core_journey_entry WHERE person_id = ?1) AS entries,
+        (SELECT COUNT(*) FROM core_journey_step_log WHERE entry_id = ?2) AS log`,
+    )
+      .bind(someone, entered[0]?.entryId ?? "")
+      .first<{ person: number; entries: number; log: number }>();
+    expect(left).toEqual({ person: 0, entries: 0, log: 0 });
+  });
+
+  it("an AI's entry is approved only by someone who may add people (finding 4)", async () => {
+    const id = await liveJourney();
+    await setPreset("cautious");
+    const someone = await createPerson("Approved");
+    const asked = await queued(invoke("journey.enter", { id, personIds: [someone] }, assistant()));
+    expect(
+      (await refusal(invoke("approval.approve", { actionIds: [asked.actionId] }, context(member))))
+        .code,
+    ).toBe("forbidden");
+    await invoke("approval.approve", { actionIds: [asked.actionId] }, context(publisher));
+    await setPreset("balanced");
+    const { items } = await invoke("journey.entries", { personId: someone }, context(admin));
+    expect(items[0]?.causeStanding).toBe("person");
+  });
+
+  it("an AI's publish request shows its approver every message's words (finding 5)", async () => {
+    await setPreset("autonomous");
+    const { id } = await invoke(
+      "journey.create",
+      { name: unique("Words"), kind: "service", definition: welcome(admin.email) },
+      assistant(),
+    );
+    const preview = await invoke("journey.preview", { id }, assistant());
+    const asked = await queued(
+      invoke(
+        "journey.publish",
+        {
+          id,
+          draftHash: preview.draftHash as string,
+          draftRev: preview.draftRev as number,
+          number: 1,
+        },
+        assistant(),
+      ),
+    );
+    await setPreset("balanced");
+    const row = await env.DB.prepare("SELECT preview FROM core_pending_action WHERE id = ?")
+      .bind(asked.actionId)
+      .first<{ preview: string }>();
+    const shown = JSON.parse(row?.preview ?? "[]") as {
+      object: string;
+      diff: Record<string, { after: unknown }>;
+    }[];
+    const diff = shown.find((p) => p.object === "journey")?.diff ?? {};
+    expect(diff.version?.after).toBe(1);
+    expect(diff.draftedBy?.after).toBe("assistant");
+    expect(String(diff.summary?.after)).toMatch(/Starts when a Person gets memberships.started/);
+    expect(String(diff["message 1 (day0)"]?.after)).toContain("Subject: Welcome to {business}");
+    expect(String(diff["message 3 (day10)"]?.after)).toContain("keep going");
+  });
+
+  it("an entry cannot be brought back or moved by raw SQL, nor a log row rewritten (finding 6)", async () => {
+    const id = await liveJourney();
+    const one = await createPerson("Fixed");
+    const other = await createPerson("Other");
+    const { entered } = await invoke("journey.enter", { id, personIds: [one] }, context(admin));
+    const entryId = entered[0]?.entryId ?? "";
+    await expect(
+      env.DB.prepare("UPDATE core_journey_entry SET person_id = ? WHERE id = ?")
+        .bind(other, entryId)
+        .run(),
+    ).rejects.toThrow(/core_journey_entry_fixed/);
+    await invoke("journey.stop", { entryId }, context(admin));
+    const row = await env.DB.prepare("SELECT * FROM core_journey_entry WHERE id = ?")
+      .bind(entryId)
+      .first<Record<string, unknown>>();
+    await expect(
+      env.DB.prepare(
+        `INSERT OR REPLACE INTO core_journey_entry (id, journey_id, version_id, person_id, state,
+          step, entered_at, entered_by, cause_standing) VALUES (?, ?, ?, ?, 'active', ?, ?, 'person', 'person')`,
+      )
+        .bind(entryId, id, row?.version_id, one, row?.step, row?.entered_at)
+        .run(),
+    ).rejects.toThrow(/core_journey_entry_fixed/);
+    const log = await env.DB.prepare("SELECT * FROM core_journey_step_log WHERE entry_id = ?")
+      .bind(entryId)
+      .first<Record<string, unknown>>();
+    await expect(
+      env.DB.prepare(
+        "INSERT OR REPLACE INTO core_journey_step_log (id, entry_id, step, at, what) VALUES (?, ?, ?, ?, 'sent')",
+      )
+        .bind(log?.id, entryId, log?.step, log?.at)
+        .run(),
+    ).rejects.toThrow(/core_journey_step_log_fixed/);
+  });
+
+  it("a save of the settings changes only what it names (finding 7)", async () => {
+    await invoke("journey.settings.update", { sendOnOwn: true, weekCap: 3 }, context(admin));
+    // Two admins save at once, each having read the settings first: one turns sending on their
+    // own off, the other changes the weekly cap. Neither puts back what the other changed.
+    const other = await createUser("admin");
+    await Promise.all([
+      invoke("journey.settings.update", { sendOnOwn: false }, context(admin)),
+      invoke("journey.settings.update", { weekCap: 2 }, context(other)),
+    ]);
+    const settings = await invoke("journey.settings", {}, context(admin));
+    expect(settings).toMatchObject({ sendOnOwn: false, weekCap: 2 });
+    await invoke("journey.settings.update", { weekCap: 3 }, context(admin));
+    // Staff addresses are shown to those who write journeys, not to every member.
+    expect((await refusal(invoke("journey.settings", {}, context(member)))).code).toBe("forbidden");
+  });
+
+  it("the preview names a guardian only through a guardian link (finding 8)", async () => {
+    const id = await draftJourney("service", {
+      steps: [
+        {
+          id: "a",
+          type: "send",
+          channel: "email",
+          subject: "Hello {firstName}",
+          body: "About {member}. {unsubscribe}",
+          guardian: {
+            subject: "About {member}",
+            body: "Hi {firstName}, about {member}. {unsubscribe}",
+          },
+        },
+        { id: "end", type: "end" },
+      ],
+    });
+    const child = await createPerson("Kid");
+    const parent = await createPerson("Parent");
+    const before = await invoke("journey.preview", { id, personId: child }, context(member));
+    expect(before.messages[0]?.guardian?.body).toContain("Hi Sam, about Kid.");
+    await invoke("person.link.add", { guardianId: parent, dependantId: child }, context(admin));
+    const after = await invoke("journey.preview", { id, personId: child }, context(member));
+    expect(after.messages[0]?.guardian?.body).toContain("Hi Parent, about Kid.");
+  });
+
+  it("leaves out a Person whose address is on the erased list (finding 9)", async () => {
+    const id = await liveJourney();
+    const email = `${unique("erased")}@example.com`;
+    const { id: person } = (await invoke(
+      "person.create",
+      { givenName: "Again", emails: [{ email }] },
+      context(admin),
+    )) as { id: string };
+    await env.DB.prepare(
+      "INSERT INTO core_erased_address (hash, object_type, erased_at) VALUES (?, 'person', ?)",
+    )
+      .bind(await erasedAddressHash(email), new Date().toISOString())
+      .run();
+    const out = await invoke("journey.enter", { id, personIds: [person] }, context(admin));
+    expect(out.excluded).toEqual([{ personId: person, why: "erased_address" }]);
+  });
+
+  it("only a person changes a journey's owner (finding 9)", async () => {
+    const id = await draftJourney();
+    expect(
+      (await refusal(invoke("journey.update", { id, ownerId: member.id }, assistant()))).code,
+    ).toBe("forbidden");
+    await invoke("journey.update", { id, ownerId: member.id }, context(admin));
+    // Unchanged, it is not a change of owner.
+    await invoke("journey.update", { id, ownerId: member.id, name: unique("N") }, assistant());
   });
 });
 

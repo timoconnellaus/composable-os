@@ -19,9 +19,11 @@
 //   journey.settings, settings.update          read: journeys:read; update: a human admin, not on MCP
 //
 // Staff audience only: nothing here is open to customers or the public.
+import { sql } from "kysely";
 import { z } from "zod";
 import { ADJUDICATOR_PRINCIPAL } from "../adjudicator/review.ts";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
+import { getObject } from "../fields/index.ts";
 import { newId } from "../ids.ts";
 import {
   allowedReplyTo,
@@ -47,12 +49,16 @@ import {
   renderJourney,
   type SampleValues,
 } from "../journeys/index.ts";
-import { recordTitle } from "../notifications/routes.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { holdsPermission } from "../principals.ts";
+import { jsonList } from "../records/common.ts";
 import { ALWAYS_REVIEWED_PUBLISHERS } from "../records/publish.ts";
 import { loadRoutineMailSettings } from "../routine-mail/index.ts";
 import { loadGeneralSettings } from "../settings.ts";
+import { GUARDIAN_LINK } from "../visibility/guardians.ts";
+
+/** Journeys a page of journey.list holds. */
+const LIST_PAGE = 100;
 
 const journeyId = z.string().min(1).max(64).describe("The journey's id (jny_…)");
 
@@ -187,7 +193,8 @@ async function countsOf(
   const rows = await ctx.db
     .selectFrom("core_journey_entry")
     .select(["journey_id", "state", (eb) => eb.fn.countAll<number>().as("n")])
-    .where("journey_id", "in", ids)
+    // One bound JSON value whatever the number of journeys (D1: 100 bound variables a statement).
+    .where("journey_id", "in", jsonList(ids))
     .groupBy(["journey_id", "state"])
     .execute();
   for (const row of rows) {
@@ -330,42 +337,60 @@ export const journeyList = defineOperation({
     "welcome series, a nudge when someone stops coming): each with its kind (service or " +
     "promotional), status (draft, live, paused, archived), newest published version, whether the " +
     "working copy has unpublished changes, and how many entries are active, waiting, held, " +
-    "finished and stopped. The four starter journeys are seeded as drafts. Read-only.",
-  input: z.object({ archived: z.boolean().default(false).describe("Include archived journeys") }),
-  output: z.object({ items: z.array(journeySummarySchema) }),
+    "finished and stopped. The four starter journeys are seeded as drafts. 100 a page (nextCursor). Read-only.",
+  input: z.object({
+    archived: z.boolean().default(false).describe("Include archived journeys"),
+    cursor: z.string().max(200).optional().describe("The previous page's nextCursor"),
+  }),
+  output: z.object({
+    items: z.array(journeySummarySchema),
+    nextCursor: z.string().nullable().describe("Pass it back for the next page; null: no more"),
+  }),
   permission: "journeys:read",
   risk: "read",
   mcp: { idempotent: true },
   async handler(input, ctx) {
-    let query = ctx.db.selectFrom("core_journey").selectAll();
-    if (!input.archived) query = query.where("status", "!=", "archived");
-    const rows = (await query
-      .orderBy("created_at")
-      .orderBy("id")
-      .limit(200)
-      .execute()) as JourneyRow[];
-    const ids = rows.map((r) => r.id);
-    const versionIds = rows.flatMap((r) => (r.current_version_id ? [r.current_version_id] : []));
-    const versions = versionIds.length
-      ? await ctx.db
-          .selectFrom("core_journey_version")
-          .select(["id", "number", "hash"])
-          .where("id", "in", versionIds)
-          .execute()
-      : [];
-    const byId = new Map(versions.map((v) => [v.id, v]));
-    const counts = await countsOf(ctx, ids);
+    let query = ctx.db
+      .selectFrom("core_journey as j")
+      .leftJoin("core_journey_version as v", "v.id", "j.current_version_id")
+      .selectAll("j")
+      .select(["v.number as current_number", "v.hash as current_hash"]);
+    if (!input.archived) query = query.where("j.status", "!=", "archived");
+    const after = input.cursor ? input.cursor.split("|") : null;
+    if (after?.length === 2) {
+      const [at, id] = after as [string, string];
+      query = query.where((eb) =>
+        eb.or([
+          eb("j.created_at", ">", at),
+          eb.and([eb("j.created_at", "=", at), eb("j.id", ">", id)]),
+        ]),
+      );
+    }
+    const page = await query
+      .orderBy("j.created_at")
+      .orderBy("j.id")
+      .limit(LIST_PAGE + 1)
+      .execute();
+    const rows = page.slice(0, LIST_PAGE);
+    const counts = await countsOf(
+      ctx,
+      rows.map((r) => r.id),
+    );
+    const last = rows.at(-1);
     return {
       items: await Promise.all(
         rows.map(async (row) =>
           summarise(
-            row,
-            row.current_version_id ? (byId.get(row.current_version_id) ?? null) : null,
+            row as JourneyRow,
+            row.current_version_id && row.current_number !== null && row.current_hash !== null
+              ? { id: row.current_version_id, number: row.current_number, hash: row.current_hash }
+              : null,
             await journeyHash(row.kind, row.draft),
             counts.get(row.id),
           ),
         ),
       ),
+      nextCursor: page.length > LIST_PAGE && last ? `${last.created_at}|${last.id}` : null,
     };
   },
 });
@@ -493,7 +518,8 @@ export const journeyCreate = defineOperation({
 export const journeyUpdate = defineOperation({
   name: "journey.update",
   description:
-    "Change a journey: its name, its owner (who gets tasks assigned to the owner), or its working " +
+    "Change a journey: its name, its owner (who gets tasks assigned to the owner; a person only), " +
+    "or its working " +
     "copy, given whole: entry rule, conditions, exits, re-entry rule, includeBulk, the reply-to " +
     "(an address a human admin allowed) and the steps (send, wait, branch, task, end) with their " +
     "words. It changes no published version and sends nothing: a person publishes. draftRev, " +
@@ -514,7 +540,14 @@ export const journeyUpdate = defineOperation({
     const row = await loadJourney(ctx, input.id);
     refuseArchived(row);
     if (input.draftRev !== undefined && input.draftRev !== row.draft_rev) throw draftChanged();
-    if (input.ownerId !== undefined) await refuseOwner(ctx, input.ownerId);
+    if (input.ownerId !== undefined && input.ownerId !== row.owner_id) {
+      // The owner gets the "owner" task steps of every published version, which no publish
+      // covers: who they go to is a person's choice, never an AI's.
+      if (ctx.actor !== "human") {
+        throw new ForbiddenError("A person chooses a journey's owner", { rule: "journey_owner" });
+      }
+      await refuseOwner(ctx, input.ownerId);
+    }
     const set: Record<string, unknown> = {};
     if (input.name !== undefined) set.name = input.name;
     if (input.ownerId !== undefined) set.owner_id = input.ownerId;
@@ -545,12 +578,18 @@ export const journeyArchive = defineOperation({
   name: "journey.archive",
   description:
     "Archive a journey: it stops for good, every entry on it is stopped, and it no longer " +
-    "changes. Its versions and log are kept. Sends nothing.",
+    "changes; it cannot be undone. Its versions and log are kept. Sends nothing. A person only: " +
+    "an AI may pause a journey, never archive one. Needs journeys:manage. Audited.",
   input: z.object({ id: journeyId }),
   output: z.object({ id: z.string(), stopped: z.number().describe("Entries stopped") }),
   permission: "journeys:manage",
   risk: "write",
+  // It cannot be undone (the triggers refuse every change of an archived journey, and journeys
+  // are never deleted), and the spec lets an AI pause, not end, a journey.
+  actors: ["human"],
+  mcp: { expose: false },
   async handler(input, ctx) {
+    if (ctx.actor !== "human") throw new ForbiddenError("Only a person archives a journey");
     const row = await loadJourney(ctx, input.id);
     refuseArchived(row);
     const live = await ctx.db
@@ -656,22 +695,32 @@ export const journeyPreview = defineOperation({
       person = { id: input.personId, name: text(read.values.displayName) ?? input.personId };
       member.firstName = text(read.values.givenName);
       guardian.member = member.firstName;
-      // The guardian's version is shown for the first live guardian, where there is one.
-      const g = await ctx.db
-        .selectFrom("core_person_link as l")
-        .innerJoin("core_person as g", "g.id", "l.guardian_id")
-        .select("g.given_name")
-        .where("l.dependant_id", "=", person.id)
-        .where("l.ended_at", "is", null)
-        .where("g.deleted_at", "is", null)
-        .orderBy("l.created_at")
+      // The guardian's version is shown for the first live guardian, where there is one: the
+      // link is a part of the Person read above; the guardian is read through the seam too.
+      const link = await ctx.db
+        .selectFrom("core_person_link")
+        .select("guardian_id")
+        .where("dependant_id", "=", person.id)
+        .where("kind", "=", GUARDIAN_LINK)
+        .where("ended_at", "is", null)
+        .orderBy("created_at")
         .executeTakeFirst();
-      if (g) guardian.firstName = g.given_name;
+      const g = link ? await ctx.records.get("person", link.guardian_id).catch(() => null) : null;
+      if (g) guardian.firstName = text(g.values.givenName);
     }
     if (input.record) {
-      const title = await recordTitle(ctx.db, input.record);
-      member.record = title;
-      guardian.record = title;
+      // The sample record as this caller may read it, by its object's title field.
+      const object = getObject(input.record.object);
+      const read = object
+        ? await ctx.records.get(object.name, input.record.id).catch(() => null)
+        : null;
+      const title = read
+        ? ([object?.titleField, "displayName", "name", "title", "subject"]
+            .map((f) => (f ? read.values[f] : undefined))
+            .find((v) => typeof v === "string" && v.trim()) as string | undefined)
+        : undefined;
+      member.record = title?.trim().slice(0, 200) ?? null;
+      guardian.record = member.record;
     } else {
       member.record = "(the record that started it)";
       guardian.record = member.record;
@@ -689,6 +738,53 @@ export const journeyPreview = defineOperation({
     };
   },
 });
+
+/** The words of each message, keyed by step, as a reviewer reads them. */
+function messagesOf(definition: JourneyDefinition | null): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const step of definition?.steps ?? []) {
+    if (step.type !== "send") continue;
+    out.set(
+      step.id,
+      [
+        `Subject: ${step.subject}`,
+        step.body,
+        ...(step.guardian
+          ? ["", `To a child's guardians: ${step.guardian.subject}`, step.guardian.body]
+          : []),
+      ].join("\n"),
+    );
+  }
+  return out;
+}
+
+/**
+ * A publish's diff: the version it makes, who drafted it, the plain-words summary, and every
+ * message's exact words (slots and all) against the newest version's. An AI's request is
+ * approved on this, in the Approvals inbox (ADR 0800).
+ */
+function publishDiffOf(
+  latest: VersionRow | null,
+  version: VersionRow,
+  definition: JourneyDefinition,
+): Record<string, { before: unknown; after: unknown }> {
+  const before = messagesOf(latest ? parseDefinition(latest.definition) : null);
+  const after = messagesOf(definition);
+  const diff: Record<string, { before: unknown; after: unknown }> = {
+    version: { before: latest?.number ?? null, after: version.number },
+    draftedBy: { before: latest?.drafted_by ?? null, after: version.drafted_by },
+    summary: { before: latest?.summary ?? null, after: version.summary },
+  };
+  let n = 0;
+  for (const [step, words] of after) {
+    n += 1;
+    diff[`message ${n} (${step})`] = { before: before.get(step) ?? null, after: words };
+  }
+  for (const [step, words] of before) {
+    if (!after.has(step)) diff[`removed message (${step})`] = { before: words, after: null };
+  }
+  return diff;
+}
 
 export const journeyPublish = defineOperation({
   name: "journey.publish",
@@ -776,6 +872,14 @@ export const journeyPublish = defineOperation({
         .set({ draft_rev: input.draftRev + 1, draft_ai: 0, current_version_id: version.id })
         .where("id", "=", row.id),
     );
+    // What the approver of an AI's request sees (its preview is this change), and what the audit
+    // keeps: every message's exact words beside the newest version's, and the summary.
+    ctx.recordChange({
+      object: "journey",
+      id: row.id,
+      action: "update",
+      diff: publishDiffOf(latest ?? null, version, definition),
+    });
     let moved = 0;
     if (input.moveEntries && row.current_version_id) {
       const steps = definition.steps.map((s) => s.id);
@@ -1185,10 +1289,10 @@ export const journeySettings = defineOperation({
   description:
     "Journeys' settings: whether journeys send on their own (off until a human admin turns it " +
     "on), the cap per Person (at most 3 a week and 1 a day), and the addresses a journey's " +
-    "replies may go to. Read-only.",
+    "replies may go to (staff accounts' addresses: for those who write journeys). Read-only.",
   input: z.object({}),
   output: settingsOutput,
-  permission: "journeys:read",
+  permission: "journeys:manage",
   risk: "read",
   mcp: { idempotent: true },
   async handler(_input, ctx) {
@@ -1239,26 +1343,45 @@ export const journeySettingsUpdate = defineOperation({
       sendOnOwn: input.sendOnOwn ?? settings.sendOnOwn,
       weekCap: input.weekCap ?? settings.weekCap,
       replyTo,
-      updatedAt: ctx.now,
-      updatedBy: ctx.user.id,
     };
+    // Only the keys given change, in one statement over the stored value: two admins' saves never
+    // put back what the other changed (a stale read of "send on their own" included).
+    const changes: [string, unknown][] = [
+      ...(input.sendOnOwn !== undefined
+        ? [["$.sendOnOwn", input.sendOnOwn] as [string, unknown]]
+        : []),
+      ...(input.weekCap !== undefined ? [["$.weekCap", input.weekCap] as [string, unknown]] : []),
+      ...(input.replyToUserIds !== undefined ? [["$.replyTo", replyTo] as [string, unknown]] : []),
+      ["$.updatedAt", ctx.now],
+      ["$.updatedBy", ctx.user.id],
+    ];
+    const args = sql.join(
+      changes.map(([path, value]) => sql`${path}, json(${JSON.stringify(value)})`),
+    );
     ctx.write(
       ctx.db
         .insertInto("core_settings")
-        .values({
-          key: JOURNEY_SETTING,
-          value: JSON.stringify(next),
+        .values({ key: JOURNEY_SETTING, value: "{}", updated_at: ctx.now, updated_by: ctx.user.id })
+        .onConflict((oc) => oc.column("key").doNothing()),
+      ctx.db
+        .updateTable("core_settings")
+        .set({
+          value: sql<string>`json_set(CASE WHEN json_valid(value) THEN value ELSE '{}' END, ${args})`,
           updated_at: ctx.now,
           updated_by: ctx.user.id,
         })
-        .onConflict((oc) =>
-          oc.column("key").doUpdateSet({
-            value: JSON.stringify(next),
-            updated_at: ctx.now,
-            updated_by: ctx.user.id,
-          }),
-        ),
+        .where("key", "=", JOURNEY_SETTING),
     );
+    ctx.recordChange({
+      object: "settings",
+      id: JOURNEY_SETTING,
+      action: "update",
+      diff: Object.fromEntries(
+        (["sendOnOwn", "weekCap", "replyTo"] as const)
+          .filter((key) => JSON.stringify(settings[key]) !== JSON.stringify(next[key]))
+          .map((key) => [key, { before: settings[key], after: next[key] }]),
+      ),
+    });
     const allowed = new Set(replyTo.map((r) => r.address));
     return {
       sendOnOwn: next.sendOnOwn,

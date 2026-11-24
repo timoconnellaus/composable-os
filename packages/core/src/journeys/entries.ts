@@ -4,12 +4,21 @@
 // never pass D1's 100 bound variables per statement or 1,000 statements per invocation.
 import type { CoreDatabase } from "@composable-os/db";
 import { type CompiledQuery, type Kysely, sql } from "kysely";
+import { jsonList } from "../records/common.ts";
+import { erasedAddressHash } from "../records/erase-subject.ts";
 import { GUARDIAN_LINK } from "../visibility/guardians.ts";
 import type { JourneyKind } from "./definition.ts";
 import { LIVE_ENTRY_STATES } from "./definition.ts";
 
 /** Why a Person was not added. */
-export const ENTRY_EXCLUSIONS = ["not_found", "minor", "already_on", "once", "too_soon"] as const;
+export const ENTRY_EXCLUSIONS = [
+  "not_found",
+  "minor",
+  "erased_address",
+  "already_on",
+  "once",
+  "too_soon",
+] as const;
 export type EntryExclusion = (typeof ENTRY_EXCLUSIONS)[number];
 
 interface EntryFacts {
@@ -19,6 +28,7 @@ interface EntryFacts {
   dependant: number;
   live: number;
   last_entered: string | null;
+  primary_email: string | null;
 }
 
 const liveStates = sql.join(LIVE_ENTRY_STATES.map((s) => sql`${s}`));
@@ -26,8 +36,9 @@ const liveStates = sql.join(LIVE_ENTRY_STATES.map((s) => sql`${s}`));
 /**
  * Which of `personIds` may be added to the journey now, and why each other one may not: a Person
  * not found, in the trash or merged away; a minor (a live dependant or a Person staff marked) on a
- * promotional journey (decision 10); already on it; or kept off by its re-entry rule. One query.
- * Preferences, suppression and consent are stage 30's, checked at each send (step 4).
+ * promotional journey (decision 10); whose address is on the erased list; already on it; or kept
+ * off by its re-entry rule. Two queries. Preferences, suppression and consent are stage 30's, and
+ * the journey's conditions are the engine's: both are checked by step 4 before each send.
  */
 export async function entryCandidates(
   db: Kysely<CoreDatabase>,
@@ -50,9 +61,27 @@ export async function entryCandidates(
       EXISTS (SELECT 1 FROM core_journey_entry e WHERE e.journey_id = ${input.journeyId}
         AND e.person_id = ids.value AND e.state IN (${liveStates})) AS live,
       (SELECT MAX(e.entered_at) FROM core_journey_entry e WHERE e.journey_id = ${input.journeyId}
-        AND e.person_id = ids.value) AS last_entered
+        AND e.person_id = ids.value) AS last_entered,
+      (SELECT m.email FROM core_person_emails m WHERE m.person_id = ids.value AND m.live = 1
+        ORDER BY m.is_primary DESC, m.position LIMIT 1) AS primary_email
     FROM json_each(${JSON.stringify(ids)}) ids
     LEFT JOIN core_person p ON p.id = ids.value`.execute(db);
+  // An address someone asked to be erased (ADR 0320) is on the erased list by its hash, which
+  // SQLite cannot compute: hashed here, looked up in one statement.
+  const hashes = new Map<string, string>();
+  for (const row of rows) {
+    if (row.primary_email) hashes.set(row.id, await erasedAddressHash(row.primary_email));
+  }
+  const erased = new Set<string>();
+  if (hashes.size) {
+    const found = await db
+      .selectFrom("core_erased_address")
+      .select("hash")
+      .where("object_type", "=", "person")
+      .where("hash", "in", jsonList([...new Set(hashes.values())]))
+      .execute();
+    for (const row of found) erased.add(row.hash);
+  }
   const add: string[] = [];
   const excluded: { personId: string; why: EntryExclusion }[] = [];
   const since =
@@ -64,13 +93,15 @@ export async function entryCandidates(
       ? "not_found"
       : input.kind === "promotional" && (row.marked || row.dependant)
         ? "minor"
-        : row.live
-          ? "already_on"
-          : row.last_entered && input.reentry.rule === "once"
-            ? "once"
-            : row.last_entered && since && row.last_entered > since
-              ? "too_soon"
-              : null;
+        : erased.has(hashes.get(row.id) ?? "")
+          ? "erased_address"
+          : row.live
+            ? "already_on"
+            : row.last_entered && input.reentry.rule === "once"
+              ? "once"
+              : row.last_entered && since && row.last_entered > since
+                ? "too_soon"
+                : null;
     if (why) excluded.push({ personId: row.id, why });
     else add.push(row.id);
   }

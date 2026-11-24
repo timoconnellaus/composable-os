@@ -34325,7 +34325,7 @@
     },
     {
       "name": "journey.archive",
-      "description": "Archive a journey: it stops for good, every entry on it is stopped, and it no longer changes. Its versions and log are kept. Sends nothing.",
+      "description": "Archive a journey: it stops for good, every entry on it is stopped, and it no longer changes; it cannot be undone. Its versions and log are kept. Sends nothing. A person only: an AI may pause a journey, never archive one. Needs journeys:manage. Audited.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -34987,6 +34987,7 @@
                   "enum": [
                     "not_found",
                     "minor",
+                    "erased_address",
                     "already_on",
                     "once",
                     "too_soon"
@@ -35475,7 +35476,7 @@
     },
     {
       "name": "journey.list",
-      "description": "List the business's journeys (messages that go out on their own to one person at a time: a welcome series, a nudge when someone stops coming): each with its kind (service or promotional), status (draft, live, paused, archived), newest published version, whether the working copy has unpublished changes, and how many entries are active, waiting, held, finished and stopped. The four starter journeys are seeded as drafts. Read-only.",
+      "description": "List the business's journeys (messages that go out on their own to one person at a time: a welcome series, a nudge when someone stops coming): each with its kind (service or promotional), status (draft, live, paused, archived), newest published version, whether the working copy has unpublished changes, and how many entries are active, waiting, held, finished and stopped. The four starter journeys are seeded as drafts. 100 a page (nextCursor). Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -35488,6 +35489,11 @@
             "default": false,
             "description": "Include archived journeys",
             "type": "boolean"
+          },
+          "cursor": {
+            "description": "The previous page's nextCursor",
+            "type": "string",
+            "maxLength": 200
           }
         }
       },
@@ -35609,10 +35615,18 @@
               ],
               "additionalProperties": false
             }
+          },
+          "nextCursor": {
+            "description": "Pass it back for the next page; null: no more",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
-          "items"
+          "items",
+          "nextCursor"
         ],
         "additionalProperties": false
       },
@@ -36134,7 +36148,7 @@
     },
     {
       "name": "journey.settings",
-      "description": "Journeys' settings: whether journeys send on their own (off until a human admin turns it on), the cap per Person (at most 3 a week and 1 a day), and the addresses a journey's replies may go to. Read-only.",
+      "description": "Journeys' settings: whether journeys send on their own (off until a human admin turns it on), the cap per Person (at most 3 a week and 1 a day), and the addresses a journey's replies may go to (staff accounts' addresses: for those who write journeys). Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -36343,7 +36357,7 @@
     },
     {
       "name": "journey.update",
-      "description": "Change a journey: its name, its owner (who gets tasks assigned to the owner), or its working copy, given whole: entry rule, conditions, exits, re-entry rule, includeBulk, the reply-to (an address a human admin allowed) and the steps (send, wait, branch, task, end) with their words. It changes no published version and sends nothing: a person publishes. draftRev, when given, is the copy's rev the change was made against: a copy saved since is refused. The assistant may write it for someone who holds journeys:manage; the publish dialog then says it was drafted by the assistant.",
+      "description": "Change a journey: its name, its owner (who gets tasks assigned to the owner; a person only), or its working copy, given whole: entry rule, conditions, exits, re-entry rule, includeBulk, the reply-to (an address a human admin allowed) and the steps (send, wait, branch, task, end) with their words. It changes no published version and sends nothing: a person publishes. draftRev, when given, is the copy's rev the change was made against: a copy saved since is refused. The assistant may write it for someone who holds journeys:manage; the publish dialog then says it was drafted by the assistant.",
       "risk": "write",
       "audiences": [
         "staff"

@@ -94,8 +94,42 @@ so none can be published until a person edits it, and none goes live until a per
   with step 4. Until then only staff accounts' own addresses can be allowed.
 - A plan's or class type's name as a slot comes with step 2's declarations (which relation names
   them); until then `{record}` is the signal record's title.
-- The approvals inbox shows an AI's publish request by its input (the journey, its hash and the
-  version number); the approver reads the messages in the journey's preview.
+
+## Amendment, 2026-11-24 (the review of PR #378)
+
+- **What an approver sees.** A publish records a change on the journey whose diff is the version
+  it makes, who drafted it, the plain-words summary, and every message's exact words (slots and
+  all, the guardian's version included) beside the newest version's. An AI's publish request's
+  preview is that diff, so the person who approves it in the Approvals inbox reads every word they
+  approve; the audit keeps it for a person's own publish too. The inbox's press (`via: "tap"`) is
+  how ADR 0480 has a person approve; typed and spoken approvals come from an AI actor relaying a
+  person, which `approveActions` already refuses for a journey publish.
+- **Archiving is a person's** (`actors: ["human"]`, not on MCP): it cannot be undone, and the spec
+  lets an AI pause a journey, never end one.
+- **An AI's manual entry** is approved only by a person who holds `journeys:manage` themselves; only
+  then does the entry stand as a person's.
+- **Only a person changes a journey's owner**, who gets every version's "owner" task steps outside
+  any publish. The name is staff-facing and stays an editor's.
+- **Purging a Person from the Trash** deletes their entries and log, as erase does.
+- **The database keeps entries and the log fixed for every statement shape**: an entry or log row is
+  never inserted over an existing id (a REPLACE is an insert, and with recursive triggers off the
+  row it deletes fires nothing); an entry keeps its journey, Person, how and why it entered, and
+  moves only to a newer version of its own journey.
+- **A settings save changes only the keys it names**, in one statement over the stored value, so
+  two admins' saves never put back what the other changed. `journey.settings` (staff addresses)
+  needs `journeys:manage`.
+- **A manual entry leaves out a Person whose address is on the erased list** (ADR 0320).
+- `journey.list` pages (100 a page, `nextCursor`), and every list of ids is one bound JSON value;
+  an index on (`journey_id`, `state`, `entered_at`) serves a journey's counts and entries.
+
+Left as they are, and why:
+
+- **A journey's conditions are not checked at a manual entry.** They name signals and live
+  memberships (step 2's data); step 4's engine checks them, with preferences, suppression and
+  consent, before every send, the first included, and finishes an entry they rule out.
+- **A published version keeps its reply-to.** It is a staff account's own work address, allowed by
+  an admin, not a member's personal data; erase is about People (ADR 0019). A staff account that
+  leaves stops counting as allowed, and the journey cannot run until it is published with another.
 
 ## Removal checks
 
@@ -105,6 +139,14 @@ Each check was removed, its test seen to fail, and restored (`packages/core/test
 | --- | --- |
 | `alwaysReview` on `journey.publish` | the AI's publish waits for a person, never the adjudicator |
 | The approver holds `journeys:publish` (`approveActions`) | the same test (a member's approval) |
+| One bound JSON value for the list's counts | lists more journeys than D1 binds variables |
+| `actors: ["human"]` on `journey.archive` | an AI never archives a journey |
+| The purge's journey statements | purging a Person from the Trash removes their entries |
+| The approver of an AI's entry holds `journeys:manage` | an AI's entry is approved only by someone who may add people |
+| The publish's change with every message's words | an AI's publish request shows its approver every message's words |
+| The entry and log triggers refusing an existing id, and the fixed Person | an entry cannot be brought back or moved by raw SQL |
+| The settings' `json_set` of the given keys | a save of the settings changes only what it names |
+| The erased-address exclusion | leaves out a Person whose address is on the erased list |
 
 The handler's refusal of an adjudicator's approval is a second wall behind the review source
 `always`; no test reaches it, as none can get past the first.
