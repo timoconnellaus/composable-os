@@ -2,6 +2,9 @@
 
 **Date:** 2026-11-04. **Code audited:** `main` at `3f497b2`, plus the vendored `packages/gatekeeper-*` and `mcp-shared`, and the stage 4–8 specs.
 
+**Durable Objects, 2026-11-24:** what each object costs per unit of use, what was fixed and what is
+left is in [`docs/cloudflare-costs.md`](../cloudflare-costs.md).
+
 **Question:** where does this CRM use Cloudflare primitives in ways that cost a lot, or hit platform limits, as a deployment grows?
 
 **Scenario used for estimates:** one org with 10 users, 100k records (about 60k people, 20k organisations, the rest activities and tasks), 50 automations once stage 5 lands, and 5 mailboxes once stage 6 lands. All prices are Workers Paid.

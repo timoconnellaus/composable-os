@@ -83,6 +83,7 @@ export const orderObject = defineObject({
       "subscriptionId",
       "periodStart",
       "periodEnd",
+      "discount",
     ],
     write: [],
   },
@@ -181,6 +182,8 @@ export const orderObject = defineObject({
       filterable: true,
       sortable: false,
     },
+    // Adjustments (stage 34, ADR 0690): money off, already taken out of the total.
+    { ...amount, name: "discount", label: "Discount", column: "discount" },
   ],
 });
 
@@ -202,6 +205,8 @@ export const orderLineObject = defineObject({
       "unitPrice",
       "total",
       "taxAmount",
+      "discount",
+      "netTotal",
     ],
     write: [],
   },
@@ -247,6 +252,9 @@ export const orderLineObject = defineObject({
       filterable: true,
       sortable: false,
     },
+    // Adjustments (stage 34, ADR 0690): the line's share of them, and what it costs after them.
+    { ...amount, name: "discount", label: "Discount", column: "line_discount" },
+    { ...amount, name: "netTotal", label: "Line total after discounts", column: "line_net" },
   ],
 });
 

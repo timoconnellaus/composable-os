@@ -208,6 +208,12 @@ export default defineExtension({
             line1: "taxAddress",
           },
         },
+        // In the finance reports (ADR 0792): earned when the event starts.
+        finance: {
+          category: { key: "tickets", label: "Tickets" },
+          earned: "at_date",
+          at: "event.startsAt",
+        },
       },
       // A ticket type is public while its event is on sale; its places are capacity.get's.
       public: {
@@ -375,6 +381,22 @@ export default defineExtension({
   },
   // The buyer's and the holder's email (ADR 0590): routine mail the host sends on its own.
   routineMail: ticketingRoutineMail,
+  // What a journey can start or stop on (stage 53, ADR 0802), about a ticket's holder: the host
+  // records the last time each had each, in the write's batch.
+  journeySignals: {
+    ticketBought: {
+      label: "Ticket bought",
+      description: "A ticket is granted to its holder when its order is paid.",
+      object: "ticket",
+    },
+    checkedIn: {
+      label: "Checked in at an event",
+      description: "A ticket is checked in at the door.",
+      object: "ticket",
+      enters: ["used"],
+      from: ["valid"],
+    },
+  },
   automations: ticketingAutomations,
   roles: {
     door: {

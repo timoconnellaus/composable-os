@@ -2,7 +2,7 @@
 // type filter and "only mine" in the fixed header, a live count, and a virtualised feed that
 // loads more as you scroll. Each item links to the records it is on. A `filter` search param
 // (a dashboard click-through) narrows the feed further until it is cleared.
-import { type Filter, filterSchema } from "@composable-os/core/client";
+import type { Filter } from "@composable-os/core/client";
 import { Button } from "@composable-os/ui/components/button";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
@@ -14,22 +14,10 @@ import { VirtualFeed } from "#/components/layout/infinite";
 import { PageCount, PageLayout } from "#/components/layout/page-layout";
 import { type ActivityType, toTimelineItem } from "#/components/record/adapters";
 import { TimelineEntry, TimelineFilter, TimelineSkeleton } from "#/components/record/timeline";
+import { parseFilter } from "#/components/views/view-state";
 import { useRecordCount } from "#/lib/count";
 import { callOp } from "#/lib/operations";
 import { opKey } from "#/lib/query";
-
-function parseFilter(raw: unknown): Filter | undefined {
-  let value = raw;
-  if (typeof raw === "string") {
-    try {
-      value = JSON.parse(raw);
-    } catch {
-      return undefined;
-    }
-  }
-  const parsed = filterSchema.safeParse(value);
-  return parsed.success ? parsed.data : undefined;
-}
 
 export const Route = createFileRoute("/_app/activity")({
   validateSearch: (search: Record<string, unknown>): { filter?: Filter } => {

@@ -34,9 +34,10 @@ decisions 15 to 22; step 1 built on `feat/stage-44-documents`, ADRs 0640 and 064
 `feat/stage-44-enforcement`, ADR 0644; step 4, the copy and the signed PDF, built on
 `feat/stage-44-copy`, ADR 0645; step 5, the blocks, built on `feat/stage-44-blocks`, ADR 0644
 amended; step 7, cooling off, built on `feat/stage-44-cooling-off`, ADR 0647; step 8, erase,
-merge and retention, built on `feat/stage-44-erase`, ADR 0646; staff-given enrolments and
-hand-made tickets asked (issue #281), built on `fix/issue-281-agreements-staff-given`, ADR 0644
-amended; build notes at the end).
+merge and retention, built on `feat/stage-44-erase`, ADR 0646; step 6, signing at the desk, built
+on `feat/stage-44-desk-signing` together with stage 51's step 1 (the enrolled device), ADRs 0649
+and 0780; staff-given enrolments and hand-made tickets asked (issue #281), built on
+`fix/issue-281-agreements-staff-given`, ADR 0644 amended; build notes at the end).
 Builds on stages 25, 31a and 32. The first client is a gym moving from another system. It must be in
 place before members pay or train on the new system (decision 13).
 
@@ -667,6 +668,13 @@ Weighed and rejected:
 | **Staff hand over their own signed-in device** with a locked screen | The browser still holds a staff credential: a screen lock is the client deciding, and a member with the URL bar (or a reload) reaches staff screens. A lock enforced in the host would need sign-in to be undone on the device, which most desks would turn off |
 | **A code alone on a public page** (the first draft of this design) | Nothing bound the session to the business's device: anyone who saw the code or the QR could claim it on their own phone, see the names and the due documents and sign as the member, while the record said "on the business's device" (the review of PR #266) |
 | **The member's own phone only** (the spec's first recommendation) | Kept (staff still send a link), but the owner wants the desk too: a visitor without their phone, or a parent with a child |
+
+> **Dated note, 2026-11-24 (step 6 built):** the tablet is stage 51's **enrolled device**
+> ([The enrolled device](51-kiosk-check-in.md#the-enrolled-device-the-shared-piece), ADR 0780):
+> `core_device` (`dev_…`, use `signing`) with `device.enrol`, `device.claim`, `device.setUse` and
+> `device.revoke`, and Settings → Devices, instead of `core_agreement_desk_device` and
+> `agreement.desk.enrol`/`revoke` below. Everything this section says of the desk tablet holds for
+> it. The sessions, codes, tokens, limits and the five desk calls are as below (ADR 0649).
 
 **Enrolling a tablet** (`core_agreement_desk_device`, `adv_…`):
 
@@ -1630,6 +1638,18 @@ email never says they agreed. A paper copy with no guardian is refused for a min
 One e2e journey (`apps/app/e2e/agreement-acceptances.spec.ts`): staff email a copy of a child's
 paper form to the parent they pick.
 
+### Step 4: idempotency keys per caller (issue #286, `fix/issue-286-idempotency-classes`, 2026-11-24)
+
+- The email gatekeeper keeps an ordinary caller's idempotency keys apart per caller, not in one
+  space for every caller: the integration host's queue names who is calling (`callerKeySpace`: a
+  person, the assistant or an agent job by actor and person; an MCP app by person and connected
+  app; an automation by its id; extension code by its extension) and the gatekeeper keeps that
+  caller's keys under a hash of it (`keySpaceOf` in `queue-class.ts`, the fake outbox too), each
+  space pruned by its own volume. A queue that names no caller keeps its callers together, as
+  before. ADR 0574 and ADR 0645 amended.
+- The read of keys from before keys were kept per class (`idem:<key>`) is gone. No release carried
+  them: the keys (ADR 0574) and the fallback both came after v0.1.0-beta.11, the last release.
+
 ## Step 5: build notes (`feat/stage-44-blocks`, 2026-11-24)
 
 Built: the headless entry `packages/client/src/agreements.ts` (exported by `@composable-os/client`):
@@ -2113,3 +2133,104 @@ ADR 0320); a guardian's erase clears only paper forms whose text names them; a l
 order an erase detached (cancelled, or part-paid) is refunded, never honoured; `erasePreview` is a
 person's, reads the Trash and merged records, and counts buyers' acceptances; addresses are read in
 batches and the erased-address list written 20 rows a statement, so nobody is un-erasable.
+
+## Step 6: build notes (`feat/stage-44-desk-signing`, 2026-11-24)
+
+Built with stage 51's step 1 (the enrolled device), as stage 51's spec says the two fit: migration
+0858 (`core_agreement_desk_session`, its triggers, and the acceptance's desk check), migration 1130
+(block BM: `core_device`), ADR 0649 (signing at the desk) and ADR 0780 (the enrolled device); ADRs
+0402, 0600 and 0660 amended with dated notes. `agreements/desk.ts` (the session's rules),
+`agreements/desk-marks.ts`, `devices/` (the device, its credential, rotation, clones and lapsing;
+the HMACs), `operations/agreement-desk.ts`, `operations/device.ts`; the desk origin's handler
+(`apps/app/src/server/http/desk.ts`, `server/desk.ts`) and its two pages (`/desk`, `/enrol`); the
+admin's Settings → Devices, Sign at the desk (on the Person page and as a core screen) and the
+desk filters and marks on the Acceptances list; `cos deploy`'s desk hostname and `DESK_SECRET`.
+
+Operations:
+
+| Operation | Audience | Actors | Permission | Risk |
+| --- | --- | --- | --- | --- |
+| `device.enrol`, `device.setUse` | staff | human | users:manage | write (every admin told) |
+| `device.revoke` | staff | human | users:manage | destructive (every admin told) |
+| `device.list` | staff | every actor | users:manage | read |
+| `agreement.desk.find`, `.prepare`, `.devices`, `.get` | staff | human | agreements:desk | read |
+| `agreement.desk.start`, `.end` | staff | human | agreements:desk | write |
+| `device.claim`, `desk.claim`, `desk.documents`, `desk.accept`, `desk.heartbeat`, `desk.finish` | public, `deskOnly` | the desk origin's handler | (the credential and the token) | write |
+| `desk.status` | public, `deskOnly` | the desk origin's handler | (the credential) | read |
+
+`agreement.person` answers `can.signAtDesk` and each desk acceptance's `desk` (its words, the
+device, who started it, its marks); `agreement.acceptances` filters by `channel`, `deviceId`,
+`startedBy` and `mark`. The permission `agreements:desk` (admins by default, grantable, and the one
+core permission grantable to a fixed-role account).
+
+Deviations and decisions, and why:
+
+- **The device is `core_device`** (stage 51's), not `core_agreement_desk_device`; enrolment and
+  revocation are `device.enrol`/`device.revoke` with users:manage, not `agreement.desk.enrol`.
+- **The desk calls are `deskOnly`**: a new operation option (ADR 0402 amended). The spec's "public
+  audience, on the desk origin only" needed a way to keep them off the HTTP surface and the
+  client-app binding; the desk origin's handler is the only caller that can give them the
+  request's cookies.
+- **`desk.status`** is a sixth desk call that reads only whether this browser is an enrolled device
+  and its name, so the page shows Enter code or Enrol. It reads no token.
+- **Staff find the Person by name** on the core screen (`agreement.desk.find`, `agreements:desk`):
+  a coach with a fixed role cannot open the Person page. It answers names and ids, nothing else;
+  `agreement.desk.prepare` answers the titles due, the children and the masked address.
+- **A wrong code on the chosen device ends a waiting session** (`failed_claim`): the spec's "a
+  failed claim on the expected device". A used, ended or run-out code counts as a wrong code.
+- **Every admin is told in the host**; by email only as each admin's notification preferences
+  route "Messages" (the notice is a `system.message`). Forcing email past a person's preferences
+  is a change to notification delivery, not made here.
+- **Not built**: the copy to the **previous address** (ADR 0649 says why: the copy machinery is
+  one recipient per acceptance, and a second send needs its own row, key and scrub; the "address
+  changed recently" mark shows the change meanwhile) and a QR code on the staff screen (the code
+  is typed). Both are follow-ups, named in the PR.
+- **The marks' "changed recently"** reads the audit's `emails` changes of the Person (a staff
+  edit, a merge, an import: any path that records one), not the customer account's own change of
+  its sign-in address, which no operation makes today.
+- **Erase** ends an open session and detaches every one (none is deleted: an acceptance points at
+  it), as step 8 asked.
+
+Tests: `packages/core/test/agreement-desk.test.ts` (enrolment and who may; the claim, rotation and
+its grace, clones, lapsing, lock-outs, the wrong device; the limits and the heartbeat's bound; the
+record and its words; a parent for a child over a live link; the copy's words; erase; the marks;
+a statement count for a family of ten), `packages/core/test/screens.test.ts` (the core screen for a
+coach granted `agreements:desk`), `apps/app/test/desk.test.ts` (the desk origin: only its pages and
+calls, the cookies' attributes, `Origin`, a staff session refused, nothing on the HTTP surface),
+`packages/release/test/basics.test.ts` (the desk hostname on a custom domain only). E2E, one per
+journey (`apps/app/e2e/desk-signing.spec.ts`): an admin enrols a tablet and revokes it; a member
+signs at the desk on a tablet-width page.
+
+Not verified: a real tablet's browser keeping the desk origin's cookie for weeks, touch and pen on
+the signature pad on a real device, the desk hostname's custom domain on a live deployment (`cos
+deploy` adds it; not yet tried on a live host), and Cloudflare Access deployments (the desk
+hostname must not be behind the Access application, `docs/deploying.md`).
+
+### Step 6: after the review of PR #390 (2026-11-24)
+
+Fixed in the same PR (ADRs 0649 and 0780 amended; migrations 0858 and 1130 edited in place, as
+they were not on `main`), each with a test that fails without the fix
+(`agreement-desk.test.ts`, "after the review of PR #390"):
+
+1. Wrong codes sent at once each count (one statement reads the row's own count); twelve together
+   lock the device.
+2. `agreement.desk.find` matches a full name or an email address exactly, at most 5, audited; no
+   partial search, so a fixed-role coach gets no directory. `prepare` names children by given name
+   only, audited.
+3. The copy to the previous address is still not built (the owner to decide whether step 6 ships
+   without it); meanwhile a session started for someone whose address changed in the 30 days
+   before tells every admin.
+4. A claim, or an enrolment claim, that loses a race is refused (guard rows in the claim's batch),
+   never answered with a token or a credential that matches nothing.
+5. A device unused for 30 days is not enrolled to `desk.status`, not offered or accepted for a
+   session, and `lapsed` on Settings → Devices.
+6. A session is read and ended only by whoever started it, or an admin.
+7. Rotation is confirmed by use: the current credential stays good until the device presents the
+   next, so a lost answer never makes a healthy tablet look copied.
+8. The Acceptances list's mark filter reads past a page of unmarked acceptances (up to 1,000 a
+   call); the marks read each Person's 20 newest email changes in the window (not a cap across the
+   page); `device.list` is a person's; `/desk/` with a trailing slash is not found on the staff
+   origin.
+
+Not changed: the staff origin's bundle holds the desk's two route components (one admin build);
+on the staff origin their calls are not found, and the server answers the paths as not found.

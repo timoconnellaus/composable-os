@@ -50,6 +50,7 @@ import { contentGenerationWrites } from "./content/cache.ts";
 import { loadCustomerSignIn } from "./customers/accounts.ts";
 import { checkOutsideRateLimit } from "./customers/limits.ts";
 import type { WidgetCache } from "./dashboards/cache.ts";
+import type { DeskHost } from "./devices/devices.ts";
 import { diffRecords, type FieldDiff } from "./diff.ts";
 import {
   type AllowanceRefusalDetails,
@@ -78,13 +79,15 @@ import {
   type GateResult,
 } from "./gate.ts";
 import { findProvisionalIds, newId } from "./ids.ts";
+import type { IntakeRuntime } from "./intake/runtime.ts";
 import type { BlobStore, IntegrationRuntime } from "./integrations/runtime.ts";
 import type { HostMail } from "./invites.ts";
+import { signalStatements } from "./journeys/signals.ts";
 import type { Judge } from "./judge/types.ts";
 import { errorForLog } from "./log.ts";
 import type { ModelRunner } from "./models.ts";
 import { notifyStatements } from "./notifications/send.ts";
-import type { MediaUpload } from "./operation.ts";
+import type { FollowerBudget, MediaUpload } from "./operation.ts";
 import {
   type AnyOperation,
   type ApplyingApproval,
@@ -101,15 +104,18 @@ import {
   type SystemActivityInput,
 } from "./operation.ts";
 import type { VoiceRuntime } from "./operations/voice.ts";
+import { holdRoleLooksAfter, type LooksAfterLimit } from "./pack-role-looks-after.ts";
 import { holdRoleToday, type TodayLimits } from "./pack-role-today.ts";
 import {
   type HeldPackRole,
   loadStaffRights,
   roleLimitsFor,
+  roleLooksAfterFor,
   type StaffRights,
   staffMayCall,
   staffRightsReach,
 } from "./pack-roles.ts";
+import type { PersonCodeKeys } from "./people-codes/keys.ts";
 import {
   ACTORS,
   type ActingUser,
@@ -159,6 +165,12 @@ export interface InvocationContext {
   /** Clock override for tests. */
   clock?: () => Date;
   /**
+   * Set by platform code only (the minute cron's timed moves, ADR 0841): the records state
+   * cascades may still move, shared by every call made with it. Absent: each call has its own,
+   * FOLLOWERS_MAX.
+   */
+  followerBudget?: FollowerBudget | undefined;
+  /**
    * What the caller's credential allows (an MCP token's scopes, ADR 0021). The call needs its
    * permission in both the user's role and this list. Omitted means the role alone decides.
    */
@@ -170,6 +182,11 @@ export interface InvocationContext {
    * caller's pack role limit to today, held on this call as on the account's own.
    */
   roleToday?: TodayLimits | undefined;
+  /**
+   * Set by platform code only (a tool run, for the staff account that started it, ADR 0889): the
+   * caller's pack role limit to the People they look after, held on this call as on the account's.
+   */
+  roleLooksAfter?: LooksAfterLimit | undefined;
   /**
    * Set by platform code only (a tool run, ADR 0590): who stands behind what the tool writes, from
    * the verified caller that started it (a person, a customer, an AI). Absent: the host.
@@ -235,6 +252,21 @@ export interface InvocationContext {
   agentJobs?: AgentJobHost;
   /** The host's own mail for staff (ADR 0455). Not inherited when nested. */
   hostMail?: HostMail;
+  /**
+   * Desk signing and enrolled devices (ADRs 0649 and 0780): the env secret and the desk origin.
+   * A staff call never carries a desk request. Not inherited when nested.
+   */
+  desk?: DeskHost;
+  /**
+   * The keys of people's check-in codes and PINs (stage 51, ADR 0783), derived from the host's
+   * auth secret by the adapter. Absent: codes, cards and PINs are refused. Nested calls inherit it.
+   */
+  personCodes?: PersonCodeKeys;
+  /**
+   * The public-write door's runtime (stage 29, ADR 0722). A staff call skips the spam check, so
+   * nothing uses it there; a dry run refuses it as any runtime.
+   */
+  intake?: IntakeRuntime;
   /**
    * Set on an agent's calls (ADR 0344): what its grant allows, checked on every call. Passed by the
    * AgentJob object, never by a model. Not inherited when nested, which is why operations that run
@@ -358,6 +390,25 @@ export function redactInput(value: unknown, extra: readonly string[] = []): unkn
   return value;
 }
 
+/** The input keys an operation's audit row leaves out. */
+function auditRedactions(op: AnyOperation): readonly string[] {
+  return op.auditRedact ? [...(op.redact ?? []), ...op.auditRedact] : (op.redact ?? []);
+}
+
+/** Two read-audit summaries as one: lists under the same key are joined, without repeats. */
+function mergeReadAudit(
+  into: Record<string, unknown> | null,
+  summary: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...into };
+  for (const [key, value] of Object.entries(summary)) {
+    const before = out[key];
+    out[key] =
+      Array.isArray(before) && Array.isArray(value) ? [...new Set([...before, ...value])] : value;
+  }
+  return out;
+}
+
 /**
  * Reads by humans are not audited; every write, refusal and non-human call is. A non-human read
  * that succeeds is counted in core_audit_read_counts instead of getting its own row (ADR 0090);
@@ -458,7 +509,7 @@ function auditInsert(db: CrmDb, row: AuditRow): Compilable {
     actor: row.ctx.actor,
     user_id: row.ctx.user.id,
     origin: JSON.stringify(originSchema.parse(row.ctx.origin)),
-    input: JSON.stringify(redactInput(row.input, row.op.redact) ?? null),
+    input: JSON.stringify(redactInput(row.input, auditRedactions(row.op)) ?? null),
     result:
       row.result === undefined
         ? null
@@ -722,6 +773,9 @@ async function invokeOnce<O extends AnyOperation>(
   // The limit to today: the account's pack role's when the role is what allows this call (not a
   // pack permission granted to it, ADR 0600), or one a tool run carries for its caller.
   const roleToday: TodayLimits | undefined = roleLimitsFor(rights, op) ?? ctx.roleToday;
+  // The limit to the People the account looks after (ADR 0889), the same way.
+  const roleLooksAfter: LooksAfterLimit | undefined =
+    roleLooksAfterFor(rights, op, ctx.user.id) ?? ctx.roleLooksAfter;
   if (packRole && !staffRightsReach(rights, op)) {
     const error = packRoleRefusal(packRole, op);
     const gate = evaluateGate(
@@ -768,12 +822,17 @@ async function invokeOnce<O extends AnyOperation>(
   // Some changes always wait for a person (extension installs and upgrades, ADR 0041).
   // A person's own fields and settings (a gym's booking rules, ADR 0507): anyone else's write of
   // one waits for a person, as an AI's publish does (ADR 0480).
+  // An operation's own rule for when a call waits (a staff discount over the limit, ADR 0691).
   const forced =
     op.alwaysReview === true ||
     (Array.isArray(op.alwaysReview) && op.alwaysReview.includes(ctx.actor)) ||
     (!ctx.approval &&
       ALWAYS_REVIEWED_PUBLISHERS.includes(ctx.actor) &&
-      (await touchesPersonApproves(ctx.db.query, op.name, input)));
+      (await touchesPersonApproves(ctx.db.query, op.name, input))) ||
+    (!ctx.approval &&
+      decision === "auto" &&
+      op.reviewWhen !== undefined &&
+      (await op.reviewWhen(input, ctx.db.query)));
   if (forced && decision === "auto" && !ctx.approval) decision = "review";
   // Applied by the adjudicator, asked again: what a person approves may have joined the action
   // since it was queued (a family link on a merge, ADR 0540). Then it is a person's to apply.
@@ -888,6 +947,8 @@ async function invokeOnce<O extends AnyOperation>(
         }
       : undefined;
   let preChecked = false;
+  // A read that returned restricted text asks for its audit row (stage 56, ADR 0830).
+  const readAudit: { summary: Record<string, unknown> | null } = { summary: null };
   const liveCtx: HandlerContext = {
     operation: op.name,
     actor: ctx.actor,
@@ -901,7 +962,9 @@ async function invokeOnce<O extends AnyOperation>(
     floor: ctx.floor ?? {},
     grantedPermissions: ctx.grantedPermissions,
     permissionGrants: packRole ? [] : grants,
+    ...(ctx.followerBudget ? { followerBudget: ctx.followerBudget } : {}),
     ...(roleToday ? { roleToday } : {}),
+    ...(roleLooksAfter ? { roleLooksAfter } : {}),
     ...(ctx.markStanding ? { markStanding: ctx.markStanding } : {}),
     ...(ctx.markGiven ? { markGiven: ctx.markGiven } : {}),
     reason: ctx.reason,
@@ -911,6 +974,13 @@ async function invokeOnce<O extends AnyOperation>(
             actionId: ctx.approval.actionId,
             approvedBy: ctx.approval.approvedBy,
             preview: ctx.approval.preview,
+          },
+        }
+      : {}),
+    ...(op.risk === "read" && !ctx.simulate
+      ? {
+          auditRead: (summary: Record<string, unknown>) => {
+            readAudit.summary = mergeReadAudit(readAudit.summary, summary);
           },
         }
       : {}),
@@ -961,6 +1031,10 @@ async function invokeOnce<O extends AnyOperation>(
     ...(ctx.voice ? { voice: ctx.voice } : {}),
     ...(ctx.agentJobs ? { agentJobs: ctx.agentJobs } : {}),
     ...(ctx.hostMail ? { hostMail: ctx.hostMail } : {}),
+    // A staff call is never the desk origin's own: only the secret and the origin go through.
+    ...(ctx.desk ? { desk: { secret: ctx.desk.secret, origin: ctx.desk.origin } } : {}),
+    ...(ctx.personCodes ? { personCodes: ctx.personCodes } : {}),
+    ...(ctx.intake ? { intake: ctx.intake } : {}),
     pipeline: {
       crm: ctx.db,
       resolve: (name) => ctx.resolveOperation?.(name),
@@ -1051,6 +1125,7 @@ async function invokeOnce<O extends AnyOperation>(
       ...(ctx.assistantThreads ? { assistantThreads: ctx.assistantThreads } : {}),
       ...(ctx.voice ? { voice: ctx.voice } : {}),
       ...(ctx.agentJobs ? { agentJobs: ctx.agentJobs } : {}),
+      ...(ctx.personCodes ? { personCodes: ctx.personCodes } : {}),
       // An approved update or rollback is applied through here (approval.approve).
       ...(ctx.updater ? { updater: ctx.updater } : {}),
       // A call an approved action makes: checked against the reviewed preview, and its changes
@@ -1088,6 +1163,15 @@ async function invokeOnce<O extends AnyOperation>(
     if (audited) await auditAlone({ ...base, gate: gateDecision, outcome: "error", error: typed });
     throw typed;
   };
+
+  // A pack role limited to the People its holder looks after (ADR 0889): a record of someone
+  // else's is not found and an operation it cannot check is refused, before anything runs (queued,
+  // simulated or overlaid included); a list holds it in its own query (record.list).
+  try {
+    await holdRoleLooksAfter(ctx.db.query, roleLooksAfter, op.name, input);
+  } catch (error) {
+    return fail(error, decision);
+  }
 
   // An agent's grant (ADR 0344). It can only tighten: `auto` stays what the gate said. The handler
   // is dry-run first, because whether a write fills a field or changes a value decides where it
@@ -1302,6 +1386,13 @@ async function invokeOnce<O extends AnyOperation>(
         now,
         ctx.markGiven,
       )),
+      // And the journey signals the write made (stage 53, ADR 0802), standing as its marks do.
+      ...signalStatements({ db: ctx.db.query }, changes, {
+        standing: staffStanding(ctx),
+        // A bulk-write operation is bulk whatever its size: an import's last chunk of one record.
+        bulk: isBulkOperation(op.name, bulkSize) || op.risk === "bulk-write",
+        now,
+      }),
     );
   }
   statements.push(...activities);
@@ -1321,9 +1412,17 @@ async function invokeOnce<O extends AnyOperation>(
   // keyed by its object's generation, bumped here in the change's own batch.
   if (op.risk !== "read") statements.push(...contentGenerationWrites(changes, now));
 
-  const summary =
-    op.auditSummary && !deferred ? op.auditSummary(output, input) : defaultSummary(output, changes);
-  if (audited && op.risk === "read" && !op.auditReads) {
+  const summary = readAudit.summary
+    ? readAudit.summary
+    : op.auditSummary && !deferred
+      ? op.auditSummary(output, input)
+      : defaultSummary(output, changes);
+  if (readAudit.summary) {
+    // A read of restricted text: its own row, a person's included, naming ids only.
+    statements.push(
+      auditInsert(ctx.db, { ...base, gate: decision, outcome: "ok", result: readAudit.summary }),
+    );
+  } else if (audited && op.risk === "read" && !op.auditReads) {
     // A successful non-human read: counted, not audited row by row (ADR 0090).
     if (!ctx.simulate) await countRead(op, ctx, now, false);
   } else if (audited) {
@@ -1798,6 +1897,22 @@ export interface OutsideInvocationContext {
   integrations?: IntegrationRuntime;
   /** As for staff calls: the adapter's statements in the call's own batch (ADR 0416). */
   inBatch?: InBatch | undefined;
+  /**
+   * Desk signing and enrolled devices (ADRs 0649 and 0780), given only to a `hostInternal` core
+   * operation's handler. With `request`, set only by the desk origin's own handler, the call may
+   * reach the `deskOnly` operations and nothing else.
+   */
+  desk?: DeskHost;
+  /**
+   * The keys of people's check-in codes and PINs (stage 51, ADR 0783), given only to a
+   * `hostInternal` core operation's handler: `me.code`, `me.pin.set`.
+   */
+  personCodes?: PersonCodeKeys;
+  /**
+   * The public-write door's runtime (stage 29, ADR 0722), built by the adapter from the env-only
+   * Turnstile secret: given only to the `intake.*` operations' handlers.
+   */
+  intake?: IntakeRuntime;
   /** Never set: these make a context a staff one. */
   user?: undefined;
   actor?: undefined;
@@ -1907,6 +2022,19 @@ function outsideError(error: unknown): OperationError {
   ) {
     return new ValidationError("There are not enough places left", { rule: "capacity" });
   }
+  // Sold out (stage 37, ADR 0680): the same, for a thing in stock. No numbers (the object's
+  // `show` decides what outsiders are told, through stock.get).
+  if (typed.code === "invalid_input" && (typed.details as { rule?: unknown })?.rule === "stock") {
+    return new ValidationError("There are not enough in stock", { rule: "stock" });
+  }
+  // A discount given while the buyer's payment page was being opened (migration 0951, ADR 0690):
+  // their own checkout, so they are told to pay again for the new price, and no more than that.
+  if (
+    typed.code === "conflict" &&
+    (typed.details as { rule?: unknown })?.rule === "price_changed"
+  ) {
+    return typed;
+  }
   // A free trial another start took a moment before (migration 0531, ADR 0489): the caller's own
   // start, so they are told to start again (which gives them that page), and no more than that.
   if (typed.code === "conflict" && (typed.details as { rule?: unknown })?.rule === "trial_held") {
@@ -1944,6 +2072,15 @@ function outsideError(error: unknown): OperationError {
   ) {
     return typed;
   }
+  // A desk claim that lost a race (ADR 0649): the tablet is told so, and nothing more.
+  if (
+    typed.code === "conflict" &&
+    ["desk_code_taken", "device_code_taken"].includes(
+      String((typed.details as { rule?: unknown })?.rule),
+    )
+  ) {
+    return typed;
+  }
   console.error("outside call failed", errorForLog(error));
   if (typed.code === "conflict")
     return new ConflictError("A record with that value already exists");
@@ -1976,7 +2113,7 @@ function outsideAuditInsert(db: CrmDb, row: OutsideAudit): Compilable {
     actor: row.actor,
     user_id: row.subjectId,
     origin: JSON.stringify(row.origin),
-    input: JSON.stringify(redactInput(row.input, row.op.redact) ?? null),
+    input: JSON.stringify(redactInput(row.input, auditRedactions(row.op)) ?? null),
     result:
       row.result === undefined
         ? null
@@ -2014,6 +2151,11 @@ async function invokeOutside<O extends AnyOperation>(
   if (!allowsAudience(op, principal)) throw new UnknownOperationError(op.name);
   // Some operations exist for a customer only inside a tool they called (ADR 0414).
   if (op.toolOnly && !ctx.tool) throw new UnknownOperationError(op.name);
+  // The desk origin's calls exist only for its own handler, and that handler reaches nothing
+  // else (ADR 0649): a desk request on any other operation is told it does not exist.
+  if (Boolean(op.deskOnly) !== Boolean(ctx.desk?.request) || (op.deskOnly && ctx.tool)) {
+    throw new UnknownOperationError(op.name);
+  }
   // A call made by a pack's tool: what the tool may do comes from its installed manifest. A tool
   // that is not installed, not shipped or not open to this caller can make no call at all, and a
   // tool does not start another tool.
@@ -2022,6 +2164,15 @@ async function invokeOutside<O extends AnyOperation>(
     : null;
   if (ctx.tool && (!tool?.audiences.includes(principal.kind) || isHostTool(op))) {
     throw new UnknownOperationError(op.name);
+  }
+  // An operation kept to a person (`actors`, as on the staff path) is not a tool's to call for
+  // its caller: a pack's tool is the extension acting (ending subscriptions, deleting an account).
+  if (ctx.tool && op.actors && !op.actors.includes("extension")) {
+    throw new ForbiddenError(`${op.name} is for a person, not a pack's tool`, {
+      operation: op.name,
+      rule: "actor",
+      allowed: op.actors,
+    });
   }
   // Counted once the call is one this caller may make at all, and before any work is done for it.
   // A tool's own calls are part of the one call that started the tool.
@@ -2057,7 +2208,8 @@ async function invokeOutside<O extends AnyOperation>(
     if (!grant.ok) throw new ForbiddenError(grant.reason, { operation: op.name });
   }
   const actor: OutsideActor = principal.kind;
-  const subjectId = principal.kind === "customer" ? principal.customerId : null;
+  // Mutable only by `anonymise` (ADR 0725): an anonymous form's submission names no account.
+  let subjectId = principal.kind === "customer" ? principal.customerId : null;
   const origin = originSchema.parse(ctx.origin ?? { surface: "client" });
   // `{ $relative: "me" }` in a customer's filter is their own Person.
   const me = principal.kind === "customer" ? principal.personId : "";
@@ -2066,7 +2218,15 @@ async function invokeOutside<O extends AnyOperation>(
 
   const isRead = op.risk === "read";
   const auditId = newId("audit");
-  const base = { id: auditId, op, actor, subjectId, origin, input, at: now } as const;
+  const base: Omit<OutsideAudit, "gate" | "outcome"> = {
+    id: auditId,
+    op,
+    actor,
+    subjectId,
+    origin,
+    input,
+    at: now,
+  };
   const auditAloneOutside = async (row: OutsideAudit): Promise<void> => {
     // Failed reads are not written down: a caller with no account could make any number.
     if (isRead) return;
@@ -2186,6 +2346,27 @@ async function invokeOutside<O extends AnyOperation>(
         ...(op.hostInternal === true && !op.name.startsWith("x.") && ctx.integrations
           ? { integrations: ctx.integrations }
           : {}),
+        ...(op.hostInternal === true && !op.name.startsWith("x.") && ctx.desk
+          ? { desk: ctx.desk }
+          : {}),
+        ...(op.hostInternal === true && !op.name.startsWith("x.") && ctx.personCodes
+          ? { personCodes: ctx.personCodes }
+          : {}),
+        // The pack tool whose run made this call (ADR 0414), from the runner.
+        ...(ctx.tool ? { callingTool: { ...ctx.tool } } : {}),
+        // The public-write door's runtime, for its own operations only (ADR 0722).
+        ...(op.name.startsWith("intake.") && ctx.intake ? { intake: ctx.intake } : {}),
+        // An anonymous form (ADR 0725): from now on nothing this call writes names the account.
+        ...(principal.kind === "customer"
+          ? {
+              anonymise: () => {
+                subjectId = null;
+                base.subjectId = null;
+                // A session is the account's too.
+                delete (origin as { sessionId?: string }).sessionId;
+              },
+            }
+          : {}),
         get actor() {
           return staffOnly("actor");
         },
@@ -2272,9 +2453,14 @@ async function invokeOutside<O extends AnyOperation>(
         ctx.db.query,
         marked,
         principal.kind === "customer" ? "customer" : "public",
-        principal.kind === "customer" ? principal.customerId : null,
+        subjectId,
         now,
       )),
+      ...signalStatements({ db: ctx.db.query }, changes, {
+        standing: principal.kind === "customer" ? "customer" : "public",
+        bulk: false,
+        now,
+      }),
     );
   }
   statements.push(...activities);
@@ -2317,6 +2503,14 @@ async function invokeOutside<O extends AnyOperation>(
     try {
       await ctx.db.batch(statements);
     } catch (error) {
+      // A race the database decided: the operation may read again and say what happened, as on
+      // a staff call (stage 29: two first answers from one new address at once).
+      if (op.explainFailure) {
+        const explained = await op
+          .explainFailure(toOperationError(error), input, handlerCtx)
+          .catch(() => null);
+        if (explained) return fail(explained);
+      }
       return fail(error);
     }
   }

@@ -44,9 +44,9 @@ import {
   rosterNumbers,
   shiftLink,
 } from "./rosterers.ts";
-import { literal, type StaffedTables, selectClaims } from "./sql.ts";
+import { literal, marginSeconds, type StaffedTables, selectClaims } from "./sql.ts";
 
-/** One account's claim on a span of time: unix seconds, half-open. */
+/** One account's claim on a span of time: unix seconds, half-open, margins included. */
 export interface Claim {
   account: string;
   starts: number;
@@ -65,6 +65,9 @@ export interface Shift {
   live: boolean;
   /** The kind record (a class type), when it has one. */
   kind: string | null;
+  /** Seconds kept free before and after it, read from its kind (ADR 0760); 0 without margins. */
+  before: number;
+  after: number;
 }
 
 /** A warning a write is made with (ADR 0622). */
@@ -76,7 +79,7 @@ export interface StaffWarning {
   message: string;
 }
 
-/** The other shift a write would clash with. */
+/** The other shift a write would clash with: its own time, without its margins. */
 export interface Clash {
   object: string;
   id: string;
@@ -149,6 +152,37 @@ async function holderAccount(
   return text(row?.account);
 }
 
+/**
+ * The seconds a kind record keeps free before and after its shifts (ADR 0760), read from its row
+ * by the same expression the triggers use (staffing/sql.ts), in or out of the Trash.
+ */
+async function marginsOf(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  kind: string | null,
+): Promise<{ before: number; after: number }> {
+  const def = object.staffed;
+  if (!def || kind === null || (!def.claimBefore && !def.claimAfter))
+    return { before: 0, after: 0 };
+  const kindObject = kindObjectOf(object);
+  const target = kindObject ? getObject(kindObject) : undefined;
+  const table = kindObject ? objectTableOf(kindObject) : undefined;
+  const column = (path: { field: string } | undefined) => {
+    const local = path?.field.split(".")[1];
+    return local ? target?.fields.find((f) => f.name === local)?.column : undefined;
+  };
+  if (!table) return { before: 0, after: 0 };
+  const row = await sql
+    .raw<{ before: number; after: number }>(
+      `SELECT ${marginSeconds(column(def.claimBefore))} AS before, ${marginSeconds(column(def.claimAfter))} AS after FROM ${table} m WHERE m.id = ${literal(kind)}`,
+    )
+    .execute(ctx.db);
+  return {
+    before: Number(row.rows[0]?.before ?? 0),
+    after: Number(row.rows[0]?.after ?? 0),
+  };
+}
+
 /** The shift a staffed object's values describe. */
 export async function shiftOf(
   ctx: HandlerContext,
@@ -161,13 +195,22 @@ export async function shiftOf(
   const account = who === null ? null : def.who.account ? await holderAccount(ctx, def, who) : who;
   const stateField = object.states?.field;
   const state = stateField ? values[stateField] : null;
+  const kind = text(values[def.kind]);
+  const starts = secondsOf(values[def.starts]);
+  const ends = secondsOf(values[def.ends]);
+  // Only the margins still ahead count, as the triggers derive them (staffing/sql.ts): the
+  // buffer before until the shift starts, the buffer after until it has passed.
+  const margins = await marginsOf(ctx, object, kind);
+  const now = Math.floor(Date.parse(ctx.now) / 1000);
   return {
     covered: who !== null,
     account,
-    starts: secondsOf(values[def.starts]),
-    ends: secondsOf(values[def.ends]),
+    starts,
+    ends,
     live: typeof state === "string" && def.live.includes(state),
-    kind: text(values[def.kind]),
+    kind,
+    before: starts !== null && starts > now ? margins.before : 0,
+    after: ends !== null && ends + margins.after > now ? margins.after : 0,
   };
 }
 
@@ -175,7 +218,12 @@ export async function shiftOf(
 export function claimOf(shift: Shift | null): Claim | null {
   if (!shift?.live || !shift.account || shift.starts === null || shift.ends === null) return null;
   if (!(shift.ends > shift.starts)) return null;
-  return { account: shift.account, starts: shift.starts, ends: shift.ends };
+  // Widened by the minutes kept free around it (ADR 0760).
+  return {
+    account: shift.account,
+    starts: shift.starts - shift.before,
+    ends: shift.ends + shift.after,
+  };
 }
 
 /**
@@ -192,7 +240,7 @@ export async function clashWith(
   const queued = batchOf(ctx).claims;
   const held = await ctx.db
     .selectFrom("core_staff_time")
-    .select(["object_type", "record_id", "starts", "ends"])
+    .select(["object_type", "record_id", "starts", "ends", "margin_before", "margin_after"])
     .where("account_id", "=", claim.account)
     .where("starts", "<", claim.ends)
     .where("ends", ">", claim.starts)
@@ -201,7 +249,12 @@ export async function clashWith(
   for (const row of held) {
     const k = key(row.object_type, row.record_id);
     if (k === self || queued.has(k)) continue;
-    return { object: row.object_type, id: row.record_id, starts: row.starts, ends: row.ends };
+    return {
+      object: row.object_type,
+      id: row.record_id,
+      starts: row.starts + row.margin_before,
+      ends: row.ends - row.margin_after,
+    };
   }
   for (const [k, other] of queued) {
     if (k === self || !other || other.account !== claim.account) continue;
@@ -240,10 +293,35 @@ async function nameOf(ctx: HandlerContext, account: string): Promise<string> {
   return row?.name || row?.email || "This person";
 }
 
-/** The other shift, as an answer names it. */
+/**
+ * A shift's title as anyone may be told it: its own, or, for a shift whose title may name a client
+ * (`staffed.private`, ADR 0761), its kind's (the service), whoever is answered.
+ */
+async function openTitleOf(
+  ctx: HandlerContext,
+  objectName: string,
+  id: string,
+): Promise<string | null> {
+  const object = getObject(objectName);
+  const def = object?.staffed;
+  if (!object || !def?.private) return titleOf(ctx, objectName, id);
+  const table = objectTableOf(objectName);
+  const column = object.fields.find((f) => f.name === def.kind)?.column;
+  const kindObject = kindObjectOf(object);
+  if (!table || !column || !kindObject) return null;
+  const row = (await (ctx.db as AnyDb)
+    .selectFrom(table)
+    .select(`${column} as kind`)
+    .where("id", "=", id)
+    .executeTakeFirst()) as { kind?: unknown } | undefined;
+  const kind = text(row?.kind);
+  return kind ? titleOf(ctx, kindObject, kind) : null;
+}
+
+/** The other shift, as an answer names it (a private one by its kind, ADR 0761). */
 export async function described(ctx: HandlerContext, clash: Clash) {
   const label = getObject(clash.object)?.label ?? "shift";
-  const title = await titleOf(ctx, clash.object, clash.id);
+  const title = await openTitleOf(ctx, clash.object, clash.id);
   return {
     object: clash.object,
     id: clash.id,
@@ -402,21 +480,33 @@ export async function assertRosterRestore(
   object: ObjectDefinition,
   id: string,
 ): Promise<void> {
+  if (await namesSomeoneById(ctx.db as AnyDb, object, id)) {
+    await assertMayRoster(ctx, `restore a ${object.label.toLowerCase()} with someone on it`);
+  }
+}
+
+/**
+ * Whether `object`'s record `id`, as stored (in the Trash or not), says who works shifts: a
+ * shift's person, a series' regular person (for an approval of its restore, issue #285).
+ */
+export async function namesSomeoneById(
+  db: AnyDb,
+  object: ObjectDefinition,
+  id: string,
+): Promise<boolean> {
   const fields = rosterFields(object, true);
   const table = objectTableOf(object.name);
-  if (!fields.length || !table) return;
+  if (!fields.length || !table) return false;
   const columns = fields
     .map((f) => object.fields.find((x) => x.name === f)?.column)
     .filter((c): c is string => !!c);
-  if (!columns.length) return;
-  const row = (await (ctx.db as AnyDb)
+  if (!columns.length) return false;
+  const row = (await db
     .selectFrom(table)
     .select(columns.map((c, i) => `${c} as f${i}`))
     .where("id", "=", id)
     .executeTakeFirst()) as Record<string, unknown> | undefined;
-  if (row && columns.some((_, i) => text(row[`f${i}`]) !== null)) {
-    await assertMayRoster(ctx, `restore a ${object.label.toLowerCase()} with someone on it`);
-  }
+  return !!row && columns.some((_, i) => text(row[`f${i}`]) !== null);
 }
 
 /** Whether `values` (a write of `object`) would set who works shifts: for an approval (ADR 0626). */
@@ -494,6 +584,21 @@ export async function staffedWritten(
     throw new ValidationError(
       `${object.label}: ${object.fields.find((f) => f.name === field)?.label ?? field} must be after its start`,
       { field, rule: "staffed_time" },
+    );
+  }
+  // A shift that requires an account, with a person holding none, has not ended (ADR 0760): it
+  // would escape the claim (the trigger refuses it too). Nobody on it is allowed.
+  if (
+    object.staffed.account === "required" &&
+    shift.live &&
+    shift.covered &&
+    !shift.account &&
+    (shift.ends === null || shift.ends > Math.floor(Date.parse(ctx.now) / 1000))
+  ) {
+    const field = object.staffed.who.field;
+    throw new ValidationError(
+      `${object.label}: ${object.fields.find((f) => f.name === field)?.label ?? field} must be someone with an account`,
+      { field, rule: "staffed_account" },
     );
   }
   const claim = claimOf(shift);
@@ -664,7 +769,35 @@ function tablesOf(object: ObjectDefinition): StaffedTables | null {
     if (!holderTable || !holderColumn) return null;
     account = { table: holderTable, column: holderColumn };
   }
-  return { object: object.name, table, who, account, starts, ends, state, live: def.live };
+  let margins: StaffedTables["margins"];
+  if (def.claimBefore || def.claimAfter) {
+    const kindObject = kindObjectOf(object);
+    const target = kindObject ? getObject(kindObject) : undefined;
+    const kindTable = kindObject ? objectTableOf(kindObject) : undefined;
+    const kind = column(def.kind);
+    const minutes = (path: { field: string } | undefined) => {
+      const local = path?.field.split(".")[1];
+      return local ? target?.fields.find((f) => f.name === local)?.column : undefined;
+    };
+    if (!kindTable || !kind) return null;
+    margins = {
+      kind,
+      table: kindTable,
+      before: minutes(def.claimBefore),
+      after: minutes(def.claimAfter),
+    };
+  }
+  return {
+    object: object.name,
+    table,
+    who,
+    account,
+    starts,
+    ends,
+    state,
+    live: def.live,
+    ...(margins ? { margins } : {}),
+  };
 }
 
 /**
@@ -691,7 +824,12 @@ export async function holderWritten(
     // Its shifts are someone else's now: their open offers were the old person's to make, so they
     // are cancelled, at commit (an offer made meanwhile too), and their offerers told (ADR 0623).
     await holderOffersCancelled(ctx, staffed, t, id);
-    if (!account) continue;
+    if (!account) {
+      // A profile on shifts that require an account, not yet ended, keeps one (ADR 0760): a
+      // person gives those shifts to someone else first (the trigger refuses it too).
+      if (def.account === "required") await assertNoRequiredShifts(ctx, object, staffed, t, id);
+      continue;
+    }
     const mine = selectClaims(t, `r.${t.who} = ${literal(id)}`, literal(account));
     const outside = await sql
       .raw<{
@@ -704,7 +842,8 @@ export async function holderWritten(
         s_ends: number;
       }>(
         `WITH s AS MATERIALIZED (${mine}) SELECT s.record_id AS shift, s.starts AS s_starts, ` +
-          "s.ends AS s_ends, c.object_type, c.record_id, c.starts, c.ends FROM s " +
+          "s.ends AS s_ends, c.object_type, c.record_id, c.starts + c.margin_before AS starts, " +
+          "c.ends - c.margin_after AS ends FROM s " +
           "JOIN core_staff_time c ON c.account_id = s.account_id AND c.ends > s.starts " +
           "AND c.starts < s.ends AND NOT (c.object_type = s.object_type AND c.record_id = s.record_id) " +
           "ORDER BY s.starts LIMIT 1",
@@ -733,7 +872,8 @@ export async function holderWritten(
           "w AS (SELECT s.*, MAX(ends) OVER (ORDER BY starts, record_id ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev_end FROM s), " +
           "f AS (SELECT * FROM w WHERE prev_end > starts ORDER BY starts LIMIT 1) " +
           "SELECT f.record_id AS a, f.starts AS a_starts, f.ends AS a_ends, b.record_id AS b, " +
-          "b.starts AS b_starts, b.ends AS b_ends FROM f JOIN s b ON b.ends > f.starts " +
+          "b.starts + b.margin_before AS b_starts, b.ends - b.margin_after AS b_ends " +
+          "FROM f JOIN s b ON b.ends > f.starts " +
           "AND b.starts <= f.starts AND b.record_id != f.record_id ORDER BY b.starts LIMIT 1",
       )
       .execute(ctx.db);
@@ -777,6 +917,34 @@ async function holderOffersCancelled(
       body: why,
       link: shiftLink(staffed.name, offer.record_id),
     });
+  }
+}
+
+/**
+ * Refuses leaving a profile with no account while a live shift of `staffed` that requires one and
+ * has not ended names it (ADR 0760), answering how many.
+ */
+async function assertNoRequiredShifts(
+  ctx: HandlerContext,
+  holder: ObjectDefinition,
+  staffed: ObjectDefinition,
+  t: StaffedTables,
+  id: string,
+): Promise<void> {
+  const now = Math.floor(Date.parse(ctx.now) / 1000);
+  const row = await sql
+    .raw<{ n: number }>(
+      `SELECT count(*) AS n FROM ${t.table} r WHERE r.${t.who} = ${literal(id)} ` +
+        `AND r.deleted_at IS NULL AND r.${t.state} IN (${t.live.map(literal).join(", ")}) ` +
+        `AND (strftime('%s', r.${t.ends}) IS NULL OR CAST(strftime('%s', r.${t.ends}) AS INTEGER) > ${now})`,
+    )
+    .execute(ctx.db);
+  const n = Number(row.rows[0]?.n ?? 0);
+  if (n > 0) {
+    throw new ConflictError(
+      `${holder.label} is on ${n} ${(staffed.plural ?? "shifts").toLowerCase()} that need someone with an account and have not ended. Give them to someone else before taking its account away.`,
+      { rule: "staffed_account", object: staffed.name, count: n },
+    );
   }
 }
 
@@ -844,6 +1012,21 @@ export async function personDeactivated(
     .where("id", "=", shift.account)
     .executeTakeFirst();
   return Boolean(row?.deactivated_at);
+}
+
+/**
+ * Whether the person a record's values name is a profile holding no account, on an object that
+ * requires one (ADR 0760): the host's generation makes such a date with nobody on it rather than
+ * fail (the review of PR #360), as for a leaver.
+ */
+export async function personWithoutAccount(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  values: Record<string, unknown>,
+): Promise<boolean> {
+  if (object.staffed?.account !== "required") return false;
+  const shift = await shiftOf(ctx, object, values);
+  return Boolean(shift?.covered && !shift.account);
 }
 
 /**

@@ -202,3 +202,18 @@ Rostering's team tools name the team role's permission and the grantable `roster
 `grantLiftsRoleLimits` (the team role has no limits to lift). See
 [ADR 0625](0625-restricted-pack-permissions.md) and
 [ADR 0626](0626-the-rostering-pack-and-bookings-additions.md).
+
+## Amendment, 2026-11-24 (stage 51 step 3, ADR 0783)
+A fixed-role account may now be granted a few core permissions, listed once in
+`FIXED_ROLE_CORE_GRANTS` (`principals.ts`): today only `people:cards`, so a desk account issues and
+revokes members' check-in cards. `grantOpens` opens the core operations whose permission is that
+grant (`personCode.issueCard`, `revokeCard`, `list`) and nothing else: no record read, list or
+search. `user.grantablePermissions` marks it `forFixedRole`, `checkGrants` and `user.setPackRole`
+accept it beside a pack role. Every other core permission still counts for nothing beside one. See
+[ADR 0783](0783-a-persons-code-the-rotating-app-code-cards-and-the-pin.md).
+
+**Amended 2026-11-24** (stage 44 step 6, [ADR 0649](0649-signing-at-the-desk.md)):
+`agreements:desk` joins `FIXED_ROLE_CORE_GRANTS`, so a coach at the desk may start a desk signing
+session. A grant of it opens exactly the core operations whose permission it is (the
+`agreement.desk.*` staff operations) and nothing else; enrolling or revoking a device stays an
+admin's.

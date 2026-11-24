@@ -13,9 +13,9 @@
 //
 // Its state is in memory, in the isolate that made it: a test makes its own, and `vite dev` keeps
 // one for the dev server's life. Never configured in a deployment (STREAM_FAKE is for dev).
+import { fromBase64url, toHex } from "../digest.ts";
 import {
   BASIC_UPLOAD_MAX_BYTES,
-  fromBase64url,
   type StreamCaption,
   type StreamPlayback,
   type StreamProvider,
@@ -82,8 +82,7 @@ export function createFakeStream(options: FakeStreamOptions): VideoHost & {
     return keys;
   };
   const newUid = () => {
-    const bytes = crypto.getRandomValues(new Uint8Array(16));
-    return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+    return toHex(crypto.getRandomValues(new Uint8Array(16)));
   };
   const live = (uid: string) => videos.get(uid);
   const notFound = () => new Response("Not found", { status: 404 });

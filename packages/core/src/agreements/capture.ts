@@ -3,11 +3,7 @@
 // and none of their values ever appears in an error: the messages name the field and the rule only,
 // so a refusal (which is audited, and may reach a log) carries no personal or health data.
 import { z } from "zod";
-import type { Question } from "./documents.ts";
-
-// biome-ignore lint/suspicious/noControlCharactersInRegex: refusing control characters is the point.
-const CONTROLS = /[\u0000-\u001f\u007f-\u009f]/;
-const BIDI_CONTROLS = /[‪-‮⁦-⁩]/;
+import { BIDI_CONTROLS, CONTROLS, type Question } from "./documents.ts";
 
 /** The name a person types (1 to 200 characters, no control or bidirectional characters). */
 export const typedNameSchema = z

@@ -724,7 +724,38 @@ function ItemEditor({
           />
         </div>
       ) : (
-        <LevelsEditor layout={layout} at={at} levels={item.levels} bank={bank} change={change} />
+        <>
+          <div className="grid gap-2" data-testid="everyone">
+            {(item.exercises ?? []).map((p, e) => (
+              <PrescriptionEditor
+                // biome-ignore lint/suspicious/noArrayIndexKey: exercises are positions in their item.
+                key={e}
+                layout={layout}
+                at={{ ...at, everyone: true, exercise: e }}
+                prescription={p}
+                bank={bank}
+                change={change}
+                removable
+              />
+            ))}
+            <ExercisePicker
+              bank={bank}
+              label="Add an exercise for everyone, beside the levels"
+              compact
+              onPick={(id) =>
+                change(
+                  layoutEdits.addExercise(
+                    layout,
+                    { ...at, everyone: true },
+                    id,
+                    measureOf(bank, id),
+                  ),
+                )
+              }
+            />
+          </div>
+          <LevelsEditor layout={layout} at={at} levels={item.levels} bank={bank} change={change} />
+        </>
       )}
       <NotesEditor
         notes={item.notes ?? []}
@@ -1528,7 +1559,7 @@ export function ProgramList({
             onClick={async () => {
               const out = await importText.mutateAsync({ text });
               setUnread(out.unread);
-              onOpen(out.programId);
+              if (out.programId) onOpen(out.programId);
             }}
           >
             Import

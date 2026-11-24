@@ -751,6 +751,20 @@ Run this against two real programs from the hosted platform, after the outline c
    reported as a conflict and kept.
 10. `--publish` as the person who decides, and check the course's page and a bundle's.
 
+## Simplifying the pack, as built (2026-11-24)
+No migration, no ADR, no change to what the pack declares: its manifest and the outline's schema
+serialise byte for byte as before. The pack and its blocks are simpler:
+
+- **One fix:** `myCourses` asked `access.check` about only the first 100 courses (its most) and
+  left out every course past the hundredth. It now asks 100 at a time.
+- **Fewer host calls:** `myCourses` asks for each bundle once, asks `access.check` once for every
+  course it may list, and reads a published course from the listing it already has (only a course
+  that listing lacks is asked for with `my.get`). `lesson` reads its one progress row.
+- **One copy of each thing:** the lesson summary, the done lessons, the progress state, the
+  agreement point, the week expression, the level names (`levelName`), and the client's
+  `formatMinor` and `day` (now `@composable-os/client`'s). The `as never` casts on the document
+  schemas and the pictures are gone.
+
 ## Still open
 - **Whether Stripe Tax can take an event's place at Checkout**: answered in build step 1, yes
   (above).

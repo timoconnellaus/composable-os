@@ -17,17 +17,9 @@ import {
 import { LogOut, MailCheck, SunMoon } from "lucide-react";
 import { useState } from "react";
 import { authClient } from "../lib/auth-client.ts";
+import { initials } from "../lib/format.ts";
 import { ConfirmEmailDialog, useEmailStatus } from "./confirm-email.tsx";
 import { type Theme, useTheme } from "./theme.tsx";
-
-function initials(name: string) {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("");
-}
 
 export function UserMenu({
   principal,
@@ -61,7 +53,7 @@ export function UserMenu({
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" className="gap-2 px-2" data-testid="user-menu">
           <Avatar className="size-7">
-            <AvatarFallback>{initials(principal.name) || "?"}</AvatarFallback>
+            <AvatarFallback>{initials(principal.name)}</AvatarFallback>
           </Avatar>
           <span className="hidden text-sm @lg:inline">{principal.name}</span>
         </Button>

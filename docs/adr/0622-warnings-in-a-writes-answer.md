@@ -66,3 +66,13 @@ strictly (a row must exist), unlike the warning. "Who may roster" is one functio
 ## Amended 2026-11-24 (stage 45 step 7, ADR 0629; a coordinator's decision)
 
 An assistant or MCP acting for a rosterer no longer gets `unavailable` warnings from `staffing.week`, `staffing.check` or `staffing.candidates` (or from Rostering's tools over them): it learns clashes and qualifications, never who is away. A person at the screen sees them as before.
+
+## Amended 2026-11-24 (stage 58 step 4, ADR 0853)
+
+Approved leave is written as a `core_staff_away` row of kind `leave`, its new `leave_request`
+column naming the request (migration 1271), so the `unavailable` warning, who is eligible for an
+offer and the notice hold for it unchanged. `staffing.back` refuses to remove such a row (the
+request is cancelled instead), `staffing.awayList` answers which rows came from a request, and once
+the business has a leave type `staffing.away` makes no new kind `leave` row: a person says `other`
+or `regular`, and leave is asked for. Rows already made stay as they are. See
+[ADR 0853](0853-leave-types-requests-the-balance-ledger-and-approved-leave-as-unavailability.md).

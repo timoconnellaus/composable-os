@@ -19,7 +19,7 @@ import {
   provisionResources,
   writeDeploymentState,
 } from "./deploy.ts";
-import { GATEWAY_TOKEN_SECRET, mergeSecrets, provisionAiGateway } from "./gateway.ts";
+import { mergeSecrets, provisionAiGateway, suppliedGatewayToken } from "./gateway.ts";
 
 export interface InstallReleaseInput {
   api: CloudflareClient;
@@ -55,14 +55,11 @@ export async function installRelease(input: InstallReleaseInput): Promise<Instal
     )),
   };
   const base: DeploymentState = { ...input.state, resources };
-  const supplied = Object.values(input.secrets).find((v) => v[GATEWAY_TOKEN_SECRET])?.[
-    GATEWAY_TOKEN_SECRET
-  ];
   const gateway = await provisionAiGateway({
     api,
     manifest,
     state: base,
-    ...(supplied ? { token: supplied } : {}),
+    ...suppliedGatewayToken(input.secrets),
     log,
   });
   const state: DeploymentState = { ...base, vars: gateway.vars, ...gateway.state };

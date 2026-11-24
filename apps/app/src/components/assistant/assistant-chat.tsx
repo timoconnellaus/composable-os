@@ -36,6 +36,7 @@ import {
 } from "react";
 import { Markdown } from "#/components/markdown";
 import { invalidateOps, useOp } from "#/lib/query";
+import { useDebounced } from "#/lib/use-debounced";
 import { useAssistant } from "./assistant-provider.tsx";
 import { ApprovalCard } from "./cards/approval.tsx";
 import { Card, CardHostContext } from "./cards/index.tsx";
@@ -452,11 +453,7 @@ export function ThreadSearch({
   autoFocus?: boolean;
   className?: string;
 }) {
-  const [debounced, setDebounced] = useState(query.trim());
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(query.trim()), 200);
-    return () => clearTimeout(timer);
-  }, [query]);
+  const debounced = useDebounced(query.trim(), 200);
   const results = useOp(
     "thread.search",
     { query: debounced, limit: 30 },

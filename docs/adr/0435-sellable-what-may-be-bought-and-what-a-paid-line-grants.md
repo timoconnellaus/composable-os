@@ -165,3 +165,10 @@ A `sellable` object that declares an agreement point (`agreements`, ADR 0641) is
 who pays refuses the purchase (`agreements_due`), and the batch carries the `agreements` guard.
 Nothing is attached by default, so a sellable with a point sells as before until a business
 attaches a document. What a paid line grants is the host's and is not asked again.
+
+## Amended 2026-11-24: `sellable.finance` (stage 52 step 2, [ADR 0792](0792-sellable-finance-categories-and-how-a-sale-is-earned.md))
+A sellable object may say what kind of sale it is in the finance reports and when its money is
+earned: `finance: { category?: { key, label }, earned?: "at_sale" | "over_period" | "per_use" |
+"at_date", at? }`, checked by `checkObjectSellable` and carried by the field registry with its
+defaults filled (`other`, `at_sale`). It labels the object's sales only: nothing about buying,
+granting or moving changes.

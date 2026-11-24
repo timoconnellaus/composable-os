@@ -19,12 +19,13 @@ import {
   shiftTime,
 } from "@composable-os/pack-rostering/client";
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { Button } from "../native-base/button.tsx";
 import { Field } from "../native-base/field.tsx";
 import { List } from "../native-base/list.tsx";
 import { Row } from "../native-base/row.tsx";
 import { Screen } from "../native-base/screen.tsx";
+import { Text } from "../native-base/text.tsx";
 
 type Hooks = Pick<RosteringHooks, "useMe" | "useMyAway" | "useAway" | "useBack" | "useOffer">;
 
@@ -143,7 +144,11 @@ export function MyAvailabilityScreen({
 
   return (
     <Screen title="My availability">
-      {me.isPending ? <Text accessibilityRole="progressbar">Loading…</Text> : null}
+      {me.isPending ? (
+        <Text tone="muted" accessibilityRole="progressbar">
+          Loading…
+        </Text>
+      ) : null}
       {me.error ? <Text accessibilityRole="alert">{rosterRefusal(me.error).message}</Text> : null}
       <Text>Times are in {zone}. Only you and whoever rosters see this.</Text>
       {said ? <Text accessibilityRole="alert">{said}</Text> : null}
@@ -263,7 +268,11 @@ export function MyAvailabilityScreen({
         <Button label="Add time off" busy={away.isPending} onPress={submit} />
       </View>
       <Text accessibilityRole="header">My time off</Text>
-      {list.isPending ? <Text accessibilityRole="progressbar">Loading…</Text> : null}
+      {list.isPending ? (
+        <Text tone="muted" accessibilityRole="progressbar">
+          Loading…
+        </Text>
+      ) : null}
       {list.data ? (
         <List empty="None from today on.">
           {list.data.items.map((item) => (

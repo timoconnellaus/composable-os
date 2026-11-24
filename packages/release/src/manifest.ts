@@ -423,8 +423,8 @@ export function gatekeeperBindingName(prefix: string, shortName: string): string
 }
 
 /** JSON with sorted keys, so manifests diff cleanly and hash stably. Arrays keep their order. */
-export function stableStringify(value: unknown, indent = 2): string {
-  return JSON.stringify(sortKeys(value), null, indent);
+export function stableStringify(value: unknown): string {
+  return JSON.stringify(sortKeys(value), null, 2);
 }
 
 function sortKeys(value: unknown): unknown {

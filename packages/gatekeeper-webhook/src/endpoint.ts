@@ -169,17 +169,26 @@ export class WebhookEndpoint extends DurableObject<Cloudflare.Env> {
     }
 
     const sql = this.ctx.storage.sql;
-    sql.exec("INSERT INTO seen (id, at) VALUES (?, ?)", event.id, now);
-    sql.exec(
-      "DELETE FROM seen WHERE at < ? OR id IN (SELECT id FROM seen ORDER BY at DESC LIMIT -1 OFFSET ?)",
-      now - SEEN_RETENTION_MS,
-      MAX_SEEN_IDS,
-    );
-    sql.exec("INSERT INTO events (id, event) VALUES (?, ?)", event.id, JSON.stringify(event));
-    sql.exec(
-      "DELETE FROM events WHERE seq NOT IN (SELECT seq FROM events ORDER BY seq DESC LIMIT ?)",
-      MAX_RECENT_EVENTS,
-    );
+    // The caps are kept by key ranges, so a delivery reads only the rows it removes, not the
+    // whole table (docs/cloudflare-costs.md). Rowids and seqs grow with each insert, and the
+    // newest row is never deleted, so "the newest N" is "above the newest key less N".
+    const seen = sql
+      .exec<{ rowid: number }>(
+        "INSERT INTO seen (id, at) VALUES (?, ?) RETURNING rowid",
+        event.id,
+        now,
+      )
+      .one();
+    sql.exec("DELETE FROM seen WHERE at < ?", now - SEEN_RETENTION_MS);
+    sql.exec("DELETE FROM seen WHERE rowid <= ?", seen.rowid - MAX_SEEN_IDS);
+    const stored = sql
+      .exec<{ seq: number }>(
+        "INSERT INTO events (id, event) VALUES (?, ?) RETURNING seq",
+        event.id,
+        JSON.stringify(event),
+      )
+      .one();
+    sql.exec("DELETE FROM events WHERE seq <= ?", stored.seq - MAX_RECENT_EVENTS);
     stats.accepted++;
     stats.lastReceivedAt = event.receivedAt;
     this.ctx.storage.kv.put(STATS, stats);

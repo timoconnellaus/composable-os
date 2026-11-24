@@ -143,3 +143,21 @@ unknown field in a post file let through (1).
   a staff device token only, under the same rules as `POST /api/v1/media`.
 - A video's row keeps a SHA-256 too (`media.videoUpload`'s and `media.videoFromUrl`'s `sha256`), so
   `media.findByHash` finds videos on a re-run as it finds pictures.
+
+## Amended 2026-11-24 (stage 41, `cos programs import`)
+- **What the door writes starts nothing.** Records `record.import` writes were made before,
+  somewhere else: a past session, a set done last year, an old post. Its events are now always
+  bulk (`isBulkOperation`, whatever the batch's size) and carry `origin.imported`; the record
+  trigger source skips them even for an automation with `includeBulk`, and notification routes
+  skip them. Before, a call of one record was not bulk and could start an automation; a call of
+  several skipped all but `includeBulk` ones. Proof: `apps/app/test/programs-import.test.ts` (an
+  imported set matches neither an `includeBulk` automation nor a route; the same set written by a
+  person matches both) and `packages/core/test/automations.test.ts`.
+- **Erase reaches the door's own table.** `core_import_key` rows whose record was erased, or whose
+  key or `written` values name the subject, are deleted in the erase's batch (`records/erase.ts`,
+  3h). An import's `written` holds what it wrote (a set's person, its notes), which is the
+  subject's data. Proof: `apps/app/test/programs-import.test.ts`.
+- A third command on the door, `cos programs import` (ADR 0448, amended), with the same shape as
+  the courses import: the folder checked before signing in, every record dry-run on the host, then
+  the batches in order.
+

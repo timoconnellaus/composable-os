@@ -18,8 +18,7 @@ import {
   statSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
-import { sessionHost } from "../import-door/host.ts";
-import { confirmer, signInForRun } from "../import-door/sign-in.ts";
+import { confirmer, hostOf, withRunSession } from "../import-door/sign-in.ts";
 import type { Io } from "../io.ts";
 import { coursesReportLines, runCoursesImport, type VideoSource } from "./engine.ts";
 import { type CoursesFolder, readCoursesFolder } from "./format.ts";
@@ -117,11 +116,8 @@ export async function coursesImport(
     );
     return 2;
   }
-  const host = flags.host?.replace(/\/+$/, "");
-  if (!host || !/^https?:\/\//.test(host)) {
-    io.err("--host is the host's address, e.g. https://admin.example.com");
-    return 2;
-  }
+  const host = hostOf(flags.host, io);
+  if (!host) return 2;
   const plan = readCoursesFolder(readCoursesDisk(dir));
   if (plan.problems.length) {
     io.err(`Nothing was written: ${plan.problems.length} problem(s) in ${dir}.`);
@@ -132,39 +128,25 @@ export async function coursesImport(
     `${plan.courses.length} course(s), ${plan.bundles.length} bundle(s), ${plan.videos.size} video(s), ${plan.access.length} access row(s) and ${plan.progress?.length ?? 0} progress row(s) in ${dir}.`,
   );
   const videos = new Map<string, VideoSource>();
-  for (const [ref, v] of plan.videos) {
+  for (const v of plan.videos.values()) {
     if (v.file) {
       io.out(`Reading videos/${v.file}…`);
       videos.set(v.file, videoOnDisk(join(resolve(dir), "videos", v.file)));
     }
-    void ref;
   }
 
-  let session: Awaited<ReturnType<typeof signInForRun>>;
-  try {
-    session = await signInForRun(host, flags.email, io, "cos courses import");
-  } catch (error) {
-    io.err(`Could not sign in: ${(error as Error).message}`);
-    return 1;
-  }
-  try {
-    const report = await runCoursesImport(
-      plan,
-      sessionHost(host, () => session.headers()),
-      {
-        dryRun: Boolean(flags.dryRun),
-        publish: Boolean(flags.publish),
-        confirm: confirmer(io, flags.yes),
-        videoFiles: (name) => videos.get(name),
-        waitMs: (flags.wait ?? 10) * 60_000,
-        progress: (line) => io.out(line),
-      },
-    );
+  return withRunSession(host, flags.email, io, "cos courses import", async (on) => {
+    const report = await runCoursesImport(plan, on, {
+      dryRun: Boolean(flags.dryRun),
+      publish: Boolean(flags.publish),
+      confirm: confirmer(io, flags.yes),
+      videoFiles: (name) => videos.get(name),
+      waitMs: (flags.wait ?? 10) * 60_000,
+      progress: (line) => io.out(line),
+    });
     for (const line of coursesReportLines(report, Boolean(flags.dryRun))) {
       (report.problems.length ? io.err : io.out)(line);
     }
     return report.problems.length ? 1 : report.waiting.length ? 3 : 0;
-  } finally {
-    await session.signOut();
-  }
+  });
 }
