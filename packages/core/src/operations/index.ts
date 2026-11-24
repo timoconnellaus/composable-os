@@ -41,6 +41,7 @@ import { extensionOperations } from "./extension.ts";
 import { extensionAuthoringOperations } from "./extension-authoring.ts";
 import { extensionUiOperations } from "./extension-ui.ts";
 import { fieldOptionsOperations } from "./field-options.ts";
+import { financeOperations } from "./finance.ts";
 import { importOperations } from "./import.ts";
 import { importRecordsOperations } from "./import-records.ts";
 import { integrationOperations } from "./integration.ts";
@@ -179,6 +180,7 @@ export const coreOperations = [
   ...staffingPayOperations,
   ...staffingScreenOperations,
   ...checklistOperations,
+  ...financeOperations,
   ...allowanceOperations,
   ...waitlistOperations,
   ...agreementOperations,

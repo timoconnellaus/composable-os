@@ -1694,6 +1694,26 @@ open offer on a plan object, or a subscription from one that has not ended, gets
 (`subscription.offer.list`, `.export`; the Subscriptions section's Continuation offers) lists who
 took theirs and when they are charged from.
 
+**Finance** (stage 52, step 1 built: ADRs [0790](adr/0790-finance-periods-the-business-day-and-the-monthly-close.md),
+[0791](adr/0791-the-figures-for-the-books-book-entries.md) and
+[0794](adr/0794-finance-read-and-finance-close.md), `packages/core/src/finance/`, migration 1150).
+Core, not a pack: the figures for the books are read from orders, payments, refunds, payouts and
+stored value. Every date is a business day, local in the organisation's zone (`finance/day.ts`). The
+business closes each calendar month (`finance.close`, a person with `finance:close`) once it has
+ended and the month before is closed: one batch, guarded by what it read (`core_finance_guard`,
+`finance_changed`), writes a version of the month (`core_finance_period`) with its book entries and
+lines (`core_finance_entry`, `core_finance_entry_line`: one per business day, payout, held balance
+or late arrival; balanced, keyed the same in every version, fingerprinted), its report rows
+(`core_finance_row`) and every source it counted (`core_finance_counted`, so a source is counted in
+one month only). Triggers keep a closed version as it was for every writer (an erase may only
+replace a row's person). The close never refuses a money event: what arrives for a closed month is
+counted in the first open month, marked as belonging to it. Reopening (`finance.reopen`, with why)
+keeps the version; closing again writes the next. A month keeps the zone it was closed in. The
+tables are in no `rec_*` view. `finance:read` and `finance:close` are admins' and grantable; an AI
+reads figures and never closes, reopens or changes the settings (`finance.settings.update`, a human
+admin's). The reports, the files (`csvText`, shared in `packages/core/src/csv.ts` with the pay
+export), payouts and the screens are the stage's later steps.
+
 **`capacity`** (stage 26, ADRs 0430 to 0433). An object names its places field and, optionally, a
 pool (a relation to a parent object with a capacity, one level). The host keeps a counter per record
 in `core_capacity`, created and updated by `record.create`, `record.update` and the import in the

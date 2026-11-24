@@ -32351,6 +32351,394 @@
       ]
     },
     {
+      "name": "finance.close",
+      "description": "Close a month's finance figures: its book entries and report rows are written as the host's figures stand now and never change. A month is closed once it has ended and the month before it is closed; closing a reopened month writes its next version and keeps the old. Payments and refunds that arrive later are never refused: they are counted in the first open month, marked as belonging to this one. A person only, with finance:close. Refused when anything it read changed meanwhile (try again).",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "month": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])$",
+            "description": "The month, YYYY-MM"
+          }
+        },
+        "required": [
+          "month"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "month": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "entries": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "id",
+          "month",
+          "version",
+          "entries"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "finance.periods",
+        "finance.settings.get"
+      ]
+    },
+    {
+      "name": "finance.periods",
+      "description": "List the business's finance months: the current month and up to 24 before it (none before the first month finance counts), each with its local dates and zone, whether it is open or closed, whether it has ended and can be closed now, and its versions (who closed it and when; who reopened it). States and versions only, no figures. Needs finance:read.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string"
+          },
+          "firstMonth": {
+            "type": "string"
+          },
+          "currentMonth": {
+            "type": "string"
+          },
+          "periods": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "month": {
+                  "type": "string"
+                },
+                "start": {
+                  "type": "string"
+                },
+                "end": {
+                  "type": "string"
+                },
+                "zone": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "open",
+                    "closed"
+                  ],
+                  "description": "closed: its latest version is closed"
+                },
+                "ended": {
+                  "type": "boolean"
+                },
+                "closable": {
+                  "type": "boolean",
+                  "description": "It has ended, is open, and the month before it is closed"
+                },
+                "versions": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "closed",
+                          "reopened"
+                        ]
+                      },
+                      "closedBy": {
+                        "type": "string"
+                      },
+                      "closedByName": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "closedAt": {
+                        "type": "string"
+                      },
+                      "entries": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "reopenedBy": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "reopenedByName": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "reopenedAt": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "version",
+                      "state",
+                      "closedBy",
+                      "closedByName",
+                      "closedAt",
+                      "entries",
+                      "reopenedBy",
+                      "reopenedByName",
+                      "reopenedAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "month",
+                "start",
+                "end",
+                "zone",
+                "state",
+                "ended",
+                "closable",
+                "versions"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "zone",
+          "firstMonth",
+          "currentMonth",
+          "periods"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "finance.reopen",
+      "description": "Reopen a closed month, with why: its closed version and files are kept as they were, and closing it again writes the next version. Every later closed month must be reopened first. A person only, with finance:close.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "month": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])$",
+            "description": "The month, YYYY-MM"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "month",
+          "reason"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "month": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "id",
+          "month",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "finance.periods",
+        "finance.settings.get"
+      ]
+    },
+    {
+      "name": "finance.settings.get",
+      "description": "Read the finance settings: the financial year's first month (1 to 12, used only to add months into a year), the first month finance counts (the month it was installed unless an admin picked an earlier one), and the labels given to sales categories. Needs finance:read.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "yearStartMonth": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 12
+          },
+          "firstPeriod": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "categoryLabels": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "firstMonth": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "yearStartMonth",
+          "firstPeriod",
+          "categoryLabels",
+          "firstMonth"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "finance.settings.update",
+      "description": "Change the finance settings: the financial year's first month, an earlier first month to count from (only before any month is closed), and labels for sales categories (a category key to its label; an empty label removes it). Leave a setting out to keep it. A human admin in the app only.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "yearStartMonth": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 12
+          },
+          "firstPeriod": {
+            "description": "Null: the month finance was installed",
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d{4}-(0[1-9]|1[0-2])$",
+                "description": "The month, YYYY-MM"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "categoryLabels": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "maxLength": 60,
+              "pattern": "^[a-z][a-z0-9_]*$"
+            },
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 60
+            }
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "yearStartMonth": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 12
+          },
+          "firstPeriod": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "categoryLabels": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "yearStartMonth",
+          "firstPeriod",
+          "categoryLabels"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "finance.periods",
+        "finance.settings.get"
+      ]
+    },
+    {
       "name": "import.csv.commit",
       "description": "Apply a CSV import planned by import.csv.preview: pass the same object, csv, mapping and any per-row overrides. The plan is recomputed against current data, then every create and update (people, emails, phones, tags, organisations, affiliations) is written in one transaction with an audit diff per record. Handles at least 5,000 rows. Bulk write: AI and automation callers may need approval above the policy's bulk threshold. Returns counts and the id written for each row.",
       "risk": "bulk-write",

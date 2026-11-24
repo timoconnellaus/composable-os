@@ -73,7 +73,7 @@ commit**, by editing this table. Use the next free block. Unused numbers in a bl
 | BK | 1090–1109 | 0760–0769 | Stage 49, Appointments (spec `docs/stages/49-appointments.md`) | specced |
 | BL | 1110–1129 | 0770–0779 | Stage 50, Till (spec `docs/stages/50-till.md`) | specced |
 | BM | 1130–1149 | 0780–0789 | Stage 51, Kiosk check-in (spec `docs/stages/51-kiosk-check-in.md`) | specced |
-| BN | 1150–1169 | 0790–0799 | Stage 52, Finance reports (spec `docs/stages/52-finance-reports.md`) | specced |
+| BN | 1150–1169 | 0790–0799 | Stage 52, Finance reports (spec `docs/stages/52-finance-reports.md`). Step 1, periods, the close and the entries tables (`feat/stage-52-periods-entries`): migration 1150, ADRs 0790, 0791 and 0794 (no `core_write_guard` remake). Later steps: migrations 1151 and 1152 and ADRs 0792, 0793 and 0795 as the spec names them; next free otherwise migration 1153, ADR 0796 | in flight |
 | BO | 1170–1189 | 0800–0809 | Stage 53, Journeys (spec `docs/stages/53-journeys.md`) | specced |
 | BP | 1190–1209 | 0810–0819 | Stage 54, Reviews (spec `docs/stages/54-reviews.md`) | specced |
 | BQ | 1210–1229 | 0820–0829 | Stage 55, Website builder (spec `docs/stages/55-website-builder.md`) | specced |

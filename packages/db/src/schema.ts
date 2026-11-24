@@ -1572,6 +1572,80 @@ export interface CorePayLineTable {
   flagged: number;
 }
 
+/** Migration 1150 (stage 52 step 1, ADR 0790): one version of one closed month. */
+export interface CoreFinancePeriodTable {
+  id: string;
+  /** `YYYY-MM`. */
+  month: string;
+  start_date: string;
+  end_date: string;
+  zone: string;
+  /** Local midnights as unix seconds, half-open. */
+  starts: number;
+  ends: number;
+  version: number;
+  state: "closing" | "closed" | "reopened";
+  closed_by: string;
+  closed_at: string;
+  entry_count: number;
+  line_count: number;
+  row_count: number;
+  reopened_by: string | null;
+  reopened_at: string | null;
+  reopen_reason: string | null;
+}
+
+/** Migration 1150 (stage 52 step 1, ADR 0791): one book entry of a closed version. */
+export interface CoreFinanceEntryTable {
+  period_id: string;
+  entry_key: string;
+  n: number;
+  kind: "day" | "payout" | "held" | "late";
+  date: string;
+  belongs_to: string | null;
+  fingerprint: string;
+}
+
+/** Migration 1150 (stage 52 step 1, ADR 0791): one line of a book entry. */
+export interface CoreFinanceEntryLineTable {
+  period_id: string;
+  entry_key: string;
+  n: number;
+  heading: string;
+  side: "debit" | "credit";
+  amount: number;
+  tax_code: string | null;
+  tax_country: string | null;
+  method: string | null;
+  category: string | null;
+}
+
+/** Migration 1150 (stage 52 step 1, ADR 0790): a report's row as a version closed it. */
+export interface CoreFinanceRowTable {
+  period_id: string;
+  report: "sales" | "tax" | "refunds" | "payouts" | "owed" | "held" | "unearned" | "members";
+  n: number;
+  person_id: string | null;
+  name: string | null;
+  email: string | null;
+  /** JSON: the row's amounts, dates and order ids, never a name. */
+  data: string;
+}
+
+/** Migration 1150 (stage 52 step 1, ADR 0790): a source a version counted. */
+export interface CoreFinanceCountedTable {
+  source_kind: string;
+  source_id: string;
+  period_id: string;
+  month: string;
+}
+
+/** Migration 1150 (stage 52 step 1, ADR 0790): the close's guard; nothing is stored. */
+export interface CoreFinanceGuardTable {
+  expected: number;
+  actual: number;
+}
+
 /** Migration 0812 (stage 45, ADR 0624): the local date the roster's daily work last ran. */
 export interface CoreStaffRunTable {
   name: string;
@@ -3012,6 +3086,12 @@ export interface CoreDatabase {
   core_staff_not_worked: CoreStaffNotWorkedTable;
   core_pay_period: CorePayPeriodTable;
   core_pay_line: CorePayLineTable;
+  core_finance_period: CoreFinancePeriodTable;
+  core_finance_entry: CoreFinanceEntryTable;
+  core_finance_entry_line: CoreFinanceEntryLineTable;
+  core_finance_row: CoreFinanceRowTable;
+  core_finance_counted: CoreFinanceCountedTable;
+  core_finance_guard: CoreFinanceGuardTable;
   core_write_guard: CoreWriteGuardTable;
   core_allowance: CoreAllowanceTable;
   core_allowance_period: CoreAllowancePeriodTable;

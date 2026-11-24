@@ -28,7 +28,7 @@
   },
   "channel": "stable",
   "commit": "0123456789abcdef0123456789abcdef01234567",
-  "coreSchemaVersion": 857,
+  "coreSchemaVersion": 1150,
   "extensionContract": {
     "supported": [
       1
@@ -614,6 +614,10 @@
     {
       "name": "0857_agreement_copy_guardian.sql",
       "sha256": "de4d547480821eea343eaa81437f54d6b90926759211713f53d4ab86acf50c60"
+    },
+    {
+      "name": "1150_finance_periods.sql",
+      "sha256": "f00ea7db2b5af20416d07dbeb797fdc551ba5cbff3eaacdbc6eeaa94158bc56d"
     }
   ],
   "product": "crm",

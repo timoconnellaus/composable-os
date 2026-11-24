@@ -90,6 +90,11 @@ export type Role = (typeof ROLES)[number];
  *   Admins by default, grantable as `orders:refund` is. An AI acting for an account that holds it
  *   may draft one; its write always waits for a person who holds it too, so a checklist staff are
  *   asked to follow is always one a person approved.
+ * - `finance:read` see the finance reports and their periods, and download their files (stage 52,
+ *   ADR 0794). Admins by default, grantable as `orders:refund` is (a manager, a bookkeeper). An AI
+ *   acting for an account that holds it may read figures; downloading a file is a person's only.
+ * - `finance:close` close and reopen a month's figures (stage 52, ADR 0794). Admins by default,
+ *   grantable; a person only whatever is granted (the operations are `actors: ["human"]`).
  */
 export const PERMISSIONS = [
   "records:read",
@@ -109,6 +114,8 @@ export const PERMISSIONS = [
   "agreements:paper",
   "agreements:health",
   "checklists:write",
+  "finance:read",
+  "finance:close",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -146,6 +153,8 @@ export const GRANTABLE_PERMISSIONS = [
   "agreements:paper",
   "agreements:health",
   "checklists:write",
+  "finance:read",
+  "finance:close",
 ] as const;
 
 /**

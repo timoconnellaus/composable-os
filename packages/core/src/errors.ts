@@ -332,6 +332,35 @@ export function toOperationError(error: unknown): OperationError {
       rule: "offer_fixed",
     });
   }
+  // A month's close planned from a read of the figures that changed before it committed
+  // (migration 1150, ADR 0790): a payment or refund recorded meanwhile. Nothing was closed.
+  if (message.includes("core_finance_changed")) {
+    return new ConflictError(
+      "The figures changed while this month was being closed, so it was not closed. Try again.",
+      { rule: "finance_changed" },
+    );
+  }
+  // Two closes of one month at once (migration 1150): the second found the first's version.
+  if (
+    message.includes("core_finance_period_held") ||
+    message.includes("core_finance_period_overlap")
+  ) {
+    return new ConflictError(
+      "This month is already closed, or being closed, so nothing was changed.",
+      {
+        rule: "finance_period_closed",
+      },
+    );
+  }
+  // A closed version never changes (migration 1150, ADR 0790), for any writer.
+  if (
+    message.includes("core_finance_period_fixed") ||
+    message.includes("core_finance_counted_twice")
+  ) {
+    return new ConflictError("A closed month's figures never change, so nothing was changed.", {
+      rule: "finance_period_fixed",
+    });
+  }
   // A checklist run closed (done, missed or cancelled) never changes (migration 0815, ADR 0650),
   // for any writer: its ticks, its steps and its state stay as they were. The answer names no note.
   if (message.includes("core_checklist_closed")) {

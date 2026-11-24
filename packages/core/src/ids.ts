@@ -107,6 +107,8 @@ export const ID_PREFIXES = {
   checklistNote: "ckn",
   /** One tick of a checklist run's step, never changed (ADR 0650). */
   checklistTick: "ckt",
+  /** One closed version of a finance month (stage 52, ADR 0790). */
+  financePeriod: "fip",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;
