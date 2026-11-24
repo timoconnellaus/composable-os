@@ -51,10 +51,14 @@ const OPENED = [
   "me.agreements.pdf",
   // Stage 48 step 4 (ADR 0711): what needs the caller's attention.
   "me.attention",
+  // Stage 51 step 3 (ADR 0783): the caller's own check-in code and PIN.
+  "me.code",
   "me.deleteAccount",
   // Stage 31a step 6 (ADR 0540): the caller's own family links.
   "me.family",
   "me.get",
+  "me.pin.clear",
+  "me.pin.set",
   "me.sessions.list",
   "me.sessions.revoke",
   "me.signOut",
@@ -86,7 +90,10 @@ describe("what this step opens", () => {
           "me.agreements.list",
           "me.agreements.pdf",
           "me.attention",
+          "me.code",
           "me.deleteAccount",
+          "me.pin.clear",
+          "me.pin.set",
           "me.sessions.list",
           "me.sessions.revoke",
           "me.signOut",

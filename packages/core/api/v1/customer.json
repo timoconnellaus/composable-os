@@ -1741,6 +1741,83 @@
       "invalidates": []
     },
     {
+      "name": "me.code",
+      "description": "Your check-in code, as a signed-in customer: the code to hold up at the gym's check-in tablet, and one for each child linked to you (by their given name), each changing every 30 seconds. It works only while this sign-in lasts. In the native app it also carries the secret the app makes the code from offline. Made the first time it is asked for on a sign-in.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "codes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "givenName": {
+                  "type": ["string", "null"]
+                },
+                "own": {
+                  "type": "boolean"
+                },
+                "payload": {
+                  "type": "string"
+                },
+                "secret": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["givenName", "own", "payload", "secret"],
+              "additionalProperties": false
+            }
+          },
+          "refreshAt": {
+            "type": "string"
+          },
+          "algorithm": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "totp"
+              },
+              "hash": {
+                "type": "string",
+                "const": "SHA-1"
+              },
+              "periodSeconds": {
+                "type": "number"
+              },
+              "digits": {
+                "type": "number"
+              }
+            },
+            "required": ["kind", "hash", "periodSeconds", "digits"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["codes", "refreshAt", "algorithm"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.family",
+        "me.get",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
+    },
+    {
       "name": "me.deleteAccount",
       "description": "Delete your customer account and ask for your personal data to be erased. You are signed out everywhere at once and can no longer sign in. Staff then erase your data, or tell you by email why some of it must be kept, by the due date returned. Asking again changes nothing.",
       "risk": "write",
@@ -1908,6 +1985,82 @@
         "additionalProperties": false
       },
       "invalidates": []
+    },
+    {
+      "name": "me.pin.clear",
+      "description": "Remove your PIN, as a signed-in customer: nobody can then check in as you by name and PIN. Your check-in code and cards still work. Clearing when there is none changes nothing.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "cleared": {
+            "type": "boolean"
+          }
+        },
+        "required": ["cleared"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.family",
+        "me.get",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
+    },
+    {
+      "name": "me.pin.set",
+      "description": "Choose your 4-digit PIN, as a signed-in customer, to check in at the gym's tablet by typing your full name and the PIN when you do not have your phone. The most common PINs (1234, 0000 and the like) are refused. Setting it again replaces it, and turns it back on after too many wrong tries turned it off.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "pin": {
+            "type": "string",
+            "maxLength": 16,
+            "description": "4 digits"
+          }
+        },
+        "required": ["pin"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "set": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": ["set"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.family",
+        "me.get",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
     },
     {
       "name": "me.sessions.list",

@@ -25,6 +25,7 @@ import { automationOperations } from "./automation.ts";
 import { automationBindingOperations } from "./automation-binding.ts";
 import { capacityOperations } from "./capacity.ts";
 import { checklistOperations } from "./checklist.ts";
+import { checklistDayOperations } from "./checklist-days.ts";
 import { codeOperations } from "./code.ts";
 import { connectedAppOperations } from "./connected-app.ts";
 import { contentOperations } from "./content.ts";
@@ -59,6 +60,7 @@ import { notificationDeliveryOperations } from "./notification-delivery.ts";
 import { orderOperations } from "./order.ts";
 import { organisationOperations } from "./organisation.ts";
 import { personOperations } from "./person.ts";
+import { personCodeOperations } from "./person-code.ts";
 import { personLinkOperations } from "./person-link.ts";
 import { personWithRecordOperations } from "./person-with-record.ts";
 import { planOperations } from "./plan.ts";
@@ -81,6 +83,7 @@ import { staffingFeedOperations } from "./staffing-feed.ts";
 import { staffingHoursOperations } from "./staffing-hours.ts";
 import { staffingPayOperations } from "./staffing-pay.ts";
 import { staffingScreenOperations } from "./staffing-screens.ts";
+import { staffingTimeOperations } from "./staffing-time.ts";
 import { stateResolveOperations } from "./state-resolve.ts";
 import { subscriptionOperations } from "./subscription.ts";
 import { subscriptionOfferOperations } from "./subscription-offer.ts";
@@ -174,6 +177,7 @@ export const coreOperations = [
   ...meOperations,
   ...meAttentionOperations,
   ...personLinkOperations,
+  ...personCodeOperations,
   ...orderOperations,
   ...subscriptionOperations,
   ...subscriptionOfferOperations,
@@ -184,9 +188,11 @@ export const coreOperations = [
   ...staffingFeedOperations,
   ...staffingHoursOperations,
   ...staffingPayOperations,
+  ...staffingTimeOperations,
   ...staffingScreenOperations,
   ...screenOperations,
   ...checklistOperations,
+  ...checklistDayOperations,
   ...allowanceOperations,
   ...waitlistOperations,
   ...agreementOperations,

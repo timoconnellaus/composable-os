@@ -15,7 +15,7 @@ import type { AnyOperation, HandlerContext } from "../operation.ts";
 import { loadStaffRights, staffAuthority } from "../pack-roles.ts";
 import { redactInput } from "../pipeline.ts";
 import { holdsPermission } from "../principals.ts";
-import { movesStartedShiftCall, touchesRoster } from "../staffing/approvals.ts";
+import { rosterChangeCall } from "../staffing/approvals.ts";
 import { isRosterer, rosteringDeclared } from "../staffing/rosterers.ts";
 
 async function operationOf(
@@ -40,8 +40,7 @@ async function couldApprove(
   } else if (!holdsPermission(ctx.user, ctx.permissionGrants, "records:write")) {
     return false;
   }
-  const roster =
-    touchesRoster(op.name, input) || (await movesStartedShiftCall(ctx.db, op.name, input, ctx.now));
+  const roster = await rosterChangeCall(ctx.db, op.name, input, ctx.now);
   if (roster && (await rosteringDeclared(ctx.db))) {
     return isRosterer(ctx.db, ctx.user.id);
   }
