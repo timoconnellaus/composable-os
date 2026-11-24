@@ -653,21 +653,27 @@ export class AssistantAgent extends withAssistantVoice(Agent<Cloudflare.Env>) im
     return true;
   }
 
+  /** The next turn's number: one past the last in the messages or in thread_turns. */
+  #nextTurn(): number {
+    return (
+      Math.max(
+        this.#messages.lastTurn(),
+        Number(
+          this.ctx.storage.sql
+            .exec<{ turn: number | null }>("SELECT MAX(turn) AS turn FROM thread_turns")
+            .toArray()[0]?.turn ?? 0,
+        ),
+      ) + 1
+    );
+  }
+
   #startTurn(request: TurnRequest): RunningTurn {
     this.#assertOwner(request.userId);
     if (this.#running) {
       throw new ThreadError(409, "A reply is still being written. Wait for it, or stop it.");
     }
     const store = this.#messages;
-    const turn =
-      Math.max(
-        store.lastTurn(),
-        Number(
-          this.ctx.storage.sql
-            .exec<{ turn: number | null }>("SELECT MAX(turn) AS turn FROM thread_turns")
-            .toArray()[0]?.turn ?? 0,
-        ),
-      ) + 1;
+    const turn = this.#nextTurn();
     const now = new Date().toISOString();
     // The person's words are kept at once (the tail is added when the turn is assembled).
     const [user] = store.append([
@@ -841,15 +847,7 @@ export class AssistantAgent extends withAssistantVoice(Agent<Cloudflare.Env>) im
   ): Promise<{ seq: number }> {
     while (this.#running) await this.#running.done;
     const store = this.#messages;
-    const turn =
-      Math.max(
-        store.lastTurn(),
-        Number(
-          this.ctx.storage.sql
-            .exec<{ turn: number | null }>("SELECT MAX(turn) AS turn FROM thread_turns")
-            .toArray()[0]?.turn ?? 0,
-        ),
-      ) + 1;
+    const turn = this.#nextTurn();
     const now = new Date().toISOString();
     const [message] = store.append([{ turn, role: "assistant", via, parts, createdAt: now }]);
     this.ctx.storage.sql.exec(
