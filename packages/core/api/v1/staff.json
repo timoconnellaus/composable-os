@@ -56559,6 +56559,36 @@
                   "type": "string"
                 }
               },
+              "birthday": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "day": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 31,
+                        "description": "Day of the month, 1 to 31"
+                      },
+                      "month": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 12,
+                        "description": "Month, 1 (January) to 12 (December)"
+                      }
+                    },
+                    "required": [
+                      "day",
+                      "month"
+                    ],
+                    "additionalProperties": false,
+                    "description": "A birthday: day and month only, never a year"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "jobTitle": {
                 "type": [
                   "string",
@@ -56641,6 +56671,7 @@
               "ownerId",
               "description",
               "tags",
+              "birthday",
               "jobTitle",
               "primaryAffiliation",
               "createdAt",
@@ -57179,6 +57210,36 @@
               "type": "string"
             }
           },
+          "birthday": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "day": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 31,
+                    "description": "Day of the month, 1 to 31"
+                  },
+                  "month": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 12,
+                    "description": "Month, 1 (January) to 12 (December)"
+                  }
+                },
+                "required": [
+                  "day",
+                  "month"
+                ],
+                "additionalProperties": false,
+                "description": "A birthday: day and month only, never a year"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "jobTitle": {
             "type": [
               "string",
@@ -57308,6 +57369,7 @@
           "ownerId",
           "description",
           "tags",
+          "birthday",
           "jobTitle",
           "primaryAffiliation",
           "createdAt",
@@ -57704,7 +57766,7 @@
     },
     {
       "name": "person.erase",
-      "description": "Permanently delete a person now, for GDPR erasure requests (admins only). Works on live people and people in Trash, and also erases anyone merged into them. Emails, phones, affiliations and tags go; activities and tasks linked only to them are deleted; system activities about them (field changes, job changes, merges) are removed from every timeline. Audit-log content that mentions them (their id, emails or phone numbers) is replaced with \"[erased]\"; who did what and when is kept. In-app assistant conversations that referenced them are redacted the same way (tool calls and results that mention them lose their content; their ids, emails, phone numbers and names in text become \"[erased]\"). Former emails and phones count too. Synced email bodies, suggested contacts, signatures, extension data related to them, automation run history and notifications about them are deleted or redacted, and their addresses are added to the erased-address list so mail sync does not collect them again. Their customer account, its sessions and sign-in codes, invites for their addresses and their erase requests are deleted (an open request is closed as erased). Their health answers and minor mark are deleted; what they agreed to is kept, no longer theirs, as the business's evidence until the retention period ends (agreement.retention, counted from the erase), then deleted: agreementsKept says how many and until when. Cannot be undone; use person.delete for a reversible delete.",
+      "description": "Permanently delete a person now, for GDPR erasure requests (admins only). Works on live people and people in Trash, and also erases anyone merged into them. Emails, phones, affiliations and tags go; activities and tasks linked only to them are deleted; system activities about them (field changes, job changes, merges) are removed from every timeline. Audit-log content that mentions them (their id, emails or phone numbers) is replaced with \"[erased]\"; who did what and when is kept. In-app assistant conversations that referenced them are redacted the same way (tool calls and results that mention them lose their content; their ids, emails, phone numbers and names in text become \"[erased]\"). Former emails and phones count too. Synced email bodies, suggested contacts, signatures, extension data related to them, automation run history and notifications about them are deleted or redacted, and their addresses are added to the erased-address list so mail sync does not collect them again. Their customer account, its sessions and sign-in codes, invites for their addresses and their erase requests are deleted (an open request is closed as erased). Their birthday, health answers and minor mark are deleted; what they agreed to is kept, no longer theirs, as the business's evidence until the retention period ends (agreement.retention, counted from the erase), then deleted: agreementsKept says how many and until when. Cannot be undone; use person.delete for a reversible delete.",
       "risk": "destructive",
       "audiences": [
         "staff"
@@ -58000,6 +58062,36 @@
               "type": "string"
             }
           },
+          "birthday": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "day": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 31,
+                    "description": "Day of the month, 1 to 31"
+                  },
+                  "month": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 12,
+                    "description": "Month, 1 (January) to 12 (December)"
+                  }
+                },
+                "required": [
+                  "day",
+                  "month"
+                ],
+                "additionalProperties": false,
+                "description": "A birthday: day and month only, never a year"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "jobTitle": {
             "type": [
               "string",
@@ -58082,6 +58174,7 @@
           "ownerId",
           "description",
           "tags",
+          "birthday",
           "jobTitle",
           "primaryAffiliation",
           "createdAt",
@@ -58859,7 +58952,7 @@
     },
     {
       "name": "person.merge",
-      "description": "Merge a duplicate person (mergedId) into another (survivorId). The survivor keeps its own values unless fields says to take the duplicate's (per field: 'survivor' or 'merged'); empty survivor fields are filled from the duplicate. Emails, phones, social profiles and tags are combined, and the duplicate's affiliations, activity links and task links move to the survivor (the survivor keeps its primary affiliation if it has one). The duplicate goes to Trash pointing at the survivor, and can be restored from there (without what moved). A customer account moves to the survivor; when both people have one, the merge is refused until staff disable one (the disabled one is then deleted). Returns the survivor.",
+      "description": "Merge a duplicate person (mergedId) into another (survivorId). The survivor keeps its own values unless fields says to take the duplicate's (per field: 'survivor' or 'merged'); empty survivor fields are filled from the duplicate (the birthday too: the survivor's is kept unless it has none). Emails, phones, social profiles and tags are combined, and the duplicate's affiliations, activity links and task links move to the survivor (the survivor keeps its primary affiliation if it has one). The duplicate goes to Trash pointing at the survivor, and can be restored from there (without what moved). A customer account moves to the survivor; when both people have one, the merge is refused until staff disable one (the disabled one is then deleted). Returns the survivor.",
       "risk": "destructive",
       "audiences": [
         "staff"
@@ -59050,6 +59143,36 @@
               "type": "string"
             }
           },
+          "birthday": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "day": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 31,
+                    "description": "Day of the month, 1 to 31"
+                  },
+                  "month": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 12,
+                    "description": "Month, 1 (January) to 12 (December)"
+                  }
+                },
+                "required": [
+                  "day",
+                  "month"
+                ],
+                "additionalProperties": false,
+                "description": "A birthday: day and month only, never a year"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "jobTitle": {
             "type": [
               "string",
@@ -59181,6 +59304,7 @@
           "ownerId",
           "description",
           "tags",
+          "birthday",
           "jobTitle",
           "primaryAffiliation",
           "createdAt",
@@ -59359,6 +59483,36 @@
               "type": "string"
             }
           },
+          "birthday": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "day": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 31,
+                    "description": "Day of the month, 1 to 31"
+                  },
+                  "month": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 12,
+                    "description": "Month, 1 (January) to 12 (December)"
+                  }
+                },
+                "required": [
+                  "day",
+                  "month"
+                ],
+                "additionalProperties": false,
+                "description": "A birthday: day and month only, never a year"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "jobTitle": {
             "type": [
               "string",
@@ -59441,6 +59595,329 @@
           "ownerId",
           "description",
           "tags",
+          "birthday",
+          "jobTitle",
+          "primaryAffiliation",
+          "createdAt",
+          "createdBy",
+          "updatedAt",
+          "deletedAt",
+          "mergedIntoId"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "person.get",
+        "person.link.list",
+        "person.link.mergePlan",
+        "person.list"
+      ]
+    },
+    {
+      "name": "person.setBirthday",
+      "description": "Record a person's birthday: day and month only, never a year (null removes it). A birthday journey starts on it, in the business's time zone. Only a person on the staff may change a birthday the member gave themselves. Returns the person.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 64,
+            "format": "starts_with",
+            "pattern": "^per_.*",
+            "description": "Person id (per_…)"
+          },
+          "birthday": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "day": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 31,
+                    "description": "Day of the month, 1 to 31"
+                  },
+                  "month": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 12,
+                    "description": "Month, 1 (January) to 12 (December)"
+                  }
+                },
+                "required": [
+                  "day",
+                  "month"
+                ],
+                "additionalProperties": false,
+                "description": "A birthday: day and month only, never a year"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Day and month, or null to remove it"
+          }
+        },
+        "required": [
+          "id",
+          "birthday"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "givenName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "familyName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "emails": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "email": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "primary": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "email",
+                "label",
+                "primary"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "phones": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "number": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "primary": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "number",
+                "label",
+                "primary"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "location": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timezone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "socialProfiles": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "network": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 50,
+                  "description": "e.g. linkedin, x, github"
+                },
+                "url": {
+                  "type": "string",
+                  "maxLength": 500,
+                  "format": "uri"
+                },
+                "handle": {
+                  "type": "string",
+                  "maxLength": 100
+                }
+              },
+              "required": [
+                "network",
+                "url"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "avatarKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ownerId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "birthday": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "day": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 31,
+                    "description": "Day of the month, 1 to 31"
+                  },
+                  "month": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 12,
+                    "description": "Month, 1 (January) to 12 (December)"
+                  }
+                },
+                "required": [
+                  "day",
+                  "month"
+                ],
+                "additionalProperties": false,
+                "description": "A birthday: day and month only, never a year"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "jobTitle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "primaryAffiliation": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "organisationId": {
+                    "type": "string"
+                  },
+                  "organisationName": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "title": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "organisationId",
+                  "organisationName",
+                  "title"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "deletedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mergedIntoId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "displayName",
+          "givenName",
+          "familyName",
+          "emails",
+          "phones",
+          "location",
+          "timezone",
+          "socialProfiles",
+          "avatarKey",
+          "ownerId",
+          "description",
+          "tags",
+          "birthday",
           "jobTitle",
           "primaryAffiliation",
           "createdAt",
@@ -59667,6 +60144,9 @@
               "maxLength": 50
             },
             "description": "Tag names. Unknown tags are created. Replaces the record's tags."
+          },
+          "birthday": {
+            "description": "Not set here: use person.setBirthday"
           }
         },
         "required": [
@@ -59810,6 +60290,36 @@
               "type": "string"
             }
           },
+          "birthday": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "day": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 31,
+                    "description": "Day of the month, 1 to 31"
+                  },
+                  "month": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 12,
+                    "description": "Month, 1 (January) to 12 (December)"
+                  }
+                },
+                "required": [
+                  "day",
+                  "month"
+                ],
+                "additionalProperties": false,
+                "description": "A birthday: day and month only, never a year"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "jobTitle": {
             "type": [
               "string",
@@ -59892,6 +60402,7 @@
           "ownerId",
           "description",
           "tags",
+          "birthday",
           "jobTitle",
           "primaryAffiliation",
           "createdAt",

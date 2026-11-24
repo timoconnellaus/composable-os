@@ -651,6 +651,14 @@ export function toOperationError(error: unknown): OperationError {
       { rule: "capacity", reason: "claim_live" },
     );
   }
+  // A birthday set while a write of it was planned (migration 1171, ADR 0803): the member's own,
+  // say, while an AI's change was on its way.
+  if (message.includes("core_birthday_changed")) {
+    return new ConflictError(
+      "This birthday changed while it was being saved, so nothing was changed. Look again.",
+      { rule: "birthday", reason: "changed_meanwhile" },
+    );
+  }
   // A record made for another that moved before it committed (migration 0670, ADR 0550): a
   // booking for a class cancelled meanwhile.
   if (message.includes("core_moved_meanwhile")) {

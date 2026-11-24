@@ -994,6 +994,7 @@
         "me.agreements.list",
         "me.agreements.pdf",
         "me.attention",
+        "me.birthday.get",
         "me.calendarFeed.status",
         "me.family",
         "me.get",
@@ -1743,6 +1744,145 @@
       "invalidates": []
     },
     {
+      "name": "me.birthday.get",
+      "description": "Your birthday as the business has it, as a signed-in customer: day and month only, or null when none is recorded. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "birthday": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "day": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 31,
+                    "description": "Day of the month, 1 to 31"
+                  },
+                  "month": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 12,
+                    "description": "Month, 1 (January) to 12 (December)"
+                  }
+                },
+                "required": ["day", "month"],
+                "additionalProperties": false,
+                "description": "A birthday: day and month only, never a year"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Day and month; null when none is recorded"
+          }
+        },
+        "required": ["birthday"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "me.birthday.set",
+      "description": "Give your birthday, as a signed-in customer: day and month only, never a year; null removes it. The business may send you a message on the day. Returns your birthday.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "birthday": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "day": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 31,
+                    "description": "Day of the month, 1 to 31"
+                  },
+                  "month": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 12,
+                    "description": "Month, 1 (January) to 12 (December)"
+                  }
+                },
+                "required": ["day", "month"],
+                "additionalProperties": false,
+                "description": "A birthday: day and month only, never a year"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Day and month; null when none is recorded"
+          }
+        },
+        "required": ["birthday"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "birthday": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "day": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 31,
+                    "description": "Day of the month, 1 to 31"
+                  },
+                  "month": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 12,
+                    "description": "Month, 1 (January) to 12 (December)"
+                  }
+                },
+                "required": ["day", "month"],
+                "additionalProperties": false,
+                "description": "A birthday: day and month only, never a year"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Day and month; null when none is recorded"
+          }
+        },
+        "required": ["birthday"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.family",
+        "me.get",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
+    },
+    {
       "name": "me.calendarFeed.revoke",
       "description": "Turn off your private calendar link, as a signed-in customer: it then answers as if it never existed (a calendar app subscribed to it keeps what it last fetched, and gets no more). Make a new one with me.calendarFeed.rotate.",
       "risk": "write",
@@ -1768,6 +1908,7 @@
         "me.agreements.list",
         "me.agreements.pdf",
         "me.attention",
+        "me.birthday.get",
         "me.calendarFeed.status",
         "me.family",
         "me.get",
@@ -1807,6 +1948,7 @@
         "me.agreements.list",
         "me.agreements.pdf",
         "me.attention",
+        "me.birthday.get",
         "me.calendarFeed.status",
         "me.family",
         "me.get",
@@ -1913,6 +2055,7 @@
         "me.agreements.list",
         "me.agreements.pdf",
         "me.attention",
+        "me.birthday.get",
         "me.calendarFeed.status",
         "me.family",
         "me.get",
@@ -2158,6 +2301,7 @@
         "me.agreements.list",
         "me.agreements.pdf",
         "me.attention",
+        "me.birthday.get",
         "me.calendarFeed.status",
         "me.family",
         "me.get",
@@ -2413,6 +2557,7 @@
         "me.agreements.list",
         "me.agreements.pdf",
         "me.attention",
+        "me.birthday.get",
         "me.calendarFeed.status",
         "me.family",
         "me.get",
@@ -2457,6 +2602,7 @@
         "me.agreements.list",
         "me.agreements.pdf",
         "me.attention",
+        "me.birthday.get",
         "me.calendarFeed.status",
         "me.family",
         "me.get",
@@ -2653,6 +2799,7 @@
         "me.agreements.list",
         "me.agreements.pdf",
         "me.attention",
+        "me.birthday.get",
         "me.calendarFeed.status",
         "me.family",
         "me.get",
@@ -2688,6 +2835,7 @@
         "me.agreements.list",
         "me.agreements.pdf",
         "me.attention",
+        "me.birthday.get",
         "me.calendarFeed.status",
         "me.family",
         "me.get",
@@ -2785,6 +2933,7 @@
         "me.agreements.list",
         "me.agreements.pdf",
         "me.attention",
+        "me.birthday.get",
         "me.calendarFeed.status",
         "me.family",
         "me.get",
@@ -5865,6 +6014,7 @@
         "me.agreements.list",
         "me.agreements.pdf",
         "me.attention",
+        "me.birthday.get",
         "me.calendarFeed.status",
         "me.family",
         "me.get",
@@ -6043,6 +6193,7 @@
         "me.agreements.list",
         "me.agreements.pdf",
         "me.attention",
+        "me.birthday.get",
         "me.calendarFeed.status",
         "me.family",
         "me.get",
@@ -6189,6 +6340,7 @@
         "me.agreements.list",
         "me.agreements.pdf",
         "me.attention",
+        "me.birthday.get",
         "me.calendarFeed.status",
         "me.family",
         "me.get",
@@ -6499,6 +6651,7 @@
         "me.agreements.list",
         "me.agreements.pdf",
         "me.attention",
+        "me.birthday.get",
         "me.calendarFeed.status",
         "me.family",
         "me.get",
@@ -6926,6 +7079,7 @@
         "me.agreements.list",
         "me.agreements.pdf",
         "me.attention",
+        "me.birthday.get",
         "me.calendarFeed.status",
         "me.family",
         "me.get",
@@ -7707,6 +7861,7 @@
         "me.agreements.list",
         "me.agreements.pdf",
         "me.attention",
+        "me.birthday.get",
         "me.calendarFeed.status",
         "me.family",
         "me.get",
@@ -7924,6 +8079,7 @@
         "me.agreements.list",
         "me.agreements.pdf",
         "me.attention",
+        "me.birthday.get",
         "me.calendarFeed.status",
         "me.family",
         "me.get",
@@ -8000,6 +8156,7 @@
         "me.agreements.list",
         "me.agreements.pdf",
         "me.attention",
+        "me.birthday.get",
         "me.calendarFeed.status",
         "me.family",
         "me.get",
@@ -8852,6 +9009,7 @@
         "me.agreements.list",
         "me.agreements.pdf",
         "me.attention",
+        "me.birthday.get",
         "me.calendarFeed.status",
         "me.family",
         "me.get",
@@ -8930,6 +9088,7 @@
         "me.agreements.list",
         "me.agreements.pdf",
         "me.attention",
+        "me.birthday.get",
         "me.calendarFeed.status",
         "me.family",
         "me.get",
@@ -9091,6 +9250,7 @@
         "me.agreements.list",
         "me.agreements.pdf",
         "me.attention",
+        "me.birthday.get",
         "me.calendarFeed.status",
         "me.family",
         "me.get",
@@ -9330,6 +9490,7 @@
         "me.agreements.list",
         "me.agreements.pdf",
         "me.attention",
+        "me.birthday.get",
         "me.calendarFeed.status",
         "me.family",
         "me.get",
@@ -10192,6 +10353,7 @@
         "me.agreements.list",
         "me.agreements.pdf",
         "me.attention",
+        "me.birthday.get",
         "me.calendarFeed.status",
         "me.family",
         "me.get",

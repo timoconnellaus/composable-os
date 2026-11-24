@@ -54,6 +54,9 @@ Record that a person changed jobs: their current primary affiliation ends (it st
 | `person.ownerId` | string or null | yes |   |   |
 | `person.description` | string or null | yes |   |   |
 | `person.tags` | array of string | yes |   |   |
+| `person.birthday` | object or null | yes |   |   |
+| `person.birthday.day` | integer | yes | ≥ 1, ≤ 31 | Day of the month, 1 to 31 |
+| `person.birthday.month` | integer | yes | ≥ 1, ≤ 12 | Month, 1 (January) to 12 (December) |
 | `person.jobTitle` | string or null | yes |   |   |
 | `person.primaryAffiliation` | object or null | yes |   |   |
 | `person.primaryAffiliation.id` | string | yes |   |   |
@@ -157,6 +160,9 @@ Create a person (a contact) with optional names, emails, phones, location, owner
 | `ownerId` | string or null | yes |   |   |
 | `description` | string or null | yes |   |   |
 | `tags` | array of string | yes |   |   |
+| `birthday` | object or null | yes |   |   |
+| `birthday.day` | integer | yes | ≥ 1, ≤ 31 | Day of the month, 1 to 31 |
+| `birthday.month` | integer | yes | ≥ 1, ≤ 12 | Month, 1 (January) to 12 (December) |
 | `jobTitle` | string or null | yes |   |   |
 | `primaryAffiliation` | object or null | yes |   |   |
 | `primaryAffiliation.id` | string | yes |   |   |
@@ -273,7 +279,7 @@ Move many people to Trash at once (soft delete), like person.delete for each: th
 
 ## person.erase
 
-Permanently delete a person now, for GDPR erasure requests (admins only). Works on live people and people in Trash, and also erases anyone merged into them. Emails, phones, affiliations and tags go; activities and tasks linked only to them are deleted; system activities about them (field changes, job changes, merges) are removed from every timeline. Audit-log content that mentions them (their id, emails or phone numbers) is replaced with "[erased]"; who did what and when is kept. In-app assistant conversations that referenced them are redacted the same way (tool calls and results that mention them lose their content; their ids, emails, phone numbers and names in text become "[erased]"). Former emails and phones count too. Synced email bodies, suggested contacts, signatures, extension data related to them, automation run history and notifications about them are deleted or redacted, and their addresses are added to the erased-address list so mail sync does not collect them again. Their customer account, its sessions and sign-in codes, invites for their addresses and their erase requests are deleted (an open request is closed as erased). Their health answers and minor mark are deleted; what they agreed to is kept, no longer theirs, as the business's evidence until the retention period ends (agreement.retention, counted from the erase), then deleted: agreementsKept says how many and until when. Cannot be undone; use person.delete for a reversible delete.
+Permanently delete a person now, for GDPR erasure requests (admins only). Works on live people and people in Trash, and also erases anyone merged into them. Emails, phones, affiliations and tags go; activities and tasks linked only to them are deleted; system activities about them (field changes, job changes, merges) are removed from every timeline. Audit-log content that mentions them (their id, emails or phone numbers) is replaced with "[erased]"; who did what and when is kept. In-app assistant conversations that referenced them are redacted the same way (tool calls and results that mention them lose their content; their ids, emails, phone numbers and names in text become "[erased]"). Former emails and phones count too. Synced email bodies, suggested contacts, signatures, extension data related to them, automation run history and notifications about them are deleted or redacted, and their addresses are added to the erased-address list so mail sync does not collect them again. Their customer account, its sessions and sign-in codes, invites for their addresses and their erase requests are deleted (an open request is closed as erased). Their birthday, health answers and minor mark are deleted; what they agreed to is kept, no longer theirs, as the business's evidence until the retention period ends (agreement.retention, counted from the erase), then deleted: agreementsKept says how many and until when. Cannot be undone; use person.delete for a reversible delete.
 
 |  |  |
 | --- | --- |
@@ -354,6 +360,9 @@ Get one person by id, with all emails, phones, tags, social profiles, owner, des
 | `ownerId` | string or null | yes |   |   |
 | `description` | string or null | yes |   |   |
 | `tags` | array of string | yes |   |   |
+| `birthday` | object or null | yes |   |   |
+| `birthday.day` | integer | yes | ≥ 1, ≤ 31 | Day of the month, 1 to 31 |
+| `birthday.month` | integer | yes | ≥ 1, ≤ 12 | Month, 1 (January) to 12 (December) |
 | `jobTitle` | string or null | yes |   |   |
 | `primaryAffiliation` | object or null | yes |   |   |
 | `primaryAffiliation.id` | string | yes |   |   |
@@ -562,7 +571,7 @@ List live people, one page at a time. Filter with structured filter JSON over pe
 
 ## person.merge
 
-Merge a duplicate person (mergedId) into another (survivorId). The survivor keeps its own values unless fields says to take the duplicate's (per field: 'survivor' or 'merged'); empty survivor fields are filled from the duplicate. Emails, phones, social profiles and tags are combined, and the duplicate's affiliations, activity links and task links move to the survivor (the survivor keeps its primary affiliation if it has one). The duplicate goes to Trash pointing at the survivor, and can be restored from there (without what moved). A customer account moves to the survivor; when both people have one, the merge is refused until staff disable one (the disabled one is then deleted). Returns the survivor.
+Merge a duplicate person (mergedId) into another (survivorId). The survivor keeps its own values unless fields says to take the duplicate's (per field: 'survivor' or 'merged'); empty survivor fields are filled from the duplicate (the birthday too: the survivor's is kept unless it has none). Emails, phones, social profiles and tags are combined, and the duplicate's affiliations, activity links and task links move to the survivor (the survivor keeps its primary affiliation if it has one). The duplicate goes to Trash pointing at the survivor, and can be restored from there (without what moved). A customer account moves to the survivor; when both people have one, the merge is refused until staff disable one (the disabled one is then deleted). Returns the survivor.
 
 |  |  |
 | --- | --- |
@@ -604,6 +613,9 @@ Merge a duplicate person (mergedId) into another (survivorId). The survivor keep
 | `ownerId` | string or null | yes |   |   |
 | `description` | string or null | yes |   |   |
 | `tags` | array of string | yes |   |   |
+| `birthday` | object or null | yes |   |   |
+| `birthday.day` | integer | yes | ≥ 1, ≤ 31 | Day of the month, 1 to 31 |
+| `birthday.month` | integer | yes | ≥ 1, ≤ 12 | Month, 1 (January) to 12 (December) |
 | `jobTitle` | string or null | yes |   |   |
 | `primaryAffiliation` | object or null | yes |   |   |
 | `primaryAffiliation.id` | string | yes |   |   |
@@ -667,6 +679,69 @@ Restore a person from Trash, including one that was merged away (they come back 
 | `ownerId` | string or null | yes |   |   |
 | `description` | string or null | yes |   |   |
 | `tags` | array of string | yes |   |   |
+| `birthday` | object or null | yes |   |   |
+| `birthday.day` | integer | yes | ≥ 1, ≤ 31 | Day of the month, 1 to 31 |
+| `birthday.month` | integer | yes | ≥ 1, ≤ 12 | Month, 1 (January) to 12 (December) |
+| `jobTitle` | string or null | yes |   |   |
+| `primaryAffiliation` | object or null | yes |   |   |
+| `primaryAffiliation.id` | string | yes |   |   |
+| `primaryAffiliation.organisationId` | string | yes |   |   |
+| `primaryAffiliation.organisationName` | string or null | yes |   |   |
+| `primaryAffiliation.title` | string or null | yes |   |   |
+| `createdAt` | string | yes |   |   |
+| `createdBy` | string or null | yes |   |   |
+| `updatedAt` | string | yes |   |   |
+| `deletedAt` | string or null | yes |   |   |
+| `mergedIntoId` | string or null | yes |   |   |
+
+## person.setBirthday
+
+Record a person's birthday: day and month only, never a year (null removes it). A birthday journey starts on it, in the business's time zone. Only a person on the staff may change a birthday the member gave themselves. Returns the person.
+
+|  |  |
+| --- | --- |
+| Permission | `records:write` |
+| Risk | `write` |
+| Audiences | `staff` |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string (starts_with) | yes | max length 64, pattern `^per_.*` | Person id (per_…) |
+| `birthday` | object or null | yes |   | Day and month, or null to remove it |
+| `birthday.day` | integer | yes | ≥ 1, ≤ 31 | Day of the month, 1 to 31 |
+| `birthday.month` | integer | yes | ≥ 1, ≤ 12 | Month, 1 (January) to 12 (December) |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes |   |   |
+| `displayName` | string | yes |   |   |
+| `givenName` | string or null | yes |   |   |
+| `familyName` | string or null | yes |   |   |
+| `emails` | array of object | yes |   |   |
+| `emails[].email` | string | yes |   |   |
+| `emails[].label` | string or null | yes |   |   |
+| `emails[].primary` | boolean | yes |   |   |
+| `phones` | array of object | yes |   |   |
+| `phones[].number` | string | yes |   |   |
+| `phones[].label` | string or null | yes |   |   |
+| `phones[].primary` | boolean | yes |   |   |
+| `location` | string or null | yes |   |   |
+| `timezone` | string or null | yes |   |   |
+| `socialProfiles` | array of object | yes |   |   |
+| `socialProfiles[].network` | string | yes | min length 1, max length 50 | e.g. linkedin, x, github |
+| `socialProfiles[].url` | string (uri) | yes | max length 500 |   |
+| `socialProfiles[].handle` | string |   | max length 100 |   |
+| `avatarKey` | string or null | yes |   |   |
+| `ownerId` | string or null | yes |   |   |
+| `description` | string or null | yes |   |   |
+| `tags` | array of string | yes |   |   |
+| `birthday` | object or null | yes |   |   |
+| `birthday.day` | integer | yes | ≥ 1, ≤ 31 | Day of the month, 1 to 31 |
+| `birthday.month` | integer | yes | ≥ 1, ≤ 12 | Month, 1 (January) to 12 (December) |
 | `jobTitle` | string or null | yes |   |   |
 | `primaryAffiliation` | object or null | yes |   |   |
 | `primaryAffiliation.id` | string | yes |   |   |
@@ -715,6 +790,7 @@ Update a person's fields. Only the fields you pass change; pass null to clear a 
 | `ownerId` | string or null |   |   | The user who owns this person |
 | `description` | string or null |   |   | Markdown |
 | `tags` | array of string |   | at most 50 | Tag names. Unknown tags are created. Replaces the record's tags. |
+| `birthday` | any |   |   | Not set here: use person.setBirthday |
 
 ### Output
 
@@ -742,6 +818,9 @@ Update a person's fields. Only the fields you pass change; pass null to clear a 
 | `ownerId` | string or null | yes |   |   |
 | `description` | string or null | yes |   |   |
 | `tags` | array of string | yes |   |   |
+| `birthday` | object or null | yes |   |   |
+| `birthday.day` | integer | yes | ≥ 1, ≤ 31 | Day of the month, 1 to 31 |
+| `birthday.month` | integer | yes | ≥ 1, ≤ 12 | Month, 1 (January) to 12 (December) |
 | `jobTitle` | string or null | yes |   |   |
 | `primaryAffiliation` | object or null | yes |   |   |
 | `primaryAffiliation.id` | string | yes |   |   |

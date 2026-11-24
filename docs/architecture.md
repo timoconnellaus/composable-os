@@ -1621,6 +1621,17 @@ The four starter journeys are seeded as drafts. Nothing sends yet: the tick, the
 and the send decision through stage 30's routine messages are step 4. The tables are in no `rec_*`
 view; erase and the Trash's purge delete a Person's entries and log.
 
+**Birthday** (stage 53 step 7, [ADR 0803](adr/0803-a-birthday-as-day-and-month-on-person.md),
+`packages/core/src/journeys/birthday.ts`, migration 1171): `core_person.birth_day` and
+`birth_month`, day and month only, both or neither, in no `rec_*` view. Staff set it with
+`person.setBirthday`, the member with `me.birthday.set` (and read it with `me.birthday.get`), both
+customer operations `hostInternal` on the caller's own row; each change is recorded under
+`birthday`, so its audit diff and value mark follow, and an AI may not change one the member gave.
+A merge keeps the survivor's unless it has none; erase deletes it with the row. The birthday entry
+rule (`birthdayPeople`) reads the People whose birthday is today in the business's zone (29
+February kept on the 28th in other years) through one indexed statement per page of 500, for step
+4's daily scan. My account's Your details blocks show it where the client holds `me.birthday.*`.
+
 `sellable.moves` ([ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md),
 `packages/core/src/orders/moves.ts` and `refund-due.ts`) is a paid line that moves a record that
 already exists: `order.startHeld` (a tool's only) makes the record in its `held` state (a drop-in

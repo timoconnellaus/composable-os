@@ -51,6 +51,9 @@ const OPENED = [
   "me.agreements.pdf",
   // Stage 48 step 4 (ADR 0711): what needs the caller's attention.
   "me.attention",
+  // Stage 53 step 7 (ADR 0803): the caller's own birthday.
+  "me.birthday.get",
+  "me.birthday.set",
   // Stage 62 step 1 (ADR 0890): the caller's own calendar link.
   "me.calendarFeed.revoke",
   "me.calendarFeed.rotate",
@@ -99,6 +102,8 @@ describe("what this step opens", () => {
           "me.agreements.list",
           "me.agreements.pdf",
           "me.attention",
+          "me.birthday.get",
+          "me.birthday.set",
           "me.calendarFeed.revoke",
           "me.calendarFeed.rotate",
           "me.calendarFeed.status",

@@ -4,7 +4,7 @@ description: "Your details (stage 48), for the web: the signed-in customer's nam
 editUrl: false
 ---
 
-Your details (stage 48), for the web: the signed-in customer's name and phone, to change, and the address they sign in with. What is saved, and what the business sees, is the host's (me.get, me.update): only what changed is sent, and the host checks it again.
+Your details (stage 48), for the web: the signed-in customer's name and phone, to change, and the address they sign in with. What is saved, and what the business sees, is the host's (me.get, me.update): only what changed is sent, and the host checks it again. Their birthday, day and month only (stage 53: me.birthday.get, me.birthday.set), where the client holds them.
 
 |  |  |
 | --- | --- |
@@ -21,5 +21,7 @@ Through its hooks; the host decides what each caller may do.
 
 - [`me.get`](/reference/operations/me/#meget)
 - [`me.update`](/reference/operations/me/#meupdate)
+- [`me.birthday.get`](/reference/operations/me/#mebirthdayget)
+- [`me.birthday.set`](/reference/operations/me/#mebirthdayset)
 
 Source: [blocks/web-account-details](https://github.com/timoconnellaus/composable-os/tree/main/blocks/web-account-details).

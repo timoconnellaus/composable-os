@@ -99,6 +99,9 @@ describe("default closed (criterion 1)", () => {
       "me.agreements.pdf",
       // Stage 48 step 4 (ADR 0711): what needs their attention, worked out in core.
       "me.attention",
+      // Stage 53 step 7 (ADR 0803): their own birthday.
+      "me.birthday.get",
+      "me.birthday.set",
       // Stage 62 step 1 (ADR 0890): their own calendar link, made by them alone.
       "me.calendarFeed.revoke",
       "me.calendarFeed.rotate",
@@ -479,6 +482,9 @@ describe("the closed handler context (ADR 0413)", () => {
       "me.agreements.pdf",
       // Stage 48 step 4 (ADR 0711): it reads the host's subscription, order and allowance rows.
       "me.attention",
+      // Stage 53 step 7 (ADR 0803): a birthday is in no view the seam reads; the caller's own.
+      "me.birthday.get",
+      "me.birthday.set",
       // Stage 62 step 1 (ADR 0890): the calendar link is a core table, the caller's own account's.
       "me.calendarFeed.revoke",
       "me.calendarFeed.rotate",

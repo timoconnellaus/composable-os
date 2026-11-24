@@ -125,6 +125,11 @@ const WHY = {
    * holding `finance:read`, never to a customer or the public.
    */
   finance: "finance: the business's figures, org-wide, for finance:read holders only",
+  /**
+   * A birthday (stage 53, ADR 0803): the caller's own Person's day and month, kept in no view the
+   * seam's customer fields read, for `me.birthday.get` and `me.birthday.set` only.
+   */
+  birthday: "a birthday: the caller's own Person's day and month, in no view the seam reads",
 } as const;
 type Why = (typeof WHY)[keyof typeof WHY];
 
@@ -208,6 +213,8 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "operations/me-phone.ts": [1, WHY.part],
   "operations/organisation.ts": [9, WHY.write],
   "operations/person.ts": [7, WHY.write],
+  // Stage 53 step 7 (ADR 0803): the caller's own birthday (the Person the principal names).
+  "operations/me.ts": [1, WHY.birthday],
   "operations/person-code.ts": [2, WHY.codes],
   "operations/setup.ts": [1, WHY.write],
   "operations/suggestions.ts": [6, WHY.write],
