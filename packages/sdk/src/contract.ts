@@ -828,6 +828,16 @@ export interface PublishableSpec {
    * Set, it is kept: an imported post keeps its date.
    */
   date?: string;
+  /**
+   * Read and understood (stage 38, ADR 0702): the staff who must read a record confirm its
+   * current version with one tap, and a person publishing a later version says whether it asks
+   * them again (`readAgain`) or is a small fix. `who` names a `document` field of the object's
+   * own, outside `content`, with the schema `MUST_READ_SCHEMA`. `manage` names a permission of
+   * this extension's tools that is restricted and grantable: who holds it, and admins, read who
+   * has confirmed and change who must read a published record. Not on an object the public or a
+   * customer reads.
+   */
+  acknowledge?: { who: string; manage: string };
 }
 
 /** An object's customer: see `ObjectSpec.customer`. */
