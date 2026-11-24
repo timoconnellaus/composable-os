@@ -124,29 +124,54 @@ CREATE INDEX core_accounting_post_day ON core_accounting_post (carries_date, kin
 CREATE INDEX core_accounting_post_depends ON core_accounting_post (depends_on)
   WHERE depends_on IS NOT NULL;
 
--- A sent entry is in the books: what it was, where it went and what it carried never change, it
--- stays sent, and it is never deleted. (A sent entry is put right by a new entry, never edited.)
--- A skipped one was never sent and is never sent after: it stays skipped. `detail` is left free
--- for an erase.
+-- An entry is its reference: its id and reference never change, whatever its state. This also
+-- refuses an UPDATE OR REPLACE that would take another entry's id or reference (D1 runs with
+-- recursive triggers off, so the row such a REPLACE deletes fires no delete trigger).
+CREATE TRIGGER core_accounting_post_identity
+BEFORE UPDATE OF id, reference ON core_accounting_post
+BEGIN
+  SELECT RAISE(ABORT, 'core_accounting_post_fixed')
+  WHERE NEW.id IS NOT OLD.id OR NEW.reference IS NOT OLD.reference;
+END;
+
+-- A sent entry is in the books, and a skipped one is never sent: nothing about either changes,
+-- who approved it included, and it keeps its state. (A sent entry is put right by a new entry,
+-- never edited.) Only `detail` may be cleared, by an erase, and `updated_at` moves with it.
 CREATE TRIGGER core_accounting_post_sent
 BEFORE UPDATE ON core_accounting_post
 WHEN OLD.state IN ('sent', 'skipped')
 BEGIN
   SELECT RAISE(ABORT, 'core_accounting_post_fixed')
-  WHERE NEW.state IS NOT OLD.state OR NEW.id IS NOT OLD.id
-    OR NEW.connection_id IS NOT OLD.connection_id OR NEW.kind IS NOT OLD.kind
-    OR NEW.source_kind IS NOT OLD.source_kind OR NEW.source_id IS NOT OLD.source_id
-    OR NEW.n IS NOT OLD.n OR NEW.reference IS NOT OLD.reference
+  WHERE NEW.state IS NOT OLD.state OR NEW.connection_id IS NOT OLD.connection_id
+    OR NEW.kind IS NOT OLD.kind OR NEW.source_kind IS NOT OLD.source_kind
+    OR NEW.source_id IS NOT OLD.source_id OR NEW.n IS NOT OLD.n
     OR NEW.carries_date IS NOT OLD.carries_date OR NEW.belongs_date IS NOT OLD.belongs_date
     OR NEW.amount IS NOT OLD.amount OR NEW.lines IS NOT OLD.lines
-    OR NEW.books_ref IS NOT OLD.books_ref OR NEW.sent_at IS NOT OLD.sent_at
-    OR NEW.skipped_by IS NOT OLD.skipped_by OR NEW.skipped_at IS NOT OLD.skipped_at
-    OR NEW.skip_reason IS NOT OLD.skip_reason;
+    OR (NEW.detail IS NOT OLD.detail AND NEW.detail IS NOT NULL)
+    OR NEW.depends_on IS NOT OLD.depends_on OR NEW.attempts IS NOT OLD.attempts
+    OR NEW.next_attempt_at IS NOT OLD.next_attempt_at OR NEW.error_code IS NOT OLD.error_code
+    OR NEW.error_text IS NOT OLD.error_text OR NEW.books_ref IS NOT OLD.books_ref
+    OR NEW.sent_at IS NOT OLD.sent_at OR NEW.approved_by IS NOT OLD.approved_by
+    OR NEW.approved_at IS NOT OLD.approved_at OR NEW.skipped_by IS NOT OLD.skipped_by
+    OR NEW.skipped_at IS NOT OLD.skipped_at OR NEW.skip_reason IS NOT OLD.skip_reason
+    OR NEW.created_at IS NOT OLD.created_at;
+END;
+
+-- An entry that may be in the books leaves its state only as its outcome allows: one being sent
+-- becomes sent, retrying or held (refused: nothing written), or unknown; one whose outcome is not
+-- known becomes sent (found by its reference) or queued (not found). The database cannot tell
+-- whether the look-up ran before `unknown` became `queued`: the runner never moves it otherwise.
+CREATE TRIGGER core_accounting_post_outcome
+BEFORE UPDATE OF state ON core_accounting_post
+WHEN OLD.state IN ('sending', 'unknown') AND NEW.state IS NOT OLD.state
+BEGIN
+  SELECT RAISE(ABORT, 'core_accounting_post_fixed')
+  WHERE NOT ((OLD.state = 'sending' AND NEW.state IN ('sent', 'retrying', 'held', 'unknown'))
+    OR (OLD.state = 'unknown' AND NEW.state IN ('sent', 'queued')));
 END;
 
 -- An entry is never deleted once it might be in the books (sent, being sent, or its outcome not
--- known) or was skipped (the log lists its money as not in the books). D1 runs with recursive
--- triggers off, so a REPLACE of such a row fires no delete trigger: the insert refuses one.
+-- known) or was skipped (the log lists its money as not in the books).
 CREATE TRIGGER core_accounting_post_delete
 BEFORE DELETE ON core_accounting_post
 WHEN OLD.state IN ('sending', 'sent', 'unknown', 'skipped')
@@ -154,12 +179,38 @@ BEGIN
   SELECT RAISE(ABORT, 'core_accounting_post_fixed');
 END;
 
+-- A REPLACE of an entry (an insert) is refused: it would delete the row without the delete
+-- trigger. This refuses `INSERT … ON CONFLICT DO NOTHING` of a queued reference too, so the runner
+-- reads what is queued before it queues.
 CREATE TRIGGER core_accounting_post_insert
 BEFORE INSERT ON core_accounting_post
 BEGIN
   SELECT RAISE(ABORT, 'core_accounting_post_fixed')
   WHERE EXISTS (SELECT 1 FROM core_accounting_post p WHERE p.id = NEW.id
     OR p.reference = NEW.reference);
+END;
+
+-- The start date is fixed once an entry to the books it applies to may be in them (sent, being
+-- sent, or its outcome not known): moving it would send days twice or leave a gap. Here as well
+-- as in accounting.settings.update, so a write planned before an entry was claimed fails whole.
+-- Other books have their own start: nothing is in them yet.
+CREATE TRIGGER core_accounting_settings_start
+BEFORE UPDATE OF start_date ON core_accounting_settings
+WHEN NEW.start_date IS NOT OLD.start_date
+BEGIN
+  SELECT RAISE(ABORT, 'core_accounting_start_fixed')
+  WHERE EXISTS (SELECT 1 FROM core_accounting_post p WHERE p.connection_id = NEW.connection_id
+    AND p.state IN ('sending', 'sent', 'unknown'));
+END;
+
+CREATE TRIGGER core_accounting_settings_start_replace
+BEFORE INSERT ON core_accounting_settings
+BEGIN
+  SELECT RAISE(ABORT, 'core_accounting_start_fixed')
+  WHERE EXISTS (SELECT 1 FROM core_accounting_settings s WHERE s.id = NEW.id
+      AND s.start_date IS NOT NEW.start_date)
+    AND EXISTS (SELECT 1 FROM core_accounting_post p WHERE p.connection_id = NEW.connection_id
+      AND p.state IN ('sending', 'sent', 'unknown'));
 END;
 
 -- Each money event (a payment, a refund, a fee, a payout line, a document event) to the entry it

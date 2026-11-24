@@ -428,6 +428,12 @@ export function toOperationError(error: unknown): OperationError {
       { rule: "accounting_post_fixed" },
     );
   }
+  if (message.includes("core_accounting_start_fixed")) {
+    return new ConflictError(
+      "Entries were already sent from the start date, so it no longer changes",
+      { rule: "accounting_start_fixed" },
+    );
+  }
   if (message.includes("core_pay_period_fixed")) {
     return new ConflictError(
       "A locked pay period and its lines never change, so nothing was changed.",

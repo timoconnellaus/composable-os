@@ -3,6 +3,7 @@
 // (the fake books here); nothing is sent in this step, so the tests read the settings, the mapping,
 // who may change them, and the outbox's own guards in the database.
 import { env } from "cloudflare:workers";
+import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   type ActingUser,
@@ -481,5 +482,222 @@ describe("the outbox's own guards", () => {
     await match();
     await expect(match()).rejects.toThrow(/UNIQUE/);
     await match("created");
+  });
+});
+
+// Review of PR #361: the guards hold for every form of write, not only the plain ones.
+describe("the outbox's guards against every form of write", () => {
+  const post = async (state: string, extra: Record<string, unknown> = {}) => {
+    const id = unique("acp");
+    const row = {
+      id,
+      connection_id: "con_review",
+      kind: "summary",
+      source_kind: "day",
+      source_id: id,
+      reference: `cos:summary:${id}:1`,
+      carries_date: "2026-12-03",
+      belongs_date: "2026-12-03",
+      state,
+      created_at: NOW,
+      updated_at: NOW,
+      ...(state === "sent" ? { books_ref: `jnl_${id}`, sent_at: NOW } : {}),
+      ...extra,
+    };
+    const keys = Object.keys(row);
+    await env.DB.prepare(
+      `INSERT INTO core_accounting_post (${keys.join(", ")}) VALUES (${keys.map(() => "?").join(", ")})`,
+    )
+      .bind(...Object.values(row))
+      .run();
+    return row;
+  };
+  const rowOf = (id: string) =>
+    env.DB.prepare("SELECT * FROM core_accounting_post WHERE id = ?")
+      .bind(id)
+      .first<Record<string, unknown>>();
+
+  it("an UPDATE OR REPLACE of another entry never takes a sent one's reference or id", async () => {
+    const sent = await post("sent");
+    const queued = await post("queued");
+    await expect(
+      env.DB.prepare("UPDATE OR REPLACE core_accounting_post SET reference = ? WHERE id = ?")
+        .bind(sent.reference, queued.id)
+        .run(),
+    ).rejects.toThrow(/core_accounting_post_fixed/);
+    await expect(
+      env.DB.prepare("UPDATE OR REPLACE core_accounting_post SET id = ? WHERE id = ?")
+        .bind(sent.id, queued.id)
+        .run(),
+    ).rejects.toThrow(/core_accounting_post_fixed/);
+    expect(await rowOf(sent.id)).toMatchObject({ state: "sent", reference: sent.reference });
+    // A queued entry's reference and id never change either: an entry is its reference.
+    await expect(
+      env.DB.prepare("UPDATE core_accounting_post SET reference = 'cos:other:1' WHERE id = ?")
+        .bind(queued.id)
+        .run(),
+    ).rejects.toThrow(/core_accounting_post_fixed/);
+  });
+
+  it("an entry that may be in the books leaves its state only for what its outcome allows", async () => {
+    const unknown = await post("unknown");
+    for (const state of ["held", "skipped", "awaiting_approval", "retrying"]) {
+      await expect(
+        env.DB.prepare("UPDATE core_accounting_post SET state = ? WHERE id = ?")
+          .bind(state, unknown.id)
+          .run(),
+        state,
+      ).rejects.toThrow(/core_accounting_post_fixed/);
+    }
+    const sending = await post("sending");
+    for (const state of ["queued", "awaiting_approval", "skipped"]) {
+      await expect(
+        env.DB.prepare("UPDATE core_accounting_post SET state = ? WHERE id = ?")
+          .bind(state, sending.id)
+          .run(),
+        state,
+      ).rejects.toThrow(/core_accounting_post_fixed/);
+    }
+    await env.DB.prepare("UPDATE core_accounting_post SET state = 'unknown' WHERE id = ?")
+      .bind(sending.id)
+      .run();
+    // Found by its reference: sent. Not found: queued again (the runner looks it up first).
+    await env.DB.prepare(
+      "UPDATE core_accounting_post SET state = 'sent', books_ref = 'jnl_found', sent_at = ? WHERE id = ?",
+    )
+      .bind(NOW, sending.id)
+      .run();
+    await env.DB.prepare("UPDATE core_accounting_post SET state = 'queued' WHERE id = ?")
+      .bind(unknown.id)
+      .run();
+  });
+
+  it("keeps who approved a sent entry, what it waited on and what it carried", async () => {
+    const sent = await post("sent", {
+      approved_by: "usr_approver",
+      approved_at: NOW,
+      detail: '{"name":"A"}',
+    });
+    for (const change of [
+      "approved_by = 'usr_other'",
+      "approved_at = '2027-01-01T00:00:00.000Z'",
+      "depends_on = 'acp_other'",
+      "created_at = '2027-01-01T00:00:00.000Z'",
+      "attempts = 9",
+      "error_code = 'invalid'",
+      'detail = \'{"name":"B"}\'',
+    ]) {
+      await expect(
+        env.DB.prepare(`UPDATE core_accounting_post SET ${change} WHERE id = ?`)
+          .bind(sent.id)
+          .run(),
+        change,
+      ).rejects.toThrow(/core_accounting_post_fixed/);
+    }
+    // Only an erase's clearing of what it carried is allowed.
+    await env.DB.prepare(
+      "UPDATE core_accounting_post SET detail = NULL, updated_at = ? WHERE id = ?",
+    )
+      .bind(NOW, sent.id)
+      .run();
+    expect(await rowOf(sent.id)).toMatchObject({ detail: null, approved_by: "usr_approver" });
+  });
+});
+
+// Review of PR #361: the start date is fixed once an entry may be in the books, by the database.
+describe("the start date once an entry may be in the books", () => {
+  it("does not move while an entry to these books is being sent or its outcome is not known", async () => {
+    await resetSettings();
+    const con = await connection();
+    await update({ books: { connectionId: con, resource: BOOKS }, startDate: "2026-12-01" });
+    await update({ startDate: "2026-12-02" });
+    for (const state of ["unknown", "sending", "sent"]) {
+      const id = unique("acp");
+      await env.DB.prepare(
+        `INSERT INTO core_accounting_post (id, connection_id, kind, source_kind, source_id, reference,
+           carries_date, belongs_date, state, books_ref, sent_at, created_at, updated_at)
+         VALUES (?, ?, 'summary', 'day', ?, ?, '2026-12-02', '2026-12-02', ?, ?, ?, ?, ?)`,
+      )
+        .bind(
+          id,
+          con,
+          id,
+          `cos:summary:${id}:1`,
+          state,
+          state === "sent" ? "jnl_s" : null,
+          state === "sent" ? NOW : null,
+          NOW,
+          NOW,
+        )
+        .run();
+      expect(await refusal(update({ startDate: "2026-06-01" })), state).toMatchObject({
+        details: { rule: "accounting_start_fixed" },
+      });
+      // The database refuses it too, so a write planned before the entry was claimed fails.
+      await expect(
+        env.DB.prepare("UPDATE core_accounting_settings SET start_date = '2026-06-01'").run(),
+        state,
+      ).rejects.toThrow(/core_accounting_start_fixed/);
+      await expect(
+        env.DB.prepare(
+          "INSERT OR REPLACE INTO core_accounting_settings (id, connection_id, resource, start_date, updated_by, updated_at) VALUES (1, ?, ?, '2026-06-01', 'x', 'y')",
+        )
+          .bind(con, BOOKS)
+          .run(),
+        state,
+      ).rejects.toThrow(/core_accounting_start_fixed/);
+      if (state !== "sent") {
+        // Resolved as not in the books, it is queued again and dropped: the date moves again.
+        await env.DB.prepare("UPDATE core_accounting_post SET state = 'unknown' WHERE id = ?")
+          .bind(id)
+          .run();
+        await env.DB.prepare("UPDATE core_accounting_post SET state = 'queued' WHERE id = ?")
+          .bind(id)
+          .run();
+        await env.DB.prepare("DELETE FROM core_accounting_post WHERE id = ?").bind(id).run();
+        await update({ startDate: "2026-12-02" });
+      }
+    }
+    expect((await get()).startDate).toBe("2026-12-02");
+    // Other books have their own start: nothing is in them yet.
+    const other = await connection();
+    await update({ books: { connectionId: other, resource: BOOKS } });
+    await update({ startDate: "2026-06-01" });
+  });
+});
+
+// Review of PR #361: a settings change writes only what it changes.
+describe("a settings change made while the runner counts a day", () => {
+  it("keeps the count the runner made between the read and the write", async () => {
+    await resetSettings();
+    await update({ approveUntil: 20 });
+    // The database as the operation sees it: just before its writes commit, the runner (step 4)
+    // counts an approved day.
+    let counted = false;
+    const racing = new Proxy(env.DB, {
+      get(target, key) {
+        if (key === "batch") {
+          return async (statements: D1PreparedStatement[]) => {
+            if (!counted) {
+              counted = true;
+              await target
+                .prepare("UPDATE core_accounting_settings SET approved_days = approved_days + 1")
+                .run();
+            }
+            return target.batch(statements);
+          };
+        }
+        const value = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    await invoke(
+      "accounting.settings.update",
+      { settleDays: 5 },
+      context(admin, { db: createCrmDb(racing) }),
+    );
+    expect(counted).toBe(true);
+    const row = await env.DB.prepare("SELECT * FROM core_accounting_settings").first();
+    expect(row).toMatchObject({ settle_days: 5, approved_days: 1, approve_until: 20 });
   });
 });

@@ -201,15 +201,18 @@ export const accountingSettingsUpdate = defineOperation({
     }
 
     const startDate = input.startDate ?? before.startDate;
-    if (input.startDate !== undefined && input.startDate !== before.startDate) {
-      // Moving it after an entry went would send days again or leave a gap in the books.
-      const sent = await ctx.db
+    if (input.startDate !== undefined && input.startDate !== before.startDate && connectionId) {
+      // Moving it once an entry to these books may be in them (sent, being sent, or its outcome
+      // not known) would send days again or leave a gap. The database refuses it too
+      // (core_accounting_settings_start), so an entry claimed meanwhile fails this write whole.
+      const inBooks = await ctx.db
         .selectFrom("core_accounting_post")
         .select("id")
-        .where("state", "=", "sent")
+        .where("connection_id", "=", connectionId)
+        .where("state", "in", ["sending", "sent", "unknown"])
         .limit(1)
         .executeTakeFirst();
-      if (sent) {
+      if (inBooks) {
         throw new ConflictError(
           "Entries were already sent from the start date, so it no longer changes",
           { rule: "accounting_start_fixed" },
@@ -242,24 +245,35 @@ export const accountingSettingsUpdate = defineOperation({
     const approvedDays = input.restartApproval ? 0 : before.approvedDays;
     const approveUntil = input.approveUntil ?? before.approveUntil;
     const settleDays = input.settleDays ?? before.settleDays;
-    const values = {
-      connection_id: connectionId,
-      resource,
-      start_date: startDate,
-      approved_days: approvedDays,
-      approve_until: approveUntil,
-      settle_days: settleDays,
-      enabled: enabled ? 1 : 0,
+    // Only what this call changes is written over the row, so a count the runner or an approval
+    // made since it was read (`approved_days`) is kept. The insert, for a first save, is whole.
+    const changes = {
+      ...(input.books !== undefined ? { connection_id: connectionId, resource } : {}),
+      ...(input.startDate !== undefined ? { start_date: startDate } : {}),
+      // Approval put back on: the count starts again, and the admins are told again when it ends.
+      ...(input.restartApproval ? { approved_days: 0, automatic_told_at: null } : {}),
+      ...(input.approveUntil !== undefined ? { approve_until: approveUntil } : {}),
+      ...(input.settleDays !== undefined ? { settle_days: settleDays } : {}),
+      ...(input.enabled !== undefined ? { enabled: enabled ? 1 : 0 } : {}),
       updated_by: ctx.user.id,
       updated_at: ctx.now,
-      // Approval put back on: the admins are told again when it next ends.
-      ...(input.restartApproval ? { automatic_told_at: null } : {}),
     };
     ctx.write(
       ctx.db
         .insertInto("core_accounting_settings")
-        .values({ id: 1, ...values })
-        .onConflict((oc) => oc.column("id").doUpdateSet(values)),
+        .values({
+          id: 1,
+          connection_id: connectionId,
+          resource,
+          start_date: startDate,
+          approved_days: approvedDays,
+          approve_until: approveUntil,
+          settle_days: settleDays,
+          enabled: enabled ? 1 : 0,
+          updated_by: ctx.user.id,
+          updated_at: ctx.now,
+        })
+        .onConflict((oc) => oc.column("id").doUpdateSet(changes)),
     );
     const audit = (s: {
       connectionId: string | null;

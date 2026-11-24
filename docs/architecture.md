@@ -1944,8 +1944,10 @@ gatekeeper and a resource bound on it; the start date; approval, `approved_days`
 connection and a start date), the mapping per connection (`core_accounting_map`: a category, tax
 code or recorded-payment kind, or one of fees, clearing, bank, rounding, refunds and the invoice
 default, to a books ref and its name as read), links (`core_accounting_link`, unique both ways per
-connection), the outbox (`core_accounting_post`: a unique `cos:` reference per entry; a sent or
-skipped entry never changes and is never deleted, by trigger), items (`core_accounting_item`, one
+connection), the outbox (`core_accounting_post`: a unique `cos:` reference per entry that never changes;
+by trigger, a sent or skipped entry never changes, but for an erase clearing its `detail`, and
+is never deleted, and one being sent or of unknown outcome moves only as its outcome allows; the
+start date is fixed once an entry to those books may be in them), items (`core_accounting_item`, one
 per money event) and contact questions (`core_accounting_match`). `accounting:manage` is a core
 permission, admins by default and grantable, never to a pack role; `accounting.settings.get`
 reads with it, `accounting.map.set` and `.clear` write with it, a person only, and
