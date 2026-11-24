@@ -195,6 +195,9 @@ export interface CheckOptions {
   installed?: readonly string[];
 }
 
+/** The shared inbox's operations: `inbox.*`, `conversation.*`, `message.*` (ADR 0740). */
+const INBOX_OPERATION = /^(?:inbox|conversation|message)\./;
+
 /** Issues for everything in `manifest` that opens the host to customers or the public. */
 function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
   const issues: CheckIssue[] = [];
@@ -210,6 +213,16 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
         code: "outside_audience",
         path: `permissions.operations.${i}`,
         message: `A runtime extension cannot call another extension's tool (${operation}). ${why}`,
+      });
+    }
+    // The shared inbox holds people's messages (health and family matters arrive there) and staff
+    // notes (stage 36, ADR 0740): only reviewed pack code reads or works it.
+    if (INBOX_OPERATION.test(operation)) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `permissions.operations.${i}`,
+        message: `A runtime extension cannot read or work the shared inbox (${operation}). ${why}`,
       });
     }
     // A health mark is health information (stage 44, ADR 0643): only reviewed pack code asks.

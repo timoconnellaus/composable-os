@@ -527,6 +527,22 @@ export async function storeSummaryStatement(
 }
 
 /** Erase (ADR 0019): every summary about, or built from, one of `ids`. */
+/**
+ * Deletes every summary of, or built from, an activity of the conversation `conversationId`, in
+ * one statement however many it has (stage 36, ADR 0740): marking it private takes its words out
+ * of summaries already made, which `summary.get` would otherwise serve stale.
+ */
+export function deleteConversationSummariesStatement(
+  db: Kysely<CoreDatabase>,
+  conversationId: string,
+) {
+  const ids = sql`(SELECT a.id FROM core_activity a WHERE a.conversation_id = ${conversationId})`;
+  return db.deleteFrom("core_ai_summary").where(
+    sql<boolean>`subject_id IN ${ids}
+        OR EXISTS (SELECT 1 FROM json_each(core_ai_summary.sources) s WHERE s.value IN ${ids})`,
+  );
+}
+
 export function deleteSummariesStatement(db: Kysely<CoreDatabase>, ids: readonly string[]) {
   const json = JSON.stringify([...new Set(ids)]);
   return db.deleteFrom("core_ai_summary").where(

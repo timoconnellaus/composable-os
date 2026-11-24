@@ -4,6 +4,7 @@
 import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, type Selectable, sql } from "kysely";
 import { z } from "zod";
+import { deleteSummariesStatement } from "../ai/summaries.ts";
 import { ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
 import { activityObject } from "../fields/activity.ts";
 import { getObject } from "../fields/index.ts";
@@ -659,6 +660,8 @@ export const activitySetPrivate = defineOperation({
         .set({ private_to: privateTo, updated_at: ctx.now })
         .where("id", "=", row.id),
     );
+    // A summary built from it would keep serving its words to everyone (stage 36 review).
+    if (input.private) ctx.write(deleteSummariesStatement(ctx.db, [row.id]));
     ctx.recordChange({
       object: "activity",
       id: row.id,

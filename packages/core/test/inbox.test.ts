@@ -2,6 +2,7 @@
 // the inbox's notices and erase, against real D1.
 import { env } from "cloudflare:workers";
 import { beforeAll, describe, expect, it } from "vitest";
+import { checkManifest } from "../src/extensions/install.ts";
 import {
   type MessageType,
   messageStatements,
@@ -16,6 +17,9 @@ import {
   NotFoundError,
   ValidationError,
 } from "../src/index.ts";
+import type { HandlerContext } from "../src/operation.ts";
+import { conversationTake } from "../src/operations/inbox.ts";
+import { extId, manifest } from "./extension-helpers.ts";
 import { createPerson } from "./fixtures.ts";
 import { context, createUser, db, unique } from "./helpers.ts";
 
@@ -615,5 +619,116 @@ describe("erase", () => {
     await invoke("person.merge", { survivorId: survivor.id, mergedId: merged.id }, context(admin));
     const read = await invoke("conversation.get", { id: c.id }, context(member));
     expect(read.conversation.person?.id).toBe(survivor.id);
+  });
+});
+
+// The review of PR #381: each of these failed before its fix.
+describe("the review of PR #381", () => {
+  it("1: marking a conversation private deletes the summaries built from its messages", async () => {
+    const person = await createPerson(member);
+    const c = await conversation({ personId: person.id, body: "My medication interacts" });
+    const now = new Date().toISOString();
+    await db.query
+      .insertInto("core_ai_summary")
+      .values({
+        kind: "record",
+        subject_type: "person",
+        subject_id: person.id,
+        input_hash: "old",
+        text: "Asked whether their medication interacts",
+        model: "test",
+        sources: JSON.stringify([person.id, c.messageId]),
+        created_at: now,
+        created_by: member.id,
+      })
+      .execute();
+    const summary = () =>
+      invoke(
+        "summary.get",
+        { subject: { kind: "record", object: "person", id: person.id } },
+        context(viewer),
+      );
+    expect((await summary()).text).toContain("medication");
+    await invoke("conversation.setPrivate", { id: c.id, private: true }, context(admin));
+    expect((await summary()).text).toBeNull();
+  });
+
+  it("2: erase deletes an unknown sender's conversation from one of the Person's addresses", async () => {
+    const address = `${unique("alice")}@example.com`;
+    const c = await conversation({ sender: address });
+    // Staff add the address to a Person by hand instead of linking the conversation.
+    const person = await invoke(
+      "person.create",
+      { displayName: unique("Alice"), emails: [{ email: address }] },
+      context(member),
+    );
+    await invoke("person.erase", { id: person.id }, context(admin));
+    expect(
+      await env.DB.prepare("SELECT id FROM core_conversation WHERE id = ?").bind(c.id).first(),
+    ).toBeNull();
+    expect(
+      await env.DB.prepare("SELECT id FROM core_activity WHERE id = ?").bind(c.messageId).first(),
+    ).toBeNull();
+  });
+
+  it("3: notices name who and the channel, never the subject or an unknown address", async () => {
+    const address = `${unique("secret")}@example.com`;
+    const c = await conversation({ sender: address, subject: "Re: my test results" });
+    const person = await createPerson(member);
+    const known = await conversation({ personId: person.id, subject: "Re: my test results" });
+    for (const id of [c.id, known.id]) {
+      await invoke("conversation.assign", { id, assigneeId: other.id }, context(member));
+      await invoke("message.note", { id, body: "see", mentions: [other.id] }, context(member));
+    }
+    const written = [
+      ...(await notices(other.id, "inbox.assigned")),
+      ...(await notices(other.id, "inbox.mention")),
+    ].filter((n) => n.link.includes(c.id) || n.link.includes(known.id));
+    expect(written).toHaveLength(4);
+    const text = JSON.stringify(written.map((n) => [n.title, n.body]));
+    expect(text).not.toContain("test results");
+    expect(text).not.toContain(address);
+    expect(text).toContain("an unknown sender");
+    expect(text).toContain(person.displayName);
+  });
+
+  it("4: a runtime extension may not declare the inbox's operations", async () => {
+    for (const operation of ["inbox.list", "conversation.get", "message.note"]) {
+      const id = extId("rt");
+      const checked = await checkManifest(
+        db.query,
+        id,
+        manifest(id, {
+          permissions: { read: [], write: [], operations: [operation], modules: [] },
+        }),
+        new Date().toISOString(),
+        { source: "runtime" },
+      );
+      expect(JSON.stringify(checked.issues)).toContain("cannot read or work the shared inbox");
+    }
+  });
+
+  it("6: a failed take says nothing about a conversation the caller may no longer read", async () => {
+    const person = await createPerson(member);
+    const c = await conversation({ personId: person.id });
+    await invoke("conversation.assign", { id: c.id, assigneeId: other.id }, context(admin));
+    await invoke("conversation.setPrivate", { id: c.id, private: true }, context(admin));
+    const explain = conversationTake.explainFailure;
+    const ctx = { db: db.query, user: member } as unknown as HandlerContext;
+    expect(await explain?.(new ConflictError("stale"), { id: c.id }, ctx)).toBeNull();
+    // For an admin, who may read it, it names who has it.
+    const asAdmin = { db: db.query, user: admin } as unknown as HandlerContext;
+    expect((await explain?.(new ConflictError("stale"), { id: c.id }, asAdmin))?.message).toBe(
+      `${other.name} has this conversation`,
+    );
+  });
+
+  it("7: a note is guarded by the conversation's version", async () => {
+    const person = await createPerson(member);
+    const c = await conversation({ personId: person.id });
+    const before = (await invoke("conversation.get", { id: c.id }, context(member))).conversation;
+    await invoke("message.note", { id: c.id, body: "noted" }, context(member));
+    const after = (await invoke("conversation.get", { id: c.id }, context(member))).conversation;
+    expect(after.version).toBe(before.version + 1);
   });
 });

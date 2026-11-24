@@ -43,6 +43,11 @@ stage 30".
   (steps 2 and 4), `.setCategory` with Settings → Inbox (step 3), `.snooze` (step 5), migration
   1051 (saved replies and drafts, steps 3 and 6), "make a Person" inside `linkPerson` (a
   `person.create` first, for now).
+  After review (PR #381): a private mark deletes the summaries built from the conversation;
+  notices name the Person and the channel only; runtime extensions may not declare inbox
+  operations; erase also takes unknown-sender conversations from the Person's addresses; the list
+  walks a sort index; a note is version-guarded. The "due soon" view waits for reply targets
+  (step 5).
 
 ## Goal
 

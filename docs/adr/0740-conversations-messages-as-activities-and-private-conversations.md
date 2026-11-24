@@ -73,7 +73,9 @@ so `query.sql`, dashboards and the assistant's SQL), embeddings and summaries le
 conversation's messages and notes out for everyone, admins included, as they do a private
 activity: they are shared indexes with no reader to filter for. A trigger takes them out of search
 when the mark is set and puts the live ones back when it is cleared; marking queues their vectors,
-which the drain deletes (and re-embeds on unmarking). Anyone working the inbox may mark a
+which the drain deletes (and re-embeds on unmarking), and deletes every AI summary of, or built
+from, its activities in one statement, because `summary.get` serves a cached summary even when it
+is stale. (`activity.setPrivate` now deletes a private activity's summaries the same way.) Anyone working the inbox may mark a
 conversation private; only an admin or its assignee may unmark it (only they can read it). Each
 mark and unmark is audited with who.
 
@@ -89,15 +91,26 @@ conversations), `conversation.take`, `conversation.assign` (only to a human acco
 a timeline can link to), `conversation.setPrivate`, `conversation.linkPerson` (to an existing
 Person; "make a Person" is `person.create` first) and `message.note`. All are staff-only. Each list
 and read is a fixed number of statements however many conversations and messages there are
-(`test/inbox-cost.test.ts`).
+(`test/inbox-cost.test.ts`). A page of the inbox walks an index in its order
+(`core_conversation_activity_idx`, on the last inbound time or else the opening time, then the
+id), testing status row by row, so it reads the page's rows and stops rather than sorting every
+open conversation. A note also bumps the conversation's version, so a note checked against a read
+that a private mark or a reassignment has overtaken fails rather than tell someone who may no
+longer read it.
 
 **Notices.** New host-written types `inbox.assigned`, `inbox.reply`, `inbox.mention` and
 `inbox.due` (the last written by reply targets, step 5), routed by the existing preferences and
-linking to the conversation (`/inbox/<id>`). Their words name who did what and the conversation,
-never a message's words.
+linking to the conversation (`/inbox/<id>`). Their words name who did what, the Person's name and
+the channel: never the subject, a message's words or an unknown sender's address. A notice may go
+out by email or Slack, and it outlives a later private mark and the address's clearing on link.
+
+**Extensions.** A runtime extension (one written in the app) may not declare any inbox operation
+(`inbox.*`, `conversation.*`, `message.*`): the install check refuses it, as it refuses health
+notes (ADR 0643). Only reviewed pack code may read or work the inbox. No shipped pack does yet.
 
 **Erase, purge and merge.** A Person's erase deletes their conversations and every message and
-note in them, whatever else a message is linked to; their bodies in R2 are queued by the existing
+note in them, whatever else a message is linked to, and also any unknown-sender conversation from
+one of their addresses that staff never linked to them (found by the address's hash); their bodies in R2 are queued by the existing
 trigger, their vectors and summaries go with the erase's existing passes. The Trash purge does the
 same for a purged Person: there is nobody left to continue the conversation with. A merge moves
 the merged Person's conversations to the survivor. Each delete binds one list, so a long history

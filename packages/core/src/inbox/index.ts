@@ -149,7 +149,10 @@ export interface NewMessage {
   /** The staff account that wrote an outbound message. Null for an inbound one. */
   authorUserId?: string | null;
   authorActor?: "human" | "system";
-  /** Who to name in the assignee's notice of an inbound message (never its words). */
+  /**
+   * The Person's name, for the assignee's notice of an inbound message. Never an address or the
+   * message's words: a notice may go out by email or Slack (ADR 0740).
+   */
   senderName?: string | null;
   now: string;
 }
@@ -245,17 +248,26 @@ export async function messageStatements(
 
 /**
  * A Person's conversations and every activity in them (messages and notes, whatever else they
- * are linked to): what an erase or the Trash purge deletes with the Person.
+ * are linked to): what an erase or the Trash purge deletes with the Person. With `addresses`
+ * (an erase), also the unknown-sender conversations from one of their addresses, which staff never
+ * linked to them: those are theirs too.
  */
 export async function conversationsOf(
   db: Kysely<CoreDatabase>,
   personIds: readonly string[],
+  addresses: readonly string[] = [],
 ): Promise<{ conversationIds: string[]; activityIds: string[] }> {
-  if (!personIds.length) return { conversationIds: [], activityIds: [] };
+  const hashes = await Promise.all([...new Set(addresses)].map(senderHash));
+  if (!personIds.length && !hashes.length) return { conversationIds: [], activityIds: [] };
   const conversations = await db
     .selectFrom("core_conversation")
     .select("id")
-    .where("person_id", "in", jsonList(personIds))
+    .where((eb) =>
+      eb.or([
+        eb("person_id", "in", jsonList(personIds)),
+        eb("sender_hash", "in", jsonList(hashes)),
+      ]),
+    )
     .execute();
   const conversationIds = conversations.map((c) => c.id);
   if (!conversationIds.length) return { conversationIds, activityIds: [] };

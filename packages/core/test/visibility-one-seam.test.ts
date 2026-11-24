@@ -113,7 +113,9 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   // Stage 36 (ADR 0740): a conversation's activities queued in one statement when it is marked
   // private or not.
   "ai/embedding.ts": [10, WHY.org],
-  "ai/summaries.ts": [16, WHY.later],
+  // Stage 36 (ADR 0740): a private mark deletes the summaries built from its conversation's
+  // activities, found by the conversation in one statement.
+  "ai/summaries.ts": [17, WHY.later],
   // Stage 32b (ADR 0493): a spend checks its Person is not in the Trash, in the write's own path.
   "agreements/due.ts": [2, WHY.agreements],
   // Stage 44 step 4 (ADR 0645): the signed PDF names whom it is for, and a paper copy goes to

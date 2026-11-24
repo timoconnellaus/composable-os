@@ -16,6 +16,7 @@
 import { sql } from "kysely";
 import { z } from "zod";
 import { enqueueConversationEmbeddings, enqueueEmbeddings } from "../ai/embedding.ts";
+import { deleteConversationSummariesStatement } from "../ai/summaries.ts";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
 import { newId } from "../ids.ts";
 import {
@@ -94,10 +95,14 @@ async function requireWorker(ctx: HandlerContext, id: string) {
   return user;
 }
 
-/** The title a notice shows: who it is with and the subject, never a message's words. */
+/**
+ * What a notice says of the conversation: the Person's name and the channel. Never the subject,
+ * a message's words or an unknown sender's address: a notice may go out by email or Slack, and it
+ * outlives a later private mark and the address's clearing on link.
+ */
 function noticeTitle(row: ConversationListRow): string {
-  const who = row.person_name ?? row.sender_address ?? "someone";
-  return row.subject ? `${who}: ${row.subject.slice(0, 120)}` : `A conversation with ${who}`;
+  const who = row.person_id ? (row.person_name ?? "a Person") : "an unknown sender";
+  return `A ${row.channel === "chat" ? "chat" : "email"} conversation with ${who}`;
 }
 
 async function queueAssignNotice(ctx: HandlerContext, row: ConversationListRow, to: string) {
@@ -166,18 +171,22 @@ export const inboxList = defineOperation({
   risk: "read",
   mcp: { idempotent: true },
   async handler(input, ctx) {
+    // The status and "nobody has it" are tested row by row (the unary +), so the page walks the
+    // sort index (core_conversation_activity_idx) and stops at its limit instead of sorting every
+    // open conversation. One person's or one assignee's conversations use their own indexes.
     let query = conversationQuery(ctx.db)
-      .where("c.status", "in", jsonList(input.status))
+      .where(sql<boolean>`+c.status IN ${jsonList(input.status)}`)
       .where(conversationReadable(viewer(ctx), "c"));
     if (input.view === "mine") query = query.where("c.assignee_id", "=", ctx.user.id);
-    if (input.view === "unassigned") query = query.where("c.assignee_id", "is", null);
+    if (input.view === "unassigned") query = query.where(sql<boolean>`+c.assignee_id IS NULL`);
     if (input.channel) query = query.where("c.channel", "=", input.channel);
     if (input.category) query = query.where("c.category", "=", input.category);
     if (input.personId) query = query.where("c.person_id", "=", input.personId);
     if (input.cursor) {
       const cursor = decodeCursor(input.cursor, INBOX_SORT);
       query = query.where(
-        sql<boolean>`(${lastActivity} < ${cursor.v} OR (${lastActivity} = ${cursor.v} AND c.id < ${cursor.id}))`,
+        // In this shape the sort index is searched from the cursor, not walked from the top.
+        sql<boolean>`${lastActivity} <= ${cursor.v} AND (${lastActivity} < ${cursor.v} OR c.id < ${cursor.id})`,
       );
     }
     const rows = await query
@@ -375,7 +384,10 @@ export const conversationTake = defineOperation({
   async explainFailure(error, input, ctx) {
     if (error.code !== "conflict") return null;
     const row = await conversationQuery(ctx.db).where("c.id", "=", input.id).executeTakeFirst();
-    if (!row?.assignee_id || row.assignee_id === ctx.user.id) return null;
+    // Not a word about one the caller may no longer read (made private meanwhile).
+    if (!row?.assignee_id || row.assignee_id === ctx.user.id || !mayRead(viewer(ctx), row)) {
+      return null;
+    }
     return new ConflictError(`${row.assignee_name ?? "Someone else"} has this conversation`, {
       reason: "taken",
       assignee: { id: row.assignee_id, name: row.assignee_name },
@@ -525,6 +537,9 @@ export const conversationSetPrivate = defineOperation({
       // Its messages' vectors go (or come back) at the next drain; search follows by trigger.
       enqueueConversationEmbeddings(ctx.db, row.id, ctx.now),
     );
+    // Every AI summary built from its messages goes too: a cached summary is served stale to
+    // anyone who reads its subject, so it would keep the private words readable.
+    if (input.private) ctx.write(deleteConversationSummariesStatement(ctx.db, row.id));
     ctx.recordChange({
       object: "conversation",
       id: row.id,
@@ -638,6 +653,12 @@ export const messageNote = defineOperation({
     }
     const id = newId("activity");
     ctx.write(
+      // The note's checks (who may be mentioned) are against this read: a change meanwhile (a
+      // private mark, a reassignment) fails the note rather than tell someone who no longer may.
+      ctx.db
+        .updateTable("core_conversation")
+        .set({ version: row.version + 1 })
+        .where("id", "=", row.id),
       ctx.db.insertInto("core_activity").values({
         id,
         type: "note",

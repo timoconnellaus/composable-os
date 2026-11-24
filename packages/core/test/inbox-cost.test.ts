@@ -13,6 +13,7 @@ import { context, createUser, db } from "./helpers.ts";
 
 let statements = 0;
 let maxBound = 0;
+let rowsRead = 0;
 
 /** env.DB, counting every statement prepared (reads, and each statement of a batch). */
 const metered = new Proxy(env.DB, {
@@ -20,19 +21,28 @@ const metered = new Proxy(env.DB, {
     if (prop === "prepare") {
       return (query: string) => {
         statements += 1;
-        const stmt = target.prepare(query);
-        return new Proxy(stmt, {
-          get(s, p) {
-            if (p === "bind") {
-              return (...args: unknown[]) => {
-                maxBound = Math.max(maxBound, args.length);
-                return s.bind(...args);
-              };
-            }
-            const value = Reflect.get(s, p);
-            return typeof value === "function" ? value.bind(s) : value;
-          },
-        });
+        const wrap = (stmt: D1PreparedStatement): D1PreparedStatement =>
+          new Proxy(stmt, {
+            get(s, p) {
+              if (p === "bind") {
+                return (...args: unknown[]) => {
+                  maxBound = Math.max(maxBound, args.length);
+                  return wrap(s.bind(...args));
+                };
+              }
+              if (p === "all" || p === "run" || p === "first" || p === "raw") {
+                return async (...args: unknown[]) => {
+                  const result = await (s[p] as (...a: unknown[]) => Promise<unknown>)(...args);
+                  const meta = (result as { meta?: { rows_read?: number } } | null)?.meta;
+                  rowsRead += meta?.rows_read ?? 0;
+                  return result;
+                };
+              }
+              const value = Reflect.get(s, p);
+              return typeof value === "function" ? value.bind(s) : value;
+            },
+          });
+        return wrap(target.prepare(query));
       };
     }
     if (prop === "batch") {
@@ -111,6 +121,28 @@ describe("the inbox's cost", () => {
     expect(large.statements).toBe(small.statements);
     expect(small.statements).toBeGreaterThan(0);
     expect(large.statements).toBeLessThanOrEqual(6);
+  });
+
+  it("a page of the inbox walks its sort index: 300 open conversations cost what 20 do", async () => {
+    // Review of PR #381, finding 5: the list sorted every open conversation in a temporary
+    // B-tree; it now reads the page's rows from the sort index and stops.
+    const page = async () => {
+      rowsRead = 0;
+      const out = await invoke(
+        "inbox.list",
+        { view: "unassigned", limit: 10 },
+        { ...context(member), db: meteredDb },
+      );
+      return { rows: rowsRead, items: out.items.length };
+    };
+    const people = await Promise.all([1, 2, 3].map(() => createPerson(member)));
+    await seed(people[0]?.id as string, 20, 1);
+    const small = await page();
+    for (const p of people.slice(1)) await seed(p.id, 140, 1);
+    const large = await page();
+    expect(small.items).toBe(10);
+    expect(large.items).toBe(10);
+    expect(large.rows - small.rows).toBeLessThan(40);
   });
 
   it("reads a conversation in the same statements for 1 message as for 400", async () => {

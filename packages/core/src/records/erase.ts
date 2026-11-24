@@ -263,7 +263,7 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
   const owned = await findOwnedActivitiesAndTasks(ctx, object, recordIds);
   const inbox =
     object === "person"
-      ? await conversationsOf(ctx.db, recordIds)
+      ? await conversationsOf(ctx.db, recordIds, [...(request.addresses ?? []), ...accountEmails])
       : { conversationIds: [], activityIds: [] };
   const activityIds = [...new Set([...owned.activityIds, ...inbox.activityIds])];
   const { taskIds } = owned;

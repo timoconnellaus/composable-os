@@ -57,6 +57,9 @@ CREATE INDEX core_conversation_status_due_idx ON core_conversation (status, repl
 CREATE INDEX core_conversation_assignee_idx ON core_conversation (assignee_id, status);
 CREATE INDEX core_conversation_person_idx ON core_conversation (person_id, last_inbound_at)
   WHERE person_id IS NOT NULL;
+-- The inbox's order (most recent first): a page walks it and stops at its limit.
+CREATE INDEX core_conversation_activity_idx
+  ON core_conversation (coalesce(last_inbound_at, opened_at), id);
 CREATE INDEX core_conversation_sender_idx ON core_conversation (sender_hash)
   WHERE sender_hash IS NOT NULL;
 CREATE INDEX core_conversation_about_idx ON core_conversation (about_object, about_id)
