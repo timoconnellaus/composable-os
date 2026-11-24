@@ -162,11 +162,13 @@ export interface IntegrationRuntime {
      * (ADR 0645), one send; the queue tells the gatekeeper it may carry the signed PDF, which no
      * other caller can say, and the send is the system's (no AI writes or reads it). Or
      * `scrubAgreementCopy` once the acceptance is erased (ADR 0646): the gatekeeper scrubs that
-     * copy for this queue only. `phone-check`: a checking code sent to, or checked for, a
-     * member's own number (ADR 0673); the text gatekeeper takes `startCheck` and `check` from
-     * this queue only.
+     * copy for this queue only. `accounting`: the sync's reads and entries on the connected books
+     * (stage 61, ADR 0881), the only way into a connection whose gatekeeper implements accounting;
+     * a void it asks for still waits for a person. `phone-check`: a checking code sent to, or
+     * checked for, a member's own number (ADR 0673); the text gatekeeper takes `startCheck` and
+     * `check` from this queue only.
      */
-    purpose: "orders" | "sign-in" | "agreements" | "phone-check";
+    purpose: "orders" | "sign-in" | "agreements" | "accounting" | "phone-check";
     origin?: "system.customer-mail" | "system.staff-mail";
   }): Promise<IntegrationCallResult>;
   /**

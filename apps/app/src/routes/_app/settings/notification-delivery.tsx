@@ -31,6 +31,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { ErrorState } from "#/components/empty-state";
 import { PageLayout, SaveBar } from "#/components/layout/page-layout";
+import { drafted } from "#/lib/draft";
 import { errorMessage, useOp, useOpMutation } from "#/lib/query";
 import { useProductName } from "../../../components/product-name.ts";
 
@@ -92,8 +93,7 @@ function DeliverySettingsForm() {
   const [minutesText, setMinutesText] = useState<string | null>(null);
 
   const current = settings.data;
-  const value = <K extends keyof Settings>(key: K): Settings[K] | undefined =>
-    (draft[key] as Settings[K] | undefined) ?? current?.[key];
+  const value = <K extends keyof Settings>(key: K) => drafted(draft, current, key);
   const minutes = minutesText === null ? value("escalationMinutes") : Number(minutesText);
   const minutesValid =
     minutes !== undefined && Number.isInteger(minutes) && (minutes === 0 || minutes >= 5);

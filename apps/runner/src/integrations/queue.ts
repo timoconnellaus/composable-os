@@ -34,7 +34,9 @@ export type QueueCaller =
       // `payments`: verified payment events (stage 25). `orders`: the host's own calls for an
       // order, a checkout and its confirmation email (`callAsHost`, ADR 0429). `agreements`: the
       // copy of a signed agreement (`callAsHost`, ADR 0645), the only queue that may attach one.
-      purpose: "sync" | "webhook" | "payments" | "orders" | "probe" | "agreements";
+      // `accounting`: the sync's reads and entries on the connected books (`callAsHost`, ADR
+      // 0881), the only queue a connection whose gatekeeper implements accounting opens.
+      purpose: "sync" | "webhook" | "payments" | "orders" | "probe" | "agreements" | "accounting";
       user: ActingUser;
     }
   | {
@@ -345,10 +347,14 @@ export class HostQueue extends RpcTarget {
                   ? { surface: "system" as const, automationId: this.#caller.origin }
                   : this.#caller.purpose === "agreements"
                     ? { surface: "system" as const, automationId: "system.agreements" }
-                    : {
-                        surface: "automation" as const,
-                        automationId: `${this.#caller.purpose}:${host.connectionId}`,
-                      },
+                    : this.#caller.purpose === "accounting"
+                      ? // The sync's entries are composed by host code from host records: no AI
+                        // wrote them, so the outbound check never reads them (ADR 0881).
+                        { surface: "system" as const, automationId: "system.accounting" }
+                      : {
+                          surface: "automation" as const,
+                          automationId: `${this.#caller.purpose}:${host.connectionId}`,
+                        },
             };
     const submission: OutboundSubmission = {
       connectionId: host.connectionId,
@@ -366,9 +372,12 @@ export class HostQueue extends RpcTarget {
       // outbound.message (ADR 0238): a message an AI actor wrote is checked before it leaves.
       judge: runnerJudge(host.env),
       // The host's own message (ADR 0429): only `callAsHost` opens a queue with these purposes
-      // (an agreement's copy, ADR 0645, as an order's confirmation).
+      // (an agreement's copy, ADR 0645, as an order's confirmation; an entry for the books, ADR
+      // 0881, whose void the always-reviewed kinds still hold for a person).
       ...(this.#caller.kind === "system" &&
-      (this.#caller.purpose === "orders" || this.#caller.purpose === "agreements")
+      (this.#caller.purpose === "orders" ||
+        this.#caller.purpose === "agreements" ||
+        this.#caller.purpose === "accounting")
         ? { hostMessage: true }
         : {}),
 

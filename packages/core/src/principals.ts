@@ -47,6 +47,13 @@ export const originSchema = z.object({
   extensionId: z.string().optional(),
   /** The agent that made the call (job_…, ADR 0344). Its session is `job:<id>`. */
   jobId: z.string().optional(),
+  /**
+   * A staff call over a device session (ADR 0455), not a browser's: the company's app on a phone
+   * (a role client or the owner's client, on the device's one staff session, ADR 0451) or the
+   * command line's import door. Set by the HTTP surface from the session, never from the request;
+   * recorded in the audit row. A setup change is never approved from it (stage 60, ADR 0872).
+   */
+  staffDevice: z.boolean().optional(),
 });
 export type Origin = z.infer<typeof originSchema>;
 

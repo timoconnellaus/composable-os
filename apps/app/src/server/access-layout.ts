@@ -11,7 +11,11 @@ export interface BypassedPath {
   path: string;
   /** How the path authenticates without Access, in a sentence a reviewer can check. */
   authenticates: string;
-  /** `always`; `customers-on-host` when customers buy on the host's own pages; `non-live` only. */
+  /**
+   * When the bypass is needed: `always`; `customers-on-host` when customers buy on the host's own
+   * pages; `mcp` when MCP clients connect; `if-used` when that provider or webhook is in use;
+   * `non-live` only outside a live environment.
+   */
   when: "always" | "customers-on-host" | "mcp" | "non-live" | "if-used";
 }
 

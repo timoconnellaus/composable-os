@@ -59,6 +59,14 @@
 - [Deals: screens](https://docs.composableos.dev/packs/deals/screens/)
 - [Deals: settings](https://docs.composableos.dev/packs/deals/settings/)
 - [Deals: operations and tools](https://docs.composableos.dev/packs/deals/tools/)
+- [Forms: data model](https://docs.composableos.dev/packs/forms/data-model/)
+- [Forms: decisions](https://docs.composableos.dev/packs/forms/decisions/)
+- [Forms](https://docs.composableos.dev/packs/forms/): Forms a business builds and publishes (enquiries, sign-ups, surveys, feedback, staff reports), and every answer in one inbox, linked to the person who sent it.
+- [Forms: messages](https://docs.composableos.dev/packs/forms/messages/)
+- [Forms: permissions and roles](https://docs.composableos.dev/packs/forms/permissions/)
+- [Forms: screens](https://docs.composableos.dev/packs/forms/screens/)
+- [Forms: settings](https://docs.composableos.dev/packs/forms/settings/)
+- [Forms: operations and tools](https://docs.composableos.dev/packs/forms/tools/)
 - [Packs](https://docs.composableos.dev/packs/)
 - [Leads: data model](https://docs.composableos.dev/packs/leads/data-model/)
 - [Leads: decisions](https://docs.composableos.dev/packs/leads/decisions/)
@@ -117,7 +125,19 @@
 - [Agreements: operations](https://docs.composableos.dev/capabilities/agreements/operations/)
 - [Agreements: permissions](https://docs.composableos.dev/capabilities/agreements/permissions/)
 - [Agreements: screens](https://docs.composableos.dev/capabilities/agreements/screens/)
+- [Finance: behaviours](https://docs.composableos.dev/capabilities/finance/behaviours/)
+- [Finance: decisions](https://docs.composableos.dev/capabilities/finance/decisions/)
+- [Finance](https://docs.composableos.dev/capabilities/finance/): The business's figures for the books, by the business's own day. Day summaries, Sales, Tax and Refunds, a monthly close that keeps a month exactly as it was, and one CSV file per report for its accountant.
+- [Finance: operations](https://docs.composableos.dev/capabilities/finance/operations/)
+- [Finance: permissions](https://docs.composableos.dev/capabilities/finance/permissions/)
+- [Finance: screens](https://docs.composableos.dev/capabilities/finance/screens/)
 - [Capabilities](https://docs.composableos.dev/capabilities/)
+- [Client notes: behaviours](https://docs.composableos.dev/capabilities/notes/behaviours/)
+- [Client notes: decisions](https://docs.composableos.dev/capabilities/notes/decisions/)
+- [Client notes](https://docs.composableos.dev/capabilities/notes/): Notes staff keep about a person, each with a kind and a level that decides who reads it, written from the kind's template.
+- [Client notes: operations](https://docs.composableos.dev/capabilities/notes/operations/)
+- [Client notes: permissions](https://docs.composableos.dev/capabilities/notes/permissions/)
+- [Client notes: screens](https://docs.composableos.dev/capabilities/notes/screens/)
 
 ## Solutions
 
@@ -171,6 +191,7 @@
 - [native-agreements-due](https://docs.composableos.dev/reference/blocks/native-agreements-due/): \"Before you go on\" (stage 44 step 5), for the mobile app: after sign-in, when the host says something is due (me.agreements.due), each due document in turn, the member's own first, then each child's; \"Not now\" goes on to the app.
 - [native-base](https://docs.composableos.dev/reference/blocks/native-base/): The native base layer's look, in one place: change these to the company's brand.
 - [native-my-agreements](https://docs.composableos.dev/reference/blocks/native-my-agreements/): My agreements (stage 44 step 5), for the mobile app: what the signed-in member and each child linked to them has agreed to (the document, the version, when, how and by whom), what is due (with a notice when a document changed), the signed PDF, and a health form's answers to update.
+- [native-note-composer](https://docs.composableos.dev/reference/blocks/native-note-composer/): The note composer (stage 56 step 2), for the staff app: a coach writes a note about a Person (and, beside them, the class it was in): picks a kind, fills the kind's template (or writes the note, for a kind with none) and picks who reads it from the levels the host lists for that kind.
 - [native-sign-in](https://docs.composableos.dev/reference/blocks/native-sign-in/): Sign-in with a code by email, for the mobile app.
 - [programs-bank](https://docs.composableos.dev/reference/blocks/programs-bank/): The exercise bank (stage 41): browse and search the gym's exercises, add one, and edit one with its easier and harder versions.
 - [programs-builder](https://docs.composableos.dev/reference/blocks/programs-builder/): The coach's program builder (stage 41): weeks, sessions, blocks and items, by drag and by keyboard; exercises picked from the bank; typed sets; levels; notes, for coaches or shown to members; copying a week or a session; the working copy saved as the coach goes, with the host's faults shown where they are; versions, restoring one, publishing, and assigning.
@@ -225,6 +246,7 @@
 - [web-agree](https://docs.composableos.dev/reference/blocks/web-agree/): Agree to one document (stage 44 step 5), for the web: the version the host gave, its words, a health form's questions, the tick label and its box, the typed name and, for a document agreed to by drawing, the signature pad.
 - [web-agreements-due](https://docs.composableos.dev/reference/blocks/web-agreements-due/): \"Before you go on\" (stage 44 step 5), for the web: shown after sign-in when the host says something is due (me.agreements.due).
 - [web-my-agreements](https://docs.composableos.dev/reference/blocks/web-my-agreements/): My agreements (stage 44 step 5), for the web: what the signed-in member, and each child linked to them, has agreed to (each document, the version, when, how and by whom), what is due (with a notice when a document changed and must be agreed to again), the signed PDF, and a health form's answers to update.
+- [web-note-composer](https://docs.composableos.dev/reference/blocks/web-note-composer/): The note composer (stage 56 step 2), for the web: a staff screen writes a note about a Person (and, beside them, a class, a session, a job): it picks a kind, fills the kind's template (or writes the note, for a kind with none) and picks who reads it from the levels the host lists for that kind.
 - [web-sign-in](https://docs.composableos.dev/reference/blocks/web-sign-in/): Sign-in with a code by email, for the web app, built on the web base layer.
 - [The cos command](https://docs.composableos.dev/reference/cli/): Every command of the cos CLI, as its own help gives them.
 - [accounting](https://docs.composableos.dev/reference/gatekeepers/accounting/): The accounting contract every accounting gatekeeper implements: its types, input checks, action descriptions, the shared session, a fake accounting system and the conformance suite.
@@ -293,6 +315,7 @@
 - [jobChange.* operations](https://docs.composableos.dev/reference/operations/jobchange/): The core operations named jobChange.*
 - [journey.* operations](https://docs.composableos.dev/reference/operations/journey/): The core operations named journey.*
 - [judge.* operations](https://docs.composableos.dev/reference/operations/judge/): The core operations named judge.*
+- [location.* operations](https://docs.composableos.dev/reference/operations/location/): The core operations named location.*
 - [me.* operations](https://docs.composableos.dev/reference/operations/me/): The core operations named me.*
 - [media.* operations](https://docs.composableos.dev/reference/operations/media/): The core operations named media.*
 - [memory.* operations](https://docs.composableos.dev/reference/operations/memory/): The core operations named memory.*
@@ -311,6 +334,7 @@
 - [query.* operations](https://docs.composableos.dev/reference/operations/query/): The core operations named query.*
 - [record.* operations](https://docs.composableos.dev/reference/operations/record/): The core operations named record.*
 - [recurring.* operations](https://docs.composableos.dev/reference/operations/recurring/): The core operations named recurring.*
+- [rooms.* operations](https://docs.composableos.dev/reference/operations/rooms/): The core operations named rooms.*
 - [routine.* operations](https://docs.composableos.dev/reference/operations/routine/): The core operations named routine.*
 - [routineMail.* operations](https://docs.composableos.dev/reference/operations/routinemail/): The core operations named routineMail.*
 - [sample.* operations](https://docs.composableos.dev/reference/operations/sample/): The core operations named sample.*

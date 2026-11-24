@@ -18,9 +18,8 @@ import { ChangeSetExplanation } from "../ai/summary.tsx";
 import { TwoStepButton } from "../assistant/cards/parts.tsx";
 import { ChangePreview, RiskBadge, StatusBadge } from "./change-preview.tsx";
 import {
-  actionTitle,
   groupPreview,
-  outboundTitle,
+  pendingActionTitle,
   readAgainSuggestion,
   summariseDecision,
   toolOf,
@@ -146,15 +145,7 @@ function ChangeSetView({
   const allEntries = useMemo(() => actions.flatMap((a) => a.preview), [actions]);
   const names = useRecordNames(allEntries);
   const titles = useMemo(
-    () =>
-      new Map(
-        actions.map((a) => [
-          a.id,
-          a.outbound
-            ? outboundTitle(a.outbound)
-            : actionTitle(a.operation, a.preview, a.input, a.bulkSize),
-        ]),
-      ),
+    () => new Map(actions.map((a) => [a.id, pendingActionTitle(a)])),
     [actions],
   );
 

@@ -14,6 +14,7 @@
 // D1 holds only the mirror (core_integration_connection) the UI and operations read.
 import { DurableObject, RpcTarget } from "cloudflare:workers";
 import {
+  ACCOUNTING_HOST_ONLY,
   type ActingUser,
   applyStoredPaymentEvent,
   applyTextEvent,
@@ -27,6 +28,7 @@ import {
   type IntegrationCaller,
   type IntegrationCallResult,
   invoke,
+  keepsBooks,
   loadRoutineMailSettings,
   ROLES,
   type Role,
@@ -40,6 +42,7 @@ import {
   type SyncItem,
   settleRoutineMail,
   settleRoutineText,
+  sha256Hex,
   siteOriginOf,
   syncedInWindow,
   syncKindOf,
@@ -140,11 +143,6 @@ export function syncErrorText(error: unknown): string {
   return text
     .replace(/[^\s"'<>()[\]{},;:]+@[^\s"'<>()[\]{},;:]+\.[^\s"'<>()[\]{},;:]+/g, "[address]")
     .slice(0, SYNC_ERROR_MAX);
-}
-
-async function sha256(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 function token(): string {
@@ -393,7 +391,7 @@ export class IntegrationHost extends DurableObject<Env> {
     await this.ctx.storage.put<PendingConnect>("connect", {
       vendor,
       userId,
-      nonceHash: await sha256(nonce),
+      nonceHash: await sha256Hex(nonce),
       appOrigin: new URL(origin).origin,
       mode,
       startedAt: Date.now(),
@@ -429,7 +427,7 @@ export class IntegrationHost extends DurableObject<Env> {
     await this.ctx.storage.put("staged-account", account);
     await this.ctx.storage.put<Staged>("staged", {
       vendor,
-      ticketHash: await sha256(ticket),
+      ticketHash: await sha256Hex(ticket),
       expiresAt: Date.now() + STAGE_TTL_MS,
       mode: pending.mode,
     });
@@ -451,7 +449,7 @@ export class IntegrationHost extends DurableObject<Env> {
     const ticket = `${meta.connectionId}.${token()}`;
     await this.ctx.storage.put<Staged>("staged", {
       vendor,
-      ticketHash: await sha256(ticket),
+      ticketHash: await sha256Hex(ticket),
       expiresAt: Date.now() + STAGE_TTL_MS,
       mode: "reconnect",
       stageId,
@@ -492,9 +490,10 @@ export class IntegrationHost extends DurableObject<Env> {
     if (staged.expiresAt < Date.now()) return fail("This connect flow expired. Start again.");
     if (input.userId !== pending.userId)
       return fail("Only the user who started this flow can finish it");
-    if ((await sha256(input.nonce)) !== pending.nonceHash)
+    if ((await sha256Hex(input.nonce)) !== pending.nonceHash)
       return fail("This handoff is not for this window");
-    if ((await sha256(input.ticket)) !== staged.ticketHash) return fail("Unknown or used ticket");
+    if ((await sha256Hex(input.ticket)) !== staged.ticketHash)
+      return fail("Unknown or used ticket");
 
     await this.ctx.storage.delete(["connect", "staged"]);
     let label: string | null = null;
@@ -642,7 +641,7 @@ export class IntegrationHost extends DurableObject<Env> {
 
   async bindResource(url: string): Promise<BoundResource> {
     const meta = await this.#meta();
-    const key = (await sha256(url)).slice(0, 16);
+    const key = (await sha256Hex(url)).slice(0, 16);
     const existing = await this.ctx.storage.get<FacetRecord>(`facet:${key}`);
     if (existing) return this.#bound(existing);
     let vendor = meta.vendor;
@@ -811,6 +810,22 @@ export class IntegrationHost extends DurableObject<Env> {
     };
   }
 
+  /**
+   * The host-only rule (stage 61, ADR 0881): the books a connection's gatekeeper keeps are opened
+   * only by the host's accounting call, and that call opens nothing else. Checked for every
+   * session, whoever opens it, so no person, AI, MCP client or extension reaches the books.
+   */
+  #assertBooksCaller(meta: Meta, record: FacetRecord, caller: QueueCaller | null): void {
+    const books = keepsBooks(meta.vendor) || keepsBooks(record.vendor);
+    const accounting = caller?.kind === "system" && caller.purpose === "accounting";
+    if (books && !accounting) {
+      throw new Error(
+        `${ACCOUNTING_HOST_ONLY}: the accounting connection is the host's alone; only the accounting sync calls it`,
+      );
+    }
+    if (accounting && !books) throw new Error("The host's accounting call reaches books only");
+  }
+
   async #withSession<T>(
     key: string,
     caller: QueueCaller,
@@ -818,6 +833,7 @@ export class IntegrationHost extends DurableObject<Env> {
   ): Promise<{ value: T; queue: HostQueue }> {
     const meta = await this.#meta();
     const { facet, record } = await this.#facetFor(key);
+    this.#assertBooksCaller(meta, record, caller);
     const queue = new HostQueue(this.#queueHost(meta, record), caller);
     const session = await facet.startSession(queue);
     try {
@@ -855,14 +871,15 @@ export class IntegrationHost extends DurableObject<Env> {
 
   /**
    * A session call the host makes for itself (stage 25, ADR 0429): an order's checkout and its
-   * confirmation email. Only platform code reaches it (`IntegrationRuntime.callAsHost`); an
-   * outbound action it submits is the host's own message. Org connections only.
+   * confirmation email, or the accounting sync's reads and entries (ADR 0881). Only platform code
+   * reaches it (`IntegrationRuntime.callAsHost`); an outbound action it submits is the host's own
+   * message. Org connections only.
    */
   async callAsHost(input: {
     resource: string;
     method: string;
     args: unknown[];
-    purpose: "orders" | "sign-in" | "agreements" | "phone-check";
+    purpose: "orders" | "sign-in" | "agreements" | "accounting" | "phone-check";
     origin?: string;
   }): Promise<IntegrationCallResult> {
     const meta = await this.#meta();
@@ -871,6 +888,7 @@ export class IntegrationHost extends DurableObject<Env> {
       input.purpose !== "orders" &&
       input.purpose !== "sign-in" &&
       input.purpose !== "agreements" &&
+      input.purpose !== "accounting" &&
       input.purpose !== "phone-check"
     ) {
       throw new Error("Not a purpose the host calls for");
@@ -895,6 +913,11 @@ export class IntegrationHost extends DurableObject<Env> {
         throw new Error("Agreements mail is one send, or the scrub of one copy");
       }
       caller = { kind: "system", purpose: "agreements", user: SYSTEM_USER };
+    } else if (input.purpose === "accounting") {
+      // The accounting sync (ADR 0881): reads of the books and entries host code composed from
+      // host records, by the system user. Its posts apply at once unless the floor denies them; a
+      // void always waits for an admin (ALWAYS_REVIEWED_KINDS).
+      caller = { kind: "system", purpose: "accounting", user: SYSTEM_USER };
     } else if (input.purpose === "phone-check") {
       // A member's number checked by code (ADR 0673): one code sent, or one checked, by the
       // system user. The text gatekeeper takes either from this queue only.
@@ -1127,6 +1150,7 @@ export class IntegrationHost extends DurableObject<Env> {
       throw new Error("A personal connection is used only by its owner's actors");
     }
     const { facet, record } = await this.#facetFor(input.resource);
+    this.#assertBooksCaller(meta, record, null);
     const user = await loadUser(this.env, input.caller.userId);
     return facet.startSession(
       new HostQueue(this.#queueHost(meta, record), { kind: "actor", caller: input.caller, user }),

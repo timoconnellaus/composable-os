@@ -915,6 +915,52 @@
           },
           "locked": {
             "type": "boolean"
+          },
+          "kind": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "sections": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "label",
+                    "text"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -1259,6 +1305,52 @@
                 },
                 "locked": {
                   "type": "boolean"
+                },
+                "kind": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ],
+                  "additionalProperties": false
+                },
+                "sections": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "key",
+                          "label",
+                          "text"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               },
               "required": [
@@ -1477,6 +1569,52 @@
                 },
                 "locked": {
                   "type": "boolean"
+                },
+                "kind": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ],
+                  "additionalProperties": false
+                },
+                "sections": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "key",
+                          "label",
+                          "text"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               },
               "required": [
@@ -1514,7 +1652,7 @@
     },
     {
       "name": "activity.log",
-      "description": "Log a note, email, call or meeting on one or more records' timelines (people, organisations, tasks). Each type takes a typed payload: email needs a direction and optional from/to/cc; call takes direction, durationSeconds and outcome; meeting takes startsAt/endsAt, location, url and attendees; note takes none. Notes need a body. occurredAt defaults to now. System activities cannot be logged; the CRM posts them itself. Returns the activity with its links.",
+      "description": "Log a note, email, call or meeting on one or more records' timelines (people, organisations, tasks). Each type takes a typed payload: email needs a direction and optional from/to/cc; call takes direction, durationSeconds and outcome; meeting takes startsAt/endsAt, location, url and attendees; note takes none. A note has a kind (note.kinds.list; default Note) and a level (default the kind's, never below its lowest); a kind with a template takes its sections instead of a body. Notes need a body or sections. occurredAt defaults to now. System activities cannot be logged; the CRM posts them itself. Returns the activity with its links.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -1592,15 +1730,46 @@
                 "properties": {},
                 "additionalProperties": false
               },
+              "kindId": {
+                "type": "string",
+                "maxLength": 64,
+                "format": "starts_with",
+                "pattern": "^nkd_.*",
+                "description": "The kind of note (note.kinds.list). Default: Note"
+              },
+              "sections": {
+                "maxItems": 12,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 40,
+                      "description": "The template section's key"
+                    },
+                    "text": {
+                      "type": "string",
+                      "maxLength": 20000,
+                      "description": "What the person wrote under it (Markdown)"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "text"
+                  ]
+                },
+                "description": "A note from its kind's template: each section's key and text. The body is made from them; give one or the other. A kind with a required section takes its sections."
+              },
               "level": {
-                "default": "staff",
+                "description": "Who may read the note: staff (every staff account, the default), coaches (its author, the staff who look after the one Person it is about, and managers) or sensitive (its author and the people the business named one by one; every opening is recorded). A note at coaches or sensitive is about exactly one Person. Notes only. Default: the kind's own; never below the kind's lowest.",
                 "type": "string",
                 "enum": [
                   "staff",
                   "coaches",
                   "sensitive"
-                ],
-                "description": "Who may read the note: staff (every staff account, the default), coaches (its author, the staff who look after the one Person it is about, and managers) or sensitive (its author and the people the business named one by one; every opening is recorded). A note at coaches or sensitive is about exactly one Person. Notes only."
+                ]
               }
             },
             "required": [
@@ -2120,6 +2289,52 @@
           },
           "locked": {
             "type": "boolean"
+          },
+          "kind": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "sections": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "label",
+                    "text"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2325,6 +2540,52 @@
           },
           "locked": {
             "type": "boolean"
+          },
+          "kind": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "sections": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "label",
+                    "text"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2510,6 +2771,52 @@
           },
           "locked": {
             "type": "boolean"
+          },
+          "kind": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "sections": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "label",
+                    "text"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2699,6 +3006,52 @@
           },
           "locked": {
             "type": "boolean"
+          },
+          "kind": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "sections": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "label",
+                    "text"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2727,7 +3080,7 @@
     },
     {
       "name": "activity.update",
-      "description": "Edit a note, email, call or meeting: subject, body, occurredAt, payload (validated for the activity's type, replacing the old payload), links (replacing the list) or a note's level. The type cannot change. System activities cannot be edited. A note is changed by its author or someone allowed to manage notes; lowering a level is a person's, with that permission. Returns the updated activity.",
+      "description": "Edit a note, email, call or meeting: subject, body, occurredAt, payload (validated for the activity's type, replacing the old payload), links (replacing the list), or a note's level, kind (kindId) and template sections (which remake its body). The type cannot change. System activities cannot be edited. A note is changed by its author or someone allowed to manage notes; lowering a level is a person's, with that permission, and never below the kind's lowest. Returns the updated activity.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -2816,6 +3169,38 @@
               "sensitive"
             ],
             "description": "Who may read the note: staff (every staff account, the default), coaches (its author, the staff who look after the one Person it is about, and managers) or sensitive (its author and the people the business named one by one; every opening is recorded). A note at coaches or sensitive is about exactly one Person. Notes only."
+          },
+          "kindId": {
+            "type": "string",
+            "maxLength": 64,
+            "format": "starts_with",
+            "pattern": "^nkd_.*",
+            "description": "The kind of note (note.kinds.list). Default: Note"
+          },
+          "sections": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40,
+                  "description": "The template section's key"
+                },
+                "text": {
+                  "type": "string",
+                  "maxLength": 20000,
+                  "description": "What the person wrote under it (Markdown)"
+                }
+              },
+              "required": [
+                "key",
+                "text"
+              ]
+            },
+            "description": "A note from its kind's template: each section's key and text. The body is made from them; give one or the other. A kind with a required section takes its sections."
           }
         },
         "required": [
@@ -2958,6 +3343,52 @@
           },
           "locked": {
             "type": "boolean"
+          },
+          "kind": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "sections": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "label",
+                    "text"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -35584,9 +36015,286 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "finance.entries",
+        "finance.export",
         "finance.periods",
+        "finance.report",
         "finance.settings.get"
       ]
+    },
+    {
+      "name": "finance.entries",
+      "description": "A closed month's book entries and their lines, the figures for the books (what Accounting sync reads): one day summary per business day money moved, and late entries for what arrived for a closed month. Each entry has a key that is the same in every version, a fingerprint of its lines, and lines with a heading, a side (debit or credit) and an amount in minor units; its debits equal its credits. Only closed versions (a preview has none). Paged: pass `next` as `after`. Needs finance:read.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "month": {
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])$",
+            "description": "The month, YYYY-MM"
+          },
+          "version": {
+            "description": "Left out: the latest closed version",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "after": {
+            "description": "The `next` of the page before",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": [
+          "month"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "month": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "closed",
+              "reopened"
+            ]
+          },
+          "closedAt": {
+            "type": "string"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "n": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "key": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "date": {
+                  "type": "string"
+                },
+                "period": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "belongsTo": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "fingerprint": {
+                  "type": "string"
+                },
+                "lines": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "heading": {
+                        "type": "string"
+                      },
+                      "side": {
+                        "type": "string"
+                      },
+                      "amount": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "taxCode": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "taxCountry": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "method": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "category": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "heading",
+                      "side",
+                      "amount",
+                      "taxCode",
+                      "taxCountry",
+                      "method",
+                      "category"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "n",
+                "key",
+                "kind",
+                "date",
+                "period",
+                "version",
+                "belongsTo",
+                "fingerprint",
+                "lines"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "next": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "month",
+          "version",
+          "state",
+          "closedAt",
+          "entries",
+          "next"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "finance.export",
+      "description": "Download one finance report as a CSV file for the business's accountant: a closed version's (the same every time), or a preview of an open month or a span of days, marked so on its first row. Amounts in minor units with a decimal column beside them. A person only, with finance:read; audited without its figures.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "report": {
+            "type": "string",
+            "enum": [
+              "sales",
+              "tax",
+              "refunds"
+            ],
+            "description": "sales (by kind of sale and item, and by day), tax (by code and country) or refunds"
+          },
+          "month": {
+            "description": "A month: its closed version, or a preview while it is open",
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+          },
+          "version": {
+            "description": "A month's closed (or since reopened) version; left out, its latest closed one",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "start": {
+            "description": "A span of days to preview instead of a month: its first",
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "end": {
+            "description": "The span's last day, included (at most 366 days)",
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          }
+        },
+        "required": [
+          "report"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string"
+          },
+          "contentType": {
+            "type": "string",
+            "const": "text/csv"
+          },
+          "csv": {
+            "type": "string"
+          },
+          "preview": {
+            "type": "boolean"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "filename",
+          "contentType",
+          "csv",
+          "preview",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
     },
     {
       "name": "finance.periods",
@@ -35790,9 +36498,167 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "finance.entries",
+        "finance.export",
         "finance.periods",
+        "finance.report",
         "finance.settings.get"
       ]
+    },
+    {
+      "name": "finance.report",
+      "description": "One finance report for a month (its closed version as it was closed, or a preview while it is open) or a preview of any span of days: sales (per kind of sale and item, and by day: sold, discounts, refunded, net, the tax inside and net of tax), tax (per tax code and country, refunds' tax as reported or estimated, untaxed sales beside) or refunds (each refund confirmed: date, order, items, amount, tax given back, who asked and approved, the customer's name). Amounts are integers in the currency's minor units, on the business's days in its own time zone. Each row lists the orders it came from. Needs finance:read.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "report": {
+            "type": "string",
+            "enum": [
+              "sales",
+              "tax",
+              "refunds"
+            ],
+            "description": "sales (by kind of sale and item, and by day), tax (by code and country) or refunds"
+          },
+          "month": {
+            "description": "A month: its closed version, or a preview while it is open",
+            "type": "string",
+            "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+          },
+          "version": {
+            "description": "A month's closed (or since reopened) version; left out, its latest closed one",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "start": {
+            "description": "A span of days to preview instead of a month: its first",
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "end": {
+            "description": "The span's last day, included (at most 366 days)",
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          }
+        },
+        "required": [
+          "report"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "report": {
+            "type": "string",
+            "enum": [
+              "sales",
+              "tax",
+              "refunds"
+            ]
+          },
+          "month": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "start": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          },
+          "zone": {
+            "type": "string"
+          },
+          "preview": {
+            "type": "boolean",
+            "description": "Worked out now, not closed: it may still change"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reopened": {
+            "type": "boolean"
+          },
+          "closedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "closedByName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "currency": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {}
+            }
+          },
+          "totals": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "number"
+            }
+          }
+        },
+        "required": [
+          "report",
+          "month",
+          "start",
+          "end",
+          "zone",
+          "preview",
+          "version",
+          "reopened",
+          "closedAt",
+          "closedByName",
+          "currency",
+          "notes",
+          "rows",
+          "totals"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
     },
     {
       "name": "finance.settings.get",
@@ -35918,7 +36784,10 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "finance.entries",
+        "finance.export",
         "finance.periods",
+        "finance.report",
         "finance.settings.get"
       ]
     },
@@ -40496,6 +41365,743 @@
       ]
     },
     {
+      "name": "location.close",
+      "description": "Close a location: it takes no new classes, appointments or shifts. Classes already made there are not cancelled (cancel them with the closure or cancel tools, which tell members). The last open location cannot be closed. A person only, never an AI. Returns the location.",
+      "risk": "destructive",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A location's id (loc_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "shortName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "public": {
+            "type": "boolean",
+            "description": "Shown on the website and in the app while open"
+          },
+          "dropInPrice": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "main": {
+            "type": "boolean",
+            "description": "The main location: the first, whose zone is the organisation's (pay and the books)"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "shortName",
+          "address",
+          "timezone",
+          "public",
+          "dropInPrice",
+          "state",
+          "notes",
+          "main",
+          "createdAt",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "location.get",
+        "location.list"
+      ]
+    },
+    {
+      "name": "location.create",
+      "description": "Add a place the business works from (a second studio, a branch), open from now. Its time zone defaults to the organisation's. Its name is unique among locations. A request from an AI always waits for a person to apply it. Returns the location.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "description": "The location's name, e.g. City studio"
+          },
+          "shortName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16,
+            "description": "A short name for a badge, at most 16 characters, e.g. \"City\""
+          },
+          "address": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "The location's address, one line per line of the address"
+          },
+          "timezone": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "The IANA time zone the location works in, e.g. Europe/London"
+          },
+          "public": {
+            "default": true,
+            "description": "Show it on the website and in the app",
+            "type": "boolean"
+          },
+          "dropInPrice": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000000,
+            "description": "A drop-in's price at this location, in minor units of the deployment's currency (cents). Used when the class type sets none; null: the organisation's price"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 5000,
+            "description": "Notes for staff; never shown to the public"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "shortName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "public": {
+            "type": "boolean",
+            "description": "Shown on the website and in the app while open"
+          },
+          "dropInPrice": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "main": {
+            "type": "boolean",
+            "description": "The main location: the first, whose zone is the organisation's (pay and the books)"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "shortName",
+          "address",
+          "timezone",
+          "public",
+          "dropInPrice",
+          "state",
+          "notes",
+          "main",
+          "createdAt",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "location.get",
+        "location.list"
+      ]
+    },
+    {
+      "name": "location.get",
+      "description": "One place the business works from. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A location's id (loc_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "shortName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "public": {
+            "type": "boolean",
+            "description": "Shown on the website and in the app while open"
+          },
+          "dropInPrice": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "main": {
+            "type": "boolean",
+            "description": "The main location: the first, whose zone is the organisation's (pay and the books)"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "shortName",
+          "address",
+          "timezone",
+          "public",
+          "dropInPrice",
+          "state",
+          "notes",
+          "main",
+          "createdAt",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "location.list",
+      "description": "Every place the business works from (a studio, a branch), the main location first: each one's name, short name, address, time zone, whether the public is shown it, its drop-in price, and whether it is open or closed. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "shortName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "address": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "timezone": {
+                  "type": "string"
+                },
+                "public": {
+                  "type": "boolean",
+                  "description": "Shown on the website and in the app while open"
+                },
+                "dropInPrice": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "open",
+                    "closed"
+                  ]
+                },
+                "notes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "main": {
+                  "type": "boolean",
+                  "description": "The main location: the first, whose zone is the organisation's (pay and the books)"
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "updatedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "shortName",
+                "address",
+                "timezone",
+                "public",
+                "dropInPrice",
+                "state",
+                "notes",
+                "main",
+                "createdAt",
+                "updatedAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "location.reopen",
+      "description": "Open a closed location again: it takes new classes, appointments and shifts. A person only, never an AI. Returns the location.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A location's id (loc_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "shortName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "public": {
+            "type": "boolean",
+            "description": "Shown on the website and in the app while open"
+          },
+          "dropInPrice": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "main": {
+            "type": "boolean",
+            "description": "The main location: the first, whose zone is the organisation's (pay and the books)"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "shortName",
+          "address",
+          "timezone",
+          "public",
+          "dropInPrice",
+          "state",
+          "notes",
+          "main",
+          "createdAt",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "location.get",
+        "location.list"
+      ]
+    },
+    {
+      "name": "location.update",
+      "description": "Change a location's name, short name, address, time zone, whether the public is shown it, its drop-in price or its notes; null clears an optional one. The main location's zone is the organisation's, changed in Settings → General (settings.update), not here. Records already made keep their own zone. A request from an AI always waits for a person to apply it. Returns the location.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A location's id (loc_…)"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "description": "The location's name, e.g. City studio"
+          },
+          "shortName": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 16,
+                "description": "A short name for a badge, at most 16 characters, e.g. \"City\""
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "address": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "description": "The location's address, one line per line of the address"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timezone": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "The IANA time zone the location works in, e.g. Europe/London"
+          },
+          "public": {
+            "description": "Show it on the website and in the app",
+            "type": "boolean"
+          },
+          "dropInPrice": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100000000,
+                "description": "A drop-in's price at this location, in minor units of the deployment's currency (cents). Used when the class type sets none; null: the organisation's price"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 5000,
+                "description": "Notes for staff; never shown to the public"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "shortName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "public": {
+            "type": "boolean",
+            "description": "Shown on the website and in the app while open"
+          },
+          "dropInPrice": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "main": {
+            "type": "boolean",
+            "description": "The main location: the first, whose zone is the organisation's (pay and the books)"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "shortName",
+          "address",
+          "timezone",
+          "public",
+          "dropInPrice",
+          "state",
+          "notes",
+          "main",
+          "createdAt",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "location.get",
+        "location.list"
+      ]
+    },
+    {
       "name": "media.captionDelete",
       "description": "Remove one video's caption track in a language.",
       "risk": "destructive",
@@ -43594,6 +45200,516 @@
       "invalidates": []
     },
     {
+      "name": "note.kinds.list",
+      "description": "The kinds of note the business keeps (Note, Session note, Sensitive, From the client and its own), in the composer's order: each with its template's sections (label, hint, required), the level a note of it starts at and the levels it may have. Retired kinds are left out unless includeRetired. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "includeRetired": {
+            "default": false,
+            "type": "boolean"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "defaultLevel": {
+                  "type": "string",
+                  "enum": [
+                    "staff",
+                    "coaches",
+                    "sensitive"
+                  ]
+                },
+                "lowestLevel": {
+                  "type": "string",
+                  "enum": [
+                    "staff",
+                    "coaches",
+                    "sensitive"
+                  ]
+                },
+                "levels": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "staff",
+                      "coaches",
+                      "sensitive"
+                    ]
+                  }
+                },
+                "sections": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "hint": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "required": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "label",
+                      "hint",
+                      "required"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "filesAllowed": {
+                  "type": "boolean"
+                },
+                "evidence": {
+                  "type": "boolean"
+                },
+                "retentionYears": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "active": {
+                  "type": "boolean"
+                },
+                "position": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "updatedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "key",
+                "name",
+                "defaultLevel",
+                "lowestLevel",
+                "levels",
+                "sections",
+                "filesAllowed",
+                "evidence",
+                "retentionYears",
+                "active",
+                "position",
+                "updatedAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "note.kinds.retire",
+      "description": "Retire a kind of note (retired: true): the composer no longer offers it and its notes keep it. retired: false offers it again. Note, the kind of a note written without one, is never retired. Needs notes:manage; a person only.",
+      "risk": "destructive",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 64,
+            "format": "starts_with",
+            "pattern": "^nkd_.*",
+            "description": "The kind (nkd_…)"
+          },
+          "retired": {
+            "default": true,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "defaultLevel": {
+            "type": "string",
+            "enum": [
+              "staff",
+              "coaches",
+              "sensitive"
+            ]
+          },
+          "lowestLevel": {
+            "type": "string",
+            "enum": [
+              "staff",
+              "coaches",
+              "sensitive"
+            ]
+          },
+          "levels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "staff",
+                "coaches",
+                "sensitive"
+              ]
+            }
+          },
+          "sections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "hint": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "required": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "hint",
+                "required"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "filesAllowed": {
+            "type": "boolean"
+          },
+          "evidence": {
+            "type": "boolean"
+          },
+          "retentionYears": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "position": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "key",
+          "name",
+          "defaultLevel",
+          "lowestLevel",
+          "levels",
+          "sections",
+          "filesAllowed",
+          "evidence",
+          "retentionYears",
+          "active",
+          "position",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "note.kinds.list",
+        "note.open"
+      ]
+    },
+    {
+      "name": "note.kinds.save",
+      "description": "Write a kind of note: a new one (no id), or a change to one's name, the level a note of it starts at (defaultLevel), the lowest level a note of it may have (lowestLevel) and its template (sections given whole and in order, at most 12: label, an optional hint, required). A changed level applies to notes written from now on. Needs notes:manage. An assistant's or MCP client's write always waits for a person who holds it too, and may change only the name and the template: who reads a kind's notes is a person's to set.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "description": "The kind to change; empty: a new one",
+            "type": "string",
+            "maxLength": 64,
+            "format": "starts_with",
+            "pattern": "^nkd_.*"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "defaultLevel": {
+            "description": "Where a note of it starts. Default: staff",
+            "type": "string",
+            "enum": [
+              "staff",
+              "coaches",
+              "sensitive"
+            ]
+          },
+          "lowestLevel": {
+            "description": "The lowest level a note of it may have",
+            "type": "string",
+            "enum": [
+              "staff",
+              "coaches",
+              "sensitive"
+            ]
+          },
+          "sections": {
+            "default": [],
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "description": "Keep a section's key when changing its label; a new section gets one",
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]{0,39}$"
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "hint": {
+                  "description": "A line under the label, as a prompt",
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 200
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "required": {
+                  "default": false,
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "label"
+              ]
+            }
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "defaultLevel": {
+            "type": "string",
+            "enum": [
+              "staff",
+              "coaches",
+              "sensitive"
+            ]
+          },
+          "lowestLevel": {
+            "type": "string",
+            "enum": [
+              "staff",
+              "coaches",
+              "sensitive"
+            ]
+          },
+          "levels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "staff",
+                "coaches",
+                "sensitive"
+              ]
+            }
+          },
+          "sections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "hint": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "required": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "hint",
+                "required"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "filesAllowed": {
+            "type": "boolean"
+          },
+          "evidence": {
+            "type": "boolean"
+          },
+          "retentionYears": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "position": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "key",
+          "name",
+          "defaultLevel",
+          "lowestLevel",
+          "levels",
+          "sections",
+          "filesAllowed",
+          "evidence",
+          "retentionYears",
+          "active",
+          "position",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "note.kinds.list",
+        "note.open"
+      ]
+    },
+    {
       "name": "note.open",
       "description": "Open a note to read its text: a sensitive note is listed on timelines without it. Only a person who may read the note (its author, admins, and people the business named one by one) can open it; anyone else gets not found. Every opening is recorded in the audit log, without the text. Read-only.",
       "risk": "read",
@@ -43752,6 +45868,52 @@
           },
           "locked": {
             "type": "boolean"
+          },
+          "kind": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "sections": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "label",
+                    "text"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -86021,6 +88183,202 @@
       },
       "invalidates": [],
       "pack": "deals"
+    },
+    {
+      "name": "x.forms.enter",
+      "description": "Enter answers on someone's behalf (a phone call, a paper form) or fill in a staff form (an incident report), for any published form. The submission is marked as entered by staff, and the person is found or made from the email answered, filling only their empty fields. Staff cannot tick a 'keep me updated' line for someone: only the person can. (Extension tool from Forms 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "formId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The form (forms.form record id)"
+          },
+          "answers": {
+            "propertyNames": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "description": "The answers by question key: text, email, phone and date as strings (a date YYYY-MM-DD), number and rating as numbers, a choice as a string or a list of strings, yes/no and a tick box as true or false. Leave out what was not answered.",
+            "type": "object",
+            "properties": {},
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "formId",
+          "answers"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "received": {
+            "type": "boolean",
+            "const": true,
+            "description": "The answers were sent: shown the same whatever the host's spam checks decided"
+          }
+        },
+        "required": [
+          "received"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "forms"
+    },
+    {
+      "name": "x.forms.markSpam",
+      "description": "Mark a submission as spam: it leaves the inbox and is kept in Spam. A person's act: the assistant may suggest it, and the suggestion waits for a person to approve it. Undo with notSpam. (Extension tool from Forms 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "submissionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The submission (forms.submission id)"
+          }
+        },
+        "required": [
+          "submissionId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "forms"
+    },
+    {
+      "name": "x.forms.move",
+      "description": "Move a submission in the inbox: new, in hand or done. Refused when the move is not one the inbox has (a spam submission is taken out with notSpam first), or when someone moved it meanwhile. (Extension tool from Forms 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "submissionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The submission (forms.submission id)"
+          },
+          "to": {
+            "type": "string",
+            "enum": [
+              "new",
+              "inHand",
+              "done"
+            ]
+          },
+          "from": {
+            "type": "string",
+            "enum": [
+              "new",
+              "inHand",
+              "done",
+              "spam"
+            ],
+            "description": "Only if it is still in this state: for a move two people may make at once"
+          }
+        },
+        "required": [
+          "submissionId",
+          "to"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "forms"
+    },
+    {
+      "name": "x.forms.notSpam",
+      "description": "Take a submission out of Spam: it is back in the inbox as new. A person's act: the assistant may suggest it, and the suggestion waits for a person to approve it. (Extension tool from Forms 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "submissionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The submission (forms.submission id)"
+          }
+        },
+        "required": [
+          "submissionId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "forms"
     },
     {
       "name": "x.leads.convert",

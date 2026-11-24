@@ -164,6 +164,14 @@ export interface ClientProductDefinition {
     dir: string;
     clientDir?: string;
     roles?: (string | MobileRole)[];
+    /**
+     * The owner's client (stage 60, ADR 0872): `cos client generate` also writes `roles/owner.ts`,
+     * holding only the operations the owner's Today needs (Today, the approvals, the notice inbox,
+     * who is signed in), from the release's `roles.json`. Not a pack role: any staff account may
+     * sign in with it, and the host decides every call, so a coach sees only what their rights
+     * allow.
+     */
+    owner?: boolean;
     /** The app's URL scheme (app.json `expo.scheme`), default the product's id. */
     scheme?: string;
   };

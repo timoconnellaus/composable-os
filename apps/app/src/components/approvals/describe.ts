@@ -1,7 +1,13 @@
 // Turns a pending action (operation + diff preview) into words a reviewer reads in the Approvals
 // inbox: a title ("Update 38 people"), and per group of records the field changes as added,
 // removed and changed lines, with labels from the field registry. Pure, so it is unit tested.
-import { getObject, noun, type PreviewEntry } from "@composable-os/core/client";
+import {
+  actionTitle,
+  getObject,
+  noun,
+  outboundTitle,
+  type PreviewEntry,
+} from "@composable-os/core/client";
 import { diffValue } from "#/lib/format";
 
 export {
@@ -14,6 +20,19 @@ export {
   verbOf,
 } from "@composable-os/core/client";
 export type { PreviewEntry };
+
+/** A pending action's title, as every review screen gives it: its outbound item's, or its own. */
+export function pendingActionTitle(action: {
+  operation: string;
+  preview: readonly PreviewEntry[];
+  input?: unknown;
+  bulkSize?: number;
+  outbound?: Parameters<typeof outboundTitle>[0] | null;
+}): string {
+  return action.outbound
+    ? outboundTitle(action.outbound)
+    : actionTitle(action.operation, action.preview, action.input, action.bulkSize);
+}
 
 export type LineKind = "add" | "remove" | "change" | "note";
 

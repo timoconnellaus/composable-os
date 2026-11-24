@@ -10,7 +10,13 @@ import { z } from "zod";
 import { revokeBindingsPlan } from "../automations/bindings.ts";
 import { ForbiddenError, NotFoundError, OperationError, ValidationError } from "../errors.ts";
 import { newId } from "../ids.ts";
-import { CATALOGUE, catalogueEntry, syncKindOf } from "../integrations/catalogue.ts";
+import {
+  ACCOUNTING_HOST_ONLY,
+  CATALOGUE,
+  catalogueEntry,
+  keepsBooks,
+  syncKindOf,
+} from "../integrations/catalogue.ts";
 import { pendingOutboundCounts } from "../integrations/outbound.ts";
 import type { BoundResource, IntegrationRuntime } from "../integrations/runtime.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
@@ -949,6 +955,13 @@ export const integrationCall = defineOperation({
     const integrations = requireIntegrations(ctx);
     const row = await loadIntegrationConnection(ctx.db, input.connectionId);
     assertUsable(ctx, row);
+    // The books are the host's alone (ADR 0881): no person, AI or app calls them from here.
+    if (keepsBooks(row.vendor)) {
+      throw new ForbiddenError(
+        "The accounting connection is the host's alone: only the accounting sync calls it",
+        { rule: ACCOUNTING_HOST_ONLY, connectionId: row.id },
+      );
+    }
     const resource = findResource(row, input.resource);
     const result = await integrations.call({
       connectionId: row.id,

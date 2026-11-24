@@ -1,6 +1,7 @@
 // Duplicates (stage 16, ADR 0247): likely duplicates found by the scan, by plain rules with a
 // stated reason and no score. Review them side by side, merge one at a time through the merge
 // dialog or several at once (duplicate.mergeMany), or say they are not duplicates.
+import type { CoreInput } from "@composable-os/core";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,13 +40,7 @@ import { MergeDialog } from "#/components/merge/merge-dialog";
 import { errorMessage, invalidateAfterWrite, useOp, useOpMutation } from "#/lib/query";
 
 type DuplicateObject = "person" | "organisation";
-type Rule =
-  | "same_name_organisation"
-  | "same_name_email_domain"
-  | "same_phone"
-  | "same_name_only"
-  | "same_domain"
-  | "same_name";
+type Rule = NonNullable<CoreInput<"duplicate.list">["rule"]>;
 
 export const Route = createFileRoute("/_app/duplicates")({
   validateSearch: (search: Record<string, unknown>): { tab?: "organisations" } =>

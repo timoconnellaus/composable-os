@@ -80,7 +80,7 @@ export async function movesStartedShiftCall(
   }
   const object = getObject(input.object);
   if (!object?.staffed || typeof input.id !== "string" || !isValues(input.values)) return false;
-  return movesStartedShiftById(db as never, object, input.id, input.values, now);
+  return movesStartedShiftById(db, object, input.id, input.values, now);
 }
 
 /**
@@ -97,7 +97,7 @@ export async function restoresSomeoneCall(
   }
   const object = getObject(input.object);
   if (!object || typeof input.id !== "string") return false;
-  return namesSomeoneById(db as never, object, input.id);
+  return namesSomeoneById(db, object, input.id);
 }
 
 /** Whether a call `operation` with `input` is a roster change, for its approval (ADRs 0626, 0627). */

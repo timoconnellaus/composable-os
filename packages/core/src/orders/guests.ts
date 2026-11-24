@@ -12,21 +12,19 @@ import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
 import { normaliseCustomerEmail } from "../customers/accounts.ts";
 import { personForAddress } from "../customers/address-person.ts";
+import { sha256Hex, toHex } from "../digest.ts";
 import type { HandlerContext } from "../operation.ts";
 import type { OrderRow } from "./orders.ts";
 
-const hex = (bytes: ArrayBuffer) =>
-  [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("");
-
 /** A new token for one order: 256 random bits, as 64 hex characters. */
 export function newOrderToken(): string {
-  return hex(crypto.getRandomValues(new Uint8Array(32)).buffer as ArrayBuffer);
+  return toHex(crypto.getRandomValues(new Uint8Array(32)));
 }
 
 export const ORDER_TOKEN = /^[0-9a-f]{64}$/;
 
-export async function hashOrderToken(token: string): Promise<string> {
-  return hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)));
+export function hashOrderToken(token: string): Promise<string> {
+  return sha256Hex(token);
 }
 
 /**

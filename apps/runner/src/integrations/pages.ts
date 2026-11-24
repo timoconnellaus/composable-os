@@ -18,9 +18,17 @@ export function htmlResponse(body: string, status = 200): Response {
   });
 }
 
+/** Text or a quoted attribute value, escaped for HTML (as gatekeeper-kit's escapeHtml). */
+export function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
 export function connectHandoffPageHtml(handoff: { targetOrigin: string; ticket: string }): string {
-  const origin = new URL(handoff.targetOrigin).origin;
-  if (origin !== handoff.targetOrigin)
+  let origin = "";
+  try {
+    origin = new URL(handoff.targetOrigin).origin;
+  } catch {}
+  if (origin === "" || origin === "null" || origin !== handoff.targetOrigin)
     throw new Error("The handoff's targetOrigin is not an origin");
   const literal = (s: string) => JSON.stringify(s).replace(/</g, "\\u003c");
   return `<!DOCTYPE html>
