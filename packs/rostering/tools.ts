@@ -27,6 +27,9 @@ const TEAM_TOOL = {
 /** The rosterers' tools: restricted (held by admins and by grant only, ADR 0625). */
 const MANAGE = "rostering:manage";
 
+/** How someone is counted for pay; a counted shift's is one of the first two. */
+const basis = z.enum(["by_time", "by_class", "not_counted"]);
+const countedBasis = z.enum(["by_time", "by_class"]);
 /** A shift, by its object and record id. */
 const shiftRef = { object: z.string().min(1).max(81), id: z.string().min(1).max(64) };
 const localDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date, YYYY-MM-DD");
@@ -354,10 +357,10 @@ export const myPay = defineTool({
     counted: z
       .boolean()
       .describe("False: you are not counted for pay then, and there are no figures"),
-    basis: z.enum(["by_time", "by_class", "not_counted"]),
+    basis,
     totals: z.array(
       z.object({
-        basis: z.enum(["by_time", "by_class"]),
+        basis: countedBasis,
         kind: z.object({ object: z.string(), id: z.string() }).nullable(),
         kindName: z.string(),
         shifts: z.number(),
@@ -373,7 +376,7 @@ export const myPay = defineTool({
         id: z.string(),
         title: z.string(),
         kindName: z.string(),
-        basis: z.enum(["by_time", "by_class"]),
+        basis: countedBasis,
         place: z.string().nullable(),
         localDate: z.string(),
         localStart: z.string(),
@@ -788,8 +791,6 @@ export const markNotWorked = defineTool({
 
 /** Pay: restricted (held by admins and by grant only, ADR 0625), and every tool `humanOnly`. */
 const PAY = "rostering:pay";
-const basis = z.enum(["by_time", "by_class", "not_counted"]);
-
 export const payBasis = defineTool({
   description:
     "Say how a member of staff is counted for pay from a date on (today when left out): " +
@@ -902,7 +903,7 @@ export const periodTotals = defineTool({
         account: z.string(),
         name: z.string(),
         email: z.string(),
-        basis: z.enum(["by_time", "by_class"]),
+        basis: countedBasis,
         kind: kindRef,
         kindName: z.string(),
         shifts: z.number(),
@@ -917,7 +918,7 @@ export const periodTotals = defineTool({
         account: z.string(),
         name: z.string(),
         email: z.string(),
-        basis: z.enum(["by_time", "by_class"]),
+        basis: countedBasis,
         object: z.string(),
         id: z.string(),
         kind: kindRef,
