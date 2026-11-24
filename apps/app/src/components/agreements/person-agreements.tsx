@@ -3,7 +3,8 @@
 // staff member, never as the member's own); a typed name and a drawn signature opened one at a
 // time; a health form's answers behind "Show answers" for staff with agreements:health (each read
 // audited by the host); Record paper; Email a copy of a paper form (for a child's, to the parent
-// or guardian staff pick, ADR 0648); and the minor mark. The host decides every one of these:
+// or guardian staff pick, ADR 0648); the minor mark; and Sign at the desk (stage 44 step 6), with a
+// desk acceptance shown as its session records it and its marks. The host decides every one of these:
 // what the buttons show only follows what agreement.person says the caller may do.
 import { Badge } from "@composable-os/ui/components/badge";
 import { Button } from "@composable-os/ui/components/button";
@@ -24,7 +25,8 @@ import { Switch } from "@composable-os/ui/components/switch";
 import { Textarea } from "@composable-os/ui/components/textarea";
 import { type FormEvent, useId, useState } from "react";
 import { toast } from "sonner";
-import { formatDate, formatDateTime } from "#/lib/format";
+import { SignAtDesk } from "#/components/agreements/sign-at-desk";
+import { formatDate, formatDateTime, localDay } from "#/lib/format";
 import { errorMessage, useOp, useOpMutation } from "#/lib/query";
 
 const REASONS: Record<string, string> = {
@@ -54,10 +56,23 @@ type Acceptance = {
   recordedByName: string | null;
   signedOn: string | null;
   kind: string;
+  /** At the desk (stage 44 step 6): its words and its marks, as the host gives them. */
+  desk?: { words: string; marks: { kind: string; by?: string; how?: string }[] } | null;
+};
+
+/** A desk acceptance's marks, as words (marks, not alerts: nobody is told). */
+export const MARK_WORDS: Record<string, string> = {
+  changed_recently: "address changed recently",
+  created_that_day: "created that day",
+  staff_address: "a staff account's address",
 };
 
 /** How an acceptance was made, as every screen says it. Paper is never "their own". */
 export function acceptanceLine(a: Acceptance): string {
+  // At the desk: exactly what the session records, never "in person" and never paper.
+  if (a.channel === "desk" && a.desk) {
+    return `${a.by === "guardian" ? `For them by ${a.agentName ?? "a parent or guardian"}. ` : ""}${a.desk.words}, ${formatDateTime(a.acceptedAt)}`;
+  }
   if (a.by === "paper") {
     return `Recorded from paper by ${a.recordedByName ?? "staff"} on ${formatDate(a.acceptedAt)}; signed on ${a.signedOn ?? "?"}`;
   }
@@ -78,6 +93,7 @@ export function PersonAgreements({
 }) {
   const data = useOp("agreement.person", { personId });
   const [open, setOpen] = useState<string | null>(null);
+  const [desk, setDesk] = useState(false);
   const [paper, setPaper] = useState<{ versionId: string; title: string; kind: string } | null>(
     null,
   );
@@ -87,6 +103,17 @@ export function PersonAgreements({
   return (
     <div className="grid gap-4" data-testid="person-agreements">
       <MinorCard personId={personId} minor={minor} canSet={can.setMinor && !readOnly} />
+      {can.signAtDesk && !readOnly && (
+        <div className="grid gap-2">
+          {desk ? (
+            <SignAtDesk personId={personId} />
+          ) : (
+            <Button variant="outline" className="w-fit" onClick={() => setDesk(true)}>
+              Sign at the desk
+            </Button>
+          )}
+        </div>
+      )}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -154,6 +181,16 @@ export function PersonAgreements({
                     </Button>
                   </div>
                   <span className="text-muted-foreground text-sm">{acceptanceLine(a)}</span>
+                  {a.desk?.marks.length ? (
+                    <div className="flex flex-wrap gap-1" data-testid="desk-marks">
+                      {a.desk.marks.map((m) => (
+                        <Badge key={m.kind} variant="outline">
+                          {MARK_WORDS[m.kind] ?? m.kind}
+                          {m.by ? ` (by ${m.by})` : ""}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -500,7 +537,7 @@ function PaperDialog({
 }) {
   const record = useOpMutation("agreement.recordPaper", { invalidates: ["agreement.person"] });
   const [name, setName] = useState(personName);
-  const [signedOn, setSignedOn] = useState(new Date().toISOString().slice(0, 10));
+  const [signedOn, setSignedOn] = useState(() => localDay());
   const [signedBy, setSignedBy] = useState("");
   const [note, setNote] = useState("");
   async function submit(event: FormEvent) {

@@ -3,6 +3,17 @@
 // admins (the log names members' addresses). Changing a switch or the business's site is a
 // human admin's only: no assistant, MCP client, automation or extension may turn routine mail on
 // or point its links somewhere.
+//
+// Routine messages (ADR 0670): each kind's text and push, switched on by a human admin within what
+// the kind declares; "text only without the app"; quiet hours (ADR 0676). The host's own kinds
+// (`core.*`) are listed with the packs' and turned on the same way.
+import {
+  channelsOf,
+  essentialOf,
+  ROUTINE_CHANNELS,
+  TEXT_SENDER_MAX,
+  unroutineText,
+} from "@composable-os/sdk";
 import { z } from "zod";
 import { ValidationError } from "../errors.ts";
 import { evaluateGate } from "../gate.ts";
@@ -13,7 +24,10 @@ import {
   routineKinds,
   siteOriginOf,
 } from "../routine-mail/index.ts";
-import { loadApprovalPolicy } from "../settings.ts";
+import { TEXT_COUNTRY_CODES } from "../routine-mail/numbers.ts";
+import { quietHoursSchema } from "../routine-mail/quiet.ts";
+import { textSpend } from "../routine-mail/texts.ts";
+import { isTimezone, loadApprovalPolicy } from "../settings.ts";
 
 const kindSchema = z.object({
   id: z.string().describe("The kind: <extension>.<kind>, e.g. bookings.reminder"),
@@ -25,6 +39,26 @@ const kindSchema = z.object({
   messages: z.array(z.string()),
   on: z.boolean().describe("Sent; off sends nothing and queues nothing"),
   defaultOn: z.boolean(),
+  host: z.boolean().describe("Declared by the host itself (asked for by host code), not a pack"),
+  channels: z
+    .array(
+      z.object({
+        channel: z.enum(ROUTINE_CHANNELS),
+        on: z
+          .boolean()
+          .describe("Email follows the kind's switch; text and push are switched on one by one"),
+      }),
+    )
+    .describe("The channels the kind declares, and which are on"),
+  essential: z
+    .boolean()
+    .describe("Its email always goes: a person cannot turn it off (text and push they can)"),
+  purpose: z.enum(["account", "follow_up"]),
+  urgent: z
+    .boolean()
+    .describe(
+      "May go during quiet hours when waiting would make it late (a short-notice cancellation)",
+    ),
   lastWeek: z
     .object({
       sent: z.number().int(),
@@ -33,7 +67,7 @@ const kindSchema = z.object({
       other: z.number().int(),
     })
     .describe(
-      "Emails of this kind in the last 7 days: sent on their own (or once approved), waiting for a person, not sent because the kind was off, and refused or failed",
+      "Emails of this kind in the last 7 days (texts and pushes are not counted here): sent on their own (or once approved), waiting for a person, not sent because the kind was off, and refused or failed",
     ),
 });
 
@@ -60,6 +94,32 @@ const settingsOutput = z.object({
     .string()
     .nullable()
     .describe("The business's own site: the only place a routine email links to"),
+  textOnlyWithoutApp: z
+    .boolean()
+    .describe("A member reached by a push on the business's app is not also texted"),
+  quietHours: quietHoursSchema.describe(
+    "When texts and pushes wait, in quietZone; emails always go at once",
+  ),
+  quietZone: z
+    .string()
+    .nullable()
+    .describe("The time zone quiet hours are read in; no text or push goes until it is set"),
+  senderName: z
+    .string()
+    .nullable()
+    .describe("The name every text begins with; no text goes until it is set"),
+  textLimitMinor: z
+    .number()
+    .int()
+    .describe("The month's text limit in minor units of the business's currency; 0 sends no texts"),
+  textSegmentPriceMinor: z
+    .number()
+    .int()
+    .nullable()
+    .describe("What one text segment costs, in minor units; no text goes until it is set"),
+  textCountries: z
+    .array(z.enum(TEXT_COUNTRY_CODES))
+    .describe("The countries texts may go to, the business's own first; none sends no texts"),
   sendsOnItsOwn: z
     .enum(["auto", "review", "deny"])
     .describe(
@@ -86,6 +146,8 @@ export const routineMailGet = defineOperation({
       .selectFrom("core_routine_mail")
       .select(["kind", "status", (eb) => eb.fn.countAll<number>().as("n")])
       .where("created_at", ">", since)
+      // Emails only: a text or push nothing sends yet must not read as one waiting to go.
+      .where("channel", "=", "email")
       .groupBy(["kind", "status"])
       .execute();
     const settings = await loadRoutineMailSettings(ctx.db);
@@ -100,6 +162,8 @@ export const routineMailGet = defineOperation({
     );
     const packs = new Map<string, { id: string; label: string; on: boolean }>();
     for (const k of kinds) {
+      // The host's own kinds have no pack to turn on: each kind is turned on by itself.
+      if (k.host) continue;
       packs.set(k.extensionId, { id: k.extensionId, label: k.extensionLabel, on: k.packOn });
     }
     return {
@@ -120,20 +184,51 @@ export const routineMailGet = defineOperation({
           about: k.spec.about,
           messages: Object.keys(k.spec.messages),
           on: k.on,
-          defaultOn: k.spec.on !== false,
+          defaultOn: !k.host && k.spec.on !== false,
+          host: k.host,
+          channels: channelsOf(k.spec).map((channel) => ({
+            channel,
+            on: channel === "email" ? k.on : k.on && k.channels[channel],
+          })),
+          essential: essentialOf(k.spec),
+          purpose: k.spec.purpose ?? "account",
+          urgent: k.spec.urgent === true,
           lastWeek: {
-            sent: of(["sent"]),
+            sent: of(["sent", "delivered"]),
             waiting: of(["waiting", "ready", "sending"]),
             off: of(["off"]),
-            other: of(["denied", "failed"]),
+            other: of(["denied", "failed", "stopped", "expired", "over_limit", "no_channel"]),
           },
         };
       }),
       siteOrigin: settings.siteOrigin,
+      textOnlyWithoutApp: settings.textOnlyWithoutApp,
+      quietHours: settings.quietHours,
+      quietZone: settings.quietZone,
+      senderName: settings.senderName,
+      textLimitMinor: settings.textLimitMinor,
+      textSegmentPriceMinor: settings.textSegmentPriceMinor,
+      textCountries: settings.textCountries,
       sendsOnItsOwn: gate.decision,
     };
   },
 });
+
+const STATUSES = [
+  "off",
+  "ready",
+  "sending",
+  "sent",
+  "delivered",
+  "waiting",
+  "held",
+  "denied",
+  "failed",
+  "stopped",
+  "expired",
+  "over_limit",
+  "no_channel",
+] as const;
 
 const logEntry = z.object({
   id: z.string(),
@@ -142,14 +237,15 @@ const logEntry = z.object({
   message: z.string(),
   object: z.string(),
   recordId: z.string(),
-  recipient: z.string(),
+  channel: z.enum(ROUTINE_CHANNELS),
+  recipient: z.string().describe("The address an email went to; always empty for a text or push"),
   recipientRule: z
     .enum(["person", "guardian", "order"])
     .describe(
       "How the host chose the recipient: the record's person, their guardian, or a paid order's own address",
     ),
-  automationId: z.string(),
-  runId: z.string(),
+  automationId: z.string().nullable().describe("Null for a host kind's message"),
+  runId: z.string().nullable(),
   trigger: z
     .string()
     .describe("What started the run: record, fieldChanged, dateRelative, schedule, manual…"),
@@ -159,7 +255,12 @@ const logEntry = z.object({
     .describe("Who made the change that started it; null for the clock"),
   routine: z.boolean().describe("Allowed to go without a person"),
   heldReason: z.string().nullable(),
-  status: z.enum(["off", "ready", "sending", "sent", "waiting", "denied", "failed"]),
+  status: z
+    .enum(STATUSES)
+    .describe(
+      "sent, delivered (a text the provider confirmed), waiting (for a person, or for quiet hours to end: waitUntil), off, denied, failed, stopped, expired (its moment passed while it waited), over_limit (the month's text limit), no_channel (no address, textable number or app device)",
+    ),
+  waitUntil: z.string().nullable().describe("Quiet hours: when a waiting text or push goes"),
   pendingActionId: z.string().nullable(),
   error: z.string().nullable(),
 });
@@ -174,7 +275,8 @@ export const routineMailLog = defineOperation({
     "by kind or status. Admins only. Read-only.",
   input: z.object({
     kind: z.string().max(80).optional(),
-    status: z.enum(["off", "ready", "sending", "sent", "waiting", "denied", "failed"]).optional(),
+    status: z.enum(STATUSES).optional(),
+    channel: z.enum(ROUTINE_CHANNELS).optional(),
     limit: z.number().int().min(1).max(200).default(50),
   }),
   output: z.object({ items: z.array(logEntry) }),
@@ -191,6 +293,7 @@ export const routineMailLog = defineOperation({
         "message",
         "record_object",
         "record_id",
+        "channel",
         "recipient",
         "recipient_rule",
         "automation_id",
@@ -200,6 +303,7 @@ export const routineMailLog = defineOperation({
         "routine",
         "held_reason",
         "status",
+        "wait_until",
         "pending_action_id",
         "error",
       ])
@@ -208,6 +312,7 @@ export const routineMailLog = defineOperation({
       .limit(input.limit);
     if (input.kind) query = query.where("kind", "=", input.kind);
     if (input.status) query = query.where("status", "=", input.status);
+    if (input.channel) query = query.where("channel", "=", input.channel);
     const rows = await query.execute();
     return {
       items: rows.map((r) => {
@@ -222,7 +327,9 @@ export const routineMailLog = defineOperation({
           message: r.message,
           object: r.record_object,
           recordId: r.record_id,
-          recipient: r.recipient,
+          channel: r.channel,
+          // A text's number or a push's device is never shown, even while it waits (ADR 0670).
+          recipient: r.channel === "email" ? r.recipient : "",
           recipientRule: r.recipient_rule,
           automationId: r.automation_id,
           runId: r.run_id,
@@ -231,6 +338,7 @@ export const routineMailLog = defineOperation({
           routine: r.routine === 1,
           heldReason: r.held_reason,
           status: r.status,
+          waitUntil: r.wait_until,
           pendingActionId: r.pending_action_id,
           error: r.error,
         };
@@ -247,7 +355,16 @@ export const routineMailSettingsUpdate = defineOperation({
     "(kinds: { 'bookings.reminder': false }: off sends " +
     "nothing and queues nothing), or set the business's own site, the only place routine email " +
     "links to (siteOrigin, an https origin; null removes the links), the organisation's daily " +
-    "limit (orgDailyCap) or how long the log is kept (retentionMonths). Only what you pass changes. " +
+    "limit (orgDailyCap) or how long the log is kept (retentionMonths). Switch a kind's text or push " +
+    "on (channels: { 'bookings.reminder': { push: true } }, only channels the kind declares), " +
+    "whether a member reached by push is also texted (textOnlyWithoutApp), or quiet hours, when " +
+    "texts and pushes wait (quietHours: { start: '21:00', end: '07:00' }; the same start and end: " +
+    "none) and the time zone they are read in (quietZone, e.g. 'Europe/London'), or the name every " +
+    "text begins with (senderName, at most 30 characters). A text or push cannot be switched on " +
+    "until quietZone is set, nor a text until senderName is. Texts: the month's limit " +
+    "(textLimitMinor, in minor units of the business's currency; 0 sends none), what one segment " +
+    "costs (textSegmentPriceMinor, from the provider's price list), and the countries texts may " +
+    "go to (textCountries, ISO codes, the business's own first). Only what you pass changes. " +
     "Admins only, and only a human can call it: AI assistants, MCP clients, automations and " +
     "extensions are refused.",
   input: z.object({
@@ -256,6 +373,19 @@ export const routineMailSettingsUpdate = defineOperation({
     siteOrigin: z.string().max(200).nullable().optional(),
     orgDailyCap: z.number().int().min(1).max(100_000).optional(),
     retentionMonths: z.number().int().min(1).max(84).optional(),
+    channels: z
+      .record(
+        z.string().max(80),
+        z.object({ text: z.boolean().optional(), push: z.boolean().optional() }).strict(),
+      )
+      .optional(),
+    textOnlyWithoutApp: z.boolean().optional(),
+    quietHours: quietHoursSchema.optional(),
+    quietZone: z.string().max(64).nullable().optional(),
+    senderName: z.string().max(TEXT_SENDER_MAX).nullable().optional(),
+    textLimitMinor: z.number().int().min(0).max(100_000_000).optional(),
+    textSegmentPriceMinor: z.number().int().min(1).max(100_000).nullable().optional(),
+    textCountries: z.array(z.enum(TEXT_COUNTRY_CODES)).max(TEXT_COUNTRY_CODES.length).optional(),
   }),
   output: z.object({
     packs: z.record(z.string(), z.boolean()),
@@ -263,6 +393,17 @@ export const routineMailSettingsUpdate = defineOperation({
     siteOrigin: z.string().nullable(),
     orgDailyCap: z.number().int(),
     retentionMonths: z.number().int(),
+    channels: z.record(
+      z.string(),
+      z.object({ text: z.boolean().optional(), push: z.boolean().optional() }),
+    ),
+    textOnlyWithoutApp: z.boolean(),
+    quietHours: quietHoursSchema,
+    quietZone: z.string().nullable(),
+    senderName: z.string().nullable(),
+    textLimitMinor: z.number().int(),
+    textSegmentPriceMinor: z.number().int().nullable(),
+    textCountries: z.array(z.enum(TEXT_COUNTRY_CODES)),
   }),
   permission: "settings:manage",
   risk: "write",
@@ -274,7 +415,7 @@ export const routineMailSettingsUpdate = defineOperation({
     }
     const declaredKinds = await routineKinds(ctx.db);
     const declared = new Set(declaredKinds.map((k) => k.id));
-    const declaredPacks = new Set(declaredKinds.map((k) => k.extensionId));
+    const declaredPacks = new Set(declaredKinds.filter((k) => !k.host).map((k) => k.extensionId));
     for (const id of Object.keys(input.packs ?? {})) {
       if (!declaredPacks.has(id)) {
         throw new ValidationError(`No shipped pack ${id} declares routine email`, { pack: id });
@@ -283,6 +424,18 @@ export const routineMailSettingsUpdate = defineOperation({
     for (const id of Object.keys(input.kinds ?? {})) {
       if (!declared.has(id)) {
         throw new ValidationError(`No shipped pack declares routine email "${id}"`, { kind: id });
+      }
+    }
+    for (const [id, switches] of Object.entries(input.channels ?? {})) {
+      const kind = declaredKinds.find((k) => k.id === id);
+      if (!kind) {
+        throw new ValidationError(`No shipped pack declares routine email "${id}"`, { kind: id });
+      }
+      const has = new Set(channelsOf(kind.spec));
+      for (const channel of ["text", "push"] as const) {
+        if (switches[channel] !== undefined && !has.has(channel)) {
+          throw new ValidationError(`${id} does not go by ${channel}`, { kind: id, channel });
+        }
       }
     }
     let siteOrigin: string | null | undefined;
@@ -302,7 +455,48 @@ export const routineMailSettingsUpdate = defineOperation({
       siteOrigin: siteOrigin === undefined ? previous.siteOrigin : siteOrigin,
       orgDailyCap: input.orgDailyCap ?? previous.orgDailyCap,
       retentionMonths: input.retentionMonths ?? previous.retentionMonths,
+      channels: Object.fromEntries(
+        [...new Set([...Object.keys(previous.channels), ...Object.keys(input.channels ?? {})])].map(
+          (id) => [id, { ...previous.channels[id], ...input.channels?.[id] }],
+        ),
+      ),
+      textOnlyWithoutApp: input.textOnlyWithoutApp ?? previous.textOnlyWithoutApp,
+      quietHours: input.quietHours ?? previous.quietHours,
+      quietZone: input.quietZone === undefined ? previous.quietZone : input.quietZone,
+      senderName:
+        input.senderName === undefined ? previous.senderName : input.senderName?.trim() || null,
+      textLimitMinor: input.textLimitMinor ?? previous.textLimitMinor,
+      textSegmentPriceMinor:
+        input.textSegmentPriceMinor === undefined
+          ? previous.textSegmentPriceMinor
+          : input.textSegmentPriceMinor,
+      textCountries: input.textCountries
+        ? [...new Set(input.textCountries)]
+        : previous.textCountries,
     };
+    if (next.quietZone !== null && !isTimezone(next.quietZone)) {
+      throw new ValidationError(`${next.quietZone} is not a time zone`, { field: "quietZone" });
+    }
+    const senderWhy = next.senderName ? unroutineText(next.senderName, TEXT_SENDER_MAX) : null;
+    if (senderWhy) {
+      throw new ValidationError(`The name texts begin with holds ${senderWhy}`, {
+        field: "senderName",
+      });
+    }
+    // A text or push switched on needs its zone for quiet hours, a text its name (the review of
+    // PR #339: neither is read from the general settings others may change).
+    const anyOn = (channel: "text" | "push") =>
+      Object.values(next.channels).some((c) => c[channel] === true);
+    if ((anyOn("text") || anyOn("push")) && !next.quietZone) {
+      throw new ValidationError("Set quietZone, the time zone quiet hours are read in, first", {
+        field: "quietZone",
+      });
+    }
+    if (anyOn("text") && !next.senderName) {
+      throw new ValidationError("Set senderName, the name every text begins with, first", {
+        field: "senderName",
+      });
+    }
     const value = JSON.stringify(next);
     ctx.write(
       ctx.db
@@ -323,8 +517,33 @@ export const routineMailSettingsUpdate = defineOperation({
   },
 });
 
+export const messagesTextSpend = defineOperation({
+  name: "messages.textSpend",
+  description:
+    "This month's spend on texts (ADR 0672): the segments sent, the estimate the limit is " +
+    "counted with (segments times the price per segment set in Settings → Routine email), what " +
+    "the text provider reported, and the month's limit. Amounts in minor units of the business's " +
+    "currency. Admins only. Read-only.",
+  input: z.object({}),
+  output: z.object({
+    month: z.string().describe("YYYY-MM, in the business's zone"),
+    segments: z.number().int(),
+    estimatedMinor: z.number().int(),
+    reportedMinor: z.number().int(),
+    limitMinor: z.number().int(),
+    segmentPriceMinor: z.number().int().nullable(),
+  }),
+  permission: "audit:read",
+  risk: "read",
+  mcp: { idempotent: true },
+  async handler(_input, ctx) {
+    return textSpend(ctx.db, ctx.now);
+  },
+});
+
 export const routineMailOperations = [
   routineMailGet,
   routineMailLog,
   routineMailSettingsUpdate,
+  messagesTextSpend,
 ] as const;

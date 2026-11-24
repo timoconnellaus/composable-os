@@ -8,7 +8,7 @@
 //   host's orders or sign-in mail) is refused, and nothing is queued;
 // - an acceptance's copy, from the acceptance's own row, reaches the address it holds.
 // All text here is fixture text.
-import { env, exports } from "cloudflare:workers";
+import { env } from "cloudflare:workers";
 import {
   type ActingUser,
   type InvocationContext,
@@ -21,12 +21,10 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { fakeProviderStub } from "../src/integrations/fake.ts";
 import { blobStore, integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
+import { connectFake } from "./fake-connection.ts";
 import { createAdmin, db, host, unique } from "./helpers.ts";
 
 const integrations = integrationRuntime(env);
-const runner = exports.default as unknown as {
-  gatekeeperFetch(vendor: string, request: Request): Promise<Response>;
-};
 
 function op<T>(
   user: ActingUser,
@@ -45,27 +43,6 @@ function op<T>(
     ...extra,
   };
   return invokeByName(name, input, ctx) as Promise<T>;
-}
-
-async function connectFakeForOrg(owner: ActingUser, address: string): Promise<string> {
-  const created = await op<{ connection: { id: string }; connect: { url: string; nonce: string } }>(
-    owner,
-    "connection.create",
-    { vendor: "fake", scope: "org", sharingLevel: "full" },
-  );
-  const url = `http://crm.test${created.connect.url}`;
-  await runner.gatekeeperFetch("fake", new Request(url));
-  const done = await runner.gatekeeperFetch(
-    "fake",
-    new Request(url, { method: "POST", body: new URLSearchParams({ address }) }),
-  );
-  const ticket = /var ticket = "([^"]+)"/.exec(await done.text())?.[1] ?? "";
-  await op(owner, "connection.completeConnect", {
-    connectionId: created.connection.id,
-    ticket,
-    nonce: created.connect.nonce,
-  });
-  return created.connection.id;
 }
 
 let admin: ActingUser;
@@ -101,7 +78,7 @@ beforeAll(async () => {
   admin = await createAdmin();
   await op(admin, "integration.setVendor", { vendor: "fake", enabled: true });
   outbox = `${unique("copies")}@example.com`;
-  connectionId = await connectFakeForOrg(admin, outbox);
+  connectionId = await connectFake((name, input) => op(admin, name, input), outbox);
   await op(admin, "connection.bindResource", {
     id: connectionId,
     url: `fake://outbox/${encodeURIComponent(outbox)}`,
@@ -345,6 +322,70 @@ describe("keys and lists kept apart by who is sending (the review of PR #283)", 
     });
     expect(result?.applied).toHaveLength(1);
     expect(await sentTo(ours)).toHaveLength(1);
+  });
+
+  it("ordinary callers keep their own keys: a person, an MCP app, the assistant, an automation (issue #286)", async () => {
+    const key = `step-${unique("k")}`;
+    const session = `cap_${unique("s")}`;
+    const callers: Partial<InvocationContext>[] = [
+      {},
+      { actor: "mcp", origin: { surface: "mcp", sessionId: session, clientId: "c" } },
+      { actor: "mcp", origin: { surface: "mcp", sessionId: `cap_${unique("s")}`, clientId: "c" } },
+      { actor: "assistant", origin: { surface: "assistant", sessionId: "ath_s" } },
+      {
+        actor: "automation",
+        origin: { surface: "automation", automationId: "fixture.one", runId: "arn_1" },
+      },
+      {
+        actor: "automation",
+        origin: { surface: "automation", automationId: "fixture.two", runId: "arn_2" },
+      },
+    ];
+    const sendAs = async (extra: Partial<InvocationContext>, to: string) =>
+      (
+        await op<{ value: { id: number } }>(
+          admin,
+          "integration.call",
+          {
+            connectionId,
+            resource: "OUTBOX",
+            method: "send",
+            args: [{ to: [to], subject: "Step", text: "x", idempotencyKey: key }],
+          },
+          extra,
+        )
+      ).value.id;
+    // Each caller's first send under the one key is its own send, never another's answer.
+    const ids: number[] = [];
+    for (const [i, extra] of callers.entries()) {
+      ids.push(await sendAs(extra, `${unique(`caller${i}`)}@outside.test`));
+    }
+    expect(new Set(ids).size).toBe(callers.length);
+    // Each caller's retry finds its own first send, whatever it is sent to: another run of the
+    // same automation, the same MCP app in another thread of the assistant's.
+    expect(await sendAs({}, "other@outside.test")).toBe(ids[0]);
+    expect(
+      await sendAs(
+        { actor: "mcp", origin: { surface: "mcp", sessionId: session, clientId: "c" } },
+        "other@outside.test",
+      ),
+    ).toBe(ids[1]);
+    expect(
+      await sendAs(
+        { actor: "assistant", origin: { surface: "assistant", sessionId: "ath_other" } },
+        "other@outside.test",
+      ),
+    ).toBe(ids[3]);
+    expect(
+      await sendAs(
+        {
+          actor: "automation",
+          origin: { surface: "automation", automationId: "fixture.one", runId: "arn_3" },
+        },
+        "other@outside.test",
+      ),
+    ).toBe(ids[4]);
+    expect(await sentTo("other@outside.test")).toEqual([]);
   });
 
   it("a caller's listSent does not show the host's copies", async () => {

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { ValidationError } from "./errors.ts";
 import type { FieldDefinition, ObjectDefinition } from "./fields/types.ts";
 import { compileFilter, filterSchema } from "./filter.ts";
+import { jsonList } from "./records/common.ts";
 import { type Reader, visibleObject, visibleSource } from "./visibility/index.ts";
 
 export const sortSchema = z.object({
@@ -163,9 +164,7 @@ async function pageByIds<DB, TB extends keyof DB, Row extends { id: string }>(
   if (!keys.length) return [];
   const ids = keys.map((k) => k.id);
   const rows = await base
-    .where(
-      sql<SqlBool>`${sql.ref(`${alias}.id`)} IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`,
-    )
+    .where(sql<SqlBool>`${sql.ref(`${alias}.id`)} IN ${jsonList(ids)}`)
     .execute();
   const byId = new Map(rows.map((row) => [row.id, row]));
   return ids.flatMap((id) => {
@@ -183,11 +182,14 @@ export async function runListQuery<Row extends { id: string }>(
   ctx: Reader,
   object: ObjectDefinition,
   input: Pick<ListInput, "filter" | "sort" | "cursor" | "limit">,
+  /** A condition the platform adds over the source (a pack role's limit, ADR 0889), never a caller's. */
+  where?: RawBuilder<SqlBool>,
 ): Promise<ListPage<Row>> {
   // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema; callers name the row type.
-  const query = (ctx.db as Kysely<any>)
+  const source = (ctx.db as Kysely<any>)
     .selectFrom(visibleSource(ctx, object))
     .selectAll() as unknown as SelectQueryBuilder<Record<string, Row>, string, Row>;
+  const query = where ? source.where(where) : source;
   // Filter and sort against the fields the caller may see: for a customer, a field the object
   // does not list is an unknown field here.
   return pageQuery(query, visibleObject(ctx, object), input, object.source);

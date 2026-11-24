@@ -13,17 +13,15 @@
 //      posts; and with `publish`, publishing (or scheduling) each as its file says.
 import type { ImportHost } from "../import-door/host.ts";
 import {
-  chunks,
   type ImportResult,
   importRecords,
-  type Outcome,
+  knownByHash,
   outcomeLines,
   sha256,
 } from "../import-door/records.ts";
 import {
   CATEGORY_OBJECT,
   type ImportPlan,
-  PICTURE,
   type PlannedPost,
   POST_OBJECT,
   type Problem,
@@ -31,7 +29,7 @@ import {
   withPictures,
 } from "./format.ts";
 
-export type { ImportHost, ImportResult, Outcome };
+export type { ImportHost };
 
 export interface ImportReport {
   /** Problems that stopped the import before anything was written. */
@@ -127,14 +125,8 @@ export async function runImport(
   // The pictures the library has already, by their bytes' hash (a read).
   const hashes = new Map<string, string>();
   for (const [file, bytes] of plan.pictures) hashes.set(file, await sha256(bytes));
-  const known = new Map<string, string>();
-  for (const part of chunks([...new Set(hashes.values())], 200)) {
-    if (!part.length) continue;
-    const found = await host.call<{ items: { id: string; sha256: string }[] }>("media.findByHash", {
-      sha256: part,
-    });
-    for (const item of found.items) known.set(item.sha256, item.id);
-  }
+  const found = await knownByHash(host, [...hashes.values()]);
+  const known = new Map([...found].map(([hash, item]) => [hash, item.id]));
 
   // 2. The dry run: every record through the host's own checks, with the pictures and categories
   // that do not exist yet as placeholders, so a bad record stops the run before any write.
@@ -314,5 +306,3 @@ export function reportLines(report: ImportReport, dryRun: boolean): string[] {
     lines.push(`  ${note.file ? `${note.file}: ` : ""}${note.message}`);
   return lines;
 }
-
-export { PICTURE };

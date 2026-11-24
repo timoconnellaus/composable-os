@@ -21,6 +21,7 @@
     "programs-today/*.tsx",
     "programs-class-today/*.tsx",
     "programs-progress/*.tsx",
-    "programs-coach-client/*.tsx"
+    "programs-coach-client/*.tsx",
+    "programs-history/*.tsx"
   ]
 }

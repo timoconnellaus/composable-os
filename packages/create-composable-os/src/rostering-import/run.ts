@@ -6,8 +6,7 @@
 //       [--apply]
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename } from "node:path";
-import { sessionHost } from "../import-door/host.ts";
-import { signInForRun } from "../import-door/sign-in.ts";
+import { hostOf, withRunSession } from "../import-door/sign-in.ts";
 import type { Io } from "../io.ts";
 import { readRosterFile, rosterReportLines, runRosterImport } from "./engine.ts";
 
@@ -33,11 +32,8 @@ export async function rosteringImport(
     );
     return 2;
   }
-  const host = flags.host?.replace(/\/+$/, "");
-  if (!host || !/^https?:\/\//.test(host)) {
-    io.err("--host is the host's address, e.g. https://admin.example.com");
-    return 2;
-  }
+  const host = hostOf(flags.host, io);
+  if (!host) return 2;
   if (!existsSync(path) || !statSync(path).isFile()) {
     io.err(`${path} is not a file`);
     return 2;
@@ -52,31 +48,20 @@ export async function rosteringImport(
   io.out(
     `${file.rows.length} row(s) in ${name}.${flags.apply ? "" : " A dry run: nothing is written."}`,
   );
-  let session: Awaited<ReturnType<typeof signInForRun>>;
-  try {
-    session = await signInForRun(host, flags.email, io, "cos rostering import");
-  } catch (error) {
-    io.err(`Could not sign in: ${(error as Error).message}`);
-    return 1;
-  }
-  try {
-    const report = await runRosterImport(
-      file,
-      sessionHost(host, () => session.headers()),
-      {
+  return withRunSession(host, flags.email, io, "cos rostering import", async (on) => {
+    try {
+      const report = await runRosterImport(file, on, {
         apply: Boolean(flags.apply),
         name,
         progress: (line) => io.out(line),
-      },
-    );
-    for (const line of rosterReportLines(report, name)) {
-      (report.problems.length ? io.err : io.out)(line);
+      });
+      for (const line of rosterReportLines(report, name)) {
+        (report.problems.length ? io.err : io.out)(line);
+      }
+      return report.problems.length ? 1 : 0;
+    } catch (error) {
+      io.err(`Error: ${(error as Error).message}`);
+      return 1;
     }
-    return report.problems.length ? 1 : 0;
-  } catch (error) {
-    io.err(`Error: ${(error as Error).message}`);
-    return 1;
-  } finally {
-    await session.signOut();
-  }
+  });
 }

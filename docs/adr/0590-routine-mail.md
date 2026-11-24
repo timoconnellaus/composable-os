@@ -425,3 +425,22 @@ values; an AI's run marks a value equal to the input, and a `true`, as an AI's; 
 run keeps them); `apps/runner/test/routine-mail-standing.test.ts` (a runtime tool writing the
 person's typed value to its own record and to another record: both an AI's);
 `packages/sdk/test/routine-mail.test.ts` (an empty `where.in` value refused).
+
+## Amended 2026-11-24, routine messages (stage 30 step 1, ADR 0670)
+
+Routine mail grows into routine messages; the manifest key, the table and the operations keep their
+names. A kind may also declare a text's and a push's words, go on the channels a human admin
+switches on for it, say whether a person may turn its email off (`essential`), what it is for
+(`purpose`), whether it may go in quiet hours (`urgent`, ADR 0676) and its moment (`until`). Each
+recipient gets a row per channel; the email row, its key, its caps, its claim and its send are as
+above. Two things change for email, both narrower:
+
+- **A value's problem holds only what shows it.** A slot's problem (empty, too long, a link) now
+  holds the messages whose own words (or calendar file) show that slot, as their marks already did
+  (the third review), not every email of the send. A kind's shorter slot for a text or push (a class
+  title at most 40 characters) never holds its email.
+- **A host kind** (`core.<name>`) is asked for by host code, with no automation or run: its rows
+  carry neither (migration 0910 makes both columns nullable) and its held email waits for a person
+  in the host's own change set for the kind. It is off until a human admin turns it on.
+
+Proof: ADR 0670's table; every test above passes unchanged.

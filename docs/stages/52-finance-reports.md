@@ -34,6 +34,36 @@ best-practice answers are decided, not asked (decisions 1 to 10 below). The owne
 any of them. Every step may start in the order below; step 8 waits for stage 34's shared step and
 gift cards to be built.
 
+- **Step 1 built** (PR #337, `feat/stage-52-periods-entries`): the business's day, finance months,
+  the close as one guarded batch, versions and reopening, the entries tables and their triggers
+  (months closed and reopened in order for every writer, the first month fixed by the first close),
+  `finance:read` and `finance:close`, the finance settings, `csvText` in `packages/core/src/csv.ts`,
+  and the erase of a reopen's reason and of closed rows' names. Migration 1150; ADRs 0790, 0791 and
+  0794 (0449 amended). Left: until step 3 fills `periodBook` a close writes no entries; inserts are
+  500 rows or 1 MB to a statement (not ADR 0627's hundred), so the biggest close fits D1's 1,000.
+- **Step 2 built** (`feat/stage-52-sellable-finance`): `sellable.finance` (a category's key and
+  label, and `earned`: `at_sale`, `over_period`, `per_use` or `at_date` with `at`), its contract
+  checks, the field registry's copy with the defaults filled (`other`, `at_sale`), and the
+  declarations in Memberships (plan `over_period`, pass type `per_use`), Ticketing (ticket type
+  `at_date` on `event.startsAt`), Bookings (drop-in `at_date` on `class.startsAt`) and Courses
+  (course and bundle `at_sale`; the course plan `over_period`, as a plan). No migration; ADR 0792
+  (0435 amended). The ADR numbers of 0792 and 0793 in the table below are swapped from the draft.
+- **Step 3 built** (`feat/stage-52-day-summaries`): the day summaries (one `day` entry per business
+  day money moved, filling `periodBook`), Sales, Tax and Refunds (`finance/book.ts`, each payment
+  and refund shared over its order's lines by net, its tax by the lines' tax; a one-off refund's tax
+  estimated in proportion and marked), late sources from closed months in `late` entries,
+  `finance.report` (a closed version, a month's preview or any span up to 366 days),
+  `finance.entries` (closed versions only, paged) and `finance.export` (one CSV per report, a
+  person's). Migration 1153 (indexes on the dates counted; 1151 and 1152 stay the spec's for steps
+  4 and 5); ADR 0796. Left: a closed Refunds row keeps no staff reason (it could not be redacted);
+  staff names in a file are read when it is downloaded; discounts show once, with an order's first
+  payment; the late scan reads every earlier source's index entry. The hand-worked fixture is
+  written to the order tables, plus one order paid through the order code; the full fixture of
+  acceptance criterion 1 (memberships, passes, payouts) waits for steps 4 to 6. The review of PR #423
+  (ADR 0796 and 0794 amended): no guest address in a closed row, an erase racing the close fails
+  it, refunds looked up by their order's payments, `finance:read` in the MCP `read` and `write`
+  scopes, a closed file byte for byte the same after a reopen (names read at download excepted).
+
 **This is not accounting or tax advice, and the platform gives none.** The host reports what the
 payment provider confirmed and what the host recorded. How a figure is treated in the business's
 books (when a sale is earned, what tax is owed, what a refund or a gift card does to it) is for the
@@ -465,8 +495,8 @@ Block **BN**: migrations 1150 to 1169, ADRs 0790 to 0799 (the coordinator adds t
 | --- | --- | --- |
 | 0790 | Finance periods: the business's day, money counted when the host recorded it, the monthly close as a versioned snapshot that never refuses a money event, late sources counted once | builds on 0627 |
 | 0791 | The figures for the books: book entries, their keys, headings, balance and fingerprints; what Accounting sync reads | |
-| 0792 | Payout reads through the payments gatekeeper (read-only, the destination never read) | 0429 (dated note) |
-| 0793 | `sellable.finance`: categories and how a sale is earned | 0435 (dated note) |
+| 0792 | `sellable.finance`: categories and how a sale is earned | 0435 (dated note) |
+| 0793 | Payout reads through the payments gatekeeper (read-only, the destination never read) | 0429 (dated note) |
 | 0794 | `finance:read` and `finance:close`; what an AI may do with figures | 0449 (dated note) |
 | 0795 | A subscription's state history and the amount due on a failing renewal | 0485 (dated note) |
 

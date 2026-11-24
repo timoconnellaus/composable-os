@@ -4,7 +4,7 @@ Status: accepted, 2026-11-24 (stage 49, build step 3: open hours). Builds on
 [ADR 0621](0621-the-staffed-behaviour-and-the-time-claim.md) (`staffed`),
 [ADR 0622](0622-warnings-in-a-writes-answer.md) (time off as a core table) and
 [ADR 0625](0625-restricted-pack-permissions.md) (tool-only operations for the verified caller).
-Free times, the computation and its bounds, are stage 49 step 4's and amend this ADR when built.
+Free times, the computation and its bounds, were built by stage 49 step 4 (amended below).
 
 ## Context
 Stage 49 lets a person book a one-to-one session with a coach (and, from step 7, an outside
@@ -50,3 +50,43 @@ out of records. "Not open" already has a home: time off (`core_staff_away`).
   these operations through Bookings' tools. Until then nothing calls them outside tests.
 - Free times (step 4) read these entries with time off, claims with margins, rooms and closures; the
   customer's check reads the same answer.
+
+## Amended 2026-11-24 (stage 49 step 4: free times)
+- **What asks for them.** A staffed object booked at free times declares `staffed.open`: the
+  kind's `length` (minutes), `step` (minutes between start times, 30 when empty; any whole number
+  from 5 to 1,440 is read, the pack offers 15, 30 or 60), `rooms` (a relation, many, of the kind
+  to the things the object `occupies`, in the order they are offered), the record's `client` (a
+  relation to a Person) and `closedBy` (another of the pack's objects whose records are date
+  ranges). The kind is another of the pack's objects, as for claim margins.
+- **The computation** (`staffing/free.ts`, `freeTimes`), at read time, nothing stored. Start
+  times sit on the step counted from the organisation's local midnight, so a clock change keeps
+  09:00 and 09:30 where they are, and a time that has started is never free. A start time is free
+  for a provider when their open hours for the kind (`openRanges`, merged) cover the whole shift;
+  their time off (one-off and regular, read by wall clock as open hours are) does not touch it; its
+  claim with the kind's margins overlaps none of their claims, with what the batch has queued
+  counted over what is held; the first of the kind's rooms is free then (a room not marked one
+  booking at a time always is, one in the Trash is never offered, and an empty list needs none);
+  no closure covers its local dates; the client has no live shift of the object overlapping it;
+  and, for a customer or the public, the object's create rules allow it (their staff-only flag,
+  and their window, its numbers read once for every start time). A record being moved does not
+  count against itself.
+- **Who is a provider.** The accounts qualified for the kind (strictly: a qualification row),
+  active, through a profile not in the Trash when the person is a relation (one profile per
+  account); "anyone" is every one of them, in order of the profile. An unqualified person with
+  open hours is never offered.
+- **The bounds.** At most 31 days of start times and 20 providers a call, in a fixed number of
+  reads however many hours, claims, time off or times there are (the kind, the providers, hours,
+  time off, claims, closures, the client's shifts, the rooms and their claims, the settings:
+  `staffing-free.test.ts` holds 31 days of 20 busy coaches to the same count as one quiet coach,
+  at most 20 statements with the pipeline's own; 15 when this was written).
+  Every list is passed as one JSON value, so no statement nears D1's bound-variable limit.
+- **The operation.** `staffing.free { object, kind, from?, to?, providers?, client? }` is
+  tool-only and `hostInternal` (it reads core tables), open to staff, customers and the public
+  through a shipped pack's tool (Bookings' freeTimes, step 6; listed in `open-operations.json`).
+  The kind must be one the caller may read (the public only a public one). `providers` are the
+  shift's person values (coach profiles), never accounts, so a customer's tool never handles a
+  staff account id; the spec's `accounts?` is this. Where the person is a staff account itself
+  (a user field, not a profile), a customer or visitor is answered the times with no providers. A customer's `client` is themselves (the
+  default) or a live dependant; the public names nobody. It answers each free time with who is
+  free and the first free room, never why another is not. A rate limit per address is the pack
+  tool's call (the pipeline limits a tool's outside call, not the operations inside it).

@@ -79,3 +79,9 @@ Beside its windows, staff-only rule and `closed` flag, the engine asks an object
 in a listed state, moved into one (except, with `claims`, between two states that both hold the
 place), or given to another Person while in one, is refused while something is due for its Person
 (`agreements_due`), and the batch carries the guard. The host's own moves are never asked.
+
+## Amended 2026-11-24 (stage 49 step 4, ADR 0763)
+Besides windows and staff-only rules, the engine judges a customer's create or move of a shift
+booked at free times (`staffed.open.customer`): it must be on a free time, after the window, which
+keeps its own answer (`not_free_time`, [ADR 0763](0763-the-customers-check-on-a-free-time.md)).
+`assertCreateRules` judges the same for a record the host makes for a customer.

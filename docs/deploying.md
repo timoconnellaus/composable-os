@@ -37,6 +37,8 @@ there (in your fork) to switch adapter. Everything else is a **secret** on `crm-
 | `APPROVAL_FLOOR` | var | optional | Approval-policy floor the org's preset can never loosen (ADR 0011/0018). JSON keyed by actor (`human`, `assistant`, `mcp`, `automation`, `extension` or `*`) then risk class (or `*`), with `auto`, `review`, `deny` or `{"autoUpTo": n, "above": "review"}`. Example: `{"*":{"destructive":"review"}}`. Empty: no floor. Malformed: every operation is refused |
 | `APPROVAL_EXPIRY_DAYS` | var | optional | Days before a pending action (an AI change waiting for approval) expires. Default `7` |
 | `API_ALLOWED_ORIGINS` | var | optional | Origins a browser may call the HTTP surface (`/api/v1`) from, comma separated, such as a client app's site, for its customers and the public only: a staff session from it is refused. Phones and servers send no origin and are not affected. Empty (default): none but the app's own |
+| `DESK_HOSTNAME` | var | for desk signing | The desk origin's hostname, `desk.` before the host's (stage 44 step 6, ADR 0649): the business's enrolled tablet runs there, on the same Worker, which serves it only the tablet's pages and calls. `cos deploy` and the installer set it, and add the hostname as a custom domain, when the host is on a custom domain; empty (workers.dev, a hosted tenant): no desk signing and no enrolled devices. Locally `pnpm dev` sets `desk.localhost` |
+| `DESK_SECRET` | secret | for desk signing | The key enrolment codes, enrolled devices' credentials, desk codes and desk session tokens are kept under (HMAC, ADR 0780). At least 32 random characters, different from every other secret; the installer and `cos deploy` make it once on a custom domain (a host updated only from Settings → Updates gets it at its next `cos deploy`, or by `wrangler secret put DESK_SECRET`). Changing it revokes every enrolled device in effect (their credentials no longer match): enrol them again |
 | `CUSTOMER_AUTH_SECRET` | secret | for customers | Signs customer sessions (stage 22). Must differ from `BETTER_AUTH_SECRET`. Unset: no customer session exists, and every caller of the HTTP surface who is not staff is the public |
 | `MCP_ACCESS_TOKEN_TTL` | var | optional | MCP access token lifetime in seconds. Default `3600`; refresh tokens last 30 days |
 | `MCP_RESOURCE` | var | optional | The public `/mcp` URL tokens are bound to, e.g. `https://crm.example.com/mcp`. Default: the request's origin + `/mcp`. Set it when the app answers on several hostnames |
@@ -102,6 +104,8 @@ and it needs Wrangler 4.36.0 or later.
 | `CUSTOMER_CODE_ADDRESS_RATE_LIMIT` | client address, hashed (an IPv6 address by its /64) | 10 per 60 s | customer sign-in code requests |
 | `STAFF_FEED_RATE_LIMIT` | a calendar feed, by a hash of its token | 10 per 60 s | fetches of a staff member's calendar feed (ADR 0628): 429 with `Retry-After` when over |
 | `STAFF_FEED_ADDRESS_RATE_LIMIT` | client address, hashed | 120 per 60 s | calendar feed fetches from one address, before any token is looked up (a calendar provider fetches many people's feeds from few addresses) |
+| `CUSTOMER_FEED_RATE_LIMIT` | a customer's calendar feed, by a hash of its token | 10 per 60 s | fetches of a customer's calendar feed (ADR 0890): 429 with `Retry-After` when over |
+| `CUSTOMER_FEED_ADDRESS_RATE_LIMIT` | client address, hashed | 120 per 60 s | customer calendar feed fetches from one address, before any token is looked up |
 | `CUSTOMER_CODE_NEW_RATE_LIMIT` | one key for the whole host | 20 per 60 s | codes sent to addresses that only "anyone starting a subscription" lets sign in (ADR 0459); over it, nothing is sent, the answer is unchanged and admins are told once an hour. **Unlike the others, a missing binding sends no such code** (shut, not open) |
 
 To change a limit, edit its `simple.limit` (any positive integer) or `simple.period` (`10` or
@@ -130,6 +134,23 @@ rules), which counts per IP at the edge and stores nothing in the deployment:
 
 A deployment on a `workers.dev` hostname has no zone and cannot add the rule: put a custom
 hostname in front before opening anything to the public.
+
+#### Forms: Turnstile
+
+A form the public answers (stage 29, ADR 0722) is checked with Cloudflare Turnstile before the host
+keeps anything. Create a Turnstile widget for the site's hostname (Cloudflare dashboard → Turnstile,
+managed mode), put its **site key** in the client app that draws the form, and set its **secret
+key** on cos-runner, where a pack's tool and the door (`intake.submit`) run:
+
+```sh
+wrangler secret put TURNSTILE_SECRET_KEY   # in apps/runner; scripts/deploy.mjs also reads it from the environment
+```
+
+It is an env-only secret: never in D1, an input or the audit log. Without it, forms take answers
+from signed-in customers and staff only; every public answer is turned away and admins are told
+once a day. A testing host uses Cloudflare's documented test keys (a secret that always passes).
+The edge rule above already counts the calls a form sends (`/api/v1/op/`); the hosted form page
+(`/f/<slug>`, a later step) joins it then. Not yet tried with a real site key on a live host.
 
 #### Customer sign-in
 
@@ -454,12 +475,14 @@ derived: payments' `BASE_URL` is `https://<the environment's host>/gatekeeper/pa
 | --- | --- | --- |
 | `email-send` | `ALLOWED_SENDER_DOMAINS`, `INTERNAL_DOMAINS`, `sendEmail: { allowedSenderAddresses, destinationAddress, allowedDestinationAddresses }` (the `send_email` binding's limits) | none |
 | `payments` | `STRIPE_ACCOUNT`, `PAYMENTS_FAKE_PROVIDER` (only where `live: false`) | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (`FAKE_WEBHOOK_SECRET` is generated by `cos deploy` where the fake is on) |
+| `text` | `TEXT_PROVIDER` (`fake` only where `live: false`), `TEXT_SENDER_NUMBER` (the business's own number, international form) | the provider's keys (`FAKE_WEBHOOK_SECRET` is generated by `cos deploy` where the fake is on) |
 
 Secrets never go in `product.ts`: `cos deploy` refuses one there. After a deploy it names each
 missing secret and the command to set it, for example
 `npx wrangler secret put STRIPE_SECRET_KEY --name gym-staging-gatekeeper-payments`. It never prints a
-value. The fake payment provider is refused in an environment that is live (`live` itself, any
-environment not marked `live: false`, or a product without environments).
+value. The fake payment provider, and the fake text provider, are refused in an environment that
+is live (`live` itself, any environment not marked `live: false`, or a product without
+environments).
 
 #### Sending email (email-send)
 1. In the Cloudflare dashboard, turn on Email Service for the sending domain (Email → Email
@@ -533,7 +556,19 @@ each release. It publishes nothing until a person turns it on:
 
 This was done for this repository on 2026-11-22; `v0.1.0-beta.8` was the first release the
 workflow published. A package added later (a new pack) needs steps 2 and 3 once, before the
-release that first carries it, or that release's `npm` job fails on it.
+release that first carries it. The release workflow checks this in its `build` job, before the
+release goes public, and stops naming each package that is not on npm yet.
+`scripts/release/test/release-completeness.test.ts` fails when a folder under `packs/` is not
+built as an npm package and carried by the bundle, or a folder under `blocks/` or
+`packs/*/blocks/` is not a block in the client kit, unless its allow-list there says why.
+
+**Dist-tags.** A beta release publishes with `--tag beta`, a stable one with `--tag latest`; the
+workflow never moves a tag otherwise. npm gives a package's first version the `latest` tag too,
+whatever `--tag` says, so until the first stable release `latest` stays on the version first
+published by hand (`0.1.0-beta.7` for the packages of 2026-11-22, later for a pack added after)
+while `beta` follows each beta. That is intended: `latest` is for stable releases. Ask for a beta
+by its tag (`npx @composable-os/cli@beta`, `@composable-os/pack-<id>@beta`); a client repo pins
+exact versions, so it is not affected.
 
 ## Option 1 (recommended): `npx @composable-os/cli install`
 
@@ -553,7 +588,8 @@ node packages/create-composable-os/dist/cli.js install    # or upgrade / rollbac
 ```
 
 Everywhere this guide says `npx @composable-os/cli install`, use `node packages/create-composable-os/dist/cli.js install` for now.
-The release workflow publishes it only when an `NPM_TOKEN` secret is set (the name `create-crm` was taken on npm).
+Until the first stable release, `npx @composable-os/cli@beta install` gets the newest beta ("Dist-tags" under
+"Publishing to npm" above).
 
 It asks for, in order:
 
@@ -1041,6 +1077,12 @@ Every request is then admitted only with a valid `Cf-Access-Jwt-Assertion` heade
 Worker answers on (including `workers.dev`, or turn it off), since requests without the JWT are
 rejected but should never get that far.
 
+The desk origin (`desk.` before the host's name, ADR 0649) is a hostname of its own: leave it out
+of the Access application. The tablet holds no Access sign-in, and the desk origin's own handler
+serves only the tablet's two pages and its calls (an enrolled device's credential and a session a
+person on the staff started), never an admin page, and refuses a call that carries a staff
+session.
+
 ### What stays behind Access, and what is bypassed
 
 A host that only staff use needs only the MCP bypass below. A **client host** also serves
@@ -1055,9 +1097,11 @@ for.
 | --- | --- | --- |
 | `/api/v1/*` | always | The HTTP surface decides the caller itself: a native app's bearer token (looked up by hash), a customer cookie signed with `CUSTOMER_AUTH_SECRET`, or an Access JWT verified against your team's keys, issuer and AUD, never trusted unverified. Anything else is the public. Browsers from other origins are refused unless in `API_ALLOWED_ORIGINS`, and a staff cookie from any origin but the host's own is refused there too (ADR 0660). Native sign-in routes take a code and store only hashes. `/api/v1/media/<id>` is a published post's picture for a phone or any outside caller: served only when content they may read shows it (`media.serve`). `POST /api/v1/media` is an upload by a staff device token only (`cos content import`, ADR 0470), and `POST /api/v1/media/<id>/captions` a video's captions the same way (`cos courses import`, ADR 0495): no cookie is taken there |
 | `/api/v1/staffing/feed/*` | always (inside `/api/v1/*`; listed so it stays bypassed) | A staff member's private calendar feed (stage 45, ADR 0628), polled by a calendar app that cannot sign in: the 32-byte random token in the address is the credential, looked up by its SHA-256 (the host keeps nothing else of it); only that person's own shifts, while their account is active and holds the Rostering permission; any other token or path is a 404 like a missing route; limited per token and per address. Cloudflare's own request logs record URLs when Workers Logs are on, so an account member reading them could see a feed's address: turn invocation logs off if that matters, and a person can always rotate theirs |
+| `/api/v1/me/feed/*` | always (inside `/api/v1/*`; listed so it stays bypassed) | A customer's private calendar feed (stage 62, ADR 0890), the same way: the token's SHA-256 looked up in its own table (a staff feed's token opens nothing here), answering only that customer's and their live dependants' bookings, read as the customer, while the account is active; any other token or path is a 404 like a missing route; limited per token and per address. The same note on request logs holds |
 | `/api/customer-auth/*` | customers | Customer sign-in by emailed code, its own secret and tables |
 | `/api/health` | always | Health and version only (`cos deploy` and monitors read it) |
 | `/gatekeeper/payments/in/*` | payments | The provider's webhook signature (`STRIPE_WEBHOOK_SECRET`) |
+| `/gatekeeper/text/in/*` | text messages | The text provider's webhook signature (receipts and STOP, START and HELP replies) |
 | `/gatekeeper/webhook/in/*` | inbound webhooks | Each endpoint's own signing secret |
 | `/gatekeeper/google/pubsub` | Gmail or Chat push | A Google-signed OIDC token for the configured service account |
 | `/gatekeeper/microsoft/outlook/notifications/*` | Outlook push | The subscription's random `clientState` |

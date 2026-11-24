@@ -96,11 +96,7 @@ export function AssistantPanel({ canApprove }: { canApprove: boolean }) {
       ...(request.selection ? { selection: request.selection } : {}),
     };
     setScope(next);
-    if (request.prompt && request.send) {
-      void thread.send(request.prompt, assistant.pageContext(next));
-    } else if (request.prompt) {
-      setDraft(request.prompt);
-    }
+    if (request.prompt) setDraft(request.prompt);
   }, [request?.nonce]);
 
   // A scope from "Ask AI" belongs to the page it was asked on: after moving on, a follow-up

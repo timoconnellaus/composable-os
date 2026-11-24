@@ -39,7 +39,7 @@ import { type RequestedRefund, refundablePayments, requestRefund } from "./refun
 /** How many owed refunds one tick asks for, and how many asked ones it looks at. */
 export const REFUND_DUE_BATCH = 20;
 /** A row left `asking` this long is given up on and staff are told. */
-export const REFUND_DUE_STALE_MINUTES = 15;
+const REFUND_DUE_STALE_MINUTES = 15;
 
 /** The prefix of every refund id one attempt of a row asks for. */
 export const dueRefundPrefix = (rowId: string, attempt: number) =>
@@ -100,9 +100,8 @@ export async function requestDueRefund(
   } catch (error) {
     // Nothing paid on it, or everything paid already refunded or asked for (staff did it by
     // hand, or a refund is waiting for a person): nothing more owed.
-    const conflict = (error as { code?: string }).code === "conflict";
-    if (!conflict) throw error;
-    const note = (error as Error).message;
+    if (!(error instanceof OperationError) || error.code !== "conflict") throw error;
+    const note = error.message;
     mark("skipped", note);
     return { state: "skipped", refunds: [], note };
   }
@@ -264,7 +263,7 @@ async function settleAsked(crm: CrmDb, now: string): Promise<{ lapsed: number }>
   return { lapsed };
 }
 
-/** The minute cron's step: asks for the refunds owed. With nothing owed it is two indexed reads. */
+/** The minute cron's step: asks for the refunds owed. With nothing owed it is three indexed reads. */
 export async function runRefundsDue(
   crm: CrmDb,
   { integrations, floor, events, clock }: RefundsDueOptions = {},
@@ -319,7 +318,8 @@ export async function runRefundsDue(
     } catch (error) {
       result.failed += 1;
       console.error("refund owed not asked for", row.order_id, errorForLog(error));
-      await giveUp(crm, { ...row, attempt }, (error as Error).message ?? "an error", now());
+      const why = error instanceof Error ? error.message : "an error";
+      await giveUp(crm, { ...row, attempt }, why, now());
     }
   }
   result.lapsed = (await settleAsked(crm, now())).lapsed;

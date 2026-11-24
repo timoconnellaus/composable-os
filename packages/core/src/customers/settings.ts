@@ -110,3 +110,30 @@ export async function loadCustomerEmailConnection(
     return null;
   }
 }
+
+// --- How far ahead "Needs your attention" looks (stage 48, ADR 0711) ----------------------------
+
+/**
+ * `account.attentionDays`: how many days ahead `me.attention` lists a pass about to expire and a
+ * free trial about to end. Default 7, 1 to 30. Only a human admin changes it
+ * (customer.settings.update).
+ */
+export const ACCOUNT_ATTENTION_DAYS_SETTING = "account_attention_days";
+export const DEFAULT_ATTENTION_DAYS = 7;
+export const attentionDaysSchema = z.number().int().min(1).max(30);
+
+/** The days ahead attention looks. A missing or unreadable setting is 7. */
+export async function loadAttentionDays(db: Kysely<CoreDatabase>): Promise<number> {
+  const row = await db
+    .selectFrom("core_settings")
+    .select("value")
+    .where("key", "=", ACCOUNT_ATTENTION_DAYS_SETTING)
+    .executeTakeFirst();
+  if (!row) return DEFAULT_ATTENTION_DAYS;
+  try {
+    const parsed = attentionDaysSchema.safeParse(JSON.parse(row.value));
+    return parsed.success ? parsed.data : DEFAULT_ATTENTION_DAYS;
+  } catch {
+    return DEFAULT_ATTENTION_DAYS;
+  }
+}

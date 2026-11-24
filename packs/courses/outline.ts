@@ -32,21 +32,25 @@ export const MAX_LESSONS_PER_SECTION = 100;
 /** The most an outline may be, in bytes of its JSON. */
 export const OUTLINE_MAX_BYTES = 524_288;
 
-const KEY_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789-";
 const optional = (node: DocumentNode): DocumentNode => ({ ...node, optional: true });
 const richText: DocumentNode = { type: "use", def: "richText" };
+/** A section's and a lesson's key and title. */
+const keyNode: DocumentNode = {
+  type: "text",
+  min: 1,
+  max: 40,
+  chars: "abcdefghijklmnopqrstuvwxyz0123456789-",
+};
+const titleNode: DocumentNode = { type: "text", min: 1, max: 200, noMarkup: true };
 
 /** What every lesson has, whatever its kind. */
 const common: Record<string, DocumentNode> = {
   key: {
-    type: "text",
-    min: 1,
-    max: 40,
-    chars: KEY_CHARS,
+    ...keyNode,
     description:
       "The lesson's name for good: progress is kept by it. Never changed once published.",
   },
-  title: { type: "text", min: 1, max: 200, noMarkup: true },
+  title: titleNode,
   duration: optional({
     type: "number",
     min: 0,
@@ -87,8 +91,8 @@ export const OUTLINE_SCHEMA: DocumentSchema = {
         of: {
           type: "object",
           fields: {
-            key: { type: "text", min: 1, max: 40, chars: KEY_CHARS },
-            title: { type: "text", min: 1, max: 200, noMarkup: true },
+            key: keyNode,
+            title: titleNode,
             lessons: {
               type: "array",
               max: MAX_LESSONS_PER_SECTION,
@@ -180,14 +184,15 @@ export interface Outline {
   sections: Section[];
 }
 
-/** An empty outline. */
-export const EMPTY_OUTLINE: Outline = { sections: [] };
-
 /** The value as an outline, or an empty one when it is not one. */
 export function asOutline(value: unknown): Outline {
   const v = value as Outline | null | undefined;
-  return v && Array.isArray(v.sections) ? v : EMPTY_OUTLINE;
+  return v && Array.isArray(v.sections) ? v : { sections: [] };
 }
+
+/** Every lesson in order, as the outline holds it (no copies). */
+const allLessons = (outline: Outline): Lesson[] =>
+  outline.sections.flatMap((section) => section.lessons ?? []);
 
 /** Every lesson in order, with its section's key. */
 export function lessonsOf(outline: Outline): (Lesson & { section: string })[] {
@@ -196,14 +201,18 @@ export function lessonsOf(outline: Outline): (Lesson & { section: string })[] {
   );
 }
 
-/** One lesson by its key, or null. */
+/** One lesson by its key, with its section's key, or null. */
 export function findLesson(outline: Outline, key: string): (Lesson & { section: string }) | null {
-  return lessonsOf(outline).find((l) => l.key === key) ?? null;
+  for (const section of outline.sections) {
+    const found = section.lessons?.find((l) => l.key === key);
+    if (found) return { ...found, section: section.key };
+  }
+  return null;
 }
 
 /** The lesson after this one, or null at the end. */
 export function nextLesson(outline: Outline, key: string): Lesson | null {
-  const all = lessonsOf(outline);
+  const all = allLessons(outline);
   const at = all.findIndex((l) => l.key === key);
   return at >= 0 ? (all[at + 1] ?? null) : null;
 }
@@ -219,7 +228,7 @@ export function lessonVideo(lesson: Lesson): VideoValue | null {
 export function sessionPrograms(outline: Outline): string[] {
   return [
     ...new Set(
-      lessonsOf(outline)
+      allLessons(outline)
         .map((l) => (l.kind === "session" ? l.program : undefined))
         .filter((p): p is string => Boolean(p)),
     ),
@@ -236,7 +245,7 @@ export function completion(
   done: ReadonlySet<string>,
   importedComplete = false,
 ): { counted: number; done: number; complete: boolean } {
-  const counted = lessonsOf(outline).filter((l) => l.kind !== "download");
+  const counted = allLessons(outline).filter((l) => l.kind !== "download");
   const doneCount = counted.filter((l) => done.has(l.key)).length;
   return {
     counted: counted.length,

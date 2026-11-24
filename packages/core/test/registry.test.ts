@@ -47,12 +47,25 @@ describe("core registry", () => {
         // are read only with agreements:health (stage 44, ADR 0643), and the address a paper
         // form's copy would go to only by whoever may send it, agreements:paper (ADR 0645). An
         // acceptance kept after its person was erased is found only with agreements:manage
-        // (agreement.kept.find, ADR 0646).
+        // (agreement.kept.find, ADR 0646). A person's check-in cards are listed only with
+        // people:cards (personCode.list, ADR 0783). Journeys are read with journeys:read (stage
+        // 53, ADR 0800): members hold it, viewers do not; their settings (staff addresses) with
+        // journeys:manage. Who may be signed at the desk, and on which tablet, is read by whoever
+        // may start a desk session, agreements:desk (ADR 0649).
+        // The finance months and figures are read only with finance:read (stage 52, ADR 0794).
+        // The booking system's copy, its lists and To match with bookingSystem:manage (stage 65,
+        // ADR 0922).
         if (op.risk === "read") {
           expect([
+            "bookingSystem:manage",
+            "journeys:read",
+            "journeys:manage",
+            "agreements:desk",
             "agreements:health",
+            "people:cards",
             "agreements:manage",
             "agreements:paper",
+            "finance:read",
             "records:read",
             "audit:read",
             "users:manage",

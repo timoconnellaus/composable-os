@@ -514,3 +514,40 @@ may override any of them.
   accounting system for the CSV.
 - **Roster coupling**: one "rosterer" across gym classes and trade crews may be too broad for a
   business with both (decision 7 keeps it; revisit if asked).
+
+## Status
+
+- **Step 1, stage rules on host facts** (branch `feat/stage-39-host-set-date`, PR #350): built.
+  `packages/sdk/src/behaviour.ts` lets a stage's `requiredFields` options and `requiredByType`
+  name a read-only field (not a formula, the stage field or a field the behaviour keeps). Such a
+  host fact (`packages/core/src/records/host-facts.ts`) is written only by the host or the pack's
+  tool that only a person calls or approves (as a holder's terms), and the records of a stage
+  object that gates one are created, changed, trashed and restored only by an admin in person or
+  the host (`stage_settings_admin_only`), so the gate cannot be loosened by a member or an AI. The
+  transition engine (`packages/core/src/records/transitions.ts`) names missing facts first in a
+  required-fields refusal, lists them in `details.setByHost` and says the act sets them, not a
+  move; what it refuses is unchanged. ADR 0750 (amends 0100 and 0425). No migration. Tests:
+  `packages/core/test/stage-host-facts.test.ts` (criterion 1 on a fixture pipeline: person, MCP
+  client applied and queued, the extension's code with and without a person's tool, CSV import,
+  the host, and editing, adding, trashing and restoring the gated stages). Left for step 5: the
+  Jobs pack declaring `acceptedAt`, `signedOffAt` and `invoicedAt` and its seeded pipelines; the
+  board e2e of criterion 1 comes with the pack.
+- **Step 2, times that follow** (branch `feat/stage-39-times-follow`): built.
+  `packages/sdk/src/staffed.ts` adds `staffed.timesFrom`: a required relation to another of the
+  extension's objects that has the shift's `starts`, `ends`, `zone` and `kind` under the same names;
+  the shift's copies must be read-only, and no series makes it. Triggers the reconciler builds
+  (`packages/core/src/staffing/sql.ts`) copy them on both tables in the same statement, so a crew
+  place's claim follows its visit and the database refuses a move that double-books anyone, whole;
+  the record code (`staffing/index.ts`, `followersMoved` and `timesFollowed`;
+  `operations/record.ts`) fills them at create and on repointing, refuses anyone else's write of
+  them (`times_follow`), and reads each following shift before a visit moves (at most 25,
+  `times_follow_too_many`), naming the person (`double_booked`), with each shift's warnings in the
+  visit's answer, its person told, and a started shift's move a rosterer's. ADR 0751 (amends 0507
+  and 0621). No migration. Tests: `packages/core/test/staffed-times-follow.test.ts` (criteria 2 and
+  3 on a fixture of visits and crew places, raw statement shapes, Trash and restore, the cascade,
+  declaring it over existing records) and `staffed-times-follow-cost.test.ts` (25 crew places moved
+  in about 360 queries). After review: every roster rule runs for each following shift (a visit's
+type changing its crew's checklist is a rosterer's), a move that also cancels the crew is not
+refused at its new time, the bound of 25 is checked when a crew place is made, chains are refused,
+and a shift naming no record is refused by the database. Left for step 5: the Jobs pack's
+`jobs.assignment` declaring it.

@@ -12,6 +12,12 @@ import type {
   ScoreQuestion,
 } from "./types.ts";
 
+/** Text on one line, at most `max` characters: cut text ends in `…`. What a question quotes. */
+export function clip(text: string, max: number): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`;
+}
+
 /** One label from a closed set, each described. Always offer a way out (lesson 7). */
 export function choice<const L extends string>(
   instructions: Entry,

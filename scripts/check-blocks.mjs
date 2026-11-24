@@ -13,8 +13,9 @@
 // subscription's billing operations (start, cancel, resume, the portal) and their hooks, and holds
 // every native block to them whether marked or not: in the app a subscription is read only.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 import {
   BILLING_HOOK,
   BILLING_OPERATION,
@@ -144,6 +145,183 @@ export function lintSource(source) {
   return problems;
 }
 
+// A native block's text and icons take their colour from the block theme (`native-base/theme.ts`):
+// React Native draws a <Text> with no colour black, invisible on a dark theme. Every <Text> not
+// inside another (which inherits) has a style with a colour, a <TextInput> a colour and a
+// placeholder colour, an <ActivityIndicator> a colour, and every colour a native block names is
+// the theme's: no colour literal outside theme.ts.
+const THEMED =
+  "takes no colour from the theme: React Native draws it black, unreadable on a dark theme; give it a style with color: theme.color.*";
+const LITERAL_COLOUR =
+  "names a colour of its own: take it from native-base/theme.ts (theme.color.*), so the company's theme reaches it";
+const COLOUR_LITERAL = /^(?:#[0-9a-f]{3,8}|(?:rgb|hsl)a?\(.*\)|white|black)$/i;
+
+/** True when `node` is, or reads from, the theme (`theme.color.text`, `cond ? theme.a : theme.b`). */
+function fromTheme(node) {
+  if (ts.isParenthesizedExpression(node)) return fromTheme(node.expression);
+  if (ts.isConditionalExpression(node))
+    return fromTheme(node.whenTrue) && fromTheme(node.whenFalse);
+  let root = node;
+  while (ts.isPropertyAccessExpression(root) || ts.isElementAccessExpression(root))
+    root = root.expression;
+  return root !== node && ts.isIdentifier(root) && root.text === "theme";
+}
+
+/** The `StyleSheet.create({...})` objects of a file, by the name they are bound to. */
+function styleSheets(file) {
+  const sheets = new Map();
+  const visit = (node) => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer &&
+      ts.isCallExpression(node.initializer) &&
+      node.initializer.expression.getText(file) === "StyleSheet.create" &&
+      node.initializer.arguments[0] &&
+      ts.isObjectLiteralExpression(node.initializer.arguments[0])
+    ) {
+      const styles = new Map();
+      for (const prop of node.initializer.arguments[0].properties) {
+        if (ts.isPropertyAssignment(prop) && ts.isObjectLiteralExpression(prop.initializer))
+          styles.set(prop.name.getText(file), prop.initializer);
+      }
+      sheets.set(node.name.text, styles);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return sheets;
+}
+
+function hasColour(object, file) {
+  return object.properties.some(
+    (p) =>
+      (ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p)) &&
+      p.name.getText(file) === "color",
+  );
+}
+
+/** True when the style expression surely gives a colour (every branch does). */
+function styleHasColour(node, file, sheets) {
+  if (!node) return false;
+  if (ts.isParenthesizedExpression(node)) return styleHasColour(node.expression, file, sheets);
+  if (ts.isObjectLiteralExpression(node)) return hasColour(node, file);
+  if (ts.isArrayLiteralExpression(node))
+    return node.elements.some((e) => styleHasColour(e, file, sheets));
+  if (ts.isConditionalExpression(node))
+    return (
+      styleHasColour(node.whenTrue, file, sheets) && styleHasColour(node.whenFalse, file, sheets)
+    );
+  if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)) {
+    const style = sheets.get(node.expression.text)?.get(node.name.text);
+    return style ? hasColour(style, file) : false;
+  }
+  return false;
+}
+
+function attribute(element, name) {
+  const attr = element.attributes.properties.find(
+    (a) => ts.isJsxAttribute(a) && a.name.getText() === name,
+  );
+  if (!attr) return undefined;
+  const init = attr.initializer;
+  if (init && ts.isJsxExpression(init)) return init.expression ?? null;
+  return init ?? null;
+}
+
+/** The problems of a native block's file: text and icons with no themed colour. */
+export function lintNativeColour(source, fileName = "block.tsx") {
+  const file = ts.createSourceFile(
+    fileName,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  const sheets = styleSheets(file);
+  // React Native's own components, by the names this file gives them; native-base's themed Text
+  // (`native-base/text.tsx`) takes its colour from the theme already.
+  const native = new Map();
+  for (const statement of file.statements) {
+    if (
+      ts.isImportDeclaration(statement) &&
+      ts.isStringLiteral(statement.moduleSpecifier) &&
+      statement.moduleSpecifier.text === "react-native" &&
+      statement.importClause?.namedBindings &&
+      ts.isNamedImports(statement.importClause.namedBindings)
+    ) {
+      for (const el of statement.importClause.namedBindings.elements)
+        native.set(el.name.text, (el.propertyName ?? el.name).text);
+    }
+  }
+  const problems = [];
+  const at = (node, rule, message) =>
+    problems.push({
+      line: file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1,
+      rule,
+      message,
+    });
+  const opening = (node) =>
+    ts.isJsxElement(node) ? node.openingElement : ts.isJsxSelfClosingElement(node) ? node : null;
+  const insideText = (node) => {
+    for (let up = node.parent; up; up = up.parent) {
+      const o = opening(up);
+      if (
+        o &&
+        (native.get(o.tagName.getText(file)) === "Text" || o.tagName.getText(file) === "Text")
+      )
+        return true;
+    }
+    return false;
+  };
+  const visit = (node) => {
+    const element = opening(node);
+    if (element) {
+      const tag = native.get(element.tagName.getText(file));
+      const style = attribute(element, "style");
+      if ((tag === "Text" && !insideText(node)) || tag === "TextInput") {
+        if (!styleHasColour(style, file, sheets))
+          at(element, "native-text-colour", `has a <${tag}> that ${THEMED}`);
+      }
+      if (tag === "TextInput" && !attribute(element, "placeholderTextColor"))
+        at(
+          element,
+          "native-text-colour",
+          `has a <TextInput> with no placeholderTextColor: give it theme.color.muted`,
+        );
+      if (tag === "ActivityIndicator" && !attribute(element, "color"))
+        at(
+          element,
+          "native-text-colour",
+          `has an <ActivityIndicator> that ${THEMED.replace("a style with color", "color")}`,
+        );
+    }
+    if (
+      ts.isJsxAttribute(node) &&
+      /^(?:color|placeholderTextColor|tintColor)$/.test(node.name.getText(file))
+    ) {
+      const value =
+        node.initializer && ts.isJsxExpression(node.initializer)
+          ? node.initializer.expression
+          : node.initializer;
+      if (value && !fromTheme(value))
+        at(
+          node,
+          "native-text-colour",
+          `has a ${node.name.getText(file)} that ${THEMED.replace("; give it a style with color: theme.color.*", "")}: use theme.color.*`,
+        );
+    }
+    if (
+      (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) &&
+      COLOUR_LITERAL.test(node.text)
+    )
+      at(node, "native-literal-colour", LITERAL_COLOUR);
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return problems;
+}
+
 /** Every block folder (one with a block.json) under the given roots. */
 export function blockFolders(root) {
   const found = [];
@@ -167,6 +345,18 @@ export function lintBlocks(folders, root) {
   for (const dir of folders) {
     const spec = JSON.parse(readFileSync(join(dir, "block.json"), "utf8"));
     const noPurchase = spec.noPurchase === true;
+    // The screens a push may open (ADR 0670): a native block's, each a name a kind's `open` uses.
+    if (spec.screens !== undefined) {
+      const ok =
+        spec.skin === "native" &&
+        Array.isArray(spec.screens) &&
+        spec.screens.every((s) => typeof s === "string" && /^[a-z][a-zA-Z0-9]{0,39}$/.test(s));
+      if (!ok) {
+        out.push(
+          `${relative(root, join(dir, "block.json"))}: screens: only a native block declares screens, each a camelCase name`,
+        );
+      }
+    }
     if (spec.skin === "native" && !noPurchase) {
       for (const op of spec.operations ?? []) {
         if (BILLING_OPERATION.test(op)) {
@@ -193,6 +383,10 @@ export function lintBlocks(folders, root) {
         ...(noPurchase ? lintNoPurchase(text) : []),
         ...(native && !noPurchase ? lintNativeBilling(text) : []),
         ...(native ? lintBillingNames(text) : []),
+        ...(native && /\.[jt]sx$/.test(file) ? lintNativeColour(text, file) : []),
+        ...(native && /\.[jt]s$/.test(file) && !file.endsWith(`native-base${sep}theme.ts`)
+          ? lintNativeColour(text, file).filter((p) => p.rule === "native-literal-colour")
+          : []),
         ...lintUnlisted(text, spec.operations ?? []),
       ]) {
         out.push(`${relative(root, file)}:${p.line}: ${p.rule}: the block ${p.message}`);

@@ -89,11 +89,15 @@ function AdminView() {
   const [policyText, setPolicyText] = useState("");
   const [threshold, setThreshold] = useState("");
 
+  // Each field follows its own saved value, so saving one keeps an unsaved edit in the other.
+  const savedPolicy = settings.data ? (settings.data.policy?.text ?? "") : undefined;
+  const savedThreshold = settings.data?.threshold;
   useEffect(() => {
-    if (!settings.data) return;
-    setPolicyText(settings.data.policy?.text ?? "");
-    setThreshold(String(settings.data.threshold));
-  }, [settings.data]);
+    if (savedPolicy !== undefined) setPolicyText(savedPolicy);
+  }, [savedPolicy]);
+  useEffect(() => {
+    if (savedThreshold !== undefined) setThreshold(String(savedThreshold));
+  }, [savedThreshold]);
 
   if (settings.isPending) return <Skeleton className="h-64 rounded-xl" />;
   if (settings.isError) {

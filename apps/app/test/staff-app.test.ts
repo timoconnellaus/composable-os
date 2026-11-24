@@ -12,6 +12,7 @@ import { handleNativeStaffSignIn } from "../src/server/http/native.ts";
 import { runOperation } from "../src/server/operations.ts";
 import { boundTestEnv } from "./bound-env.ts";
 import { signInInBrowser } from "./browser-sign-in.ts";
+import { memoryStore } from "./helpers.ts";
 import { ORIGIN, signUp, type TestUser, unique } from "./mcp-helpers.ts";
 
 const REDIRECT = "gym://staff-sign-in";
@@ -52,17 +53,6 @@ const phone: FetchLike = async (url, init) => {
 
 /** The system browser, signed in to the host as `user`: follows the host back to the app. */
 const browserAs = (user: TestUser) => (url: string) => signInInBrowser(serve, url, user.cookie);
-
-function memoryStore() {
-  let saved: Tokens | null = null;
-  return {
-    load: async () => saved,
-    save: async (tokens: Tokens | null) => {
-      saved = tokens;
-    },
-    peek: () => saved,
-  };
-}
 
 const call = (token: string, name: string, input: unknown) =>
   serve(
@@ -248,5 +238,66 @@ describe("staff sign-in in the template's mobile app (ADR 0451)", () => {
     );
     expect(customerStore.peek()).toBeNull();
     await again.staff.signOut();
+  });
+});
+
+describe("the owner's client on the phone (stage 60, ADR 0872)", () => {
+  /** An extension action waiting for the admin, as an AI client queued it. */
+  async function setupWaiting(): Promise<string> {
+    const set = `chs_${crypto.randomUUID().replaceAll("-", "").slice(0, 26).toUpperCase()}`;
+    const id = `pac_${crypto.randomUUID().replaceAll("-", "").slice(0, 26).toUpperCase()}`;
+    const now = new Date().toISOString();
+    const expires = new Date(Date.now() + 86_400_000).toISOString();
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT INTO core_change_set (id, user_id, actor, origin, created_at, updated_at) VALUES (?, ?, 'mcp', '{}', ?, ?)",
+      ).bind(set, admin.id, now, now),
+      env.DB.prepare(
+        `INSERT INTO core_pending_action (id, change_set_id, operation, risk, input, reason, actor,
+          user_id, origin, preview, simulated, status, created_at, expires_at, review_source)
+         VALUES (?, ?, 'extension.disable', 'extension', '{"id":"fixture"}', 'Fixture', 'mcp', ?, '{"surface":"mcp"}', '[]', '{}', 'pending', ?, ?, 'policy')`,
+      ).bind(id, set, admin.id, now, expires),
+    ]);
+    return id;
+  }
+
+  it("an admin signed in on the phone is told to review a setup change on a computer, by the host, approved or called directly", async () => {
+    const store = memoryStore();
+    const staff = staffSession({
+      hostUrl: ORIGIN,
+      store,
+      deviceName: "Owner's phone",
+      random,
+      redirectUri: REDIRECT,
+      openBrowser: browserAs(admin),
+      fetch: phone,
+    });
+    expect(await staff.signInWithBrowser()).toBe(true);
+    const token = (store.peek() as Tokens).accessToken;
+    const id = await setupWaiting();
+    const refused = await call(token, "approval.approve", { actionIds: [id] });
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toMatchObject({
+      error: { code: "forbidden", details: { reason: "review_on_computer" } },
+    });
+    // The same admin's own reads still work from the phone.
+    expect((await call(token, "approval.list", {})).status).toBe(200);
+    // Nor can the phone make the setup change itself: the host refuses the call, nothing changes.
+    const direct = await call(token, "extension.disable", { id: "ticketing" });
+    expect(direct.status).toBe(403);
+    expect(await direct.json()).toMatchObject({
+      error: { code: "forbidden", details: { reason: "review_on_computer" } },
+    });
+    const ticketingRow = await env.DB.prepare("SELECT status FROM core_extensions WHERE id = ?")
+      .bind("ticketing")
+      .first<{ status: string }>();
+    expect(ticketingRow?.status).toBe("active");
+    // Rejecting the waiting change from the phone is fine.
+    expect((await call(token, "approval.reject", { actionIds: [id] })).status).toBe(200);
+    const row = await env.DB.prepare("SELECT status FROM core_pending_action WHERE id = ?")
+      .bind(id)
+      .first<{ status: string }>();
+    expect(row?.status).toBe("rejected");
+    await staff.signOut();
   });
 });

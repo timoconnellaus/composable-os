@@ -19,10 +19,12 @@ import {
   type AnyRow,
   previewSource,
   type Reader,
+  scopeOf,
   type Viewer,
   visibleObject,
   visibleSource,
 } from "./index.ts";
+import { readStock, type StockView } from "./stock.ts";
 
 /** A record as its caller may see it: only the fields their scope allows. */
 export interface VisibleRecord {
@@ -66,7 +68,7 @@ function fieldValue(field: FieldDefinition, row: AnyRow): unknown {
  * `holders` parts are removed too unless the record is in `held` (ADR 0477): the records the
  * caller holds access to, as `holdsAccess` answered.
  */
-function toRecord(
+export function toRecord(
   object: ObjectDefinition,
   row: AnyRow,
   viewer: Viewer,
@@ -90,6 +92,48 @@ function toRecord(
 }
 
 const NONE_HELD: ReadonlySet<string> = new Set();
+
+/**
+ * The restricted values (ADR 0811) the caller reads of these rows: only a customer, only of the
+ * records that are their own Person's (never a dependant's, nor one shared with every signed-in
+ * customer), only the restricted fields `customer.read` lists. Each such row gets every one of
+ * those fields, null when nothing is kept. One read for the page; nothing for anyone else.
+ */
+async function withAuthorValues(
+  ctx: Reader,
+  object: string | ObjectDefinition,
+  records: VisibleRecord[],
+): Promise<VisibleRecord[]> {
+  const definition = getObject(typeof object === "string" ? object : object.name);
+  if (ctx.principal.kind !== "customer" || !definition?.restricted?.length || !records.length) {
+    return records;
+  }
+  const scope = scopeOf(ctx.principal, definition);
+  if (scope.kind !== "customer") return records;
+  const readable = definition.restricted
+    .map((f) => f.name)
+    .filter((name) => scope.declaration.read.includes(name));
+  if (!readable.length) return records;
+  const ids = records.map((r) => r.id);
+  const { rows } = await sql<{ id: string; field: string | null; value: string | null }>`
+    SELECT o.id AS id, v.field AS field, v.value AS value
+    FROM ${sql.table(definition.source)} o
+    LEFT JOIN core_restricted_value v ON v.object_type = ${definition.name} AND v.record_id = o.id
+      AND v.field IN (SELECT value FROM json_each(${JSON.stringify(readable)}))
+    WHERE o.id IN (SELECT value FROM json_each(${JSON.stringify(ids)}))
+      AND ${sql.ref(scope.column)} = ${scope.personId}
+  `.execute(ctx.db);
+  const own = new Map<string, Record<string, string | null>>();
+  for (const row of rows) {
+    const values = own.get(row.id) ?? Object.fromEntries(readable.map((name) => [name, null]));
+    if (row.field) values[row.field] = row.value;
+    own.set(row.id, values);
+  }
+  return records.map((record) => {
+    const values = own.get(record.id);
+    return values ? { ...record, values: { ...record.values, ...values } } : record;
+  });
+}
 
 /**
  * Which of these rows the caller holds access to (ADR 0477): asked only of a caller outside the
@@ -117,7 +161,11 @@ export async function listVisible(
   const page = await runListQuery<AnyRow & { id: string }>(ctx, visible, input);
   const held = await heldOf(ctx, visible, page.rows);
   return {
-    items: page.rows.map((row) => toRecord(visible, row, ctx, held)),
+    items: await withAuthorValues(
+      ctx,
+      visible,
+      page.rows.map((row) => toRecord(visible, row, ctx, held)),
+    ),
     nextCursor: page.nextCursor,
     ...(await currencyOf(ctx, visible)),
   };
@@ -138,8 +186,11 @@ export async function getVisible(
     .executeTakeFirst();
   if (!row) throw new NotFoundError(visible.name, id);
   const held = await heldOf(ctx, visible, [row as AnyRow]);
+  const [record] = await withAuthorValues(ctx, visible, [
+    toRecord(visible, row as AnyRow, ctx, held),
+  ]);
   return {
-    ...toRecord(visible, row as AnyRow, ctx, held),
+    ...(record as VisibleRecord),
     ...(await currencyOf(ctx, visible)),
   };
 }
@@ -200,6 +251,8 @@ export interface RecordAccess {
   count(object: string, filter?: Filter): Promise<{ count: number; capped: boolean }>;
   /** A record's places: the real numbers for staff, what the object's `show` allows otherwise. */
   capacity(object: string, id: string): Promise<CapacityView>;
+  /** A record's stock: the numbers for staff, what the object's `show` allows otherwise. */
+  stock(object: string, id: string): Promise<StockView>;
   /**
    * Creates a record that belongs to the caller, or to a live dependant of theirs named by
    * `forPersonId` where the object lets guardians write (ADR 0540). Customers only.
@@ -218,6 +271,11 @@ export interface RecordAccess {
     options?: { from?: string | undefined },
   ): Promise<void>;
   /**
+   * Moves one of the caller's own records to Trash, where the object lets its customer remove
+   * their own (`customer.delete`, ADR 0414, amended). Customers only.
+   */
+  delete(object: string, id: string): Promise<void>;
+  /**
    * The caller's family (ADR 0540): the dependants they act for and the guardians who act for
    * them, by name. Empty for anyone but a customer.
    */
@@ -227,7 +285,7 @@ export interface RecordAccess {
 /** `ctx.records` over `reader`, with the given writes (none: reads only). */
 export function recordAccess(
   reader: Reader,
-  writes?: Pick<RecordAccess, "create" | "update">,
+  writes?: Pick<RecordAccess, "create" | "update" | "delete">,
 ): RecordAccess {
   const none = (): never => {
     throw new OperationError(
@@ -241,8 +299,10 @@ export function recordAccess(
     get: (object, id) => getVisible(reader, object, id),
     count: (object, filter) => countVisible(reader, object, filter),
     capacity: (object, id) => readCapacity(reader, object, id),
+    stock: (object, id) => readStock(reader, object, id),
     create: writes?.create ?? none,
     update: writes?.update ?? none,
+    delete: writes?.delete ?? none,
     family: () => familyOf(reader),
   };
 }

@@ -17,27 +17,19 @@ import {
   type RosterRefusal,
   rosterRefusal,
   shiftTime,
+  WEEKDAYS,
+  type Weekday,
 } from "@composable-os/pack-rostering/client";
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { Button } from "../native-base/button.tsx";
 import { Field } from "../native-base/field.tsx";
 import { List } from "../native-base/list.tsx";
 import { Row } from "../native-base/row.tsx";
 import { Screen } from "../native-base/screen.tsx";
+import { Text } from "../native-base/text.tsx";
 
 type Hooks = Pick<RosteringHooks, "useMe" | "useMyAway" | "useAway" | "useBack" | "useOffer">;
-
-const DAYS = [
-  ["mon", "Mon"],
-  ["tue", "Tue"],
-  ["wed", "Wed"],
-  ["thu", "Thu"],
-  ["fri", "Fri"],
-  ["sat", "Sat"],
-  ["sun", "Sun"],
-] as const;
-type Weekday = (typeof DAYS)[number][0];
 
 interface Form {
   kind: "leave" | "regular";
@@ -143,7 +135,11 @@ export function MyAvailabilityScreen({
 
   return (
     <Screen title="My availability">
-      {me.isPending ? <Text accessibilityRole="progressbar">Loading…</Text> : null}
+      {me.isPending ? (
+        <Text tone="muted" accessibilityRole="progressbar">
+          Loading…
+        </Text>
+      ) : null}
       {me.error ? <Text accessibilityRole="alert">{rosterRefusal(me.error).message}</Text> : null}
       <Text>Times are in {zone}. Only you and whoever rosters see this.</Text>
       {said ? <Text accessibilityRole="alert">{said}</Text> : null}
@@ -190,7 +186,8 @@ export function MyAvailabilityScreen({
         {form.kind === "regular" ? (
           <>
             <View>
-              {DAYS.map(([value, label]) => {
+              {WEEKDAYS.map(([value, name]) => {
+                const label = name.slice(0, 3);
                 const on = form.weekdays.includes(value);
                 return (
                   <Button
@@ -263,7 +260,11 @@ export function MyAvailabilityScreen({
         <Button label="Add time off" busy={away.isPending} onPress={submit} />
       </View>
       <Text accessibilityRole="header">My time off</Text>
-      {list.isPending ? <Text accessibilityRole="progressbar">Loading…</Text> : null}
+      {list.isPending ? (
+        <Text tone="muted" accessibilityRole="progressbar">
+          Loading…
+        </Text>
+      ) : null}
       {list.data ? (
         <List empty="None from today on.">
           {list.data.items.map((item) => (

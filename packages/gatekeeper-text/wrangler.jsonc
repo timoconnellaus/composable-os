@@ -1,0 +1,45 @@
+// cos-gatekeeper-text: text messages through the business's own text provider account (stage 30,
+// ADR 0672). Only the host's own routine messages and phone checks send a text; receipts and
+// STOP, START and HELP replies reach the host as verified events. Account-agnostic: no account
+// or resource IDs are committed (ADR 0012).
+//
+// Settings (product.ts, ADR 0452): TEXT_PROVIDER, the provider module (`fake` for development and
+// staging only: cos deploy refuses it in a live environment) and TEXT_SENDER_NUMBER, the
+// business's sender number. Secrets (not committed, see deploy-inputs.json): the provider's keys,
+// set by a person with `wrangler secret put`, and FAKE_WEBHOOK_SECRET, which cos deploy generates
+// for an environment that turns the fake on. See README.md.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cos-gatekeeper-text",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-09-04",
+  "compatibility_flags": ["allow_irrevocable_stub_storage"],
+  // Internal only: reached through service bindings and the CRM's /gatekeeper/text/* proxy.
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": { "invocation_logs": false }
+  },
+  "vars": {
+    // The public base the CRM serves this Worker under, e.g. https://crm.example.com/gatekeeper/text.
+    // Empty means the local dev server's (http://localhost:5173/gatekeeper/text).
+    "BASE_URL": "",
+    // The provider module texts go through. Empty: none is set up, and no text goes. `fake` is
+    // for development, tests and staging only: off localhost it also needs FAKE_WEBHOOK_SECRET.
+    "TEXT_PROVIDER": "",
+    // The business's own sender number, in international form (+ and digits).
+    "TEXT_SENDER_NUMBER": ""
+  },
+  "rules": [{ "type": "Text", "globs": ["**/*.txt"], "fallthrough": false }],
+  "durable_objects": {
+    "bindings": [
+      { "name": "TEXT_EVENTS", "class_name": "TextEvents" },
+      { "name": "FAKE_TEXT_LEDGER", "class_name": "FakeTextLedger" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["TextEvents", "FakeTextLedger", "TextGatekeeper"] }
+  ]
+}

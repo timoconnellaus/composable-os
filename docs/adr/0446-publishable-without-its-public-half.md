@@ -103,3 +103,19 @@ request. A version also keeps, for an approved request, who asked and how (`requ
 `requested_via`, migration 0520), with `published_by` the approver. The pack's assistant draft
 still writes a working copy and stops; the assistant may then ask. See
 [ADR 0480](0480-an-ai-asks-to-publish-a-person-approves.md).
+
+## Amendment, 2026-11-24 (stage 54, ADR 0810)
+"The record itself is the working copy and is edited with `record.update` like any record, by any
+actor the policy allows" no longer holds on an object with an author (a `customer`): the fields its
+author writes are refused to every staff-side caller, the assistant included, and only the author
+changes them; a version's content may then include read-only fields the host sets. `publishable`
+also takes `publishIn`, the states a record may be published in: outside them a publish is refused,
+a due schedule dropped, and a move out unpublishes the record in its batch. See
+[ADR 0810](0810-publishable-with-an-author.md).
+
+## Amendment, 2026-11-24 (stage 38 step 2, ADR 0701)
+A published version is no longer read only by the public: an object that declares
+`publishable.staffRead` is read by every staff account, pack roles included, as published
+(`content.staffGet`, `content.staffList`, and `content.search` over every text content field),
+through the live view, its content fields and slug only. Editors still edit the working copy on the
+record's page. See [ADR 0701](0701-staff-read-of-published-versions-and-its-reach-for-pack-roles.md).

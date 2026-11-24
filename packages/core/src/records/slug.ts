@@ -13,6 +13,7 @@ import { fieldStorage } from "../extensions/schema.ts";
 import type { FieldDefinition, ObjectDefinition } from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
 import { visibleTable } from "../visibility/index.ts";
+import { everPublished } from "./common.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: x_* tables are not in CoreDatabase; names come from the registry.
 type AnyDb = Kysely<any>;
@@ -196,7 +197,7 @@ export async function redirectWrites(
       ]),
     );
   }
-  if (typeof old === "string" && old && before && (await everPublished(ctx, object.name, id))) {
+  if (typeof old === "string" && old && before && (await everPublished(ctx.db, object.name, id))) {
     writes.push(
       CompiledQuery.raw(
         "INSERT INTO core_slug_redirect (object_type, slug, record_id, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (object_type, slug) DO UPDATE SET record_id = excluded.record_id, created_at = excluded.created_at",
@@ -205,15 +206,4 @@ export async function redirectWrites(
     );
   }
   return writes;
-}
-
-async function everPublished(ctx: HandlerContext, object: string, id: string): Promise<boolean> {
-  const row = await ctx.db
-    .selectFrom("core_publish_version")
-    .select("version")
-    .where("object_type", "=", object)
-    .where("record_id", "=", id)
-    .limit(1)
-    .executeTakeFirst();
-  return row !== undefined;
 }

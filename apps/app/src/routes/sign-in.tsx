@@ -12,6 +12,7 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useState } from "react";
 import { useProductName } from "../components/product-name.ts";
 import { authClient } from "../lib/auth-client.ts";
+import { authPost, OFFLINE_WORDS } from "../lib/staff-auth.ts";
 import { getSession, getSignInMethods } from "../server/session.public.ts";
 
 interface SignInSearch {
@@ -33,17 +34,6 @@ export const Route = createFileRoute("/sign-in")({
   component: SignInPage,
 });
 
-/** Posts to the staff sign-in routes (Better Auth) and says whether it worked. */
-async function authPost(path: string, body: unknown): Promise<boolean> {
-  const response = await fetch(`/api/auth${path}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    credentials: "same-origin",
-    body: JSON.stringify(body),
-  });
-  return response.ok;
-}
-
 /**
  * Sign-in by a code emailed to the address (ADR 0455): how an invited person accepts their
  * invite, and how an account without a password signs in. The answer to "email me a code" is
@@ -59,10 +49,14 @@ function CodeSignIn({ callbackURL, hydrated }: { callbackURL: string; hydrated: 
     event.preventDefault();
     setPending(true);
     setError(null);
-    const ok = await authPost("/email-otp/send-verification-otp", { email, type: "sign-in" });
+    const answer = await authPost("/email-otp/send-verification-otp", { email, type: "sign-in" });
     setPending(false);
-    if (!ok) {
-      setError("A code could not be sent just now. Try again in a minute.");
+    if (answer !== "ok") {
+      setError(
+        answer === "offline"
+          ? OFFLINE_WORDS
+          : "A code could not be sent just now. Try again in a minute.",
+      );
       return;
     }
     setAsked(true);
@@ -73,10 +67,14 @@ function CodeSignIn({ callbackURL, hydrated }: { callbackURL: string; hydrated: 
     const otp = String(new FormData(event.currentTarget).get("code")).trim();
     setPending(true);
     setError(null);
-    const ok = await authPost("/sign-in/email-otp", { email, otp });
+    const answer = await authPost("/sign-in/email-otp", { email, otp });
     setPending(false);
-    if (!ok) {
-      setError("That code is not valid. Check it, or ask for a new one.");
+    if (answer !== "ok") {
+      setError(
+        answer === "offline"
+          ? OFFLINE_WORDS
+          : "That code is not valid. Check it, or ask for a new one.",
+      );
       return;
     }
     window.location.assign(callbackURL);

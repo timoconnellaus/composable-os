@@ -16,7 +16,9 @@
 // source is the object's live view (`pub_x_<ext>_<object>`, extensions/schema.ts), whose rows are
 // the live records with a current version and whose content columns are that version's values.
 // `when`, if declared, holds beside it. A draft, an unpublished record and a deleted one are not
-// in the source, so each is not found exactly as a record that never existed.
+// in the source, so each is not found exactly as a record that never existed. An object with an
+// author (ADR 0810) declares a customer too: the author reads their working copy through it, and
+// the public (and any other caller who reads as the public, content.list) the published version.
 import { liveViewOf } from "../extensions/schema.ts";
 import { getObject } from "../fields/index.ts";
 import type { FieldDefinition, ObjectDefinition, PublicDeclaration } from "../fields/types.ts";
@@ -28,7 +30,9 @@ export type ReadDeclarationKey = "public" | "signedIn";
 /** What is wrong with an object's `public` declaration (empty when nothing is). */
 export function publicProblems(object: ObjectDefinition): string[] {
   const problems = readProblems(object, "public");
-  if (object.public && object.customer) {
+  // A publishable object with an author declares both (ADR 0810): the author reads the working
+  // copy, the public the published version.
+  if (object.public && object.customer && !object.publishable) {
     problems.unshift("an object declares customer or public, not both");
   }
   if (object.public && object.publishable) problems.push(...contentProblems(object));
@@ -36,18 +40,17 @@ export function publicProblems(object: ObjectDefinition): string[] {
 }
 
 /**
- * What the public may read of a publishable object (ADR 0442): its address among the fields, and
- * nothing computed from the working copy (a formula, a path of a document that is not content).
- * Outsiders read it only as published, so it declares no customer of its own.
+ * What the public may read of a publishable object (ADR 0442): its address among the fields, when
+ * it has one, and nothing computed from the working copy (a formula, a path of a document that is
+ * not content). Without a slug its records are listed only (ADR 0810). With an author (a
+ * `customer`) it has no slug and the public never reads whose it is; it declares no customerVia.
  */
 function contentProblems(object: ObjectDefinition): string[] {
   const declared = object.public;
   const publishable = object.publishable;
   if (!declared || !publishable) return [];
   const problems: string[] = [];
-  if (!publishable.slug) {
-    problems.push("a publishable object the public reads names its slug (publishable.slug)");
-  } else if (!declared.read.includes(publishable.slug)) {
+  if (publishable.slug && !declared.read.includes(publishable.slug)) {
     problems.push(`public.read lists the slug "${publishable.slug}": it is how the public reads`);
   }
   const content = new Set(publishable.content);
@@ -61,8 +64,14 @@ function contentProblems(object: ObjectDefinition): string[] {
       problems.push(`public.read lists "${name}", a path of a document that is not content`);
     }
   }
-  if (object.customer || object.customerVia) {
-    problems.push("a publishable object the public reads declares no customer or customerVia");
+  if (object.customerVia) {
+    problems.push("a publishable object the public reads declares no customerVia");
+  }
+  if (object.customer) {
+    if (publishable.slug) problems.push("a publishable object with an author has no slug");
+    if (declared.read.includes(object.customer.field)) {
+      problems.push(`public.read lists "${object.customer.field}", the author`);
+    }
   }
   return problems;
 }

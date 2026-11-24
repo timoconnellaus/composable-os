@@ -344,6 +344,22 @@ describe("cos deploy", () => {
     );
   });
 
+  it("installs the packs a listed pack requires with it (Courses: Programs and Content)", async () => {
+    await publish("1.0.0");
+    const dir = await created();
+    setPacks(dir, ["courses"]);
+    const deployed = await cos("deploy", "--skip-build", "--no-typecheck");
+    expect(deployed.code, deployed.output).toBe(0);
+    expect(deployed.output).toContain("Installing programs, content too");
+    expect(world.cf.liveBinding("shop-runner", "COS_PACKS")?.text).toBe("courses,programs,content");
+    // Listed already, nothing is brought or said.
+    setPacks(dir, ["content", "programs", "courses"]);
+    const again = await cos("deploy", "--skip-build", "--no-typecheck");
+    expect(again.code, again.output).toBe(0);
+    expect(again.output).not.toContain("too: a pack product.ts lists requires");
+    expect(world.cf.liveBinding("shop-runner", "COS_PACKS")?.text).toBe("content,programs,courses");
+  });
+
   it("trusts only packs.json: a tool in the contract does not make a pack carried", async () => {
     // A release built before every pack was carried: its runner had the CRM's three packs, while
     // its contract (the union over the repository) already named Ticketing's tools.
@@ -475,6 +491,54 @@ describe("a pack role's client in the mobile app (ADR 0451)", () => {
     const refused = await cos("client", "generate");
     expect(refused.code).toBe(1);
     expect(refused.output).toContain("no grantable permission rostering:nothing");
+  });
+
+  it("mobile.owner writes the owner's client: only its listed operations (stage 60, ADR 0872)", async () => {
+    await publish("1.0.0");
+    const dir = await created();
+    setPacks(dir, ["bookings", "memberships", "rostering"]);
+    writeFileSync(
+      join(dir, "product.ts"),
+      read(dir, "product.ts").replace(
+        /(\n\s*web: \{[^\n]*\},)/,
+        '$1\n  mobile: { dir: "apps/mobile", owner: true },',
+      ),
+    );
+    const generated = await cos("client", "generate");
+    expect(generated.code, generated.output).toBe(0);
+    expect(generated.output).toContain("roles/owner.ts");
+    const owner = read(dir, "apps/mobile/src/client/roles/owner.ts");
+    expect(owner).toContain("createOwnerClient");
+    for (const name of ["approval.approve", "approval.list", "notification.list", "user.me"]) {
+      expect(owner).toContain(`"${name}"`);
+    }
+    // No other staff operation, and no pack's: the host's Today names the packs' numbers.
+    for (const name of ["record.list", "person.list", "approval.decide", "x.bookings.roster"]) {
+      expect(owner).not.toContain(`"${name}"`);
+    }
+    // The customer client is unchanged by it.
+    expect(read(dir, "apps/mobile/src/client/customer.ts")).not.toContain('"approval.list"');
+  });
+
+  it("refuses mobile.owner against a release older than the owner's client, saying to upgrade", async () => {
+    await publish("1.0.0", (files) => {
+      const roles = JSON.parse(files["contract/roles.json"] as string);
+      delete roles.owner;
+      files["contract/roles.json"] = JSON.stringify(roles);
+    });
+    const dir = await created();
+    writeFileSync(
+      join(dir, "product.ts"),
+      read(dir, "product.ts").replace(
+        /(\n\s*web: \{[^\n]*\},)/,
+        '$1\n  mobile: { dir: "apps/mobile", owner: true },',
+      ),
+    );
+    const refused = await cos("client", "generate");
+    expect(refused.code).toBe(1);
+    expect(refused.output).toContain("no owner's client (mobile.owner)");
+    expect(refused.output).toContain("Upgrade the platform version first");
+    expect(existsSync(join(dir, "apps/mobile/src/client/roles/owner.ts"))).toBe(false);
   });
 
   it("refuses a role of a pack the product does not list", async () => {
@@ -1176,6 +1240,57 @@ describe("blocks (criterion 10)", () => {
     ]);
   });
 
+  it("cos add web-account copies the packs' sections and writes the wiring; a pack added later adds its own (stage 48)", async () => {
+    await publish("1.0.0");
+    const dir = await created();
+    setPacks(dir, ["bookings", "memberships"]);
+    const added = await cos("add", "web-account");
+    expect(added.code, added.output).toBe(0);
+    const blocks = join(dir, "apps", "web", "src", "blocks");
+    // The shell, and each listed pack's section, and Programs' (Bookings and Memberships bring it).
+    for (const block of [
+      "web-account",
+      "bookings-timetable",
+      "memberships-mine",
+      "programs-progress",
+    ]) {
+      expect(existsSync(join(blocks, block, "LICENSE")), block).toBe(true);
+    }
+    const wiring = () => readFileSync(join(blocks, "account-sections.gen.ts"), "utf8");
+    expect(wiring()).toContain(
+      'import { createBookingsHooks } from "@composable-os/pack-bookings/client";',
+    );
+    expect(wiring()).toContain('import { Timetable } from "./bookings-timetable/timetable.tsx";');
+    expect(wiring()).toContain('import { MyMemberships } from "./memberships-mine/mine.tsx";');
+    expect(wiring()).toContain('import type { WebSectionEntry } from "./web-account/account.tsx";');
+    // In the host's order: Bookings 10, Memberships 20, Training 50.
+    expect([...wiring().matchAll(/key: "([^"]+)"/g)].map((m) => m[1])).toEqual([
+      "bookings.bookings",
+      "memberships.memberships",
+      "programs.training",
+    ]);
+    expect(wiring()).not.toContain("courses");
+    expect(added.output).toContain("account-sections.gen.ts");
+    const lock = JSON.parse(read(dir, "blocks.lock.json"));
+    expect(Object.keys(lock)).toEqual(
+      expect.arrayContaining(["web-account", "bookings-timetable", "memberships-mine"]),
+    );
+
+    // Courses added to product.ts: the next cos add copies its section and writes it in.
+    setPacks(dir, ["bookings", "memberships", "courses"]);
+    const again = await cos("add", "web-account");
+    expect(again.code, again.output).toBe(0);
+    expect(existsSync(join(blocks, "courses-my-courses", "my-courses.tsx"))).toBe(true);
+    expect(wiring()).toContain('import { MyCourses } from "./courses-my-courses/my-courses.tsx";');
+    expect(wiring()).toContain('key: "courses.courses"');
+
+    // cos upgrade writes it again.
+    writeFileSync(join(blocks, "account-sections.gen.ts"), "// stale\n");
+    const upgraded = await cos("upgrade");
+    expect(upgraded.output).toContain("My account's sections written again");
+    expect(wiring()).toContain('key: "courses.courses"');
+  });
+
   it("lists the release's blocks with their skin, pack and dependencies", async () => {
     await publish("1.0.0");
     await created();
@@ -1192,6 +1307,38 @@ describe("blocks (criterion 10)", () => {
     const generated = await cos("client", "generate");
     expect(generated.code, generated.output).toBe(0);
     expect(read(dir, "apps/web/src/client/customer.ts")).toContain('"me.get"');
+  });
+
+  it("copies Content's rich text with the Courses player, which a text lesson needs", async () => {
+    await publish("1.0.0");
+    const dir = await created();
+    // Only Courses listed: it requires Content, so the host installs it and its block may come.
+    setPacks(dir, ["courses"]);
+    writeFileSync(
+      join(dir, "product.ts"),
+      read(dir, "product.ts").replace(
+        /(\n\s*web: \{[^\n]*\},)/,
+        '$1\n  mobile: { dir: "apps/mobile" },',
+      ),
+    );
+    const web = await cos("add", "courses-player");
+    expect(web.code, web.output).toBe(0);
+    const native = await cos("add", "courses-native-player");
+    expect(native.code, native.output).toBe(0);
+    expect(existsSync(join(dir, "apps/web/src/blocks/content-rich-text/rich-text.tsx"))).toBe(true);
+    expect(
+      existsSync(join(dir, "apps/mobile/src/blocks/content-native-rich-text/rich-text-view.tsx")),
+    ).toBe(true);
+    expect(web.output).toMatch(/@composable-os\/pack-content@1\.0\.0/);
+    expect(Object.keys(JSON.parse(read(dir, "blocks.lock.json"))).sort()).toEqual([
+      "content-native-rich-text",
+      "content-rich-text",
+      "courses-native-player",
+      "courses-player",
+      "native-base",
+      "ui-button",
+      "ui-utils",
+    ]);
   });
 
   it("refuses a block of a pack the product does not list", async () => {

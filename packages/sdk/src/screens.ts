@@ -44,6 +44,9 @@ export function screenGateFingerprint(m: Partial<ExtensionManifest>): string | n
               ),
               humanOnly: tool.humanOnly === true,
               grantLiftsRoleLimits: tool.grantLiftsRoleLimits === true,
+              // ADR 0652: only when set, so a pack declaring neither keeps its fingerprint.
+              ...(tool.anyStaff ? { anyStaff: true } : {}),
+              ...(tool.corePermission ? { corePermission: tool.corePermission } : {}),
             }
           : null,
       ];
@@ -73,7 +76,13 @@ export function screenGateFingerprint(m: Partial<ExtensionManifest>): string | n
         .sort(([a], [b]) => (a < b ? -1 : 1))
         .map(([name, r]) => [
           name,
-          { permissions: sorted(r.permissions), read: sorted(r.read), today: r.today ?? null },
+          {
+            permissions: sorted(r.permissions),
+            read: sorted(r.read),
+            today: r.today ?? null,
+            // Left out when absent, so a role without it keeps its fingerprint (ADR 0889).
+            looksAfter: r.looksAfter,
+          },
         ]),
     ),
   });

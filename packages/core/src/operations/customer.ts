@@ -8,6 +8,7 @@
 import { sql } from "kysely";
 import { z } from "zod";
 import { inviteCustomerStatement } from "../customers/accounts.ts";
+import { revokeCustomerFeed } from "../customers/calendar-feed.ts";
 import { NotFoundError } from "../errors.ts";
 import { endCustomerDeviceSessions } from "../http/tokens.ts";
 import { decodeCursor, encodeCursor, pageSchema } from "../list.ts";
@@ -170,7 +171,11 @@ async function setStatus(
   // Disabling signs the account out everywhere, in the same batch as the status change: there is
   // no moment when a disabled account still has a session.
   const ended = status === "disabled" ? Number(before.sessions) : 0;
-  if (status === "disabled") endSessions(ctx, id);
+  if (status === "disabled") {
+    endSessions(ctx, id);
+    // Its calendar link too (ADR 0890), so enabling the account never brings an old one back.
+    ctx.write(revokeCustomerFeed(ctx.db, id));
+  }
   if (before.status !== status) {
     ctx.recordChange({
       object: "customer",
@@ -191,8 +196,8 @@ async function setStatus(
 export const customerDisable = defineOperation({
   name: "customer.disable",
   description:
-    "Disable a customer account: it can no longer sign in, and every session it has ends at " +
-    "once. Its Person and records are kept. Undo with customer.enable. Admins only, humans only.",
+    "Disable a customer account: it can no longer sign in, every session it has ends at once " +
+    "and its calendar link stops working. Its Person and records are kept. Undo with customer.enable. Admins only, humans only.",
   input: z.object({ id: customerId }),
   output: statusOutput,
   permission: "users:manage",

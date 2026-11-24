@@ -27,7 +27,7 @@ import {
   updateRecord,
 } from "../src/index.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
-import { context, createUser, db, unique } from "./helpers.ts";
+import { context, createUser, db, refusal as refused, unique } from "./helpers.ts";
 
 const ext = extId("att");
 const KLASS = `${ext}.klass`;
@@ -202,14 +202,6 @@ async function stateOf(id: string) {
 }
 const move = (id: string, state: string, now: string) =>
   invoke("record.update", { object: BOOKING, id, values: { state } }, at(now));
-async function refused(promise: Promise<unknown>) {
-  const error = await promise.then(
-    () => null,
-    (e: unknown) => e,
-  );
-  expect(error).not.toBeNull();
-  return error as { code: string; details: Record<string, unknown>; message: string };
-}
 async function counter(id: string) {
   return env.DB.prepare(
     "SELECT places, held, taken FROM core_capacity WHERE object_type = ? AND record_id = ?",

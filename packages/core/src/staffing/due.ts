@@ -6,6 +6,9 @@
 //   longer live is cancelled. With nothing open it is one indexed read.
 // - **The daily uncovered notice**: once a local day, from 07:00 in the organisation's zone, the
 //   rosterers are told every live shift with nobody on it in the uncovered window, if any.
+// - **Finish missing** (stage 58, ADR 0850): an entry left open past its shift's end and the
+//   setting's hours (or long after its start with no shift) is marked so and its person told to
+//   enter their finish. No finish is invented.
 import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, sql } from "kysely";
 import { objectTableOf } from "../extensions/schema.ts";
@@ -17,7 +20,15 @@ import { localParts } from "../time/local.ts";
 import { shiftTitle, shiftZone } from "./changes.ts";
 import { loadShift } from "./index.ts";
 import { endOfferStatement, pastCutoff, whenOf } from "./offers.ts";
-import { queueNotice, rosterers, rosterNumbers, shiftLink, staffName } from "./rosterers.ts";
+import {
+  queueNotice,
+  rosterers,
+  rosterNumbers,
+  shiftLink,
+  staffName,
+  timeSettings,
+} from "./rosterers.ts";
+import { finishMissing, missingFinishes } from "./time.ts";
 
 /** The most open offers one tick looks at. */
 const OFFERS_PER_TICK = 50;
@@ -177,12 +188,29 @@ async function dailyUncovered(ctx: HandlerContext, uncoveredDays: number): Promi
   return shifts.length;
 }
 
+/** Whether an open time entry's finish is missing now: only when one has been open an hour. */
+async function finishMissingDue(db: Kysely<CoreDatabase>, nowIso: string): Promise<boolean> {
+  const now = Math.floor(Date.parse(nowIso) / 1000);
+  const open = await db
+    .selectFrom("core_time_entry")
+    .select("id")
+    .where("ends", "is", null)
+    .where("finish_missing", "=", 0)
+    .where("starts", "<=", now - 3600)
+    .limit(1)
+    .executeTakeFirst();
+  if (!open) return false;
+  const { finishMissingHours } = await timeSettings(db);
+  return (await missingFinishes(db, now, finishMissingHours, 1)).length > 0;
+}
+
 /**
  * Whether the minute cron has roster work now (read outside any operation, so a quiet minute
  * writes nothing, not even an audit row): an open offer past its cut-off or whose shift is gone,
- * or the daily notice due.
+ * the daily notice due, or an open time entry whose finish is missing.
  */
 export async function staffingWorkDue(db: Kysely<CoreDatabase>, nowIso: string): Promise<boolean> {
+  if (await finishMissingDue(db, nowIso)) return true;
   if (!listObjects().some((o) => o.staffed)) return false;
   const due = await db
     .selectFrom("core_staff_offer")
@@ -206,9 +234,10 @@ export async function staffingWorkDue(db: Kysely<CoreDatabase>, nowIso: string):
 /** The minute cron's roster work, in the caller's batch. */
 export async function staffingDue(
   ctx: HandlerContext,
-): Promise<{ lapsed: number; cancelled: number; uncovered: number }> {
+): Promise<{ lapsed: number; cancelled: number; uncovered: number; finishMissing: number }> {
   const numbers = await rosterNumbers(ctx.db);
   const { lapsed, cancelled } = await lapseOffers(ctx, numbers.cutoffMinutes);
   const uncovered = await dailyUncovered(ctx, numbers.uncoveredDays);
-  return { lapsed, cancelled, uncovered };
+  const missing = await finishMissing(ctx, (await timeSettings(ctx.db)).finishMissingHours);
+  return { lapsed, cancelled, uncovered, finishMissing: missing };
 }

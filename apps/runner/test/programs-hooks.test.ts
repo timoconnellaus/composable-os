@@ -10,6 +10,8 @@ import type {
   OutsideInvocationContext,
 } from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
+import customer from "../../../packages/core/api/v1/customer.json";
+import roles from "../../../packages/core/api/v1/roles.json";
 import {
   createProgramsHooks,
   emptyLayout,
@@ -30,16 +32,18 @@ import {
   staff,
 } from "./programs-fixture.ts";
 
+/** Every operation any hook calls: what the staff client holds (ADR 0453). */
+const EVERY = Object.values(HOOKS_CALL).flatMap((calls) =>
+  "anyOf" in calls ? calls.anyOf.flat() : [...calls],
+);
+
 function hostClient(
   ctx: InvocationContext | OutsideInvocationContext,
+  held: readonly string[] = EVERY,
 ): ProgramsClient & { operations: Record<string, unknown> } {
   return {
-    // Every operation: these tests run every hook (ADR 0453).
-    operations: Object.fromEntries(
-      Object.values(HOOKS_CALL)
-        .flat()
-        .map((n) => [n, true]),
-    ),
+    // Every operation unless told otherwise: these tests run every hook.
+    operations: Object.fromEntries(held.map((n) => [n, true])),
     query: ((name: string, input: unknown) => ({
       queryKey: [name, input],
       queryFn: () => run(name, input, ctx),
@@ -51,7 +55,7 @@ function hostClient(
   };
 }
 
-function hooksFor(ctx: InvocationContext | OutsideInvocationContext) {
+function hooksFor(ctx: InvocationContext | OutsideInvocationContext, held?: readonly string[]) {
   const queries: (() => Promise<unknown>)[] = [];
   const hooks = createProgramsHooks(
     {
@@ -68,7 +72,7 @@ function hooksFor(ctx: InvocationContext | OutsideInvocationContext) {
       }),
       useState: <T>(initial: T) => [initial, () => undefined],
     },
-    hostClient(ctx),
+    hostClient(ctx, held),
   );
   return { hooks, last: <T>() => (queries.at(-1) as () => Promise<T>)() };
 }
@@ -93,6 +97,27 @@ beforeAll(async () => {
   row = await create(admin, EXERCISE, { name: "Ring row", measure: "weight_reps" });
   member = await createCustomer(admin, "hooks", "Hana");
 }, 120_000);
+
+/** A staff account a human admin gave Programs' coach role (ADR 0889). */
+async function coachRole(): Promise<ActingUser> {
+  const id = `usr_${unique("kim")}`;
+  const { env } = await import("cloudflare:workers");
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    "INSERT INTO core_user (id, name, email, email_verified, created_at, updated_at, role) VALUES (?, 'Coach Kim', ?, 1, ?, ?, 'member')",
+  )
+    .bind(id, `${id}@example.com`, now, now)
+    .run();
+  await run("user.setPackRole", { id, role: "programs.coach" }, staff(admin));
+  return { id, email: `${id}@example.com`, name: "Coach Kim", role: "viewer" };
+}
+
+/** One week of one session: a row of one set. */
+function oneSession() {
+  let layout = layoutEdits.addSession(emptyLayout(), 0);
+  layout = layoutEdits.addBlock(layout, { week: 0, session: 0 });
+  return layoutEdits.addItem(layout, { week: 0, session: 0, block: 0 }, row, "weight_reps");
+}
 
 describe("the hooks against the host", () => {
   it("a coach builds, sees the host's fault where it is, is offered publish once granted, and assigns", async () => {
@@ -175,5 +200,98 @@ describe("the hooks against the host", () => {
     expect(progress.assignments[0]?.done).toBe(1);
     m.hooks.useHistory({ exerciseId: row });
     expect((await m.last<{ sets: unknown[] }>()).sets).toHaveLength(1);
+  });
+
+  it("each audience's client reads the class types its own way: a member my.list, staff record.list", async () => {
+    await run(
+      "record.create",
+      { object: "programs.classtype", values: { name: "Hooks class", order: 1 } },
+      staff(admin),
+    );
+    // A member's client holds what the customer contract serves, and no record.list.
+    const served = new Set(customer.operations.map((o) => o.name));
+    const memberHolds = EVERY.filter((n) => served.has(n));
+    expect(memberHolds).toContain("my.list");
+    expect(memberHolds).not.toContain("record.list");
+    const m = hooksFor(as(member), memberHolds);
+    expect(Object.keys(m.hooks)).toEqual(
+      expect.arrayContaining(["useClassTypes", "useClassToday"]),
+    );
+    m.hooks.useClassTypes();
+    const forMember = await m.last<{ items: { values: Record<string, unknown> }[] }>();
+    expect(forMember.items.map((t) => t.values.name)).toContain("Hooks class");
+    // Staff, holding both, read with record.list (a member's read is refused to staff).
+    const c = hooksFor(staff(coach));
+    c.hooks.useClassTypes();
+    const forStaff = await c.last<{ items: { values: Record<string, unknown> }[] }>();
+    expect(forStaff.items.map((t) => t.values.name)).toContain("Hooks class");
+    // A client holding neither has no such hook.
+    const none = hooksFor(as(member), ["x.programs.classToday"]);
+    expect("useClassTypes" in none.hooks).toBe(false);
+  });
+
+  it("the coach role's client backs the coach's client view and session screen, and nothing else", async () => {
+    const holds = roles.roles.find((r) => r.name === "programs.coach")?.operations ?? [];
+    const k = await coachRole();
+    const hooks = hooksFor(staff(k), holds);
+    // Its client types record.list to its own objects (cos client generate); the bank's and the
+    // programs' hooks are there by name and the host refuses them (the role reads neither).
+    expect(Object.keys(hooks.hooks).sort()).toEqual(
+      [
+        "useBank",
+        "useClassTypes",
+        "useClientPastSessions",
+        "useClientSessions",
+        "useExercises",
+        "useHistory",
+        "useLogSet",
+        "useMarkSession",
+        "usePrograms",
+        "useProgress",
+        "useSession",
+        "useSessionLog",
+        "useToday",
+        "useUnsavedSets",
+        "useUpdateSet",
+      ].sort(),
+    );
+    hooks.hooks.useBank();
+    expect(await refusal(hooks.last())).toMatchObject({ code: "forbidden" });
+    for (const absent of ["useAssign", "usePeople", "usePublish", "useDraft", "useClassToday"]) {
+      expect(absent in hooks.hooks, absent).toBe(false);
+    }
+    // Its own client's sessions; a client it does not coach has none to show.
+    const program = await run<{ id: string }>(
+      "record.create",
+      {
+        object: "programs.program",
+        values: { title: "Coached by hooks", kind: "client", layout: oneSession() },
+      },
+      staff(admin),
+    );
+    await run("record.publish", { object: "programs.program", id: program.id }, staff(admin));
+    const theirs = await createCustomer(admin, "coached", "Cora");
+    const { assignmentId } = await run<{ assignmentId: string }>(
+      "x.programs.assign",
+      { programId: program.id, personId: theirs.personId, startDate: "2027-10-04" },
+      staff(admin),
+    );
+    await run(
+      "record.update",
+      { object: "programs.assignment", id: assignmentId, values: { coach: k.id } },
+      staff(admin),
+    );
+    hooks.hooks.useClientSessions(theirs.personId);
+    const sessions = await hooks.last<{ items: { id: string }[] }>();
+    expect(sessions.items).toHaveLength(1);
+    const sessionId = sessions.items[0]?.id as string;
+    hooks.hooks.useSession({ sessionId });
+    expect((await hooks.last<{ session: { id: string } }>()).session.id).toBe(sessionId);
+    const set = await hooks.hooks
+      .useLogSet()
+      .mutateAsync({ sessionId, item: "A1", setNumber: 1, actual: { reps: 8, load: 20 } });
+    expect(set).toMatchObject({ recordedAs: "staff" });
+    hooks.hooks.useClientSessions(member.personId);
+    expect((await hooks.last<{ items: unknown[] }>()).items).toEqual([]);
   });
 });

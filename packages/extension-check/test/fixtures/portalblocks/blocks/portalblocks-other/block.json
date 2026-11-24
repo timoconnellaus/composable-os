@@ -1,0 +1,8 @@
+{
+  "name": "portalblocks-other",
+  "pack": "deals",
+  "skin": "web",
+  "operations": [],
+  "files": ["other.tsx"],
+  "dependsOn": []
+}

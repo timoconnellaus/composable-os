@@ -5,14 +5,14 @@
 // columns of stage 42's tax step (`feat/tax-at-checkout`), which adds them to rec_order_line.
 import type { DashboardDeclaration } from "@composable-os/sdk";
 
-const PAID_IN = "o.paid_at >= :paid_from AND o.paid_at < :paid_to";
 const IN = (column: string) => `${column} >= :paid_from AND ${column} < :paid_to`;
-const WEEK = (column: string) =>
+/** The Monday of the week a timestamp column is in, as a date (the stats tool's weeks too). */
+export const WEEK = (column: string) =>
   `date(${column}, '-' || ((strftime('%w', ${column}) + 6) % 7) || ' days')`;
 /** A course's or a bundle's paid lines in the period, with what they sold. */
 const LINES = `FROM rec_order_line l JOIN rec_order o ON o.id = l.order_id
   WHERE l.object_type IN ('courses.course', 'courses.bundle') AND o.state IN ('paid', 'part_paid')
-  AND ${PAID_IN}`;
+  AND ${IN("o.paid_at")}`;
 
 export const courses: DashboardDeclaration = {
   title: "Courses",

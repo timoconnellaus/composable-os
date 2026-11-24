@@ -13,6 +13,7 @@
 // order's start, used when paid, released when it expires, refused a second time, one of two
 // orders at once, and followed through a merge; a bad declaration is refused by the contract.
 import { env } from "cloudflare:workers";
+import { createCrmDb } from "@composable-os/db";
 import { type ExtensionManifest, validateManifest } from "@composable-os/sdk";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -37,6 +38,35 @@ import {
 } from "./order-fixtures.ts";
 import { paymentsDouble } from "./payments-double.ts";
 
+/**
+ * `db` over D1, noting each statement's bound values in `bound` (the local runtime enforces
+ * neither 1,000 statements per invocation nor 100 bound values per statement).
+ */
+function countingDb(d1: D1Database, bound: number[]) {
+  const counted = new Proxy(d1, {
+    get(target, key) {
+      if (key === "prepare") {
+        return (query: string) =>
+          new Proxy(target.prepare(query), {
+            get(inner, name) {
+              if (name === "bind") {
+                return (...values: unknown[]) => {
+                  bound.push(values.length);
+                  return inner.bind(...values);
+                };
+              }
+              const value = Reflect.get(inner, name);
+              return typeof value === "function" ? value.bind(inner) : value;
+            },
+          });
+      }
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return createCrmDb(counted);
+}
+
 const GYM = extId("gym");
 const PLAN = `${GYM}.plan`;
 const MEMBERSHIP = `${GYM}.membership`;
@@ -48,8 +78,44 @@ const DAY = 86_400_000;
 
 const RUNNING = ["trialing", "active", "past_due", "unpaid", "paused"] as const;
 
+/** A Person's journey signals (stage 53), by name. */
+async function signalsOf(personId: string) {
+  const { results } = await env.DB.prepare(
+    "SELECT signal, object_type, record_id, standing, bulk FROM core_person_signal WHERE person_id = ? ORDER BY signal",
+  )
+    .bind(personId)
+    .all<{
+      signal: string;
+      object_type: string;
+      record_id: string;
+      standing: string;
+      bulk: number;
+    }>();
+  return Object.fromEntries(results.map((r) => [r.signal.slice(GYM.length + 1), r]));
+}
+
 function fixture(id: string): ExtensionManifest {
   return manifest(id, {
+    // The Memberships pack's journey signals, as it declares them (stage 53, ADR 0802).
+    journeySignals: {
+      started: { label: "Membership started", object: "membership" },
+      joined: {
+        label: "Joined after a trial",
+        object: "membership",
+        enters: ["active"],
+        from: ["trialing"],
+        created: false,
+      },
+      ended: { label: "Membership ended", object: "membership", enters: ["ended"] },
+      trialEnded: {
+        label: "Trial ended without joining",
+        object: "membership",
+        enters: ["past_due", "unpaid", "paused", "ended"],
+        from: ["trialing"],
+        created: false,
+      },
+      passStarted: { label: "Pass started", object: "pass" },
+    },
     objects: {
       plan: {
         label: "Plan",
@@ -398,8 +464,15 @@ describe("a subscription's grant follows it (recurring.grants, ADR 0510)", () =>
     const id = await subscribe(buyer);
     await deliver("checkout_completed", read(id, { status: "trialing", trialEnd: later() }));
     expect((await grantOf(id))?.values.status).toBe("trialing");
+    // The membership starting is its member's journey signal; nobody has joined yet.
+    expect(Object.keys(await signalsOf(buyer.principal.personId))).toEqual(["started"]);
 
     await deliver("invoice_payment_failed", read(id, { status: "past_due" }));
+    // A trial that fails its first payment ended without joining.
+    expect(Object.keys(await signalsOf(buyer.principal.personId))).toEqual([
+      "started",
+      "trialEnded",
+    ]);
     const failing = await grantOf(id);
     expect(failing?.values.status).toBe("past_due");
     const sub = await env.DB.prepare("SELECT failing_since FROM core_subscription WHERE id = ?")
@@ -430,6 +503,28 @@ describe("a subscription's grant follows it (recurring.grants, ADR 0510)", () =>
     await deliver("deleted", read(id, { status: "canceled", endedAt }));
     const ended = await grantOf(id);
     expect(ended?.values).toMatchObject({ status: "ended", until: endedAt });
+    // Paid again after failing, and back from a pause: neither is joining. Ended is.
+    expect(Object.keys(await signalsOf(buyer.principal.personId))).toEqual([
+      "ended",
+      "started",
+      "trialEnded",
+    ]);
+  });
+
+  it("a trial that becomes paid is the member joining (AC 2), written by the host in its batch", async () => {
+    const buyer = await createBuyer(admin, "joiner");
+    const id = await subscribe(buyer);
+    await deliver("checkout_completed", read(id, { status: "trialing", trialEnd: later() }));
+    await deliver("updated", read(id, { status: "active" }));
+    expect((await grantOf(id))?.values.status).toBe("active");
+    const signals = await signalsOf(buyer.principal.personId);
+    expect(Object.keys(signals)).toEqual(["joined", "started"]);
+    expect(signals.joined).toMatchObject({
+      object_type: MEMBERSHIP,
+      record_id: (await grantOf(id))?.record_id,
+      standing: "host",
+      bulk: 0,
+    });
   });
 
   it("is a holder its member spends from while it runs, and not once it has ended", async () => {
@@ -720,6 +815,117 @@ describe("an intro offer: one per Person (onePerPerson, ADR 0512)", () => {
     expect(await refusal(startFor(as(survivor), intro))).toMatchObject({
       details: { rule: "once_per_person", reason: "used" },
     });
+  });
+
+  it("counts a+1@ and a+2@ as one person (#225, ADR 0692); a.b@ and ab@ stay two", async () => {
+    const tag = unique("fold").toLowerCase();
+    const one = await createBuyer(admin, "fold1", `${tag}+1@gym.example`);
+    const two = await createBuyer(admin, "fold2", `${tag}+2@gym.example`);
+    const bare = await createBuyer(admin, "fold0", `${tag}@gym.example`);
+    const order = await startFor(as(one), intro);
+    // Waiting to be paid on +1: +2 and the bare address are refused, on any intro type.
+    for (const buyer of [two, bare]) {
+      expect(await refusal(startFor(as(buyer), otherIntro))).toMatchObject({
+        details: { rule: "once_per_person", reason: "held" },
+      });
+    }
+    await run("order.checkout", { id: order.id, returnUrl: RETURN }, as(one));
+    await providerPays(order.id);
+    const refused = await refusal(startFor(as(two), intro));
+    expect(refused).toMatchObject({ details: { rule: "once_per_person", reason: "used" } });
+    // Named as the same address, not as this Person's own (review of step 2).
+    expect(refused.message).toMatch(/bought for someone with this address \(a \+tag aside\)/);
+    // Staff buying it for +2 are refused the same way.
+    expect(await refusal(startFor(staff(), intro, two.email))).toMatchObject({
+      details: { rule: "once_per_person", reason: "used" },
+    });
+    expect(await onceRows(two.principal.personId)).toEqual([]);
+
+    // Dots are not folded: a.b@ and ab@ each buy their own.
+    const dotted = await createBuyer(admin, "dot", `a.b.${tag}@gym.example`);
+    const dotless = await createBuyer(admin, "nodot", `ab${tag}@gym.example`);
+    await startFor(as(dotted), intro);
+    await startFor(as(dotless), intro);
+    expect((await onceRows(dotless.principal.personId)).map((r) => r.state)).toEqual(["held"]);
+  });
+
+  it("gives one of two orders started at once by a+1@ and a+2@: the database refuses the other", async () => {
+    const tag = unique("foldrace").toLowerCase();
+    const one = await createBuyer(admin, "race1", `${tag}+1@gym.example`);
+    const two = await createBuyer(admin, "race2", `${tag}+2@gym.example`);
+    const results = await Promise.allSettled([
+      startFor(as(one), intro),
+      startFor(as(two), otherIntro),
+    ]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const failed = results.find((r) => r.status === "rejected") as PromiseRejectedResult;
+    expect((failed.reason as { details?: unknown }).details).toMatchObject({
+      rule: "once_per_person",
+      reason: "held",
+    });
+    const rows = [
+      ...(await onceRows(one.principal.personId)),
+      ...(await onceRows(two.principal.personId)),
+    ];
+    expect(rows).toHaveLength(1);
+    // The backstop itself: a hold written straight to the table for +2 is refused.
+    const winner = rows[0] as { order_id: string };
+    const loser = (await onceRows(one.principal.personId)).length ? two : one;
+    await expect(
+      env.DB.prepare(
+        "INSERT INTO core_sellable_once (id, person_id, object_type, record_id, order_id, state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'held', ?, ?)",
+      )
+        .bind(unique("so"), loser.principal.personId, PASSTYPE, intro, winner.order_id, "t", "t")
+        .run(),
+    ).rejects.toThrow(/core_sellable_once_folded/);
+  });
+
+  it("keeps every check to a few bound values however many People share the folded address", async () => {
+    const tag = unique("foldmany").toLowerCase();
+    const now = new Date().toISOString();
+    // 150 People who are one person: more than D1's 100 bound values, were each named.
+    const people = Array.from({ length: 150 }, (_, i) => `per_${tag}_${i}`);
+    await env.DB.batch(
+      people.flatMap((id, i) => [
+        env.DB.prepare(
+          "INSERT INTO core_person (id, display_name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+        ).bind(id, `Many ${i}`, now, now),
+        env.DB.prepare(
+          "INSERT INTO core_person_emails (id, person_id, email, is_primary, position, created_at) VALUES (?, ?, ?, 1, 0, ?)",
+        ).bind(`eml_${id}`, id, `${tag}+${i}@gym.example`, now),
+      ]),
+    );
+    const buyer = await createBuyer(admin, "many", `${tag}@gym.example`);
+    const bound: number[] = [];
+    const counted = countingDb(env.DB, bound);
+    const order = await startFor(outside(buyer.principal, { db: counted, events }), intro);
+    expect(bound.length).toBeLessThan(1000);
+    expect(Math.max(...bound)).toBeLessThan(100);
+    expect((await onceRows(buyer.principal.personId)).map((r) => r.state)).toEqual(["held"]);
+    // And one of the 150 is refused while it waits.
+    const other = await createBuyer(admin, "many2", `${tag}+x@gym.example`);
+    bound.length = 0;
+    expect(
+      await refusal(startFor(outside(other.principal, { db: counted, events }), intro)),
+    ).toMatchObject({ details: { rule: "once_per_person", reason: "held" } });
+    expect(Math.max(...bound)).toBeLessThan(100);
+    expect(order.id).toBeTruthy();
+  });
+
+  it("lets through a pass given by hand to a+2@ after a+1@ had theirs (a person's override)", async () => {
+    const tag = unique("foldhand").toLowerCase();
+    const one = await createBuyer(admin, "hand1", `${tag}+1@gym.example`);
+    const two = await createBuyer(admin, "hand2", `${tag}+2@gym.example`);
+    const order = await startFor(as(one), intro);
+    await run("order.checkout", { id: order.id, returnUrl: RETURN }, as(one));
+    await providerPays(order.id);
+    const now = new Date().toISOString();
+    await env.DB.prepare(
+      "INSERT INTO core_sellable_once (id, person_id, object_type, record_id, order_id, state, source, given_by, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, 'used', 'by_hand', ?, ?, ?)",
+    )
+      .bind(unique("so"), two.principal.personId, PASSTYPE, intro, admin.id, now, now)
+      .run();
+    expect((await onceRows(two.principal.personId)).map((r) => r.state)).toEqual(["used"]);
   });
 });
 

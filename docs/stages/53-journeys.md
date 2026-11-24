@@ -23,6 +23,59 @@ decided, not asked; the owner may override any of them). A new stage, 53, in the
 Steps 1 to 3 may start now. The sending step (step 4) waits for stage 30's routine messages,
 preferences, one-tap stop and promotional consent (below, "What this stage needs from stage 30").
 
+Built so far:
+
+- **Step 2, journey signals** (2026-11-24, [ADR 0802](../adr/0802-journey-signals-declared-by-shipped-packs-recorded-in-the-write.md),
+  migration 1175; the list of ADRs below is renumbered to match). `journeySignals` in the manifest
+  (`packages/sdk/src/journey-signals.ts`: `JourneySignalSpec`, the check, `journeySignalFires`),
+  refused for a runtime extension at check and install, and a signal no declared move or create can
+  make refused; `cos ext check` lists a pack's signals.
+  `core_person_signal` (one row per Person and signal, with the record, the write's standing and a
+  bulk flag), written by the pipeline beside the value marks in every write's batch, one statement
+  however many records (`packages/core/src/journeys/signals.ts`); erase, the purge and merge
+  handle it, and a signal no longer declared or a dropped object loses its rows. A `bulk-write`
+  operation is bulk at any size (an import's chunk of one). Memberships declares `started`,
+  `joined` (a trial becoming paid: AC 2's "becoming active"), `ended`, `trialEnded` and
+  `passStarted` (`joined` and the pass signal are additions: "stop when they join" and "stop when
+  they buy a pass" need them); Bookings `booked` and `attended`;
+  Ticketing `ticketBought` and `checkedIn`. Recorded in the pipeline rather than the transition
+  engine and record create (the same writes, with the standing and bulk flag they lack). Nothing
+  reads the rows yet: entries and the scan are steps 3 and 4.
+- **Step 3** (`feat/stage-53-journeys-core`, ADR 0800, migration 1170): journeys, versions, entries
+  and the step log (`core_journey*`, with triggers that refuse any change of a version and any
+  version not made from the reviewed working copy); `packages/core/src/journeys/` (the working
+  copy's shape and publish checks, the plain-words summary, the hash, the preview's rendering, the
+  settings, manual entry and erase); the operations `journey.list`, `get`, `version`, `preview`,
+  `create`, `update`, `archive`, `publish` (an AI's call is a request only a person with
+  `journeys:publish` approves, never the adjudicator), `goLive`, `pause`, `resume`, `enter`, `stop`,
+  `entries`, `log`, `settings` and `settings.update`; the permissions `journeys:read`,
+  `journeys:manage` and `journeys:publish`; the four starter journeys seeded as drafts with no
+  reply-to. Nothing sends. After the review: a publish request shows its approver every message's
+  words; archiving and changing the owner are a person's; an AI's entry is approved only with
+  `journeys:manage`; the Trash's purge erases entries; entry and log rows are fixed for every
+  statement shape; settings saves change only what they name; a manual entry leaves out an erased
+  address; `journey.list` pages. Going live refuses a signal no installed pack declares (step 2's
+  declarations). Not in this step: going live does not yet count who already qualifies (the scan, step 4); an
+  organisation reply-to address confirmed by a code (it needs a send, step 4); merge moving entries
+  (step 4's exits, with step 7's merge rules); a plan's or class type's name as a slot (with step
+  2's declarations).
+- **Step 7, birthday** (2026-11-24, [ADR 0803](../adr/0803-a-birthday-as-day-and-month-on-person.md),
+  migration 1171): `core_person.birth_day` and `birth_month` (both or neither, a day the month has,
+  in no `rec_*` view) and an index for the entry rule; `person.setBirthday` (staff,
+  `records:write`) and `me.birthday.set` with `me.birthday.get` (customer, `hostInternal`, the
+  caller's own Person: the get is an addition, for My account to show it); `birthday` on
+  `person.get`; each change recorded under `birthday` with its value mark, and an AI refused when
+  the member gave the current one. Merge keeps the survivor's birthday unless it has none (with the
+  duplicate's mark); erase deletes it. The entry rule's query (`birthdayPeople`,
+  `packages/core/src/journeys/birthday.ts`): the live People whose birthday is today in the
+  business's zone, 29 February on the 28th in other years, one indexed statement per page of 500.
+  The Your details blocks (web and native) and `@composable-os/client`'s account entry show and
+  set it. After the review: an AI's merge may not drop or carry away a member-given birthday;
+  every birthday write carries a guard on the value it read (`core_birthday_guard`), so one set
+  meanwhile fails it as a conflict; `person.update` refuses `birthday` and `record.update` names
+  `person.setBirthday`. Not in this step: the daily scan entering them and sending (step 4), the
+  staff screen (step 5).
+
 ## Goal
 
 A business sets up messages that go out on their own to one person at a time, because of what
@@ -451,8 +504,10 @@ ADRs the build writes:
 
 1. **ADR 0800**: Journeys as a host primitive (journeys, versions, entries, the tick and the daily
    scan); amends ADR 0242 (sequences become journeys, once stage 13 is interviewed).
-2. **ADR 0801**: Journey signals, declared by shipped packs and recorded in the write's batch.
-3. **ADR 0802**: A journey publish is the approval of its wording; the send decision; journeys as a
+2. **ADR 0802** (built, step 2): Journey signals, declared by shipped packs and recorded in the
+   write's batch.
+3. **ADR 0801** (or the next free number of block BO): A journey publish is the approval of its
+   wording; the send decision; journeys as a
    source of routine messages; the journey shape at the email gatekeeper (reply-to, the host's own
    links); amends ADRs 0051 and 0590 and stage 30's routine messages ADR.
 4. **ADR 0803**: A birthday as day and month on Person.

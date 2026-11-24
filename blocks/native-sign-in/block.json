@@ -5,5 +5,7 @@
   "operations": [],
   "files": ["sign-in-screen.tsx", "LICENSE"],
   "dependsOn": ["native-base"],
-  "packages": {}
+  "packages": {
+    "@composable-os/client": "*"
+  }
 }

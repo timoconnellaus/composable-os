@@ -416,9 +416,16 @@ describe("5: an unconfirmed subscription checkout", () => {
           )?.n,
         );
       expect(await count()).toBe(2);
-      await runAgreementsDue(db, { clock: () => new Date(Date.now() + 2 * DAY) });
+      // An hour's first minute: the cron looks for unconfirmed acceptances then (ADR 0130).
+      const onTheHour = (t: number) => new Date(Math.floor(t / 3_600_000) * 3_600_000);
+      await runAgreementsDue(db, { clock: () => onTheHour(Date.now() + 2 * DAY) });
       expect(await count()).toBe(2);
-      await runAgreementsDue(db, { clock: () => new Date(Date.now() + 4 * DAY) });
+      // Past the three days, but not on the hour: left for the hour's first minute.
+      await runAgreementsDue(db, {
+        clock: () => new Date(onTheHour(Date.now() + 4 * DAY).getTime() + 15 * 60_000),
+      });
+      expect(await count()).toBe(2);
+      await runAgreementsDue(db, { clock: () => onTheHour(Date.now() + 4 * DAY) });
       expect(await count()).toBe(0);
     } finally {
       await run("agreement.retire", { documentId: plain.id }, staff());

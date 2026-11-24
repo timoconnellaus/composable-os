@@ -1,10 +1,11 @@
 // Agreements, step 5 (stage 44): the blocks, one test per journey. A member agrees on "Before you
 // go on" and then books; a visitor pays for a class with a drawn waiver and a health form inline;
 // a parent agrees for their child and books them; a new version ("agree again") is asked inline
-// at the member's next booking; a member marked a minor is told a parent or guardian buys a pass.
+// at the member's next booking; a member marked a minor is told a parent or guardian buys a pass;
+// a member buying a course agrees to its terms inline on the course page (issue #292).
 // The blocks are mounted where they sit (`/blocks`, development only), calling the host's HTTP
 // surface from the browser as a client app would. Documents attach to the real packs' points
-// (`booking`, `membership`) and are retired at the end of each test, so no other spec is asked
+// (`booking`, `membership`, `course`) and are retired at the end of each test, so no other spec is asked
 // for them. All document text is fixture text, not wording anyone should use.
 //
 // It retires every live document and changes the customer and order settings, so it runs only
@@ -605,6 +606,70 @@ test("a member marked a minor is told a parent or guardian buys their pass", asy
     await expect(card.getByRole("alert")).toHaveText(
       "A parent or guardian needs to buy this for you.",
     );
+    await context.close();
+  } finally {
+    await cleanUp(page);
+  }
+});
+
+test("a member buying a course agrees to its terms on the course page, then pays", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  test.setTimeout(240_000);
+  await setUp(page, baseURL ?? "");
+  await op(page.request, "extension.install", { id: "courses", shipped: true }, false);
+  try {
+    const terms = await publish(page, "terms", ["course"]);
+    const title = unique("Fixture course ");
+    const course = await op<{ id: string }>(page.request, "record.create", {
+      object: "courses.course",
+      values: { title, price: 30 },
+    });
+    await op(page.request, "record.publish", { object: "courses.course", id: course.id });
+    const { slug } = (
+      await op<{ values: { slug: string } }>(page.request, "record.get", {
+        object: "courses.course",
+        id: course.id,
+      })
+    ).values;
+    const member = await newPerson(page, "student");
+    const context = await signIn(page, browser, baseURL ?? "", member.email);
+    const origin = new URL(baseURL ?? "").origin;
+    const screen = await context.newPage();
+    await screen.goto(
+      block("courses-course", "CoursePage", {
+        slug,
+        returnUrl: `${origin}/blocks`,
+        signedIn: true,
+      }),
+    );
+    await screen.getByRole("button", { name: /^Buy/ }).click();
+
+    // The host refused "Buy" with the course's terms: shown inline, recorded as they agree.
+    const step = screen.getByRole("region", { name: "Before you go on" });
+    await expect(step).toContainText("One thing to agree to first.");
+    await agree(step.getByRole("form", { name: terms.title }), "Fixture Student", "Agree and buy");
+    await expect(screen.getByRole("heading", { name: /Fake payment page/i })).toBeVisible({
+      timeout: 30_000,
+    });
+    await screen.getByRole("button", { name: "Pay", exact: true }).click();
+    await expect
+      .poll(
+        async () =>
+          (
+            await op<{ courses: { id: string }[] }>(context.request, "x.courses.myCourses", {})
+          ).courses.map((c) => c.id),
+        { timeout: 30_000 },
+      )
+      .toContain(course.id);
+    const standing = await op<{ acceptances: { documentId: string; by: string }[] }>(
+      page.request,
+      "agreement.person",
+      { personId: member.id },
+    );
+    expect(standing.acceptances.map((a) => [a.documentId, a.by])).toEqual([[terms.id, "self"]]);
     await context.close();
   } finally {
     await cleanUp(page);

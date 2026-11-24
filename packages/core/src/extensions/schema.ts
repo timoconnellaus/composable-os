@@ -4,6 +4,7 @@ import type { CoreDatabase } from "@composable-os/db";
 import {
   type AgreementsManifest,
   type AllowanceManifest,
+  type CalendarEntryManifest,
   type CapacityManifest,
   type ChecklistsManifest,
   type ClaimsManifest,
@@ -15,7 +16,9 @@ import {
   type FieldManifest,
   type FieldTypeName,
   formulaTypeOf,
+  type IntakeManifest,
   isDocumentType,
+  isRestrictedField,
   type OccupiesManifest,
   RECURRING_HORIZON_DAYS,
   type RecurringScheduleManifest,
@@ -23,8 +26,12 @@ import {
   type StaffedManifest,
   type StagesManifest,
   type StatesManifest,
+  type StockManifest,
+  type StockMovesManifest,
+  sellableFinance,
   spendsOnList,
   type UniqueManifest,
+  type WorkedOnManifest,
 } from "@composable-os/sdk";
 import {
   compileFormula,
@@ -36,7 +43,13 @@ import { type Kysely, sql } from "kysely";
 import { setDeclaredUniqueKeys } from "../errors.ts";
 import { FIELD_TYPE_REGISTRY, formulaFilterType } from "../fields/field-types.ts";
 import { CORE_OBJECTS, setExtensionObjects } from "../fields/index.ts";
-import type { FieldDefinition, FieldType, ObjectDefinition } from "../fields/types.ts";
+import type {
+  FieldDefinition,
+  FieldType,
+  ObjectDefinition,
+  ObjectSignal,
+  RestrictedFieldDefinition,
+} from "../fields/types.ts";
 import {
   CORE_TARGETS,
   type CoreTarget,
@@ -75,19 +88,29 @@ export interface ObjectDefinitionJson {
   stages?: StagesManifest;
   capacity?: CapacityManifest;
   sellable?: SellableManifest;
+  stock?: StockManifest;
+  stockMoves?: StockMovesManifest;
   allowance?: AllowanceManifest;
   /** An agreement point (stage 44, ADR 0641), as declared. */
   agreements?: AgreementsManifest;
   /** A health-note list (stage 44, ADR 0643), as declared. */
   healthNotes?: { list: string; person: string };
   states?: StatesManifest;
+  /** The journey signals declared on it (stage 53, ADR 0802), resolved. */
+  signals?: ObjectSignal[];
   claims?: ClaimsManifest;
   unique?: UniqueManifest;
   recurring?: RecurringScheduleManifest;
   /** A shift (stage 45, ADR 0621), as declared. */
   staffed?: StaffedManifest;
+  /** A record time can be recorded against (stage 58, ADR 0850), as declared. */
+  workedOn?: WorkedOnManifest;
   /** A claim on a thing (stage 49, ADR 0765), as declared. */
   occupies?: OccupiesManifest;
+  /** Events in a customer's calendar feed (stage 62, ADR 0891), as declared. */
+  calendarEntry?: CalendarEntryManifest;
+  /** The public-write door (stage 29, ADR 0720), as declared. */
+  intake?: IntakeManifest;
   /** A checklist its person ticks off (stage 45 step 4b, ADR 0650), as declared. */
   checklists?: ChecklistsManifest;
   owner?: string;
@@ -98,6 +121,7 @@ export interface ObjectDefinitionJson {
     write: string[];
     requireAccess?: string[] | undefined;
     createOnly?: string[] | undefined;
+    delete?: boolean | undefined;
     guardians?: { write?: boolean | undefined; madeBy?: string | undefined } | undefined;
   };
   /** What the public may read (ADR 0438), as declared. */
@@ -119,7 +143,9 @@ export interface ObjectDefinitionJson {
     content: string[];
     slug?: string | undefined;
     date?: string | undefined;
+    publishIn?: string[] | undefined;
     acknowledge?: { who: string; manage: string } | undefined;
+    staffRead?: boolean | undefined;
   };
   navigationOrder?: number;
   requireOneOf?: string[][];
@@ -400,6 +426,11 @@ export function buildViews(state: SchemaState): ViewBuild {
       columns.push(...capacity.columns);
       joins.push(...capacity.joins);
     }
+    if (object.definition.stock) {
+      const stock = stockView(object.name);
+      columns.push(...stock.columns);
+      joins.push(...stock.joins);
+    }
     if (object.definition.publishable) {
       const published = publishedView(object.name);
       columns.push(...published.columns);
@@ -415,7 +446,7 @@ export function buildViews(state: SchemaState): ViewBuild {
       `CREATE VIEW ${view} AS SELECT ${columns.join(", ")} FROM ${ident(object.tableName)} t${joins.length ? ` ${joins.join(" ")}` : ""} WHERE t.deleted_at IS NULL`,
     );
     if (object.definition.publishable) {
-      build.creates.push(liveViewSql(object, own, object.definition.capacity !== undefined));
+      build.creates.push(liveViewSql(object, own));
     }
   }
   // The live views of objects that are no longer publishable (or gone) go with the rest.
@@ -435,13 +466,15 @@ export function buildViews(state: SchemaState): ViewBuild {
  * version was published. Not a rec_* view: `query.sql` does not read it, and nothing but the
  * visibility seam's public source does (visibility/public.ts).
  */
-function liveViewSql(object: ObjectState, own: FieldState[], capacity: boolean): string {
+function liveViewSql(object: ObjectState, own: FieldState[]): string {
   const publishable = object.definition.publishable as NonNullable<
     ObjectDefinitionJson["publishable"]
   >;
   const content = new Set(publishable.content);
   const columns = ["t.id", "t.created_at", "pub.published_at AS updated_at", "t.created_by"];
   for (const field of own) {
+    // A restricted value is in no view (ADR 0811), this one least of all.
+    if (isRestrictedField(field.definition)) continue;
     const as = viewColumnName(object.extensionId, object.name, field.localName);
     if (field.type === "formula" || !field.columnName) {
       columns.push(`NULL AS ${as}`);
@@ -466,8 +499,13 @@ function liveViewSql(object: ObjectState, own: FieldState[], capacity: boolean):
   const joins = [
     `JOIN core_publish_version pub ON pub.object_type = ${sqlString(object.name)} AND pub.record_id = t.id AND pub.current = 1`,
   ];
-  if (capacity) {
+  if (object.definition.capacity) {
     const view = capacityView(object.name);
+    columns.push(...view.columns);
+    joins.push(...view.joins);
+  }
+  if (object.definition.stock) {
+    const view = stockView(object.name);
     columns.push(...view.columns);
     joins.push(...view.joins);
   }
@@ -506,6 +544,22 @@ function capacityView(object: string): { joins: string[]; columns: string[] } {
       `coalesce(cap.held, 0) AS ${CAPACITY_COLUMNS.held}`,
       `coalesce(cap.taken, 0) AS ${CAPACITY_COLUMNS.taken}`,
       `CASE WHEN cap.places IS NULL AND capp.places IS NULL THEN NULL WHEN capp.places IS NULL THEN ${left("cap")} WHEN cap.places IS NULL THEN ${left("capp")} ELSE min(${left("cap")}, ${left("capp")}) END AS ${CAPACITY_COLUMNS.available}`,
+    ],
+  };
+}
+
+/**
+ * The stock values of an object's view (stage 37, ADR 0680): from its counter on core_capacity,
+ * on hand is places - taken (what came in less what was sold) and available is on hand - held.
+ */
+function stockView(object: string): { joins: string[]; columns: string[] } {
+  const name = `'${object.replaceAll("'", "''")}'`;
+  return {
+    joins: [`LEFT JOIN core_capacity stk ON stk.object_type = ${name} AND stk.record_id = t.id`],
+    columns: [
+      `coalesce(stk.places, 0) - coalesce(stk.taken, 0) AS ${STOCK_COLUMNS.onHand}`,
+      `coalesce(stk.held, 0) AS ${STOCK_COLUMNS.held}`,
+      `max(coalesce(stk.places, 0) - coalesce(stk.taken, 0) - coalesce(stk.held, 0), 0) AS ${STOCK_COLUMNS.available}`,
     ],
   };
 }
@@ -694,6 +748,47 @@ export const CAPACITY_FIELDS: readonly FieldDefinition[] = [
   },
 ];
 
+/** View columns of the stock values: no declared field's column can start with `_`. */
+export const STOCK_COLUMNS = {
+  onHand: "_stk_on_hand",
+  held: "_stk_held",
+  available: "_stk_available",
+} as const;
+
+/** The read-only stock values on every record of an object with stock (STOCK_VALUES). */
+export const STOCK_FIELDS: readonly FieldDefinition[] = [
+  {
+    name: "onHand",
+    label: "On hand",
+    type: "number",
+    column: STOCK_COLUMNS.onHand,
+    filterable: true,
+    sortable: true,
+    readOnly: true,
+    description: "How many there are, sold ones gone. Changed only by stock movements.",
+  },
+  {
+    name: "held",
+    label: "Held",
+    type: "number",
+    column: STOCK_COLUMNS.held,
+    filterable: true,
+    sortable: true,
+    readOnly: true,
+    description: "How many orders being paid for hold.",
+  },
+  {
+    name: "available",
+    label: "Available",
+    type: "number",
+    column: STOCK_COLUMNS.available,
+    filterable: true,
+    sortable: true,
+    readOnly: true,
+    description: "On hand less held: how many can be sold now.",
+  },
+];
+
 /** View columns of the allowance values: no declared field's column can start with `_`. */
 export const ALLOWANCE_COLUMNS = { used: "_alw_used", left: "_alw_left" } as const;
 
@@ -779,6 +874,49 @@ function capacityDefinition(object: ObjectState, own: FieldState[]): ObjectDefin
   };
 }
 
+/** The stock declaration with registry field names, or undefined (ADR 0680). */
+function stockDefinition(object: ObjectState, own: FieldState[]): ObjectDefinition["stock"] {
+  const declared = object.definition.stock;
+  if (!declared) return undefined;
+  const nameOf = (local: string) => own.find((f) => f.localName === local)?.name ?? local;
+  return {
+    ...(declared.reorderAt ? { reorderAt: nameOf(declared.reorderAt) } : {}),
+    ...(declared.reorderQty ? { reorderQty: nameOf(declared.reorderQty) } : {}),
+    show: declared.show ?? "availability",
+    ...(declared.lowAt !== undefined ? { lowAt: declared.lowAt } : {}),
+    ...(declared.notify ? { notify: declared.notify } : {}),
+  };
+}
+
+/** The stockMoves declaration (ADR 0681), with registry field names and the objects it names. */
+function stockMovesDefinition(
+  object: ObjectState,
+  own: FieldState[],
+): ObjectDefinition["stockMoves"] {
+  const declared = object.definition.stockMoves;
+  if (!declared) return undefined;
+  const fieldOf = (local: string) => own.find((f) => f.localName === local);
+  const on = fieldOf(declared.on);
+  const through = declared.through ? fieldOf(declared.through) : undefined;
+  if (!on?.definition.to || (declared.through && !through?.definition.to)) return undefined;
+  const nameOf = (local: string | undefined) =>
+    local === undefined ? undefined : (fieldOf(local)?.name ?? local);
+  const kind =
+    declared.kind ??
+    (declared.move === "add" ? "received" : declared.move === "set" ? "counted" : "written_off");
+  return {
+    move: declared.move,
+    on: on.name,
+    object: on.definition.to,
+    quantity: nameOf(declared.quantity) as string,
+    when: declared.when,
+    ...(through ? { through: through.name, throughObject: through.definition.to } : {}),
+    kind: kind as NonNullable<ObjectDefinition["stockMoves"]>["kind"],
+    ...(declared.unitCost ? { unitCost: nameOf(declared.unitCost) } : {}),
+    ...(declared.note ? { note: nameOf(declared.note) } : {}),
+  };
+}
+
 /** The claimant declaration (ADR 0501), with the claimed object's registry name. */
 function claimsDefinition(
   object: ObjectState,
@@ -814,6 +952,18 @@ function claimsDefinition(
 }
 
 /** The recurring declaration (ADR 0500), with the objects' registry names. */
+/** The intake declaration (ADR 0720), with a submission's form object's registry name. */
+function intakeDefinition(
+  object: ObjectState,
+  own: readonly FieldState[],
+): Pick<ObjectDefinition, "intake"> {
+  const declared = object.definition.intake;
+  if (!declared) return {};
+  if (declared.role !== "submission") return { intake: declared };
+  const formObject = own.find((f) => f.localName === declared.form)?.definition.to ?? "";
+  return { intake: { ...declared, formObject } };
+}
+
 /** The staffed declaration (ADR 0621), with the account holder's registry name. */
 function staffedDefinition(
   object: ObjectState,
@@ -824,6 +974,9 @@ function staffedDefinition(
   const holder = declared.who.account
     ? own.find((f) => f.localName === declared.who.field)?.definition.to
     : undefined;
+  const timesFromObject = declared.timesFrom
+    ? own.find((f) => f.localName === declared.timesFrom)?.definition.to
+    : undefined;
   return {
     staffed: {
       ...declared,
@@ -832,6 +985,21 @@ function staffedDefinition(
         ...(declared.who.account ? { account: declared.who.account, object: holder } : {}),
       },
       live: [...declared.live],
+      ...(declared.open
+        ? {
+            open: {
+              ...declared.open,
+              ...(declared.open.closedBy
+                ? {
+                    closedBy: {
+                      ...declared.open.closedBy,
+                      object: `${object.extensionId}.${declared.open.closedBy.object}`,
+                    },
+                  }
+                : {}),
+            },
+          }
+        : {}),
       ...(declared.evidence
         ? {
             evidence: {
@@ -840,6 +1008,26 @@ function staffedDefinition(
             },
           }
         : {}),
+      ...(timesFromObject ? { timesFromObject } : {}),
+    },
+  };
+}
+
+/** The workedOn declaration (ADR 0850), with the registry name of what a visit is part of. */
+function workedOnDefinition(
+  object: ObjectState,
+  own: readonly FieldState[],
+): Pick<ObjectDefinition, "workedOn"> {
+  const declared = object.definition.workedOn;
+  if (!declared) return {};
+  const partOfObject = declared.partOf
+    ? own.find((f) => f.localName === declared.partOf)?.definition.to
+    : undefined;
+  return {
+    workedOn: {
+      ...declared,
+      live: [...declared.live],
+      ...(partOfObject ? { partOfObject } : {}),
     },
   };
 }
@@ -852,6 +1040,7 @@ function occupiesDefinition(
   const declared = object.definition.occupies;
   if (!declared) return {};
   const target = (local: string) => own.find((f) => f.localName === local)?.definition.to;
+  // A field of the record, or `relation.field` of what a relation names.
   const margin = (m: { field: string } | undefined) => {
     if (!m) return undefined;
     const [first, second] = m.field.split(".") as [string, string | undefined];
@@ -861,6 +1050,7 @@ function occupiesDefinition(
   };
   const before = margin(declared.before);
   const after = margin(declared.after);
+  const title = margin(declared.title === undefined ? undefined : { field: declared.title });
   return {
     occupies: {
       thing: declared.thing,
@@ -871,6 +1061,8 @@ function occupiesDefinition(
       ...(before ? { before } : {}),
       ...(after ? { after } : {}),
       ...(declared.only ? { only: declared.only } : {}),
+      ...(declared.provisional ? { provisional: [...declared.provisional] } : {}),
+      ...(title ? { title } : {}),
     },
   };
 }
@@ -954,6 +1146,7 @@ function sellableDefinition(object: ObjectState, own: FieldState[]): ObjectDefin
   const currency = declared.currency ?? priceField?.definition.currency;
   const { amount, balanceDue } = declared.deposit ?? {};
   const grants = declared.grants;
+  const finance = sellableFinance(declared.finance);
   return {
     price: nameOf(declared.price),
     ...(currency ? { currency } : {}),
@@ -982,6 +1175,8 @@ function sellableDefinition(object: ObjectState, own: FieldState[]): ObjectDefin
         }
       : {}),
     ...(declared.onePerPerson ? { onePerPerson: nameOf(declared.onePerPerson) } : {}),
+    // Paths (`event.startsAt`) stay as declared, as moves' do; a field of the object is named.
+    finance: finance.at?.includes(".") === false ? { ...finance, at: nameOf(finance.at) } : finance,
     // Paths (`class.classType.dropInPrice`) stay as declared: the host's path reader names each
     // part as the declaring extension's (ADR 0505); a field of the object is named here.
     ...(declared.moves
@@ -1159,7 +1354,26 @@ const SYSTEM_FIELDS: FieldDefinition[] = [
 /** Builds the registry's extension objects (and extended core objects) from schema state. */
 export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition> {
   const map = new Map<string, ObjectDefinition>();
-  const active = state.fields.filter((f) => f.status === "active");
+  // A restricted field is never a registry field (ADR 0811): no list, filter, sort, search,
+  // export or record read knows it. Its object names it apart, for the seam and its one read.
+  const active = state.fields.filter(
+    (f) => f.status === "active" && !isRestrictedField(f.definition),
+  );
+  const restrictedOf = (object: ObjectState): RestrictedFieldDefinition[] =>
+    state.fields
+      .filter(
+        (f) =>
+          f.status === "active" &&
+          f.object === object.name &&
+          f.extensionId === object.extensionId &&
+          isRestrictedField(f.definition),
+      )
+      .map((f) => ({
+        name: f.name,
+        label: f.definition.label,
+        permission: f.definition.restricted as string,
+        fieldType: f.type === "longText" ? "longText" : "text",
+      }));
   for (const [name, core] of Object.entries(CORE_OBJECTS)) {
     const extra = active
       .filter((f) => f.object === name)
@@ -1178,14 +1392,18 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
     );
     const capacity = capacityDefinition(object, own);
     const sellable = sellableDefinition(object, own);
+    const stock = stockDefinition(object, own);
+    const stockMoves = stockMovesDefinition(object, own);
     const allowance = allowanceDefinition(object);
     const publishable = object.definition.publishable;
+    const restricted = restrictedOf(object);
     const fields = [
       ...SYSTEM_FIELDS,
       ...own.map((f) => registryField(f, object.name)),
       ...foreign.map((f) => registryField(f, object.name)),
       ...[...own, ...foreign].flatMap((f) => documentPathFields(f, object.name)),
       ...(capacity ? CAPACITY_FIELDS : []),
+      ...(stock ? STOCK_FIELDS : []),
       ...(allowance?.kind === "holder" ? ALLOWANCE_FIELDS : []),
       ...(publishable ? PUBLISHED_FIELDS : []),
     ];
@@ -1207,15 +1425,29 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...(object.definition.stages ? { stages: object.definition.stages } : {}),
       ...(capacity ? { capacity } : {}),
       ...(sellable ? { sellable } : {}),
+      ...(stock ? { stock } : {}),
+      ...(stockMoves ? { stockMoves } : {}),
       ...(allowance ? { allowance } : {}),
       ...(object.definition.agreements ? { agreements: object.definition.agreements } : {}),
       ...(object.definition.healthNotes ? { healthNotes: object.definition.healthNotes } : {}),
+      ...(restricted.length ? { restricted } : {}),
       ...(object.definition.states ? { states: object.definition.states } : {}),
+      ...(object.definition.signals?.length ? { signals: object.definition.signals } : {}),
       ...claimsDefinition(object, own),
       ...(object.definition.unique?.length ? { unique: object.definition.unique } : {}),
       ...recurringDefinition(object),
       ...staffedDefinition(object, own),
+      ...workedOnDefinition(object, own),
       ...occupiesDefinition(object, own),
+      ...(object.definition.calendarEntry
+        ? {
+            calendarEntry: {
+              ...object.definition.calendarEntry,
+              live: [...object.definition.calendarEntry.live],
+            },
+          }
+        : {}),
+      ...intakeDefinition(object, own),
       ...checklistsDefinition(object, own),
       ...(object.definition.owner ? { ownerField: object.definition.owner } : {}),
       ...(object.definition.customer ? { customer: object.definition.customer } : {}),
@@ -1229,6 +1461,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
               content: [...publishable.content],
               ...(publishable.slug ? { slug: publishable.slug } : {}),
               ...(publishable.date ? { date: publishable.date } : {}),
+              ...(publishable.publishIn ? { publishIn: [...publishable.publishIn] } : {}),
               ...(publishable.acknowledge
                 ? {
                     acknowledge: {
@@ -1237,6 +1470,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
                     },
                   }
                 : {}),
+              ...(publishable.staffRead ? { staffRead: true } : {}),
             },
           }
         : {}),
@@ -1302,7 +1536,8 @@ export async function refreshSchemaRegistry(db: Kysely<CoreDatabase>): Promise<v
   const objects = buildRegistry(state);
   const storage = new Map<string, FieldStorage>();
   for (const f of state.fields) {
-    if (f.status !== "active") continue;
+    // A restricted field has no storage a record operation writes (ADR 0811).
+    if (f.status !== "active" || isRestrictedField(f.definition)) continue;
     const owner = state.objects.find((o) => o.name === f.object);
     storage.set(`${f.object}|${f.name}`, {
       extension: f.extensionId,
