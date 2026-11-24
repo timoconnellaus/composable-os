@@ -141,3 +141,10 @@ the file, the one 404, headers, limits, no log, not through the binding);
 A claim may be widened by minutes kept free around its shift (ADR 0760); the feed shows the
 shift's own start and end, the claim's less its margins. It shows no title, so a shift that may
 name a client (`staffed.private`, ADR 0761) needs nothing more: the feed carries no client names.
+
+## Amended 2026-11-24 (stage 62 step 1, ADR 0890)
+The feed's token code (`packages/core/src/feeds/token.ts`) and its route
+(`apps/app/src/server/http/calendar-feed.ts`) are now one module the customer's calendar feed uses
+too. The staff feed is that module with the values above (its prefix, PRODID, name, bindings, rate
+limit keys and log line), and answers byte for byte as before: its tests pass unchanged. Its tokens
+stay in `core_staff_feed`; a customer's token is never looked up here.

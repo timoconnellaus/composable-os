@@ -1801,6 +1801,16 @@ export interface CoreStaffFeedTable {
 }
 
 /**
+ * Migration 1350 (stage 62 step 1, ADR 0890): a customer account's private calendar feed, by the
+ * SHA-256 of its token (never the token).
+ */
+export interface CoreCustomerFeedTable {
+  customer_id: string;
+  token_hash: string;
+  created_at: string;
+}
+
+/**
  * Migration 1135 (stage 51 step 3, ADR 0783): what identifies a Person at a check-in tablet. An
  * `app` code's secret (encrypted, for one sign-in) or a `card`'s code (an HMAC only). Never in a
  * rec_* view.
@@ -3685,6 +3695,7 @@ export interface CoreDatabase {
   core_staff_hours: CoreStaffHoursTable;
   core_time_entry: CoreTimeEntryTable;
   core_staff_feed: CoreStaffFeedTable;
+  core_customer_feed: CoreCustomerFeedTable;
   core_person_code: CorePersonCodeTable;
   core_person_pin: CorePersonPinTable;
   core_identify_lockout: CoreIdentifyLockoutTable;

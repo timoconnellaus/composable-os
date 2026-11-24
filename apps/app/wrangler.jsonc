@@ -119,6 +119,19 @@
       "namespace_id": "4109",
       "simple": { "limit": 120, "period": 60 }
     },
+    // A customer's calendar feed (stage 62 step 1, ADR 0890): fetches per feed, keyed by a hash of
+    // its token, as the staff feed's. Its own namespace, so the two feeds never share a bucket.
+    {
+      "name": "CUSTOMER_FEED_RATE_LIMIT",
+      "namespace_id": "4890",
+      "simple": { "limit": 10, "period": 60 }
+    },
+    // Customer calendar feed fetches per client address, hashed, before any token is looked up.
+    {
+      "name": "CUSTOMER_FEED_ADDRESS_RATE_LIMIT",
+      "namespace_id": "4891",
+      "simple": { "limit": 120, "period": 60 }
+    },
     // Calls to the desk origin (the enrolled tablet, ADR 0649) per client address: a tablet makes
     // a few a minute; codes and enrolment codes are guessed nowhere near fast enough.
     { "name": "DESK_RATE_LIMIT", "namespace_id": "4151", "simple": { "limit": 60, "period": 60 } }

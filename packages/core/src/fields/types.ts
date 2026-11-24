@@ -176,6 +176,11 @@ export interface ObjectDefinition {
   /** Extension objects: a claim on a thing (a room) for the record's time (stage 49, ADR 0765). */
   occupies?: OccupiesDefinition;
   /**
+   * Extension objects of a shipped pack: records that are events in their customer's calendar
+   * feed (stage 62, ADR 0891), as declared: paths from this object, read as the customer.
+   */
+  calendarEntry?: CalendarEntryDefinition;
+  /**
    * Extension objects of a shipped pack: the public-write door (stage 29, ADR 0720), a form the
    * public answers, the submission the host makes, or a destination a form may also make.
    */
@@ -647,6 +652,15 @@ export interface OccupiesDefinition {
   before?: OccupiesMargin | undefined;
   after?: OccupiesMargin | undefined;
   only?: string | undefined;
+}
+
+/** The SDK's CalendarEntrySpec (ADR 0891): paths of field names from the object, as declared. */
+export interface CalendarEntryDefinition {
+  starts: string;
+  ends: string;
+  title: string;
+  place?: string | undefined;
+  live: readonly string[];
 }
 
 /** A margin of a claim on a thing, in minutes: a field of the record, or of what `via` names. */

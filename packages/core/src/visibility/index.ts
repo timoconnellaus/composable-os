@@ -353,6 +353,25 @@ export function ownedSource(
 }
 
 /**
+ * The ids of a customer's own records of `object` as they read them, with `owner` (whose Person's
+ * record it is): their Person's, and a live dependant's where the object opens to guardians
+ * (ADR 0540), never what is only shared with them (ADR 0447). For reads that show a customer their
+ * own records and say whose each is (the calendar feed, ADR 0890): join it to `visibleSource` by
+ * id. Anyone but a customer, or an object without a customer, has none.
+ */
+export function ownReadSource(
+  ctx: Viewer,
+  object: ObjectDefinition,
+  alias: string,
+): VisibleSource<AnyRow, string> {
+  const scope = scopeOf(ctx.principal, object);
+  if (scope.kind !== "customer") throw unknownObject(object.name);
+  return sql<AnyRow>`(SELECT id, ${sql.ref(scope.column)} AS owner FROM ${sql.table(object.source)} WHERE ${ownersWhere(scope.column, scope.personId, scope.dependants)})`.as(
+    alias,
+  );
+}
+
+/**
  * The table behind an object, with its soft-deleted rows: for the loads that need them (a get
  * that may include the Trash, the snapshot before a write). Staff only: a customer and the
  * public are refused. Prefer `visibleSource` for anything that only reads live records.

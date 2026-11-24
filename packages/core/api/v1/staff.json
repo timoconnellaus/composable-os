@@ -25463,7 +25463,7 @@
     },
     {
       "name": "customer.disable",
-      "description": "Disable a customer account: it can no longer sign in, and every session it has ends at once. Its Person and records are kept. Undo with customer.enable. Admins only, humans only.",
+      "description": "Disable a customer account: it can no longer sign in, every session it has ends at once and its calendar link stops working. Its Person and records are kept. Undo with customer.enable. Admins only, humans only.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -25778,6 +25778,49 @@
         "additionalProperties": false
       },
       "invalidates": []
+    },
+    {
+      "name": "customer.revokeCalendarFeed",
+      "description": "Turn off a customer's private calendar link (their bookings for a calendar app), when they ask or it was shared by mistake: it then answers as if it never existed. Staff can never make or see one: the customer makes a new link themselves. Admins only.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Customer account id (cus_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "revoked": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "revoked"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "customer.list",
+        "customer.settings.get"
+      ]
     },
     {
       "name": "customer.revokeSessions",

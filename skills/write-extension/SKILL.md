@@ -215,6 +215,16 @@ extension declares it; it never implements it. Each behaviour the platform has i
   things with that flag set are claimed (a room marked "one booking at a time"; a shared floor
   never). Never check whether a room is free in a tool. See `OccupiesSpec` in
   `packages/sdk/src/occupies.ts` and ADR 0765.
+- **`calendarEntry`** (shipped packs only) on an object with a `customer` whose records are a
+  customer's appointments (a booking, a ticket): `calendarEntry: { starts, ends: "<datetime
+  paths>", title, place?: "<text paths>", live: [<states in which it shows>] }`. A path is a
+  field, or up to two relations and a field (`klass.startsAt`, `klass.room.name`). Its first field
+  and the states field must be in `customer.read`; every field further on must be one the customer
+  reads of that object (`public`, `signedIn`, or one relation away its `customerVia` from this
+  object). The host then shows the records, read as the customer, in their private calendar feed
+  (and a live dependant's in their guardian's). Never put a name, note or price there that the
+  customer cannot already read. See `CalendarEntrySpec` in `packages/sdk/src/calendar-entry.ts`
+  and ADR 0891.
 - **`intake`** when the public or customers send answers (a form, its submissions, a record a
   form may also make): `intake: { role: "form", questions: "<document field with
   QUESTIONS_SCHEMA, in publishable.content>", answeredBy: "<select: public, customers, links,
