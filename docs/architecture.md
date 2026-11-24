@@ -366,6 +366,20 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   tool called by such a run write as an AI. The daily caps (20 per mailbox, 2,000 for the
   organisation) are counted where a row is claimed. Each kind has a human admin's switch (Settings →
   Routine email), with the log, kept 12 months by default.
+- **Routine messages** ([ADR 0670](adr/0670-routine-messages-text-and-push-on-the-routine-mail-path.md),
+  stage 30): routine mail grown to text and push. A kind may declare a text's words and a push's
+  (a title and a line, opening a screen of the business's app), checked at declaration to fit with
+  every slot at its longest (two segments with the business's name and "Reply STOP to stop"; 60 and
+  140 characters), and say whether its email is essential, its purpose, whether it is urgent and its
+  moment. Each recipient gets a row per channel, held for what its own words show; text and push
+  are off per kind until a human admin switches them on, and a Person is reached through one seam
+  (`routine-mail/reach.ts`: a textable number, a registered device), which the text and push
+  gatekeepers fill (stage 30 steps 3 and 4; until then those rows are `no_channel`). Quiet hours
+  ([ADR 0676](adr/0676-quiet-hours-and-urgent-messages.md)) hold texts and pushes, never email,
+  until the business's window ends; the runner's minute cron releases them or marks them
+  `expired`. **Host kinds** (`core.<name>`) are declared in core and asked for by host code
+  (`sendHostRoutineMessage`) with an occasion, their email sent through the host's email channel
+  (Settings → Notification delivery) on the same routine queue.
 - **Gatekeepers we wrote**: `gatekeeper-email-send`, `gatekeeper-slack-post`, `gatekeeper-webhook`.
   `gatekeeper-accounting` (stage 61, ADR 0880) is the **accounting contract** every accounting
   gatekeeper serves, not a gatekeeper of its own: the session's types and input checks, the shared

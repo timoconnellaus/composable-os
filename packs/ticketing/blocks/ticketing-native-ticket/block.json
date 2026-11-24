@@ -2,6 +2,7 @@
   "name": "ticketing-native-ticket",
   "pack": "ticketing",
   "skin": "native",
+  "screens": ["ticket"],
   "operations": [],
   "files": ["ticket-screen.tsx", "LICENSE"],
   "dependsOn": ["native-base"],
