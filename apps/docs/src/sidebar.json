@@ -390,6 +390,30 @@
             "slug": "capabilities/agreements/decisions"
           }
         ]
+      },
+      {
+        "label": "Finance",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "capabilities/finance"
+          },
+          {
+            "slug": "capabilities/finance/operations"
+          },
+          {
+            "slug": "capabilities/finance/permissions"
+          },
+          {
+            "slug": "capabilities/finance/behaviours"
+          },
+          {
+            "slug": "capabilities/finance/screens"
+          },
+          {
+            "slug": "capabilities/finance/decisions"
+          }
+        ]
       }
     ]
   },
