@@ -379,15 +379,22 @@ export function parseSubscriptionCheckoutInput(
 
 export function parseCancelSubscriptionInput(value: unknown): PaymentsCancelSubscriptionInput {
   const input = record(value, "The cancel input");
-  refuseUnknownKeys(input, ["subscriptionId", "subscriptionRef", "when", "reason"]);
+  refuseUnknownKeys(input, ["subscriptionId", "subscriptionRef", "when", "reason", "askKey"]);
   if (input.when !== "period_end" && input.when !== "now") {
     throw new TypeError('when must be "period_end" or "now".');
+  }
+  if (
+    input.askKey !== undefined &&
+    (typeof input.askKey !== "string" || !/^[a-z0-9-]{1,40}$/.test(input.askKey))
+  ) {
+    throw new TypeError("askKey must be 1 to 40 lowercase letters, digits or hyphens.");
   }
   return {
     subscriptionId: assertSubscriptionId(input.subscriptionId),
     subscriptionRef: assertProviderRef(input.subscriptionRef, "subscriptionRef"),
     when: input.when,
     reason: boundedString(input.reason, "reason", 500),
+    ...(typeof input.askKey === "string" ? { askKey: input.askKey } : {}),
   };
 }
 
