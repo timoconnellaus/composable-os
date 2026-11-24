@@ -18,13 +18,16 @@ import { getObject } from "../fields/index.ts";
 import type { InvoiceKind, TaxMode } from "../fields/invoice.ts";
 import { type IdKind, newId } from "../ids.ts";
 import type { HandlerContext } from "../operation.ts";
-import { priceLines } from "../orders/orders.ts";
-import { sellableOf } from "../orders/sellable.ts";
+import { ORDER_MAX_LINES, ORDER_MAX_QUANTITY, priceLines } from "../orders/orders.ts";
 import { type InvoiceSettings, rateFor, type TaxRate } from "./settings.ts";
 import { type Discount, documentTotals, lineAmounts, unitPriceFromRecord } from "./tax.ts";
 
-/** The most lines a document holds: every write of one stays far inside D1's limits. */
-export const DOCUMENT_MAX_LINES = 100;
+/**
+ * The most lines a document holds: an order's (an issued invoice is one order line per line,
+ * stage 35 step 3), so every draft can be issued, and every write of one stays far inside D1's
+ * limits.
+ */
+export const DOCUMENT_MAX_LINES = ORDER_MAX_LINES;
 /** The most of one line: ten thousand hours, metres or units. */
 export const LINE_MAX_QUANTITY = 10_000;
 /** The most one unit costs, in minor units (a million in a two-decimal currency). */
@@ -458,7 +461,25 @@ export async function checkBillTo(
   billTo: z.infer<typeof billToSchema>,
 ): Promise<{ person_id: string; organisation_id: string | null }> {
   await ctx.records.get("person", billTo.personId);
-  if (billTo.organisationId) await ctx.records.get("organisation", billTo.organisationId);
+  if (billTo.organisationId) {
+    await ctx.records.get("organisation", billTo.organisationId);
+    // The contact is someone at the organisation: a customer later sees their organisation's
+    // documents where they are its named contact (stage 35 step 8).
+    const link = await ctx.db
+      .selectFrom("core_affiliation")
+      .select("id")
+      .where("person_id", "=", billTo.personId)
+      .where("organisation_id", "=", billTo.organisationId)
+      .where("is_current", "=", 1)
+      .where("deleted_at", "is", null)
+      .executeTakeFirst();
+    if (!link) {
+      throw new ValidationError(
+        "The contact Person is not someone at this organisation: link them to it first",
+        { field: "billTo", rule: "contact_not_at_organisation" },
+      );
+    }
+  }
   return { person_id: billTo.personId, organisation_id: billTo.organisationId ?? null };
 }
 
@@ -523,6 +544,37 @@ function priced(
 
 const milli = (quantity: number) => Math.round(quantity * 1000);
 
+/** A record's line is whole units, at most an order line's most (an invoice's line is one). */
+function recordQuantity(quantity: number): void {
+  if (!Number.isInteger(quantity) || quantity > ORDER_MAX_QUANTITY) {
+    throw new ValidationError(
+      `A line for a record is a whole number of units, at most ${ORDER_MAX_QUANTITY}`,
+      { field: "quantity", rule: "whole_units", max: ORDER_MAX_QUANTITY },
+    );
+  }
+}
+
+/**
+ * The document's record lines, checked together as the one order an invoice becomes (stage 35
+ * step 3): the same item on two lines, more than a record's most per order, more grants than an
+ * order holds, a record no longer for sale. The same rules, by the same code, as `order.start`,
+ * so a draft that passes can be issued. Every write that adds or changes a record's line asks.
+ */
+export async function checkRecordLines(
+  ctx: HandlerContext,
+  currency: string,
+  lines: readonly LineRow[],
+): Promise<void> {
+  const requests = lines
+    .filter((l) => l.source === "record" && l.source_object && l.source_id)
+    .map((l) => ({
+      object: l.source_object as string,
+      id: l.source_id as string,
+      quantity: l.quantity_milli / 1000,
+    }));
+  if (requests.length) await priceLines(ctx.db, requests, currency, ctx.now);
+}
+
 /**
  * A new line for `doc`: a record's (priced by the host, as an order's line is) or a typed one.
  * Nobody outside the staff writes a draft, so a typed price is a person on the staff's (or the
@@ -561,18 +613,12 @@ export async function newLine(
         { field: "unitPrice", rule: "priced_by_host" },
       );
     }
-    const object = getObject(input.item.object);
-    const sellable = object ? sellableOf(object) : undefined;
-    if (sellable?.grants && !Number.isInteger(input.quantity)) {
-      throw new ValidationError("What this grants is counted in whole units", {
-        field: "quantity",
-        rule: "whole_units",
-      });
-    }
+    recordQuantity(input.quantity);
     // The same read an order's line has (ADR 0427): the host's price, in the document's currency.
+    // The whole document's record lines are checked together as one order's by `checkRecordLines`.
     const [line] = await priceLines(
       ctx.db,
-      [{ object: input.item.object, id: input.item.id, quantity: Math.ceil(input.quantity) }],
+      [{ object: input.item.object, id: input.item.id, quantity: input.quantity }],
       doc.currency,
       ctx.now,
     );
@@ -639,15 +685,7 @@ export function changedLine(
   }
   const quantityMilli =
     change.quantity === undefined ? line.quantity_milli : milli(change.quantity);
-  if (change.quantity !== undefined && line.source === "record" && quantityMilli % 1000 !== 0) {
-    const object = line.source_object ? getObject(line.source_object) : undefined;
-    if (object && sellableOf(object)?.grants) {
-      throw new ValidationError("What this grants is counted in whole units", {
-        field: "quantity",
-        rule: "whole_units",
-      });
-    }
-  }
+  if (change.quantity !== undefined && line.source === "record") recordQuantity(change.quantity);
   const unitPrice =
     line.source === "record" && line.source_price !== null
       ? unitPriceFromRecord(line.source_price, rate.tax_rate, mode)

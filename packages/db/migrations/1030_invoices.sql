@@ -250,6 +250,7 @@ CREATE TABLE core_quote_line (
   CHECK ((discount_kind IS NULL) = (discount_value IS NULL))
 );
 CREATE INDEX core_quote_line_quote_idx ON core_quote_line (quote_id, position);
+CREATE INDEX core_quote_line_tax_idx ON core_quote_line (tax_key) WHERE tax_key IS NOT NULL;
 
 CREATE TABLE core_invoice_line (
   -- inl_… (ids.ts).
@@ -285,6 +286,7 @@ CREATE TABLE core_invoice_line (
   CHECK ((discount_kind IS NULL) = (discount_value IS NULL))
 );
 CREATE INDEX core_invoice_line_invoice_idx ON core_invoice_line (invoice_id, position);
+CREATE INDEX core_invoice_line_tax_idx ON core_invoice_line (tax_key) WHERE tax_key IS NOT NULL;
 
 CREATE TABLE core_credit_note_line (
   -- cnl_… (ids.ts).
@@ -308,6 +310,8 @@ CREATE TABLE core_credit_note_line (
   CHECK ((tax_key IS NULL) = (tax_rate = 0 AND tax_label IS NULL))
 );
 CREATE INDEX core_credit_note_line_note_idx ON core_credit_note_line (credit_note_id, position);
+CREATE INDEX core_credit_note_line_tax_idx ON core_credit_note_line (tax_key)
+  WHERE tax_key IS NOT NULL;
 
 -- The document event log (decision 11): one row per issue, send, payment applied or reversed,
 -- credit, refund confirmed, paid back and void, written by host code in the batch of the event.
@@ -375,40 +379,74 @@ BEGIN
 END;
 
 -- Every write names the version it read (compare-and-set), except an erase's ON DELETE SET NULL
--- of the bill-to's ids. Once sent, nothing it says changes; it never goes back to a draft; a
--- number is given once, the next of the series, in the batch that bumped the series.
+-- of the bill-to's ids, which changes nothing else. Once sent, nothing it says changes; it never
+-- goes back to a draft, and a final state stays; a number is given once, the next of the series,
+-- in the batch that bumped the series, and never one another document holds.
 CREATE TRIGGER core_quote_update
 BEFORE UPDATE ON core_quote
 BEGIN
   SELECT CASE
     WHEN NEW.id IS NOT OLD.id
       THEN RAISE(ABORT, 'core_document_immutable')
+    -- An erase's ON DELETE SET NULL: the bill-to's ids set to null, and nothing else at all.
+    WHEN NEW.version IS OLD.version
+      AND ((NEW.person_id IS NULL AND OLD.person_id IS NOT NULL)
+        OR (NEW.organisation_id IS NULL AND OLD.organisation_id IS NOT NULL))
+      AND (NEW.person_id IS NULL OR NEW.person_id IS OLD.person_id)
+      AND (NEW.organisation_id IS NULL OR NEW.organisation_id IS OLD.organisation_id)
+      AND
+      NEW.state IS OLD.state AND NEW.number IS OLD.number AND NEW.number_seq IS OLD.number_seq AND
+      NEW.currency IS OLD.currency AND NEW.tax_mode IS OLD.tax_mode AND
+      NEW.bill_to_name IS OLD.bill_to_name AND NEW.bill_to_address IS OLD.bill_to_address AND
+      NEW.bill_to_tax_number IS OLD.bill_to_tax_number AND
+      NEW.bill_to_email IS OLD.bill_to_email AND NEW.site_address IS OLD.site_address AND
+      NEW.about_object IS OLD.about_object AND NEW.about_id IS OLD.about_id AND
+      NEW.title IS OLD.title AND NEW.notes IS OLD.notes AND NEW.valid_until IS OLD.valid_until AND
+      NEW.deposit_kind IS OLD.deposit_kind AND NEW.deposit_value IS OLD.deposit_value AND
+      NEW.net_total IS OLD.net_total AND NEW.tax_total IS OLD.tax_total AND
+      NEW.total IS OLD.total AND NEW.tax_by_rate IS OLD.tax_by_rate AND
+      NEW.replaces_quote_id IS OLD.replaces_quote_id AND
+      NEW.acceptance_id IS OLD.acceptance_id AND NEW.sent_at IS OLD.sent_at AND
+      NEW.accepted_at IS OLD.accepted_at AND NEW.declined_at IS OLD.declined_at AND
+      NEW.decline_reason IS OLD.decline_reason AND NEW.withdrawn_at IS OLD.withdrawn_at AND
+      NEW.expired_at IS OLD.expired_at AND NEW.created_at IS OLD.created_at AND
+      NEW.created_by IS OLD.created_by AND NEW.updated_at IS OLD.updated_at AND
+      NEW.updated_by IS OLD.updated_by AND NEW.version IS OLD.version
+      THEN NULL
     WHEN NEW.version IS NOT OLD.version + 1
-      AND NEW.person_id IS OLD.person_id AND NEW.organisation_id IS OLD.organisation_id
       THEN RAISE(ABORT, 'core_document_stale')
-    WHEN OLD.state != 'draft' AND (NEW.state = 'draft'
-      OR (NEW.person_id IS NOT OLD.person_id AND NEW.person_id IS NOT NULL)
-      OR (NEW.organisation_id IS NOT OLD.organisation_id AND NEW.organisation_id IS NOT NULL)
-      OR NEW.number IS NOT OLD.number OR NEW.number_seq IS NOT OLD.number_seq
-      OR NEW.currency IS NOT OLD.currency OR NEW.tax_mode IS NOT OLD.tax_mode
-      OR NEW.bill_to_name IS NOT OLD.bill_to_name OR NEW.bill_to_address IS NOT OLD.bill_to_address
-      OR NEW.bill_to_tax_number IS NOT OLD.bill_to_tax_number
-      OR NEW.bill_to_email IS NOT OLD.bill_to_email OR NEW.site_address IS NOT OLD.site_address
-      OR NEW.about_object IS NOT OLD.about_object OR NEW.about_id IS NOT OLD.about_id
-      OR NEW.title IS NOT OLD.title OR NEW.notes IS NOT OLD.notes
-      OR NEW.valid_until IS NOT OLD.valid_until OR NEW.deposit_kind IS NOT OLD.deposit_kind
-      OR NEW.deposit_value IS NOT OLD.deposit_value OR NEW.net_total IS NOT OLD.net_total
-      OR NEW.tax_total IS NOT OLD.tax_total OR NEW.total IS NOT OLD.total
-      OR NEW.tax_by_rate IS NOT OLD.tax_by_rate
-      OR NEW.replaces_quote_id IS NOT OLD.replaces_quote_id OR NEW.sent_at IS NOT OLD.sent_at
-      OR NEW.created_at IS NOT OLD.created_at OR NEW.created_by IS NOT OLD.created_by)
+    WHEN OLD.state != 'draft' AND (NEW.state = 'draft' OR
+      NEW.number IS NOT OLD.number OR NEW.number_seq IS NOT OLD.number_seq OR
+      NEW.currency IS NOT OLD.currency OR NEW.tax_mode IS NOT OLD.tax_mode OR
+      NEW.person_id IS NOT OLD.person_id OR NEW.organisation_id IS NOT OLD.organisation_id OR
+      NEW.bill_to_name IS NOT OLD.bill_to_name OR
+      NEW.bill_to_address IS NOT OLD.bill_to_address OR
+      NEW.bill_to_tax_number IS NOT OLD.bill_to_tax_number OR
+      NEW.bill_to_email IS NOT OLD.bill_to_email OR NEW.site_address IS NOT OLD.site_address OR
+      NEW.about_object IS NOT OLD.about_object OR NEW.about_id IS NOT OLD.about_id OR
+      NEW.title IS NOT OLD.title OR NEW.notes IS NOT OLD.notes OR
+      NEW.valid_until IS NOT OLD.valid_until OR NEW.deposit_kind IS NOT OLD.deposit_kind OR
+      NEW.deposit_value IS NOT OLD.deposit_value OR NEW.net_total IS NOT OLD.net_total OR
+      NEW.tax_total IS NOT OLD.tax_total OR NEW.total IS NOT OLD.total OR
+      NEW.tax_by_rate IS NOT OLD.tax_by_rate OR
+      NEW.replaces_quote_id IS NOT OLD.replaces_quote_id OR NEW.sent_at IS NOT OLD.sent_at OR
+      NEW.created_at IS NOT OLD.created_at OR NEW.created_by IS NOT OLD.created_by)
       THEN RAISE(ABORT, 'core_document_immutable')
-    WHEN NEW.state != 'draft' AND NEW.number IS NULL
+    WHEN OLD.state IN ('accepted', 'declined', 'expired', 'withdrawn') AND NEW.state IS NOT OLD.state
+      THEN RAISE(ABORT, 'core_document_immutable')
+    -- A draft has no number; anything else has the one its series gave, and only that one.
+    WHEN NEW.state = 'draft' AND (NEW.number IS NOT NULL OR NEW.number_seq IS NOT NULL)
+      THEN RAISE(ABORT, 'core_document_number')
+    WHEN NEW.state != 'draft' AND (NEW.number IS NULL OR NEW.number_seq IS NULL)
       THEN RAISE(ABORT, 'core_document_number')
     WHEN NEW.number_seq IS NOT OLD.number_seq AND (OLD.number_seq IS NOT NULL
       OR NOT EXISTS (SELECT 1 FROM core_document_counter c WHERE c.series = 'quote'
         AND NEW.number_seq = c.next_number - 1
-        AND NEW.number IS c.prefix || printf('%04d', NEW.number_seq)))
+        AND NEW.number IS c.prefix || printf('%04d', NEW.number_seq))
+      -- An UPDATE OR REPLACE onto another document's number would delete it unseen.
+      OR EXISTS (SELECT 1 FROM core_quote d WHERE d.number_seq = NEW.number_seq AND d.id != NEW.id))
+      THEN RAISE(ABORT, 'core_document_number')
+    WHEN NEW.number IS NOT OLD.number AND NEW.number_seq IS OLD.number_seq
       THEN RAISE(ABORT, 'core_document_number')
   END;
 END;
@@ -466,34 +504,69 @@ BEGIN
   SELECT CASE
     WHEN NEW.id IS NOT OLD.id
       THEN RAISE(ABORT, 'core_document_immutable')
+    -- An erase's ON DELETE SET NULL: the bill-to's ids set to null, and nothing else at all.
+    WHEN NEW.version IS OLD.version
+      AND ((NEW.person_id IS NULL AND OLD.person_id IS NOT NULL)
+        OR (NEW.organisation_id IS NULL AND OLD.organisation_id IS NOT NULL))
+      AND (NEW.person_id IS NULL OR NEW.person_id IS OLD.person_id)
+      AND (NEW.organisation_id IS NULL OR NEW.organisation_id IS OLD.organisation_id)
+      AND
+      NEW.state IS OLD.state AND NEW.kind IS OLD.kind AND NEW.number IS OLD.number AND
+      NEW.number_seq IS OLD.number_seq AND NEW.currency IS OLD.currency AND
+      NEW.tax_mode IS OLD.tax_mode AND NEW.bill_to_name IS OLD.bill_to_name AND
+      NEW.bill_to_address IS OLD.bill_to_address AND
+      NEW.bill_to_tax_number IS OLD.bill_to_tax_number AND
+      NEW.bill_to_email IS OLD.bill_to_email AND NEW.site_address IS OLD.site_address AND
+      NEW.about_object IS OLD.about_object AND NEW.about_id IS OLD.about_id AND
+      NEW.title IS OLD.title AND NEW.notes IS OLD.notes AND NEW.quote_id IS OLD.quote_id AND
+      NEW.order_id IS OLD.order_id AND NEW.payment_terms_days IS OLD.payment_terms_days AND
+      NEW.issued_on IS OLD.issued_on AND NEW.due_on IS OLD.due_on AND
+      NEW.issued_at IS OLD.issued_at AND NEW.sent_at IS OLD.sent_at AND
+      NEW.allow_part_payments IS OLD.allow_part_payments AND
+      NEW.reminders_paused IS OLD.reminders_paused AND
+      NEW.reminders_paused_reason IS OLD.reminders_paused_reason AND
+      NEW.net_total IS OLD.net_total AND NEW.tax_total IS OLD.tax_total AND
+      NEW.total IS OLD.total AND NEW.tax_by_rate IS OLD.tax_by_rate AND
+      NEW.business IS OLD.business AND NEW.created_at IS OLD.created_at AND
+      NEW.created_by IS OLD.created_by AND NEW.updated_at IS OLD.updated_at AND
+      NEW.updated_by IS OLD.updated_by AND NEW.version IS OLD.version
+      THEN NULL
     WHEN NEW.version IS NOT OLD.version + 1
-      AND NEW.person_id IS OLD.person_id AND NEW.organisation_id IS OLD.organisation_id
       THEN RAISE(ABORT, 'core_document_stale')
-    WHEN OLD.state != 'draft' AND (NEW.state = 'draft'
-      OR (NEW.person_id IS NOT OLD.person_id AND NEW.person_id IS NOT NULL)
-      OR (NEW.organisation_id IS NOT OLD.organisation_id AND NEW.organisation_id IS NOT NULL)
-      OR NEW.number IS NOT OLD.number OR NEW.number_seq IS NOT OLD.number_seq
-      OR NEW.kind IS NOT OLD.kind
-      OR NEW.currency IS NOT OLD.currency OR NEW.tax_mode IS NOT OLD.tax_mode
-      OR NEW.bill_to_name IS NOT OLD.bill_to_name OR NEW.bill_to_address IS NOT OLD.bill_to_address
-      OR NEW.bill_to_tax_number IS NOT OLD.bill_to_tax_number
-      OR NEW.bill_to_email IS NOT OLD.bill_to_email OR NEW.site_address IS NOT OLD.site_address
-      OR NEW.about_object IS NOT OLD.about_object OR NEW.about_id IS NOT OLD.about_id
-      OR NEW.title IS NOT OLD.title OR NEW.notes IS NOT OLD.notes
-      OR NEW.quote_id IS NOT OLD.quote_id OR NEW.order_id IS NOT OLD.order_id
-      OR NEW.payment_terms_days IS NOT OLD.payment_terms_days
-      OR NEW.issued_on IS NOT OLD.issued_on OR NEW.issued_at IS NOT OLD.issued_at
-      OR NEW.net_total IS NOT OLD.net_total OR NEW.tax_total IS NOT OLD.tax_total
-      OR NEW.total IS NOT OLD.total OR NEW.tax_by_rate IS NOT OLD.tax_by_rate
-      OR NEW.business IS NOT OLD.business
-      OR NEW.created_at IS NOT OLD.created_at OR NEW.created_by IS NOT OLD.created_by)
+    WHEN OLD.state != 'draft' AND (NEW.state = 'draft' OR
+      NEW.kind IS NOT OLD.kind OR NEW.number IS NOT OLD.number OR
+      NEW.number_seq IS NOT OLD.number_seq OR NEW.currency IS NOT OLD.currency OR
+      NEW.tax_mode IS NOT OLD.tax_mode OR NEW.person_id IS NOT OLD.person_id OR
+      NEW.organisation_id IS NOT OLD.organisation_id OR
+      NEW.bill_to_name IS NOT OLD.bill_to_name OR
+      NEW.bill_to_address IS NOT OLD.bill_to_address OR
+      NEW.bill_to_tax_number IS NOT OLD.bill_to_tax_number OR
+      NEW.bill_to_email IS NOT OLD.bill_to_email OR NEW.site_address IS NOT OLD.site_address OR
+      NEW.about_object IS NOT OLD.about_object OR NEW.about_id IS NOT OLD.about_id OR
+      NEW.title IS NOT OLD.title OR NEW.notes IS NOT OLD.notes OR
+      NEW.quote_id IS NOT OLD.quote_id OR NEW.order_id IS NOT OLD.order_id OR
+      NEW.payment_terms_days IS NOT OLD.payment_terms_days OR
+      NEW.issued_on IS NOT OLD.issued_on OR NEW.issued_at IS NOT OLD.issued_at OR
+      NEW.net_total IS NOT OLD.net_total OR NEW.tax_total IS NOT OLD.tax_total OR
+      NEW.total IS NOT OLD.total OR NEW.tax_by_rate IS NOT OLD.tax_by_rate OR
+      NEW.business IS NOT OLD.business OR NEW.created_at IS NOT OLD.created_at OR
+      NEW.created_by IS NOT OLD.created_by)
       THEN RAISE(ABORT, 'core_document_immutable')
-    WHEN NEW.state != 'draft' AND NEW.number IS NULL
+    WHEN OLD.state IN ('credited', 'void') AND NEW.state IS NOT OLD.state
+      THEN RAISE(ABORT, 'core_document_immutable')
+    -- A draft has no number; anything else has the one its series gave, and only that one.
+    WHEN NEW.state = 'draft' AND (NEW.number IS NOT NULL OR NEW.number_seq IS NOT NULL)
+      THEN RAISE(ABORT, 'core_document_number')
+    WHEN NEW.state != 'draft' AND (NEW.number IS NULL OR NEW.number_seq IS NULL)
       THEN RAISE(ABORT, 'core_document_number')
     WHEN NEW.number_seq IS NOT OLD.number_seq AND (OLD.number_seq IS NOT NULL
       OR NOT EXISTS (SELECT 1 FROM core_document_counter c WHERE c.series = 'invoice'
         AND NEW.number_seq = c.next_number - 1
-        AND NEW.number IS c.prefix || printf('%04d', NEW.number_seq)))
+        AND NEW.number IS c.prefix || printf('%04d', NEW.number_seq))
+      -- An UPDATE OR REPLACE onto another document's number would delete it unseen.
+      OR EXISTS (SELECT 1 FROM core_invoice d WHERE d.number_seq = NEW.number_seq AND d.id != NEW.id))
+      THEN RAISE(ABORT, 'core_document_number')
+    WHEN NEW.number IS NOT OLD.number AND NEW.number_seq IS OLD.number_seq
       THEN RAISE(ABORT, 'core_document_number')
   END;
 END;
@@ -552,31 +625,57 @@ BEGIN
   SELECT CASE
     WHEN NEW.id IS NOT OLD.id
       THEN RAISE(ABORT, 'core_document_immutable')
+    -- An erase's ON DELETE SET NULL: the bill-to's ids set to null, and nothing else at all.
+    WHEN NEW.version IS OLD.version
+      AND ((NEW.person_id IS NULL AND OLD.person_id IS NOT NULL)
+        OR (NEW.organisation_id IS NULL AND OLD.organisation_id IS NOT NULL))
+      AND (NEW.person_id IS NULL OR NEW.person_id IS OLD.person_id)
+      AND (NEW.organisation_id IS NULL OR NEW.organisation_id IS OLD.organisation_id)
+      AND
+      NEW.state IS OLD.state AND NEW.number IS OLD.number AND NEW.number_seq IS OLD.number_seq AND
+      NEW.invoice_id IS OLD.invoice_id AND NEW.currency IS OLD.currency AND
+      NEW.tax_mode IS OLD.tax_mode AND NEW.bill_to_name IS OLD.bill_to_name AND
+      NEW.bill_to_address IS OLD.bill_to_address AND
+      NEW.bill_to_tax_number IS OLD.bill_to_tax_number AND
+      NEW.bill_to_email IS OLD.bill_to_email AND NEW.reason IS OLD.reason AND
+      NEW.settle IS OLD.settle AND NEW.issued_on IS OLD.issued_on AND
+      NEW.issued_at IS OLD.issued_at AND NEW.net_total IS OLD.net_total AND
+      NEW.tax_total IS OLD.tax_total AND NEW.total IS OLD.total AND
+      NEW.tax_by_rate IS OLD.tax_by_rate AND NEW.business IS OLD.business AND
+      NEW.created_at IS OLD.created_at AND NEW.created_by IS OLD.created_by AND
+      NEW.updated_at IS OLD.updated_at AND NEW.updated_by IS OLD.updated_by AND
+      NEW.version IS OLD.version
+      THEN NULL
     WHEN NEW.version IS NOT OLD.version + 1
-      AND NEW.person_id IS OLD.person_id AND NEW.organisation_id IS OLD.organisation_id
       THEN RAISE(ABORT, 'core_document_stale')
-    WHEN OLD.state != 'draft' AND (NEW.state = 'draft'
-      OR (NEW.person_id IS NOT OLD.person_id AND NEW.person_id IS NOT NULL)
-      OR (NEW.organisation_id IS NOT OLD.organisation_id AND NEW.organisation_id IS NOT NULL)
-      OR NEW.number IS NOT OLD.number OR NEW.number_seq IS NOT OLD.number_seq
-      OR NEW.invoice_id IS NOT OLD.invoice_id
-      OR NEW.currency IS NOT OLD.currency OR NEW.tax_mode IS NOT OLD.tax_mode
-      OR NEW.bill_to_name IS NOT OLD.bill_to_name OR NEW.bill_to_address IS NOT OLD.bill_to_address
-      OR NEW.bill_to_tax_number IS NOT OLD.bill_to_tax_number
-      OR NEW.bill_to_email IS NOT OLD.bill_to_email
-      OR NEW.reason IS NOT OLD.reason OR NEW.settle IS NOT OLD.settle
-      OR NEW.issued_on IS NOT OLD.issued_on OR NEW.issued_at IS NOT OLD.issued_at
-      OR NEW.net_total IS NOT OLD.net_total OR NEW.tax_total IS NOT OLD.tax_total
-      OR NEW.total IS NOT OLD.total OR NEW.tax_by_rate IS NOT OLD.tax_by_rate
-      OR NEW.business IS NOT OLD.business
-      OR NEW.created_at IS NOT OLD.created_at OR NEW.created_by IS NOT OLD.created_by)
+    WHEN OLD.state != 'draft' AND (NEW.state = 'draft' OR
+      NEW.number IS NOT OLD.number OR NEW.number_seq IS NOT OLD.number_seq OR
+      NEW.invoice_id IS NOT OLD.invoice_id OR NEW.currency IS NOT OLD.currency OR
+      NEW.tax_mode IS NOT OLD.tax_mode OR NEW.person_id IS NOT OLD.person_id OR
+      NEW.organisation_id IS NOT OLD.organisation_id OR
+      NEW.bill_to_name IS NOT OLD.bill_to_name OR
+      NEW.bill_to_address IS NOT OLD.bill_to_address OR
+      NEW.bill_to_tax_number IS NOT OLD.bill_to_tax_number OR
+      NEW.bill_to_email IS NOT OLD.bill_to_email OR NEW.reason IS NOT OLD.reason OR
+      NEW.settle IS NOT OLD.settle OR NEW.issued_on IS NOT OLD.issued_on OR
+      NEW.issued_at IS NOT OLD.issued_at OR NEW.net_total IS NOT OLD.net_total OR
+      NEW.tax_total IS NOT OLD.tax_total OR NEW.total IS NOT OLD.total OR
+      NEW.tax_by_rate IS NOT OLD.tax_by_rate OR NEW.business IS NOT OLD.business OR
+      NEW.created_at IS NOT OLD.created_at OR NEW.created_by IS NOT OLD.created_by)
       THEN RAISE(ABORT, 'core_document_immutable')
-    WHEN NEW.state != 'draft' AND NEW.number IS NULL
+    -- A draft has no number; anything else has the one its series gave, and only that one.
+    WHEN NEW.state = 'draft' AND (NEW.number IS NOT NULL OR NEW.number_seq IS NOT NULL)
+      THEN RAISE(ABORT, 'core_document_number')
+    WHEN NEW.state != 'draft' AND (NEW.number IS NULL OR NEW.number_seq IS NULL)
       THEN RAISE(ABORT, 'core_document_number')
     WHEN NEW.number_seq IS NOT OLD.number_seq AND (OLD.number_seq IS NOT NULL
       OR NOT EXISTS (SELECT 1 FROM core_document_counter c WHERE c.series = 'credit_note'
         AND NEW.number_seq = c.next_number - 1
-        AND NEW.number IS c.prefix || printf('%04d', NEW.number_seq)))
+        AND NEW.number IS c.prefix || printf('%04d', NEW.number_seq))
+      -- An UPDATE OR REPLACE onto another document's number would delete it unseen.
+      OR EXISTS (SELECT 1 FROM core_credit_note d WHERE d.number_seq = NEW.number_seq AND d.id != NEW.id))
+      THEN RAISE(ABORT, 'core_document_number')
+    WHEN NEW.number IS NOT OLD.number AND NEW.number_seq IS OLD.number_seq
       THEN RAISE(ABORT, 'core_document_number')
   END;
 END;

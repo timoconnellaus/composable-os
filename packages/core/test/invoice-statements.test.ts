@@ -65,18 +65,18 @@ async function measure<T>(call: () => Promise<T>): Promise<{ result: T; statemen
 }
 
 describe("a draft's biggest writes, in a bounded number of statements", () => {
-  it("a hundred lines, moved and priced again, stay far inside D1's limits", async () => {
-    const lines: Record<string, unknown>[] = Array.from({ length: 100 }, (_, n) =>
-      n % 10 === 0
+  it("fifty lines, moved and priced again, stay far inside D1's limits", async () => {
+    const lines: Record<string, unknown>[] = Array.from({ length: 50 }, (_, n) =>
+      n === 0
         ? { item: { object: TICKET_TYPE, id: ticket }, quantity: 1 + (n % 3) }
         : { description: `Fixture line ${n}`, quantity: 1.25, unit: "hours", unitPrice: 1000 + n },
     );
     const created = await measure(() =>
       invoke("invoice.create", { lines }, context(admin, { db: countedDb })),
     );
-    expect(created.result.lines).toHaveLength(100);
+    expect(created.result.lines).toHaveLength(50);
     const id = created.result.id as string;
-    const last = created.result.lines[99]?.id as string;
+    const last = created.result.lines[49]?.id as string;
     const moved = await measure(() =>
       invoke(
         "invoice.updateLine",
@@ -92,12 +92,12 @@ describe("a draft's biggest writes, in a bounded number of statements", () => {
     const removed = await measure(() =>
       invoke("invoice.removeLine", { lineId: last }, context(admin, { db: countedDb })),
     );
-    expect(removed.result.lines).toHaveLength(99);
+    expect(removed.result.lines).toHaveLength(49);
     const deleted = await measure(() =>
       invoke("invoice.delete", { id }, context(admin, { db: countedDb })),
     );
     for (const call of [created, moved, repriced, removed, deleted]) {
-      // One statement per line at most, and the reads and bookkeeping around them (about 120).
+      // One statement per line at most, and the reads and bookkeeping around them (about 70).
       expect(call.statements.length).toBeLessThan(200);
       expect(Math.max(...call.statements)).toBeLessThan(100);
     }

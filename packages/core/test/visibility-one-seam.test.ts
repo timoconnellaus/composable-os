@@ -153,6 +153,9 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "entitlements.ts": [2, WHY.org],
   "filter.ts": [1, WHY.part],
   "integrations/outbound-check.ts": [2, WHY.org],
+  // Stage 35 (the review of PR #386): whether a bill-to's contact is at the organisation, both
+  // already read through the seam.
+  "invoices/drafts.ts": [1, WHY.part],
   "invoices/numbering.ts": [1, WHY.invoices],
   "notifications/delivery.ts": [1, WHY.org],
   "notifications/digest-content.ts": [4, WHY.org],

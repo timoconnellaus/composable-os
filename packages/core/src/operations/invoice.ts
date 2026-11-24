@@ -27,6 +27,7 @@ import {
   changedLine,
   checkAbout,
   checkBillTo,
+  checkRecordLines,
   DOCUMENT_MAX_LINES,
   type DocumentRow,
   type DraftKind,
@@ -287,6 +288,7 @@ async function createDraft(
   for (const [index, line] of (input.lines ?? []).entries()) {
     lines.push(await newLine(ctx, kind, draft as unknown as DocumentRow, settings, line, index));
   }
+  await checkRecordLines(ctx, currency, lines);
   const row = { ...base, ...totalsOf(lines) };
   const t = KIND_TABLES[kind];
   ctx.write(
@@ -466,6 +468,7 @@ function addLineOperation<K extends DraftKind>(kind: K) {
       const settings = await loadInvoiceSettings(ctx.db);
       const position = before.reduce((max, l) => Math.max(max, l.position + 1), 0);
       const line = await newLine(ctx, kind, doc, settings, input.line, position);
+      if (line.source === "record") await checkRecordLines(ctx, doc.currency, [...before, line]);
       return writeDraft(ctx, kind, doc, {}, before, [...before, line]);
     },
   });
@@ -501,6 +504,9 @@ function updateLineOperation<K extends DraftKind>(kind: K) {
           ...l,
           position: i,
         }));
+      }
+      if (changed.source === "record" && input.change.quantity !== undefined) {
+        await checkRecordLines(ctx, doc.currency, after);
       }
       return writeDraft(ctx, kind, doc, {}, lines, after);
     },
@@ -547,14 +553,19 @@ function deleteOperation<K extends DraftKind>(kind: K) {
       checkVersion(doc, input.version);
       const lines = await linesOf(ctx.db, kind, doc.id);
       const t = KIND_TABLES[kind];
+      // biome-ignore lint/suspicious/noExplicitAny: the quote and invoice tables share these columns.
+      const loose = ctx.db as any;
       ctx.write(
+        // First the version read, moved by one: a draft changed meanwhile (a line added, sent or
+        // issued) fails the whole batch here (core_document_stale), so nothing is deleted from a
+        // document that is not the one read, and a delete is never reported that did not happen.
+        loose
+          .updateTable(t.doc)
+          .set({ version: doc.version + 1, updated_at: ctx.now, updated_by: ctx.user.id })
+          .where("id", "=", doc.id),
         ...lineWrites(ctx.db, kind, lines, []),
         // Refused by the trigger if it was sent or issued meanwhile (migration 1030).
-        // biome-ignore lint/suspicious/noExplicitAny: the quote and invoice tables share these columns.
-        (ctx.db as any)
-          .deleteFrom(t.doc)
-          .where("id", "=", doc.id)
-          .where("version", "=", doc.version),
+        loose.deleteFrom(t.doc).where("id", "=", doc.id),
       );
       ctx.recordChange({
         object: kind,

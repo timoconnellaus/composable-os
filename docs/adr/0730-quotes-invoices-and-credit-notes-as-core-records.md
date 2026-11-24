@@ -30,12 +30,15 @@ and an order in the same batch, and a recorded payment are host rules; a pack ca
   through the gate as any write) create and change one: `quote.*` and `invoice.*`'s `create`,
   `update`, `addLine`, `updateLine`, `removeLine`, `delete`; `list` and `get` are `records:read`.
   A member, a customer, the public and an extension's own account hold no `invoices:write`, so
-  none of them writes one. Every write of a draft moves its `version` by one from the version read
-  (the trigger refuses a write from an older read, `core_document_stale`), and the totals are
-  always recomputed from the lines in that write. At most 100 lines per document, so the largest
-  write (starting one with all of them, moving one so that every line is renumbered, switching
-  between amounts with and without tax so that every line is priced again) is about 120 statements
-  with at most 38 bound variables each (a statement-count test holds it).
+  none of them writes one. Every write of a document moves its `version` by one from the version
+  read: the trigger refuses any other write (`core_document_stale`), whatever else it changes, the
+  bill-to included. The one exception is an erase's `ON DELETE SET NULL`, which nulls the
+  bill-to's ids and changes nothing else. A delete first moves the version it read, so a delete
+  made from an older read fails whole, never deletes some lines and reports success. The totals
+  are always recomputed from the lines in the write. At most an order's lines (50) per document,
+  so the largest write (starting one with all of them, moving one so that every line is
+  renumbered, switching between amounts with and without tax so that every line is priced again)
+  is about 70 statements with at most 38 bound variables each (a statement-count test holds it).
 - **Lines.** A line is a record of a sellable object, priced by the host when it is added with the
   read an order's line has (`priceLines`: the price, the currency, the sale window, the most per
   order), or a typed line (description, quantity in thousandths, unit, unit price, tax rate). A
@@ -43,7 +46,12 @@ and an order in the same batch, and a recorded payment are host rules; a pack ca
   amount or a percentage, with why), never a negative line. A deduction line ("less deposit paid")
   is the host's only, on an invoice, naming the deposit invoice. Each line keeps its rate's key,
   rate and label as used, and where it came from (`source`, the record's object and id, its price
-  as read).
+  as read). A record's line is whole units, at most an order line's most (1000), and every write
+  that adds or changes one checks the document's record lines together as the one order an invoice
+  becomes (`checkRecordLines`: the same `priceLines` as `order.start`, so the same item on two
+  lines, more than a record's most per order and more grants than an order holds are refused):
+  a draft that passes can be issued. A typed line may have a quantity to three decimals; how such
+  a line becomes an order line is step 3's.
 - **Numbering.** One series each (`core_document_counter`: `quote`, `invoice`, `credit_note`;
   `Q-`, `INV-`, `CN-` and 1 to start). A number is given in the batch that sends a quote or issues
   an invoice or a credit note, by SQL against the series row (`numberStatements`), never read first
@@ -51,7 +59,10 @@ and an order in the same batch, and a recorded payment are host rules; a pack ca
   consecutive numbers, and a batch that fails takes none. The series moves on only while the
   document is still a draft, so one deleted meanwhile takes no number. The document's trigger
   refuses any number but the one the series just moved past, printed as the prefix and at least
-  four digits (`INV-0042`), and a second number. A unique index on the number holds it too.
+  four digits (`INV-0042`), and a second number. A draft has no number, and a document that is not
+  a draft has both the number and its seq; the printed number never changes apart from its seq. An
+  `UPDATE OR REPLACE` onto another document's number (whose delete would fire no trigger) is
+  refused before it runs. A unique index on the number holds it too.
 - **The next number only goes up, and only by a human admin** (`invoice.settings.update`,
   `settings:manage`, `actors: ["human"]`), naming the series' version it read: a number given
   meanwhile moves the version and the change is refused. The counter's trigger refuses a lower
@@ -61,7 +72,9 @@ and an order in the same batch, and a recorded payment are host rules; a pack ca
   refuses any change to what it says: the number, the bill-to and the bill-to as printed, the site
   and what it is about, title and notes, the lines, totals and tax by rate, the currency and the
   tax mode, the dates it was given, the quote it came from, its order, its payment terms and the
-  snapshot of the business. It never goes back to a draft and is never deleted. What may still
+  snapshot of the business. It never goes back to a draft and is never deleted; a final state
+  (a quote accepted, declined, expired or withdrawn; an invoice credited or void) never moves.
+  What may still
   move, by host code with the version moving: its state, the reminders, part payments allowed,
   and an invoice's due date (`invoice.setDueDate` changes it on an issued invoice, step 7; the
   spec's criterion 3 lists "dates": the issue date is fixed, the due date is not). Its lines'
@@ -70,10 +83,14 @@ and an order in the same batch, and a recorded payment are host rules; a pack ca
   trigger in D1) cannot get round them.
 - **An erase detaches, it does not change.** The bill-to's ids reference `core_person` and
   `core_organisation` with `ON DELETE SET NULL`; that is the one change to an issued document's
-  bill-to the trigger lets through, and the bill-to as printed stays. What erase deletes (drafts,
-  unsent quotes) and how long issued documents are kept (the settings' `retentionYears`, default
-  7) are step 11, which also amends the delete triggers for the purge. Merge re-points documents in
-  step 11.
+  bill-to the trigger lets through, and the bill-to as printed stays.
+- **Not yet: erase and merge (step 11).** Until step 11, an erase of a Person billed on a draft
+  only nulls the id: the draft's site address, notes and line text stay, and a merge leaves
+  documents on the merged-away Person (an issued document's bill-to cannot be re-pointed: the
+  trigger refuses it). Step 11 deletes drafts and unsent quotes at erase, keeps issued documents
+  for the settings' `retentionYears` (default 7), and amends both the delete triggers (for the
+  purge) and the update triggers (for merge's re-point to the surviving Person). Nothing before
+  step 11 is sent to a customer, so what a draft holds is staff's own working copy until then.
 - **The document event log** (`core_invoice_event`, decision 11): one row per issue, send, payment
   applied or reversed, credit, refund confirmed, paid back and void, with the document (kind and
   id), the invoice it concerns, the payment row and its method, the amount, when and the staff
@@ -85,6 +102,9 @@ and an order in the same batch, and a recorded payment are host rules; a pack ca
   `invoices:payments` (what was paid, and how, is that permission's). Stage 52's `finance:read`
   joins it when stage 52 adds that permission. No row is written by this step: the events are
   written by the steps that make them (issue, payments, credits, sending).
+- **A bill-to's organisation has its contact at it**: the contact Person has a current affiliation
+  with the organisation (a customer later sees their organisation's documents where they are its
+  named contact, step 8).
 - **What dashboards and `query.sql` read**: `rec_quote`, `rec_invoice`, `rec_credit_note` carry
   numbers, states, kinds, dates, amounts and the bill-to's ids. Never an address, a tax number, an
   email, the title or notes, or the snapshot of the business (its bank details).
@@ -103,7 +123,9 @@ and an order in the same batch, and a recorded payment are host rules; a pack ca
   the admins (0: every one), the PDF footer and the retention period (7 years). No rate, wording or
   bank detail ships. **A change of bank details tells every admin** (a notice to each); the audit
   log and the notice show the labels and the last three characters of each detail, never the
-  details in full (the input and result are redacted). The spec's "posted on the timeline": an
+  details in full (the input and the result are redacted in the audit log). Reading the settings,
+  bank details included, is `records:read` as the spec says: they are printed on every invoice a
+  customer is sent. The spec's "posted on the timeline": an
   org's settings have no record to post on, so the audit log is their history.
 
 ## Consequences
@@ -124,3 +146,9 @@ and an order in the same batch, and a recorded payment are host rules; a pack ca
   version passed, and the series test failed.
 - `bill_to_name` left out of the invoice trigger's fixed columns: the immutability test failed.
 - The event log's `AFTER INSERT` order check removed: the "row below the newest" test failed.
+- The review of PR #386 (2026-11-24) found four ways round these rules, each now a test that
+  failed on the code before its fix: a stale draft write that also changed the bill-to (the
+  stale check exempted any bill-to change); a document issued with a number but no seq (outside
+  the series); an `UPDATE OR REPLACE` onto a sent quote's number, which deleted it; a delete from
+  an older read that deleted some lines and reported success. Also fixed then: record lines
+  checked as one order, final states held by the trigger, an organisation's contact at it.

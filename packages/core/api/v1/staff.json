@@ -34141,7 +34141,7 @@
     },
     {
       "name": "invoice.addLine",
-      "description": "Add a line to a draft invoice: a record for sale (item: its object and id), priced by the host from the record, or a typed line (description, quantity, unit, unitPrice in minor units, as the invoice's amounts are typed). Each line has a tax rate (a key from the invoice settings; left out, the default; null, no tax) and an optional discount (an amount or a percentage, with why), taken off before the tax. The host works out the line's tax, rounded half up, and the invoice's totals by rate. At most 100 lines.",
+      "description": "Add a line to a draft invoice: a record for sale (item: its object and id), priced by the host from the record, or a typed line (description, quantity, unit, unitPrice in minor units, as the invoice's amounts are typed). Each line has a tax rate (a key from the invoice settings; left out, the default; null, no tax) and an optional discount (an amount or a percentage, with why), taken off before the tax. The host works out the line's tax, rounded half up, and the invoice's totals by rate. At most 50 lines.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -34840,7 +34840,7 @@
           },
           "lines": {
             "description": "Lines to start with (each as quote.addLine / invoice.addLine takes one)",
-            "maxItems": 100,
+            "maxItems": 50,
             "type": "array",
             "items": {
               "type": "object",
@@ -38125,7 +38125,7 @@
               "position": {
                 "type": "integer",
                 "minimum": 0,
-                "maximum": 100
+                "maximum": 50
               }
             }
           }
@@ -53260,7 +53260,7 @@
     },
     {
       "name": "quote.addLine",
-      "description": "Add a line to a draft quote: a record for sale (item: its object and id), priced by the host from the record, or a typed line (description, quantity, unit, unitPrice in minor units, as the quote's amounts are typed). Each line has a tax rate (a key from the invoice settings; left out, the default; null, no tax) and an optional discount (an amount or a percentage, with why), taken off before the tax. The host works out the line's tax, rounded half up, and the quote's totals by rate. At most 100 lines.",
+      "description": "Add a line to a draft quote: a record for sale (item: its object and id), priced by the host from the record, or a typed line (description, quantity, unit, unitPrice in minor units, as the quote's amounts are typed). Each line has a tax rate (a key from the invoice settings; left out, the default; null, no tax) and an optional discount (an amount or a percentage, with why), taken off before the tax. The host works out the line's tax, rounded half up, and the quote's totals by rate. At most 50 lines.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -53978,7 +53978,7 @@
           },
           "lines": {
             "description": "Lines to start with (each as quote.addLine / invoice.addLine takes one)",
-            "maxItems": 100,
+            "maxItems": 50,
             "type": "array",
             "items": {
               "type": "object",
@@ -56378,7 +56378,7 @@
               "position": {
                 "type": "integer",
                 "minimum": 0,
-                "maximum": 100
+                "maximum": 50
               }
             }
           }

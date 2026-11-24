@@ -9,6 +9,7 @@
 // included. The event log only grows. Only a person who is an admin changes the settings, and a
 // change of bank details is told to every admin.
 import { env } from "cloudflare:workers";
+import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   type ActingUser,
@@ -62,6 +63,8 @@ beforeAll(async () => {
   ).id as string;
   orgId = (await invoke("organisation.create", { name: unique("Fixture Co") }, context(admin)))
     .id as string;
+  // The organisation's contact is someone at it.
+  await invoke("affiliation.create", { personId, organisationId: orgId }, context(admin));
   // Fixture rates and details: not anyone's real ones.
   await invoke(
     "invoice.settings.update",
@@ -801,5 +804,236 @@ describe("what dashboards and query.sql read", () => {
       context(member),
     );
     expect(sql.rows).toEqual([{ number: row.number, total: invoice.total }]);
+  });
+});
+
+// The review of PR #386: each sequence below was a way round a rule the database is meant to
+// hold. Each test failed before its fix.
+describe("the database's rules hold for any writer", () => {
+  const version = async (table: string, id: string) =>
+    (
+      (await env.DB.prepare(`SELECT version FROM ${table} WHERE id = ?`).bind(id).first()) as {
+        version: number;
+      }
+    ).version;
+
+  it("a draft write that also changes the bill-to is still refused when stale", async () => {
+    const invoice = await draftInvoice();
+    const other = (
+      await invoke(
+        "person.create",
+        { givenName: unique("Other"), emails: [{ email: `${unique("other")}@example.com` }] },
+        context(admin),
+      )
+    ).id as string;
+    // Someone else adds a line (v0 → v1)…
+    await invoke(
+      "invoice.addLine",
+      { id: invoice.id, line: { description: "Added meanwhile", unitPrice: 500 } },
+      context(admin),
+    );
+    // …and a write made from the v0 read, changing the bill-to, comes after: refused.
+    for (const statement of [
+      "UPDATE core_invoice SET person_id = ?2, total = 1000, net_total = 1000, tax_total = 0, version = 1 WHERE id = ?1",
+      "UPDATE core_invoice SET person_id = NULL, title = 'x' WHERE id = ?1",
+      "UPDATE core_invoice SET organisation_id = NULL, total = 1, net_total = 1, tax_total = 0 WHERE id = ?1",
+    ]) {
+      await expect(
+        env.DB.prepare(statement)
+          .bind(...(statement.includes("?2") ? [invoice.id, other] : [invoice.id]))
+          .run(),
+        statement,
+      ).rejects.toThrow(/core_document_stale/);
+    }
+    const read = await invoke("invoice.get", { id: invoice.id }, context(admin));
+    expect(read.total).toBe(invoice.total + 500);
+    expect(read.lines.reduce((sum: number, l: { total: number }) => sum + l.total, 0)).toBe(
+      read.total,
+    );
+  });
+
+  it("a document is never issued with a number outside its series, nor a draft given one", async () => {
+    const first = await issueRaw((await draftInvoice()).id as string);
+    const id = (await draftInvoice()).id as string;
+    for (const statement of [
+      // The number of another, with no seq: a second INV-… the series never gave.
+      `UPDATE core_invoice SET state = 'issued', number = '${first.number}', version = version + 1 WHERE id = ?`,
+      "UPDATE core_invoice SET number = 'INV-7777', version = version + 1 WHERE id = ?",
+    ]) {
+      await expect(env.DB.prepare(statement).bind(id).run(), statement).rejects.toThrow(
+        /core_document_number/,
+      );
+    }
+    // An issued document's printed number never moves away from its seq.
+    await expect(
+      env.DB.prepare("UPDATE core_invoice SET number = 'X-1', version = version + 1 WHERE id = ?")
+        .bind(first.id)
+        .run(),
+    ).rejects.toThrow(/core_document_(number|immutable)/);
+  });
+
+  it("an UPDATE OR REPLACE onto a sent document's number cannot delete it", async () => {
+    const quote = (await invoke("quote.create", { billTo: { personId } }, context(admin)))
+      .id as string;
+    await db.batch(
+      numberStatements(db.query, "quote", quote, await version("core_quote", quote), {
+        state: "sent",
+        sent_at: new Date().toISOString(),
+      }),
+    );
+    const sent = (await env.DB.prepare("SELECT number, number_seq FROM core_quote WHERE id = ?")
+      .bind(quote)
+      .first()) as { number: string; number_seq: number };
+    const draft = (await invoke("quote.create", {}, context(admin))).id as string;
+    await expect(
+      env.DB.prepare(
+        "UPDATE OR REPLACE core_quote SET state = 'sent', number = ?, number_seq = ?, version = version + 1 WHERE id = ?",
+      )
+        .bind(sent.number, sent.number_seq, draft)
+        .run(),
+    ).rejects.toThrow(/core_document_number/);
+    expect(
+      await env.DB.prepare("SELECT state, number FROM core_quote WHERE id = ?").bind(quote).first(),
+    ).toEqual({ state: "sent", number: sent.number });
+    // And a final state stays final.
+    await env.DB.prepare(
+      "UPDATE core_quote SET state = 'accepted', version = version + 1 WHERE id = ?",
+    )
+      .bind(quote)
+      .run();
+    for (const state of ["sent", "declined"]) {
+      await expect(
+        env.DB.prepare("UPDATE core_quote SET state = ?, version = version + 1 WHERE id = ?")
+          .bind(state, quote)
+          .run(),
+      ).rejects.toThrow(/core_document_immutable/);
+    }
+  });
+
+  /** A handle whose next batch runs just after another write to `id` commits (a race lost). */
+  const raced = (id: string) => {
+    let done = false;
+    const DB = new Proxy(env.DB, {
+      get(target, key) {
+        if (key === "batch") {
+          return async (statements: D1PreparedStatement[]) => {
+            if (!done) {
+              done = true;
+              await target
+                .prepare(
+                  "UPDATE core_invoice SET title = 'Changed meanwhile', version = version + 1 WHERE id = ?",
+                )
+                .bind(id)
+                .run();
+            }
+            return target.batch(statements);
+          };
+        }
+        const value = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    return createCrmDb(DB);
+  };
+
+  it("an operation whose read went stale meanwhile changes nothing, bill-to and delete included", async () => {
+    const other = (
+      await invoke(
+        "person.create",
+        { givenName: unique("Racer"), emails: [{ email: `${unique("racer")}@example.com` }] },
+        context(admin),
+      )
+    ).id as string;
+    const invoice = await draftInvoice();
+    const update = await refusal(
+      invoke(
+        "invoice.update",
+        { id: invoice.id, billTo: { personId: other } },
+        context(admin, { db: raced(invoice.id) }),
+      ),
+    );
+    expect(update.details.rule).toBe("document_changed");
+    const deleted = await refusal(
+      invoke("invoice.delete", { id: invoice.id }, context(admin, { db: raced(invoice.id) })),
+    );
+    expect(deleted.details.rule).toBe("document_changed");
+    const kept = await invoke("invoice.get", { id: invoice.id }, context(admin));
+    expect(kept).toMatchObject({ title: "Changed meanwhile", billTo: { personId } });
+    expect(kept.lines).toHaveLength(invoice.lines.length);
+  });
+
+  it("a delete made from an older read deletes nothing", async () => {
+    const invoice = await draftInvoice();
+    const read = await version("core_invoice", invoice.id);
+    await invoke(
+      "invoice.addLine",
+      { id: invoice.id, line: { description: "Added meanwhile", unitPrice: 500 } },
+      context(admin),
+    );
+    // The batch invoice.delete queues from the read before the line was added.
+    await expect(
+      db.batch([
+        db.query
+          .updateTable("core_invoice")
+          .set({ version: read + 1, updated_at: "now", updated_by: admin.id })
+          .where("id", "=", invoice.id),
+        ...invoice.lines.map((l: { id: string }) =>
+          db.query.deleteFrom("core_invoice_line").where("id", "=", l.id),
+        ),
+        db.query.deleteFrom("core_invoice").where("id", "=", invoice.id),
+      ]),
+    ).rejects.toThrow(/core_document_stale/);
+    const kept = await invoke("invoice.get", { id: invoice.id }, context(admin));
+    expect(kept.lines).toHaveLength(3);
+  });
+
+  it("a record's lines are checked as the one order the invoice becomes", async () => {
+    const item = { object: TICKET_TYPE, id: ticket };
+    const cases: [{ item: typeof item; quantity?: number }[], string][] = [
+      [[{ item, quantity: 5000 }], "whole_units"],
+      [[{ item, quantity: 1.5 }], "whole_units"],
+      [[{ item }, { item }], "duplicate_line"],
+    ];
+    for (const [lines, rule] of cases) {
+      const refused = await refusal(invoke("invoice.create", { lines }, context(admin)));
+      expect(refused.details.rule, JSON.stringify(lines)).toBe(rule);
+    }
+    const invoice = await invoke("invoice.create", { lines: [{ item }] }, context(admin));
+    const line = must(invoice.lines[0]);
+    const tooMany = await refusal(
+      invoke(
+        "invoice.updateLine",
+        { lineId: line.id, change: { quantity: 10000 } },
+        context(admin),
+      ),
+    );
+    expect(tooMany.details.rule).toBe("whole_units");
+    const twice = await refusal(
+      invoke("invoice.addLine", { id: invoice.id, line: { item } }, context(admin)),
+    );
+    expect(twice.details.rule).toBe("duplicate_line");
+    // At most an order's lines.
+    const many = Array.from({ length: 51 }, (_, n) => ({ description: `L${n}`, unitPrice: 1 }));
+    expect((await refusal(invoke("invoice.create", { lines: many }, context(admin)))).code).toBe(
+      "invalid_input",
+    );
+  });
+
+  it("an organisation is billed with a contact who is at it", async () => {
+    const stranger = (
+      await invoke(
+        "person.create",
+        { givenName: unique("Stranger"), emails: [{ email: `${unique("str")}@example.com` }] },
+        context(admin),
+      )
+    ).id as string;
+    const refused = await refusal(
+      invoke(
+        "invoice.create",
+        { billTo: { personId: stranger, organisationId: orgId } },
+        context(admin),
+      ),
+    );
+    expect(refused.details.rule).toBe("contact_not_at_organisation");
   });
 });

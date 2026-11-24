@@ -54,7 +54,10 @@ merge; step 4 builds on, or builds, stage 34's shared step "an order paid anothe
   from a record for sale (priced by `priceLines`) or typed; `invoice.events`. Not in this step:
   issuing, sending, `invoice.fromQuote` (step 6), `creditNote.create` (step 5), a price-list item's
   category and own rate (step 10), erase and the purge (step 11). No row of the event log is
-  written yet: each later step writes its own events.
+  written yet: each later step writes its own events. After review: a document holds at most an
+  order's 50 lines, a record's lines are whole units checked together as one order, and until
+  step 11 an erase leaves a draft's text and a merge leaves documents on the merged-away Person
+  (step 11 amends the update triggers for the re-point; ADR 0730).
 
 ## Goal
 
