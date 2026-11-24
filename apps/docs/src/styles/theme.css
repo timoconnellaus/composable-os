@@ -1,0 +1,60 @@
+/* The marketing site's look where Starlight allows (ADR 0465): Poppins, a pale blue frame around a
+   near-white page, navy and lime as accents, light only. Colours are the marketing site's tokens
+   (apps/marketing/src/styles/base.css). */
+:root,
+:root[data-theme="light"] {
+  color-scheme: light;
+  --sl-font: "Poppins", system-ui, sans-serif;
+  --sl-color-accent-low: #d6e6ff;
+  --sl-color-accent: #1554d1;
+  --sl-color-accent-high: #14295c;
+  --sl-color-white: #14161b;
+  --sl-color-gray-1: #14161b;
+  --sl-color-gray-2: #2b3140;
+  --sl-color-gray-3: #475066;
+  --sl-color-gray-4: #5d667a;
+  --sl-color-gray-5: #c6d3e6;
+  --sl-color-gray-6: #dfe7f3;
+  --sl-color-gray-7: #eef4fd;
+  --sl-color-black: #f9fbff;
+  --sl-color-bg-nav: #eaf3fe;
+  --sl-color-bg-sidebar: #eaf3fe;
+  --sl-color-hairline: #dfe7f3;
+  --sl-color-hairline-light: #dfe7f3;
+  --sl-color-text-accent: #1554d1;
+}
+
+h1,
+h2,
+h3,
+.site-title {
+  font-weight: 700;
+  color: #14161b;
+  letter-spacing: -0.01em;
+}
+
+.site-title img {
+  height: 1.4rem;
+  width: auto;
+}
+
+/* The page's one bright accent: lime under the current sidebar entry, as the site's button. */
+nav.sidebar a[aria-current="page"] {
+  background: #d7f75b;
+  color: #14295c;
+  font-weight: 600;
+}
+
+.sl-markdown-content table {
+  font-size: 0.875rem;
+}
+
+.sl-markdown-content code {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 50rem) {
+  .site-title {
+    font-size: 1.05rem;
+  }
+}

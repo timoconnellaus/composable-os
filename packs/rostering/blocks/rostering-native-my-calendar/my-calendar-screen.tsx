@@ -11,10 +11,11 @@ import {
   rosterRefusal,
 } from "@composable-os/pack-rostering/client";
 import { useEffect, useState } from "react";
-import { AppState, Text, View } from "react-native";
+import { AppState, View } from "react-native";
 import { Button } from "../native-base/button.tsx";
 import { Screen } from "../native-base/screen.tsx";
 import { Sheet } from "../native-base/sheet.tsx";
+import { Text } from "../native-base/text.tsx";
 
 type Hooks = Pick<RosteringHooks, "useFeed" | "useFeedRotate" | "useFeedRevoke">;
 
@@ -81,7 +82,11 @@ export function MyCalendarScreen({
         Anyone with it sees your shifts, so do not share it. Calendars fetch it on their own
         schedule, often hours apart: this app is always the latest.
       </Text>
-      {feed.isPending ? <Text accessibilityRole="progressbar">Loading…</Text> : null}
+      {feed.isPending ? (
+        <Text tone="muted" accessibilityRole="progressbar">
+          Loading…
+        </Text>
+      ) : null}
       {feed.error ? (
         <Text accessibilityRole="alert">{rosterRefusal(feed.error).message}</Text>
       ) : null}
@@ -97,8 +102,12 @@ export function MyCalendarScreen({
               label="Copy the address"
               quiet
               onPress={async () => {
-                await copy(address.https);
-                setSaid("Copied.");
+                try {
+                  await copy(address.https);
+                  setSaid("Copied.");
+                } catch {
+                  setSaid("It was not copied. Press and hold the address to copy it.");
+                }
               }}
             />
           ) : null}

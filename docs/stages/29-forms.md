@@ -21,6 +21,44 @@ standing rule that best-practice answers are decided, not asked; the owner may o
 them). Roadmap stage 29, issue #97. Every step may start in the order below; nothing waits for an
 interview.
 
+- Step 1, built: the question schema and answer checking (`packages/sdk/src/questions.ts`:
+  `QUESTIONS_SCHEMA`, `ANSWERS_SCHEMA`, `checkQuestions`, `checkAnswers`). No ADR, no migration.
+- Step 2, built (`feat/stage-29-intake`): the `intake` behaviour in three roles (form, submission,
+  destination; `packages/sdk/src/intake.ts`), refused in a runtime extension; `checkQuestions` on
+  every write of a form; `intake.open` and `intake.submit` (`toolOnly`, `hostInternal`, open to
+  staff, customers and the public, reached only from the form's own pack's tool), in
+  `open-operations.json`; the submitter's Person by the address matcher now shared with
+  `resolveBuyer` (`customers/address-person.ts`), certainty `account`, `staff` or `address`, empty
+  fields only; a destination record; staff told; anonymous submissions with the call forgetting
+  the customer (`ctx.anonymise`); Turnstile with cos-runner's env-only `TURNSTILE_SECRET_KEY`, the
+  honeypot, the fill time by a host-made shown-time token, the caps, the per-mailbox spam rule.
+  ADRs 0720, 0721, 0722 and 0725; no migration. Decided while building: too many links is refused
+  naming the key (criterion 6), not kept as spam; the shown time is keyed from the Turnstile
+  secret, so customers skip it as they skip Turnstile; `intake.open` is the core read a pack's
+  `x.forms.form` calls; `notify` is one user (no field holds several); the hourly cap is the
+  platform's 200 until step 3's settings; Turnstile off on a testing host is Cloudflare's test
+  keys, not a setting. After review: a submission's evidence (form, version, answers, certainty,
+  via, rating) is host-only and only the door creates one; `answeredBy`, `anonymous` and
+  `destination` are read from the published version; `intake.submit` takes the version shown;
+  destination fields are filtered by what the intake lists; an anonymous form forgets the caller
+  before any check; counts use `deleted_at IS NULL`; a raced first answer is told to send again.
+  Not yet tried on a live host.
+- Step 3, built (`feat/stage-29-forms-spine`): the Forms pack (`packs/forms`, ADR 0726): `forms.form`
+  (publishable, slug as its address, kinds enquiry, sign-up, survey, feedback and staff, receipt
+  on by default, a low-rating level) and `forms.submission` (the inbox: new, in hand, done, spam;
+  owner by assignment rules; titled after its form); tools `form`, `submit` (customers and the
+  public), `enter`, `move`, `markSpam`, `notSpam` (staff, `forms:answer`); views (new answers, in
+  hand, spam, "Asked to hear from us", open forms) and Person and form tabs; the hourly cap setting
+  (`personApproves`); the low-rating notice (an automation). Platform: `intake.open` takes a
+  form's `slug`; `intake` gains `hourlyCap` (a form's) and `marketing` (a submission's,
+  host-only). Decided while building: no public scope on a form (the public reads it only through
+  `intake.open`, as a `when` cannot say who may answer); spam moves are `markSpam`'s and
+  `notSpam`'s only, both `personApproves`; a form's status, dates, daily cap and address are
+  `personApproves`; an old address redirects; the low-rating notice goes to the submission's owner,
+  else the admins; the destination is a text no object answers to until step 6; the retention
+  settings wait for step 7 and `x.forms.ask` and `forms:manage` for step 5; the pack is not added
+  to the CRM's packs. Not yet tried on a live host.
+
 ## Goal
 
 A business builds its own forms in the admin, with no developer: an enquiry form ("ask about
@@ -334,8 +372,9 @@ kept 30 days.
    caller gets "try later".
 6. The answers check against the version (types, required, lengths, links). Errors name the
    question key only, never the value.
-7. A submission with more links than the limit, or from an address that sent 5 to this form today
-   (by `mailboxKey`), is kept as `spam` and answered as success.
+7. A submission from an address that sent 5 to this form today (by `mailboxKey`) is kept as
+   `spam` and answered as success. (Settled at step 2: more links than the limit is refused naming
+   the question's key, as criterion 6 says, ADR 0720.)
 
 No client address, user agent or device fingerprint is stored.
 

@@ -21,6 +21,7 @@ import { getObject } from "../fields/index.ts";
 import { newId } from "../ids.ts";
 import type { HandlerContext } from "../operation.ts";
 import { defineOperation } from "../operation.ts";
+import { matchPersonAddresses } from "../outside/match.ts";
 import { jsonList } from "../records/common.ts";
 import { compareTagNames, loadTags, uniqueTagNames } from "../records/tags.ts";
 import type { Reader } from "../visibility/index.ts";
@@ -1048,6 +1049,16 @@ async function planPeople(db: Kysely<CoreDatabase>, input: ImportInput): Promise
       ["id", "person_id", "email", "label", "is_primary", "position", "created_at"],
       emailInserts.map((e) => ({ ...e, created_at: ctx.now })),
     );
+    // An unlinked outside person with one of the new addresses is linked now (ADR 0922): one read
+    // for the whole import when no booking-system list holds them.
+    await matchPersonAddresses(
+      ctx,
+      [...emailsByPerson(emailInserts)].map(([personId, emails]) => ({
+        personId,
+        emails,
+        complete: false,
+      })),
+    );
     queueInsert(
       ctx,
       "core_person_phones",
@@ -1641,3 +1652,13 @@ export const importCsvCommit = defineOperation({
 });
 
 export const importOperations = [importCsvPreview, importCsvCommit] as const;
+
+/** The addresses an import adds, by Person. */
+function emailsByPerson(rows: readonly JsonRow[]): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const e of rows) {
+    const id = e.person_id as string;
+    out.set(id, [...(out.get(id) ?? []), e.email as string]);
+  }
+  return out;
+}

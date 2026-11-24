@@ -12,43 +12,19 @@ import {
   type ActingUser,
   type ExtensionHost,
   type InvocationContext,
-  invokeByName,
   newId,
   refreshSchemaRegistry,
 } from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, unique } from "./helpers.ts";
+import { createAdmin, db, host, queriesOf, refusal, run, unique } from "./helpers.ts";
+import { packFiles } from "./pack-files.ts";
 
-const packFiles = (glob: Record<string, string>) =>
-  Object.fromEntries(
-    Object.entries(glob)
-      .map(([path, text]) => [path.split("/").pop() as string, text] as const)
-      .filter(([name]) => name !== "vitest.config.ts"),
-  );
 const files: Record<string, Record<string, string>> = {
-  programs: packFiles(
-    import.meta.glob<string>("../../../packs/programs/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-  bookings: packFiles(
-    import.meta.glob<string>("../../../packs/bookings/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-  rostering: packFiles(
-    import.meta.glob<string>("../../../packs/rostering/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
+  programs: packFiles("programs"),
+  bookings: packFiles("bookings"),
+  rostering: packFiles("rostering"),
 };
 // A shipped fixture pack whose tool calls Rostering's restricted tool and the host's roster read:
 // a restricted tool is never reached from another extension's code, whoever called it.
@@ -154,21 +130,10 @@ const staff = (extra: Partial<InvocationContext> = {}): InvocationContext => ({
 });
 const asUser = (user: ActingUser, extra: Partial<InvocationContext> = {}) =>
   staff({ user, ...extra });
-const run = <T = Record<string, unknown>>(name: string, input: unknown, ctx: InvocationContext) =>
-  invokeByName(name, input, ctx) as Promise<T>;
 const create = async (object: string, values: Record<string, unknown>) =>
   (await run<{ id: string }>("record.create", { object, values }, staff())).id;
 const get = async (object: string, id: string) =>
   (await run<{ values: Record<string, unknown> }>("record.get", { object, id }, staff())).values;
-async function refusal(promise: Promise<unknown>) {
-  const error = await promise.then(
-    () => null,
-    (e: unknown) => e,
-  );
-  expect(error).toBeTruthy();
-  return error as { code: string; message?: string; details?: Record<string, unknown> };
-}
-
 /** A staff account with the role `role` and nothing else. */
 async function account(name: string, role: "member" | "viewer"): Promise<ActingUser> {
   const id = newId("user");
@@ -599,6 +564,24 @@ describe("the import's dry run (x.rostering.planCheck)", () => {
     );
     expect(error.code).toBe("forbidden");
   });
+
+  it("refuses a date that is not on the calendar, saying so", async () => {
+    for (const plan of [
+      { account: null, date: "2026-02-30", time: "10:00", length: 60 },
+      { account: null, weekdays: ["mon"], time: "06:00", length: 60, firstDate: "2026-13-01" },
+      {
+        account: null,
+        weekdays: ["mon"],
+        time: "06:00",
+        length: 60,
+        firstDate: localDate(0),
+        lastDate: "2026-04-31",
+      },
+    ]) {
+      const error = await refusal(run("x.rostering.planCheck", { plans: [plan] }, staff()));
+      expect(error.message).toMatch(/is not a real date/);
+    }
+  });
 });
 
 // --- pay's people ---------------------------------------------------------------------------------
@@ -621,28 +604,6 @@ describe("who is counted, everyone (x.rostering.payBases)", () => {
 });
 
 // --- What one call reads (ADR 0629: a D1 call runs at most 1,000 queries) -------------------------
-
-/** How many statements `call` prepares against D1 (each query is one). */
-async function queriesOf(
-  call: () => Promise<unknown>,
-): Promise<{ queries: number; outcome: string }> {
-  const d1 = env.DB as unknown as { prepare: (...a: unknown[]) => unknown };
-  const prepare = d1.prepare.bind(d1);
-  let queries = 0;
-  d1.prepare = (...a: unknown[]) => {
-    queries++;
-    return prepare(...a);
-  };
-  try {
-    const outcome = await call().then(
-      () => "ok",
-      (e: { code?: string }) => String(e.code),
-    );
-    return { queries, outcome };
-  } finally {
-    d1.prepare = prepare;
-  }
-}
 
 /** Well under D1's 1,000 a call, for the largest input each takes. */
 const CEILING = 250;
@@ -802,4 +763,34 @@ describe("changing a pattern from a date", () => {
       ),
     ).toContain("pattern_ended");
   });
+});
+
+// --- one person's roster past the limit of one kind ------------------------------------------------
+
+describe("one person's roster in a busy range (x.rostering.mine)", () => {
+  it("keeps their own later shifts when more than 1,000 of others' come first", async () => {
+    const who = await fixedRole(unique("Late Lou"), "rostering.team");
+    const day = 300 * DAY;
+    // 1,001 shifts with nobody on them in the morning, then theirs in the evening.
+    for (let made = 0; made < 1001; made += 50) {
+      const records = Array.from({ length: Math.min(50, 1001 - made) }, (_, i) => {
+        const startsAt = new Date(Date.now() + day + (made + i) * 1000).toISOString();
+        return {
+          duty,
+          startsAt,
+          endsAt: new Date(Date.parse(startsAt) + HOUR).toISOString(),
+          timezone: ZONE,
+        };
+      });
+      await run("record.createMany", { object: SHIFT, records }, staff());
+    }
+    const theirs = await dutyShift(day + 10 * HOUR, who.id);
+    const week = await run<{ shifts: { id: string }[]; truncated: boolean }>(
+      "x.rostering.mine",
+      { from: localDate(day - DAY), to: localDate(day + DAY) },
+      asUser(who),
+    );
+    expect(week.shifts.map((s) => s.id)).toEqual([theirs]);
+    expect(week.truncated).toBe(false);
+  }, 120_000);
 });

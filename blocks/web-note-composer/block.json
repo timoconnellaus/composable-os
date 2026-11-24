@@ -1,0 +1,11 @@
+{
+  "name": "web-note-composer",
+  "pack": null,
+  "skin": "web",
+  "operations": ["note.kinds.list", "activity.log"],
+  "files": ["note-composer.tsx", "LICENSE"],
+  "dependsOn": ["ui-button", "ui-label", "ui-utils"],
+  "packages": {
+    "@composable-os/client": "*"
+  }
+}

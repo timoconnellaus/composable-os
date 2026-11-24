@@ -18,7 +18,9 @@ for (const app of ["apps/app", "apps/runner"]) {
   let vars = readFileSync(target, "utf8")
     .replace(/^BETTER_AUTH_SECRET=$/m, `BETTER_AUTH_SECRET=${randomBytes(32).toString("hex")}`)
     // Customer sign-in locally (its own secret, never the staff one), for the buyer's journey.
-    .replace(/^CUSTOMER_AUTH_SECRET=$/m, `CUSTOMER_AUTH_SECRET=${randomBytes(32).toString("hex")}`);
+    .replace(/^CUSTOMER_AUTH_SECRET=$/m, `CUSTOMER_AUTH_SECRET=${randomBytes(32).toString("hex")}`)
+    // Signing at the desk locally (stage 44 step 6): the desk origin's own secret.
+    .replace(/^DESK_SECRET=$/m, `DESK_SECRET=${randomBytes(32).toString("hex")}`);
   if (app === "apps/app") vars += "\n# Local only: anyone can sign up.\nAUTH_ALLOW_SIGNUP=true\n";
   writeFileSync(target, vars);
   console.log(`created ${app}/.dev.vars`);
@@ -36,6 +38,28 @@ for (const app of ["apps/app", "apps/runner"]) {
         `${vars.replace(/^CUSTOMER_AUTH_SECRET=.*$/m, "").trimEnd()}\n# Local only: customer sign-in.\nCUSTOMER_AUTH_SECRET=${randomBytes(32).toString("hex")}\n`,
       );
       console.log("added CUSTOMER_AUTH_SECRET to apps/app/.dev.vars");
+    }
+  }
+}
+
+// Stage 44 step 6: signing at the desk locally, on http://desk.localhost:<port> (the desk origin is
+// a hostname of its own). Its own secret, never another; added once to a .dev.vars that lacks it.
+{
+  const target = join(root, "apps/app/.dev.vars");
+  if (existsSync(target)) {
+    let vars = readFileSync(target, "utf8");
+    let added = false;
+    if (!/^DESK_SECRET=./m.test(vars)) {
+      vars = `${vars.replace(/^DESK_SECRET=.*$/m, "").trimEnd()}\n# Local only: the desk origin's secret.\nDESK_SECRET=${randomBytes(32).toString("hex")}\n`;
+      added = true;
+    }
+    if (!/^DESK_HOSTNAME=./m.test(vars)) {
+      vars = `${vars.replace(/^DESK_HOSTNAME=.*$/m, "").trimEnd()}\nDESK_HOSTNAME=desk.localhost\n`;
+      added = true;
+    }
+    if (added) {
+      writeFileSync(target, vars);
+      console.log("added the desk's settings to apps/app/.dev.vars");
     }
   }
 }
@@ -192,6 +216,13 @@ execFileSync("pnpm", ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--
       readFileSync(join(root, "packs/rostering", file), "utf8"),
     ]),
   );
+  // And Daily checklists (ADR 0651), which requires nothing, the same way, for its e2e spec.
+  const dailychecks = Object.fromEntries(
+    ["index.ts", "tools.ts"].map((file) => [
+      file,
+      readFileSync(join(root, "packs/dailychecks", file), "utf8"),
+    ]),
+  );
   // And Content (stage 28), the same way, for its e2e spec.
   const content = Object.fromEntries(
     ["index.ts", "tools.ts"].map((file) => [
@@ -233,6 +264,7 @@ execFileSync("pnpm", ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--
       { id: "bookings", version: "0.1.0", optional: true, files: bookings },
       { id: "memberships", version: "0.1.0", optional: true, files: memberships },
       { id: "rostering", version: "0.1.0", optional: true, files: rostering },
+      { id: "dailychecks", version: "0.1.0", optional: true, files: dailychecks },
     ].filter((extension) => asOrgExtension(extension.id)),
   });
   const hash = createHash("sha256").update(text).digest("hex");

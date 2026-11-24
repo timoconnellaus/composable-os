@@ -2,7 +2,7 @@
   "name": "web-account-details",
   "pack": null,
   "skin": "web",
-  "operations": ["me.get", "me.update"],
+  "operations": ["me.get", "me.update", "me.birthday.get", "me.birthday.set"],
   "files": ["details.tsx", "LICENSE"],
   "dependsOn": ["ui-button", "ui-input", "ui-label"],
   "packages": {

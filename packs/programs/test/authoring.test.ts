@@ -112,6 +112,59 @@ describe("reading shorthand", () => {
     expect(validateDocument(LAYOUT_SCHEMA, read.layout)).toMatchObject({ ok: true });
   });
 
+  it("reads an item with an exercise for everyone and levels beside it, and a Kind: line", () => {
+    const both = readProgramText(
+      [
+        "Title: Both",
+        "Kind: client",
+        "Session: Monday",
+        "Block A: 2 rounds",
+        "A1: Hollow hold x 30 sec",
+        "  * everyone holds it",
+        "  1: Ring rows x 5",
+        "  3: Tuck planche x 3 | Pike push throughs x 3",
+        "A2: Ring push ups x 8",
+        "  2: Muscle up x lots",
+      ].join("\n"),
+      bank,
+    );
+    expect(both.kind).toBe("client");
+    const [a1, a2] = both.layout.weeks[0]?.sessions[0]?.blocks[0]?.items ?? [];
+    expect(a1).toEqual({
+      kind: "levels",
+      label: "A1",
+      exercises: [
+        { exercise: idOf("Hollow hold"), sets: Array(2).fill({ kind: "hold", seconds: 30 }) },
+      ],
+      levels: [
+        {
+          mode: "one",
+          level: 1,
+          exercise: { exercise: idOf("Ring rows"), sets: Array(2).fill({ kind: "reps", reps: 5 }) },
+        },
+        {
+          mode: "alternatives",
+          level: 3,
+          exercises: [
+            { exercise: idOf("Tuck planche"), sets: Array(2).fill({ kind: "reps", reps: 3 }) },
+            {
+              exercise: idOf("Pike push throughs"),
+              sets: Array(2).fill({ kind: "reps", reps: 3 }),
+            },
+          ],
+        },
+      ],
+      notes: [{ text: "everyone holds it" }],
+    });
+    // Its only level unread: still everyone's exercise, the line listed.
+    expect(a2).toMatchObject({ kind: "all", label: "A2" });
+    expect(both.unread.map((u) => u.line)).toEqual([10]);
+    expect(validateDocument(LAYOUT_SCHEMA, both.layout)).toMatchObject({ ok: true });
+    expect(readProgramText("Kind: sometimes\nSession: Monday", bank).unread).toMatchObject([
+      { line: 1, reason: "a kind is class, client or course" },
+    ]);
+  });
+
   it("reads targets in the coach's ways of writing them", () => {
     expect(readTarget("8-12", "reps", 1)).toEqual({
       sets: [{ kind: "reps", reps: 8, repsMax: 12 }],
@@ -185,5 +238,33 @@ describe("the tools on the test host", () => {
     }>("importText", { text: SHORTHAND });
     expect(out).toMatchObject({ title: "Strength block", sessions: 2, items: 5 });
     expect(out.unread).toHaveLength(4);
+  });
+
+  it("importText with a key makes one program however often it runs, and a dry run writes nothing", async () => {
+    const h = host();
+    type Out = { programId: string | null; outcome: string; faults: unknown[] };
+    const programsMade = () => [...(h.records.get("programs.program")?.values() ?? [])];
+    const dry = await h.runTool<Out>("importText", {
+      text: SHORTHAND,
+      key: "strength",
+      dryRun: true,
+    });
+    expect(dry).toMatchObject({ programId: null, outcome: "created", faults: [] });
+    expect(programsMade()).toHaveLength(0);
+    const first = await h.runTool<Out>("importText", { text: SHORTHAND, key: "strength" });
+    expect(first.outcome).toBe("created");
+    const again = await h.runTool<Out>("importText", { text: SHORTHAND, key: "strength" });
+    expect(again).toMatchObject({ programId: first.programId, outcome: "unchanged" });
+    const changed = await h.runTool<Out>("importText", {
+      text: SHORTHAND.replace("Title: Strength block", "Title: Strength block two"),
+      key: "strength",
+    });
+    expect(changed).toMatchObject({ programId: first.programId, outcome: "updated" });
+    expect(programsMade()).toHaveLength(1);
+    // A coach's edit since is never overwritten.
+    (programsMade()[0] as Record<string, unknown>).title = "Renamed by the coach";
+    const edited = await h.runTool<Out>("importText", { text: SHORTHAND, key: "strength" });
+    expect(edited).toMatchObject({ programId: first.programId, outcome: "conflict" });
+    expect((programsMade()[0] as Record<string, unknown>).title).toBe("Renamed by the coach");
   });
 });

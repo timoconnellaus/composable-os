@@ -169,3 +169,44 @@ export function isAllowedReturnUrl(url: string, origins: readonly string[]): boo
   const origin = originOf(url);
   return origin !== null && url.length <= 2000 && origins.includes(origin);
 }
+
+// --- Staff discounts (stage 34, ADR 0691) -------------------------------------------------------
+
+/**
+ * How much staff may take off one order on their own (`order.adjust`): a percentage of what the
+ * order costs before adjustments and an amount in minor units, both at once. Above either, the
+ * discount waits for a human admin's approval. Set only by a human admin; until then nothing is
+ * within it, so every staff discount waits.
+ */
+export const ORDER_DISCOUNT_LIMIT_SETTING = "order_discount_limit";
+export const discountLimitSchema = z
+  .object({
+    percent: z.number().min(0).max(100).describe("At most this percentage of the order"),
+    amount: z
+      .number()
+      .int()
+      .min(0)
+      .max(100_000_000)
+      .describe("And at most this much, in the currency's minor unit"),
+  })
+  .strict();
+export type DiscountLimit = z.infer<typeof discountLimitSchema>;
+export const NO_DISCOUNT_LIMIT: DiscountLimit = { percent: 0, amount: 0 };
+
+export async function loadDiscountLimit(db: Kysely<CoreDatabase>): Promise<DiscountLimit> {
+  return (await load(db, ORDER_DISCOUNT_LIMIT_SETTING, discountLimitSchema)) ?? NO_DISCOUNT_LIMIT;
+}
+
+// --- Payments taken another way (stage 34, ADR 0694) ---------------------------------------------
+
+/**
+ * Admins are told of a payment a person records (`order.recordPayment`) for more than this, in
+ * minor units. Set only by a human admin; until then it is nothing, so every recorded payment is
+ * told.
+ */
+export const ORDER_RECORDED_NOTICE_SETTING = "order_recorded_payment_notice";
+export const recordedPaymentNoticeSchema = z.number().int().min(0).max(100_000_000);
+
+export async function loadRecordedPaymentNotice(db: Kysely<CoreDatabase>): Promise<number> {
+  return (await load(db, ORDER_RECORDED_NOTICE_SETTING, recordedPaymentNoticeSchema)) ?? 0;
+}

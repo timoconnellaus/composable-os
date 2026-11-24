@@ -9,9 +9,11 @@ import {
   type ActingUser,
   type AnyOperation,
   coreRegistry,
+  FIXED_ROLE_CORE_GRANTS,
   GRANTABLE_PERMISSIONS,
   type HeldPackRole,
   invoke,
+  type Permission,
   type Role,
   roleLimitsFor,
   type StaffRights,
@@ -20,21 +22,12 @@ import {
   staffRightsReach,
 } from "../src/index.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
-import { auditChanges, context, createUser, unique } from "./helpers.ts";
+import { auditChanges, context, createUser, refusal, unique } from "./helpers.ts";
 
 const EXT = extId("grant");
 const DOC = `${EXT}.doc`;
 let admin: ActingUser;
 let coach: ActingUser;
-
-async function refusal(promise: Promise<unknown>) {
-  try {
-    await promise;
-  } catch (error) {
-    return error as { code: string; message: string; details?: Record<string, unknown> };
-  }
-  throw new Error("expected a refusal");
-}
 
 const publish = async (user: ActingUser, extra: Record<string, unknown> = {}) => {
   const doc = await invoke(
@@ -332,6 +325,13 @@ describe("a pack role and its grants add up, each call by one authority (ADR 060
       const rights: StaffRights = { packRole: role, grants: [granted] };
       for (const op of all) {
         const input = inputFor(op);
+        // The few core grants a fixed role's account may hold open their own operations, and
+        // nothing else (ADR 0783: people:cards, the card operations; ADR 0649: agreements:desk,
+        // the desk session operations).
+        if (FIXED_ROLE_CORE_GRANTS.includes(granted as Permission) && op.permission === granted) {
+          expect(staffAuthority(viewer, rights, op, input), `${granted} ${op.name}`).toBe("grant");
+          continue;
+        }
         expect(staffAuthority(viewer, rights, op, input), `${granted} ${op.name}`).toEqual(
           staffAuthority(viewer, coachOnly, op, input),
         );

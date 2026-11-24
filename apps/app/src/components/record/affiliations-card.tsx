@@ -37,8 +37,8 @@ export interface AffiliationsCardProps {
 }
 
 function period(a: AffiliationItem): string {
-  const from = a.startedOn ? formatDate(`${a.startedOn}T00:00:00`) : null;
-  const to = a.endedOn ? formatDate(`${a.endedOn}T00:00:00`) : a.current ? "now" : null;
+  const from = a.startedOn ? formatDate(a.startedOn) : null;
+  const to = a.endedOn ? formatDate(a.endedOn) : a.current ? "now" : null;
   return from || to ? `${from ?? "?"} – ${to ?? "?"}` : "";
 }
 

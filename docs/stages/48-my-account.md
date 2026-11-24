@@ -29,9 +29,41 @@ beyond the provider's receipt), [#293](https://github.com/timoconnellaus/composa
 and `templates/client/apps/mobile/App.tsx`.
 
 Status: **spec agreed** (owner interviewed 2026-11-24: decisions 1 to 9). Build may start. No
-question for the owner is open. Step 1, the base headless entry and blocks over the existing
-operations, built on `feat/stage-48-account-blocks`, ADR 0714 (written with step 1, where the
-native link to the website is built).
+question for the owner is open.
+
+- Step 1, the base headless entry and blocks over the existing operations, built on
+  `feat/stage-48-account-blocks`, ADR 0714 (written with step 1, where the native link to the
+  website is built).
+- Step 4, `me.attention` and its setting, built on `feat/stage-48-attention`, ADR 0711: the eight
+  kinds worked out in core (`packages/core/src/customers/attention.ts`, the operation in
+  `operations/me-attention.ts`), the setting as `customer.settings` `attentionDays` (stored as
+  `account_attention_days`), `open-operations.json`, the contracts and the template's clients
+  regenerated, and `packages/core/test/me-attention.test.ts` (every kind, each one clearing, the
+  setting at 14, another member's items, a fixed statement count whatever the packs, the family
+  and the documents; after the PR's review, a pass listed only where its customer reads its uses
+  and end, and a version that is not intact left out as `me.agreements.due` does). No migration. The attention
+  block is step 7's.
+
+- Step 5, the portal declaration, built on `feat/stage-48-portal`, ADR 0710 (no migration): the
+  `portal` manifest key and its checks (`portalIssues` in the SDK; `cos ext check` reads each
+  block's `block.json` for its pack, skin, export and that it calls only customer or public
+  operations; a runtime extension's refused at check and install, ignored at run time);
+  `me.portal` (`customers/portal.ts`, the seam's `ownReadSource`, two statements whatever is
+  installed; `packages/core/test/me-portal.test.ts`); the declarations in Bookings, Memberships,
+  Courses, Ticketing and Programs; the release's `contract/roles.json` `portal` with each pack's
+  hooks factory; `cos add` copying the listed packs' section blocks once an app has a shell and
+  writing `src/blocks/account-sections.gen.ts`, `cos upgrade` writing it again; the shells'
+  `usePackSections` and the client's `portalSections`, so a shell shows what `me.portal` lists.
+  Courses' my-courses blocks and Ticketing's native my-tickets block take their callback as
+  optional, so a section renders with the pack's hooks alone.
+
+- Step 6, the delete preview and its consequences, built on `feat/stage-48-delete-account`, ADR
+  0713 (amends 0402; no migration): `me.deleteAccount` without `confirm` says what will happen,
+  with `confirm` and `expect` it ends the subscriptions the member pays at period end, cancels
+  their unpaid orders, then disables, signs out and opens the erase request, and the admins'
+  notice says what was left (`customers/account-delete.ts`). A subscription under a cooling off
+  ends with it, and one with a later end date at the provider is left for staff and said to
+  charge. The recent sign-in before deleting is step 2's.
 
 Vocabulary: "My account" is the customer's own area on the business's website and in its app.
 The draft called it the customer portal; "portal" stays only as the name of the manifest key and

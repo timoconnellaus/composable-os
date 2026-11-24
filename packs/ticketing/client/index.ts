@@ -72,33 +72,41 @@ export type TicketingClient = PackClient<TicketingOperations>;
 
 // --- Plain functions ------------------------------------------------------------------------------
 
+const digitsByCurrency = new Map<string, number>();
+
 /**
  * How many decimal places `currency` has (2 for AUD, 0 for JPY), for display. The currency is
  * always the host's, from the data (a ticket type's `currency`, an order's): never the app's.
+ * Asked once per currency: a list of prices asks it for every line.
  */
 export function currencyDigits(currency: string | null | undefined): number {
   if (!currency) return 2;
-  try {
-    return (
-      new Intl.NumberFormat("en", { style: "currency", currency }).resolvedOptions()
-        .maximumFractionDigits ?? 2
-    );
-  } catch {
-    return 2;
+  let digits = digitsByCurrency.get(currency);
+  if (digits === undefined) {
+    try {
+      digits =
+        new Intl.NumberFormat("en", { style: "currency", currency }).resolvedOptions()
+          .maximumFractionDigits ?? 2;
+    } catch {
+      digits = 2;
+    }
+    digitsByCurrency.set(currency, digits);
   }
+  return digits;
 }
+
+const withCurrency = (amount: string, currency: string | null) =>
+  currency ? `${amount} ${currency}` : amount;
 
 /** An amount in the minor unit as the buyer reads it: `450.00 AUD`. Display only. */
 export function formatMoney(minor: number, currency: string | null): string {
   const digits = currencyDigits(currency);
-  return `${(minor / 10 ** digits).toFixed(digits)}${currency ? ` ${currency}` : ""}`;
+  return withCurrency((minor / 10 ** digits).toFixed(digits), currency);
 }
 
 /** A ticket type's price (major unit, as the record holds it) as the buyer reads it. */
 export function formatPrice(price: number | null, currency: string | null): string {
-  return price === null
-    ? ""
-    : `${price.toFixed(currencyDigits(currency))}${currency ? ` ${currency}` : ""}`;
+  return price === null ? "" : withCurrency(price.toFixed(currencyDigits(currency)), currency);
 }
 
 /** The viewer's own time zone, as their device reports it. */
@@ -166,13 +174,12 @@ export function eventDay(event: { startsAt: string | null; timeZone: string | nu
   const at = new Date(event.startsAt);
   if (Number.isNaN(at.getTime())) return "";
   try {
-    const parts = new Intl.DateTimeFormat("en-CA", {
+    return new Intl.DateTimeFormat("en-CA", {
       timeZone: event.timeZone ?? viewerTimeZone(),
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
     }).format(at);
-    return parts;
   } catch {
     return event.startsAt.slice(0, 10);
   }
@@ -202,6 +209,17 @@ export function availabilityLabel(availability: TicketTypeOnSale["availability"]
     return `Only ${availability.available} left`;
   }
   return null;
+}
+
+const TICKET_STATE_LABELS: Readonly<Record<string, string>> = {
+  valid: "Valid",
+  used: "Used",
+  void: "Cancelled",
+};
+
+/** A ticket's state as its holder reads it (a void ticket is "Cancelled"). Display only. */
+export function ticketStateLabel(state: string | null): string | null {
+  return state === null ? null : (TICKET_STATE_LABELS[state] ?? state);
 }
 
 /** Quantities chosen, by ticket type id. */
@@ -292,12 +310,15 @@ export type UseQuery = <T>(options: {
 export type UseMutation = <I, O>(options: {
   mutationKey: readonly unknown[];
   mutationFn: (input: I) => Promise<O>;
+  gcTime?: number;
 }) => {
   mutate(input: I): void;
   mutateAsync(input: I): Promise<O>;
   data: O | undefined;
   isPending: boolean;
   error: unknown;
+  /** Forgets the call: its variables and its answer (TanStack Query's `reset`). */
+  reset?: () => void;
 };
 
 /** The app's `useState`. */
@@ -365,13 +386,15 @@ function allTicketingHooks(
         lines,
         estimate: event ? estimate(event, quantities) : { full: 0, deposit: null, currency: null },
         empty: lines.length === 0,
-        max: (type: TicketTypeOnSale) => pickerMax(type),
+        max: pickerMax,
         clear: () => setQuantities({}),
       };
     },
     /** Starts the order through the host, which prices it and holds the places. */
     useStartOrder() {
-      return useMutation(api.mutation("x.ticketing.orderStart"));
+      // A visitor's agreements (a name typed, a signature, health answers) go in this call:
+      // not kept in the app's cache once it is over (stage 44, issue #292).
+      return useMutation({ ...api.mutation("x.ticketing.orderStart"), gcTime: 0 });
     },
     /** Opens the payment provider's page for an order (the first payment, or a balance). */
     useCheckout() {

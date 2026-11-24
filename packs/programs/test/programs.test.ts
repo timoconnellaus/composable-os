@@ -73,6 +73,19 @@ function layout(): Layout {
                       },
                     ],
                   },
+                  {
+                    // An exercise for everyone, and levels beside it.
+                    kind: "levels",
+                    label: "A3",
+                    exercises: [{ exercise: hollow, sets: [{ kind: "time", seconds: 30 }] }],
+                    levels: [
+                      {
+                        mode: "one",
+                        level: 2,
+                        exercise: { exercise: row, sets: [{ kind: "reps", reps: 6 }] },
+                      },
+                    ],
+                  },
                 ],
               },
             ],
@@ -220,6 +233,36 @@ describe("logging and reading, as a coach", () => {
     const first = [...(host.records.get("programs.session")?.values() ?? [])][0] as { id: string };
     return { host, assignmentId: out.assignmentId, session: first.id };
   }
+
+  it("logs a set once however often it is saved, and takes it back", async () => {
+    const { host, session } = await assigned({ personId: "per_ada" });
+    const set = { sessionId: session, item: "A2", setNumber: 1 };
+    const first = await host.runTool<{ id: string }>(
+      "logAdd",
+      { ...set, actual: { reps: 8, load: 20 }, rpe: 7 },
+      { caller: STAFF },
+    );
+    const again = await host.runTool<{ id: string; actual: unknown; rpe: number | null }>(
+      "logAdd",
+      { ...set, actual: { reps: 6, load: 22.5 } },
+      { caller: STAFF },
+    );
+    expect(again).toMatchObject({ id: first.id, actual: { reps: 6, load: 22.5 }, rpe: null });
+    const logs = () => [...(host.records.get("programs.log")?.values() ?? [])];
+    expect(logs()).toHaveLength(1);
+    expect(logs()[0]).toMatchObject({ setKey: `${session}/A2/${row}/1` });
+    const remove = { ...set, exerciseId: row };
+    expect(await host.runTool("logRemove", remove, { caller: STAFF })).toEqual({
+      removed: 1,
+      waiting: 0,
+    });
+    // Taken back already: a retry changes nothing.
+    expect(await host.runTool("logRemove", remove, { caller: STAFF })).toEqual({
+      removed: 0,
+      waiting: 0,
+    });
+    expect(logs()).toHaveLength(0);
+  });
 
   it("logs a set against its target, says who recorded it, and reads it back", async () => {
     const { host, session } = await assigned({ personId: "per_ada" });
@@ -372,5 +415,37 @@ describe("logging and reading, as a coach", () => {
       { caller: STAFF },
     );
     expect(set).toMatchObject({ level: 1, target: { reps: 5 } });
+  });
+
+  it("an item with an exercise for everyone and levels: each logged against its own target", async () => {
+    const { host, session } = await assigned({ classTypeId: "rec_hand" });
+    const log = (input: Record<string, unknown>) =>
+      host.runTool<Record<string, unknown>>(
+        "logAdd",
+        { sessionId: session, item: "A3", setNumber: 1, personId: "per_ada", ...input },
+        { caller: STAFF },
+      );
+    // Everyone's exercise needs no level; with the level taken, it keeps it.
+    expect(await log({ exerciseId: hollow, actual: { seconds: 30 } })).toMatchObject({
+      exercise: hollow,
+      level: null,
+      target: { seconds: 30 },
+    });
+    expect(await log({ exerciseId: hollow, level: 2, actual: { seconds: 25 } })).toMatchObject({
+      exercise: hollow,
+      level: 2,
+    });
+    expect(await log({ level: 2, exerciseId: row, actual: { reps: 6 } })).toMatchObject({
+      exercise: row,
+      level: 2,
+      target: { reps: 6 },
+    });
+    // The level's exercise needs its level, and a level the item does not have is refused.
+    await expect(log({ exerciseId: row, actual: { reps: 6 } })).rejects.toMatchObject({
+      code: "invalid_input",
+    });
+    await expect(
+      log({ level: 4, exerciseId: hollow, actual: { seconds: 5 } }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
   });
 });

@@ -2,10 +2,10 @@
 // pressing one opens it to log on their behalf (`onOpen`, to the session screen with `personId`).
 // Logging for a client is the host's; the row records the coach.
 import type { ProgramsHooks } from "@composable-os/pack-programs/client";
-import { Text } from "react-native";
 import { List } from "../native-base/list.tsx";
 import { Row } from "../native-base/row.tsx";
 import { Screen } from "../native-base/screen.tsx";
+import { Text } from "../native-base/text.tsx";
 
 export function CoachClientScreen({
   programs,
@@ -21,7 +21,16 @@ export function CoachClientScreen({
   const sessions = programs.useClientSessions(personId);
   return (
     <Screen title={name}>
-      {sessions.isPending ? <Text>Loading…</Text> : null}
+      {sessions.isPending ? (
+        <Text tone="muted" accessibilityRole="progressbar">
+          Loading…
+        </Text>
+      ) : null}
+      {sessions.error ? (
+        <Text tone="danger" accessibilityRole="alert">
+          We could not load their sessions. Check the connection and try again.
+        </Text>
+      ) : null}
       {sessions.data ? (
         <List empty="No sessions yet.">
           {sessions.data.items.map((s) => (

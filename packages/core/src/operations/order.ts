@@ -14,12 +14,23 @@
 //   order.honourLate       staff (a person, orders:refund)   keep a late payment
 //   order.refund           staff (orders:refund)             ask for a refund; a person approves
 //   order.payments         staff                             checkouts, payments and refunds
+//   order.adjust           staff (orders:discount)           money off a pending order, with a reason;
+//                                                            over the limit, or from an AI, a human
+//                                                            admin approves (ADR 0691)
+//   order.unadjust         staff (orders:discount)           take that money off again
+//   order.recordPayment    staff (a person, orders:payments) a payment taken another way (ADR 0694)
+//   order.reversePayment   staff (a person, orders:payments) undo one entered in error
+//   order.recordRefund     staff (a person, orders:refund)   money paid back on a recorded payment
 //   order.startHeld        a pack's tool: staff, customers, the public   a record made with its order
 //   order.applyPaymentEvent, order.expireDue, order.refundDue the host's own (actor automation)
 //   order.settings.*       staff; changed by a human admin only
 //
-// No operation here takes a price, a total or an amount paid, and none makes an order paid: that
-// is `applyVerifiedPayment` (orders/payments.ts), which is not an operation.
+// No operation here takes a price or a total. Two functions make an order paid, and neither is an
+// operation: `applyVerifiedPayment` (the provider's payment the gatekeeper verified) and
+// `applyOtherPayment` (orders/payments.ts, ADR 0694), which only order.recordPayment calls here: a
+// person with `orders:payments` saying they received an amount, never more than is owed. The other
+// amount a caller names is a staff discount's (order.adjust): money off, given by a person with
+// `orders:discount` and a reason, within a limit only a human admin sets.
 //
 // order.start, order.view, order.cancel and order.checkout are `hostInternal` (ADR 0428): the host itself starts
 // and changes the order for a caller outside the org, so they keep the database. They touch only
@@ -54,32 +65,49 @@ import {
   ORDER_MAX_LINES,
   ORDER_MAX_QUANTITY,
   type OrderRow,
+  OVERDUE_LIMIT,
   overdueOrders,
   type PricedLine,
   requireState,
 } from "../orders/orders.ts";
+import { applyOtherPayment, RECORDED_KINDS, reverseOtherPayment } from "../orders/payments.ts";
 import { requestDueRefund } from "../orders/refund-due.ts";
-import { refundablePayments, requestRefund } from "../orders/refunds.ts";
+import { recordRefund, refundablePayments, requestRefund } from "../orders/refunds.ts";
 import {
   currencySchema,
+  discountLimitSchema,
+  loadDiscountLimit,
   loadMinPartPayment,
   loadOrderCurrency,
   loadOrderExpiryMinutes,
   loadOrderTax,
   loadOrderTaxCodes,
+  loadRecordedPaymentNotice,
   loadReturnOrigins,
   minPartPaymentSchema,
   ORDER_CURRENCY_SETTING,
+  ORDER_DISCOUNT_LIMIT_SETTING,
   ORDER_EXPIRY_SETTING,
   ORDER_MIN_PART_SETTING,
+  ORDER_RECORDED_NOTICE_SETTING,
   ORDER_RETURN_ORIGINS_SETTING,
   ORDER_TAX_CODES_SETTING,
   ORDER_TAX_SETTING,
   orderExpiryMinutesSchema,
+  recordedPaymentNoticeSchema,
   returnOriginsSchema,
   taxCodesSchema,
 } from "../orders/settings.ts";
+import {
+  type AdjustmentRow,
+  giveStaffDiscount,
+  liveAdjustments,
+  type Repriced,
+  removeAdjustment,
+  staffDiscountWithinLimit,
+} from "../orders/staff-discounts.ts";
 import { taxCodeOf } from "../orders/tax.ts";
+import { placedAs } from "../principals.ts";
 import { callerMover } from "../records/lifecycle.ts";
 import type { VisibleRecord } from "../visibility/records.ts";
 
@@ -99,6 +127,22 @@ const lineSchema = z.object({
   taxAmount: z
     .number()
     .describe("The tax inside this line's payments, as the payment provider calculated it"),
+  discount: z
+    .number()
+    .describe("The line's share of the order's discounts: it costs total less this"),
+});
+
+/** Money off an order, as staff read it (ADR 0690). */
+const adjustmentSchema = z.object({
+  id: z.string(),
+  lineId: z.string().nullable().describe("The line it is on; null: spread over the order"),
+  kind: z.enum(["code", "automatic", "staff", "referral"]),
+  amount: z.number().describe("What it took off, in the currency's minor unit"),
+  percent: z.number().nullable().describe("The percentage asked for, when it was one"),
+  reason: z.string().nullable(),
+  givenBy: z.string().nullable().describe("The staff account that gave it"),
+  approval: z.string().nullable().describe("The approval it waited in, when it did"),
+  createdAt: z.string(),
 });
 
 /**
@@ -127,7 +171,14 @@ export const orderSchema = z.object({
     ),
   taxRefunded: z.number().describe("The tax the provider said went back with refunds"),
   taxCountry: z.string().nullable().describe("The country the latest taxed payment was for"),
+  discount: z
+    .number()
+    .describe("Money taken off the order (its discounts), already out of the total"),
   lines: z.array(lineSchema),
+  adjustments: z
+    .array(adjustmentSchema)
+    .optional()
+    .describe("Staff only: the discounts on the order, in the order they were given"),
   personId: z.string().nullable().optional(),
   email: z.string().nullable().optional(),
   placedAs: z.enum(["customer", "public", "staff"]).optional(),
@@ -155,6 +206,7 @@ function fromRow(row: OrderRow, lines: readonly Order["lines"][number][], staff:
     taxAmount: row.tax_amount,
     taxRefunded: row.tax_refunded,
     taxCountry: row.tax_country,
+    discount: row.discount,
     lines: [...lines],
     ...(staff ? { personId: row.person_id, email: row.email, placedAs: row.placed_as } : {}),
   };
@@ -170,6 +222,7 @@ const toLine = (line: PricedLine): Order["lines"][number] => ({
   unitPrice: line.unitPrice,
   total: line.total,
   taxAmount: 0,
+  discount: line.discount,
 });
 
 /** The lines of an order the host has already established the caller may see. */
@@ -190,8 +243,21 @@ async function linesOf(ctx: HandlerContext, id: string): Promise<Order["lines"]>
     unitPrice: row.unit_price,
     total: row.line_total,
     taxAmount: row.tax_amount,
+    discount: row.line_discount,
   }));
 }
+
+const toAdjustment = (row: AdjustmentRow): z.infer<typeof adjustmentSchema> => ({
+  id: row.id,
+  lineId: row.line_id,
+  kind: row.kind,
+  amount: row.amount,
+  percent: row.percent,
+  reason: row.reason,
+  givenBy: row.given_by,
+  approval: row.approval,
+  createdAt: row.created_at,
+});
 
 const text = (value: unknown) => (value == null ? null : String(value));
 
@@ -215,6 +281,7 @@ function fromRecord(record: VisibleRecord, staff: boolean): Omit<Order, "lines">
     taxAmount: v.taxAmount ?? 0,
     taxRefunded: v.taxRefunded ?? 0,
     taxCountry: text(v.taxCountry),
+    discount: v.discount ?? 0,
     ...(staff ? { personId: text(v.personId), email: text(v.email), placedAs: v.placedAs } : {}),
   });
 }
@@ -246,6 +313,7 @@ async function throughSeam(ctx: HandlerContext, id: string): Promise<Order> {
     taxAmount: v.taxAmount ?? 0,
     taxRefunded: v.taxRefunded ?? 0,
     taxCountry: text(v.taxCountry),
+    discount: v.discount ?? 0,
     lines: page.items.map((line) => ({
       id: line.id,
       position: line.values.position,
@@ -256,7 +324,9 @@ async function throughSeam(ctx: HandlerContext, id: string): Promise<Order> {
       unitPrice: line.values.unitPrice,
       total: line.values.total,
       taxAmount: line.values.taxAmount ?? 0,
+      discount: line.values.discount ?? 0,
     })),
+    ...(staff ? { adjustments: (await liveAdjustments(ctx.db, id)).map(toAdjustment) } : {}),
     ...(staff ? { personId: text(v.personId), email: text(v.email), placedAs: v.placedAs } : {}),
   });
 }
@@ -355,7 +425,7 @@ export const orderStart = defineOperation({
       lines: input.lines,
       personId,
       email,
-      placedAs: caller.kind,
+      placedAs: placedAs(caller),
       pay: input.pay,
       accessHash: token ? await hashOrderToken(token) : null,
       agreements: input.agreements,
@@ -582,7 +652,7 @@ export const orderOverdue = defineOperation({
     "List part-paid orders whose balance is past its due date, oldest first. Nothing happens to " +
     "them by itself: extend the date (order.extendBalanceDue), cancel (order.cancel), or the " +
     "buyer pays. Read-only.",
-  input: z.object({ limit: z.number().int().min(1).max(200).default(50) }),
+  input: z.object({ limit: z.number().int().min(1).max(OVERDUE_LIMIT).default(50) }),
   output: z.object({ items: z.array(orderSchema.omit({ lines: true })) }),
   permission: "records:read",
   risk: "read",
@@ -808,9 +878,10 @@ export const orderRefund = defineOperation({
 export const orderPayments = defineOperation({
   name: "order.payments",
   description:
-    "An order's money in detail, for staff: each checkout opened, each verified payment (applied, " +
-    "late or not matching) and each refund (asked for or confirmed), with what can still be " +
-    "refunded per payment. Amounts are in the currency's minor unit. Read-only.",
+    "An order's money in detail, for staff: each checkout opened, each payment (the provider's, " +
+    "applied, late or not matching; or one a person recorded, and its reversal) and each refund " +
+    "(asked for or confirmed), with what can still be refunded per payment. Amounts are in the " +
+    "currency's minor unit. Read-only.",
   input: z.object({ id: orderId }),
   output: z.object({
     checkouts: z.array(
@@ -835,6 +906,18 @@ export const orderPayments = defineOperation({
         receivedAt: z.string(),
         taxAmount: z.number().nullable().describe("The provider's tax on it; null: not taxed"),
         taxCountry: z.string().nullable(),
+        method: z
+          .string()
+          .describe("provider (the payment page), or recorded (taken another way by a person)"),
+        recordedKind: z.string().nullable().describe("A recorded one: transfer, cash, …"),
+        recordedBy: z.string().nullable().describe("A recorded one: who received it"),
+        receivedOn: z.string().nullable(),
+        reference: z.string().nullable(),
+        reverses: z
+          .string()
+          .nullable()
+          .describe("A reversal: the payment it takes back off (its amount is negative)"),
+        reason: z.string().nullable().describe("A reversal's reason"),
       }),
     ),
     refunds: z.array(
@@ -851,10 +934,17 @@ export const orderPayments = defineOperation({
           .number()
           .nullable()
           .describe("The tax it gave back, when the provider said; null: not said"),
+        method: z.string().describe("provider, or recorded (paid back by a person)"),
+        recordedKind: z.string().nullable(),
       }),
     ),
     refundable: z.array(
-      z.object({ paymentRef: z.string(), paid: z.number(), refundable: z.number() }),
+      z.object({
+        paymentRef: z.string(),
+        method: z.string(),
+        paid: z.number(),
+        refundable: z.number(),
+      }),
     ),
   }),
   permission: "records:read",
@@ -903,6 +993,13 @@ export const orderPayments = defineOperation({
         receivedAt: p.received_at,
         taxAmount: p.tax_amount,
         taxCountry: p.tax_country,
+        method: p.method,
+        recordedKind: p.recorded_kind,
+        recordedBy: p.recorded_by,
+        receivedOn: p.received_on,
+        reference: p.reference,
+        reverses: p.reverses,
+        reason: p.reason,
       })),
       refunds: refunds.map((r) => ({
         id: r.id,
@@ -914,13 +1011,278 @@ export const orderPayments = defineOperation({
         createdAt: r.created_at,
         confirmedAt: r.confirmed_at,
         taxAmount: r.tax_amount,
+        method: r.method,
+        recordedKind: r.recorded_kind,
       })),
       refundable: refundable.map((r) => ({
         paymentRef: r.paymentRef,
+        method: r.method,
         paid: r.paid,
         refundable: r.refundable,
       })),
     };
+  },
+});
+
+// --- Payments taken another way (stage 34, ADR 0694) ---------------------------------------------
+
+const recordedKind = z
+  .enum(RECORDED_KINDS)
+  .describe("How it was paid: transfer, cash, cheque, card_machine or other");
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "A date is YYYY-MM-DD");
+
+/** How far back a recorded payment's day may be. */
+const RECEIVED_DAYS_BACK = 366;
+
+/**
+ * A real calendar day, no later than tomorrow in UTC (today wherever the business is) and at most
+ * a year back: a payment is recorded once received, and soon after (review of PR #426).
+ */
+function receivedDayOk(day: string, now: string): boolean {
+  const at = Date.parse(`${day}T00:00:00Z`);
+  if (Number.isNaN(at) || new Date(at).toISOString().slice(0, 10) !== day) return false;
+  const today = Date.parse(`${now.slice(0, 10)}T00:00:00Z`);
+  return at <= today + 86_400_000 && at >= today - RECEIVED_DAYS_BACK * 86_400_000;
+}
+
+const paidAnotherWay = z.object({
+  paymentId: z.string(),
+  order: orderSchema,
+});
+
+export const orderRecordPayment = defineOperation({
+  name: "order.recordPayment",
+  description:
+    "Record a payment taken another way than the payment page (a bank transfer, cash, a " +
+    "cheque, a card machine) on an order still owed money: any amount up to what is owed, never " +
+    "more (a drop-in that books a place is paid in full). The order becomes paid (or part paid) " +
+    "as if the provider had been paid, and what it bought is given. The payment names you as " +
+    "the person who received it. Admins are told of one over the amount an admin set, or when " +
+    "the buyer had opened a payment page (a payment made there now is refunded). A person only, with the permission to record payments: " +
+    "AI assistants, MCP clients, automations and extensions are refused. Returns the payment's " +
+    "id and the order.",
+  input: z.object({
+    id: orderId,
+    amount: z
+      .number()
+      .int()
+      .min(1)
+      .max(100_000_000)
+      .describe("What was received, in the currency's minor unit (cents)"),
+    kind: recordedKind,
+    receivedOn: isoDate.describe("The day it was received (YYYY-MM-DD)"),
+    reference: z
+      .string()
+      .trim()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe("The payer's reference: a bank reference, a cheque number"),
+  }),
+  output: paidAnotherWay,
+  permission: "orders:payments",
+  risk: "write",
+  actors: ["human"],
+  mcp: { expose: false },
+  auditSummary: (output, input) => ({
+    id: input.id,
+    paymentId: output.paymentId,
+    amount: input.amount,
+    kind: input.kind,
+  }),
+  async handler(input, ctx) {
+    if (!receivedDayOk(input.receivedOn, ctx.now)) {
+      throw new ValidationError(
+        "The day received is a real day, not after today and at most a year ago",
+        { field: "receivedOn", rule: "received_on" },
+      );
+    }
+    const paid = await applyOtherPayment(ctx, {
+      orderId: input.id,
+      amount: input.amount,
+      payment: {
+        method: "recorded",
+        kind: input.kind,
+        // Who received it is the caller, never input.
+        recordedBy: ctx.user.id,
+        receivedOn: input.receivedOn,
+        reference: input.reference ?? null,
+      },
+    });
+    return {
+      paymentId: paid.paymentId,
+      order: fromRow(paid.order, await linesOf(ctx, paid.order.id), true),
+    };
+  },
+});
+
+export const orderReversePayment = defineOperation({
+  name: "order.reversePayment",
+  description:
+    "Reverse a payment recorded in error (order.recordPayment): a second entry takes it back " +
+    "off, nothing is deleted, and an order it had paid is part paid again with the amount owed. " +
+    "What the order gave stays: take the right payment or cancel the order. A drop-in's booking " +
+    "is cancelled first. Not for the payment " +
+    "provider's payments (refund those). Admins are told. A person only, with the permission to " +
+    "record payments. Get the payment's id from order.payments. Returns the reversal's id and " +
+    "the order.",
+  input: z.object({
+    paymentId: z.string().min(1).max(64).describe("The recorded payment (opy_…)"),
+    reason: z.string().trim().min(1).max(500).describe("Why it was entered in error"),
+  }),
+  output: paidAnotherWay,
+  permission: "orders:payments",
+  risk: "write",
+  actors: ["human"],
+  mcp: { expose: false },
+  auditSummary: (output, input) => ({
+    paymentId: input.paymentId,
+    reversalId: output.paymentId,
+    id: output.order.id,
+  }),
+  async handler(input, ctx) {
+    const reversed = await reverseOtherPayment(ctx, {
+      paymentId: input.paymentId,
+      reason: input.reason,
+      reversedBy: ctx.user.id,
+    });
+    return {
+      paymentId: reversed.reversalId,
+      order: fromRow(reversed.order, await linesOf(ctx, reversed.order.id), true),
+    };
+  },
+});
+
+export const orderRecordRefund = defineOperation({
+  name: "order.recordRefund",
+  description:
+    "Record money paid back by hand on a payment that was recorded (taken by transfer, cash and " +
+    "so on): how it went back, how much (default: all that is left on that payment) and why. " +
+    "Nothing is sent: you say you paid it. The order is refunded once everything paid has gone " +
+    "back. Payments made on the payment page are refunded with order.refund instead. A person " +
+    "only, with the refund permission. Returns the refund and the order.",
+  input: z.object({
+    id: orderId,
+    paymentId: z.string().min(1).max(64).describe("The recorded payment it went back on (opy_…)"),
+    amount: z.number().int().positive().optional().describe("Minor units; default all"),
+    kind: recordedKind.describe(
+      "How it was paid back: transfer, cash, cheque, card_machine or other",
+    ),
+    reference: z.string().trim().min(1).max(200).optional().describe("Its reference, if any"),
+    reason: z.string().trim().min(1).max(500).describe("Why, in staff's words"),
+  }),
+  output: z.object({ refundId: z.string(), amount: z.number(), order: orderSchema }),
+  permission: "orders:refund",
+  risk: "write",
+  actors: ["human"],
+  mcp: { expose: false },
+  auditSummary: (output, input) => ({
+    id: input.id,
+    paymentId: input.paymentId,
+    refundId: output.refundId,
+    amount: output.amount,
+  }),
+  async handler(input, ctx) {
+    const row = await loadOrderRow(ctx.db, input.id);
+    const done = await recordRefund(ctx, row, {
+      paymentId: input.paymentId,
+      amount: input.amount,
+      kind: input.kind,
+      reference: input.reference ?? null,
+      reason: input.reason,
+    });
+    return {
+      refundId: done.refundId,
+      amount: done.amount,
+      order: fromRow(done.order, await linesOf(ctx, done.order.id), true),
+    };
+  },
+});
+
+// --- Staff discounts (stage 34, ADR 0691) -------------------------------------------------------
+
+const adjustInput = z
+  .object({
+    id: orderId,
+    lineId: z
+      .string()
+      .min(1)
+      .max(64)
+      .optional()
+      .describe(
+        "The line to take it off (orl_…). Left out: the whole order, spread over its lines",
+      ),
+    percent: z
+      .number()
+      .gt(0)
+      .max(100)
+      .multipleOf(0.01)
+      .optional()
+      .describe("A percentage off what is left to pay, rounded down on each line. Or pass amount"),
+    amount: z
+      .number()
+      .int()
+      .min(1)
+      .max(100_000_000)
+      .optional()
+      .describe("An amount off, in the currency's minor unit (cents). Or pass percent"),
+    reason: z.string().trim().min(1).max(500).describe("Why: shown to staff on the order"),
+  })
+  .refine((v) => (v.percent === undefined) !== (v.amount === undefined), {
+    message: "Pass percent or amount, not both",
+  });
+
+/** The order as a change to its adjustments leaves it: its lines' shares are not written yet. */
+async function repriced(ctx: HandlerContext, result: Repriced): Promise<Order> {
+  const lines = await linesOf(ctx, result.order.id);
+  return fromRow(
+    result.order,
+    lines.map((line) => ({ ...line, discount: result.discounts.get(line.id) ?? line.discount })),
+    true,
+  );
+}
+
+export const orderAdjust = defineOperation({
+  name: "order.adjust",
+  description:
+    "Give a discount on a pending order whose payment page has not opened: a percentage or an " +
+    "amount, off one line or the whole order, with a reason. Within the limit an admin set it " +
+    "applies at once and the order's total drops; above it, the discount waits in the Approvals " +
+    "inbox for an admin, and the order cannot be paid until it is decided. An AI's request " +
+    "always waits. A discount cannot take an order to nothing. Returns the order.",
+  input: adjustInput,
+  output: orderSchema,
+  permission: "orders:discount",
+  risk: "write",
+  actors: ["human", "assistant", "mcp"],
+  // An AI asks; a person decides (ADR 0480): whatever the preset or the amount.
+  alwaysReview: ["assistant", "mcp"],
+  // A person's discount over the limit a human admin set waits for an admin.
+  reviewWhen: (input, db) => staffDiscountWithinLimit(db, input).then((within) => !within),
+  async handler(input, ctx) {
+    return repriced(ctx, await giveStaffDiscount(ctx, input.id, input));
+  },
+});
+
+export const orderUnadjust = defineOperation({
+  name: "order.unadjust",
+  description:
+    "Take a discount off a pending order whose payment page has not opened: the order's total " +
+    "goes back up by what it took off. Get the discount's id from order.get. An AI's request " +
+    "always waits for an admin. Returns the order.",
+  input: z.object({
+    id: orderId,
+    adjustmentId: z.string().min(1).max(64).describe("The discount to take off (oad_…)"),
+  }),
+  output: orderSchema,
+  permission: "orders:discount",
+  risk: "write",
+  actors: ["human", "assistant", "mcp"],
+  // Raising the price a customer was given, perhaps undoing an admin's approval: an AI asks, a
+  // human admin decides (review of PR #380).
+  alwaysReview: ["assistant", "mcp"],
+  async handler(input, ctx) {
+    return repriced(ctx, await removeAdjustment(ctx, input.id, input.adjustmentId));
   },
 });
 
@@ -947,6 +1309,16 @@ const orderSettings = z.object({
   taxCodes: z
     .record(z.string(), z.string())
     .describe("A human admin's product tax code per object, over the one its pack declares."),
+  discountLimit: discountLimitSchema.describe(
+    "How much staff may take off one order on their own (order.adjust). Above it, a discount " +
+      "waits for an admin. Nothing (0) until a human admin sets it.",
+  ),
+  recordedPaymentNotice: z
+    .number()
+    .describe(
+      "Admins are told of a payment recorded by hand (order.recordPayment) for more than this, " +
+        "in minor units. 0 until a human admin sets it: every one is told.",
+    ),
 });
 
 async function loadSettings(ctx: HandlerContext) {
@@ -957,6 +1329,8 @@ async function loadSettings(ctx: HandlerContext) {
     returnOrigins: await loadReturnOrigins(ctx.db),
     tax: await loadOrderTax(ctx.db),
     taxCodes: await loadOrderTaxCodes(ctx.db),
+    discountLimit: await loadDiscountLimit(ctx.db),
+    recordedPaymentNotice: await loadRecordedPaymentNotice(ctx.db),
   };
 }
 
@@ -1005,8 +1379,9 @@ export const orderSettingsUpdate = defineOperation({
   description:
     "Change the order settings: the currency every order is in, the minutes an unpaid order " +
     "lasts, the least part payment, the sites a buyer may come back to after paying, whether " +
-    "the payment provider calculates tax at checkout, or the product tax code of an object for " +
-    "sale. Only what you pass changes. Orders already started keep the currency they were " +
+    "the payment provider calculates tax at checkout, the product tax code of an object for " +
+    "sale, how much staff may take off an order on their own, or above what a payment recorded " +
+    "by hand tells admins. Only what you pass changes. Orders already started keep the currency they were " +
     "started in; turning tax on or off changes only payments made from then on. Admins only, " +
     "and only a human can call it: AI assistants, MCP clients, automations and extensions are " +
     "refused.",
@@ -1033,6 +1408,15 @@ export const orderSettingsUpdate = defineOperation({
           "txcd_50010001). Only objects that declare a tax code may be given one; an object left " +
           "out is taxed at its pack's code.",
       ),
+    discountLimit: discountLimitSchema
+      .optional()
+      .describe(
+        "How much staff may take off one order without an admin's approval: at most this " +
+          "percentage of the order and at most this amount (minor units), both at once.",
+      ),
+    recordedPaymentNotice: recordedPaymentNoticeSchema
+      .optional()
+      .describe("Tell admins of a payment recorded by hand for more than this (minor units)"),
   }),
   output: orderSettings.extend({ previous: orderSettings }),
   permission: "settings:manage",
@@ -1042,7 +1426,7 @@ export const orderSettingsUpdate = defineOperation({
   async handler(input, ctx) {
     if (Object.values(input).every((value) => value === undefined)) {
       throw new ValidationError(
-        "Pass currency, expiryMinutes, minPartPayment, returnOrigins, tax or taxCodes",
+        "Pass currency, expiryMinutes, minPartPayment, returnOrigins, tax, taxCodes, discountLimit or recordedPaymentNotice",
       );
     }
     for (const object of Object.keys(input.taxCodes ?? {})) {
@@ -1063,6 +1447,8 @@ export const orderSettingsUpdate = defineOperation({
         : previous.returnOrigins,
       tax: input.tax ?? previous.tax,
       taxCodes: input.taxCodes ?? previous.taxCodes,
+      discountLimit: input.discountLimit ?? previous.discountLimit,
+      recordedPaymentNotice: input.recordedPaymentNotice ?? previous.recordedPaymentNotice,
     };
     const store = (key: string, field: keyof typeof next) => {
       const value = JSON.stringify(next[field]);
@@ -1088,6 +1474,10 @@ export const orderSettingsUpdate = defineOperation({
     if (input.returnOrigins !== undefined) store(ORDER_RETURN_ORIGINS_SETTING, "returnOrigins");
     if (input.tax !== undefined) store(ORDER_TAX_SETTING, "tax");
     if (input.taxCodes !== undefined) store(ORDER_TAX_CODES_SETTING, "taxCodes");
+    if (input.discountLimit !== undefined) store(ORDER_DISCOUNT_LIMIT_SETTING, "discountLimit");
+    if (input.recordedPaymentNotice !== undefined) {
+      store(ORDER_RECORDED_NOTICE_SETTING, "recordedPaymentNotice");
+    }
     return { ...next, previous };
   },
 });
@@ -1220,6 +1610,11 @@ export const orderOperations = [
   orderHonourLate,
   orderRefund,
   orderPayments,
+  orderRecordPayment,
+  orderReversePayment,
+  orderRecordRefund,
+  orderAdjust,
+  orderUnadjust,
   orderSettingsGet,
   orderSettingsUpdate,
 ] as const;

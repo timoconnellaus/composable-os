@@ -24,9 +24,10 @@ export interface CatalogueEntry {
   devOnly?: boolean;
   /**
    * A contract the gatekeeper serves, beyond the gatekeeper interface: `accounting`, the
-   * accounting session (`packages/gatekeeper-accounting`, stage 61, ADR 0880).
+   * accounting session (`packages/gatekeeper-accounting`, stage 61, ADR 0880); `booking-system`,
+   * the read-only booking-system session (`packages/gatekeeper-booking-system`, stage 65, ADR 0920).
    */
-  implements?: "accounting";
+  implements?: "accounting" | "booking-system";
 }
 
 export const CATALOGUE: readonly CatalogueEntry[] = [
@@ -124,6 +125,16 @@ export const CATALOGUE: readonly CatalogueEntry[] = [
     scopes: ["org"],
   },
   {
+    vendor: "text",
+    title: "Text messages",
+    description:
+      "Send members' routine texts and checking codes from the business's own number, through " +
+      "its own text provider account. Keys stay in the gatekeeper; nothing but the host's " +
+      "routine messages can send a text.",
+    connect: "auto",
+    scopes: ["org"],
+  },
+  {
     vendor: "accounting-fake",
     title: "Fake books (development)",
     description:
@@ -132,6 +143,16 @@ export const CATALOGUE: readonly CatalogueEntry[] = [
     scopes: ["org"],
     devOnly: true,
     implements: "accounting",
+  },
+  {
+    vendor: "booking-system-fake",
+    title: "Fake booking system (development)",
+    description:
+      "A fake booking system with invented people, memberships, classes and bookings, read only, for development and tests.",
+    connect: "auto",
+    scopes: ["org"],
+    devOnly: true,
+    implements: "booking-system",
   },
   {
     vendor: "fake",
@@ -146,6 +167,19 @@ export const CATALOGUE: readonly CatalogueEntry[] = [
 
 export function catalogueEntry(vendor: string): CatalogueEntry | undefined {
   return CATALOGUE.find((entry) => entry.vendor === vendor);
+}
+
+/**
+ * The host-only rule (stage 61, ADR 0881): a connection whose gatekeeper implements accounting
+ * writes the business's books, so only the host's own accounting call (`callAsHost`, purpose
+ * `accounting`) reaches it. `integration.call`, Code Mode and an extension's gatekeeper call are
+ * refused with this rule, whoever the caller is.
+ */
+export const ACCOUNTING_HOST_ONLY = "accounting_host_only";
+
+/** Whether a vendor's gatekeeper keeps books (implements the accounting contract). */
+export function keepsBooks(vendor: string): boolean {
+  return catalogueEntry(vendor)?.implements === "accounting";
 }
 
 /** `GATEKEEPER_<NAME>`: the cos-runner service binding of a vendor. */

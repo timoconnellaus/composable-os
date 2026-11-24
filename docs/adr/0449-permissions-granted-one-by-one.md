@@ -104,3 +104,23 @@ account (`user.setPermissions` refuses it, `rule: "self_grant"`), since they wou
 a member. `user.grantablePermissions` marks each `restricted`. Granting stays a human admin's,
 never an assistant's, an MCP client's, an automation's or a member's. See
 [ADR 0625](0625-restricted-pack-permissions.md).
+
+## Amendment, 2026-11-24 (stage 53 step 3, ADR 0800)
+`journeys:manage` (write journeys, set them live, pause them, add people to them) and
+`journeys:publish` (approve a journey's wording by publishing it) join the grantable core
+permissions. Going live and resuming stay a person's whatever is granted (`actors: ["human"]`); an
+AI acting for an account that holds `journeys:publish` may only ask, and a person who holds it too
+approves. See [ADR 0800](0800-journeys-as-a-host-primitive.md).
+
+## Amendment, 2026-11-24 (stage 52, step 1, ADR 0794)
+`finance:read` (see the finance months and reports, download their files) and `finance:close`
+(close and reopen a month) join the core permissions an admin may grant one by one (a manager, a
+bookkeeper). Closing and reopening stay a person's whatever is granted (`actors: ["human"]`). See
+[ADR 0794](0794-finance-read-and-finance-close.md).
+
+## Amendment, 2026-11-24 (stage 65, step 3, ADR 0922)
+`bookingSystem:manage` (read the booking system's lists and To match; load and remove a list, and
+link or unlink an outside person or coach) joins the core permissions an admin may grant one by
+one. It is never granted to an account with a pack's fixed role. Loading, removing, linking and
+unlinking stay a person's whatever is granted (`actors: ["human"]`), and the booking-system settings
+stay a human admin's (`settings:manage`). See [ADR 0922](0922-the-outside-copy.md).

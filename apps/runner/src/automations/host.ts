@@ -6,6 +6,7 @@ import {
   type AutomationHost,
   type AutomationTestInput,
   type AutomationTestReport,
+  activeOnlyWith,
   createTestSimulation,
   extensionPrincipalId,
   idsMatchingConditions,
@@ -19,6 +20,7 @@ import {
   type SampleApproval,
   type StartRunInput,
   sampleApproval,
+  waitingFor,
   zonedTime,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
@@ -44,7 +46,12 @@ export type AutomationHostEnv = DispatchEnv & ConstructorParameters<typeof Execu
 async function loadDefinition(
   env: { DB: D1Database },
   automationId: string,
-): Promise<{ definition: AutomationDefinition; enabled: boolean } | null> {
+): Promise<{
+  definition: AutomationDefinition;
+  enabled: boolean;
+  /** The extensions it runs only with that are not installed and on (ADR 0812). */
+  waitingFor: string[];
+} | null> {
   const row = await createCrmDb(env.DB)
     .query.selectFrom("core_automations")
     .selectAll()
@@ -52,6 +59,8 @@ async function loadDefinition(
     .executeTakeFirst();
   const spec = row ? parseSpec(row.spec) : null;
   if (!row || !spec) return null;
+  // One that runs only with an extension that is not installed and on starts nothing (ADR 0812).
+  const waiting = waitingFor(spec, await activeOnlyWith(createCrmDb(env.DB).query, [spec]));
   return {
     definition: {
       id: row.id,
@@ -60,17 +69,13 @@ async function loadDefinition(
       commit: row.commit_oid,
       spec,
     },
-    enabled: row.enabled === 1 && !row.paused_reason && !row.removed_at,
+    enabled: row.enabled === 1 && !row.paused_reason && !row.removed_at && !waiting.length,
+    waitingFor: waiting,
   };
 }
 
 const TRIGGER_OBJECT_TYPES = new Set(["record", "fieldChanged", "dateRelative", "manual"]);
 
-/**
- * Test mode (ADR 0133): one executor call in `test` mode with an in-memory simulation. Every
- * operation the run calls goes through the pipeline simulated: nothing is written and no events
- * are sent. The report, and a test run row for the automation page, are the only writes.
- */
 /**
  * A proposed automation (ADR 0133, stage 7b): evaluates the extension at the proposed commit (the
  * evaluation extension.check and install use, cached by source hash) and takes entry `key`.
@@ -154,6 +159,11 @@ async function ensurePrincipal(
     .execute();
 }
 
+/**
+ * Test mode (ADR 0133): one executor call in `test` mode with an in-memory simulation. Every
+ * operation the run calls goes through the pipeline simulated: nothing is written and no events
+ * are sent. The report, and a test run row for the automation page, are the only writes.
+ */
 export async function testAutomation(
   env: AutomationHostEnv,
   input: AutomationTestInput,
@@ -331,6 +341,7 @@ export async function testAutomation(
       : (((!response.ok ? (response.error.details as { steps?: unknown } | undefined) : null)
           ?.steps ?? []) as AutomationTestStep[]);
   const operations = exec?.operations ?? [];
+  const logs = (exec?.logs ?? []).map((l) => `${l.level}: ${l.message}`);
   const steps = ranSteps.map((s) => {
     const ops: RunOperationRecord[] = stepOperations(
       operations.filter((o) => o.step === s.name),
@@ -342,7 +353,6 @@ export async function testAutomation(
       );
       return gate && op.pendingActionId ? { ...op, gate: gate.gate } : op;
     });
-    const logs = (exec?.logs ?? []).map((l) => `${l.level}: ${l.message}`);
     return { ...s, operations: ops, logs: s.kind === "do" ? logs : [] };
   });
   const assignees = new Set<string>();
@@ -493,7 +503,7 @@ async function loadRun(env: { DB: D1Database }, runId: string): Promise<RunRow> 
     .where("id", "=", runId)
     .executeTakeFirst();
   if (!row) throw new Error(`No automation run ${runId}`);
-  return row as RunRow;
+  return row;
 }
 
 /** A new run with an earlier run's trigger: a retry (with its journal) or a replay. */
@@ -517,6 +527,13 @@ async function rerun(
   if (waiting) return { runId: waiting.id, deferred: true };
   const found = await loadDefinition(env, run.automation_id);
   if (!found) throw new Error(`No automation ${run.automation_id}`);
+  // A retry or replay is a run too: none while it waits for an extension (ADR 0812).
+  if (found.waitingFor.length) {
+    throw new Error(
+      `This automation runs only with ${found.waitingFor.join(" and ")}, which is not installed ` +
+        "and on, so it cannot run again until it is",
+    );
+  }
   const trigger = JSON.parse(run.trigger) as {
     /** Set when an erase redacted the run (ADR 0320): its record and inputs are gone. */
     erased?: boolean;

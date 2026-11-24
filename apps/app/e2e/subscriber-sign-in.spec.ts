@@ -54,7 +54,7 @@ const block = (name: string, component: string, props: Record<string, unknown> =
 
 /** Courses on, the payments fake bound, and the host's mail sending sign-in codes at once. */
 async function setUp(page: Page, origin: string): Promise<string> {
-  for (const id of ["programs", "courses"]) {
+  for (const id of ["programs", "content", "courses"]) {
     await op(page.request, "extension.install", { id, shipped: true }, false);
   }
   await op(page.request, "order.settings.update", { currency: "AUD", returnOrigins: [origin] });

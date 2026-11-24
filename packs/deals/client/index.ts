@@ -1,6 +1,6 @@
 // The Deals pack's headless entry (stage 23, ADR 0418): functions and hooks over the typed client,
 // no markup. A client app imports it as `@composable-os/pack-deals/client` and hands it
-// its generated staff client; a block (stage 24) renders what it returns.
+// its generated staff client; its screens render what it returns.
 //
 // The convention for every pack:
 // - The operations it uses are typed from the pack's own schemas (`z.input`, `z.output` of its

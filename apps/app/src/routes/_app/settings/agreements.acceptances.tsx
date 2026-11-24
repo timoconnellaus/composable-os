@@ -2,6 +2,7 @@
 // (members with a live subscription first), and every acceptance by document and by how it was
 // made (paper marked). Titles, people and dates only: a name typed, a signature and health answers
 // open from the Person page, one at a time.
+import type { CoreInput } from "@composable-os/core";
 import { Badge } from "@composable-os/ui/components/badge";
 import { Button } from "@composable-os/ui/components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@composable-os/ui/components/card";
@@ -16,6 +17,7 @@ import {
 import { Skeleton } from "@composable-os/ui/components/skeleton";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
+import { MARK_WORDS } from "#/components/agreements/person-agreements";
 import { PageLayout } from "#/components/layout/page-layout";
 import { formatDateTime } from "#/lib/format";
 import { useOp } from "#/lib/query";
@@ -25,9 +27,11 @@ export const Route = createFileRoute("/_app/settings/agreements/acceptances")({
 });
 
 const ALL = "all";
-const BY_LABELS: Record<string, string> = {
+type By = NonNullable<CoreInput<"agreement.acceptances">["by"]>;
+const BY_LABELS: Record<By, string> = {
   self: "By themselves",
   guardian: "By a parent or guardian",
+  guest: "With an order",
   paper: "Recorded from paper",
 };
 const REASONS: Record<string, string> = {
@@ -40,12 +44,27 @@ const REASONS: Record<string, string> = {
 function AcceptancesPage() {
   const [documentId, setDocumentId] = useState(ALL);
   const [by, setBy] = useState(ALL);
+  // At the desk (stage 44 step 6, ADR 0649): only those, by mark, and by device or who started
+  // the session (chosen from an acceptance's own line), so one account's pattern shows.
+  const [where, setWhere] = useState(ALL);
+  const [mark, setMark] = useState(ALL);
+  const [deskBy, setDeskBy] = useState<{
+    deviceId?: string;
+    startedBy?: string;
+    label: string;
+  } | null>(null);
   const docs = useOp("agreement.list", { retired: true });
   const filter = documentId === ALL ? {} : { documentId };
   const due = useOp("agreement.due.list", filter);
   const list = useOp("agreement.acceptances", {
     ...filter,
-    ...(by === ALL ? {} : { by: by as "self" | "guardian" | "paper" }),
+    ...(by === ALL ? {} : { by: by as By }),
+    ...(where === "desk" ? { channel: "desk" as const } : {}),
+    ...(mark === ALL
+      ? {}
+      : { mark: mark as "changed_recently" | "created_that_day" | "staff_address" }),
+    ...(deskBy?.deviceId ? { deviceId: deskBy.deviceId } : {}),
+    ...(deskBy?.startedBy ? { startedBy: deskBy.startedBy } : {}),
   });
   return (
     <PageLayout
@@ -87,6 +106,41 @@ function AcceptancesPage() {
             </SelectContent>
           </Select>
         </div>
+        <div className="grid gap-1">
+          <Label htmlFor="acceptance-where">Where</Label>
+          <Select value={where} onValueChange={setWhere}>
+            <SelectTrigger id="acceptance-where" className="w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>Anywhere</SelectItem>
+              <SelectItem value="desk">At the desk</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="grid gap-1">
+          <Label htmlFor="acceptance-mark">Mark</Label>
+          <Select value={mark} onValueChange={setMark}>
+            <SelectTrigger id="acceptance-mark" className="w-56">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>Any</SelectItem>
+              {Object.entries(MARK_WORDS).map(([value, label]) => (
+                <SelectItem key={value} value={value}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        {deskBy && (
+          <div className="flex items-end">
+            <Button variant="outline" size="sm" onClick={() => setDeskBy(null)}>
+              {deskBy.label} ×
+            </Button>
+          </div>
+        )}
       </div>
       <Card>
         <CardHeader>
@@ -148,11 +202,48 @@ function AcceptancesPage() {
                     {a.title}, version {a.versionNumber}
                   </span>
                   <Badge variant={a.by === "paper" ? "outline" : "secondary"}>
-                    {BY_LABELS[a.by] ?? a.by}
+                    {BY_LABELS[a.by]}
                   </Badge>
                   <span className="text-muted-foreground text-sm">
                     {formatDateTime(a.acceptedAt)}
                   </span>
+                  {a.desk && (
+                    <div className="grid w-full gap-1 text-sm" data-testid="desk-acceptance">
+                      <span className="text-muted-foreground">{a.desk.words}</span>
+                      <div className="flex flex-wrap gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            setDeskBy({
+                              deviceId: a.desk?.device.id ?? undefined,
+                              label: `Device: ${a.desk?.device.name}`,
+                            })
+                          }
+                        >
+                          {a.desk.device.name}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            setDeskBy({
+                              startedBy: a.desk?.startedBy.id,
+                              label: `Started by ${a.desk?.startedBy.name}`,
+                            })
+                          }
+                        >
+                          {a.desk.startedBy.name}
+                        </Button>
+                        {a.desk.marks.map((m) => (
+                          <Badge key={m.kind} variant="outline">
+                            {MARK_WORDS[m.kind] ?? m.kind}
+                            {m.by ? ` (by ${m.by})` : ""}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>

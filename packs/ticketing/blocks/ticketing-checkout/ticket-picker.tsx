@@ -2,8 +2,20 @@
 // by deposit when every chosen type offers one, then the payment provider's page. And paying what
 // is still owed on a part-paid order. The host prices the order, holds the places, refuses what
 // cannot be bought and decides what may be charged; this asks and shows what it answers.
-
-import { agreementBlockedWords } from "@composable-os/client";
+//
+// What must be agreed to first (stage 44: a waiver on the event) is the host's answer too: when
+// "Pay" is refused with it, the documents are shown inline (the web-agree block's step) and "Pay"
+// is tried again (issue #292). A visitor's agreements travel in the buying call, held in memory
+// until then; a member's are recorded as they agree. A minor is told a parent or guardian buys it.
+import {
+  type AgreeInput,
+  type AgreementsHooks,
+  agreementRefusal,
+  forgetAfter,
+  purchaseErrorWords,
+  type RefusedDocument,
+  withAgreements,
+} from "@composable-os/client";
 import type {
   EventOnSale,
   StartedOrder,
@@ -20,13 +32,18 @@ import { type FormEvent, useState } from "react";
 import { Button } from "../ui-button/button.tsx";
 import { Input } from "../ui-input/input.tsx";
 import { Label } from "../ui-label/label.tsx";
+import { useForgetOnLeave } from "../web-agree/agree.tsx";
+import { GuestAgreementStep, MemberAgreementStep } from "../web-agree/agreement-step.tsx";
+
+/** The agreements hooks the inline step uses: a member's (due, accept) and a visitor's (words). */
+export type TicketAgreements = Pick<AgreementsHooks, "useDue" | "useAccept" | "useGuestVersions">;
 
 /** What the host said when it refused, in the buyer's words. */
 function refusal(error: unknown): string | null {
   if (!error) return null;
-  // Something must be agreed to first (stage 44): this checkout has no agreement step yet.
-  const agreements = agreementBlockedWords(error);
-  if (agreements) return agreements;
+  // Agreements and the connection (stage 44): what changed, a minor, offline.
+  const words = purchaseErrorWords(error) ?? agreementRefusal(error)?.message;
+  if (words) return words;
   const rule = (error as { details?: { details?: { rule?: string }; rule?: string } }).details;
   switch (rule?.details?.rule ?? rule?.rule) {
     case "capacity":
@@ -44,15 +61,19 @@ function refusal(error: unknown): string | null {
  * The picker and checkout. `signedIn`: the buyer is a signed-in customer (no email asked).
  * `returnUrl`: the confirmation page, on one of the deployment's allowed sites; it gets the order
  * (and a guest's token) from `onStarted`, which is called before the buyer leaves.
+ * `agreements`: for what must be agreed to first, shown inline; without it, the refusal is only
+ * named.
  */
 export function TicketPicker({
   ticketing,
+  agreements,
   event,
   signedIn,
   returnUrl,
   onStarted,
 }: {
-  ticketing: Pick<TicketingHooks, "useCheckout" | "useOrder" | "useStartOrder" | "useTicketPicker">;
+  ticketing: Pick<TicketingHooks, "useCheckout" | "useStartOrder" | "useTicketPicker">;
+  agreements?: TicketAgreements;
   event: EventOnSale;
   signedIn: boolean;
   returnUrl: string;
@@ -65,22 +86,94 @@ export function TicketPicker({
   const checkout = ticketing.useCheckout();
   const [email, setEmail] = useState("");
   const [pay, setPay] = useState<"full" | "deposit">("full");
+  const [problem, setProblem] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  // What the host said must be agreed to first.
+  const [due, setDue] = useState<RefusedDocument[] | null>(null);
+  // A visitor's agreements: this component's state only, kept if the order does not start
+  // (nothing typed twice), forgotten once it starts and when they leave the page.
+  const [agreed, setAgreed] = useState<AgreeInput[] | null>(null);
+  // A member's "a copy is on its way".
+  const [said, setSaid] = useState<string | null>(null);
+  useForgetOnLeave(() => setAgreed(null));
   const byDeposit = picker.estimate.deposit !== null;
 
-  async function submit(e: FormEvent) {
+  async function buy(given: AgreeInput[] | null = agreed) {
+    setProblem(null);
+    setBusy(true);
+    try {
+      const outcome = await withAgreements((previous) =>
+        forgetAfter(start, {
+          lines: picker.lines,
+          pay: byDeposit ? pay : "full",
+          ...(signedIn ? {} : { email }),
+          ...(!signedIn && given && previous?.kind !== "read_again" ? { agreements: given } : {}),
+        }),
+      );
+      if (outcome.kind !== "done") setAgreed(null);
+      if (outcome.kind === "due") {
+        if (agreements) setDue(outcome.documents);
+        else {
+          setProblem(
+            `Something must be agreed to first: ${outcome.documents.map((d) => d.title).join(", ")}.`,
+          );
+        }
+        return;
+      }
+      if (outcome.kind === "minor_payer") {
+        setProblem(outcome.message);
+        return;
+      }
+      const order = outcome.value;
+      // Recorded with the order: nothing of it is kept here any more.
+      setAgreed(null);
+      onStarted(order);
+      const page = await checkout.mutateAsync({
+        id: order.id,
+        ...(order.token ? { token: order.token } : {}),
+        returnUrl,
+      });
+      window.location.assign(page.url);
+    } catch (error) {
+      if (agreementRefusal(error)) setAgreed(null);
+      setProblem(refusal(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function submit(e: FormEvent) {
     e.preventDefault();
-    const order = await start.mutateAsync({
-      lines: picker.lines,
-      pay: byDeposit ? pay : "full",
-      ...(signedIn ? {} : { email }),
-    });
-    onStarted(order);
-    const page = await checkout.mutateAsync({
-      id: order.id,
-      ...(order.token ? { token: order.token } : {}),
-      returnUrl,
-    });
-    window.location.assign(page.url);
+    void buy();
+  }
+
+  if (due && agreements) {
+    const back = () => setDue(null);
+    return signedIn ? (
+      <MemberAgreementStep
+        agreements={agreements}
+        documents={due}
+        continueLabel="Agree and pay"
+        onCancel={back}
+        onAgreed={(copy) => {
+          setDue(null);
+          setSaid(copy);
+          void buy(null);
+        }}
+      />
+    ) : (
+      <GuestAgreementStep
+        agreements={agreements}
+        documents={due}
+        continueLabel="Agree and pay"
+        onCancel={back}
+        onAgreed={(given) => {
+          setDue(null);
+          setAgreed(given);
+          void buy(given);
+        }}
+      />
+    );
   }
 
   return (
@@ -147,11 +240,15 @@ export function TicketPicker({
           />
         </div>
       )}
-      {refusal(start.error ?? checkout.error) ? (
-        <p role="alert">{refusal(start.error ?? checkout.error)}</p>
+      {said ? <p role="status">{said}</p> : null}
+      {agreed ? (
+        <p className="text-sm">
+          What you agreed to is kept for this order: press Pay to try again.
+        </p>
       ) : null}
-      <Button type="submit" disabled={picker.empty || start.isPending || checkout.isPending}>
-        {start.isPending || checkout.isPending ? "Opening the payment page…" : "Pay"}
+      {problem ? <p role="alert">{problem}</p> : null}
+      <Button type="submit" disabled={picker.empty || busy}>
+        {busy ? "Opening the payment page…" : "Pay"}
       </Button>
     </form>
   );
@@ -166,7 +263,7 @@ export function BalancePayment({
   order,
   returnUrl,
 }: {
-  ticketing: Pick<TicketingHooks, "useCheckout" | "useOrder" | "useStartOrder" | "useTicketPicker">;
+  ticketing: Pick<TicketingHooks, "useCheckout" | "useOrder">;
   order: { id: string; token?: string | null };
   returnUrl: string;
 }) {
@@ -176,6 +273,7 @@ export function BalancePayment({
   const data = current.data;
   if (!data) return current.isPending ? <p aria-busy="true">Loading your order…</p> : null;
   if (data.state !== "part_paid") return null;
+  const partAmount = minorFromInput(part, data.currency);
 
   async function open(amount: number | null) {
     const page = await checkout.mutateAsync({
@@ -205,8 +303,8 @@ export function BalancePayment({
           onChange={(e) => setPart(e.target.value)}
         />
         <Button
-          onClick={() => open(minorFromInput(part, data.currency))}
-          disabled={checkout.isPending || minorFromInput(part, data.currency) === null}
+          onClick={() => open(partAmount)}
+          disabled={checkout.isPending || partAmount === null}
         >
           Pay this amount
         </Button>

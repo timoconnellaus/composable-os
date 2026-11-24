@@ -8,10 +8,11 @@
 // subscription.*): this reads them and puts them in words. Amounts are shown as the host gave
 // them, in the currency's minor unit; nothing here adds, subtracts or works out a price.
 //
-// Later steps add to it: what needs the customer's attention (`me.attention`), which pack sections
-// a customer has (`me.portal`), changing the sign-in address and deleting the account.
+// Which sections a customer has is the host's (`me.portal`, `portalSections`). Later steps add to
+// it: what needs the customer's attention (`me.attention`), changing the sign-in address and
+// deleting the account.
 import type { QueryName } from "./client.ts";
-import type { ClientHolding, PackClient } from "./hooks.ts";
+import type { ClientHolding, PackClient, UseMutation, UseQuery } from "./hooks.ts";
 import { packHooks } from "./hooks.ts";
 
 // --- What the host answers ------------------------------------------------------------------------
@@ -35,6 +36,12 @@ export interface AccountDetailsInput {
   givenName?: string | null;
   familyName?: string | null;
   primaryPhone?: string | null;
+}
+
+/** A birthday: day and month only, never a year (`me.birthday.get`, stage 53). */
+export interface AccountBirthday {
+  day: number;
+  month: number;
 }
 
 /** One place the customer is signed in (`me.sessions.list`). */
@@ -135,13 +142,44 @@ export interface AccountSubscription {
   holderPersonId: string | null;
 }
 
+/** A section of My account as the host lists it (`me.portal`, ADR 0710). */
+export interface AccountPortalSection {
+  /** A base section's key (`orders`), or a pack's as `<pack>.<key>` (`memberships.memberships`). */
+  key: string;
+  /** The pack it is from; null for a base section. */
+  pack: string | null;
+  label: string;
+  order: number;
+  /** The blocks that draw a pack's section; null for a base one. */
+  web: { block: string; export: string } | null;
+  native: { block: string; export: string } | null;
+}
+
+/** Which sections of My account the customer has, in order (`me.portal`). */
+export interface AccountPortal {
+  sections: AccountPortalSection[];
+  /** Whether they pay a subscription that has not ended: Payment method shows then. */
+  paysSubscription: boolean;
+}
+
 /** The operations this entry calls, as the generated client types them. */
 export type AccountOperations = {
+  "me.portal": { kind: "query"; input: Record<string, never>; output: AccountPortal };
   "me.get": { kind: "query"; input: Record<string, never>; output: AccountMe };
   "me.update": {
     kind: "mutation";
     input: AccountDetailsInput;
     output: Omit<AccountMe, "signInEmail" | "signInEmailVerified">;
+  };
+  "me.birthday.get": {
+    kind: "query";
+    input: Record<string, never>;
+    output: { birthday: AccountBirthday | null };
+  };
+  "me.birthday.set": {
+    kind: "mutation";
+    input: { birthday: AccountBirthday | null };
+    output: { birthday: AccountBirthday | null };
   };
   "me.sessions.list": {
     kind: "query";
@@ -193,13 +231,33 @@ export type AccountClient = PackClient<AccountOperations>;
 // --- Sections --------------------------------------------------------------------------------------
 
 /**
- * A section of My account: a base one, or a pack's (its `portal` declaration, stage 48 step 5).
- * Lower `order` first.
+ * A section of My account: a base one, or a pack's (its `portal` declaration, ADR 0710, keyed
+ * `<pack>.<key>`). Lower `order` first.
  */
 export interface AccountSection {
   key: string;
   label: string;
   order: number;
+}
+
+/**
+ * A pack's section as the client app's generated `account-sections.gen.ts` lists it (`cos add
+ * web-account`, ADR 0710): the copied block's component and the pack's hooks factory. The shell
+ * renders `component` with the hooks under the pack's id (`{ memberships: hooks }`) and the page's
+ * `returnUrl`; `Component` is the app's component type.
+ */
+export interface AccountSectionEntry<Component = unknown> {
+  /** `<pack>.<key>`, as `me.portal` names it. */
+  key: string;
+  pack: string;
+  label: string;
+  order: number;
+  component: Component;
+  /**
+   * The pack's hooks factory (`createMembershipsHooks`), called once with the app's React
+   * functions and its generated client. Typed loosely: each pack's factory takes its own types.
+   */
+  hooks: (react: never, client: never) => unknown;
 }
 
 /**
@@ -233,6 +291,23 @@ export function accountSections(
     .sort((a, b) => a.order - b.order || a.key.localeCompare(b.key));
 }
 
+/**
+ * The sections to show, as the host listed them (`me.portal`): every base section it lists, and a
+ * pack's only when the app has its block (`packs`, from `account-sections.gen.ts`), so a pack
+ * installed at the host before the app copied its block shows nothing rather than an empty
+ * section. Until the host answers, the base sections without Payment method.
+ */
+export function portalSections(
+  portal: AccountPortal | undefined,
+  packs: readonly AccountSection[] = [],
+): AccountSection[] {
+  if (!portal) return accountSections([], ["payment"]);
+  const copied = new Set(packs.map((s) => s.key));
+  return portal.sections
+    .filter((s) => s.pack === null || copied.has(s.key))
+    .map((s) => ({ key: s.key, label: s.label, order: s.order }));
+}
+
 /** The base sections a shell hides for this customer, from what the host answered. */
 export function hiddenSections(
   subscriptions: readonly AccountSubscription[] | undefined,
@@ -256,28 +331,31 @@ export function formatMinor(minor: number, currency: string, locale?: string): s
   }
 }
 
-/** A date as a reader sees it (`3 Dec 2026`), from the host's ISO timestamp. Display only. */
-export function accountDay(iso: string | null | undefined, locale?: string): string {
+/** The host's ISO timestamp as a reader sees it, or "" for none or one that does not parse. */
+function localWhen(
+  iso: string | null | undefined,
+  locale: string | undefined,
+  format: Intl.DateTimeFormatOptions,
+): string {
   if (!iso) return "";
   const at = new Date(iso);
-  return Number.isNaN(at.getTime())
-    ? ""
-    : at.toLocaleDateString(locale, { day: "numeric", month: "short", year: "numeric" });
+  return Number.isNaN(at.getTime()) ? "" : at.toLocaleString(locale, format);
+}
+
+/** A date as a reader sees it (`3 Dec 2026`), from the host's ISO timestamp. Display only. */
+export function accountDay(iso: string | null | undefined, locale?: string): string {
+  return localWhen(iso, locale, { day: "numeric", month: "short", year: "numeric" });
 }
 
 /** A moment as a reader sees it (`3 Dec 2026, 09:30`). Display only. */
 export function accountTime(iso: string | null | undefined, locale?: string): string {
-  if (!iso) return "";
-  const at = new Date(iso);
-  return Number.isNaN(at.getTime())
-    ? ""
-    : at.toLocaleString(locale, {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
+  return localWhen(iso, locale, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 /** A session in words: what it is, and when it began and was last used. */
@@ -369,8 +447,8 @@ export function isLive(sub: AccountSubscription): boolean {
 
 /**
  * Whether the Payment method section shows: the customer pays a subscription that has not ended
- * (`subscription.list` lists a customer only the ones they pay). Stage 48 step 5 answers it from
- * the host (`me.portal`'s `paysSubscription`).
+ * (`subscription.list` lists a customer only the ones they pay). The shells take the host's own
+ * answer (`me.portal`'s `paysSubscription`, `portalSections`); a plain page may use this.
  */
 export function showsPayment(subscriptions: readonly AccountSubscription[] | undefined): boolean {
   return !!subscriptions?.some(isLive);
@@ -491,6 +569,56 @@ export function detailsInput(
   return Object.keys(input).length ? input : null;
 }
 
+// --- Birthday ----------------------------------------------------------------------------------------
+
+/** The birthday form: a day and a month as chosen, "" for none. */
+export interface BirthdayForm {
+  day: string;
+  month: string;
+}
+
+/** The most days each month has (29 for February). The host checks again. */
+const DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+/** The days a month can have, for a day picker: 1 to 31 until a month is chosen. */
+export function birthdayDays(month: string): number[] {
+  const most = DAYS_IN_MONTH[Number(month) - 1] ?? 31;
+  return Array.from({ length: most }, (_, i) => i + 1);
+}
+
+/** The twelve months' names in `locale`, January first, with their numbers. */
+export function birthdayMonths(locale?: string): { value: string; label: string }[] {
+  const format = new Intl.DateTimeFormat(locale, { month: "long", timeZone: "UTC" });
+  return DAYS_IN_MONTH.map((_, i) => ({
+    value: String(i + 1),
+    label: format.format(Date.UTC(2000, i, 1)),
+  }));
+}
+
+export function birthdayForm(birthday: AccountBirthday | null): BirthdayForm {
+  return birthday
+    ? { day: String(birthday.day), month: String(birthday.month) }
+    : { day: "", month: "" };
+}
+
+/** What is wrong before saving (the host checks again): both or neither, a day the month has. */
+export function birthdayProblem(form: BirthdayForm): string | null {
+  if (!form.day && !form.month) return null;
+  if (!form.day || !form.month) return "Choose a day and a month, or neither";
+  if (!birthdayDays(form.month).includes(Number(form.day))) return "That month has no such day";
+  return null;
+}
+
+/** The `me.birthday.set` input when the form changed it (none chosen clears it), else null. */
+export function birthdayInput(
+  current: AccountBirthday | null,
+  form: BirthdayForm,
+): { birthday: AccountBirthday | null } | null {
+  const next = form.day && form.month ? { day: Number(form.day), month: Number(form.month) } : null;
+  const same = next?.day === current?.day && next?.month === current?.month;
+  return same ? null : { birthday: next };
+}
+
 // --- Orders ------------------------------------------------------------------------------------------
 
 /**
@@ -604,30 +732,17 @@ export async function loadOrders(api: AccountClient, cursor?: string): Promise<O
 
 // --- Hooks ---------------------------------------------------------------------------------------
 
-/** The app's `useQuery`, as far as these hooks use it. */
-export type AccountUseQuery = <T>(options: {
-  queryKey: readonly unknown[];
-  queryFn: () => Promise<T>;
-  enabled?: boolean;
-}) => { data: T | undefined; isPending: boolean; error: unknown; refetch?: () => unknown };
-
-/** The app's `useMutation`, as far as these hooks use it. */
-export type AccountUseMutation = <I, O>(options: {
-  mutationKey: readonly unknown[];
-  mutationFn: (input: I) => Promise<O>;
-}) => {
-  mutate(input: I): void;
-  mutateAsync(input: I): Promise<O>;
-  data: O | undefined;
-  isPending: boolean;
-  error: unknown;
-  reset?: () => void;
-};
+/** The app's `useQuery` and `useMutation`, as far as these hooks use them. */
+export type AccountUseQuery = UseQuery;
+export type AccountUseMutation = UseMutation;
 
 /** The operations each hook calls (ADR 0453). */
 export const ACCOUNT_HOOKS_CALL = {
+  usePortal: ["me.portal"],
   useMe: ["me.get"],
   useUpdateMe: ["me.update"],
+  useBirthday: ["me.birthday.get"],
+  useSetBirthday: ["me.birthday.set"],
   useSessions: ["me.sessions.list"],
   useRevokeSession: ["me.sessions.revoke"],
   useFamily: ["me.family"],
@@ -656,6 +771,10 @@ function allAccountHooks(
 ) {
   const { useQuery, useMutation } = react;
   return {
+    /** Which sections of My account they have, in order, and whether they pay a subscription. */
+    usePortal() {
+      return useQuery(api.query("me.portal", {}));
+    },
     /** The signed-in customer's own Person and sign-in address. */
     useMe() {
       return useQuery(api.query("me.get", {}));
@@ -663,6 +782,14 @@ function allAccountHooks(
     /** Change their name or phone: pass only what changed (`detailsInput`). */
     useUpdateMe() {
       return useMutation(api.mutation("me.update"));
+    },
+    /** Their birthday, day and month, or null (stage 53). */
+    useBirthday() {
+      return useQuery(api.query("me.birthday.get", {}));
+    },
+    /** Give, change or remove their birthday (`birthdayInput`). */
+    useSetBirthday() {
+      return useMutation(api.mutation("me.birthday.set"));
     },
     /** The places they are signed in. */
     useSessions() {

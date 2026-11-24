@@ -1,0 +1,8 @@
+{
+  "name": "portalblocks-native-skin",
+  "pack": "portalblocks",
+  "skin": "web",
+  "operations": [],
+  "files": ["screen.tsx"],
+  "dependsOn": []
+}

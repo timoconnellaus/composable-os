@@ -337,6 +337,87 @@ describe("one free trial per person per plan object", () => {
     }
   });
 
+  it("gives a+1@ and a+2@ one trial between them (#225, ADR 0692); a.b@ and ab@ one each", async () => {
+    const tag = unique("fold").toLowerCase();
+    const one = await createBuyer(admin, "fold1", `${tag}+1@shop.example`);
+    const two = await createBuyer(admin, "fold2", `${tag}+2@shop.example`);
+    const first = await subscribe(one);
+    expect(first).toMatchObject({ trialDays: 7, noTrial: null });
+    // +1's page is open: +2 gets a fresh page with no trial, and never +1's page.
+    const meanwhile = await subscribe(two);
+    expect(meanwhile).toMatchObject({ trialDays: null, noTrial: "held" });
+    expect(meanwhile.url).not.toBe(first.url);
+    // +1's page is completed and confirmed: +2's trial is used, on any plan of the object.
+    await deliver("checkout_completed", read(first.subscriptionId));
+    for (const p of [plan, plan2]) {
+      expect(await subscribe(two, p)).toMatchObject({ trialDays: null, noTrial: "used" });
+    }
+    // Staff starting one for +2 give no trial either.
+    expect(await staffStart(two.email)).toMatchObject({ trialDays: null, noTrial: "used" });
+    expect(await trials(two.principal.personId)).toEqual([]);
+
+    // Dots are not folded.
+    const dotted = await createBuyer(admin, "dot", `a.b.${tag}@shop.example`);
+    const dotless = await createBuyer(admin, "nodot", `ab${tag}@shop.example`);
+    expect(await subscribe(dotted)).toMatchObject({ trialDays: 7, noTrial: null });
+    expect(await subscribe(dotless)).toMatchObject({ trialDays: 7, noTrial: null });
+  });
+
+  it("never hands staff starting one for a+2@ the open page they opened for a+1@ (review of step 2)", async () => {
+    const tag = unique("foldstaff").toLowerCase();
+    const one = await createBuyer(admin, "staff1", `${tag}+1@shop.example`);
+    const two = await createBuyer(admin, "staff2", `${tag}+2@shop.example`);
+    const forOne = await staffStart(one.email);
+    expect(forOne).toMatchObject({ trialDays: 7, noTrial: null });
+    const forTwo = await staffStart(two.email);
+    // A fresh page for +2's own Person, with no trial while +1's is open.
+    expect(forTwo.subscriptionId).not.toBe(forOne.subscriptionId);
+    expect(forTwo.url).not.toBe(forOne.url);
+    expect(forTwo).toMatchObject({ trialDays: null, noTrial: "held" });
+    const { results } = await env.DB.prepare(
+      "SELECT holder_person_id, payer_person_id FROM core_subscription_checkout WHERE id = ?",
+    )
+      .bind(forTwo.subscriptionId)
+      .all<{ holder_person_id: string; payer_person_id: string }>();
+    expect(results[0]).toEqual({
+      holder_person_id: two.principal.personId,
+      payer_person_id: two.principal.personId,
+    });
+    // The same staff starting +1's again still get +1's page back.
+    expect((await staffStart(one.email)).subscriptionId).toBe(forOne.subscriptionId);
+  });
+
+  it("gives one trial to two starts at once by a+1@ and a+2@: the database refuses the other hold", async () => {
+    const tag = unique("foldrace").toLowerCase();
+    const one = await createBuyer(admin, "race1", `${tag}+1@shop.example`);
+    const two = await createBuyer(admin, "race2", `${tag}+2@shop.example`);
+    const outcomes = await Promise.allSettled([subscribe(one), subscribe(two)]);
+    const rows = [
+      ...(await trials(one.principal.personId)),
+      ...(await trials(two.principal.personId)),
+    ];
+    expect(rows).toHaveLength(1);
+    const given = outcomes.filter(
+      (o) => o.status === "fulfilled" && (o.value as Started).trialDays === 7,
+    );
+    expect(given).toHaveLength(1);
+    for (const o of outcomes) {
+      if (o.status === "rejected") {
+        expect(o.reason).toMatchObject({ code: "conflict", details: { rule: "trial_held" } });
+      }
+    }
+    // The backstop itself: a hold written straight to the table for the other is refused.
+    const held = rows[0] as { holder_person_id: string; checkout_id: string };
+    const other = held.holder_person_id === one.principal.personId ? two : one;
+    await expect(
+      env.DB.prepare(
+        "INSERT INTO core_subscription_trial (checkout_id, holder_person_id, plan_object, plan_id, url, checkout_ref, opened_by, amount, trial_days, held_until, created_at) SELECT id, ?, plan_object, plan_id, 'u', 'r', 'o', 1, 7, 't', 't' FROM core_subscription_checkout WHERE id = ?",
+      )
+        .bind(other.principal.personId, held.checkout_id)
+        .run(),
+    ).rejects.toThrow(/core_subscription_trial_taken/);
+  });
+
   it("never gives a guest a trial, so a guest cannot spend someone else's or learn if they had one", async () => {
     const victim = await createBuyer(admin, "victim");
     const guest = outside(PUBLIC, { integrations: runtime, events });
@@ -578,6 +659,15 @@ describe("access with no event, and only for live records (review of 32a)", () =
     ).id;
     await run("record.delete", { object: COURSE, id: doomed }, context(admin));
     const asked = [...courses, doomed, "rec_made_up"];
+    expect(await held(buyer, undefined, asked)).toEqual([...courses].sort());
+  });
+
+  it("answers a page of 200 ids, more than D1 binds in one statement one by one", async () => {
+    const { buyer } = await member("wholePage");
+    const asked = [
+      ...courses,
+      ...Array.from({ length: 200 - courses.length }, (_, i) => `rec_${i}`),
+    ];
     expect(await held(buyer, undefined, asked)).toEqual([...courses].sort());
   });
 

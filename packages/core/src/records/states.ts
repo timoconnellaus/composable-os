@@ -16,6 +16,7 @@ import { moveOrigins } from "@composable-os/sdk";
 import type { ObjectDefinition, StatesDefinition, WindowDefinition } from "../fields/types.ts";
 import { type HandlerContext, personsTool } from "../operation.ts";
 import { guardStatement } from "../recurring/bookkeeping.ts";
+import { assertOnFreeTime } from "../staffing/free.ts";
 import {
   ALL_MOVERS,
   type Lifecycle,
@@ -27,7 +28,13 @@ import {
   TransitionRuleError,
   type TransitionWrite,
 } from "./transitions.ts";
-import { pathReader, staffOnlyMessage, staffOnlySet, windowRefusal } from "./windows.ts";
+import {
+  type PathReader,
+  pathReader,
+  staffOnlyMessage,
+  staffOnlySet,
+  windowRefusal,
+} from "./windows.ts";
 
 /** A state as refusals name it: its value, its option label, and whether it is final. */
 export interface StateRef {
@@ -116,12 +123,13 @@ export function statesLifecycle(object: ObjectDefinition, states: StatesDefiniti
   /** A customer's write outside a window or a staff-only rule is refused (ADR 0503). */
   const customerRules = async (
     write: TransitionWrite,
+    reader: PathReader,
     rules: RuleSet,
     what: string,
     to: Position,
     from: Position | null,
   ) => {
-    const refusal = await customerRefusal(write.ctx, write.object, write.after, rules, what);
+    const refusal = await customerRefusal(write.ctx, reader, rules, what);
     if (refusal) {
       throw refuse(write, refusal.rule, refusal.message, [field], to, from, refusal.times);
     }
@@ -146,6 +154,8 @@ export function statesLifecycle(object: ObjectDefinition, states: StatesDefiniti
       }
       const to = position(toId);
       const base = { fromId, from, to, group: () => null };
+      // One reader for every rule below, so each record they read through is read once.
+      const reader = pathReader(write.ctx, o, after);
       // Closed to everyone but the host (ADR 0507): no booking into a class that was cancelled
       // or is over, by staff either. Judged on create, and when a write changes what it reads.
       const closedPaths = states.create?.closed;
@@ -154,7 +164,6 @@ export function statesLifecycle(object: ObjectDefinition, states: StatesDefiniti
         write.by !== "host" &&
         (before === null || ruleSources({ staffOnly: closedPaths }).some((f) => write.changed(f)))
       ) {
-        const reader = pathReader(write.ctx, o, after);
         if (await staffOnlySet(reader, closedPaths)) {
           throw refuse(
             write,
@@ -178,7 +187,7 @@ export function statesLifecycle(object: ObjectDefinition, states: StatesDefiniti
         const holds = (state: string | null) =>
           state !== null && (claims.held.includes(state) || claims.confirmed.includes(state));
         if (holds(toId) && !holds(fromId)) {
-          if (await staffOnlySet(pathReader(write.ctx, o, after), closedPaths)) {
+          if (await staffOnlySet(reader, closedPaths)) {
             throw refuse(
               write,
               "state_closed",
@@ -211,7 +220,14 @@ export function statesLifecycle(object: ObjectDefinition, states: StatesDefiniti
       }
       // A customer's create meets the create rules, whatever state it starts in (ADR 0503).
       if (before === null && write.by === "customer" && states.create) {
-        await customerRules(write, states.create, `Creating ${o.label.toLowerCase()}`, to, null);
+        await customerRules(
+          write,
+          reader,
+          states.create,
+          `Creating ${o.label.toLowerCase()}`,
+          to,
+          null,
+        );
       }
       // A customer changing what the create rules read (the class it is for, or a field of its
       // own they name) makes it again, in effect: judged as a create of the record as the write
@@ -223,7 +239,19 @@ export function statesLifecycle(object: ObjectDefinition, states: StatesDefiniti
         states.create &&
         ruleSources(states.create).some((f) => write.changed(f))
       ) {
-        await customerRules(write, states.create, `Creating ${o.label.toLowerCase()}`, to, from);
+        await customerRules(
+          write,
+          reader,
+          states.create,
+          `Creating ${o.label.toLowerCase()}`,
+          to,
+          from,
+        );
+      }
+      // A booked shift a customer or the public makes or moves is on a free time (ADR 0763),
+      // after the window above, which answers for itself. Staff are warned instead.
+      if (write.by === "customer") {
+        await assertOnFreeTime(write.ctx, o, write.id, before, { ...after, [field]: toId });
       }
       // A state a record may be created in is not a move from the initial state (ADR 0503).
       const createdIn =
@@ -265,6 +293,7 @@ export function statesLifecycle(object: ObjectDefinition, states: StatesDefiniti
       if (write.by === "customer" && move.by.includes("customer")) {
         await customerRules(
           write,
+          reader,
           move,
           `Moving ${o.label.toLowerCase()} to ${to.title}`,
           to,
@@ -279,6 +308,7 @@ export function statesLifecycle(object: ObjectDefinition, states: StatesDefiniti
       if (write.by === "staff" && move.bindsStaff && (move.by.includes("staff") || byTool)) {
         await customerRules(
           write,
+          reader,
           { window: move.window },
           `Moving ${o.label.toLowerCase()} to ${to.title}`,
           to,
@@ -369,8 +399,7 @@ function ruleSources(rules: RuleSet): string[] {
 /** Why a customer may not make this write now, or null when they may. */
 async function customerRefusal(
   ctx: HandlerContext,
-  object: ObjectDefinition,
-  after: Record<string, unknown>,
+  reader: PathReader,
   rules: RuleSet,
   what: string,
 ): Promise<{
@@ -379,7 +408,6 @@ async function customerRefusal(
   times: Pick<StateRuleDetails, "opensAt" | "closesAt">;
 } | null> {
   if (!rules.window && !rules.staffOnly) return null;
-  const reader = pathReader(ctx, object, after);
   if (await staffOnlySet(reader, rules.staffOnly)) {
     return { rule: "state_staff_only", message: staffOnlyMessage(what), times: {} };
   }
@@ -444,8 +472,7 @@ export async function resolveStateRequest(
     if (by === "customer" || (by === "staff" && (!isPerson(ctx) || move.bindsStaff))) {
       const refusal = await customerRefusal(
         ctx,
-        object,
-        { ...after, [field]: to },
+        pathReader(ctx, object, { ...after, [field]: to }),
         move,
         `Moving ${object.label.toLowerCase()} to ${title(to)}`,
       );
@@ -483,7 +510,10 @@ export async function assertCreateRules(
   by: "customer" | "staff",
 ): Promise<void> {
   const states = object.states;
-  if (!states?.create) return;
+  if (!states?.create) {
+    if (by !== "staff") await assertOnFreeTime(ctx, object, null, null, after);
+    return;
+  }
   const labelOf = (name: string) => object.fields.find((f) => f.name === name)?.label ?? name;
   const choices = object.fields.find((f) => f.name === states.field)?.options?.choices ?? [];
   const wanted = after[states.field];
@@ -517,10 +547,11 @@ export async function assertCreateRules(
   if (by === "staff") return;
   const refusal = await customerRefusal(
     ctx,
-    object,
-    after,
+    reader,
     states.create,
     `Creating ${object.label.toLowerCase()}`,
   );
   if (refusal) throw fail(refusal.rule, refusal.message, refusal.times);
+  // A booked shift made for them is on a free time (ADR 0763), as their own create would be.
+  await assertOnFreeTime(ctx, object, null, null, { ...after, [states.field]: toId });
 }

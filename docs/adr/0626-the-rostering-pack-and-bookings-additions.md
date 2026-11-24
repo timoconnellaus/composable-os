@@ -98,6 +98,12 @@ ADR 0480's rule): approving a pending call of a restricted tool (`assign`, `qual
 person who holds that tool themselves (`staffAuthority`, their role or a grant); approving a
 pending record write of who works a shift needs a person who rosters (`staffing/approvals.ts`).
 The requester's authority still holds at apply too: a proposer whose grant was taken away fails.
+*Amended 2026-11-24 (issue #285):* an AI's restore is a roster change too. Approving a pending
+`record.restore` of a shift or series that names someone (read against the record in the Trash,
+as the restore's own check reads it) needs a person who rosters; one with nobody on it does not.
+Approving a pending `record.restoreVersion` of an object whose versioned content carries who works
+it needs one as well. The approval queue's redaction (ADR 0627) reads the same rule
+(`rosterChangeCall`).
 
 **`recurring.horizonSetting`**: a number setting of the extension (days) that sets a series' horizon
 when it holds a value; `horizonDays` stays the default. The duty series' is the duty horizon.
@@ -161,3 +167,13 @@ classes are steps 6 and 7's.
   their accounts' current names.
 - The notices' words are still the host's own; the spec's "notification words are the pack's" is
   left for later (they say nothing pack-specific today).
+
+## Amended 2026-11-24 (stage 49 step 1, ADR 0761)
+The roster shows a shift whose title may name a client (`staffed.private`, an appointment) as its
+kind's name to anyone but its own person and those who roster. See
+[ADR 0761](0761-a-shift-that-names-a-client-kept-off-the-roster-and-the-feed.md).
+
+## Amended 2026-11-24 (stage 49 step 4, ADR 0763)
+A customer booking a shift that is booked at free times (`staffed.open.customer`) names its
+provider without being a rosterer: the customer's check decides it
+([ADR 0763](0763-the-customers-check-on-a-free-time.md)).

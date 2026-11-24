@@ -266,6 +266,38 @@ describe("ticketing pack (test host)", () => {
     ]);
     expect(out.totals).toEqual({ sold: 15, held: 2, remaining: 30, revenue: 540000 });
   });
+
+  it("salesSummary counts revenue for an event of many ticket types within query.sql's 100 values", async () => {
+    const types = Array.from({ length: 150 }, (_, i) => ({
+      id: `tt${String(i).padStart(3, "0")}`,
+      event: "ev1",
+      name: `Type ${String(i).padStart(3, "0")}`,
+      price: 10,
+      taken: 1,
+    }));
+    const params: unknown[][] = [];
+    const h = createTestHost(extension, {
+      records: {
+        "ticketing.event": [{ id: "ev1", name: "Camp", status: "on_sale" }],
+        "ticketing.tickettype": types,
+      },
+      operations: {
+        "query.sql": (input) => {
+          const asked = input.params as string[];
+          params.push(asked);
+          // As the host: query.sql takes at most 100 params.
+          if (asked.length > 100) throw { code: "invalid_input", message: "Too many params" };
+          return { rows: asked.slice(1).map((id) => ({ id, revenue: 1000 })) };
+        },
+        "order.settings.get": () => ({ currency: "AUD" }),
+      },
+    });
+    const out = await h.runTool<{ totals: { sold: number; revenue: number } }>("salesSummary", {
+      eventId: "ev1",
+    });
+    expect(out.totals).toEqual(expect.objectContaining({ sold: 150, revenue: 150_000 }));
+    expect(params.map((p) => p.length)).toEqual([100, 52]);
+  });
 });
 
 describe("eventsOnSale (test host)", () => {
@@ -398,6 +430,21 @@ describe("checkIn (test host)", () => {
       dueAt: "2027-01-31T23:59:59.999Z",
     });
     expect(out.message).toContain("300.00 AUD");
+  });
+
+  it("says a balance owing in its currency's own unit, as the scanner shows it", async () => {
+    const h = host([ticket()], {
+      state: "part_paid",
+      balance: 5000,
+      currency: "JPY",
+      balanceDueAt: null,
+    });
+    const out = await h.runTool<{ message: string }>(
+      "checkIn",
+      { code: CODE },
+      { caller: scanner },
+    );
+    expect(out.message).toContain("A balance of 5000 JPY is owing.");
   });
 
   it("normalises a typed code", () => {

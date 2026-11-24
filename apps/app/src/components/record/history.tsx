@@ -37,8 +37,6 @@ const ACTOR_LABEL: Record<HistoryEntry["actor"], string> = {
   extension: "Extension",
 };
 
-export { diffValue };
-
 export function HistoryList({
   object,
   entries,

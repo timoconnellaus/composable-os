@@ -6,6 +6,7 @@
 // fine here: the worker runs once and is thrown away.
 import { GATEKEEPER_MODULES, renamedMessage } from "@composable-os/sdk";
 import { transform } from "sucrase";
+import { COMPATIBILITY_DATE } from "../executor/worker-code.ts";
 
 export const CODE_TIMEOUT_MS = 30_000;
 export const CODE_MAX_CALLS = 100;
@@ -21,18 +22,25 @@ function stripComments(code: string): string {
   return code.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:\\])\/\/.*$/gm, "$1");
 }
 
-/** Transpiles the script (TypeScript allowed) and points `codemode:ops` at the wrapper. */
-export function buildScript(source: string): ScriptBuild {
-  let code: string;
+/** Transpiles a script's TypeScript to JavaScript (no other transforms); a syntax error fails. */
+export function transpile(source: string): ScriptBuild {
   try {
-    code = transform(source, {
+    const { code } = transform(source, {
       transforms: ["typescript"],
       disableESTransforms: true,
       filePath: "script.ts",
-    }).code;
+    });
+    return { ok: true, script: code };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) };
   }
+}
+
+/** Transpiles the script (TypeScript allowed) and points `codemode:ops` at the wrapper. */
+export function buildScript(source: string): ScriptBuild {
+  const transpiled = transpile(source);
+  if (!transpiled.ok) return transpiled;
+  const code = transpiled.script;
   const scan = stripComments(code);
   if (/\bimport\s*\(/.test(scan)) return { ok: false, message: "Dynamic import() is not allowed" };
   if (/\brequire\s*\(/.test(scan)) {
@@ -156,7 +164,7 @@ export default class extends WorkerEntrypoint {
 /** The throwaway worker for one script: new code every run, so LOADER.load() with no id. */
 export function codeWorkerCode(script: string): WorkerLoaderWorkerCode {
   return {
-    compatibilityDate: "2026-10-01",
+    compatibilityDate: COMPATIBILITY_DATE,
     mainModule: "entry.js",
     modules: {
       "entry.js": CODE_ENTRY,

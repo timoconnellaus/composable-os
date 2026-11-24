@@ -1,26 +1,31 @@
 // A signed-in customer's tickets, for the mobile app's Tickets tab (stage 27). Which tickets are
 // theirs, and what of them they may see, is the host's (`useMyTickets` reads through the seam).
 import type { TicketingHooks } from "@composable-os/pack-ticketing/client";
-import { eventTime } from "@composable-os/pack-ticketing/client";
-import { Text } from "react-native";
+import { eventTime, ticketStateLabel } from "@composable-os/pack-ticketing/client";
 import { List } from "../native-base/list.tsx";
 import { Row } from "../native-base/row.tsx";
 import { Screen } from "../native-base/screen.tsx";
-
-const STATE = { valid: "Valid", used: "Used", void: "Cancelled" } as const;
+import { Text } from "../native-base/text.tsx";
 
 export function MyTicketsScreen({
   ticketing,
   onOpen,
 }: {
   ticketing: Pick<TicketingHooks, "useMyTickets">;
-  /** Pushes the ticket's screen (TicketScreen) on the app's native stack. */
-  onOpen: (ticket: { id: string; code: string | null; event: string | null }) => void;
+  /**
+   * Pushes the ticket's screen (TicketScreen) on the app's native stack. Left out (as a section of
+   * My account, ADR 0710), a row is not pressable.
+   */
+  onOpen?: (ticket: { id: string; code: string | null; event: string | null }) => void;
 }) {
   const { data, isPending, error } = ticketing.useMyTickets();
   return (
     <Screen title="Tickets">
-      {isPending ? <Text accessibilityRole="progressbar">Loading your tickets…</Text> : null}
+      {isPending ? (
+        <Text tone="muted" accessibilityRole="progressbar">
+          Loading your tickets…
+        </Text>
+      ) : null}
       {error ? <Text accessibilityRole="alert">We could not load your tickets.</Text> : null}
       {data ? (
         <List empty="You have no tickets yet.">
@@ -31,11 +36,11 @@ export function MyTicketsScreen({
               detail={[
                 ticket.ticketTypeName,
                 ticket.startsAt ? eventTime(ticket) : null,
-                STATE[ticket.state as keyof typeof STATE] ?? ticket.state,
+                ticketStateLabel(ticket.state),
               ]
                 .filter(Boolean)
                 .join(" · ")}
-              onPress={ticket.state === "valid" ? () => onOpen(ticket) : undefined}
+              onPress={ticket.state === "valid" && onOpen ? () => onOpen(ticket) : undefined}
             />
           ))}
         </List>

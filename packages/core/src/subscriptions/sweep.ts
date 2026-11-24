@@ -12,6 +12,7 @@
 //   out paying members), and staff are told once per subscription that the provider's events are
 //   not arriving.
 import type { CrmDb } from "@composable-os/db";
+import { type Compilable, sql } from "kysely";
 import { notifyStatements } from "../notifications/send.ts";
 import { sweepOffers } from "./offers.ts";
 
@@ -22,71 +23,102 @@ const LIMIT = 50;
 
 const ago = (now: string, days: number) => new Date(Date.parse(now) - days * DAY).toISOString();
 
+/** The most pages of LIMIT subscriptions one sweep tells staff about events not arriving. */
+export const SILENT_PAGES = 20;
+
+/**
+ * `unindexed: false` leaves out the two reads no index holds (events not arriving, offers whose
+ * plan has gone): the minute cron runs them once an hour and the past due read every minute
+ * (docs/cloudflare-costs.md).
+ */
 export async function sweepSubscriptions(
   crm: CrmDb,
   now: string,
+  { unindexed = true }: { unindexed?: boolean } = {},
 ): Promise<{ pastDueLapsed: number; eventsMissing: number; offerPlansGone: number }> {
   const db = crm.query;
   const lapsed = await db
     .selectFrom("core_subscription")
     .select(["id", "plan_title", "failing_since"])
     .where("state", "=", "past_due")
+    // core_subscription_failing_idx's own predicate, written out: without it, a scan of every row.
+    .where(sql<boolean>`state IN ('past_due', 'unpaid')`)
     .where("failing_since", "<=", ago(now, PAST_DUE_GRACE_DAYS))
     .where("failing_since", ">", ago(now, PAST_DUE_GRACE_DAYS + 1))
     .limit(LIMIT)
     .execute();
-  const silent = await db
-    .selectFrom("core_subscription")
-    .select(["id", "plan_title", "current_period_end", "provider"])
-    .where("state", "in", ["active", "trialing"])
-    .where("current_period_end", "<=", ago(now, MISSING_EVENTS_AFTER_DAYS))
-    .where("current_period_end", ">", ago(now, MISSING_EVENTS_AFTER_DAYS + 1))
-    .limit(LIMIT)
-    .execute();
-  const statements = [];
-  for (const row of lapsed) {
+  // The whole window, a page at a time in its order: run hourly, a read of its first LIMIT
+  // alone would return the same rows each hour and never reach the rest. A repeat notice is
+  // ignored (its dedupe key).
+  const silent: {
+    id: string;
+    plan_title: string;
+    current_period_end: string | null;
+    provider: string;
+  }[] = [];
+  for (let page = 0; unindexed && page < SILENT_PAGES; page++) {
+    const last = silent.at(-1);
+    let read = db
+      .selectFrom("core_subscription")
+      .select(["id", "plan_title", "current_period_end", "provider"])
+      .where("state", "in", ["active", "trialing"])
+      .where("current_period_end", "<=", ago(now, MISSING_EVENTS_AFTER_DAYS))
+      .where("current_period_end", ">", ago(now, MISSING_EVENTS_AFTER_DAYS + 1));
+    if (last) {
+      const end = last.current_period_end ?? "";
+      read = read.where((eb) =>
+        eb.or([
+          eb("current_period_end", ">", end),
+          eb.and([eb("current_period_end", "=", end), eb("id", ">", last.id)]),
+        ]),
+      );
+    }
+    const rows = await read.orderBy("current_period_end").orderBy("id").limit(LIMIT).execute();
+    silent.push(...rows);
+    if (rows.length < LIMIT) break;
+  }
+  const statements: Compilable[] = [];
+  const tell = async (id: string, kind: string, title: string, body: string) => {
     const plan = await notifyStatements(
       db,
       {
         to: [{ role: "admin" }],
         type: "system.message",
-        title: "A past due subscription no longer gives access",
-        body:
-          `Subscription ${row.id} (${row.plan_title}) has been past due since ` +
-          `${row.failing_since?.slice(0, 10)}, more than ${PAST_DUE_GRACE_DAYS} days, so it no ` +
-          "longer gives access. The provider is still not ending it: check its setting for " +
-          "exhausted retries, and end or settle it in the provider's dashboard.",
-        link: { kind: "record", object: "subscription", id: row.id },
-        dedupeKey: `subscription.past_due_lapsed:${row.id}`,
+        title,
+        body,
+        link: { kind: "record", object: "subscription", id },
+        dedupeKey: `subscription.${kind}:${id}`,
         source: { actor: "system" },
       },
       now,
     );
     statements.push(...plan.statements);
+  };
+  for (const row of lapsed) {
+    await tell(
+      row.id,
+      "past_due_lapsed",
+      "A past due subscription no longer gives access",
+      `Subscription ${row.id} (${row.plan_title}) has been past due since ` +
+        `${row.failing_since?.slice(0, 10)}, more than ${PAST_DUE_GRACE_DAYS} days, so it no ` +
+        "longer gives access. The provider is still not ending it: check its setting for " +
+        "exhausted retries, and end or settle it in the provider's dashboard.",
+    );
   }
   for (const row of silent) {
-    const plan = await notifyStatements(
-      db,
-      {
-        to: [{ role: "admin" }],
-        type: "system.message",
-        title: "The payment provider's events are not arriving",
-        body:
-          `Subscription ${row.id} (${row.plan_title}) is still shown as running, but its period ` +
-          `ended on ${row.current_period_end?.slice(0, 10)} and nothing has arrived from ` +
-          `${row.provider} since. Its member keeps access. Check the provider's webhook ` +
-          "endpoint and its failed deliveries.",
-        link: { kind: "record", object: "subscription", id: row.id },
-        dedupeKey: `subscription.events_missing:${row.id}`,
-        source: { actor: "system" },
-      },
-      now,
+    await tell(
+      row.id,
+      "events_missing",
+      "The payment provider's events are not arriving",
+      `Subscription ${row.id} (${row.plan_title}) is still shown as running, but its period ` +
+        `ended on ${row.current_period_end?.slice(0, 10)} and nothing has arrived from ` +
+        `${row.provider} since. Its member keeps access. Check the provider's webhook ` +
+        "endpoint and its failed deliveries.",
     );
-    statements.push(...plan.statements);
   }
   if (statements.length) await crm.batch(statements);
   // Continuation offers with no plan left to take them on (ADR 0491).
-  const offers = await sweepOffers(crm, now);
+  const offers = unindexed ? await sweepOffers(crm, now) : { plansGone: 0 };
   return {
     pastDueLapsed: lapsed.length,
     eventsMissing: silent.length,

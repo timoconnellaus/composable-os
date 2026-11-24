@@ -427,7 +427,11 @@ export const querySql = defineOperation({
     "publishable records, without their content), rec_capacity and rec_capacity_claim (places, " +
     "held, taken and claims of records with a capacity), rec_allowance, rec_allowance_period and " +
     "rec_allowance_use (passes' and memberships' uses: terms, counts per period, every use spent " +
-    "or given back), rec_stage_history (stage entered/left times, " +
+    "or given back), rec_stock_movement (the stock ledger: every movement of a record with stock, " +
+    "its kind, signed quantity, place and source; on hand is rec_capacity's places - taken), " +
+    "rec_order, rec_order_line, rec_order_adjustment, rec_order_payment and rec_order_refund " +
+    "(orders, their lines, money off, and payments and refunds by method), " +
+    "rec_stage_history (stage entered/left times, " +
     "days_in_stage), rec_state_history (the same for objects with a state machine: state, " +
     "is_final, days_in_state) and extension objects as rec_x_<ext>_<object> (e.g. rec_x_deals_deal; see " +
     "schema.objects). Only a single SELECT or WITH is allowed; " +

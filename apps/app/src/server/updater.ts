@@ -1,4 +1,4 @@
-// The self-updater's runtime in demo-app (ADR 0054, ADR 0164): the UpdaterRuntime port update.*
+// The self-updater's runtime in the app (ADR 0054, ADR 0164): the UpdaterRuntime port update.*
 // operations call. It reads public GitHub Releases (no telemetry, ADR 0166) and, with the scoped
 // token stored as the COS_UPDATE_TOKEN secret, drives the Cloudflare API with the same code as
 // `cos upgrade` (@composable-os/release). Downloads are verified (SHA256SUMS + build attestation) before
@@ -43,13 +43,13 @@ export interface UpdaterDeps {
   /** Post-switch smoke check; default checks the runner, the schema and /api/health. */
   smoke?: (hostname: string, version: string) => Promise<void>;
   /** The product this deployment is of; the build's own by default (tests: a fixture product). */
-  product?: Pick<ProductDefinition, "id" | "updateRepository">;
+  product?: Pick<ProductDefinition, "id" | "updateRepository" | "names">;
 }
 
 /**
  * The default smoke check, from inside the Worker being replaced: the runner answers over its
  * service binding (which reaches the newly deployed runner), and the public /api/health of the
- * new demo-app reports the target version. A Worker cannot always fetch its own workers.dev
+ * new app Worker reports the target version. A Worker cannot always fetch its own workers.dev
  * hostname, so an unreachable health URL is tolerated when the runner check passed.
  */
 async function defaultSmoke(env: UpdaterEnv, hostname: string, version: string) {
@@ -115,7 +115,7 @@ export function updaterRuntimeFor(env: UpdaterEnv, deps: UpdaterDeps = {}): Upda
       const client = api();
       const scripts = new Set((await client.listScripts(state.accountId)).map((s) => s.id));
       const out: Record<string, string[]> = {};
-      for (const name of ["demo-app", "demo-runner", ...state.gatekeepers]) {
+      for (const name of [product.names.app, product.names.runner, ...state.gatekeepers]) {
         const deployed = state.workerNames[name] ?? name;
         if (scripts.has(deployed)) out[name] = await client.listSecrets(state.accountId, deployed);
       }

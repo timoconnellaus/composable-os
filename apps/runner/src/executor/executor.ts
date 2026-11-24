@@ -345,6 +345,11 @@ export class Executor {
         : {}),
       // The caller's pack role limit to today, from the pipeline (ADR 0553).
       ...(input.caller.roleToday ? { roleToday: input.caller.roleToday } : {}),
+      ...(input.caller.roleToday && input.caller.roleTodayAt
+        ? { roleTodayAt: input.caller.roleTodayAt }
+        : {}),
+      // And its limit to the People it looks after (ADR 0889).
+      ...(input.caller.roleLooksAfter ? { roleLooksAfter: input.caller.roleLooksAfter } : {}),
       // Which tool this run is, from the installed manifest (ADR 0513): a move only named tools
       // may make, and a holder's terms, read it from the run's calls.
       tool: {
@@ -354,13 +359,14 @@ export class Executor {
         permission: manifest.tools?.[input.tool]?.permission ?? null,
         // The staff account it was called for, from the pipeline's verified caller (ADR 0625):
         // what an operation about "me" reads (the roster's own shifts, who may roster).
-        ...(input.caller.principal
+        // An enrolled device (ADR 0781) is no account: nothing in its run is about "me".
+        ...(input.caller.principal || input.caller.device
           ? {}
           : { calledBy: { account: input.caller.userId, actor: input.caller.actor } }),
         // The person who called it, when a person did (the pipeline refused anyone else for a
         // humanOnly tool), or the person who approved another actor's call of a tool a person
         // approves (ADR 0552): who gave what a person's tool gives.
-        ...(input.caller.principal
+        ...(input.caller.principal || input.caller.device
           ? {}
           : input.caller.actor === "human"
             ? { startedBy: input.caller.userId }
@@ -402,11 +408,18 @@ export class Executor {
             // pipeline's verified caller, never from the input.
             // An automation's or another extension's call has no person who started it (stage
             // 42: Courses' automation assigning a program): no caller, as in an automation.
+            // An enrolled device holding a device role (ADR 0781): its id and its name.
             caller: input.caller.principal
               ? { kind: input.caller.principal.kind }
-              : input.caller.actor === "automation" || input.caller.actor === "extension"
-                ? (undefined as unknown as StartedBy)
-                : { kind: "staff", userId: input.caller.userId, name: input.caller.name ?? "" },
+              : input.caller.device
+                ? {
+                    kind: "device",
+                    deviceId: input.caller.device.deviceId,
+                    name: input.caller.device.name,
+                  }
+                : input.caller.actor === "automation" || input.caller.actor === "extension"
+                  ? (undefined as unknown as StartedBy)
+                  : { kind: "staff", userId: input.caller.userId, name: input.caller.name ?? "" },
           },
           host,
         ),

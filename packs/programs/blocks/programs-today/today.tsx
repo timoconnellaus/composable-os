@@ -11,10 +11,7 @@ export function Today({
   date,
   onRestDone,
 }: {
-  programs: Pick<
-    ProgramsHooks,
-    "useLogSet" | "useMarkSession" | "useSession" | "useToday" | "useUpdateSet"
-  >;
+  programs: Pick<ProgramsHooks, "useMarkSession" | "useSessionLog" | "useToday">;
   /** The member's local date (YYYY-MM-DD); the host's UTC today when left out. */
   date?: string;
   onRestDone?: () => void;

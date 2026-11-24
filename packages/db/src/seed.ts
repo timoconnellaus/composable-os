@@ -402,8 +402,13 @@ export function generateSeed(options: SeedOptions = {}): SeedResult {
     const out: string[] = [];
     for (const [table, { columns, rows }] of from) {
       for (let i = 0; i < rows.length; i += chunk) {
+        const values = rows.slice(i, i + chunk).join(", ");
+        // A Person is never inserted over one that exists: a trigger aborts it even under OR IGNORE
+        // (migration 0851), so a second seed skips the people already there.
         out.push(
-          `INSERT OR IGNORE INTO ${table} (${columns.join(", ")}) VALUES ${rows.slice(i, i + chunk).join(", ")}`,
+          table === "core_person"
+            ? `INSERT OR IGNORE INTO ${table} (${columns.join(", ")}) SELECT * FROM (VALUES ${values}) WHERE column1 NOT IN (SELECT id FROM core_person)`
+            : `INSERT OR IGNORE INTO ${table} (${columns.join(", ")}) VALUES ${values}`,
         );
       }
     }

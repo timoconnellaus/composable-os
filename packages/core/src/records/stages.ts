@@ -11,7 +11,8 @@
 //   - refuses a stage outside the record's group (StageRuleError);
 //   - tells the engine which fields the stage needs (the stage's own list plus
 //     `requiredByType`), which refuses entering it while one is empty, with a structured error
-//     naming the fields;
+//     naming the fields; a read-only one is a fact the host sets (ADR 0750), so no caller can
+//     enter the stage before the host has recorded it;
 //   - keeps the probability on the stage's default unless it was set by hand (the overridden
 //     flag), sets the status from the stage type, and sets or clears the closed date.
 // The engine records stage history (closes the current row, opens a new one) on the same batch
@@ -23,6 +24,7 @@ import { getObject } from "../fields/index.ts";
 import type { FieldDefinition, ObjectDefinition, StagesDefinition } from "../fields/types.ts";
 import { type Reader, visibleSource } from "../visibility/index.ts";
 import { viewColumnOf } from "./columns.ts";
+import { jsonList } from "./common.ts";
 import {
   type Lifecycle,
   type Mover,
@@ -39,7 +41,6 @@ export interface StageInfo {
   id: string;
   title: string;
   type: StageType;
-  order: number | null;
   requiredFields: string[];
   probability: number | null;
   group: string | null;
@@ -57,6 +58,8 @@ export interface StageRuleDetails {
   stage: { id: string; title: string; type: StageType } | null;
   /** `stage_move_not_permitted`: who may make the move. */
   by?: Mover[];
+  /** `stage_required_fields`: the missing facts only the host sets (ADR 0750). */
+  setByHost?: string[];
 }
 
 /** A write broke a stage rule. `code` is `invalid_input`; details say what to fix. */
@@ -89,12 +92,12 @@ function stageObjectOf(object: ObjectDefinition, stages: StagesDefinition): Obje
 }
 
 /** Reads stages by id (live records only), through the cache. */
-export async function loadStages(
+async function loadStages(
   ctx: Reader,
   stageObject: ObjectDefinition,
   stages: StagesDefinition,
   ids: readonly string[],
-  cache: StageCache = new Map(),
+  cache: StageCache,
 ): Promise<Map<string, StageInfo>> {
   const out = new Map<string, StageInfo>();
   const missing = [...new Set(ids)].filter((id) => {
@@ -107,7 +110,7 @@ export async function loadStages(
       name ? stageObject.fields.find((f) => f.name === name) : undefined;
     const rows = await sql<Record<string, unknown>>`
       SELECT * FROM ${visibleSource(ctx, stageObject)}
-      WHERE id IN (SELECT value FROM json_each(${JSON.stringify(missing)}))
+      WHERE id IN ${jsonList(missing)}
     `.execute(ctx.db);
     const titleColumn = stageObject.titleField ? column(stageObject, stageObject.titleField) : null;
     const get = (row: Record<string, unknown>, name: string | undefined) => {
@@ -118,14 +121,12 @@ export async function loadStages(
     for (const row of rows.rows) {
       const type = get(row, stages.stage.type);
       const required = get(row, stages.stage.requiredFields);
-      const order = get(row, stages.stage.order);
       const probability = get(row, stages.stage.probability);
       const group = get(row, stages.stage.group);
       const info: StageInfo = {
         id: String(row.id),
         title: titleColumn ? String(row[titleColumn] ?? row.id) : String(row.id),
         type: type === "won" || type === "lost" ? type : "open",
-        order: typeof order === "number" ? order : null,
         requiredFields: Array.isArray(required) ? required.map(String) : [],
         probability: typeof probability === "number" ? probability : null,
         group: typeof group === "string" ? group : null,

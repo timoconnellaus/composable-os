@@ -8,8 +8,7 @@
 //       [--out report.csv] [--email you@example.com]
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
-import { sessionHost } from "../import-door/host.ts";
-import { signInForRun } from "../import-door/sign-in.ts";
+import { hostOf, withRunSession } from "../import-door/sign-in.ts";
 import type { Io } from "../io.ts";
 import { offersReportLines, readOffersFile, resolvePlan, runOffersImport } from "./engine.ts";
 
@@ -25,15 +24,6 @@ export interface OffersImportFlags {
 export const OFFERS_USAGE =
   "Usage: cos subscriptions offers import <offers.csv> --host <url> --plan <object>[:<id>] [--email <you>] [--dry-run] [--invite] [--reissue]\n" +
   "       cos subscriptions offers report --host <url> [--status taken|open|expired|withdrawn] [--out <file.csv>] [--email <you>]";
-
-function hostOf(flag: string | undefined, io: Io): string | null {
-  const host = flag?.replace(/\/+$/, "");
-  if (!host || !/^https?:\/\//.test(host)) {
-    io.err("--host is the host's address, e.g. https://admin.example.com");
-    return null;
-  }
-  return host;
-}
 
 /** `cos subscriptions offers import <offers.csv>`. */
 export async function offersImport(
@@ -68,33 +58,26 @@ export async function offersImport(
     return 1;
   }
   io.out(`${file.rows.length} person(s) in ${name}.`);
-  let session: Awaited<ReturnType<typeof signInForRun>>;
-  try {
-    session = await signInForRun(host, flags.email, io, "cos subscriptions offers import");
-  } catch (error) {
-    io.err(`Could not sign in: ${(error as Error).message}`);
-    return 1;
-  }
-  try {
-    const on = sessionHost(host, () => session.headers());
-    const plan = await resolvePlan(on, flags.plan);
-    const report = await runOffersImport(file, on, {
-      plan,
-      dryRun: Boolean(flags.dryRun),
-      invite: Boolean(flags.invite),
-      reissue: Boolean(flags.reissue),
-      progress: (line) => io.out(line),
-    });
-    for (const line of offersReportLines(report, name)) {
-      (report.problems.length ? io.err : io.out)(line);
+  const planFlag = flags.plan;
+  return withRunSession(host, flags.email, io, "cos subscriptions offers import", async (on) => {
+    try {
+      const plan = await resolvePlan(on, planFlag);
+      const report = await runOffersImport(file, on, {
+        plan,
+        dryRun: Boolean(flags.dryRun),
+        invite: Boolean(flags.invite),
+        reissue: Boolean(flags.reissue),
+        progress: (line) => io.out(line),
+      });
+      for (const line of offersReportLines(report, name)) {
+        (report.problems.length ? io.err : io.out)(line);
+      }
+      return report.problems.length ? 1 : 0;
+    } catch (error) {
+      io.err(`Error: ${(error as Error).message}`);
+      return 1;
     }
-    return report.problems.length ? 1 : 0;
-  } catch (error) {
-    io.err(`Error: ${(error as Error).message}`);
-    return 1;
-  } finally {
-    await session.signOut();
-  }
+  });
 }
 
 /** `cos subscriptions offers report`: the report as CSV, to a file or the terminal. */
@@ -108,30 +91,22 @@ export async function offersReport(
     io.err("--status is taken, open, expired or withdrawn");
     return 2;
   }
-  let session: Awaited<ReturnType<typeof signInForRun>>;
-  try {
-    session = await signInForRun(host, flags.email, io, "cos subscriptions offers report");
-  } catch (error) {
-    io.err(`Could not sign in: ${(error as Error).message}`);
-    return 1;
-  }
-  try {
-    const file = await sessionHost(host, () => session.headers()).call<{
-      filename: string;
-      csv: string;
-      rowCount: number;
-    }>("subscription.offer.export", flags.status ? { status: flags.status } : {});
-    if (flags.out) {
-      writeFileSync(flags.out, file.csv);
-      io.out(`${file.rowCount} offer(s) written to ${flags.out}.`);
-    } else {
-      io.out(file.csv.trimEnd());
+  return withRunSession(host, flags.email, io, "cos subscriptions offers report", async (on) => {
+    try {
+      const file = await on.call<{ filename: string; csv: string; rowCount: number }>(
+        "subscription.offer.export",
+        flags.status ? { status: flags.status } : {},
+      );
+      if (flags.out) {
+        writeFileSync(flags.out, file.csv);
+        io.out(`${file.rowCount} offer(s) written to ${flags.out}.`);
+      } else {
+        io.out(file.csv.trimEnd());
+      }
+      return 0;
+    } catch (error) {
+      io.err(`Error: ${(error as Error).message}`);
+      return 1;
     }
-    return 0;
-  } catch (error) {
-    io.err(`Error: ${(error as Error).message}`);
-    return 1;
-  } finally {
-    await session.signOut();
-  }
+  });
 }

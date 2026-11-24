@@ -17,7 +17,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 import { callOp } from "#/lib/operations";
-import { invalidateOps, useOp } from "#/lib/query";
+import { errorMessage, invalidateOps, useOp } from "#/lib/query";
 
 interface Upload {
   url: string;
@@ -111,8 +111,12 @@ export function VideoPicker({
   }
 
   async function refresh(id: string) {
-    await callOp("media.videoRefresh", { id });
-    await invalidateOps(client, "media.");
+    try {
+      await callOp("media.videoRefresh", { id });
+      await invalidateOps(client, "media.");
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
   }
 
   return (
