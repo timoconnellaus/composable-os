@@ -44,6 +44,9 @@
 //   - a class is its coach's shift (`staffed`, stage 45, ADR 0621): one staff account is never
 //     on two overlapping shifts, refused by the database for every writer, and a write of a
 //     class answers its warnings (the coach away or not qualified, a class with no coach).
+//   - a class takes its room while it is on, when the room takes one booking at a time
+//     (`occupies`, stage 49, ADR 0765): a second class in it at an overlapping time is refused by
+//     the database for every writer; a series' date that would clash is made with no room.
 // The tools in tools.ts compose the host's operations and add no rules of their own. The messages
 // in automations.ts (step 9, ADR 0572) email members and their guardians through the email-send
 // gatekeeper on what the host did: booked, moved in, passed over, a place free after the cut-off,
@@ -291,6 +294,16 @@ export default defineExtension({
           min: 0,
           step: 1,
         },
+        // A private room (stage 49, ADR 0765): one class at a time in it, refused by the host for
+        // every writer. Off for a shared floor many classes use at once.
+        exclusive: {
+          type: "boolean",
+          label: "One booking at a time",
+          description:
+            "Nothing else can be booked in this room while a class is in it. Turning it on is " +
+            "refused while two classes still to come overlap in it.",
+          default: false,
+        },
         notes: { type: "longText", label: "Notes" },
       },
       public: { read: ["name"] },
@@ -516,6 +529,16 @@ export default defineExtension({
         payBefore: { field: "classType.rosterBeforeMinutes" },
         payAfter: { field: "classType.rosterAfterMinutes" },
         evidence: { object: "booking", link: "class", by: "markedBy" },
+      },
+      // A class takes its room while it is on, when the room takes one booking at a time (stage
+      // 49, ADR 0765): the host refuses a second class (or, later, an appointment) in it at an
+      // overlapping time, for every writer. A shared room is never claimed.
+      occupies: {
+        thing: "room",
+        starts: "startsAt",
+        ends: "endsAt",
+        live: ["scheduled", "done"],
+        only: "exclusive",
       },
       public: {
         read: [
@@ -879,6 +902,10 @@ export default defineExtension({
           movedFrom: { field: "movedFrom", state: "moved" },
           paidBy: ["memberships.membership", "memberships.pass"],
           waived: "paidOtherwise",
+          // A membership ended by its payer's cooling off (stage 44 step 7, ADR 0647): its
+          // bookings for classes not yet started are cancelled as the gym's, their places freed
+          // for the waiting list and their uses given back.
+          released: "cancelled_by_us",
         },
       },
       // A member reads and changes only their own bookings, and a parent or guardian staff linked

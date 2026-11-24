@@ -1040,7 +1040,7 @@ The rules products share, declared in a manifest and enforced by the host in the
 `stages`, `states`, `capacity`, `sellable` and `publishable` exist (the last with its public
 half, and the media library beside it, since stage 28). `allowance` exists since stage 32b;
 `recurring`, capacity claimants and declared uniqueness since stage 31 (below); `staffed` since
-stage 45 (below). Behaviours stack:
+stage 45 and `occupies` since stage 49 (below). Behaviours stack:
 an event is publishable, sellable and has a capacity.
 
 `stages` and `states` are two declarations on one **transition engine**
@@ -1176,6 +1176,25 @@ made with (`unavailable`, `not_qualified`, `uncovered` within 14 days), which th
 records; `staffing.check` (tool-only) is the same answer first. Qualifications and unavailability
 are core tables in no `rec_*` view (`core_staff_qualification`, `core_staff_away`). Bookings' class
 declares it.
+
+**`occupies`** ([ADR 0765](adr/0765-occupies-the-claim-on-a-thing.md), `packages/core/src/occupies/`;
+stage 49 step 2). The time claim's twin for things: a record that declares
+`occupies: { thing, starts, ends, live, before?, after?, only? }` takes the thing its relation
+names (a room; one record or many) for its time, with margins in minutes before and after (a field
+of the record, or of what a relation names: a service's buffer). Every live occupant holds a claim
+per claimed thing in `core_thing_time` (migration 1095), and the database refuses two overlapping
+claims on one thing, whatever objects hold them (`conflict`, `rule: "room_taken"`, naming no other
+record), for every writer, statement shape and race. Only things whose `only` flag is set are
+claimed (Bookings' room "One booking at a time", off by default: a shared floor is never claimed).
+Triggers the reconciler builds on the occupant's table, the thing's table (its flag) and the
+margins' table derive the claims; a claim that has ended and clashes only with other ended ones
+is left out (history never refuses). A live record in a claimed room needs a start and an end
+the database can read (the contract requires both; an unreadable time is refused), and the
+overlap check reads one claim (claims on one thing never overlap, indexed by thing and start). Marking a room exclusive over a clash to come is refused; a
+reconcile over records that clash and have not ended is refused (`occupies_conflict`, past ones
+skipped and reported); a series' date whose room is taken is made with no room (a field exception)
+and the rosterers are told. Bookings' class declares it; appointments (stage 49 step 5) and stage
+57's venues reuse it.
 
 **Offers, takes and the roster's notices** ([ADR 0623](adr/0623-offers-and-takes-the-race-and-the-cut-off.md),
 [ADR 0624](adr/0624-the-rosters-notices-uncovered-shifts-and-leaving.md), stage 45 step 3). The
@@ -1422,6 +1441,34 @@ give one not-found for everything they do not show. Their answers are cached in 
 keyed by the object's generation (`core_content_generation`), which every committed change to a
 record of the object bumps in its own batch (`content/cache.ts`).
 
+**Search over published words** (stage 38, [ADR 0700](adr/0700-the-published-text-index-and-content-search.md),
+`packages/core/src/content/published-text.ts`). The published-text index (`core_published_text`
+and its FTS5 table, migration 0970) holds each current version's words, one row per section of a
+rich text field (split at its headings, each with its anchor: `headingAnchors` in
+`@composable-os/sdk/rich-text`, which both content renderers use for the heading's `id` and
+`nativeID`), for the content fields the public reads of objects the public reads. It is written in
+the publish batch (`publishWrites`: two statements whatever the length, the sections as one JSON
+parameter) and cleared in the unpublish one; erase remakes it from a scrubbed version; the minute
+cron's `content.reindex` catches it up when a declaration changes and fills it for what was
+published before it. `content.search { object, q, cursor? }` (public, customer and staff, read as
+the public, cached by the generation) matches every word as a prefix, keeps the best section of
+each record, reads the records through the public's seam, and answers slug, title, section
+(field, heading, anchor) and a snippet as plain and matching segments.
+
+**Read and understood** (stage 38, [ADR 0702](adr/0702-acknowledgements-read-again-and-a-confirmation-nobody-changes.md),
+`packages/core/src/records/acknowledge.ts`, `packages/core/src/operations/ack.ts`). A publishable
+object may declare `acknowledge: { who, manage }`: `who` a "must read" document field
+(`MUST_READ_SCHEMA`: everyone, or staff roles, pack roles and granted pack permissions), `manage`
+a restricted, grantable pack permission. Each version keeps its publisher's choice, read again or
+small fix (`read_again`, migration 0971; the first always asks; `record.publish` and
+`record.schedulePublish` take `readAgain`, an AI's request carries a suggestion and
+`approval.approve`/`approval.decide` take the approver's choice). `ack.confirm` writes a row of
+`core_publish_ack` (the person's own, the current version only, once; triggers refuse anything
+else and every update and delete); `ack.mine` lists what is to read and what was confirmed; both
+reach every pack role (`PACK_ROLE_OWN`). `ack.status` and `ack.overview` are for a person who is an
+admin or holds the object's `manage` grant. Who must read is a person's to change, and once a
+record is published a manager's. The confirmations are in no `rec_*` view.
+
 **Media** ([ADR 0444](adr/0444-media-the-editor-and-the-content-pack.md),
 `packages/core/src/operations/media.ts`, `packages/core/src/http/media.ts`). A base record,
 `media` (`core_media`, migration 0461): one original in R2 (`BLOBS`, `media/<id>`), its type read
@@ -1522,7 +1569,8 @@ create and its cancels worked out from the class type's own rule (Bookings' fiel
 class not scheduled), the requested `cancel` the host resolves to in time or late, and an
 allowance spender (`paidBy` the Memberships pack's `membership` and `pass`, the class's start as
 its time, its class type and local weekday and minute copied; `waived` for a walk-in paid at the
-desk, [ADR 0506](adr/0506-a-spender-paid-another-way.md)). It requires Programs. Its tools:
+desk, [ADR 0506](adr/0506-a-spender-paid-another-way.md); `released: "cancelled_by_us"` for its
+bookings ahead when a membership ends by cooling off, ADR 0647). It requires Programs. Its tools:
 `timetable`, `classGet` (public), `book` (joins a full class's waitlist unless asked not to),
 `cancel` (with `state.resolve`'s preview), `leaveWaitlist`, `mine` (with a waiter's position)
 (customers), `bookFor`, `cancelFor`, `day`, `classList` (staff). Hooks, web blocks (the timetable,
@@ -1721,7 +1769,9 @@ merge moves subscriptions and trials to the survivor. With no event, past due gi
 days of failing, and an active one past its period keeps access while staff are told the events
 are not arriving (the minute cron, `subscriptions/sweep.ts`). Staff end one at once
 (`subscription.cancel` with `now`) and see subscriptions in the admin's Subscriptions section
-(all, trials, failing, ending) and on a Person's page. **Continuation offers**
+(all, trials, failing, ending) and on a Person's page. A new member may end a membership in the
+business's **cooling-off period** for a full refund, each refund approved by a person (stage 44 step
+7, ADR 0647, below under Agreements). **Continuation offers**
 ([ADR 0491](adr/0491-continuation-offers.md), [ADR 0492](adr/0492-a-continuation-replaces-the-trial.md),
 `subscriptions/offers.ts`, migration 0532) move subscribers from another platform:
 `subscription.offer.import` (a person with `subscriptions:manage`, `cos subscriptions offers
@@ -1851,8 +1901,44 @@ email gatekeeper owes a **scrub** (`scrub_due_at`): the host asks each email-sen
 reached (`via`), through its own agreements queue only (`callAsHost`, method `scrubAgreementCopy`), to drop the copy's journal
 records, refuse any later send under its key and blank its history lines; a send in flight during
 the erase is scrubbed after it. Merge moves acceptances unchanged (`agreement.mergePlan` counts
-them for the preview). Signing at the desk and cooling off are the later steps
-(`docs/stages/44-agreements.md`).
+them for the preview). Signing at the desk is a later step (`docs/stages/44-agreements.md`).
+
+**Cooling off** (stage 44 step 7, [ADR 0647](adr/0647-cooling-off-a-new-member-ends-it-for-a-full-refund-a-person-approves.md)):
+a plan's pack names a number setting of its own as the plan's cooling-off days
+(`sellable.recurring.coolingOff`, a person's to change, 0 to at most 90, off by default; the
+Memberships pack's `coolingOffDays`). `subscriptions/cooling-off.ts` is the one definition of who
+may: a subscription started here without a continuation offer, inside the window (from the host's
+record of the provider's confirmation to the end of the last local day, in the business's zone),
+with something paid, once per holder (migration 0856's trigger), the days those kept on its
+checkout at the start, for good. `subscription.coolingOff` (customer, their own as payer; staff)
+answers it for up to 20 subscriptions in a fixed number of statements; the blocks show the button
+only when it says so. `subscription.coolOff` (the payer, or staff with `subscriptions:manage`; a
+person only) writes `core_subscription_cool_off` in its batch and, after the commit, asks the
+payments gatekeeper to end the subscription now. A valid ask is made inside the window and fixes
+a deadline seven days later (the gatekeeper's approval expiry, `DEFAULT_APPROVAL_EXPIRY_DAYS`);
+asking again (the member inside the window, staff before the deadline) is a new request to the
+provider (`askKey`) and never moves the deadline; while a cancel of it waits for a person at the
+gatekeeper nobody may ask again, and every such cancel is kept
+(`core_subscription_cool_off_action`). While it is open, any end the provider reports
+(whatever its reason) is the cooling off's, bounded by the ask less a five-minute tolerance and the
+deadline; one statement owes back each order paid up to the window's end or after the ask and up
+to the end (`core_sellable_refund_due`, `entered: "cooled_off"`), the same bounds as the figure
+shown; "paid" is the provider's time for a period's payment (`core_order.provider_paid_at`), not
+when the host processed it. At the deadline the minute cron's `subscription.coolOffSweep` (a host
+step; an idle tick invokes nothing) lapses an open one, rejecting every cancel of it still waiting
+at the gatekeeper (one the provider shows ended waits a day at most for its event), and the
+ordinary cancel works again; staff may finish a lapsed one (the window's payments only): the
+provider is asked to end it (retried with the same key, admins told once if it cannot be done),
+and the row is `ended` only in the batch of the provider's event that shows it ended. Once per
+holder: the ask, the finish and the end check it before writing, and an end is always recorded
+(one for a holder who used theirs lapses the row as not counted). The end's batch releases
+nothing: `subscription.coolOffRelease`, run by the minute cron in its own batch, moves the bookings
+ahead the membership paid for, and the member's own waiting places it would pay for, into their
+spender's `released` state (`allowance.spends.released`: Bookings' `cancelled_by_us`), 15 a step
+and one step a minute tick (so the scheduled invocation stays under D1's 1,000 statements),
+then one summary email goes to the member, claimed before it is sent. The minute cron
+asks the gatekeeper for each refund, which waits for a person with `orders:refund` (ADR 0429).
+Nothing refunds a card on its own.
 
 Two reasons this is the centre of the design. Extension tools cannot run several writes as one
 transaction, so anything that must be atomic (take the last place and create the order) has to be
@@ -1922,7 +2008,7 @@ and the mobile Account tab are plain pages over the same entry.
 | Programs | `document`, `publishable` (no public half), `states`, `customer`, `signedIn` | stage 41: steps 1 to 6 built (the spine, the dashboard, views and Person tab, hooks and blocks, draft and import); Ghetto's app is step 7 |
 | Content | `publishable`, rich text, slugs, media | stage 28: steps 1 to 6 built (rich text, `publishable` completed, public reads, media, the editor, the pack: posts and categories, hooks, web and native renderers); the first client's import and blog routes are its own repository's |
 | Courses | `publishable`, `sellable` (grants and a tax code), `access` and holders' parts, `states`, `customer` with `requireAccess`, `requires: ["programs"]`, video media and `media.play` | stage 42: steps 1 to 4, 6, 7 and the draft built ([ADR 0478](adr/0478-the-courses-pack.md)); the import and the first client to come |
-| Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `staffed` (a class is its coach's shift, stage 45), `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer` with `guardians`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 6 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md); parents booking for their children, [ADR 0540](adr/0540-the-family-link.md)); step 7, attendance, moves and cancelling a class; step 8, drop-ins with `sellable.moves`, [ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md)); step 9, messages, the reminder, the dashboard and the coach's app screen, [ADR 0572](adr/0572-bookings-messages-the-dashboard-and-the-coachs-app-screen.md); step 10 to come |
+| Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `staffed` (a class is its coach's shift, stage 45), `occupies` (a class takes a room marked "one booking at a time", stage 49 step 2, [ADR 0765](adr/0765-occupies-the-claim-on-a-thing.md)), `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer` with `guardians`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 6 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md); parents booking for their children, [ADR 0540](adr/0540-the-family-link.md)); step 7, attendance, moves and cancelling a class; step 8, drop-ins with `sellable.moves`, [ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md)); step 9, messages, the reminder, the dashboard and the coach's app screen, [ADR 0572](adr/0572-bookings-messages-the-dashboard-and-the-coachs-app-screen.md); step 10 to come |
 | Rostering | `recurring` (duty series, a horizon from its setting), `staffed` (a duty shift is its person's shift), `states`, a pack role (`rostering.team`), grantable and restricted permissions, the roster's rules (`staffing`), the host's tool-only `staffing.*` operations | stage 45: step 4 built (duties, duty series and shifts, the team role, the roster's tools, settings, [ADR 0626](adr/0626-the-rostering-pack-and-bookings-additions.md)); step 6 built (pay periods: `rostering:pay`, restricted and a person's only, who is counted, totals, the not-worked mark, lock, reopen and export, [ADR 0627](adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md)); step 5 built (each person's private calendar feed: `feed`, `feedRotate`, `feedRevoke`, [ADR 0628](adr/0628-the-staff-calendar-feed-and-the-shared-calendar-writer.md)); step 7 built (the screens as blocks over `@composable-os/pack-rostering/client`, my calendar among them, role clients with grants, `cos rostering import`, [ADR 0629](adr/0629-the-rosters-screens-role-clients-with-grants-and-the-roster-import.md)); checklists (4b) to come |
 | Memberships | `allowance` (holders), recurring billing with `recurring.grants` and `recurring.pause`, `sellable.onePerPerson`, `humanOnly` tools, `requires: ["programs"]` | stage 32b: steps 5 to 7 built (the behaviour, the pack, plan changes and pauses, the dashboard, views and blocks); the import (step 8) to come |
 
