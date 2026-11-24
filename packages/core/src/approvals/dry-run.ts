@@ -73,6 +73,7 @@ const CONTEXT_KEYS = {
   grantedPermissions: "data",
   permissionGrants: "data",
   roleToday: "data",
+  roleLooksAfter: "data",
   markStanding: "data",
   markGiven: "data",
   reason: "data",
@@ -112,6 +113,8 @@ const CONTEXT_KEYS = {
   voice: "runtime",
   agentJobs: "runtime",
   hostMail: "runtime",
+  // Key arithmetic only (an HMAC, sealing and opening a secret): it cannot act (ADR 0783).
+  personCodes: "data",
   // Outside calls only (stage 29, ADRs 0722 and 0725): never on a staff call a dry run makes.
   intake: "runtime",
   callingTool: "data",

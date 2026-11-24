@@ -81,6 +81,7 @@ import { findProvisionalIds, newId } from "./ids.ts";
 import type { IntakeRuntime } from "./intake/runtime.ts";
 import type { BlobStore, IntegrationRuntime } from "./integrations/runtime.ts";
 import type { HostMail } from "./invites.ts";
+import { signalStatements } from "./journeys/signals.ts";
 import type { Judge } from "./judge/types.ts";
 import { errorForLog } from "./log.ts";
 import type { ModelRunner } from "./models.ts";
@@ -102,15 +103,18 @@ import {
   type SystemActivityInput,
 } from "./operation.ts";
 import type { VoiceRuntime } from "./operations/voice.ts";
+import { holdRoleLooksAfter, type LooksAfterLimit } from "./pack-role-looks-after.ts";
 import { holdRoleToday, type TodayLimits } from "./pack-role-today.ts";
 import {
   type HeldPackRole,
   loadStaffRights,
   roleLimitsFor,
+  roleLooksAfterFor,
   type StaffRights,
   staffMayCall,
   staffRightsReach,
 } from "./pack-roles.ts";
+import type { PersonCodeKeys } from "./people-codes/keys.ts";
 import {
   ACTORS,
   type ActingUser,
@@ -171,6 +175,11 @@ export interface InvocationContext {
    * caller's pack role limit to today, held on this call as on the account's own.
    */
   roleToday?: TodayLimits | undefined;
+  /**
+   * Set by platform code only (a tool run, for the staff account that started it, ADR 0881): the
+   * caller's pack role limit to the People they look after, held on this call as on the account's.
+   */
+  roleLooksAfter?: LooksAfterLimit | undefined;
   /**
    * Set by platform code only (a tool run, ADR 0590): who stands behind what the tool writes, from
    * the verified caller that started it (a person, a customer, an AI). Absent: the host.
@@ -236,6 +245,11 @@ export interface InvocationContext {
   agentJobs?: AgentJobHost;
   /** The host's own mail for staff (ADR 0455). Not inherited when nested. */
   hostMail?: HostMail;
+  /**
+   * The keys of people's check-in codes and PINs (stage 51, ADR 0783), derived from the host's
+   * auth secret by the adapter. Absent: codes, cards and PINs are refused. Nested calls inherit it.
+   */
+  personCodes?: PersonCodeKeys;
   /**
    * The public-write door's runtime (stage 29, ADR 0722). A staff call skips the spam check, so
    * nothing uses it there; a dry run refuses it as any runtime.
@@ -728,6 +742,9 @@ async function invokeOnce<O extends AnyOperation>(
   // The limit to today: the account's pack role's when the role is what allows this call (not a
   // pack permission granted to it, ADR 0600), or one a tool run carries for its caller.
   const roleToday: TodayLimits | undefined = roleLimitsFor(rights, op) ?? ctx.roleToday;
+  // The limit to the People the account looks after (ADR 0881), the same way.
+  const roleLooksAfter: LooksAfterLimit | undefined =
+    roleLooksAfterFor(rights, op, ctx.user.id) ?? ctx.roleLooksAfter;
   if (packRole && !staffRightsReach(rights, op)) {
     const error = packRoleRefusal(packRole, op);
     const gate = evaluateGate(
@@ -908,6 +925,7 @@ async function invokeOnce<O extends AnyOperation>(
     grantedPermissions: ctx.grantedPermissions,
     permissionGrants: packRole ? [] : grants,
     ...(roleToday ? { roleToday } : {}),
+    ...(roleLooksAfter ? { roleLooksAfter } : {}),
     ...(ctx.markStanding ? { markStanding: ctx.markStanding } : {}),
     ...(ctx.markGiven ? { markGiven: ctx.markGiven } : {}),
     reason: ctx.reason,
@@ -967,6 +985,7 @@ async function invokeOnce<O extends AnyOperation>(
     ...(ctx.voice ? { voice: ctx.voice } : {}),
     ...(ctx.agentJobs ? { agentJobs: ctx.agentJobs } : {}),
     ...(ctx.hostMail ? { hostMail: ctx.hostMail } : {}),
+    ...(ctx.personCodes ? { personCodes: ctx.personCodes } : {}),
     ...(ctx.intake ? { intake: ctx.intake } : {}),
     pipeline: {
       crm: ctx.db,
@@ -1058,6 +1077,7 @@ async function invokeOnce<O extends AnyOperation>(
       ...(ctx.assistantThreads ? { assistantThreads: ctx.assistantThreads } : {}),
       ...(ctx.voice ? { voice: ctx.voice } : {}),
       ...(ctx.agentJobs ? { agentJobs: ctx.agentJobs } : {}),
+      ...(ctx.personCodes ? { personCodes: ctx.personCodes } : {}),
       // An approved update or rollback is applied through here (approval.approve).
       ...(ctx.updater ? { updater: ctx.updater } : {}),
       // A call an approved action makes: checked against the reviewed preview, and its changes
@@ -1095,6 +1115,15 @@ async function invokeOnce<O extends AnyOperation>(
     if (audited) await auditAlone({ ...base, gate: gateDecision, outcome: "error", error: typed });
     throw typed;
   };
+
+  // A pack role limited to the People its holder looks after (ADR 0881): a record of someone
+  // else's is not found and an operation it cannot check is refused, before anything runs (queued,
+  // simulated or overlaid included); a list holds it in its own query (record.list).
+  try {
+    await holdRoleLooksAfter(ctx.db.query, roleLooksAfter, op.name, input);
+  } catch (error) {
+    return fail(error, decision);
+  }
 
   // An agent's grant (ADR 0344). It can only tighten: `auto` stays what the gate said. The handler
   // is dry-run first, because whether a write fills a field or changes a value decides where it
@@ -1309,6 +1338,12 @@ async function invokeOnce<O extends AnyOperation>(
         now,
         ctx.markGiven,
       )),
+      // And the journey signals the write made (stage 53, ADR 0802), standing as its marks do.
+      ...signalStatements({ db: ctx.db.query }, changes, {
+        standing: staffStanding(ctx),
+        bulk: isBulkOperation(op.name, bulkSize),
+        now,
+      }),
     );
   }
   statements.push(...activities);
@@ -1806,6 +1841,11 @@ export interface OutsideInvocationContext {
   /** As for staff calls: the adapter's statements in the call's own batch (ADR 0416). */
   inBatch?: InBatch | undefined;
   /**
+   * The keys of people's check-in codes and PINs (stage 51, ADR 0783), given only to a
+   * `hostInternal` core operation's handler: `me.code`, `me.pin.set`.
+   */
+  personCodes?: PersonCodeKeys;
+  /**
    * The public-write door's runtime (stage 29, ADR 0722), built by the adapter from the env-only
    * Turnstile secret: given only to the `intake.*` operations' handlers.
    */
@@ -2207,6 +2247,9 @@ async function invokeOutside<O extends AnyOperation>(
         ...(op.hostInternal === true && !op.name.startsWith("x.") && ctx.integrations
           ? { integrations: ctx.integrations }
           : {}),
+        ...(op.hostInternal === true && !op.name.startsWith("x.") && ctx.personCodes
+          ? { personCodes: ctx.personCodes }
+          : {}),
         // The pack tool whose run made this call (ADR 0414), from the runner.
         ...(ctx.tool ? { callingTool: { ...ctx.tool } } : {}),
         // The public-write door's runtime, for its own operations only (ADR 0722).
@@ -2311,6 +2354,11 @@ async function invokeOutside<O extends AnyOperation>(
         subjectId,
         now,
       )),
+      ...signalStatements({ db: ctx.db.query }, changes, {
+        standing: principal.kind === "customer" ? "customer" : "public",
+        bulk: false,
+        now,
+      }),
     );
   }
   statements.push(...activities);

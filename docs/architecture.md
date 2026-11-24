@@ -364,6 +364,16 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   the conformance suite. The fake books run as `cos-gatekeeper-accounting-fake` in development and
   cos-runner's tests only (`wrangler.fake.jsonc`, never released); the catalogue marks an
   accounting gatekeeper `implements: "accounting"`.
+  `gatekeeper-booking-system` (stage 65, ADR 0920) is the **booking-system contract** in the same
+  shape, and read only: the session's types and input checks, the shared facet
+  (`BookingSystemGatekeeper`, which records each read as an observation, copies every answer into
+  the contract's shape and declares no action), the fake booking system and the conformance suite.
+  The fake runs as `cos-gatekeeper-booking-system-fake` in development and cos-runner's tests only;
+  the catalogue marks a booking-system gatekeeper `implements: "booking-system"`. Beside the fake,
+  the **file source** (`file-source.ts`) serves the same contract from files a business exported
+  (people with their memberships and passes; optionally the timetable), with column mapping and a
+  dry run, and `match.ts` holds the matching-by-address rules. No named connector is planned (the
+  owner's decision of 2026-11-24, ADR 0920).
   Inbound webhooks and sync events land in `core_integration_event`; cos-runner's cron turns them
   into `webhook` and `syncEvent` automation triggers (ADR 0173), dropping private activities.
 - **Notification delivery** ([ADR 0172](adr/0172-notification-delivery.md)): cos-runner's minute
@@ -1061,6 +1071,21 @@ writes for them at the seam, and the public move nothing
 a hook on an object's moves (`onRecordMove`): it runs in the batch of the write that makes the
 move, which is how `capacity` and `sellable` act when an order is paid. Extensions cannot.
 
+**Journey signals** (stage 53, [ADR 0802](adr/0802-journey-signals-declared-by-shipped-packs-recorded-in-the-write.md),
+`packages/core/src/journeys/signals.ts`, migration 1175). A shipped pack declares in its manifest
+the moments about a Person a journey can start or stop on (`journeySignals`): a record of one of its
+objects created, or entering one of its states (optionally only from some), and the relation field
+naming its Person, by default the object's customer field. Memberships declares `started`, `ended`,
+`trialEnded` and `passStarted`; Bookings `booked` and `attended`; Ticketing `ticketBought` and
+`checkedIn`. The reconciler puts each object's signals on its registry definition; the pipeline,
+beside the value marks, reads every write's recorded changes and queues in that write's batch one
+upsert into `core_person_signal` (one row per Person and signal: the last time, the record that
+made it, the write's standing as its marks say it, and whether the operation was a bulk one), so
+every actor and every path records it (the host's own moves through the transition engine
+included) and an approval's dry run records nothing. One statement a batch, its rows in one JSON
+parameter. The rows are in no `rec_*` view; erase and the Trash's purge delete a Person's, and
+merge keeps the later of each. A runtime extension may not declare them.
+
 **Windows, staff-only rules and requested moves**
 ([ADR 0503](adr/0503-time-windows-and-staff-only-on-the-transition-engine.md),
 `packages/core/src/records/windows.ts`). A move may declare a `window` and a `staffOnly` flag, and
@@ -1169,7 +1194,16 @@ shifts that clash and have not ended is refused (`staffed_conflict`; past clashe
 made with (`unavailable`, `not_qualified`, `uncovered` within 14 days), which the audit row
 records; `staffing.check` (tool-only) is the same answer first. Qualifications and unavailability
 are core tables in no `rec_*` view (`core_staff_qualification`, `core_staff_away`). Bookings' class
-declares it.
+declares it. **Claim margins** (stage 49 step 1, [ADR 0760](adr/0760-claim-margins-and-a-required-account-on-staffed.md)):
+`claimBefore` and `claimAfter` (`kind.field` minutes, a service's buffer) widen the claim and are
+kept on it (`margin_before`, `margin_after`, migration 1091); triggers on the kind's table follow a
+change of its minutes for shifts not yet ended (history is never refused), and readers of a shift's
+own time (the feed, leaving, the away notice) take them off. Classes declare none.
+`account: "required"` refuses a live shift not yet ended whose profile holds no account, at write
+and by triggers on the shift's and the profile's tables (`rule: "staffed_account"`); nobody on it
+stays allowed. `private: true` ([ADR 0761](adr/0761-a-shift-that-names-a-client-kept-off-the-roster-and-the-feed.md))
+marks a shift whose title may name a client (an appointment): the roster shows it as its kind to
+anyone but its person and rosterers, clash answers name it by its kind, and it is never offered.
 
 **`occupies`** ([ADR 0765](adr/0765-occupies-the-claim-on-a-thing.md), `packages/core/src/occupies/`;
 stage 49 step 2). The time claim's twin for things: a record that declares
@@ -1224,8 +1258,9 @@ account). `staffing.week` is the roster read across every staffed object: times,
 who is on each and its open offer, and for a rosterer its warnings; never a booking, a place count
 or a Person. A leave note reaches only a person, never an assistant or the audit log. Where a pack
 declares who rosters, a caller's write of who works a shift (a shift's person, a pattern's person,
-a coach profile's account), by any path, is a rosterer's (`assertRosterWrite`); an AI's such change,
-or its call of a restricted tool, is approved only by someone who could make it.
+a coach profile's account), by any path, is a rosterer's (`assertRosterWrite`); an AI's such change
+(a restore from the Trash or of a version included), or its call of a restricted tool, is approved
+only by someone who could make it.
 
 **Open hours** (stage 49 step 3, [ADR 0762](adr/0762-open-hours-and-free-times.md),
 `packages/core/src/staffing/hours.ts`, `operations/staffing-hours.ts`, migration 1090): when
@@ -1236,6 +1271,20 @@ fly (`openRanges`, `openCovers`), merged where they touch; "not open" is time of
 Set, changed and removed by the person or a rosterer through the tool-only `staffing.hours.set`,
 `.clear` and `.list`; an AI's change waits for a person; at most 50 entries a person;
 `user.deactivate` removes a leaver's. Free times (step 4) subtract time off, claims and rooms.
+
+**Time entries** (stage 58 step 1, [ADR 0850](adr/0850-time-entries-the-hosts-clock-overlaps-refused-and-worked-on.md),
+`packages/core/src/staffing/time.ts`, `operations/staffing-time.ts`, migration 1270): the one
+record of time worked, `core_time_entry`, in no `rec_*` view: an account, a start and a finish in
+unix seconds (null while open), break minutes, its local date, and what it was against: one of the
+person's own live shifts (read from its time claim), a live record of an object that declares
+`workedOn` (SDK, `packages/sdk/src/worked-on.ts`, shipped packs and the org's own extensions
+only), or nothing. Triggers refuse two overlapping entries of one account for every statement
+shape (as the claim's do), and a partial unique index one open entry per person. The tool-only
+`staffing.time.clockIn`, `clockOut` (the host's clock), `enter`, `edit`, `withdraw` and `mine` are
+a person's own act on their own entries (`humanOnly`, a person, never an AI), working once the
+pack's `staffing.settings.recordsTime` is on. The minute cron (`staffing.due`) marks an entry left
+open past its shift's end and `finishMissingHours` (14 hours with no shift) finish missing and
+tells its person. Approval (step 2) and pay from approved entries (step 3) build on it.
 
 **Pay periods** (stage 45 step 6, [ADR 0627](adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md),
 `packages/core/src/staffing/pay.ts`, `operations/staffing-pay.ts`, migration 0813): who is counted
@@ -1299,6 +1348,17 @@ tool-only operations (`checklist.forRecord`, `.tick`, `.complete`, `.correct`, `
 run's person and people who roster, at the screen, never an AI; the tables are in no `rec_*` view.
 `staffing.week` gives everyone a shift's checklist name and its state only to its person and
 rosterers. Notes and reasons are redacted from the audit log and never answered by a write.
+**Checklists on their own** ([ADR 0651](adr/0651-checklists-on-their-own-a-schedule-a-run-a-day-and-who-may-do-it.md),
+`checklists/days.ts`, `operations/checklist-days.ts`, migration 0816): a template may carry a
+schedule (weekdays, a due time, who may do it: staff, a role or pack role, or a grant). Each due day
+gets one run in the same table (`object_type` `checklist.day`, `record_id` `<template>:<date>`),
+made by the same cron for the business's local day (`localDay`) and closed as missed when the day
+ends (the managers, holders of `checklists:write`, told); it copies who may do it, which triggers
+check on every tick and finish, on someone's behalf only by a manager. The tool-only
+`checklist.today`, `.day`, `.dayTick`, `.dayDone` and `.days` serve the Daily checklists pack
+(`packs/dailychecks`), whose tools are open to every staff account, pack roles included
+(`anyStaff`), or held to `checklists:write` (`corePermission`, ADR 0652). Rostering's checklist
+operations never see a day run.
 
 `sellable.moves` ([ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md),
 `packages/core/src/orders/moves.ts` and `refund-due.ts`) is a paid line that moves a record that
@@ -1324,7 +1384,12 @@ which the order's move hook creates as the host when the order is first paid (`p
 `part_paid` for a deposit), in that batch, with fields set from the line, the item and the order
 and an unguessable code, and moves to its declared void state when the order is refunded in full
 or cancelled after a deposit. `core_order_grant` (migration 0450) records each grant and keeps
-codes unique.
+codes unique. `sellable.finance` ([ADR 0792](adr/0792-sellable-finance-categories-and-how-a-sale-is-earned.md),
+stage 52) only labels the object's sales for the finance reports: a category (a stable key and a
+label) and how its money is earned (`at_sale`, `over_period` for a plan's paid period, `per_use`
+for a grant that holds uses, `at_date` on a date field or a path to one). The field registry
+carries it with its defaults filled (`other`, `at_sale`). Memberships, Ticketing, Courses and
+Bookings declare it.
 
 **The public scope** ([ADR 0438](adr/0438-the-public-scope.md),
 `packages/core/src/visibility/public.ts`). An object may declare what the public may read:
@@ -1366,6 +1431,22 @@ answers the caller's own links. The database refuses a two-way link. A merge re-
 (ending one that would be a duplicate or two-way) and, when either Person has a live link, waits
 for a person's approval from any other actor; an erase deletes them and says which children have
 no guardian left.
+
+**A person's code** ([ADR 0783](adr/0783-a-persons-code-the-rotating-app-code-cards-and-the-pin.md),
+`packages/core/src/people-codes/`, migration 1135). What identifies a Person at a check-in tablet
+(stage 51): `core_person_code` holds **app codes** (a TOTP secret, sealed with AES-GCM, tied by a
+foreign key to one sign-in, `core_device_session` or `core_customer_session`, so it ends with it;
+one per live dependant on a guardian's sign-in) and **cards** (the HMAC of a fixed code, issued and
+revoked by staff with `people:cards`, `actors: ["human"]`). `core_person_pin` holds a PIN's PBKDF2
+hash. The keys are derived from `BETTER_AUTH_SECRET` by HKDF and reach handlers as
+`ctx.personCodes` (on a customer's call, `hostInternal` core operations only). `me.code` answers
+the caller's code and their dependants' (a native app also gets the secret, to make it offline),
+`me.pin.set`/`clear` their PIN. `identifyPerson` is host code for a device tool, not an operation:
+an app code's current or previous 30-second step, a live card, or exactly one Person by name key
+and PIN; every miss answers `not_found`; per-device lock-outs (`core_identify_lockout`) and ten
+wrong PINs a day per Person are written at once. Erase deletes codes, cards and PIN; merge moves
+cards and keeps the survivor's PIN. `people:cards` is the one core permission a fixed-role account
+may be granted (`FIXED_ROLE_CORE_GRANTS`, ADR 0600 amended).
 
 **Time zones** ([ADR 0460](adr/0460-time-zones-on-records.md)). A `timezone` field type (an IANA
 name the runtime knows; the deployment's zone when left empty on create), and date-relative
@@ -1449,6 +1530,22 @@ them all; `record.versions`, `record.version`, `record.compareVersions` and
 `publishedAt`, `publishState` (draft, scheduled, published, unpublished: read from the versions
 and the schedule, never stored) and `publishAt`. `record.createMany` writes up to 50 records of
 one object in one batch, at 4 statements a record for an object with states (ADR 0448).
+`publishIn` ([ADR 0810](adr/0810-publishable-with-an-author.md)) names the states a record may
+be published in: a publish (or a scheduled one coming due) outside them is refused or dropped,
+and a write that moves the record out of them unpublishes it in its own batch.
+
+**Publishable with an author** ([ADR 0810](adr/0810-publishable-with-an-author.md),
+`packages/core/src/records/authored.ts`). A publishable object may declare a `customer`, its
+**author** (a review's writer), and `public` beside it: the author reads and writes their working
+copy through the customer scope; the public, and anyone reading as the public (`content.list`),
+read only the published version. Such an object has no slug, so it is listed only (`content.get`
+is not found), and its `public.read` never lists the author. The author's fields
+(`customer.write` but the state field) are refused to every staff-side caller (people, the
+assistant, MCP, automations, the extension's own code) in the record code every write goes
+through (`prepareValues`: record.create, record.update, record.createMany, import, restoring a
+version) and
+shown read-only in `schema.objects`; the author (through the seam) and platform code writing as
+the host pass. Staff still publish, unpublish and move its states.
 
 **What the public reads of content** ([ADR 0442](adr/0442-what-the-public-reads-of-content.md),
 [ADR 0443](adr/0443-preview-links.md), `packages/core/src/operations/content.ts`). A publishable
@@ -1456,7 +1553,8 @@ object that declares `public` gets a live view (`pub_x_<ext>_<object>`): one row
 with a current version, its content columns that version's values, its other own columns the
 record's (its slug, a state `when` tests). The public scope's source is that view, so a draft, an
 unpublished record and a deleted one are not in it. `content.get { object, slug }` (a record, or a
-`redirect` for an old slug), `content.list` and `content.preview` (with a preview link's token,
+`redirect` for an old slug; an object without a slug is listed only, ADR 0810), `content.list` and
+`content.preview` (with a preview link's token,
 the working copy's declared fields) are open to the public, read as the public whoever calls, and
 give one not-found for everything they do not show. Their answers are cached in the Worker's cache
 keyed by the object's generation (`core_content_generation`), which every committed change to a
@@ -1575,8 +1673,10 @@ set against its target. Its tools compose the host's operations: `assign`, `toda
 shorthand into structured targets, unread lines listed). The staff side is declarations: the
 Training dashboard, saved views, the Person page's Training tab and panels. Its headless entry
 (`@composable-os/pack-programs/client`) holds the layout's pure edits and a self-saving working
-copy; twelve blocks (the program builder, the exercise bank, today and session, class today,
-history and progress, the coach's client view; web and native) are built on it. In development
+copy, and a person's past sessions with their sets done of planned (`loadPastSessions`, over a
+member's `my.list` or a coach's `record.list`); fourteen blocks (the program builder, the exercise
+bank, today and session, class today, history and progress, past sessions, the coach's client
+view; web and native) are built on it. In development
 `apps/app` mounts any pack's web block at `/blocks` (ADR 0424, amended); the bank, the builder and
 the client view are its screens in the admin (stage 47, ADR 0660).
 
@@ -1691,8 +1791,13 @@ who started them from the host (`ctx.caller`), to record who checked a ticket in
 pack permissions granted to its account add up
 ([ADR 0600](adr/0600-a-pack-role-and-its-grants-add-up.md)): `staffAuthority` decides per call
 whether a grant (a tool naming a granted, grantable permission; judged first) or the role allows
-it, and the role's limits (Bookings' coach: today only, ADR 0553) travel only on the role's calls
-and the runs they start. A tool may name several permissions, any one of which opens it.
+it, and the role's limits (Bookings' coach: today only, ADR 0553; Programs' coach: only the People
+its holder looks after, ADR 0881) travel only on the role's calls and the runs they start.
+A role's `looksAfter` names, by object, its relation to the Person; a pack's object declares a
+`team` (its user fields naming who looks after the Person it is about, while live), and the host
+holds a list of a limited object to those People in its own query (one subquery, the account bound
+once), finds no record of anyone else's for a get, update or create, and refuses any other
+operation on it ([ADR 0881](adr/0881-a-pack-role-limited-to-the-people-its-holder-looks-after.md)). A tool may name several permissions, any one of which opens it.
 A pack may declare a tool permission **restricted**
 ([ADR 0625](adr/0625-restricted-pack-permissions.md)): a tool naming only restricted permissions is
 held by admins and by a grant of it, never by a member's or viewer's own role or by a pack role,
@@ -1785,7 +1890,11 @@ staff with `subscriptions:manage` for a Person; a guest pays from the start, or 
 address with a code on the plan when "anyone starting a subscription" is on, ADR 0459), held by the
 checkout (`core_subscription_trial`, a trigger refusing a second unreleased hold, so two starts at
 once give one trial), released only when the gatekeeper says its page expired uncompleted
-(`getSubscriptionCheckout`), and used when the provider's verified event confirms it. A person
+(`getSubscriptionCheckout`), and used when the provider's verified event confirms it. "Per
+holder" and the intro offer's "per Person" count every live Person sharing a folded address
+(`a+1@x` and `a+2@x`, [ADR 0692](adr/0692-one-person-per-folded-address.md), #225):
+`core_person_emails.folded` is kept by triggers, `samePeople` (`customers/accounts.ts`) is the
+subquery the checks read, and migration 0955's triggers refuse a second hold by such People. A person
 merge moves subscriptions and trials to the survivor. With no event, past due gives access for 30
 days of failing, and an active one past its period keeps access while staff are told the events
 are not arriving (the minute cron, `subscriptions/sweep.ts`). Staff end one at once
@@ -1996,7 +2105,8 @@ time and emits `virtual:cos-screens`, one lazy chunk per screen (a missing block
 the build; the server's build holds none), so the admin's source names no pack. The core read
 `screens.mine` answers which screens the caller may open (the pack active and shipped, and the
 pipeline's `staffAuthority` for every gate tool, as a person; empty for any other actor; the one
-core read every pack role reaches). The admin's navigation, `/s/<pack>/<screen>` (client-only,
+core read every pack role reaches; a gate tool may be `anyStaff` or held to a core permission, ADR
+0652). The admin's navigation, `/s/<pack>/<screen>` (client-only,
 "not found" when not listed) and the record tabs render that answer; each screen sits in an error
 boundary, with its pack's hooks over the staff client on the app's own origin
 (`src/lib/staff-client.ts`), and its data is forgotten when it closes. An account with a pack role
@@ -2030,7 +2140,8 @@ and the mobile Account tab are plain pages over the same entry.
 | Content | `publishable`, rich text, slugs, media | stage 28: steps 1 to 6 built (rich text, `publishable` completed, public reads, media, the editor, the pack: posts and categories, hooks, web and native renderers); the first client's import and blog routes are its own repository's |
 | Courses | `publishable`, `sellable` (grants and a tax code), `access` and holders' parts, `states`, `customer` with `requireAccess`, `requires: ["programs"]`, video media and `media.play` | stage 42: steps 1 to 4, 6, 7 and the draft built ([ADR 0478](adr/0478-the-courses-pack.md)); the import and the first client to come |
 | Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `staffed` (a class is its coach's shift, stage 45), `occupies` (a class takes a room marked "one booking at a time", stage 49 step 2, [ADR 0765](adr/0765-occupies-the-claim-on-a-thing.md)), `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer` with `guardians`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 6 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md); parents booking for their children, [ADR 0540](adr/0540-the-family-link.md)); step 7, attendance, moves and cancelling a class; step 8, drop-ins with `sellable.moves`, [ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md)); step 9, messages, the reminder, the dashboard and the coach's app screen, [ADR 0572](adr/0572-bookings-messages-the-dashboard-and-the-coachs-app-screen.md); step 10 to come |
-| Rostering | `recurring` (duty series, a horizon from its setting), `staffed` (a duty shift is its person's shift), `states`, a pack role (`rostering.team`), grantable and restricted permissions, the roster's rules (`staffing`), the host's tool-only `staffing.*` operations | stage 45: step 4 built (duties, duty series and shifts, the team role, the roster's tools, settings, [ADR 0626](adr/0626-the-rostering-pack-and-bookings-additions.md)); step 6 built (pay periods: `rostering:pay`, restricted and a person's only, who is counted, totals, the not-worked mark, lock, reopen and export, [ADR 0627](adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md)); step 5 built (each person's private calendar feed: `feed`, `feedRotate`, `feedRevoke`, [ADR 0628](adr/0628-the-staff-calendar-feed-and-the-shared-calendar-writer.md)); step 7 built (the screens as blocks over `@composable-os/pack-rostering/client`, my calendar among them, role clients with grants, `cos rostering import`, [ADR 0629](adr/0629-the-rosters-screens-role-clients-with-grants-and-the-roster-import.md)); checklists (4b) to come |
+| Rostering | `recurring` (duty series, a horizon from its setting), `staffed` (a duty shift is its person's shift), `states`, a pack role (`rostering.team`), grantable and restricted permissions, the roster's rules (`staffing`), the host's tool-only `staffing.*` operations | stage 45: step 4 built (duties, duty series and shifts, the team role, the roster's tools, settings, [ADR 0626](adr/0626-the-rostering-pack-and-bookings-additions.md)); step 6 built (pay periods: `rostering:pay`, restricted and a person's only, who is counted, totals, the not-worked mark, lock, reopen and export, [ADR 0627](adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md)); step 5 built (each person's private calendar feed: `feed`, `feedRotate`, `feedRevoke`, [ADR 0628](adr/0628-the-staff-calendar-feed-and-the-shared-calendar-writer.md)); step 7 built (the screens as blocks over `@composable-os/pack-rostering/client`, my calendar among them, role clients with grants, `cos rostering import`, [ADR 0629](adr/0629-the-rosters-screens-role-clients-with-grants-and-the-roster-import.md)); checklists (4b) built (a duty's checklist, [ADR 0650](adr/0650-checklists-templates-runs-ticks-and-a-done-run-kept-unchanged.md)) |
+| Daily checklists | no objects: screens and tools over the host's tool-only day-run operations (`checklist.today`, `.day`, `.dayTick`, `.dayDone`, `.days`), tools open to every staff account (`anyStaff`) or held to `checklists:write` (`corePermission`) | built (checklists on their own, [ADR 0651](adr/0651-checklists-on-their-own-a-schedule-a-run-a-day-and-who-may-do-it.md), [ADR 0652](adr/0652-a-tool-for-every-staff-account-and-a-tool-held-to-a-core-permission.md)): Today's checklists (web and the app) and Checklist history; requires nothing |
 | Memberships | `allowance` (holders), recurring billing with `recurring.grants` and `recurring.pause`, `sellable.onePerPerson`, `humanOnly` tools, `requires: ["programs"]` | stage 32b: steps 5 to 7 built (the behaviour, the pack, plan changes and pauses, the dashboard, views and blocks); the import (step 8) to come |
 
 ### Client repos

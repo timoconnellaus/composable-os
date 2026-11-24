@@ -24,8 +24,10 @@ import {
   type StaffedManifest,
   type StagesManifest,
   type StatesManifest,
+  sellableFinance,
   spendsOnList,
   type UniqueManifest,
+  type WorkedOnManifest,
 } from "@composable-os/sdk";
 import {
   compileFormula,
@@ -37,7 +39,12 @@ import { type Kysely, sql } from "kysely";
 import { setDeclaredUniqueKeys } from "../errors.ts";
 import { FIELD_TYPE_REGISTRY, formulaFilterType } from "../fields/field-types.ts";
 import { CORE_OBJECTS, setExtensionObjects } from "../fields/index.ts";
-import type { FieldDefinition, FieldType, ObjectDefinition } from "../fields/types.ts";
+import type {
+  FieldDefinition,
+  FieldType,
+  ObjectDefinition,
+  ObjectSignal,
+} from "../fields/types.ts";
 import {
   CORE_TARGETS,
   type CoreTarget,
@@ -82,11 +89,15 @@ export interface ObjectDefinitionJson {
   /** A health-note list (stage 44, ADR 0643), as declared. */
   healthNotes?: { list: string; person: string };
   states?: StatesManifest;
+  /** The journey signals declared on it (stage 53, ADR 0802), resolved. */
+  signals?: ObjectSignal[];
   claims?: ClaimsManifest;
   unique?: UniqueManifest;
   recurring?: RecurringScheduleManifest;
   /** A shift (stage 45, ADR 0621), as declared. */
   staffed?: StaffedManifest;
+  /** A record time can be recorded against (stage 58, ADR 0850), as declared. */
+  workedOn?: WorkedOnManifest;
   /** A claim on a thing (stage 49, ADR 0765), as declared. */
   occupies?: OccupiesManifest;
   /** The public-write door (stage 29, ADR 0720), as declared. */
@@ -122,6 +133,7 @@ export interface ObjectDefinitionJson {
     content: string[];
     slug?: string | undefined;
     date?: string | undefined;
+    publishIn?: string[] | undefined;
     acknowledge?: { who: string; manage: string } | undefined;
   };
   navigationOrder?: number;
@@ -859,6 +871,25 @@ function staffedDefinition(
   };
 }
 
+/** The workedOn declaration (ADR 0850), with the registry name of what a visit is part of. */
+function workedOnDefinition(
+  object: ObjectState,
+  own: readonly FieldState[],
+): Pick<ObjectDefinition, "workedOn"> {
+  const declared = object.definition.workedOn;
+  if (!declared) return {};
+  const partOfObject = declared.partOf
+    ? own.find((f) => f.localName === declared.partOf)?.definition.to
+    : undefined;
+  return {
+    workedOn: {
+      ...declared,
+      live: [...declared.live],
+      ...(partOfObject ? { partOfObject } : {}),
+    },
+  };
+}
+
 /** The occupies declaration (ADR 0765), with the thing's and the margins' registry names. */
 function occupiesDefinition(
   object: ObjectState,
@@ -969,6 +1000,7 @@ function sellableDefinition(object: ObjectState, own: FieldState[]): ObjectDefin
   const currency = declared.currency ?? priceField?.definition.currency;
   const { amount, balanceDue } = declared.deposit ?? {};
   const grants = declared.grants;
+  const finance = sellableFinance(declared.finance);
   return {
     price: nameOf(declared.price),
     ...(currency ? { currency } : {}),
@@ -997,6 +1029,8 @@ function sellableDefinition(object: ObjectState, own: FieldState[]): ObjectDefin
         }
       : {}),
     ...(declared.onePerPerson ? { onePerPerson: nameOf(declared.onePerPerson) } : {}),
+    // Paths (`event.startsAt`) stay as declared, as moves' do; a field of the object is named.
+    finance: finance.at?.includes(".") === false ? { ...finance, at: nameOf(finance.at) } : finance,
     // Paths (`class.classType.dropInPrice`) stay as declared: the host's path reader names each
     // part as the declaring extension's (ADR 0505); a field of the object is named here.
     ...(declared.moves
@@ -1226,10 +1260,12 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...(object.definition.agreements ? { agreements: object.definition.agreements } : {}),
       ...(object.definition.healthNotes ? { healthNotes: object.definition.healthNotes } : {}),
       ...(object.definition.states ? { states: object.definition.states } : {}),
+      ...(object.definition.signals?.length ? { signals: object.definition.signals } : {}),
       ...claimsDefinition(object, own),
       ...(object.definition.unique?.length ? { unique: object.definition.unique } : {}),
       ...recurringDefinition(object),
       ...staffedDefinition(object, own),
+      ...workedOnDefinition(object, own),
       ...occupiesDefinition(object, own),
       ...intakeDefinition(object, own),
       ...checklistsDefinition(object, own),
@@ -1245,6 +1281,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
               content: [...publishable.content],
               ...(publishable.slug ? { slug: publishable.slug } : {}),
               ...(publishable.date ? { date: publishable.date } : {}),
+              ...(publishable.publishIn ? { publishIn: [...publishable.publishIn] } : {}),
               ...(publishable.acknowledge
                 ? {
                     acknowledge: {

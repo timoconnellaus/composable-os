@@ -100,6 +100,12 @@
       "hostInternal": true
     },
     {
+      "name": "me.code",
+      "audiences": ["customer"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
       "name": "me.deleteAccount",
       "audiences": ["customer"],
       "risk": "write",
@@ -114,6 +120,18 @@
       "name": "me.get",
       "audiences": ["customer"],
       "risk": "read"
+    },
+    {
+      "name": "me.pin.clear",
+      "audiences": ["customer"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
+      "name": "me.pin.set",
+      "audiences": ["customer"],
+      "risk": "write",
+      "hostInternal": true
     },
     {
       "name": "me.sessions.list",

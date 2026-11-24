@@ -132,3 +132,24 @@ are not a member's to mark. Every staff member sees every client's training unti
   exercises from the bank by name and list what they could not read rather than guess; the record
   write still checks the schema and every ref. The draft asks for the `extract` model role and
   reads the brief itself when no model is configured.
+
+## Amendment, 2026-11-24 (ADR 0881): the coach role
+"Every staff member sees every client's training until stage 14a" still holds for staff; a staff
+account given Programs' pack role `programs.coach` sees only its own clients': an assignment gains
+`coach` (a user field, `coachId` on `x.programs.assign`) and declares a `team`, and the role
+reaches assignments, sessions and logged sets only for the People an active assignment names it
+coach of. The read and log tools declare `programs:coach`. See
+[ADR 0881](0881-a-pack-role-limited-to-the-people-its-holder-looks-after.md).
+
+## Amendment, 2026-11-24 (past sessions in the app)
+- **A person's past sessions are read through the reads each caller already has,** not a new
+  tool: a member's `my.list` (the seam: their own sessions and sets only) and a coach's
+  `record.list` naming the client. Sets done and planned are worked out in the pack's client
+  (`sessionSets`): an item with levels counts the level the person logged at, or its first level;
+  alternatives the one they did, or the first. That count is a display, not a rule, so it is not
+  the host's; the host's progress numbers (`progress`) are unchanged.
+- **Only personal sessions are a person's history.** A class session is shared by every member of
+  the class type; listing the class sessions a member logged on needs a read of their sets first,
+  which is later work if a gym asks.
+- **Correcting a set is `logUpdate` as it was:** nothing new is allowed. A page of 20 sessions
+  reads the sessions and their sets in two to six calls (an `in` filter of at most 20 ids).

@@ -10,13 +10,16 @@ import type { ChecklistsSpec } from "./checklists.ts";
 import type { DocumentPathSpec, DocumentSchema } from "./document.ts";
 import type { FieldTypeName } from "./field-types.ts";
 import type { IntakeSpec } from "./intake.ts";
+import type { JourneySignalSpec } from "./journey-signals.ts";
 import type { OccupiesSpec } from "./occupies.ts";
 import type { RecurringScheduleSpec } from "./recurring.ts";
 import type { RoutineMailModule, RoutineMailSpec } from "./routine-mail.ts";
 import type { SellableSpec } from "./sellable.ts";
 import type { StaffedSpec } from "./staffed.ts";
 import type { StatesSpec } from "./states.ts";
+import type { TeamSpec } from "./team.ts";
 import type { UniqueSpec } from "./unique.ts";
+import type { WorkedOnSpec } from "./worked-on.ts";
 
 /** The contract version this SDK writes. The host accepts this and the previous version. */
 export const CONTRACT_VERSION = 1;
@@ -307,6 +310,17 @@ export interface ObjectSpec {
    */
   staffed?: StaffedSpec;
   /**
+   * Time can be recorded against the record (see WorkedOnSpec, ADR 0850): a job. Its time is the
+   * staff's time entries against it, read through the host; it keeps no hours of its own.
+   */
+  workedOn?: WorkedOnSpec;
+  /**
+   * Who on the staff looks after the Person a record is about (see TeamSpec, ADR 0831): the
+   * accounts in its user fields while it is live. A pack role's `looksAfter` reaches records
+   * only for those People (ADR 0881). Only shipped extensions and an org's own may declare it.
+   */
+  team?: TeamSpec;
+  /**
    * A claim on a thing (see OccupiesSpec, ADR 0765): while live, the record takes the room (or
    * chair, or hall) it names for its time. The host refuses, in the database, a second live
    * record on the same thing at an overlapping time, whatever object it is.
@@ -342,9 +356,9 @@ export interface ObjectSpec {
    * What the public may read of this object (ADR 0438): the fields in `read`, of the records that
    * meet `when`. Deny by default: left out, the public sees nothing of it, and a record that does
    * not meet `when` is not found. A signed-in customer reads it too, unless the object declares a
-   * `customer` (an object declares one or the other). The public reaches it only through a pack's
-   * tool open to them (`public.list`, `public.get`). Only shipped extensions and an org's own may
-   * declare it.
+   * `customer` (an object declares one or the other, except a publishable object with an author:
+   * see `publishable`). The public reaches it only through a pack's tool open to them
+   * (`public.list`, `public.get`). Only shipped extensions and an org's own may declare it.
    */
   public?: PublicSpec;
   /**
@@ -382,6 +396,14 @@ export interface ObjectSpec {
    * publish permission, never an AI actor); `record.versions` and `record.version` read them;
    * `record.restoreVersion` copies one back into the working copy. Editing the working copy
    * never changes a version. Records get read-only `publishedVersion` and `publishedAt`.
+   *
+   * With an author (ADR 0810): a publishable object may declare a `customer`, the record's author
+   * (a review's writer). The author reads and writes their working copy through `customer`; the
+   * public reads only the published version through `public` (which may then be declared too),
+   * listed by `content.list` and never by an address (no `slug`). The fields in `customer.write`
+   * are the author's alone: staff, the assistant, MCP clients, automations and the extension's own
+   * code are refused them on every path, so a published version is always the author's words.
+   * Staff still publish, unpublish and move the record's states.
    */
   publishable?: PublishableSpec;
   /** Position in the sidebar among extension objects (lower first). Default 100. */
@@ -688,6 +710,23 @@ export interface ToolSpec<In extends z.ZodType = z.ZodType, Out extends z.ZodTyp
    */
   grantLiftsRoleLimits?: boolean;
   /**
+   * Every staff account may call it, pack roles included (ADR 0652): a cleaner's `rostering.team`,
+   * a coach, the door, as well as admins and members. For a tool whose host operation decides
+   * who may do what by a rule of its own (Daily checklists' `today` and `tick`: the checklist's
+   * own "who may do it"), so no role or grant has to name it. A person's own act (`humanOnly`),
+   * for staff only, with no `permission` or `corePermission`. Only shipped extensions and an
+   * org's own may declare it.
+   */
+  anyStaff?: boolean;
+  /**
+   * A core permission a staff caller needs instead of `records:read` or `records:write` (ADR
+   * 0652): one an admin may grant one by one (`checklists:write`). Admins and those granted it
+   * call the tool; nobody else does, and no pack role reaches it (a pack role holds no core
+   * permission). For staff only, with no `permission`. Only shipped extensions and an org's own
+   * may declare it.
+   */
+  corePermission?: string;
+  /**
    * Fields of the input the audit log never keeps (ADR 0626): a note about someone's leave. The
    * call is still audited, with those fields shown as redacted. It only hides more, so any
    * extension may declare it.
@@ -727,6 +766,16 @@ export interface RoleSpec {
    * call the account makes and every call of a tool run it started. Other staff are not limited.
    */
   today?: Readonly<Record<string, string | { at: string; until?: string; zone?: string }>>;
+  /**
+   * Objects whose records the role reaches only for the People its holder looks after (ADR
+   * 0881), by object: its relation (one record) to `person`. Its holder looks after a Person
+   * when a live record of one of this extension's objects that declares a `team` names them in
+   * its staff fields (a client's assignment naming the coach). The host holds it on every call
+   * the account makes and every call of a tool run it started: a list holds only those People's
+   * records, a read or a change of another's is not found, a new record must be about one of
+   * them, and any other operation naming the object is refused. Other staff are not limited.
+   */
+  looksAfter?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -832,7 +881,9 @@ export interface PublishableSpec {
   /**
    * The record's address (stage 28, ADR 0442): a `slug` field of the object's own, not in
    * `content`. The public reads a record by it (`content.get`); a published record whose slug
-   * changes keeps the old one as a redirect. Needed to declare `public`.
+   * changes keeps the old one as a redirect. Left out on an object the public reads, its records
+   * are listed only (`content.list`) and `content.get` finds none (ADR 0810). An object with an
+   * author (a `customer`) has none.
    */
   slug?: string;
   /**
@@ -841,6 +892,13 @@ export interface PublishableSpec {
    * Set, it is kept: an imported post keeps its date.
    */
   date?: string;
+  /**
+   * The states in which the record may be published (ADR 0810): values of the object's `states`
+   * field. A publish (or a scheduled one coming due) of a record in any other state is refused,
+   * and a record that moves out of them is unpublished in the same batch. A review without its
+   * author's consent is never published. Left out, any state.
+   */
+  publishIn?: readonly string[];
   /**
    * Read and understood (stage 38, ADR 0702): the staff who must read a record confirm its
    * current version with one tap, and a person publishing a later version says whether it asks
@@ -993,6 +1051,14 @@ export interface ExtensionSpec {
    * declare it, and only their automations send it (`ctx.routineMail.send`).
    */
   routineMail?: Record<string, RoutineMailSpec>;
+  /**
+   * Journey signals (stage 53, ADR 0802): moments about a Person that a journey can start or stop
+   * on, each a record of this extension's objects created or entering a state, and the field
+   * naming its Person (`started: { label: "Membership started", object: "membership" }`). The
+   * host records the last time each Person had each one, in the write's own batch. Only shipped
+   * extensions may declare them.
+   */
+  journeySignals?: Record<string, JourneySignalSpec>;
   /**
    * What each grantable permission gives, in plain words, shown to the admin who ticks it
    * (`{ "bookings:desk": "Works the front desk: ..." }`). Absent: the tools it opens are listed.

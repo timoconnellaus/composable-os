@@ -25,6 +25,7 @@ import { releaseAllClaimsStatements } from "../capacity/claimants.ts";
 import { backfillCounters, dropCapacityStatements } from "../capacity/records.ts";
 import { FIELD_TYPE_REGISTRY } from "../fields/field-types.ts";
 import { getObject } from "../fields/index.ts";
+import type { ObjectSignal } from "../fields/types.ts";
 import {
   createOccupiesTriggers,
   dropOccupiesTriggers,
@@ -125,6 +126,25 @@ export interface ReconcilePlan {
   issues: ReconcileIssue[];
   /** The schema state after the plan. */
   next: SchemaState;
+}
+
+/**
+ * The journey signals `manifest` declares on its object `local` (stage 53, ADR 0802), with their
+ * ids and Person fields resolved, for the object's definition. Only a shipped extension's reach
+ * here: the check refuses them in a runtime one (install.ts).
+ */
+function objectSignals(manifest: ExtensionManifest, local: string): { signals?: ObjectSignal[] } {
+  const object = manifest.objects[local];
+  const signals = Object.entries(manifest.journeySignals ?? {})
+    .filter(([, signal]) => signal.object === local)
+    .map(([name, signal]) => ({
+      id: `${manifest.id}.${name}`,
+      person: signal.person ?? object?.customer?.field ?? "",
+      ...(signal.enters ? { enters: [...signal.enters] } : {}),
+      ...(signal.from ? { from: [...signal.from] } : {}),
+      ...(signal.created === false ? { created: false } : {}),
+    }));
+  return signals.length ? { signals } : {};
 }
 
 function clone(state: SchemaState): SchemaState {
@@ -440,10 +460,12 @@ export function planFromState(
       ...(object.agreements ? { agreements: object.agreements } : {}),
       ...(object.healthNotes ? { healthNotes: object.healthNotes } : {}),
       ...(object.states ? { states: object.states } : {}),
+      ...objectSignals(manifest, local),
       ...(object.claims ? { claims: object.claims } : {}),
       ...(object.unique?.length ? { unique: object.unique } : {}),
       ...(object.recurring ? { recurring: object.recurring } : {}),
       ...(object.staffed ? { staffed: object.staffed } : {}),
+      ...(object.workedOn ? { workedOn: object.workedOn } : {}),
       ...(object.occupies ? { occupies: object.occupies } : {}),
       ...(object.intake ? { intake: object.intake } : {}),
       ...(object.checklists ? { checklists: object.checklists } : {}),
@@ -825,6 +847,16 @@ export function planFromState(
         name,
         `CREATE INDEX IF NOT EXISTS ${name} ON ${ident(object.tableName)} (${ident(staffed.who)}) WHERE deleted_at IS NULL`,
       );
+      // Its kind, when the claim reads minutes from it (ADR 0760): the kind's triggers find its
+      // shifts by it.
+      const kind = staffed.margins?.kind;
+      const byKind = kind ? ident(`${object.tableName}__${kind}`) : null;
+      if (kind && byKind && byKind !== name) {
+        wanted.set(
+          byKind,
+          `CREATE INDEX IF NOT EXISTS ${byKind} ON ${ident(object.tableName)} (${ident(kind)}) WHERE deleted_at IS NULL`,
+        );
+      }
     }
     // What a claim on a thing is found by (ADR 0765): its thing, and its margins' records.
     const occupies = occupiesTables(next, object);
@@ -1257,7 +1289,25 @@ function staffedTables(state: SchemaState, object: ObjectState): StaffedTables |
     if (!holder || !column) return null;
     account = { table: holder.tableName, column };
   }
-  const kind = field(object, declared.kind)?.columnName;
+  const kindField = field(object, declared.kind);
+  const kind = kindField?.columnName;
+  // The minutes kept free around a shift (ADR 0760): number fields of its kind, this extension's.
+  let margins: StaffedTables["margins"];
+  if (declared.claimBefore || declared.claimAfter) {
+    const target = state.objects.find(
+      (o) => o.name === kindField?.definition.to && o.status === "active",
+    );
+    const minutes = (path: { field: string } | undefined) => {
+      const local = path?.field.split(".")[1];
+      return (target && local ? field(target, local)?.columnName : undefined) ?? undefined;
+    };
+    const before = minutes(declared.claimBefore);
+    const after = minutes(declared.claimAfter);
+    if (!kind || !target || (declared.claimBefore && !before) || (declared.claimAfter && !after)) {
+      return null;
+    }
+    margins = { kind, table: target.tableName, before, after };
+  }
   return {
     object: object.name,
     table: object.tableName,
@@ -1268,6 +1318,8 @@ function staffedTables(state: SchemaState, object: ObjectState): StaffedTables |
     state: stateColumn,
     live: [...declared.live],
     ...(kind ? { kind } : {}),
+    ...(margins ? { margins } : {}),
+    ...(declared.account === "required" && account ? { required: true } : {}),
   };
 }
 
@@ -1277,7 +1329,10 @@ function staffedColumnsExist(current: SchemaState, t: StaffedTables): boolean {
     current.fields.some((f) => f.tableName === table && f.columnName === column);
   return (
     [t.who, t.starts, t.ends, t.state].every((c) => has(t.table, c)) &&
-    (!t.account || has(t.account.table, t.account.column))
+    (!t.account || has(t.account.table, t.account.column)) &&
+    (!t.margins ||
+      (has(t.table, t.margins.kind) &&
+        [t.margins.before, t.margins.after].every((c) => !c || has(t.margins?.table ?? "", c))))
   );
 }
 

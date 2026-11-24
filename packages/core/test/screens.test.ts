@@ -7,7 +7,7 @@
 import { env } from "cloudflare:workers";
 import { createCrmDb } from "@composable-os/db";
 import { screenGateFingerprint, toManifest } from "@composable-os/sdk";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
   type ActingUser,
@@ -177,6 +177,13 @@ describe("screens.mine (ADR 0660)", () => {
     expect(await mine(rosterer)).toEqual([...TEAM, ...ROSTERERS].sort());
     const payer = await account("viewer", "rostering.team", ["rostering:pay"]);
     expect(await mine(payer)).toEqual([...TEAM, "rostering/pay"].sort());
+  });
+
+  it("a Programs coach passes the client tab's gate only (ADR 0881); its work is in the app", async () => {
+    // A tab on a Person's page, which the role never opens (it reads no Person): no bank, no
+    // builder.
+    const coach = await account("viewer", "programs.coach");
+    expect(await mine(coach)).toEqual(["programs/client"]);
   });
 
   it("a door account has no screen (its work is in the app)", async () => {
@@ -389,7 +396,7 @@ describe("only a shipped pack declares screens (criterion 8)", () => {
   });
 });
 
-describe("a pack role reaches screens.mine and nothing else new (registry walk)", () => {
+describe("a pack role reaches screens.mine, the every-staff tools and nothing else new (registry walk)", () => {
   const everything: AnyOperation[] = [...coreRegistry.list(), ...releasePackTools];
 
   it.each([["bookings.coach"], ["rostering.team"], ["ticketing.door"]])(
@@ -411,7 +418,16 @@ describe("a pack role reaches screens.mine and nothing else new (registry walk)"
       // Beside it, every pack role's own read-and-understood list and confirmations (stage 38,
       // ADR 0702).
       const own = ["ack.confirm", "ack.mine"];
-      expect(reached.sort()).toEqual([...before, "screens.mine", ...own].sort());
+      // And since ADR 0652, the tools a shipped pack opens to every staff account (Daily
+      // checklists' today, day, tick and done: the host answers with what the account may do).
+      const anyStaff = everything.filter((op) => op.packAnyStaff === true).map((op) => op.name);
+      expect(anyStaff.sort()).toEqual([
+        "x.dailychecks.day",
+        "x.dailychecks.done",
+        "x.dailychecks.tick",
+        "x.dailychecks.today",
+      ]);
+      expect(reached.sort()).toEqual([...before, ...anyStaff, "screens.mine", ...own].sort());
       // And no core operation but those.
       const core = reached.filter((n) => !n.startsWith("x."));
       expect(core.sort()).toEqual(
@@ -421,4 +437,40 @@ describe("a pack role reaches screens.mine and nothing else new (registry walk)"
       await expect(invoke("screens.mine", {}, context(user))).resolves.toHaveProperty("screens");
     },
   );
+});
+
+describe("Daily checklists' screens (ADR 0651)", () => {
+  beforeAll(async () => {
+    await install("dailychecks");
+  });
+  afterAll(async () => {
+    await env.DB.prepare("DELETE FROM core_extensions WHERE id = 'dailychecks'").run();
+  });
+
+  it("Today's checklists for every staff account that may write, pack roles too; the history for checklists:write only", async () => {
+    const both = ["dailychecks/history", "dailychecks/today"];
+    expect(
+      (await mine(await createUser("admin"))).filter((s) => s.startsWith("dailychecks/")),
+    ).toEqual(both);
+    expect(
+      (await mine(await createUser("member"))).filter((s) => s.startsWith("dailychecks/")),
+    ).toEqual(["dailychecks/today"]);
+    expect(
+      (await mine(await account("member", undefined, ["checklists:write"]))).filter((s) =>
+        s.startsWith("dailychecks/"),
+      ),
+    ).toEqual(both);
+    // A cleaner's, a coach's or the door's account: today's, never the history.
+    for (const role of ["rostering.team", "bookings.coach", "ticketing.door"]) {
+      expect(
+        (await mine(await account("viewer", role))).filter((s) => s.startsWith("dailychecks/")),
+        role,
+      ).toEqual(["dailychecks/today"]);
+    }
+    // A viewer may not tick, so the screen is not theirs; an assistant gets no screens.
+    expect(
+      (await mine(await createUser("viewer"))).filter((s) => s.startsWith("dailychecks/")),
+    ).toEqual([]);
+    expect(await mine(await createUser("admin"), "assistant")).toEqual([]);
+  });
 });

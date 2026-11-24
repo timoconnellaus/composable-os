@@ -55,11 +55,14 @@ import {
 import { listInputSchema, pageSchema, runListQuery } from "../list.ts";
 import type { RecordRef } from "../operation.ts";
 import { defineOperation, type HandlerContext, personsTool } from "../operation.ts";
+import { looksAfterWhere } from "../pack-role-looks-after.ts";
 import { assertMayChangeMustRead } from "../records/acknowledge.ts";
+import { assertAuthorWrite, authorFields } from "../records/authored.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { jsonList, restorableUntil, TRASH_RETENTION_DAYS } from "../records/common.ts";
 import { FOLLOWERS_MAX, followerIds, followersOf } from "../records/follows.ts";
 import { applyTransition, callerMover } from "../records/lifecycle.ts";
+import { leavingPublishWrites } from "../records/publish.ts";
 import {
   assertRestorable,
   assertSlugsFree,
@@ -329,6 +332,9 @@ async function prepareValues(
         field: name,
       });
     }
+    // A publishable record's author's fields (ADR 0810): theirs alone, never staff's or an AI's,
+    // the declaring extension's own code included.
+    assertAuthorWrite(ctx, object, name, hostCode);
     if (field.readOnly && !ownCode && !hostCode) {
       throw new ValidationError(
         field.fieldType === "formula"
@@ -1243,6 +1249,8 @@ export async function updateRecord(
   await closureWritten(ctx, object, before.values, after, options.recurringConfirm);
   // A published record's old address keeps pointing to it (ADR 0442).
   ctx.write(...(await redirectWrites(ctx, object, id, before.values, after)));
+  // Moved out of the states it may be published in: unpublished in this batch (ADR 0810).
+  ctx.write(...leavingPublishWrites(object, id, valuesOf(prepared)));
   const timeline = await timelineFor(ctx, object, id, before.values, after, outcome);
   if (object.titleField && prepared.some((p) => p.field.name === object.titleField)) {
     const title = after[object.titleField];
@@ -1676,7 +1684,13 @@ export const recordList = defineOperation({
   mcp: { idempotent: true },
   async handler(input, ctx) {
     const object = requireObject(input.object);
-    const page = await runListQuery<{ id: string }>(ctx, object, input);
+    // A pack role limited to the People its holder looks after (ADR 0881): in the list's own query.
+    const page = await runListQuery<{ id: string }>(
+      ctx,
+      object,
+      input,
+      looksAfterWhere(ctx.roleLooksAfter, object.name, object.source),
+    );
     const items = page.rows.map((row) => {
       const record = fromRow(object, row as Record<string, unknown>);
       if (input.fields) {
@@ -1814,7 +1828,9 @@ export function objectInfo(object: ObjectDefinition): ObjectInfo {
       multi: Boolean(f.related),
       filterable: f.filterable,
       sortable: f.sortable,
-      readOnly: Boolean(f.readOnly),
+      // The author's fields of a publishable record (ADR 0810) are read-only to everyone who
+      // reads this: staff, the assistant and MCP clients.
+      readOnly: Boolean(f.readOnly) || authorFields(object).has(f.name),
       required: Boolean(f.required),
       track: f.track === "timeline",
       extension: f.extension ?? null,
