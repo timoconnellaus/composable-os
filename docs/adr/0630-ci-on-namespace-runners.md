@@ -123,3 +123,9 @@ shards still run on 4-vCPU GitHub runners.
   numbers. The fix is on the account side: more concurrent vCPU (the Business plan has 160).
 - Changing the shard layout or a job's lane means measuring again. The numbers behind the current
   split are in `scripts/ci-unit-shards.mjs` and here.
+
+## Note (2026-11-24, ADR 0901)
+- **A client repository's app workflow needs a macOS runner**, for the iPhone build (stage 63's
+  template workflow, `templates/client/.github/workflows/app.yml`, the runner a repository
+  variable, default the repository host's own). That is the client repository's CI, not this
+  one's: the platform's own CI is unchanged and stays on Linux runners.

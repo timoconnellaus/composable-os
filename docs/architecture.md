@@ -1934,9 +1934,9 @@ As built so far (stage 24; ADRs [0420](adr/0420-packs-as-packages-as-built.md),
 
 - **`cos`** ([ADR 0422](adr/0422-client-repos-and-one-command-as-built.md)) is the one command:
   `create` (also `npm create composable-os`), `init`, `deploy`, `upgrade`, `add`, `diff`,
-  `client generate`, `ext`, and `install` for a product with no client repo. Everything a client
-  repo takes from the platform (the template, the skills, the blocks, the API contract) comes from
-  the **client kit** inside the verified release its `product.ts` names
+  `client generate`, `app` (the mobile app's way to the stores, stage 63), `ext`, and `install`
+  for a product with no client repo. Everything a client repo takes from the platform (the
+  template, the skills, the blocks, the API contract) comes from the **client kit** inside the verified release its `product.ts` names
   (`defineClientProduct({ platform: { version, release, repository }, packs, web, mobile })`).
 - **Deploying** (`cos deploy`): `cos ext check` on `extensions/` and a type check of the apps
   first; then the host from the release, with `COS_PACKS` from the product and the org's own
@@ -1962,6 +1962,18 @@ As built so far (stage 24; ADRs [0420](adr/0420-packs-as-packages-as-built.md),
   `live` keeps `<id>-app`), deployed with `cos deploy --env <name>`.
 - **The template** (`templates/client`): `apps/web` (TanStack Start, `src/host.ts` framework-free)
   and `apps/mobile` (Expo, `--with-mobile`; its `src/host.ts` signs in and keeps a device session).
+- **App publishing** (stage 63, ADRs [0900](adr/0900-the-apps-identity-brand-and-listing-from-product-ts.md),
+  [0901](adr/0901-publishing-from-the-clients-store-accounts-built-in-its-ci.md),
+  [0905](adr/0905-the-purchase-scan-over-a-clients-own-app-code.md); runbook
+  [`docs/app-publishing.md`](app-publishing.md)): the app's store identity is `mobile.app` in
+  `product.ts` (per environment where it differs); the template's `app.config.ts` reads it with
+  `appBuild` and `COS_ENV`, and `cos client generate` writes the app's `src/blocks/brand.ts`, which
+  the native base theme reads. `cos app check` refuses a store build that is not ready (ids,
+  icon, listing, buying in the app, no "Delete my account", a key in the repo). The template's
+  `.github/workflows/app.yml` builds and signs in the client repository's CI (Android on Linux,
+  iOS on macOS), sends to the stores' testing tracks behind protected CI environments a person
+  approves, and `cos app record` writes each build into the host's `core_app_build` over the deploy
+  path. A person releases to the public in each store's console.
 - **npm** ([ADR 0423](adr/0423-npm-packages-from-the-release-commit.md)): client, sdk, product,
   cli, each pack and `create-composable-os`, built from the release commit, dry-run on every
   release, published only when turned on.

@@ -104,7 +104,22 @@ A client repo (stage 24)
                                          copy a block from the release; show its upstream changes
                                          (--accept: record them as merged by hand)
                                          (cos add with no block lists them, with their skins)
-  cos client generate                    in a client repo: each app's typed client, again
+  cos client generate                    in a client repo: each app's typed client, again (and
+                                         the mobile app's brand.ts from product.ts)
+  cos app check                          the mobile app before a store build: ids, icon, listing,
+                                         nothing bought in the app, "Delete my account", no key
+                                         file in the repo (stage 63, docs/app-publishing.md)
+  cos app credentials [--check --for ios|android|record]
+                                         the app workflow's secrets and how a person sets each;
+                                         never a value (--check: fail on any one missing)
+  cos app build-info [--env <name>] [--json]
+                                         the next build number (the host's records) and the API
+                                         version of the app's generated client
+  cos app record [--env <name>] --platform ios,android --build <n> [--commit <sha>]
+                                         record the builds a run sent to the testing tracks
+  cos app upload --platform android [--env <name>] --file <app.aab> [--listing] [--draft]
+                                         the Android build to the store's internal testing track;
+                                         nothing is released to the public
   cos content import <folder> --host <url> [--email <you>] [--dry-run] [--publish] [--yes]
                                          load posts and their pictures into the host as you,
                                          signed in for the run (by code with --email, else in the
@@ -241,6 +256,9 @@ export function parseArgs(argv: string[]): { command: string; flags: Flags } {
       "invite",
       "reissue",
       "apply",
+      "check",
+      "listing",
+      "draft",
     ].includes(key);
     let value: string | boolean = true;
     if (takesValue) {
@@ -1561,6 +1579,7 @@ export async function runCli(argv: string[], input: Deps): Promise<number> {
   if (argv[0] === "rostering") return rostering(argv.slice(1), deps);
   if (argv[0] === "ext") return ext(argv.slice(1), deps);
   if (argv[0] === "client") return client(argv.slice(1), deps);
+  if (argv[0] === "app") return (await import("./app.ts")).runApp(argv.slice(1), deps);
   // Commands that take one argument before their flags (stage 24).
   const positional =
     ["create", "add", "diff"].includes(argv[0] ?? "") && argv[1] && !argv[1].startsWith("-")

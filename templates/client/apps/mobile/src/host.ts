@@ -30,7 +30,7 @@ export interface SecureRandom {
 }
 
 export interface HostOptions {
-  /** The host's public address, e.g. https://admin.example.com (app.json `extra.hostUrl`). */
+  /** The host's address, e.g. https://admin.example.com (`extra.hostUrl`, from app.config.ts). */
   hostUrl: string;
   /** Where the customer's tokens live: `secureStore` from secure-store.ts. */
   store: TokenStore;

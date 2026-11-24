@@ -15,40 +15,16 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  BILLING_HOOK,
+  BILLING_OPERATION,
+  codeOnly,
+  PURCHASE_OPERATION,
+} from "../packages/create-composable-os/src/purchase-rules.ts";
 
-/** Comments and the contents of strings replaced by spaces, keeping line numbers. */
-export function codeOnly(source) {
-  let out = "";
-  let i = 0;
-  while (i < source.length) {
-    const c = source[i];
-    const next = source[i + 1];
-    if (c === "/" && next === "/") {
-      while (i < source.length && source[i] !== "\n") (out += " "), i++;
-    } else if (c === "/" && next === "*") {
-      while (i < source.length && !(source[i] === "*" && source[i + 1] === "/")) {
-        out += source[i] === "\n" ? "\n" : " ";
-        i++;
-      }
-      out += "  ";
-      i += 2;
-    } else if (c === '"' || c === "'" || c === "`") {
-      out += c;
-      i++;
-      while (i < source.length && source[i] !== c) {
-        if (source[i] === "\\") (out += " "), i++;
-        out += source[i] === "\n" ? "\n" : " ";
-        i++;
-      }
-      out += c;
-      i++;
-    } else {
-      out += c;
-      i++;
-    }
-  }
-  return out;
-}
+// The buying and billing rules are shared with `cos app check`, which holds a client's own app
+// code to them (stage 63, ADR 0905).
+export { codeOnly };
 
 const MONEY = "\\w*(?:price|amount|total|subtotal|tax|vat|discount|fee|cost|charge)\\w*";
 const PLACES = "\\w*(?:capacity|available|remaining|places|seats|spots|stock|soldout|left)\\w*";
@@ -82,13 +58,9 @@ export const RULES = [
   },
 ];
 
-/** What a `noPurchase` block may not name, in its operations or its code. */
-const PURCHASE_OPERATION =
-  /^(?:order\.(?:start|checkout|cancel)|subscription\.(?:start|cancel|resume|portal|change|pause)|x\.[a-z0-9]+\.(?:buy|orderStart|checkout|subscribe))$/;
+/** What a `noPurchase` block may not name in its code: buying, and any price. */
 const PURCHASE_CODE =
   /\b(?:price|prices|useBuy\w*|checkout|orderStart|formatPrice|formatMinor|useSubscribe|useCancelSubscription|useResumeSubscription|useBillingPortal)\b/;
-/** A subscription's billing operations: never in a native block (stage 32a, ADR 0490). */
-const BILLING_OPERATION = /^subscription\.(?:start|cancel|resume|portal|change|pause)$/;
 const NATIVE_BILLING =
   "is a native block that changes a subscription: in the app a subscription is read only; billing is on the web";
 const NO_PURCHASE =
@@ -106,8 +78,7 @@ export function lintNoPurchase(source) {
   return problems;
 }
 
-const BILLING_CODE =
-  /\b(?:useSubscribe|useCancelSubscription|useResumeSubscription|useBillingPortal)\b/;
+const BILLING_CODE = BILLING_HOOK;
 
 /** The problems of a native block's code that changes a subscription: `{ line, rule, message }`. */
 export function lintNativeBilling(source) {

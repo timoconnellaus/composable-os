@@ -82,7 +82,10 @@ export function blockManifest(kit: ClientKit, name: string): BlockManifest {
 export function installCommand(root: string, app: string, packages: string[]): string {
   const cd = app && app !== "." ? `cd ${app} && ` : "";
   const appJson = join(root, app, "app.json");
-  if (existsSync(appJson) && /"expo"\s*:/.test(readFileSync(appJson, "utf8"))) {
+  const expo =
+    (existsSync(appJson) && /"expo"\s*:/.test(readFileSync(appJson, "utf8"))) ||
+    ["app.config.ts", "app.config.js"].some((f) => existsSync(join(root, app, f)));
+  if (expo) {
     return `${cd}npx expo install ${packages.join(" ")}`;
   }
   const at = (file: string) => existsSync(join(root, file)) || existsSync(join(root, app, file));

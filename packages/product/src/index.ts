@@ -164,8 +164,14 @@ export interface ClientProductDefinition {
     dir: string;
     clientDir?: string;
     roles?: (string | MobileRole)[];
-    /** The app's URL scheme (app.json `expo.scheme`), default the product's id. */
+    /** The app's URL scheme (`expo.scheme` in its app config), default the product's id. */
     scheme?: string;
+    /**
+     * The app's identity in the phone app stores (stage 63, ADR 0900): its name, version, store
+     * ids, icon, splash, colours and listing. The app's `app.config.ts` and `brand.ts` are made
+     * from it, so none of it is written by hand in the app. Absent: the app is not yet published.
+     */
+    app?: MobileApp;
   };
   /**
    * The host's names, when they are not the ones derived from `id` (`clientNames`). With
@@ -214,11 +220,197 @@ export interface ClientEnvironment {
    * product's (a staging build of the app installed beside the live one), for staff sign-in's
    * redirect (`<scheme>://staff-sign-in`, NATIVE_REDIRECT_URIS on the host).
    */
-  mobile?: { scheme?: string };
+  mobile?: {
+    scheme?: string;
+    /**
+     * What this environment's app changes of `mobile.app` (stage 63): a staging app installs beside
+     * the live one with its own name and store ids, and may have its own icon, splash and listing.
+     */
+    app?: MobileAppOverride;
+  };
   /** The host's names here, when they are not the derived ones. */
   names?: Partial<ProductDefinition["names"]>;
   /** The location hint here, over the product's (ADR 0580); `"none"` for no hint. */
   location?: LocationHint | "none";
+}
+
+/**
+ * A mobile app's identity in the phone app stores (stage 63, ADR 0900). Paths are from the root of
+ * the client repo. The store ids never change once the app is published: `cos app check` and
+ * `cos app record` refuse one that differs from a build already recorded.
+ */
+export interface MobileApp {
+  /** The name under the icon, at most 30 characters. */
+  name: string;
+  /** The version people see (x.y.z), bumped by a pull request. */
+  version: string;
+  /** The iPhone app's bundle identifier and the Android app's package name, reverse-domain. */
+  ids: { ios: string; android: string };
+  /** A 1024 by 1024 PNG with no transparency. */
+  icon: string;
+  /** The launch screen: a PNG and the colour around it. */
+  splash: { image: string; background: string };
+  /** The app's brand (`#rrggbb`): the text colour must be readable on the background. */
+  colours: { primary: string; background: string; text: string };
+  /** The store listing's folder: one folder per locale (`en-AU/`), see `cos app check`. */
+  listing: string;
+  /** What the app sells: nothing (decision 8, ADR 0490). The only value accepted. */
+  purchases: "none";
+}
+
+/** What one environment's app changes of the product's `mobile.app`. */
+export type MobileAppOverride = Partial<
+  Pick<MobileApp, "name" | "ids" | "icon" | "splash" | "listing">
+>;
+
+/** One build of the mobile app, for one environment: what its app config and its checks read. */
+export interface AppBuild {
+  /** The environment it talks to; `live` for a product that declares none. */
+  environment: string;
+  name: string;
+  /** The app framework's project slug: the product's id, `<id>-<env>` outside live. */
+  slug: string;
+  scheme: string;
+  version: string;
+  /** `https://<the environment's hostname>`, or null when product.ts gives it none. */
+  hostUrl: string | null;
+  /** The web app's account page (`https://<web hostname>/account`), or null. */
+  websiteUrl: string | null;
+  /** The store identity, from `mobile.app` with the environment's changes; null without it. */
+  store: Omit<MobileApp, "name" | "version"> | null;
+}
+
+/** An iPhone bundle identifier: reverse-domain, letters, digits and hyphens. */
+const IOS_ID = /^[A-Za-z][A-Za-z0-9-]*(\.[A-Za-z][A-Za-z0-9-]*)+$/;
+/** An Android package name: reverse-domain, letters, digits and underscores. */
+const ANDROID_ID = /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$/;
+const HEX_COLOUR = /^#[0-9a-fA-F]{6}$/;
+const SCHEME = /^[a-z][a-z0-9+.-]*$/;
+const APP_VERSION = /^\d+\.\d+\.\d+$/;
+/** The stores' limit on the name under the icon. */
+export const APP_NAME_MAX = 30;
+/** The lowest contrast the text colour may have on the background (WCAG AA for body text). */
+export const MIN_TEXT_CONTRAST = 4.5;
+
+/** WCAG's contrast ratio of two `#rrggbb` colours, from 1 to 21. */
+export function contrastRatio(a: string, b: string): number {
+  const luminance = (hex: string) => {
+    const [r, g, b] = [1, 3, 5].map((i) => {
+      const c = Number.parseInt(hex.slice(i, i + 2), 16) / 255;
+      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    }) as [number, number, number];
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number];
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/**
+ * The mobile app's build for an environment (stage 63): its name, ids, scheme and host from
+ * product.ts. `environment` is required when product.ts declares environments, and refused when
+ * it declares none. Throws when the product has no mobile app.
+ */
+export function appBuild(product: ClientProductDefinition, environment?: string): AppBuild {
+  if (!product.mobile) throw new Error(`product ${product.id} has no mobile app`);
+  const envs = environmentNames(product);
+  if (envs.length && (!environment || !envs.includes(environment))) {
+    throw new Error(
+      `product ${product.id}: name the app's environment (${envs.join(", ")}), as COS_ENV or --env${environment ? `; it has no ${environment}` : ""}`,
+    );
+  }
+  if (!envs.length && environment && environment !== LIVE_ENVIRONMENT) {
+    throw new Error(
+      `product ${product.id} declares no environments, so there is no ${environment}`,
+    );
+  }
+  const env = envs.length ? product.environments?.[environment as string] : undefined;
+  const live = !envs.length || environment === LIVE_ENVIRONMENT;
+  const app = product.mobile.app;
+  const own = env?.mobile?.app;
+  const web = clientWeb(product, envs.length ? environment : undefined);
+  return {
+    environment: envs.length ? (environment as string) : LIVE_ENVIRONMENT,
+    name: own?.name ?? app?.name ?? product.label,
+    slug: live ? product.id : `${product.id}-${environment}`,
+    scheme: env?.mobile?.scheme ?? product.mobile.scheme ?? product.id,
+    version: app?.version ?? "1.0.0",
+    hostUrl: env?.hostname ? `https://${env.hostname}` : null,
+    websiteUrl: web?.hostname ? `https://${web.hostname}/account` : null,
+    store: app
+      ? {
+          ids: own?.ids ?? app.ids,
+          icon: own?.icon ?? app.icon,
+          splash: own?.splash ?? app.splash,
+          colours: app.colours,
+          listing: own?.listing ?? app.listing,
+          purchases: app.purchases,
+        }
+      : null,
+  };
+}
+
+/** The first problem with the mobile app's identity, or null (checked by defineClientProduct). */
+function mobileAppProblem(definition: ClientProductDefinition): string | null {
+  const app = definition.mobile?.app;
+  const envs = environmentNames(definition);
+  for (const env of envs) {
+    if (definition.environments?.[env]?.mobile?.app && !app) {
+      return `environments.${env}.mobile.app changes mobile.app, which product.ts does not give`;
+    }
+  }
+  if (!app) return null;
+  if (!app.name?.trim() || app.name.length > APP_NAME_MAX) {
+    return `mobile.app.name must be 1 to ${APP_NAME_MAX} characters`;
+  }
+  if (!APP_VERSION.test(app.version ?? "")) return "mobile.app.version must be x.y.z (digits only)";
+  if (app.purchases !== "none") {
+    return 'mobile.app.purchases must be "none": nothing is bought in the app (ADR 0490); buying stays on the website';
+  }
+  for (const key of ["primary", "background", "text"] as const) {
+    if (!HEX_COLOUR.test(app.colours?.[key] ?? "")) {
+      return `mobile.app.colours.${key} must be a colour as #rrggbb`;
+    }
+  }
+  const ratio = contrastRatio(app.colours.text, app.colours.background);
+  if (ratio < MIN_TEXT_CONTRAST) {
+    return `mobile.app.colours.text is not readable on the background: contrast ${ratio.toFixed(2)}, at least ${MIN_TEXT_CONTRAST} is needed`;
+  }
+  const builds = (envs.length ? envs : [undefined]).map((env) => ({
+    where: env ? `environment ${env}` : "the app",
+    build: appBuild(definition, env),
+  }));
+  const seen = { ios: new Map<string, string>(), android: new Map<string, string>() };
+  const schemes = new Map<string, string>();
+  for (const { where, build } of builds) {
+    const store = build.store as NonNullable<AppBuild["store"]>;
+    if (!store.icon?.trim() || !store.splash?.image?.trim() || !store.listing?.trim()) {
+      return `${where}: mobile.app needs icon, splash.image and listing (paths in the repo)`;
+    }
+    if (!HEX_COLOUR.test(store.splash.background ?? "")) {
+      return `${where}: mobile.app.splash.background must be a colour as #rrggbb`;
+    }
+    if (build.name.length > APP_NAME_MAX) {
+      return `${where}: the app's name must be at most ${APP_NAME_MAX} characters`;
+    }
+    if (!IOS_ID.test(store.ids?.ios ?? "")) {
+      return `${where}: the iPhone app's id ${JSON.stringify(store.ids?.ios)} is not reverse-domain (com.example.app)`;
+    }
+    if (!ANDROID_ID.test(store.ids?.android ?? "")) {
+      return `${where}: the Android app's id ${JSON.stringify(store.ids?.android)} is not reverse-domain with letters, digits and underscores (com.example.app)`;
+    }
+    if (!SCHEME.test(build.scheme))
+      return `${where}: the app's scheme ${build.scheme} is not a URL scheme`;
+    // Each environment's app installs beside the others: its own ids and its own scheme.
+    for (const platform of ["ios", "android"] as const) {
+      const other = seen[platform].get(store.ids[platform]);
+      if (other) return `${other} and ${where} have the same ${platform} id ${store.ids[platform]}`;
+      seen[platform].set(store.ids[platform], where);
+    }
+    const other = schemes.get(build.scheme);
+    if (other) return `${other} and ${where} have the same scheme ${build.scheme}`;
+    schemes.set(build.scheme, where);
+  }
+  return null;
 }
 
 /** The location hint a first install of an environment (or the product) is created with. */
@@ -455,6 +647,8 @@ export function defineClientProduct(definition: ClientProductDefinition): Client
       fail(`environments.${env}.location is none or a location hint (${hints})`);
     }
   }
+  const appProblem = mobileAppProblem(definition);
+  if (appProblem) fail(appProblem);
   if (definition.environments?.[LIVE_ENVIRONMENT]?.live === false) {
     fail("the live environment cannot be marked live: false");
   }

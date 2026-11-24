@@ -975,6 +975,21 @@ One deployment of a client product, named in its `product.ts` (`staging`, `live`
 `<id>-<env>-app`. One marked `live: false` may use test settings (ADR 0450).
 _Avoid_: stage (a stage is a record's place in a pipeline), tenant
 
+**App identity**
+A client app's name, version, store ids (the iPhone bundle id and the Android package name, which
+never change once published), icon, splash, colours and store listing: `mobile.app` in its
+`product.ts`, per environment where it differs. The app's `app.config.ts` and its `brand.ts` are
+made from it (stage 63, ADR 0900).
+_Avoid_: app.json (the template no longer has one), bundle (a bundle is a release's archive)
+
+**App build**
+One build of a client's app sent to a store's testing track, for one environment and platform,
+with its build number (the same on both platforms in one CI run), version and the API version its
+generated client calls. The host records each in `core_app_build`, written only by `cos app
+record` over the deploy path (stage 63, ADR 0901). Released to the public by a person, never by a
+command.
+_Avoid_: release (a release is the platform's), version (the version is what people see)
+
 **Client kit**
 What a release carries for client repos, verified with the rest of the bundle: the template, the
 skills as a client repo reads them, the blocks, the API contract per audience and the list of its
