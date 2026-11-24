@@ -2218,7 +2218,8 @@ What someone is buying and its state: `pending`, `part_paid`, `paid`, `cancelled
 `refunded`. One order has lines, each a record that is for sale with the price the host read from
 it when the order started. Amounts are integers in the currency's minor unit, and every order is
 in the deployment's one currency. Only a payment the provider confirmed and the gatekeeper
-verified makes an order paid or part paid (ADR 0427); no operation does. A paid line grants
+verified, or a payment the host applies when it is paid another way, makes an order paid or part
+paid (ADRs 0427, 0694); no operation's input does. A paid line grants
 something (a ticket, later a pass). A base record from stage 25, with its own `order.*`
 operations. With tax at checkout on, its amounts include tax: it keeps the provider's tax per
 payment, per line and in total, and what is owed does not change (ADR 0479). Each paid period of a
@@ -2243,6 +2244,20 @@ reason (`order.adjust`). Within the limit a human admin sets it applies at once;
 always when an AI asks, it waits in Approvals for a human admin, and the order cannot be paid
 until it is decided (ADR 0691).
 _Avoid_: comp, override, markdown
+
+### Paid another way
+
+(an order's)
+
+An order paid, in whole or part, by something other than the provider's verified payment: today a
+**recorded payment**, money a person with `orders:payments` says they received (a bank transfer,
+cash, a cheque, a card machine: `order.recordPayment`, a person only, never more than is owed);
+later a gift voucher or stored value the host applies. Each is a payment row with its **method**
+(`provider`, `recorded`, `voucher`, `stored_value`), applied by the host through
+`applyOtherPayment` (ADR 0694). A recorded payment entered in error is **reversed**
+(`order.reversePayment`): a second row takes it back off and a paid order is part paid again.
+_Avoid_: manual payment, offline payment, mark as paid (a spender's "paid another way" above is a
+mark on a booking, not money on an order: ADR 0506)
 
 ### Sellable
 
@@ -2452,9 +2467,11 @@ never makes the order paid by itself: staff honour it or refund it (ADR 0429).
 
 ### Refund
 
-Money sent back to the buyer on one of an order's payments. Staff with the refund permission ask;
-a person approves it in the Approvals inbox (never an AI); the order shows it once the provider
-confirms (ADR 0429).
+Money sent back to the buyer on one of an order's payments, the way it came. On the provider's
+payment: staff with the refund permission ask; a person approves it in the Approvals inbox (never
+an AI); the order shows it once the provider confirms (ADR 0429). On a recorded payment: a person
+with the refund permission pays it back and records how (`order.recordRefund`); nothing is sent
+(ADR 0694).
 
 ### Event
 

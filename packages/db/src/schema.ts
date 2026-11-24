@@ -2714,7 +2714,27 @@ export interface CoreOrderPaymentTable {
   tax_country: Defaulted<string | null>;
   /** Migration 0530: the subscription invoice this payment paid. */
   invoice_ref: Defaulted<string | null>;
+  /**
+   * Migration 0952 (ADR 0694): how it was paid. `provider` rows are the provider's verified
+   * payments; the others are the host's (provider `host`), made by `applyOtherPayment`.
+   */
+  method: Defaulted<PaymentMethod>;
+  /** A recorded payment: how, who received it, the day they did, and the payer's reference. */
+  recorded_kind: Defaulted<RecordedKind | null>;
+  recorded_by: Defaulted<string | null>;
+  received_on: Defaulted<string | null>;
+  reference: Defaulted<string | null>;
+  voucher_id: Defaulted<string | null>;
+  stored_value_id: Defaulted<string | null>;
+  /** A reversal: the event id of the host's row it undoes (its amount negated), and why. */
+  reverses: Defaulted<string | null>;
+  reason: Defaulted<string | null>;
 }
+
+/** Migration 0952 (ADR 0694): the ways an order's payment is made. */
+export type PaymentMethod = "provider" | "recorded" | "voucher" | "stored_value";
+/** How a recorded payment was paid. */
+export type RecordedKind = "transfer" | "cash" | "cheque" | "card_machine" | "other";
 
 /** Migration 0422: a checkout the host opened on the provider's page for an order. */
 export interface CoreOrderCheckoutTable {
@@ -2764,6 +2784,10 @@ export interface CoreOrderRefundTable {
   tax_amount: Defaulted<number | null>;
   /** Migration 0530: a credit note's tax that arrived before the refund's confirmation. */
   reported_tax: Defaulted<number | null>;
+  /** Migration 0952: the way it went back; a recorded one, how a person paid it back. */
+  method: Defaulted<PaymentMethod>;
+  recorded_kind: Defaulted<RecordedKind | null>;
+  reference: Defaulted<string | null>;
 }
 
 /** Migration 0530 (ADR 0485): a subscription's state, mirrored from the provider's. */
@@ -3074,6 +3098,53 @@ export interface CrmOrderAdjustmentView {
   removed_by: string | null;
   order_state: OrderState;
   currency: string;
+}
+
+/** Migration 0952: an order's payments by method, for reports. */
+export interface CrmOrderPaymentView {
+  id: string;
+  provider: string;
+  event_id: string;
+  order_id: string;
+  person_id: string | null;
+  method: PaymentMethod;
+  recorded_kind: RecordedKind | null;
+  recorded_by: string | null;
+  received_on: string | null;
+  reference: string | null;
+  voucher_id: string | null;
+  stored_value_id: string | null;
+  reverses: string | null;
+  reason: string | null;
+  amount: number;
+  currency: string;
+  outcome: "applied" | "mismatch" | "late";
+  resolved: "honoured" | "refunded" | null;
+  tax_amount: number | null;
+  received_at: Timestamp;
+  order_state: OrderState;
+}
+
+/** Migration 0952: an order's refunds by method, for reports. */
+export interface CrmOrderRefundView {
+  id: string;
+  order_id: string;
+  person_id: string | null;
+  provider: string;
+  payment_ref: string | null;
+  method: PaymentMethod;
+  recorded_kind: RecordedKind | null;
+  reference: string | null;
+  reason: string | null;
+  amount: number;
+  currency: string;
+  status: "requested" | "confirmed";
+  requested_by: string | null;
+  requested_at: Timestamp | null;
+  confirmed_at: Timestamp | null;
+  tax_amount: number | null;
+  created_at: Timestamp;
+  order_state: OrderState;
 }
 
 export interface CrmStageHistoryView {
@@ -3813,6 +3884,8 @@ export interface CoreDatabase {
   rec_order: CrmOrderView;
   rec_order_line: CrmOrderLineView;
   rec_order_adjustment: CrmOrderAdjustmentView;
+  rec_order_payment: CrmOrderPaymentView;
+  rec_order_refund: CrmOrderRefundView;
   rec_task_link: CrmTaskLinksView;
   rec_record_tag: CrmRecordTagsView;
 }

@@ -2008,9 +2008,9 @@ An **Order** is a base record in core
 `packages/core/src/orders/`). `order.start` takes records and quantities; the host reads each
 price from the record, in the deployment's one currency, and stores amounts as integers in the
 minor unit. The order's state machine is fixed in core and held by the transition engine. Its
-moves to `paid`, `part_paid`, `expired` and `refunded` are `host` moves: the only code that makes
-an order paid is `applyVerifiedPayment`, a function the payments gatekeeper's verified webhook
-calls, never an operation. It is idempotent by the provider's event id, records a payment that
+moves to `paid`, `part_paid`, `expired` and `refunded` are `host` moves: the code that makes an
+order paid is `applyVerifiedPayment`, a function the payments gatekeeper's verified webhook calls,
+or `applyOtherPayment` (paid another way, below), never an operation. The verified one is idempotent by the provider's event id, records a payment that
 does not match or arrives late without moving the order, and tells staff. An order may be paid by
 a deposit and a balance due by a date; nothing is scheduled or charged automatically.
 
@@ -2076,6 +2076,25 @@ the order's checkout cannot open while a person's waits. The database refuses a 
 checkout is recorded, and a checkout for a price that changed meanwhile (migration 0951). A discount cannot take an
 order to nothing yet. Codes and members' prices (the `discount` behaviour) join the seam in a
 later step.
+
+**Paid another way** (stage 34, [ADR 0694](adr/0694-an-order-paid-another-way.md),
+`orders/payments.ts`, `orders/refunds.ts`). The second door into paid: `applyOtherPayment`, a
+function beside `applyVerifiedPayment` that writes a payment row the host makes (provider `host`,
+id `opy_…`) and moves the order through the same settle path (paid or part paid, the move hooks:
+grants, holds, `sellable.moves`, one-per-Person uses). Every payment row has a `method`:
+`provider`, `recorded` (with `recorded_kind`, `recorded_by`, `received_on`, `reference`), and
+`voucher` / `stored_value` for later steps, which the database refuses until their ledgers exist
+(migration 0952's guard also refuses a recorded row without who received it, a reversal that does
+not undo exactly one recorded payment, and any edit of a host row). Today one operation calls it:
+`order.recordPayment` (the restricted core permission `orders:payments`, human only), any amount up
+to what is owed, on the Person's timeline, admins told over `recordedPaymentNotice`.
+`order.reversePayment` undoes one entered in error with a second, negative row and moves a paid
+order back to `part_paid` (what it granted stays). A drop-in (`sellable.moves`) is paid in full or
+not at all, and its payment is reversed only once its booking is cancelled. Refunds go back the way the money came:
+`order.refund` sends only the provider's payments; a recorded one is paid back by a person and
+recorded with `order.recordRefund` (`orders:refund`, human only, nothing sent). `rec_order_payment`
+and `rec_order_refund` report payments and refunds by method. Stage 35's invoices and the till's cash call the same function from
+their own operations.
 
 **Subscriptions** (stage 32a, ADRs [0485](adr/0485-recurring-billing-the-provider-runs-the-schedule.md)
 to [0487](adr/0487-the-payer-and-the-holder.md), `packages/core/src/subscriptions/`). The provider
