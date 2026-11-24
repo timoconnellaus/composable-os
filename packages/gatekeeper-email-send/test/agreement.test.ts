@@ -31,6 +31,7 @@ async function host(
     hostSignIn?: boolean;
     hostRoutine?: { siteOrigin: string | null };
     hostPurpose?: string;
+    callerKeySpace?: string;
     seedable?: boolean;
     autoApply?: boolean;
   } = {},
@@ -475,7 +476,7 @@ describe("keys and lists are kept apart by who is sending (the review of PR #283
   });
 });
 
-describe("keys per class, not per kind; pools; the upgrade (the second review of PR #283)", () => {
+describe("keys per class, not per kind; pools (the second review of PR #283)", () => {
   const SITE = "https://gym.example";
   const routineMail = {
     to: ["member@members.test"],
@@ -539,23 +540,19 @@ describe("keys per class, not per kind; pools; the upgrade (the second review of
     expect(sentEmails.map((m) => m.to)).toEqual([["member@members.test"]]);
   }, 120_000);
 
-  it("a key remembered before keys were kept per class still answers its retry, but never the copy's", async () => {
+  it("a key remembered before keys were kept per class is not read any more (issue #286)", async () => {
     const h = await host({ seedable: true });
     const first = await send(h, { to: ["colleague@example.com"], subject: "s", text: "t" });
-    // As an older version left it: `idem:<key>` → the send's id.
+    // As a version before ADR 0645's second amendment left it: `idem:<key>` → the send's id.
     await h.seed("idem:step-old", first.id);
-    await h.seed("idem:agreement-copy:aga_fixture1", first.id);
     const again = await send(h, {
       to: ["colleague@example.com"],
       subject: "s",
       text: "t",
       idempotencyKey: "step-old",
     });
-    expect(again.id).toBe(first.id);
-    expect(submissions).toHaveLength(1);
-    await h.open(SENDER_URL, { hostPurpose: "agreements", hostAgreement: true });
-    const copy = await send(h, message);
-    expect(copy.id).not.toBe(first.id);
+    expect(again.id).not.toBe(first.id);
+    expect(submissions).toHaveLength(2);
   });
 
   it("callers' keys never evict the copy's", async () => {
@@ -577,5 +574,56 @@ describe("keys per class, not per kind; pools; the upgrade (the second review of
     expect(again.id).toBe(copy.id);
     await h.apply(copy.id);
     expect(sentEmails.filter((m) => m.to.includes("member@members.test"))).toHaveLength(1);
+  }, 300_000);
+});
+
+describe("an ordinary caller's keys are its own (issue #286)", () => {
+  const step = (to: string) => ({ to: [to], subject: "s", text: "t", idempotencyKey: "step-1" });
+
+  it("one caller never answers, nor pre-claims, another's key", async () => {
+    const h = await host({ callerKeySpace: '["mcp","usr_1","cap_a"]' });
+    const theirs = await send(h, step("someone@outside.test"));
+    await h.open(SENDER_URL, { callerKeySpace: '["automation","fixture.send",null,"usr_1"]' });
+    const ours = await send(h, step("member@outside.test"));
+    expect(ours.id).not.toBe(theirs.id);
+    // Each caller's retry still finds its own first send.
+    expect((await send(h, step("member@outside.test"))).id).toBe(ours.id);
+    await h.open(SENDER_URL, { callerKeySpace: '["mcp","usr_1","cap_a"]' });
+    expect((await send(h, step("someone@outside.test"))).id).toBe(theirs.id);
+    expect(submissions).toHaveLength(2);
+  });
+
+  it("a caller naming itself as the host's class never reaches the host's keys", async () => {
+    const h = await host({ hostPurpose: "routine-mail" });
+    const routine = await send(h, step("member@outside.test"));
+    for (const name of ["routine", "agreements", "caller", "caller-0"]) {
+      await h.open(SENDER_URL, { callerKeySpace: name });
+      expect((await send(h, step("member@outside.test"))).id).not.toBe(routine.id);
+    }
+  });
+
+  it("a queue that names no caller keeps its callers in one space, as before", async () => {
+    const h = await host({});
+    const first = await send(h, step("someone@outside.test"));
+    await h.open(SENDER_URL, {});
+    expect((await send(h, step("someone@outside.test"))).id).toBe(first.id);
+    await h.open(SENDER_URL, { callerKeySpace: '["human","usr_1"]' });
+    expect((await send(h, step("someone@outside.test"))).id).not.toBe(first.id);
+  });
+
+  it("one caller's flood of keys never evicts another's", async () => {
+    const h = await host({ callerKeySpace: '["human","usr_1"]' });
+    const mine = await send(h, step("someone@outside.test"));
+    await h.open(SENDER_URL, { autoApply: true, callerKeySpace: '["mcp","usr_2","cap_b"]' });
+    for (let i = 0; i < 2_005; i++) {
+      await send(h, {
+        to: ["colleague@example.com"],
+        subject: `s${i}`,
+        text: "t",
+        idempotencyKey: `bulk-${i}`,
+      });
+    }
+    await h.open(SENDER_URL, { callerKeySpace: '["human","usr_1"]' });
+    expect((await send(h, step("someone@outside.test"))).id).toBe(mine.id);
   }, 300_000);
 });

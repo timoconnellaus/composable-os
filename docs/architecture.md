@@ -1993,7 +1993,7 @@ and delete them when an order closes unpaid. Step 4 (migration 0854,
 acceptance never changes); triggers make the row when a person agrees (to the acceptance's own
 address) and when a guest's acceptance settles to its purchase (to the address it was bought
 with), and `agreement.copy.send` makes one for a paper form (an adult's to the Person's own address; a child's to the live parent or guardian staff pick, recorded as `guardian_id`, at that guardian's own address, ADR 0648, migration 0857; shown first by `agreement.copy.preview` and confirmed; a person
-with `agreements:paper`); no caller names an address and none can be changed. Erasing that guardian clears their address from the child's copy and owes its scrub; erasing the child never takes the guardian's address. Idempotency keys are kept apart by the class of queue sending (`hostPurpose`), the copy's refused to any other, and a caller's `listSent` never shows the host's agreements, sign-in or orders mail.
+with `agreements:paper`); no caller names an address and none can be changed. Erasing that guardian clears their address from the child's copy and owes its scrub; erasing the child never takes the guardian's address. Idempotency keys are kept apart by the class of queue sending (`hostPurpose`), and an ordinary caller's by the caller the host names (`callerKeySpace`, issue #286), the copy's refused to any other, and a caller's `listSent` never shows the host's agreements, sign-in or orders mail.
 `agreements/copy.ts` sends it after the commit, and the minute cron sends what did not go, through
 `callAsHost` with purpose `agreements`: the host's own mail, applied unless the deploy-time floor
 denies it, with a system origin so no AI's outbound check reads it, and the idempotency key
