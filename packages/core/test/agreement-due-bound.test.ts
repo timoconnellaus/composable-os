@@ -1,6 +1,7 @@
-// agreement.due.list and agreement.healthReviews over many People (ADR 0642's one question): the
-// acceptances, names and facts of a whole list are read in a fixed number of statements, each
-// binding its ids as one parameter, not one read per Person and one variable per id.
+// agreement.due.list and the health reads (agreement.healthNotes, healthReviews) over many People
+// (ADR 0642's one question): the acceptances, names and facts of a whole list are read in a fixed
+// number of statements, each binding its ids as one parameter, not one read per Person and one
+// variable per id.
 import { env } from "cloudflare:workers";
 import { beforeAll, describe, expect, it } from "vitest";
 import { type ActingUser, invoke } from "../src/index.ts";
@@ -54,6 +55,35 @@ beforeAll(async () => {
     context(admin),
   );
   await invoke("agreement.attach", { documentId: id, points: [POINT] }, context(admin));
+  // A health form too, so the health reads have a document to ask about.
+  const health = await invoke(
+    "agreement.create",
+    { title: unique("Health"), kind: "health" },
+    context(admin),
+  );
+  const draft = await invoke(
+    "agreement.draft.save",
+    {
+      id: health.id,
+      body: body("Fixture text: not a real form."),
+      tickLabel: "I have read this fixture",
+      questions: [{ key: "q", text: "Fixture question?", noteOnYes: true }],
+      askAgainMonths: null,
+    },
+    context(admin),
+  );
+  await invoke(
+    "agreement.publish",
+    {
+      documentId: health.id,
+      draftHash: draft.hash,
+      draftRev: draft.rev,
+      number: 1,
+      change: "small",
+    },
+    context(admin),
+  );
+  await invoke("agreement.attach", { documentId: health.id, points: [POINT] }, context(admin));
   // Marked minors are on the list; the marks are written straight in, as a fixture.
   people = [];
   for (let n = 0; n < PEOPLE; n += 1) {
@@ -81,6 +111,21 @@ describe("agreement.due.list over many People", () => {
     );
     const due = new Set(listed.items.map((i) => i.personId));
     for (const personId of people) expect(due.has(personId)).toBe(true);
+    expect(meter.bound.length).toBeLessThan(40);
+    expect(Math.max(...meter.bound)).toBeLessThan(100);
+  });
+});
+
+describe("the health reads over many People", () => {
+  it("answer for more People than one statement may bind one by one, in a fixed number of statements", async () => {
+    const meter = meterStatements();
+    const notes = await invoke(
+      "agreement.healthNotes",
+      { personIds: people },
+      context(admin, { db: meter.db }),
+    );
+    expect(notes.notes).toHaveLength(PEOPLE);
+    expect(notes.notes.every((n) => n.healthNote === false)).toBe(true);
     expect(meter.bound.length).toBeLessThan(40);
     expect(Math.max(...meter.bound)).toBeLessThan(100);
   });
