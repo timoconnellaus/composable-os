@@ -33,6 +33,7 @@ import { NotFoundError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
+import { readAgainOf } from "../records/acknowledge.ts";
 import {
   ALWAYS_REVIEWED_PUBLISHERS,
   assertAskedFor,
@@ -91,7 +92,24 @@ const versionSummary = z.object({
     .describe("For an approved request: the actor that asked (assistant, mcp, ...)"),
   note: z.string().nullable(),
   bytes: z.number().int(),
+  readAgain: z
+    .boolean()
+    .nullable()
+    .describe(
+      "On an object staff confirm (acknowledge): whether this version asked everyone who must read it again. Null elsewhere",
+    ),
 });
+
+/** On an acknowledged object (ADR 0702): the publisher's read-again choice. */
+const readAgainInput = z
+  .boolean()
+  .optional()
+  .describe(
+    "Only on an object staff confirm they have read (see schema.objects, acknowledge): true asks " +
+      "everyone who must read it to confirm this version again; false is a small fix that keeps " +
+      "their confirmations. Required after the first version, which always asks. An AI's " +
+      "request carries it as a suggestion; the person who approves chooses.",
+  );
 
 /** What a publish request's description says, for the model. */
 const ASKS =
@@ -143,6 +161,7 @@ interface VersionRow {
   requested_by: string | null;
   requested_via: string | null;
   note: string | null;
+  read_again: number | null;
 }
 
 const summaryOf = (row: VersionRow) => ({
@@ -154,6 +173,7 @@ const summaryOf = (row: VersionRow) => ({
   requestedVia: row.requested_via,
   note: row.note,
   bytes: Number(row.bytes),
+  readAgain: row.read_again === null ? null : Number(row.read_again) === 1,
 });
 
 export const recordPublish = defineOperation({
@@ -167,6 +187,7 @@ export const recordPublish = defineOperation({
     object: objectName,
     id: recordId,
     note: z.string().trim().min(1).max(500).optional().describe("What changed, for the history"),
+    readAgain: readAgainInput,
   }),
   output: versionSummary,
   permission: "records:publish",
@@ -185,6 +206,7 @@ export const recordPublish = defineOperation({
     };
     assertAskedFor(ctx, object.name, input.id, { ...before, [DRAFT_KEY]: fingerprint });
     const snapshot = snapshotOf(object, record, ctx.now);
+    const readAgain = await readAgainOf(ctx, object, input.id, input.readAgain);
     const version = await nextVersion(ctx, object.name, input.id);
     // An empty date is the day it goes live, in the working copy too (ADR 0441).
     if (Object.keys(snapshot.fill).length) await updateRecord(ctx, object, input.id, snapshot.fill);
@@ -198,6 +220,7 @@ export const recordPublish = defineOperation({
         ...(before.publishAt === null
           ? {}
           : { publishAt: { before: before.publishAt, after: null } }),
+        ...(readAgain === null ? {} : { readAgain: { before: null, after: readAgain } }),
       }),
     });
     const note = input.note ?? null;
@@ -210,6 +233,7 @@ export const recordPublish = defineOperation({
         note,
         requestedBy: by.requestedBy,
         requestedVia: by.requestedVia,
+        readAgain,
       }),
     );
     return {
@@ -221,6 +245,7 @@ export const recordPublish = defineOperation({
       requestedVia: by.requestedVia,
       note,
       bytes: snapshot.bytes,
+      readAgain,
     };
   },
 });
@@ -237,6 +262,7 @@ const scheduleSummary = z.object({
   requestedVia: z.string().nullable().describe("For an approved request: the actor that asked"),
   note: z.string().nullable(),
   bytes: z.number().int(),
+  readAgain: z.boolean().nullable().describe("The read-again choice it goes live with"),
 });
 
 export const recordSchedulePublish = defineOperation({
@@ -251,6 +277,7 @@ export const recordSchedulePublish = defineOperation({
     id: recordId,
     at: z.iso.datetime({ offset: true }).describe("When to publish it (ISO-8601, in the future)"),
     note: z.string().trim().min(1).max(500).optional().describe("What changed, for the history"),
+    readAgain: readAgainInput,
   }),
   output: scheduleSummary,
   permission: "records:publish",
@@ -279,6 +306,7 @@ export const recordSchedulePublish = defineOperation({
     assertAskedFor(ctx, object.name, input.id, { publishAt: before, [DRAFT_KEY]: fingerprint });
     const publishAt = at.toISOString();
     const snapshot = snapshotOf(object, record, publishAt);
+    const readAgain = await readAgainOf(ctx, object, input.id, input.readAgain);
     if (Object.keys(snapshot.fill).length) await updateRecord(ctx, object, input.id, snapshot.fill);
     ctx.recordChange({
       object: object.name,
@@ -287,6 +315,7 @@ export const recordSchedulePublish = defineOperation({
       before: { publishAt: before, [DRAFT_KEY]: fingerprint },
       diff: publishDiff(object, live?.content ?? null, record, fingerprint, {
         publishAt: { before, after: publishAt },
+        ...(readAgain === null ? {} : { readAgain: { before: null, after: readAgain } }),
       }),
     });
     const note = input.note ?? null;
@@ -298,6 +327,7 @@ export const recordSchedulePublish = defineOperation({
         note,
         requestedBy: by.requestedBy,
         requestedVia: by.requestedVia,
+        readAgain,
       }),
     );
     return {
@@ -307,6 +337,7 @@ export const recordSchedulePublish = defineOperation({
       requestedVia: by.requestedVia,
       note,
       bytes: snapshot.bytes,
+      readAgain,
     };
   },
 });
@@ -416,6 +447,10 @@ export const recordPublishDue = defineOperation({
           note: due.note,
           requestedBy: due.requested_by,
           requestedVia: due.requested_via,
+          // Scheduled before the object asked anyone to confirm: it asks (ADR 0702).
+          readAgain: object.publishable.acknowledge
+            ? due.read_again === null || Number(due.read_again) === 1
+            : null,
         }),
       );
       ctx.recordChange({
@@ -454,7 +489,8 @@ export const recordVersions = defineOperation({
     const object = requirePublishable(input.object);
     await requireRecord(ctx, object, input.id);
     const rows = await sql<VersionRow>`
-      SELECT version, current, bytes, published_at, published_by, requested_by, requested_via, note
+      SELECT version, current, bytes, published_at, published_by, requested_by, requested_via, note,
+        read_again
       FROM core_publish_version
       WHERE object_type = ${object.name} AND record_id = ${input.id}
       ORDER BY version DESC LIMIT ${input.limit}
@@ -498,7 +534,7 @@ async function readVersion(
   const which = version === undefined ? sql`current = 1` : sql`version = ${version}`;
   const rows = await sql<VersionRow>`
     SELECT version, current, content, bytes, published_at, published_by, requested_by,
-      requested_via, note
+      requested_via, note, read_again
     FROM core_publish_version WHERE object_type = ${object} AND record_id = ${id} AND ${which}
   `.execute(ctx.db);
   const row = rows.rows[0];
