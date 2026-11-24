@@ -158,8 +158,7 @@ const asHost = (id: string, values: Record<string, unknown>) =>
 
 const ACCEPTED_REFUSAL = () => ({
   code: "invalid_input",
-  message:
-    "Accepted needs Accepted at; Accepted at is recorded when it happens and cannot be entered by hand",
+  message: "Accepted needs Accepted at; Accepted at is set by the act it records, not by a move",
   details: {
     rule: "stage_required_fields",
     object: JOB,
@@ -227,6 +226,37 @@ describe("a stage rule on a host fact in the contract checks", () => {
       'objects.job.stages.requiredByType.won: "gone" must be a field of job other than a formula or the stage field',
     ]);
   });
+
+  it("refuses a field the stage behaviour keeps itself", () => {
+    expect(
+      issues((job) => ({
+        ...job,
+        fields: {
+          ...(job.fields as object),
+          status: {
+            type: "select",
+            label: "Status",
+            readOnly: true,
+            options: [
+              { value: "open", label: "Open" },
+              { value: "won", label: "Won" },
+              { value: "lost", label: "Lost" },
+            ],
+          },
+          closedAt: { type: "date", label: "Closed", readOnly: true },
+        },
+        stages: {
+          ...(job.stages as object),
+          status: "status",
+          closedDate: "closedAt",
+          requiredByType: { open: ["closedAt"], won: ["status", "invoicedAt"] },
+        },
+      })),
+    ).toEqual([
+      'objects.job.stages.requiredByType.open: "closedAt" is kept by the stage behaviour itself and cannot be required',
+      'objects.job.stages.requiredByType.won: "status" is kept by the stage behaviour itself and cannot be required',
+    ]);
+  });
 });
 
 describe("entering a stage that needs a host fact", () => {
@@ -259,7 +289,7 @@ describe("entering a stage that needs a host fact", () => {
     expect(await refusal(update(job.id, { step: steps.signedOff }))).toEqual({
       code: "invalid_input",
       message:
-        "Signed off needs Signed off at, Summary; Signed off at is recorded when it happens and cannot be entered by hand",
+        "Signed off needs Signed off at, Summary; Signed off at is set by the act it records, not by a move",
       details: {
         rule: "stage_required_fields",
         object: JOB,
@@ -279,8 +309,7 @@ describe("entering a stage that needs a host fact", () => {
   it("holds requiredByType on a host fact for a won stage", async () => {
     const job = await createJob();
     expect(await refusal(update(job.id, { step: steps.paid }))).toMatchObject({
-      message:
-        "Paid needs Invoiced on; Invoiced on is recorded when it happens and cannot be entered by hand",
+      message: "Paid needs Invoiced on; Invoiced on is set by the act it records, not by a move",
       details: { field: "invoicedAt", setByHost: ["invoicedAt"] },
     });
   });
@@ -303,9 +332,9 @@ describe("entering a stage that needs a host fact", () => {
     expect(await stepOf(job.id)).toBe(steps.enquiry);
   });
 
-  it("is refused to the extension's own code until it sets the fact in the same write", async () => {
-    // The declaring extension may write its read-only fields (ADR 0246): its own act (Jobs'
-    // recordAcceptance, a person's tool) records the fact and moves the job together.
+  it("lets the extension's own code set the fact only from a tool a person calls", async () => {
+    // A fact is written like a holder's terms (ADR 0513): by the host, or by the declaring
+    // extension's tool that only a person may call or approve, never its other code.
     const job = await createJob();
     const principal = { ...member, id: `extension:${ext}` };
     const now = new Date().toISOString();
@@ -314,18 +343,36 @@ describe("entering a stage that needs a host fact", () => {
     )
       .bind(principal.id, ext, `${ext}@extensions.crm.invalid`, now, now)
       .run();
-    const asExtension = context(principal, {
-      actor: "extension",
-      origin: { surface: "extension", extensionId: ext },
-      extension: {
-        id: ext,
-        permissions: { read: [], write: [], operations: [], modules: ["ops"] },
-      },
-    });
-    expect(await refusal(update(job.id, { step: steps.accepted }, asExtension))).toEqual(
+    const asExtension = (tool?: { humanOnly: boolean; personApproves?: boolean }) =>
+      context(principal, {
+        actor: "extension",
+        origin: { surface: "extension", extensionId: ext },
+        extension: {
+          id: ext,
+          permissions: { read: [], write: [], operations: [], modules: ["ops"] },
+          ...(tool
+            ? { tool: { name: "recordAcceptance", permission: `${ext}:manage`, ...tool } }
+            : {}),
+        },
+      });
+    expect(await refusal(update(job.id, { step: steps.accepted }, asExtension()))).toEqual(
       ACCEPTED_REFUSAL(),
     );
-    await update(job.id, { step: steps.accepted, acceptedAt: now }, asExtension);
+    // An automation, or a tool an AI may call: refused, alone or with the move.
+    for (const ctx of [asExtension(), asExtension({ humanOnly: false })]) {
+      for (const values of [{ acceptedAt: now }, { step: steps.accepted, acceptedAt: now }]) {
+        expect((await refusal(update(job.id, values, ctx))).message).toMatch(
+          /acceptedAt is set automatically and cannot be written/,
+        );
+      }
+    }
+    expect(await stepOf(job.id)).toBe(steps.enquiry);
+    // A person's own act records it and moves the job together.
+    await update(
+      job.id,
+      { step: steps.accepted, acceptedAt: now },
+      asExtension({ humanOnly: true }),
+    );
     expect(await stepOf(job.id)).toBe(steps.accepted);
   });
 
@@ -376,5 +423,93 @@ describe("entering a stage that needs a host fact", () => {
       [steps.accepted, "host"],
       [steps.signedOff, "host"],
     ]);
+  });
+});
+
+describe("the stages a host fact gates", () => {
+  const editStep = (id: string, values: Record<string, unknown>, ctx = human()) =>
+    invokeByName("record.update", { object: STEP, id, values }, ctx);
+  const ADMIN_ONLY = {
+    code: "forbidden",
+    message:
+      "Steps decide when a record waits on what the platform records, so only an admin changes them, in person",
+    details: {
+      rule: "stage_settings_admin_only",
+      object: STEP,
+      gates: [{ object: JOB, facts: ["acceptedAt", "signedOffAt", "invoicedAt"] }],
+    },
+  };
+
+  it("cannot be loosened by a member or an AI client, so the move stays refused", async () => {
+    const job = await createJob();
+    // The review's two sequences: drop the fact from Accepted, or turn Paid into an open stage.
+    for (const ctx of [human(), mcp()]) {
+      expect(await refusal(editStep(steps.accepted as string, { needs: [] }, ctx))).toEqual(
+        ADMIN_ONLY,
+      );
+      expect(await refusal(editStep(steps.paid as string, { type: "open" }, ctx))).toEqual(
+        ADMIN_ONLY,
+      );
+    }
+    expect(await refusal(update(job.id, { step: steps.accepted }, mcp()))).toEqual(
+      ACCEPTED_REFUSAL(),
+    );
+    expect(await refusal(update(job.id, { step: steps.paid }))).toMatchObject({
+      details: { field: "invoicedAt" },
+    });
+    expect(await stepOf(job.id)).toBe(steps.enquiry);
+  });
+
+  it("cannot gain a stage of a member's or an AI's making, nor lose or regain one", async () => {
+    for (const ctx of [human(), mcp()]) {
+      expect(
+        await refusal(
+          invokeByName(
+            "record.create",
+            { object: STEP, values: { name: "Accepted", position: 2, type: "open" } },
+            ctx,
+          ),
+        ),
+      ).toEqual(ADMIN_ONLY);
+      expect(
+        await refusal(invokeByName("record.delete", { object: STEP, id: steps.enquiry }, ctx)),
+      ).toEqual(ADMIN_ONLY);
+    }
+    const name = unique("Step");
+    expect(
+      await refusal(
+        invokeByName(
+          "import.records.commit",
+          { object: STEP, csv: `Name,Position,Type\n${name},9,open\n` },
+          human(),
+        ),
+      ),
+    ).toMatchObject({ details: { row: 1, rule: "stage_settings_admin_only" } });
+  });
+
+  it("are an admin's to change, in person", async () => {
+    const extra = (await invokeByName(
+      "record.create",
+      { object: STEP, values: { name: unique("Review"), position: 5, type: "open" } },
+      context(admin),
+    )) as Rec;
+    // An AI client acting for the admin is still refused.
+    const adminMcp = context(admin, {
+      actor: "mcp",
+      origin: {
+        surface: "mcp",
+        clientId: "client-1",
+        clientName: "Test client",
+        sessionId: unique(),
+      },
+      reason: "Test reason",
+    });
+    expect(await refusal(editStep(extra.id, { position: 6 }, adminMcp))).toEqual(ADMIN_ONLY);
+    await editStep(extra.id, { position: 6 }, context(admin));
+    await invokeByName("record.delete", { object: STEP, id: extra.id }, context(admin));
+    expect(
+      await refusal(invokeByName("record.restore", { object: STEP, id: extra.id }, human())),
+    ).toEqual(ADMIN_ONLY);
+    await invokeByName("record.restore", { object: STEP, id: extra.id }, context(admin));
   });
 });

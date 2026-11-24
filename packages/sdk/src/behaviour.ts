@@ -48,6 +48,22 @@ export function checkObjectBehaviour(
   const stages = object.stages;
   if (stages) {
     const sp = `${path}.stages`;
+    // Fields the stage behaviour keeps itself: requiring one either always holds or, for a
+    // closed date on an open stage, never can (the behaviour clears it first). A status or closed
+    // date that is not read-only is reported as such below, once.
+    const kept = new Set(
+      [
+        ...[stages.status, stages.closedDate].filter((f) => f && fieldOf(f)?.readOnly),
+        stages.probability?.field,
+        stages.probability?.overridden,
+      ].filter((f): f is string => f !== undefined),
+    );
+    const requirable = (local: string) => {
+      const field = fieldOf(local);
+      return field !== undefined && field.type !== "formula" && local !== stages.field;
+    };
+    const keptMessage = (local: string) =>
+      `"${local}" is kept by the stage behaviour itself and cannot be required`;
     const stageTarget = relationTo(fieldOf(stages.field));
     const stageObject = ownObject(stageTarget);
     if (!stageObject) {
@@ -87,12 +103,13 @@ export function checkObjectBehaviour(
           // A read-only field may be required (ADR 0750): a fact the host sets, such as the
           // time a quote was accepted, which then gates the stage for every actor.
           for (const option of required.options ?? []) {
-            const target = fieldOf(option.value);
-            if (!target || target.type === "formula" || option.value === stages.field) {
+            if (!requirable(option.value)) {
               contract(
                 `${sp}.stage.requiredFields`,
                 `Option "${option.value}" must name a field of ${name} other than a formula or the stage field`,
               );
+            } else if (kept.has(option.value)) {
+              contract(`${sp}.stage.requiredFields`, `Option ${keptMessage(option.value)}`);
             }
           }
         }
@@ -177,12 +194,13 @@ export function checkObjectBehaviour(
     }
     for (const [type, list] of Object.entries(stages.requiredByType ?? {})) {
       for (const local of list ?? []) {
-        const field = fieldOf(local);
-        if (!field || field.type === "formula" || local === stages.field) {
+        if (!requirable(local)) {
           contract(
             `${sp}.requiredByType.${type}`,
             `"${local}" must be a field of ${name} other than a formula or the stage field`,
           );
+        } else if (kept.has(local)) {
+          contract(`${sp}.requiredByType.${type}`, keptMessage(local));
         }
       }
     }

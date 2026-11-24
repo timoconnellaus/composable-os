@@ -235,12 +235,12 @@ export async function runTransition<P extends Placement>(
   const missing = checked.filter((field) => isEmptyValue(after[field]));
   if (missing.length) {
     // A required read-only field is a fact the host sets (ADR 0750: a quote's acceptance, a
-    // sign-off). No caller can supply it, so it is named first, where a UI looks for the field to
-    // ask for, and the refusal says it is not entered by hand.
+    // sign-off). The move cannot supply it, so it is named first, where a UI looks for the field
+    // to ask for, and the refusal says the act it records sets it.
     const hostSet = missing.filter((field) => hostFact(object, field));
     const fields = [...hostSet, ...missing.filter((field) => !hostSet.includes(field))];
     const byHand = hostSet.length
-      ? `; ${hostSet.map(write.labelOf).join(", ")} ${hostSet.length === 1 ? "is" : "are"} recorded when it happens and cannot be entered by hand`
+      ? `; ${hostSet.map(write.labelOf).join(", ")} ${hostSet.length === 1 ? "is" : "are"} set by the act it records, not by a move`
       : "";
     const refusal = lifecycle.refusal(
       write,

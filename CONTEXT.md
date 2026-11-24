@@ -375,8 +375,9 @@ roadmap's stages are a different word (see **Stage** below).
 A field a stage requires before a record may enter it (Proposal needs a value and an expected close
 date; Lost needs a lost reason). The host enforces it in the record operations for every actor and
 refuses a move with an error naming the missing fields. A stage rule may require a **host fact**: a
-read-only field only the host (or the declaring pack's own act) sets, such as a job's `acceptedAt`,
-so nobody moves a job into Accepted by hand (ADR 0750).
+read-only field only the host (or a person's own tool of the declaring pack) sets, such as a job's
+`acceptedAt`, so nobody moves a job into Accepted by hand; the stages it gates are an admin's to
+change, in person (ADR 0750).
 
 **Stage behaviour**
 The contract's declarative `stages` key (ADR 0100): it makes an extension object move through stage
