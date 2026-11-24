@@ -90,7 +90,7 @@ describe("a pack-role account on the admin's server functions and routes (ADR 06
       const principal = await principalOf(who());
       // Every server function, as its own middleware judges it (start.ts).
       for (const file of serverFnFiles) {
-        const refused = await refusesFixedRole(env.DB, principal, file);
+        const refused = await refusesFixedRole(env, principal, file);
         expect(refused, file).toBe(!ALLOWED_FNS.includes(file));
       }
       // Every server route, as the request middleware judges it.
@@ -109,7 +109,7 @@ describe("a pack-role account on the admin's server functions and routes (ADR 06
   it("a member keeps every server function and route", async () => {
     const principal = await principalOf(member);
     for (const file of serverFnFiles) {
-      expect(await refusesFixedRole(env.DB, principal, file), file).toBe(false);
+      expect(await refusesFixedRole(env, principal, file), file).toBe(false);
     }
     for (const path of apiRoutes) {
       expect(

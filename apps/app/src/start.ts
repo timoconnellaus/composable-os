@@ -31,7 +31,7 @@ const csrfMiddleware = createCsrfMiddleware({
 export const fixedRoleMiddleware = createMiddleware({ type: "function" }).server(
   async ({ next, context, serverFnMeta }) => {
     const principal = (context as unknown as { principal?: Principal | null }).principal ?? null;
-    if (await refusesFixedRole(env.DB, principal, serverFnMeta.filename)) {
+    if (await refusesFixedRole(env, principal, serverFnMeta.filename)) {
       throw new ForbiddenError("This account's role does not reach this");
     }
     return next();

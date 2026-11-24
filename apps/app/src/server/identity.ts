@@ -110,12 +110,12 @@ export function packRoleMayCallServerFn(filename: string | undefined): boolean {
  * function is not one it may call. One read, only for a function outside the short list.
  */
 export async function refusesFixedRole(
-  db: D1Database,
+  env: { DB: D1Database },
   principal: Principal | null,
   filename: string | undefined,
 ): Promise<boolean> {
   if (!principal || packRoleMayCallServerFn(filename)) return false;
-  return holdsPackRole(db, principal);
+  return holdsPackRole(env.DB, principal);
 }
 
 /** Whether the signed-in account holds a pack role. */
