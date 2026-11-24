@@ -13,11 +13,9 @@ import {
   invokeByName,
   listObjects,
   listOperations,
-  OperationError,
   PendingApprovalError,
   type Permission,
   packRoleReaches,
-  RateLimitedError,
   refreshSchemaRegistry,
   resolveExtensionOperation,
   roleHasPermission,
@@ -435,5 +433,3 @@ export function createCrmMcpServer(caller: McpCaller, version: string): McpServe
 
   return server;
 }
-
-export { OperationError, RateLimitedError };
