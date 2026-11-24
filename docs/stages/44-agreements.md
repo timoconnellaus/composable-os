@@ -33,8 +33,8 @@ decisions 15 to 22; step 1 built on `feat/stage-44-documents`, ADRs 0640 and 064
 `feat/stage-44-acceptances`, ADRs 0642 and 0643; step 3, enforcement, built on
 `feat/stage-44-enforcement`, ADR 0644; step 4, the copy and the signed PDF, built on
 `feat/stage-44-copy`, ADR 0645; step 5, the blocks, built on `feat/stage-44-blocks`, ADR 0644
-amended; step 8, erase, merge and retention, built on `feat/stage-44-erase`, ADR 0646; build
-notes at the end).
+amended; step 7, cooling off, built on `feat/stage-44-cooling-off`, ADR 0647; step 8, erase,
+merge and retention, built on `feat/stage-44-erase`, ADR 0646; build notes at the end).
 Builds on stages 25, 31a and 32. The first client is a gym moving from another system. It must be in
 place before members pay or train on the new system (decision 13).
 
@@ -1121,7 +1121,7 @@ no-delete and draft triggers, `core_agreement_point`, `core_agreement_rev`) and 
 4. Health answers and their isolation.
 5. The copy and the signed PDF: host mail for agreements, and the gatekeeper's second attachment
    (amending ADR 0571).
-6. Cooling off.
+6. Cooling off (**ADR 0647**, step 7).
 7. Keeping acceptances after erase (**ADR 0646**, step 8).
 8. Signing at the desk: a session a person starts, a tablet with no sign-in.
 
@@ -1140,7 +1140,7 @@ with dated notes.
 | 4 | **The copy and the PDF**: the PDF writer module (vendored or our own, noted in `UPSTREAMS.md` if vendored), the gatekeeper's `agreement` part, `callAsHost` purpose `agreements` with the copy's idempotency key, the download routes, the blank PDF | `packages/gatekeeper-email-send` (`validate.ts`, `worker.ts`, a new `agreement.ts`), the fake outbox, `integrations/runtime.ts` (the purpose), `apps/app/src/server/http/` (downloads) | Yes, after step 2 (PR #256 is merged); beside anything but other email-gatekeeper work (issue #259, and `feat/routine-mail` while it is open) |
 | 5 | **Blocks and hooks**: Agree, Before you go on, My agreements, a child's, the checkout and booking steps; the web signature pad (pointer events) and the native one | base-layer blocks, a headless `agreements` entry in `packages/client`, the client template's routes, the Bookings and Memberships web blocks (the inline step) | Yes, once step 2's operations are merged; coordinate with whoever owns the drop-in and timetable blocks |
 | 6 | **Signing at the desk** (decision 22): `core_agreement_desk_device` (admin enrolment announced to every admin, browser and network recorded, rotation idempotent for 60 seconds, a clone revokes) and `core_agreement_desk_session` (bound to the device staff chose, idle and total limits and the bounded heartbeat held on the server); `agreement.desk.enrol` and `revoke` (admins, a person) and `start` and `end` (`agreements:desk`, made grantable to fixed-role accounts, ADR 0600 amended); `desk.claim`, `desk.documents`, `desk.accept`, `desk.heartbeat`, `desk.finish` (public, needing the device credential and the session token); the desk origin (its own hostname, set up by `cos deploy`), its cookies (`HttpOnly`, `Secure`, `SameSite=Strict`), the `Origin` check; HMAC of codes and tokens under an env secret; the lock-out; the staff side's Sign at the desk (with the claiming device) and Desk tablets; the address marks on the Acceptances list, by mailbox, over every path that changes an address; the copy's wording; the desk page at tablet width from the Agree block's web skin. No native work | `agreements/` (a new `desk.ts`), `operations/agreement-desk.ts`, `open-operations.json`, `principals.ts` (the fixed-role grantable list), `apps/app/src/server/identity.ts` and the Worker's routing (the desk origin), `packages/release` and `cos deploy` (the hostname), a new desk route, the admin Person page | After step 2 (it records acceptances) and step 4 (every desk acceptance sends its copy); its page after step 5's Agree block. Beside anything but other work on public paths in `identity.ts` |
-| 7 | **Cooling off**: the setting, `subscription.coolOff`, refunds owed per period | `subscriptions/` (a new `cooling-off.ts`), `orders/refund-due.ts`, `packs/memberships` (the setting, the member's button) | Yes, beside 31 work; **not beside other `subscriptions/` work** (issue #254's hardening) |
+| 7 | **Cooling off** (**built**, `feat/stage-44-cooling-off`, ADR 0647): the setting, `subscription.coolOff`, refunds owed per period | `subscriptions/` (a new `cooling-off.ts`), `orders/refund-due.ts`, `packs/memberships` (the setting, the member's button) | Yes, beside 31 work; **not beside other `subscriptions/` work** (issue #254's hardening) |
 | 8 | **Erase, merge, the Trash and retention** (**built**, `feat/stage-44-erase`, ADR 0646): erase keeps acceptances detached, deletes answers, the minor mark and open desk sessions; merge re-points; the purge after the retention period (copy rows with it); a copy that was waiting for a person: its pending approval cancelled, and the email gatekeeper's storage scrubbed of an erased person's copies (the sent history's recipient and subject, and the journal records with the whole message; left here by step 4's reviews) | `records/erase.ts`, `records/erase-stores.ts`, `person.merge`, `purge.ts` | **Not beside other erase or merge work** (the "erase completeness" reserved area, stage 43 step 4) |
 | 9 | **Stage 43's consent** as a `care` acceptance (when stage 43 step 4 is built) | `agreements/`, stage 43's `care.ts` | With stage 43 step 4 |
 | 10 | **The first client**: the business writes and publishes its four documents, attaches them; a moved member's first sign-in in test mode; a visitor's drop-in; a parent for a child; a member at the desk | The first client's own repository and deployment | After 3 to 6; before members pay or train on the new system |
@@ -1731,6 +1731,238 @@ signature drawn top to bottom and fast is not cut off or turned into a scroll; t
 finger without lag; a second finger on the pad draws nothing; Clear empties it; the keyboard does
 not cover the name field; VoiceOver and TalkBack read the tick label, the questions and the pad's
 state; the modal closes with the system back gesture; and a booking goes through after agreeing.
+
+## Step 7: build notes (`feat/stage-44-cooling-off`, 2026-11-24)
+
+Built: migration 0856 (`core_subscription_checkout.cooling_off_days`, `core_subscription_cool_off`
+and its once-per-member and final-state triggers), ADR 0647. The SDK's
+`sellable.recurring.coolingOff: { setting }` and its contract check; `subscriptions/cooling-off.ts`
+(`coolingOffStatuses`, `coolOff`, `followCoolOff`, `coolingOffWindow`); `startSubscription` keeps the
+days in force on the checkout; `applySubscriptionEvent` owes the refunds once the provider shows
+the subscription ended; the person merge moves cooling offs to the survivor; `refund-due.ts` words
+its notices by why the refund is owed. The Memberships pack's `coolingOffDays` setting (0 to 30,
+default 0, a person's) and `recurring.coolingOff`; its headless entry's `useCoolingOff`,
+`useCoolOff` and words; the web block's "Cancel for a full refund"; the app's block saying until
+when (on the website); staff's Cooling off card on the subscription's page; the block lint counting
+`subscription.coolOff` and `useCoolOff` as billing. The generated clients, the API contract,
+`open-operations.json` and the golden manifest regenerated.
+
+Operations:
+
+| Operation | Audience | Actors | Permission | Risk |
+| --- | --- | --- | --- | --- |
+| `subscription.coolingOff` | staff, customer (their own as payer; hostInternal) | every actor | records:read | read |
+| `subscription.coolOff` | staff, customer (their own as payer; hostInternal) | human (not on MCP) | subscriptions:manage (a customer: their own) | write |
+
+The rule for each case of money (every figure in minor units; each refund owed in full on its
+order, `payment_ref` null, and approved by a person with `orders:refund`):
+
+| Case | What is owed |
+| --- | --- |
+| Paid periods before it ended | Each, in full |
+| A period the provider charged as it ended, reported after | That one too, if its period started in the window or between the ask and the end |
+| An upgrade inside the window | Its prorated charge too (an order of the subscription); the window does not move |
+| A downgrade inside the window | Nothing more (it moves no money); the window does not move |
+| A pause inside the window | What was paid before it; the window does not move |
+| A free trial (nothing paid) | Not offered: the ordinary cancel ends it at no charge (the spec's "the button says cancel") |
+| A trial shorter than the window, then a charge | That charge |
+| A continuation offer's free period (moving over) | Never covered (decision 17) |
+| A guardian paying for a child | The guardian, as payer, cools off; their orders are owed back; the child's membership ends |
+| A guest's subscription | A new member's: staff end it for them, or the guest signed in as the paying address |
+| Staff already refunded part of an order | What is left of it |
+
+Deviations and decisions, and why:
+
+- **Once per member, ever** (the owner's decision of 2026-11-24, below; the spec was silent on
+  cycling): a holder who cooled off one membership here cannot cool off another,
+  held by the database on insert (so a merge or an erase is never refused). Per holder, not per
+  payer: a parent with two children may cool off each child's once.
+- **The days are those at the start, for good** (as amended after the review, below): kept on the
+  checkout, so a later change, shorter or longer, applies only to later starts. The spec says the
+  terms state the period; they are the business's text, so the host keeps the number it held when
+  they agreed.
+- **The window ends at the end of the last local day** (the start's day being day 0), not at the
+  same time of day: "within 14 days" read generously, and a clock change moves nothing. Day 13 is
+  inside and day 15 outside, as criterion 12 says; day 14 is inside.
+- **Nothing paid is not offered** (a trial, or before the first payment), rather than ending the
+  free time early with nothing to refund: the ordinary cancel does what the member wants.
+- **A provider that refuses because it already ended it** is read first and counted as sent, so a
+  second ask racing the first can never mark a real cooling off refused and lose its refunds.
+- **The app shows, the web acts** (ADR 0490): the native block says until when and that it is
+  done on the website, with no amounts (it is `noPurchase`); only the web block has the button.
+- **Bookings ahead are cancelled as the business's** (as amended after the review, below).
+- **A refused cooling off owes nothing**, even if the subscription ends later another way.
+
+Not built here: signing at the desk (step 6), stage 43's consent (step 9). Not verified: the real
+payments gatekeeper's `cancelSubscription { when: "now" }` against Stripe in test mode (the host
+is tested with the payments double, the e2e with the fake provider); the closing instant in the
+e2e (the host's clock cannot be moved from a browser: both sides of it, across a clock change,
+are in `packages/core/test/subscription-cooling-off.test.ts`); the native block on a phone.
+
+### Step 7: after the review of PR #299 (2026-11-24)
+
+Fixed in the same PR (ADR 0647 rewritten to match; migration 0856 edited in place, as it was not
+on `main`):
+
+1. **A cooling off that did not end the subscription owed back months of use** (the blocker). Now:
+   what is owed is only the orders for periods up to the window's end, plus any paid between the
+   latest ask and the end it caused; a member asks again only inside the window, after it only
+   staff with `subscriptions:manage` finish one asked in time; only an end within two days of the
+   latest ask is the cooling off's, and any other (an ordinary cancel, failed payments, months
+   later) makes it `lapsed`: nothing owed as cooled off, admins told once. The ordinary cancel is
+   shown again once one has lapsed or been refused past the window. The member's "a full refund
+   of X" is exactly that rule.
+2. **A crash between the commit and the call** wrote no notice and left billing running. The
+   minute cron's sweep (`subscription.coolOffSweep`, a host step, bounded, one read when idle)
+   reads the provider first, asks again while the window is open, else tells admins once. The
+   screens treat null like unknown and say admins were told only when they were.
+3. **Asking again after the holder cooled off another membership** is refused as `used` (the
+   trigger's message is a conflict too), never an internal error.
+4. **Raising the setting reopened closed windows**: the days are those at the start, for good
+   (the owner's decision, below).
+5. **Bookings ahead** (the owner's decision, below): the end the cooling off
+   caused cancels the member's bookings ahead that the membership paid for, as the business's
+   (`cancelled_by_us`), freeing places for the waiting list and giving uses back; attended and
+   late-cancelled ones stand. Platform: `allowance.spends.released` on the spender (checked by the
+   contract), declared by Bookings; at most 60 a batch (measured about 11 statements a booking on
+   36 for the end), staff told of any left.
+6. Tests for a partly refunded order (only the rest owed), the crash and the sweep (resolve,
+   re-ask once, tell once after the window), the after-window staff finish, the lapse, `used` on
+   the existing row, the raise, and the bookings released and kept.
+7. The e2e puts the setting back to what it was; ADR 0647 records the window's start (the host's
+   processing of the first event), the fixed idempotency key, the missing dispute model, and that
+   any pack may declare `coolingOff`.
+8. The site's copy says "once" and excludes members moving over.
+
+Statements, measured: `subscription.coolingOff` 8, `subscription.coolOff` 13, the provider's end
+36 plus about 11 for each booking released. cos-runner's main module after these fixes is given in
+the PR.
+
+### Step 7: after the second review of PR #299 (2026-11-24)
+
+Fixed in the same PR (ADR 0647 rewritten to match; migration 0856 edited in place):
+
+1. **An end the provider made at the first ask, reported after an ask again, lapsed.** Whose end
+   it is (`causedBy`) now runs from the first ask: inside the window, within two days of the
+   latest ask, or (while the ask waits at the gatekeeper) whenever it is approved. Every ask again
+   reads the provider first, and one it already ended is recorded as sent.
+2. **A refused cooling off whose subscription then ended anyway was dropped.** A refused one is
+   judged by the same rule: the cooling off's, or lapsed with admins told. A `retryable` failure
+   (pending again at the gatekeeper) is recorded as pending, never refused.
+3. **Waiting at the gatekeeper was a dead end.** The sweep takes one waiting over an hour (the
+   provider read; admins told once), staff may ask again, and an approval given late is the
+   cooling off's (the ask was in time), owing what was paid in the window and since the ask.
+4. **Once per member, ever**: a lapsed one, or one refused that never ended the membership, does
+   not count until staff finish it (a lapsed one can be finished: the window's payments owed, and
+   it counts). The lapsed notice says to finish it there, not to refund by hand.
+5. Tests: a booking paid by another holder, or for a class already started, is not released; 61
+   ahead.
+6. **Bookings past the cap**: 20 in the end's batch, the rest by follow-ups
+   (`subscription.coolOffRelease`, 30 a time) until none is left; the member's own waiting places
+   it would pay for go too; one summary email to the member through the host's mail; a failed
+   batch is applied again with the end and the refunds. Tested on the real Bookings pack
+   (`apps/runner/test/cooling-off-bookings.test.ts`): the waiter moves in, the largest batch well
+   under D1's limit.
+7. **What is owed is by when it was paid**: every payment on or before the window's end (one taken
+   in the window for a later period included), plus those between the ask that ended it and the
+   end.
+8. **Each ask is a new request** (`askKey`, the gatekeeper's key `cos-cancel-<id>-now-cool-off-<n>`);
+   the sweep's retry keeps its ask's key; staff's "end it now" keeps the subscription's own.
+9. `subscription.cancel` is refused while a cooling off is under way; the database refuses an
+   `INSERT OR REPLACE` over a cooling off; an idle minute writes no audit row; the site's copy
+   says "what they paid in that period".
+
+Statements, measured: `subscription.coolingOff` 8, `subscription.coolOff` 13, the provider's end
+37 plus about 11 for each booking released (20 in the batch); a follow-up of 30 about 360.
+
+### Step 7: after the third review of PR #299 (2026-11-24)
+
+The coordinator replaced the "whose end is it" logic with one rule (ADR 0647, "The rule", A to G,
+recorded there as replacing the earlier wording); migration 0856 edited in place:
+
+- **A.** A valid ask is made inside the window and fixes a deadline at `asked_at` + 7 days
+  (`COOL_OFF_OPEN_DAYS = DEFAULT_APPROVAL_EXPIRY_DAYS`); asking again never moves either.
+- **B.** While open and before the deadline any end is the cooling off's, whatever the reason; the
+  only allowance is a five-minute clock tolerance before the ask.
+- **C.** Owed: every order paid on or before the window's end, plus those paid after the ask and
+  on or before the end. The figure shown is the same function over the same bounds.
+- **D.** At the deadline the sweep lapses an open one, rejects its cancel waiting at the
+  gatekeeper (its id kept on the row), and tells admins once; one whose waiting cancel is rejected
+  or expires lapses at once. A lapsed row never becomes the cooling off's.
+- **E.** Staff finish a lapsed one: it ends the membership now, owes the window's payments only,
+  releases bookings ahead and sends the summary; stored as finished with its bounds.
+- **F.** Once per member, checked before writing; nothing in the path fails an end's recording
+  (a holder who used theirs: the end is recorded, the row lapses as `used`, admins told; probe P8).
+  The end's batch releases no bookings; the steps after it do.
+- **G.** Each state's exit is in ADR 0647's table, each tested.
+
+Also: stored payment events failing five times tell admins once and keep being tried with backoff;
+waiting places are read in full, future only, ordered by class start (one naming the membership,
+or naming nothing when nothing else is live); the uses are paged so what cannot be released never
+hides those after, and only what can be released counts toward what is left, so the steps end;
+the summary email is claimed before it is sent with an idempotency key, a held one is `pending`
+(not sent), a crash after the claim is tried once more, one that cannot go tells admins once, and
+it never claims more cancelled than were. The e2e flake in `agreement-acceptances.spec.ts` (a class
+at now + 30 minutes that fell on the next UTC day) is fixed. The probes P1 to P8 are tests with
+exact amounts in `packages/core/test/subscription-cooling-off.test.ts`.
+
+Statements, measured: `subscription.coolingOff` 8, `subscription.coolOff` 13, the provider's end
+35 whatever is booked ahead; a release step about 40 plus 6 a booking (30 a step).
+
+**The owner's answers (interview of 2026-11-24)**, confirming what is built, recorded in ADR 0647:
+(1) when a member cools off, classes booked for later are cancelled and the places freed, waiting
+lists moving people in; (2) once per member, ever; (3) the ceiling for the setting is 30 days;
+(4) the clock starts when the payment provider confirms the membership started; (5) a longer period
+set later applies only to people who join after the change.
+
+### Step 7: after the fourth review of PR #299 (2026-11-24)
+
+Fixed in the same PR (ADR 0647 amended to match; migration 0856 edited in place, schema version
+still 857):
+
+1. **Waiting cancels.** While a cancel of a cooling off waits for a person at the gatekeeper, a new
+   ask (the member's or staff's) and a finish are refused (`reason: "waiting"`, said to the caller).
+   Every cancel the row ever waited on is kept (`core_subscription_cool_off_action`, by its ask), so
+   a `retryable` answer loses none; the row lapses "for the action" only when none waits and the
+   latest ask's was turned down or expired; at the deadline every one still waiting is rejected.
+2. **Staff finishing a lapsed one** records the request (`finish_state`) and stays `lapsed` until
+   the provider's verified event shows the membership ended; that event's batch finishes it (owes
+   the window's payments, releases the bookings ahead, makes the summary due). The sweep retries
+   the request with the same key (`cool-off-finish-<n>`) at most hourly, waits while its approval
+   waits, and marks it `stuck` with admins told once when it is refused, turned down, or not
+   confirmed a day on. No failure is swallowed. Staff's ordinary end finishes it the same way.
+3. **The minute tick** runs at most one release step (the longest waiting), of 15 bookings (30
+   before), then the bounded sweep. Measured over every tick: five members with 31 ahead each on
+   the host's fixture, 172 statements at most (1,568 before); the runner's whole `minuteTick` on
+   the shipped packs, four members with 31 ahead each, 499 at most
+   (`apps/runner/test/cooling-off-bookings.test.ts`; a step of 30 measured 799).
+4. **An end the provider shows but never sends** lapses a day after the deadline at most, admins
+   told once, and the sweep stops visiting it (past-deadline rows are looked at every five
+   minutes, not every minute).
+5. **"Paid" is when the provider took the money**: a period's order keeps its verified event's
+   time (`core_order.provider_paid_at`), and the rule compares with that; `paid_at` (the host's
+   processing) is unchanged for everything else.
+6. **A holder who has since used theirs** on another membership: the open ask stops being open at
+   once (the ordinary cancel works), and the next tick lapses it as `used`, rejecting any waiting
+   cancel, admins told once.
+7. A release step that succeeds resets `release_failures`. The five-minute clock tolerance and the
+   trigger race stay as documented in ADR 0647.
+
+Also: the sweep's hourly re-ask of a lost answer now times itself by `last_asked_at` (it was timed by
+`updated_at`, which each visit touched, so it never asked twice).
+
+Statements, measured: `subscription.coolingOff` 9, `subscription.coolOff` 14, the provider's end
+35 whatever is booked ahead.
+
+### Step 7: after the fifth review of PR #299 (2026-11-24)
+
+1. **A `retryable` answer is `unknown`, not `pending`**: it sent nothing and leaves no approval,
+   so the sweep reads the provider and asks again with the same key hourly (it used to wait for an
+   approval that did not exist and lapse with nothing owed).
+2. **A stuck finish is not finished by a later end**: only a finish under way (at most a day, or
+   until its approval is given or expires) is finished by the provider's end; staff finish a
+   stuck one again.
+3. **Release speed** (information): one step of 15 a minute for the host; recorded in ADR 0647.
 
 ## Step 8: build notes (`feat/stage-44-erase`, 2026-11-23)
 
