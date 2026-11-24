@@ -615,7 +615,13 @@ describe("a missing finish", () => {
       who,
       "2026-06-11T17:05:00.000Z",
     );
-    expect(fixed.entry).toMatchObject({ state: "waiting", finishMissing: false, minutes: 227 });
+    // The finish entered matches the shift within the tolerance: approved by the host (ADR 0851).
+    expect(fixed.entry).toMatchObject({
+      state: "approved",
+      finishMissing: false,
+      minutes: 227,
+      approval: { by: "host" },
+    });
   });
 
   it("with no shift, 14 hours after its start", async () => {
@@ -706,12 +712,14 @@ describe("the review's sequences (PR #364)", () => {
     const e = await time(
       "enter",
       {
-        startsAt: "2026-06-09T08:00",
+        // Twenty minutes late, so it waits (one matching its shift is approved by the host).
+        startsAt: "2026-06-09T08:20",
         endsAt: "2026-06-09T10:00",
         against: { object: DUTY, id: shift },
       },
       who,
     );
+    expect(e.entry.state).toBe("waiting");
     await invokeByName(
       "record.update",
       { object: DUTY, id: shift, values: { staff: other.id } },

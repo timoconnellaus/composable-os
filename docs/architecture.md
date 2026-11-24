@@ -1344,7 +1344,21 @@ shape (as the claim's do), and a partial unique index one open entry per person.
 a person's own act on their own entries (`humanOnly`, a person, never an AI), working once the
 pack's `staffing.settings.recordsTime` is on. The minute cron (`staffing.due`) marks an entry left
 open past its shift's end and `finishMissingHours` (14 hours with no shift) finish missing and
-tells its person. Approval (step 2) and pay from approved entries (step 3) build on it.
+tells its person. Pay from approved entries (step 3) builds on it.
+
+**Differences and approval** (stage 58 step 2, [ADR 0851](adr/0851-differences-from-the-roster-and-approval-of-time.md),
+`staffing/time.ts` (`hostApproves`, `differencesOf`), `staffing/sets.ts` (`timeBasesOf`,
+`notWorkedOf`), `operations/staffing-time-approve.ts`, migration 1273): the host works out each
+entry's difference from its shift (whole minutes early or late at each end, against the shift's
+own time), unrostered time (a job, other work, a shift gone since), entries over 12 hours and the
+past shifts of people counted by time with nothing recorded (**not recorded**), set-based. An
+entry the person finishes or enters that matches their own live shift within the tolerance
+(Rostering's `staffing.settings.matchMinutes`, 5, 0 to 30) is approved by the host
+(`approved_by = 'host'`); the rest wait. The tool-only `staffing.time.waiting` and `differences`
+(an approver reads everyone's, a person their own), `approve` (up to 100, as is or changed, the
+recorded times kept beside), `reject` (with why), `reopen` (with why, while the period is open) and
+`enterFor` (an approver's entry for someone: it always waits) are a person's at the screen; the
+approvers are the rosterers, never deciding their own entries.
 
 **Pay periods** (stage 45 step 6, [ADR 0627](adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md),
 `packages/core/src/staffing/pay.ts`, `operations/staffing-pay.ts`, migration 0813): who is counted

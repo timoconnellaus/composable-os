@@ -1670,13 +1670,19 @@ member also sees **their own** totals and lines for a period (Rostering's `myPay
 decision of 2026-11-24): the same figures, nothing about anyone else, never through an assistant.
 _Avoid_: payroll, wages; timesheet (a person's time entries in a period, below, not the period)
 
-**Time entry**, **Timesheet** and **Worked on** (stage 58, built in step 1: ADR 0850)
+**Time entry**, **Timesheet** and **Worked on** (stage 58, built in steps 1 and 2: ADRs 0850, 0851)
 A **time entry** is one stretch of time a staff member worked: a start and a finish, unpaid break
 minutes they entered, against one of their own shifts, a job (a record whose object declares
 **`workedOn`**: time can be recorded against it) or nothing (**other work**). **Clocked** when they
 start and finish it (the host's clock, never the phone's); **entered** when typed afterwards (up to
 14 days back, never in a locked pay period). It is **open** while clocked in, then **waiting** for
-an approver (approval is step 2), **approved** or **rejected**. Left open long after its shift
+an **approver** (someone who rosters, never for their own), **approved** (as it is, or **approved
+changed**, the recorded times kept beside) or **rejected** (with why; the person corrects it and it
+waits again). One that **matches** its shift (starts and finishes within the **tolerance**, 5
+minutes by default) is approved by the host and says so; time with no shift always waits. An
+approved entry may be **reopened** while its pay period is open. A **difference** is where an
+entry and the roster disagree: started or finished early or late, **not recorded** (a past shift of
+someone counted by time with nothing recorded), **unrostered** (time with no shift). Left open long after its shift
 ends, it is marked **finish missing** and its person told; no finish is invented. Two entries of
 one person never overlap, refused by the database. A person's **timesheet** for a pay period is
 their time entries in it: a view, not a record. A job keeps no hours of its own: its time is the

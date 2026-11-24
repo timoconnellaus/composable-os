@@ -375,4 +375,61 @@ export async function namesOf(
   return out;
 }
 
+/**
+ * The pay basis rows (from a local date, in order) of every account counted by time on some date
+ * up to `until` (stage 58, ADR 0851: they are the people a shift with nothing recorded is flagged
+ * for), or of `only` when given. One read, whatever the number of people.
+ */
+export async function timeBasesOf(
+  ctx: HandlerContext,
+  until: string,
+  only?: string,
+): Promise<Map<string, { from: string; basis: "by_time" | "by_class" | "not_counted" }[]>> {
+  const out = new Map<string, { from: string; basis: "by_time" | "by_class" | "not_counted" }[]>();
+  let query = ctx.db
+    .selectFrom("core_staff_pay_basis")
+    .select(["account_id", "from_date", "basis"])
+    .where("from_date", "<=", until)
+    .where("account_id", "in", (eb) =>
+      eb
+        .selectFrom("core_staff_pay_basis")
+        .select("account_id")
+        .where("basis", "=", "by_time")
+        .where("from_date", "<=", until),
+    );
+  if (only) query = query.where("account_id", "=", only);
+  const rows = await query
+    .orderBy("account_id")
+    .orderBy("from_date")
+    .limit(SET_ROWS_MAX + 1)
+    .execute();
+  if (rows.length > SET_ROWS_MAX) throw tooLarge();
+  for (const r of rows) {
+    const list = out.get(r.account_id) ?? [];
+    list.push({ from: r.from_date, basis: r.basis });
+    out.set(r.account_id, list);
+  }
+  return out;
+}
+
+/** Which of the shifts `refs` are marked not worked (ADR 0627), as `object\u0000id`. */
+export async function notWorkedOf(
+  ctx: HandlerContext,
+  refs: readonly { object: string; id: string }[],
+): Promise<Set<string>> {
+  const out = new Set<string>();
+  const byObject = new Map<string, Set<string>>();
+  for (const r of refs) byObject.set(r.object, (byObject.get(r.object) ?? new Set()).add(r.id));
+  for (const [object, ids] of byObject) {
+    const rows = await ctx.db
+      .selectFrom("core_staff_not_worked")
+      .select("record_id")
+      .where("object_type", "=", object)
+      .where("record_id", "in", jsonList([...ids]))
+      .execute();
+    for (const r of rows) out.add(`${object}\u0000${r.record_id}`);
+  }
+  return out;
+}
+
 export { iso as isoOfSeconds };

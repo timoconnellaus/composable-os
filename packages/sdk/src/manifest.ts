@@ -589,6 +589,8 @@ export const manifestSchema = z.object({
           enterDays: z.string().max(64).optional(),
           /** Hours after a shift's end an open entry is marked finish missing. */
           finishMissingHours: z.string().max(64).optional(),
+          /** Minutes an entry may differ from its shift and still match it (ADR 0851). */
+          matchMinutes: z.string().max(64).optional(),
         })
         .strict()
         .optional(),

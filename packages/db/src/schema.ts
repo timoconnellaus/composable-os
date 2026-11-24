@@ -1757,6 +1757,8 @@ export interface CoreTimeEntryTable {
   approved_by: string | null;
   approved_at: string | null;
   rejected_why: string | null;
+  /** Migration 1273 (stage 58 step 2, ADR 0851): why an approver reopened it, while it waits. */
+  reopened_why: string | null;
   note: string | null;
   start_key: string | null;
   made_by: string;

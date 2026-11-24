@@ -23,6 +23,23 @@ the coordinator, open to override). Build may start.
   work); finish missing on the minute cron (`staffing.due`); `workedOn` in the SDK, refused to a
   runtime extension. Until step 2 every finished or entered entry waits. Leaving does not yet mark
   an open entry finish missing (step 4 amends `leaving.ts`).
+- **Step 2, differences and approval** (branch `feat/stage-58-approval`; migration 1273,
+  [ADR 0851](../adr/0851-differences-from-the-roster-and-approval-of-time.md); amends ADR 0850):
+  built in core. The tolerance (`staffing.settings.matchMinutes`, 5, 0 to 30); an entry finished,
+  entered or corrected that matches the person's own live shift within it is approved by the host
+  (`approved_by = 'host'`), the rest wait (time with no shift, an approver's entry for someone and
+  a reopened entry always do). The tool-only `staffing.time.waiting`, `differences` (an approver
+  reads everyone's, a person their own; early and late in whole minutes, unrostered, over 12 hours,
+  not recorded for people counted by time; set-based, `staffing/sets.ts`), `approve` (up to 100,
+  as is or changed, the recorded times kept beside; all or none), `reject` (with why, the person
+  told; a correction waits again or matches), `reopen` (with why, `core_time_entry.reopened_why`,
+  while the period is open) and `enterFor` (`staffing/time.ts`, `operations/staffing-time-approve.ts`).
+  Nobody decides their own entry (an admin may when nobody else can). Tests:
+  `packages/core/test/staffing-time-approve.test.ts` (the hand-worked fixture across midnight and
+  Sydney's clock change), `staffing-time-approve-cost.test.ts` (100 changed approvals in 614
+  statements; differences in 24 statements whatever the range). Left for later steps: not recorded
+  from `recordedFrom` (step 3), the 07:00 summary to approvers and Rostering's tools and setting
+  (step 5), the screens (step 6).
 - **Step 4, leave** (branch `feat/stage-58-leave`; migration 1271, ADR 0853; amends ADRs 0622,
   0624, 0629): built in core. `core_leave_type`, `core_leave_request`, `core_leave_day`,
   `core_leave_balance_entry` (insert only) and `core_staff_away.leave_request`, with triggers
