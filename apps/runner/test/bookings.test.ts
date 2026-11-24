@@ -876,3 +876,43 @@ describe("the desk: who is booked, and who may give a use back", () => {
     ).toMatchObject({ code: "invalid_input" });
   });
 });
+
+// Stage 49 step 2 (ADR 0765): a room marked "one booking at a time" is taken by a class while it
+// is on, refused by the database for every writer; a shared room is never claimed.
+describe("a private room", () => {
+  const ROOM = "bookings.room";
+  /** A one-off class in `room`, `startsIn` ms from now for `length` ms. */
+  const inRoom = (room: string, startsIn: number, length = HOUR) =>
+    create(CLASS, {
+      classType,
+      room,
+      startsAt: new Date(Date.now() + startsIn).toISOString(),
+      endsAt: new Date(Date.now() + startsIn + length).toISOString(),
+      timezone: "Australia/Sydney",
+      places: 4,
+    });
+
+  it("refuses a second class in it at once; back-to-back and a shared room are fine", async () => {
+    const studio = await create(ROOM, { name: unique("Studio"), exclusive: true });
+    expect((await get(ROOM, studio)).values.exclusive).toBe(true);
+    await inRoom(studio, 10 * DAY);
+    expect(await refusal(inRoom(studio, 10 * DAY + 30 * MINUTE))).toMatchObject({
+      code: "conflict",
+      details: { rule: "room_taken" },
+    });
+    await inRoom(studio, 10 * DAY + HOUR);
+    // A new room is shared until marked: classes at once are fine there.
+    const floor = await create(ROOM, { name: unique("Floor") });
+    expect((await get(ROOM, floor)).values.exclusive).toBe(false);
+    await inRoom(floor, 10 * DAY);
+    const second = await inRoom(floor, 10 * DAY);
+    // Marking it "one booking at a time" while two classes to come overlap in it is refused.
+    expect(
+      await refusal(
+        run("record.update", { object: ROOM, id: floor, values: { exclusive: true } }, staff()),
+      ),
+    ).toMatchObject({ code: "conflict", details: { rule: "room_taken" } });
+    await run("record.delete", { object: CLASS, id: second }, staff());
+    await run("record.update", { object: ROOM, id: floor, values: { exclusive: true } }, staff());
+  });
+});

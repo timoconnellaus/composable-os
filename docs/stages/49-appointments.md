@@ -544,6 +544,11 @@ written until built):
 7. **0766** A practitioner as a provider: the claim, hours and marks keyed by a practitioner account,
    consent before booking, no pay (amends stage 43's principal and care-link ADRs when written).
 
+**As built (2026-11-24):** step 3 (open hours) used migration 1090 and ADR 0762 as listed. Step 2
+was given migrations from 1095 and ADRs from 0765 for parallel work: it used migration **1095**
+(`core_thing_time`) and ADR **0765** (`occupies`, listed above as 0761). So the ADR listed above as
+0765 (appointments in the Bookings pack) takes the lowest free number when step 5 builds it.
+
 ## Suggested build order
 
 Day one for a gym is steps 1 to 6 (its own coaches), then 7 (outside practitioners).
