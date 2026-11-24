@@ -1,0 +1,11 @@
+{
+  "name": "native-account-details",
+  "pack": null,
+  "skin": "native",
+  "operations": ["me.get", "me.update"],
+  "files": ["details.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/client": "*"
+  }
+}

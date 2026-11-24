@@ -61,6 +61,13 @@ buttons, fields, lists, sheets, or a pack's screens. Blocks ship inside the plat
    blocks that buy or book, so what must be agreed to first shows inline; in the web app allow
    the operations their block.json lists (`agreement.guestVersions` among them, for a visitor),
    and the template's `agreementPdfRoute` serves a person's signed PDF on the app's hostname.
+   My account (`web-account`, `native-account`, and their sections `*-account-details`,
+   `-devices`, `-family`, `-orders`, `-payment`, `-subscriptions`) takes `account`:
+   `createAccountHooks({ useQuery, useMutation }, api)` from `@composable-os/client`, beside the
+   same `agreements`. Pass the web shell `returnUrl` (the account page) and `onSignOut` (post to
+   `/auth/sign-out`), and the native one `websiteUrl` (the website's account page: money is
+   managed there, ADR 0714) and `onSignOut` (`session.signOut`). A pack's section goes in
+   `sections` with its key, label, order and `render`.
    Rostering's blocks (`rostering-*`) take `rostering`: `createRosteringHooks({ useQuery,
    useMutation }, api)` from `@composable-os/pack-rostering/client`. They are staff screens: in
    the app, `api` is a role client, `rostering.team`'s for someone rostered with no other access,

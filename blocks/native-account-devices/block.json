@@ -1,0 +1,11 @@
+{
+  "name": "native-account-devices",
+  "pack": null,
+  "skin": "native",
+  "operations": ["me.sessions.list", "me.sessions.revoke"],
+  "files": ["devices.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/client": "*"
+  }
+}
