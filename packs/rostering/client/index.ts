@@ -366,6 +366,13 @@ export function tickLabel(tick: ChecklistTick): string {
   return `${tick.done ? "Done" : "Not done"}: ${tick.label}`;
 }
 
+/** One of your pay periods' state as a person reads it. */
+export function payPeriodState(p: MyPayPeriod): string {
+  if (p.state === "locked")
+    return `Locked${p.version && p.version > 1 ? ` (version ${p.version})` : ""}`;
+  return p.ended ? "Ended, not locked yet" : "Open";
+}
+
 /** A pay basis as a person reads it. */
 export function basisLabel(basis: string): string {
   if (basis === "by_time") return "By time (hours)";
