@@ -43,11 +43,19 @@ export function formatDate(value: string | null | undefined): string {
 const utcDateOnly = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeZone: "UTC" });
 
 /**
- * An instant's day in UTC, for a day the host stores as its end in UTC (an order's balance due):
- * in local time it would be the day after east of UTC.
+ * Whether a moment is the host's marker for a whole day (its last millisecond in UTC): a
+ * date-only deadline such as a deposit's balance due, or one the order page extended to a day.
  */
-export function formatUtcDay(value: string | null | undefined): string {
-  if (!value) return "";
+export function isEndOfUtcDay(value: string): boolean {
+  return /T23:59:59\.999Z$/.test(value);
+}
+
+/**
+ * The day a deadline falls on: the UTC day for a whole-day marker (in local time it would be the
+ * day after east of UTC), else the moment's local day, as any other instant.
+ */
+export function formatDueDay(value: string | null | undefined): string {
+  if (!value || !isEndOfUtcDay(value)) return formatDate(value);
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : utcDateOnly.format(date);
 }

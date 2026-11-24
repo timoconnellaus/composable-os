@@ -28,7 +28,7 @@ import { EmptyState, ErrorState } from "#/components/empty-state";
 import { PageLayout } from "#/components/layout/page-layout";
 import { OrderStateBadge } from "#/components/orders/order-state-badge";
 import { RefundDialog } from "#/components/orders/refund-dialog";
-import { formatDate, formatDateTime } from "#/lib/format";
+import { formatDateTime, formatDueDay } from "#/lib/format";
 import { formatMoney, ORDER_STATE_LABELS, type OrderStateName } from "#/lib/money";
 import { errorMessage, useInfiniteOp, useOp, useOpMutation } from "#/lib/query";
 
@@ -241,7 +241,7 @@ function OverdueOrders() {
               </TableCell>
               <TableCell>
                 {order.balanceDueAt ? (
-                  <time dateTime={order.balanceDueAt}>{formatDate(order.balanceDueAt)}</time>
+                  <time dateTime={order.balanceDueAt}>{formatDueDay(order.balanceDueAt)}</time>
                 ) : (
                   ""
                 )}

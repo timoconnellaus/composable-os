@@ -42,7 +42,7 @@ import { PageLayout } from "#/components/layout/page-layout";
 import { OrderStateBadge } from "#/components/orders/order-state-badge";
 import { RefundDialog } from "#/components/orders/refund-dialog";
 import { RecordSearch } from "#/components/record-picker";
-import { formatDateTime, formatUtcDay } from "#/lib/format";
+import { formatDateTime, formatDueDay } from "#/lib/format";
 import { formatMoney } from "#/lib/money";
 import { errorMessage, useOp, useOpMutation } from "#/lib/query";
 
@@ -140,7 +140,7 @@ function OrderPage() {
                 <>
                   <Detail label="Deposit">{o.deposit === null ? "None" : money(o.deposit)}</Detail>
                   <Detail label="Balance due">
-                    {o.balanceDueAt ? formatUtcDay(o.balanceDueAt) : "Not set"}
+                    {o.balanceDueAt ? formatDueDay(o.balanceDueAt) : "Not set"}
                   </Detail>
                 </>
               )}
@@ -341,7 +341,7 @@ function ExtendDialog({
     }
     try {
       await extend.mutateAsync({ id: order.id, balanceDueAt: endOfDayUtc(day) });
-      toast.success(`Balance now due ${formatUtcDay(endOfDayUtc(day))}`);
+      toast.success(`Balance now due ${formatDueDay(endOfDayUtc(day))}`);
       onOpenChange(false);
     } catch (err) {
       setError(errorMessage(err));
