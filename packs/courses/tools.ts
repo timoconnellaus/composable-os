@@ -53,14 +53,25 @@ const notFound = (what: string, which: string) =>
 const isCustomer = (ctx: ExtensionContext) => ctx.caller?.kind === "customer";
 const isStaff = (ctx: ExtensionContext) => ctx.caller?.kind === "staff";
 
-/** Of these courses, the ones the caller holds access to: the host's answer (ADR 0477). */
+/** The most ids one access.check takes. */
+const ACCESS_CHECK_MAX = 100;
+
+/**
+ * Of these courses, the ones the caller holds access to: the host's answer (ADR 0477), asked
+ * `ACCESS_CHECK_MAX` at a time.
+ */
 async function held(ctx: ExtensionContext, ids: string[]): Promise<Set<string>> {
   if (!ids.length || !isCustomer(ctx)) return new Set();
-  const answer = await ctx.ops.call<{ held: string[] }>("access.check", {
-    object: COURSE,
-    ids: ids.slice(0, 100),
-  });
-  return new Set(answer.held);
+  const batches: string[][] = [];
+  for (let at = 0; at < ids.length; at += ACCESS_CHECK_MAX) {
+    batches.push(ids.slice(at, at + ACCESS_CHECK_MAX));
+  }
+  const answers = await Promise.all(
+    batches.map((batch) =>
+      ctx.ops.call<{ held: string[] }>("access.check", { object: COURSE, ids: batch }),
+    ),
+  );
+  return new Set(answers.flatMap((answer) => answer.held));
 }
 
 /** The bundle's courses, as its published version lists them. */

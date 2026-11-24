@@ -453,6 +453,31 @@ describe("the tools", () => {
     expect(none.courses).toEqual([]);
   });
 
+  it("myCourses: asks the host about every course, 100 at a time (access.check's most)", async () => {
+    const ids = Array.from({ length: 101 }, (_, i) => `rec_c${String(i).padStart(3, "0")}`);
+    const host = hostWith({
+      held: ids,
+      enrolments: ids.map((course, i) => ({
+        id: `rec_e${i}`,
+        holder: "per_student",
+        course,
+        status: "active",
+        source: "purchase",
+      })),
+    });
+    for (const id of ids) {
+      host.records.get("courses.course")?.set(id, { id, title: id, price: 1, outline });
+    }
+    const out = await host.runTool<{ courses: { id: string }[] }>(
+      "myCourses",
+      {},
+      { caller: STUDENT },
+    );
+    expect(out.courses.map((c) => c.id)).toEqual(ids);
+    const asked = host.calls.filter((c) => c.operation === "access.check");
+    expect(asked.every((c) => (c.input as { ids: string[] }).ids.length <= 100)).toBe(true);
+  });
+
   it("plans: the plans on offer with the host's price and trial days, for anyone", async () => {
     const host = hostWith();
     const out = await host.runTool<{ plans: unknown[]; currency: string }>(
