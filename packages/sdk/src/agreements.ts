@@ -29,9 +29,10 @@ export const AGREEMENT_POINT_RE = /^[a-z][a-z0-9_]{1,39}$/;
  *   (a ticket valid or used at the door), as `claims` says which states hold a place: a record
  *   created in one is asked, and a move between two of them is the same entry and is not (staff
  *   undoing a check-in). Left out, only `enter`'s states count.
- * - `importMovesOver`: with `enter`, a record the record import makes or changes (a person's
- *   door: `cos courses import`) is someone moving over from another system, and is not asked
- *   (stage 44, issue #281). Left out, an import is asked as any caller's write.
+ * - `importMovesOver`: with `enter`, a record the record import makes (a person's door:
+ *   `cos courses import`) is someone moving over from another system, and is not asked (stage 44,
+ *   issue #281). A later import that gives it to another Person or makes it count again is asked.
+ *   Left out, an import is asked as any caller's write.
  * - `inlineStep`: the pack's own screens (its blocks that buy or book this object) show what is
  *   due and let a person agree on the way (stage 44 step 5). Left out, nothing on the pack's
  *   screens can agree, so a document attached there refuses every purchase or booking until the

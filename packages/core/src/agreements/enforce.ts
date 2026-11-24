@@ -243,7 +243,9 @@ export async function enforceEntry(
   const spec = object.agreements;
   const states = object.states;
   if (!spec?.enter?.length || !spec.person || !states || by === "host") return;
-  if (imported && spec.importMovesOver === true) return;
+  // Only the record the import makes: a later import giving it to someone else or making it active
+  // again is asked as any caller's write (the review of PR #357).
+  if (imported && spec.importMovesOver === true && before === null) return;
   const field = states.field;
   const value = after[field];
   const to = typeof value === "string" && value !== "" ? value : null;

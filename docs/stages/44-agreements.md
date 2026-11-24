@@ -1478,14 +1478,17 @@ asked. Two optional fields on the declaration (SDK and contract, only with `ente
   created in one is asked (a ticket made straight into "used"), and a move between two of them is
   the same entry (staff undoing a check-in after "agree again" asks nobody). It is `claims`'
   "held or confirmed" for an object that holds no place; an object with `claims` may not declare it.
-- **`importMovesOver`**: a record `record.import` writes (the courses import's door, a person
-  only, not on MCP) is someone moving over and is not asked. The CSV record import
+- **`importMovesOver`**: a record `record.import` makes (the courses import's door, a person
+  only, not on MCP) is someone moving over and is not asked; a later import giving it to another
+  Person or making it active again is asked (the review of PR #357). The CSV record import
   (`import.records.commit`) is still asked: it is open to the assistant, so leaving it out would be
   a way round for an AI actor. A `source: "import"` value written by any other path is asked.
 
-Not built: a ticket made by hand with no holder names no Person and is not asked (as a booking
-with no Person is not); nothing is asked of the payer on a hand-made record (`payer: null`, as
-`givePass`). Proof: `apps/runner/test/agreements-enforcement.test.ts` ("staff-given enrolments and
+Not built: a ticket made by hand with no holder names no Person and is not asked until it is given
+one (as a booking with no Person is not); nothing is asked of the payer on a hand-made record
+(`payer: null`, as `givePass`); a record restored from the Trash is not asked (the same entry);
+any person with `records:write` can make an enrolment through `record.import` unasked, whatever
+its `source` (the import is a person's door for moving over; open to the owner's review). Proof: `apps/runner/test/agreements-enforcement.test.ts` ("staff-given enrolments and
 hand-made tickets") and the contract checks in `packages/core/test/agreements.test.ts`.
 
 ## Step 4: build notes (`feat/stage-44-copy`, 2026-11-23)

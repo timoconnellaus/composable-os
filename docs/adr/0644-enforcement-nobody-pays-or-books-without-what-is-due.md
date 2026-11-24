@@ -192,10 +192,18 @@ and the cron promoting a waiter, and the waiter's next booking asked.
 - **`keeps`** (new, optional, only with `enter`, not with `claims`): the states a record keeps its
   entry in, as `claims`' held and confirmed states do for a booking. A ticket is `valid` or `used`:
   made straight into "used" it is asked; undoing a check-in is the same ticket and is not.
-- **`importMovesOver`** (new, optional, only with `enter`): writes by `record.import` are someone
-  moving over and are not asked. It is the courses import's door (`actors: ["human"]`, not on
-  MCP), so imported students stay as decided above. The engine is told by the operation
-  (`TransitionOptions.imported`), never by a field value, so `source: "import"` written through
-  any other path is asked. The CSV record import stays asked: it is open to the assistant.
-- A ticket with no holder names no Person and is not asked, as before.
+- **`importMovesOver`** (new, optional, only with `enter`): a record `record.import` makes is
+  someone moving over and is not asked. It is the courses import's door (`actors: ["human"]`, not
+  on MCP), so imported students stay as decided above. Only the create: a later import that gives
+  the record to another Person or makes it count again is asked, as any caller's write (the review
+  of PR #357). The engine is told by the operation (`TransitionOptions.imported`), never by a field
+  value, so `source: "import"` written through any other path is asked. The CSV record import
+  stays asked: it is open to the assistant.
+- **What this leaves open, on purpose or for later:** `record.import` needs only `records:write`,
+  so any person on the staff (never an AI, MCP, an extension or an automation) can make an
+  enrolment through it unasked, whatever its `source` says: the import is a person's door for
+  moving over. A record restored from the Trash (`record.restore`) is not asked: it is the same
+  entry, and "agree again" is not retroactive. Payer documents are not asked of a hand-made
+  record (`payer: null`, as `givePass`). A ticket with no holder names no Person and is not asked
+  until it is given one.
 

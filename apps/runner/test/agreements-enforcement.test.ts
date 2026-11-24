@@ -797,25 +797,40 @@ describe("staff-given enrolments and hand-made tickets (issue #281)", () => {
       expect((await refusal(enrolment(m, extra))).details.rule).toBe("agreements_due");
     }
     // The courses import (record.import, a person's door) is a student moving over.
-    const imported = await run<{ results: { id: string | null; outcome: string }[] }>(
-      "record.import",
-      {
-        object: "courses.enrolment",
-        records: [
-          {
-            key: unique("old-platform"),
-            values: {
-              holder: m.principal.personId,
-              course,
-              source: "import",
-              reason: "Imported from the old platform",
+    const key = unique("old-platform");
+    const importOne = (values: Record<string, unknown>) =>
+      run<{ results: { id: string | null; outcome: string }[] }>(
+        "record.import",
+        {
+          object: "courses.enrolment",
+          records: [
+            {
+              key,
+              values: {
+                course,
+                source: "import",
+                reason: "Imported from the old platform",
+                ...values,
+              },
             },
-          },
-        ],
-      },
-      staff(),
-    );
+          ],
+        },
+        staff(),
+      );
+    const imported = await importOne({ holder: m.principal.personId });
     expect(imported.results[0]?.outcome).toBe("created");
+    // Only the record it makes: imported again for someone else, or ended and made active again,
+    // it is asked (the review of PR #357).
+    const other = await member("importedother");
+    expect((await refusal(importOne({ holder: other.principal.personId }))).details.rule).toBe(
+      "agreements_due",
+    );
+    expect(
+      (await importOne({ holder: m.principal.personId, status: "ended" })).results[0]?.outcome,
+    ).toBe("updated");
+    expect(
+      (await refusal(importOne({ holder: m.principal.personId, status: "active" }))).details.rule,
+    ).toBe("agreements_due");
 
     await paper(m, [courseTerms]);
     const ok = await enrol();
