@@ -21,6 +21,9 @@
 //     (`recurring.pause`): the host's `subscription.change` and `subscription.pause`, asked of the
 //     provider, followed from its verified events (ADRs 0530, 0531). The membership's terms follow
 //     the plan when the change takes effect; while paused it gives and spends nothing;
+//   - a new member may end their membership in the business's cooling-off period
+//     (`recurring.coolingOff`, the `coolingOffDays` setting, ADR 0647): the host's
+//     `subscription.coolOff`, every paid period owed back, each refund approved by a person;
 //   - every term of a membership or a pass is read-only: only the host (and this pack's own staff
 //     tools, which a person calls) writes it, never a caller of the generic record operations.
 // The tools in tools.ts compose the host's operations and hold no rule of their own.
@@ -235,6 +238,9 @@ export default defineExtension({
           // Staff pause a membership for a set time (decision 10, ADR 0531): nothing charged, no
           // classes, until the provider resumes it on its date.
           pause: { minDays: "pauseMinDays", maxDays: "pauseMaxDays" },
+          // A new member may end it within the business's cooling-off days for a full refund,
+          // each refund approved by a person (stage 44 step 7, decision 11, ADR 0647).
+          coolingOff: { setting: "coolingOffDays" },
           // What a subscription to it gives its holder, kept in step by the host (ADR 0510).
           grants: {
             object: "membership",
@@ -653,6 +659,25 @@ export default defineExtension({
   // Giving or voiding a pass by hand: a person on the staff, with this permission, which admins
   // and members hold and a human admin may grant to anyone else (ADR 0449).
   grantable: ["memberships:passes"],
+  // Cooling off (stage 44 step 7, decision 11, ADR 0647): the business's own number, for every
+  // plan. Off until a person sets it; what any law requires is the business's to confirm.
+  settings: {
+    coolingOffDays: {
+      type: "number",
+      label: "Cooling-off period (days)",
+      description:
+        "A new member may end their membership within this many days of joining, counted to " +
+        "the end of the last day, for a full refund of what they paid; each refund is approved " +
+        "by a person who may refund. Not for passes, or for members moving over with a " +
+        "continuation offer; once per member. 0: none. Say it in your membership terms; " +
+        "whether a law asks for one, and how long, is for your lawyer. Shortening it never " +
+        "shortens the period of someone who joined before.",
+      default: 0,
+      min: 0,
+      max: 30,
+      personApproves: true,
+    },
+  },
   tools: { plans, passTypes, buy, mine, holdings, givePass, voidPass },
   dashboards: membershipsDashboards,
   // Staff screens in the product's admin (stage 47, ADR 0660): a person's memberships and passes,

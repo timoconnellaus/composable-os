@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import { RichTextView } from "../blocks/content-native-rich-text/rich-text-view.tsx";
 import { PostHead } from "../blocks/content-post/post-page.tsx";
 import { RichText } from "../blocks/content-rich-text/rich-text.tsx";
-import { plainText, type RichText as RichTextValue } from "../client/index.ts";
+import { headingAnchors, plainText, type RichText as RichTextValue } from "../client/index.ts";
 
 const fixture = RICH_TEXT_FIXTURE as unknown as RichTextValue;
 const words = plainText(fixture)
@@ -26,7 +26,7 @@ describe("the web renderer", () => {
     for (const type of RICH_TEXT_BLOCKS) expect(html, type).toContain(`data-block="${type}"`);
     expect(html).toContain('data-style="bullet"');
     expect(html).toContain('data-style="ordered"');
-    expect(html).toMatch(/<h3 data-block="heading" data-level="2"/);
+    expect(html).toMatch(/<h3 id="summer-at-the-hall" data-block="heading" data-level="2"/);
     expect(html).toContain('data-tone="warning"');
     expect(html).toContain('<hr data-block="divider"/>');
   });
@@ -108,6 +108,33 @@ describe("the native renderer", () => {
 
   it("says every word of the document", () => {
     for (const word of words) expect(tree, word).toContain(word);
+  });
+});
+
+describe("section anchors (stage 38, ADR 0700)", () => {
+  // Two headings with the same words, one with none: told apart by their order.
+  const doc = {
+    blocks: [
+      ...fixture.blocks,
+      { type: "heading", level: 2, content: [{ type: "text", text: "Summer at the hall!" }] },
+      { type: "heading", level: 3, content: [{ type: "text", text: "…" }] },
+    ],
+  } as RichTextValue;
+  const anchors = headingAnchors(doc);
+
+  it("are made from a heading's words and its place, the host's rule", () => {
+    expect(anchors).toEqual(["summer-at-the-hall", "summer-at-the-hall-2", "section"]);
+  });
+
+  it("are each heading's id on the web and its nativeID in the app, the same in both", () => {
+    const html = renderToStaticMarkup(<RichText value={doc} />);
+    const tree = renderToStaticMarkup(
+      <RichTextView value={doc} openUrl={() => {}} mediaUrl={() => ""} />,
+    );
+    const web = [...html.matchAll(/<h\d id="([^"]+)" data-block="heading"/g)].map((m) => m[1]);
+    const native = [...tree.matchAll(/data-native-id="([^"]+)"/g)].map((m) => m[1]);
+    expect(web).toEqual(anchors);
+    expect(native).toEqual(anchors);
   });
 });
 
