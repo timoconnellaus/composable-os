@@ -12,7 +12,7 @@ import {
   invoke,
   staffMayGetCode,
 } from "../src/index.ts";
-import { auditChanges, context, createUser, db } from "./helpers.ts";
+import { auditChanges, context, createUser, db, refusal } from "./helpers.ts";
 
 let owner: ActingUser;
 const sent: { to: string; code: string }[] = [];
@@ -29,15 +29,6 @@ const hostMail: HostMail = {
 
 const as = (user: ActingUser, extra: Partial<InvocationContext> = {}) =>
   context(user, { hostMail, ...extra } as never);
-
-async function refusal(promise: Promise<unknown>) {
-  try {
-    await promise;
-  } catch (error) {
-    return error as { code: string; message: string };
-  }
-  throw new Error("expected a refusal");
-}
 
 const verified = async (id: string) =>
   (

@@ -12,43 +12,19 @@ import {
   type ActingUser,
   type ExtensionHost,
   type InvocationContext,
-  invokeByName,
   newId,
   refreshSchemaRegistry,
 } from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, unique } from "./helpers.ts";
+import { createAdmin, db, host, queriesOf, refusal, run, unique } from "./helpers.ts";
+import { packFiles } from "./pack-files.ts";
 
-const packFiles = (glob: Record<string, string>) =>
-  Object.fromEntries(
-    Object.entries(glob)
-      .map(([path, text]) => [path.split("/").pop() as string, text] as const)
-      .filter(([name]) => name !== "vitest.config.ts"),
-  );
 const files: Record<string, Record<string, string>> = {
-  programs: packFiles(
-    import.meta.glob<string>("../../../packs/programs/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-  bookings: packFiles(
-    import.meta.glob<string>("../../../packs/bookings/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-  rostering: packFiles(
-    import.meta.glob<string>("../../../packs/rostering/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
+  programs: packFiles("programs"),
+  bookings: packFiles("bookings"),
+  rostering: packFiles("rostering"),
 };
 // A shipped fixture pack whose tool calls Rostering's restricted tool and the host's roster read:
 // a restricted tool is never reached from another extension's code, whoever called it.
@@ -154,21 +130,10 @@ const staff = (extra: Partial<InvocationContext> = {}): InvocationContext => ({
 });
 const asUser = (user: ActingUser, extra: Partial<InvocationContext> = {}) =>
   staff({ user, ...extra });
-const run = <T = Record<string, unknown>>(name: string, input: unknown, ctx: InvocationContext) =>
-  invokeByName(name, input, ctx) as Promise<T>;
 const create = async (object: string, values: Record<string, unknown>) =>
   (await run<{ id: string }>("record.create", { object, values }, staff())).id;
 const get = async (object: string, id: string) =>
   (await run<{ values: Record<string, unknown> }>("record.get", { object, id }, staff())).values;
-async function refusal(promise: Promise<unknown>) {
-  const error = await promise.then(
-    () => null,
-    (e: unknown) => e,
-  );
-  expect(error).toBeTruthy();
-  return error as { code: string; message?: string; details?: Record<string, unknown> };
-}
-
 /** A staff account with the role `role` and nothing else. */
 async function account(name: string, role: "member" | "viewer"): Promise<ActingUser> {
   const id = newId("user");
@@ -621,28 +586,6 @@ describe("who is counted, everyone (x.rostering.payBases)", () => {
 });
 
 // --- What one call reads (ADR 0629: a D1 call runs at most 1,000 queries) -------------------------
-
-/** How many statements `call` prepares against D1 (each query is one). */
-async function queriesOf(
-  call: () => Promise<unknown>,
-): Promise<{ queries: number; outcome: string }> {
-  const d1 = env.DB as unknown as { prepare: (...a: unknown[]) => unknown };
-  const prepare = d1.prepare.bind(d1);
-  let queries = 0;
-  d1.prepare = (...a: unknown[]) => {
-    queries++;
-    return prepare(...a);
-  };
-  try {
-    const outcome = await call().then(
-      () => "ok",
-      (e: { code?: string }) => String(e.code),
-    );
-    return { queries, outcome };
-  } finally {
-    d1.prepare = prepare;
-  }
-}
 
 /** Well under D1's 1,000 a call, for the largest input each takes. */
 const CEILING = 250;

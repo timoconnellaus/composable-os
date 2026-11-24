@@ -13,6 +13,7 @@ import {
   basisLabel,
   dayLabel,
   type MyPayPeriod,
+  payPeriodState,
   type RosteringHooks,
   refusalNext,
   rosterRefusal,
@@ -40,13 +41,6 @@ function useForgetOnLeave(forget: () => void, cameBack: () => void): void {
     };
   }, []);
 }
-
-const stateLabel = (p: MyPayPeriod) =>
-  p.state === "locked"
-    ? `Locked${p.version && p.version > 1 ? ` (version ${p.version})` : ""}`
-    : p.ended
-      ? "Ended, not locked yet"
-      : "Open";
 
 export function MyHours({
   rostering,
@@ -94,13 +88,13 @@ export function MyHours({
                 className="block w-full rounded-md border p-2 text-left text-sm"
                 aria-pressed={chosen === p.start}
                 data-start={p.start}
-                aria-label={`${dayLabel(p.start, locale)} to ${dayLabel(p.end, locale)}, ${stateLabel(p)}`}
+                aria-label={`${dayLabel(p.start, locale)} to ${dayLabel(p.end, locale)}, ${payPeriodState(p)}`}
                 onClick={() => setChosen(chosen === p.start ? null : p.start)}
               >
                 <span className="block font-medium">
                   {dayLabel(p.start, locale)} – {dayLabel(p.end, locale)}
                 </span>
-                <span className="block text-xs">{stateLabel(p)}</span>
+                <span className="block text-xs">{payPeriodState(p)}</span>
               </button>
             </li>
           ))}

@@ -14,13 +14,7 @@ export function CoachClient({
 }: {
   programs: Pick<
     ProgramsHooks,
-    | "useClientSessions"
-    | "useHistory"
-    | "useLogSet"
-    | "useMarkSession"
-    | "useProgress"
-    | "useSession"
-    | "useUpdateSet"
+    "useClientSessions" | "useHistory" | "useMarkSession" | "useProgress" | "useSessionLog"
   >;
   personId: string;
 }) {

@@ -8,48 +8,23 @@
 // Clocks: as in bookings.test.ts, a tool's own calls read the real clock (the runner's executor),
 // so the classes are placed hours from now; their local weekday and minute are worked out here
 // from the same instants, in the class's zone.
-import { env } from "cloudflare:workers";
 import {
   type ActingUser,
   type CustomerPrincipal,
   type ExtensionHost,
   type InvocationContext,
-  invokeByName,
   type OutsideInvocationContext,
   refreshSchemaRegistry,
 } from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import { setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, unique } from "./helpers.ts";
+import { createAdmin, db, host, newCustomer, run, unique } from "./helpers.ts";
+import { packFiles } from "./pack-files.ts";
 
-const packFiles = (glob: Record<string, string>) =>
-  Object.fromEntries(
-    Object.entries(glob)
-      .map(([path, text]) => [path.split("/").pop() as string, text] as const)
-      .filter(([name]) => name !== "vitest.config.ts"),
-  );
 const files: Record<string, Record<string, string>> = {
-  programs: packFiles(
-    import.meta.glob<string>("../../../packs/programs/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-  bookings: packFiles(
-    import.meta.glob<string>("../../../packs/bookings/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-  memberships: packFiles(
-    import.meta.glob<string>("../../../packs/memberships/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
+  programs: packFiles("programs"),
+  bookings: packFiles("bookings"),
+  memberships: packFiles("memberships"),
 };
 
 /** A deployment whose product lists Programs, Bookings and Memberships, each as shipped. */
@@ -89,11 +64,6 @@ const as = (principal: CustomerPrincipal): OutsideInvocationContext => ({
   db,
   extensionHost: shippedHost,
 });
-const run = <T = Record<string, unknown>>(
-  name: string,
-  input: unknown,
-  ctx: InvocationContext | OutsideInvocationContext,
-) => invokeByName(name, input, ctx) as Promise<T>;
 const create = async (object: string, values: Record<string, unknown>) =>
   (await run<{ id: string }>("record.create", { object, values }, staff())).id;
 
@@ -114,23 +84,7 @@ function local(instant: number): { weekday: number; minute: number } {
   };
 }
 
-async function member(label: string): Promise<CustomerPrincipal> {
-  const tag = unique(label).toLowerCase();
-  const email = `${tag}@members.test`;
-  const person = await run<{ id: string }>(
-    "person.create",
-    { givenName: `Given-${tag}`, emails: [{ email }] },
-    staff(),
-  );
-  const customerId = `cus_${tag}`;
-  const now = new Date().toISOString();
-  await env.DB.prepare(
-    "INSERT INTO core_customer (id, person_id, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
-  )
-    .bind(customerId, person.id, email, now, now)
-    .run();
-  return { kind: "customer", customerId, personId: person.id };
-}
+const member = async (label: string) => (await newCustomer(staff(), label)).principal;
 
 beforeAll(async () => {
   admin = await createAdmin();

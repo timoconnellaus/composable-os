@@ -3,7 +3,7 @@
 // the categories for a site's menu, through `public.list`, so the seam decides what is shown.
 import { defineTool, z } from "@composable-os/sdk";
 
-export const CATEGORY = "content.category";
+const CATEGORY = "content.category";
 
 interface ListShape {
   items: { id: string; values: Record<string, unknown> }[];

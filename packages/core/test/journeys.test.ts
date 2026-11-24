@@ -21,21 +21,12 @@ import {
 import { journeyProblems, parseDefinition } from "../src/journeys/index.ts";
 import { erasedAddressHash } from "../src/records/erase-subject.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
-import { context, createUser, db, setPreset, unique } from "./helpers.ts";
+import { context, createUser, db, refusal, setPreset, unique } from "./helpers.ts";
 
 let admin: ActingUser;
 let member: ActingUser;
 let viewer: ActingUser;
 let publisher: ActingUser;
-
-async function refusal(promise: Promise<unknown>) {
-  try {
-    await promise;
-  } catch (error) {
-    return error as { code: string; message: string; details?: Record<string, unknown> };
-  }
-  throw new Error("expected a refusal");
-}
 
 async function queued(promise: Promise<unknown>): Promise<PendingApproval> {
   const error = await promise.then(
