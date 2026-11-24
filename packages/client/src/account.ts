@@ -256,28 +256,31 @@ export function formatMinor(minor: number, currency: string, locale?: string): s
   }
 }
 
-/** A date as a reader sees it (`3 Dec 2026`), from the host's ISO timestamp. Display only. */
-export function accountDay(iso: string | null | undefined, locale?: string): string {
+/** The host's ISO timestamp as a reader sees it, or "" for none or one that does not parse. */
+function localWhen(
+  iso: string | null | undefined,
+  locale: string | undefined,
+  format: Intl.DateTimeFormatOptions,
+): string {
   if (!iso) return "";
   const at = new Date(iso);
-  return Number.isNaN(at.getTime())
-    ? ""
-    : at.toLocaleDateString(locale, { day: "numeric", month: "short", year: "numeric" });
+  return Number.isNaN(at.getTime()) ? "" : at.toLocaleString(locale, format);
+}
+
+/** A date as a reader sees it (`3 Dec 2026`), from the host's ISO timestamp. Display only. */
+export function accountDay(iso: string | null | undefined, locale?: string): string {
+  return localWhen(iso, locale, { day: "numeric", month: "short", year: "numeric" });
 }
 
 /** A moment as a reader sees it (`3 Dec 2026, 09:30`). Display only. */
 export function accountTime(iso: string | null | undefined, locale?: string): string {
-  if (!iso) return "";
-  const at = new Date(iso);
-  return Number.isNaN(at.getTime())
-    ? ""
-    : at.toLocaleString(locale, {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
+  return localWhen(iso, locale, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 /** A session in words: what it is, and when it began and was last used. */
