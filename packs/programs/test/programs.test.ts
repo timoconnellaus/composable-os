@@ -221,6 +221,36 @@ describe("logging and reading, as a coach", () => {
     return { host, assignmentId: out.assignmentId, session: first.id };
   }
 
+  it("logs a set once however often it is saved, and takes it back", async () => {
+    const { host, session } = await assigned({ personId: "per_ada" });
+    const set = { sessionId: session, item: "A2", setNumber: 1 };
+    const first = await host.runTool<{ id: string }>(
+      "logAdd",
+      { ...set, actual: { reps: 8, load: 20 }, rpe: 7 },
+      { caller: STAFF },
+    );
+    const again = await host.runTool<{ id: string; actual: unknown; rpe: number | null }>(
+      "logAdd",
+      { ...set, actual: { reps: 6, load: 22.5 } },
+      { caller: STAFF },
+    );
+    expect(again).toMatchObject({ id: first.id, actual: { reps: 6, load: 22.5 }, rpe: null });
+    const logs = () => [...(host.records.get("programs.log")?.values() ?? [])];
+    expect(logs()).toHaveLength(1);
+    expect(logs()[0]).toMatchObject({ setKey: `${session}/A2/${row}/1` });
+    const remove = { ...set, exerciseId: row };
+    expect(await host.runTool("logRemove", remove, { caller: STAFF })).toEqual({
+      removed: 1,
+      waiting: 0,
+    });
+    // Taken back already: a retry changes nothing.
+    expect(await host.runTool("logRemove", remove, { caller: STAFF })).toEqual({
+      removed: 0,
+      waiting: 0,
+    });
+    expect(logs()).toHaveLength(0);
+  });
+
   it("logs a set against its target, says who recorded it, and reads it back", async () => {
     const { host, session } = await assigned({ personId: "per_ada" });
     const set = await host.runTool<Record<string, unknown>>(

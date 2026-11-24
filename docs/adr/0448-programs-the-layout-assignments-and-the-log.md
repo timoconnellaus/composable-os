@@ -132,3 +132,22 @@ are not a member's to mark. Every staff member sees every client's training unti
   exercises from the bank by name and list what they could not read rather than guess; the record
   write still checks the schema and every ref. The draft asks for the `extract` model role and
   reads the brief itself when no model is configured.
+
+## Amendment, 2026-11-24 (fast logging on a phone)
+- **One row per set and person.** A phone retries a save it got no answer to, and a save sent
+  again with other numbers carries a new idempotency key, so the key alone could not keep a set
+  from being logged twice. The log gains `setKey` (session, item, exercise, set number) and
+  declares `unique` on `person` and `setKey` (ADR 0502): the database keeps one row however many
+  saves arrive at once. `x.programs.logAdd` of a set already logged changes its numbers and effort
+  (a note is kept unless one is given) and returns it; rows from before the key are found by their
+  fields. The input is unchanged, so every caller keeps working.
+- **Taking a set back.** `x.programs.logRemove { sessionId, item, exerciseId, setNumber,
+  personId? }` puts the set's row in the Trash; a set not logged changes nothing, so a retry is
+  safe. A member uses `my.delete` (ADR 0414, amended); for staff it is `record.delete`, an
+  extension's destructive call, so the approval policy may hold it for a person (Balanced does)
+  and the tool says how many wait (`waiting`).
+- **The logger is the client's, the rules the host's.** The pack's headless entry holds the
+  session log: a pure reducer (ticks, edits, effort, the carry-forward suggestions) and one queue
+  per session and person that sends one save at a time, coalesces what changed meanwhile, never
+  lets an answer or a read undo a newer change, retries what failed and keeps what the host
+  refused with its reason. It decides nothing about what may be logged.

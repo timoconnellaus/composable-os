@@ -256,3 +256,38 @@ refusal is gone; the coaches' grants are unchanged. The pack changes no code: `u
 `usePublishOffered` are a person's controls. Proof: `apps/runner/test/programs-authoring.test.ts`
 (the assistant's draft, its request, a person's approval) and `apps/runner/test/programs.test.ts`
 (the assistant acting for a coach without the permission cannot even ask).
+
+## As built: fast, lossless logging on a phone (2026-11-24)
+Branch `feat/programs-fast-logging`; no migration, no new ADR number (ADRs 0414 and 0448 amended).
+- **The session log** (`packs/programs/client/logging.ts`, exported from the headless entry):
+  a pure reducer and one queue per session and person (`useSessionLog`, `useUnsavedSets`). One
+  tap on a set's tick logs the numbers its row shows, a number still being typed included (every
+  key press is a change); a tick of a done set takes it back; typing over a done set updates it.
+  Saves go one at a time in order, a set changed meanwhile is sent again with its latest numbers,
+  an answer or a read of the session never undoes a newer change, a failed save is kept, said and
+  retried (the same idempotency key while the set is unchanged), a refused one is kept with the
+  host's reason, and `flush` sends everything when the screen is left, the app goes to the
+  background or the session is finished, saying when it could not. Carry forward: a set not done
+  and not edited suggests (greyed) last time's numbers for the first set, else its target, and the
+  set before's for a later one, so a change flows down; a field whose planned target differs from
+  the set before's suggests its own target; an edited set is never overwritten. Unit tests:
+  `packs/programs/test/logging.test.ts`.
+- **The blocks:** `programs-native-session` and `programs-session` (web) are the workout logger
+  on that logic: a tick per set, an optional effort tap, a rest timer from the set's rest (else
+  `defaultRest`, 90 s), a start/stop timer on a timed set that fills its seconds and ticks it, an
+  exercise folded when its last set is ticked, sets done of planned at the top, and finishing that
+  says what was not ticked. `programs-native-today` says how many sets are not saved yet and
+  flushes them when the app changes state. The native base `Screen` lets a tap land with the
+  keyboard open (`keyboardShouldPersistTaps="handled"`). **Nothing was tried on a phone.**
+- **The host:** `x.programs.logAdd` is idempotent per set (`setKey`, `unique` on person and set,
+  ADR 0448 amended): a set saved again changes its row, and two saves at once leave one.
+  `x.programs.logRemove` takes a set back (a retry changes nothing); a member's goes through
+  the new tool-only `my.delete`, opened by `customer.delete: true` on the log (ADR 0414
+  amended); a coach's is `record.delete`, which the approval policy may hold (`waiting`).
+  Proof: `apps/runner/test/programs-logging.test.ts` (once per set, at once too, taking back,
+  and the session log driven against the host with a lost answer).
+- **Changed from the brief:** "edited" is per set: the first edit of a set freezes every field
+  it showed. A coach's un-tick under Balanced waits for a person's approval, because an
+  extension's delete for staff is `destructive` and the policy is not this step's to loosen.
+  What waits to be saved lives in memory: closing the app before it is sent loses it, and the
+  app is told (`useUnsavedSets`) so it can say so.

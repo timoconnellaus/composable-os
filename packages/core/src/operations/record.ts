@@ -1364,7 +1364,7 @@ function assertMovesFrom(
 }
 
 // The seam's write helper (visibility/writes.ts) changes extension records with this code.
-setRecordWriter({ create: createRecord, update: updateRecord });
+setRecordWriter({ create: createRecord, update: updateRecord, delete: trashRecord });
 setAllowanceRecordUpdate(updateRecord);
 
 /** Moves a record to Trash as the host (a series' record no longer in its rule, ADR 0500). */
@@ -1519,6 +1519,55 @@ async function assertHolderTrashRule(
   }
 }
 
+/**
+ * Moves a record of an extension object to Trash, with every rule `record.delete` holds: what
+ * staff call, and what a customer's `my.delete` runs once the seam has found the record theirs.
+ */
+async function trashRecord(ctx: HandlerContext, object: ObjectDefinition, id: string) {
+  const before = await loadRecord(ctx, object, id);
+  if (!before) throw new NotFoundError(object.name, id);
+  // Places people have paid for keep their record out of Trash (ADR 0431), and so does a use
+  // a spender holds (ADR 0493).
+  await assertNoConfirmedClaims(ctx, object, id);
+  await assertSpenderDeletable(ctx, object, id);
+  // A holder that can be spent, or that its grant still moves, is voided or ended first.
+  if (object.states) {
+    await assertHolderTrashRule(ctx, object, id, before.values[object.states.field], false);
+  }
+  // A claimant holding a place gives it back by moving out of its state, not by Trash.
+  await assertNoLiveClaim(ctx, object, id);
+  // A series in Trash makes nothing more; its future records go as an ended series' do.
+  await seriesChanged(ctx, object, id, before.values, before.values, { trashed: true });
+  // The read above gives the message; this makes it hold at commit (a claim made meanwhile).
+  if (object.claims) ctx.write(guardStatement("claimant", object.name, id, 0));
+  // A shift in the Trash claims nobody's time (its trigger drops the claim, ADR 0621); a coach
+  // profile on shifts not yet ended is not trashed while it still names their person.
+  await staffedReleased(ctx, object, id);
+  await checklistRecordWritten(ctx, object, id, before.values, null, undefined);
+  await assertChecklistHolderMove(ctx, object, id, "put in the Trash", undefined);
+  await assertHolderTrashable(ctx, object, id);
+  const table = objectTableOf(object.name) as string;
+  ctx.write(
+    CompiledQuery.raw(`UPDATE ${table} SET deleted_at = ?, deleted_by = ? WHERE id = ?`, [
+      ctx.now,
+      ctx.user.id,
+      id,
+    ]),
+    CompiledQuery.raw("DELETE FROM core_search_docs WHERE object_type = ? AND record_id = ?", [
+      object.name,
+      id,
+    ]),
+    // A holder in the Trash cannot be spent: its terms follow the record (ADR 0493).
+    ...(await holderTrash(ctx, object, id)),
+  );
+  ctx.recordChange({
+    object: object.name,
+    id,
+    action: "delete",
+    before: snapshot(before),
+  });
+}
+
 export const recordDelete = defineOperation({
   name: "record.delete",
   description:
@@ -1530,48 +1579,7 @@ export const recordDelete = defineOperation({
   risk: "destructive",
   async handler(input, ctx) {
     const object = requireExtensionObject(input.object);
-    const before = await loadRecord(ctx, object, input.id);
-    if (!before) throw new NotFoundError(input.object, input.id);
-    // Places people have paid for keep their record out of Trash (ADR 0431), and so does a use
-    // a spender holds (ADR 0493).
-    await assertNoConfirmedClaims(ctx, object, input.id);
-    await assertSpenderDeletable(ctx, object, input.id);
-    // A holder that can be spent, or that its grant still moves, is voided or ended first.
-    if (object.states) {
-      await assertHolderTrashRule(ctx, object, input.id, before.values[object.states.field], false);
-    }
-    // A claimant holding a place gives it back by moving out of its state, not by Trash.
-    await assertNoLiveClaim(ctx, object, input.id);
-    // A series in Trash makes nothing more; its future records go as an ended series' do.
-    await seriesChanged(ctx, object, input.id, before.values, before.values, { trashed: true });
-    // The read above gives the message; this makes it hold at commit (a claim made meanwhile).
-    if (object.claims) ctx.write(guardStatement("claimant", object.name, input.id, 0));
-    // A shift in the Trash claims nobody's time (its trigger drops the claim, ADR 0621); a coach
-    // profile on shifts not yet ended is not trashed while it still names their person.
-    await staffedReleased(ctx, object, input.id);
-    await checklistRecordWritten(ctx, object, input.id, before.values, null, undefined);
-    await assertChecklistHolderMove(ctx, object, input.id, "put in the Trash", undefined);
-    await assertHolderTrashable(ctx, object, input.id);
-    const table = objectTableOf(object.name) as string;
-    ctx.write(
-      CompiledQuery.raw(`UPDATE ${table} SET deleted_at = ?, deleted_by = ? WHERE id = ?`, [
-        ctx.now,
-        ctx.user.id,
-        input.id,
-      ]),
-      CompiledQuery.raw("DELETE FROM core_search_docs WHERE object_type = ? AND record_id = ?", [
-        object.name,
-        input.id,
-      ]),
-      // A holder in the Trash cannot be spent: its terms follow the record (ADR 0493).
-      ...(await holderTrash(ctx, object, input.id)),
-    );
-    ctx.recordChange({
-      object: object.name,
-      id: input.id,
-      action: "delete",
-      before: snapshot(before),
-    });
+    await trashRecord(ctx, object, input.id);
     return { id: input.id, restorableUntil: restorableUntil(ctx.now) };
   },
 });

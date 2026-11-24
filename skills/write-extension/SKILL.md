@@ -76,7 +76,9 @@ Read these before writing. They are the source of truth; this skill only gives t
    gym's booking rules) is `personApproves: true`: anyone else's write of it waits for a person's
    approval (not a tool's `humanOnly`, which refuses everyone else). A
    customer field set only when the record is made (a booking's class) goes in
-   `customer.createOnly` (ADR 0507).
+   `customer.createOnly` (ADR 0507). A record its customer may take back (a logged set ticked by
+   mistake) declares `customer.delete: true`, and the tool puts it in the Trash with `my.delete`
+   (ADR 0414, amended); without it a customer deletes nothing.
 7. **Add indexes and seeds.** One index for each field a list filters or sorts by. `seed` for
    set-up records people will then edit (Deals: `objects.pipeline.seed`, `objects.stage.seed`).
 8. **Show it.** `navigation` (`main`, `settings` for set-up records, `none`), `navigationOrder`,

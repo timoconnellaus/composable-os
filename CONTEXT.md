@@ -1027,8 +1027,9 @@ account and session bookkeeping that is not a record. Marked `hostInternal`, sho
 generated list (ADR 0413).
 
 **Tool-only operation**
-An operation a customer reaches only from inside a pack's tool they called: `my.create` and
-`my.update` (ADR 0414).
+An operation a customer reaches only from inside a pack's tool they called: `my.create`,
+`my.update` and `my.delete` (the last only for an object whose `customer.delete` lets its
+customer put their own in the Trash; ADR 0414).
 
 **Surface**
 A way an operation is reached from its one definition: server function, MCP tool, host module,
@@ -1942,8 +1943,15 @@ _Avoid_: workout, class (a class is the timetable's, stage 31)
 **Log** (Programs; a **logged set**)
 One set someone did: the exercise, the item and level taken, the target from the plan and what
 was done (load, reps, seconds), effort (RPE), and who recorded it (the person, or a coach for
-them). One row per set: the table a gym's training data comes from.
+them). One row per set: the table a gym's training data comes from. A set saved again (a retry,
+a second device) changes its row; a set **taken back** (un-ticked) goes to the Trash.
 _Avoid_: entry, result
+
+**Session log** (Programs)
+What a session screen logs through: the person's ticks and numbers, shown at once and sent to
+the host by one queue per session and person, in order, retried until they land. A set nobody has
+ticked or edited shows a **suggestion** (last time's numbers, or the set before's), greyed.
+_Avoid_: draft, cache
 
 **Allowance**
 What a pass or membership grants: a number of uses in all, a week or a month, or unlimited, for

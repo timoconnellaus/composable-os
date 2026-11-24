@@ -135,6 +135,7 @@ import { recordAccess } from "./visibility/records.ts";
 import {
   assertVisibleWrites,
   createVisible,
+  deleteVisible,
   type SeamWriter,
   updateVisible,
 } from "./visibility/writes.ts";
@@ -2144,6 +2145,7 @@ async function invokeOutside<O extends AnyOperation>(
   const records = recordAccess(reader, {
     create: (object, values, options) => createVisible(seam, object, values, options),
     update: (object, id, values, options) => updateVisible(seam, object, id, values, options),
+    delete: (object, id) => deleteVisible(seam, object, id),
   });
   // The caller's own account's sign-in address: read for the verified principal, never for an
   // id from the input, so no handler can learn another account's.

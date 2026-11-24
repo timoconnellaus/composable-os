@@ -659,6 +659,34 @@ const rpe = z
   .optional()
   .describe("How hard it felt, 1 to 10 in halves");
 
+/**
+ * What names one set of one person (ADR 0448, amended 2026-11-24): the session, the item, the
+ * exercise and the set's number. The log declares it unique per person, so the database keeps one
+ * row per set however many saves of it arrive at once.
+ */
+const setKeyOf = (sessionId: string, item: string, exercise: string, setNumber: number) =>
+  `${sessionId}/${item}/${exercise}/${setNumber}`;
+
+/** The live rows of one set: the caller's own for a member, the named person's for staff. */
+async function setRows(
+  ctx: ExtensionContext,
+  set: { sessionId: string; item: string; exercise: string; setNumber: number },
+  person: string | null,
+): Promise<RecordShape[]> {
+  const page = await list(ctx, LOG, {
+    filter: and(
+      { field: "session", op: "eq", value: set.sessionId },
+      { field: "item", op: "eq", value: set.item },
+      { field: "exercise", op: "eq", value: set.exercise },
+      { field: "setNumber", op: "eq", value: set.setNumber },
+      person ? { field: "person", op: "eq", value: person } : null,
+    ),
+    sort: { field: "setNumber", direction: "asc" },
+    limit: 20,
+  });
+  return page.items;
+}
+
 export const logAdd = defineTool({
   description:
     "Log one set done on a session: the item (A1), the exercise when the item has more than " +
@@ -666,7 +694,9 @@ export const logAdd = defineTool({
     "seconds, load) and how hard it felt (RPE). The target is taken from the session's plan, " +
     "and who recorded it is the caller. A member logs on their own sessions and their class " +
     "types'; a coach logs for a client (on a class session, naming them). Nobody logs on a " +
-    "session that is not theirs. Returns the set.",
+    "session that is not theirs. A set already logged (a retried save, a second device) is " +
+    "not logged twice: its numbers and effort become these, and its note is kept unless one " +
+    "is given. Returns the set.",
   input: z.object({
     sessionId: id,
     item: z.string().min(1).max(6),
@@ -696,6 +726,7 @@ export const logAdd = defineTool({
       "targetSeconds",
       "targetLoad",
       "recordedAs",
+      "setKey",
     ],
   },
   async handler(input, ctx) {
@@ -733,22 +764,59 @@ export const logAdd = defineTool({
       rpe: input.rpe ?? null,
       note: input.note ?? null,
       recordedAs: isCustomer(ctx) ? "self" : "staff",
+      setKey: setKeyOf(input.sessionId, input.item, prescription.exercise, input.setNumber),
     };
-    if (isCustomer(ctx)) {
-      // The host makes it the caller's, and refuses a session they cannot see (ADR 0447).
-      return loggedOf(await ctx.ops.call<RecordShape>("my.create", { object: LOG, values }));
-    }
+    const set = {
+      sessionId: input.sessionId,
+      item: input.item,
+      exercise: prescription.exercise,
+      setNumber: input.setNumber,
+    };
+    // Logged already: the same set again changes its numbers, so a save sent twice logs it once.
+    const again = async () => {
+      const [row] = await setRows(ctx, set, person);
+      if (!row) return null;
+      return loggedOf(
+        await ctx.ops.call<RecordShape>(isCustomer(ctx) ? "my.update" : "record.update", {
+          object: LOG,
+          id: row.id,
+          values: {
+            level,
+            actualReps: values.actualReps,
+            actualSeconds: values.actualSeconds,
+            actualLoad: values.actualLoad,
+            rpe: values.rpe,
+            ...(input.note !== undefined ? { note: input.note } : {}),
+          },
+        }),
+      );
+    };
+    const logged = await again();
+    if (logged) return logged;
     const caller = ctx.caller?.kind === "staff" ? ctx.caller : null;
-    return loggedOf(
-      await ctx.ops.call<RecordShape>("record.create", {
-        object: LOG,
-        values: {
-          ...values,
-          person,
-          ...(caller ? { recordedBy: caller.userId, recordedByName: caller.name } : {}),
-        },
-      }),
-    );
+    try {
+      if (isCustomer(ctx)) {
+        // The host makes it the caller's, and refuses a session they cannot see (ADR 0447).
+        return loggedOf(await ctx.ops.call<RecordShape>("my.create", { object: LOG, values }));
+      }
+      return loggedOf(
+        await ctx.ops.call<RecordShape>("record.create", {
+          object: LOG,
+          values: {
+            ...values,
+            person,
+            ...(caller ? { recordedBy: caller.userId, recordedByName: caller.name } : {}),
+          },
+        }),
+      );
+    } catch (error) {
+      // Two saves of one set at once: the database kept the first (`unique` on the log); this
+      // one changes it.
+      if (!(error instanceof OpsCallError) || error.code !== "conflict") throw error;
+      const changed = await again();
+      if (!changed) throw error;
+      return changed;
+    }
   },
 });
 
@@ -783,6 +851,63 @@ export const logUpdate = defineTool({
         values,
       }),
     );
+  },
+});
+
+export const logRemove = defineTool({
+  description:
+    "Take back a set logged by mistake (un-tick it): the set with this number of a session's " +
+    "item and exercise. A member takes back their own; a coach a client's (on a class session, " +
+    "naming them). A set that is not logged changes nothing, so a retried call is safe. The " +
+    "row goes to the Trash, where staff can restore it. For staff the Trash is an " +
+    "extension's delete, so the org's approval policy may hold it for a person: `waiting` " +
+    "counts those. Returns how many rows were taken back.",
+  input: z.object({
+    sessionId: id,
+    item: z.string().min(1).max(6),
+    exerciseId: id,
+    setNumber: z.number().int().min(1).max(30),
+    personId: personInput,
+  }),
+  output: z.object({
+    removed: z.number().int(),
+    waiting: z.number().int().describe("Staff: rows whose removal waits for a person's approval"),
+  }),
+  risk: "write",
+  audiences: ["staff", "customer"],
+  async handler(input, ctx) {
+    // A session the caller may not read is not found, as for logging on it.
+    const record = await get(ctx, SESSION, input.sessionId);
+    const person = sessionPerson(ctx, record, input.personId);
+    if (!isCustomer(ctx) && !person) {
+      throw new OpsCallError("invalid_input", "A class session: name the person (personId)");
+    }
+    const rows = await setRows(
+      ctx,
+      {
+        sessionId: input.sessionId,
+        item: input.item,
+        exercise: input.exerciseId,
+        setNumber: input.setNumber,
+      },
+      person,
+    );
+    let removed = 0;
+    let waiting = 0;
+    for (const row of rows) {
+      try {
+        await ctx.ops.call(isCustomer(ctx) ? "my.delete" : "record.delete", {
+          object: LOG,
+          id: row.id,
+        });
+        removed += 1;
+      } catch (error) {
+        // The approval policy holds an extension's delete for a person: it is queued, not lost.
+        if (!(error instanceof OpsCallError) || error.code !== "pending_approval") throw error;
+        waiting += 1;
+      }
+    }
+    return { removed, waiting };
   },
 });
 

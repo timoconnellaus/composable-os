@@ -952,7 +952,8 @@ As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
   staff. Who may sign up is a human admin's setting: invite only, also buyers (ADR 0458), or
   anyone; and, on top, anyone starting a subscription while a plan is on sale (ADR 0459).
 - **Open operations:** `me.get`, `me.update`, `me.family`, `me.signOut`, `me.sessions.*`,
-  `me.deleteAccount`, `my.list`, `my.get`, and for tools only `my.create`, `my.update`.
+  `me.deleteAccount`, `my.list`, `my.get`, and for tools only `my.create`, `my.update`, and
+  `my.delete` (the Trash, only for an object whose `customer.delete` says so: a logged set).
 - **A pack's tool called by a customer runs as that customer.** Its operation calls take the same
   outside path with the same principal. It may set an object's writable fields and the fields
   the tool lists in its manifest. A runtime extension can open nothing.
@@ -1488,13 +1489,19 @@ the only thing saved. Publishable records' pages carry the publish controls
 an exercise bank, programs whose layout is one document (weeks, sessions, blocks, items, levels,
 typed sets, notes for coaches or members), versions, class types, assignments to a person or a
 class type that pin a version and make dated sessions carrying their own plans, and a log of every
-set against its target. Its tools compose the host's operations: `assign`, `today`, `sessionGet`,
-`classToday`, `logAdd`, `logUpdate`, `sessionComplete`, `history`, `progress`, and, for staff,
+set against its target, one row per set and person (`unique` on `person` and `setKey`, so a
+retried or doubled save changes the set instead of logging it twice). Its tools compose the host's
+operations: `assign`, `today`, `sessionGet`, `classToday`, `logAdd`, `logUpdate`, `logRemove` (a
+set ticked by mistake, to the Trash: `my.delete` for its person), `sessionComplete`, `history`,
+`progress`, and, for staff,
 `draft` (a working copy from a brief, with the `extract` model role) and `importText` (coaches'
 shorthand into structured targets, unread lines listed). The staff side is declarations: the
 Training dashboard, saved views, the Person page's Training tab and panels. Its headless entry
-(`@composable-os/pack-programs/client`) holds the layout's pure edits and a self-saving working
-copy; twelve blocks (the program builder, the exercise bank, today and session, class today,
+(`@composable-os/pack-programs/client`) holds the layout's pure edits, a self-saving working
+copy, and the session log (`client/logging.ts`): the workout logger's pure state (a tick logs the
+numbers shown, carry-forward suggestions, progress, what was not ticked) and one queue per session
+and person that sends saves one at a time, in order, retries what fails and outlives the screen;
+twelve blocks (the program builder, the exercise bank, today and session, class today,
 history and progress, the coach's client view; web and native) are built on it. In development
 `apps/app` mounts any pack's web block at `/blocks` (ADR 0424, amended); the bank, the builder and
 the client view are its screens in the admin (stage 47, ADR 0660).

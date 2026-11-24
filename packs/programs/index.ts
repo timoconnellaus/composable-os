@@ -24,6 +24,7 @@ import {
   history,
   importText,
   logAdd,
+  logRemove,
   logUpdate,
   progress,
   sessionComplete,
@@ -460,7 +461,18 @@ export default defineExtension({
         },
         recordedBy: { type: "user", label: "Recorded by (coach)" },
         recordedByName: { type: "text", label: "Recorded by (name)" },
+        setKey: {
+          type: "text",
+          label: "Set key",
+          description:
+            "Session, item, exercise and set number: one row per set and person, however many " +
+            "saves of it arrive.",
+        },
       },
+      // One row per set and person (ADR 0448, amended 2026-11-24): a retried save, or two at once,
+      // changes the set instead of logging it twice. Rows logged before the key have none and are
+      // not counted; `x.programs.logAdd` finds those by their fields.
+      unique: [{ fields: ["person", "setKey"] }],
       customer: {
         field: "person",
         read: [
@@ -485,6 +497,8 @@ export default defineExtension({
           "recordedByName",
         ],
         write: ["actualReps", "actualSeconds", "actualLoad", "rpe", "note"],
+        // A set ticked by mistake is taken back (`x.programs.logRemove`): to the Trash.
+        delete: true,
       },
       timelineLinks: ["person"],
       indexes: [
@@ -622,6 +636,7 @@ export default defineExtension({
     sessionGet,
     classToday,
     logAdd,
+    logRemove,
     logUpdate,
     sessionComplete,
     history,
@@ -653,7 +668,7 @@ export default defineExtension({
       label: "Programs",
       block: "programs-coach-client",
       export: "CoachClient",
-      opens: ["logAdd", "sessionComplete"],
+      opens: ["logAdd", "logRemove", "sessionComplete"],
       record: { object: "person", as: "personId" },
     },
   },

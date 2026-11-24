@@ -28,13 +28,22 @@ import type {
   history,
   importText,
   logAdd,
+  logRemove,
   logUpdate,
   progress,
   sessionComplete,
   sessionGet,
   today,
 } from "../tools.ts";
+import {
+  createSessionLog,
+  logExercisesOf,
+  type SaveOp,
+  type SessionLog,
+  unsaved,
+} from "./logging.ts";
 
+export * from "./logging.ts";
 export type { Block, Item, Layout, Level, Note, Prescription, Session, SetTarget };
 
 type Io<T extends { input: z.ZodType; output: z.ZodType }> = {
@@ -77,6 +86,7 @@ export type ProgramsOperations = {
   "x.programs.classToday": { kind: "query" } & Io<typeof classToday>;
   "x.programs.logAdd": { kind: "mutation" } & Io<typeof logAdd>;
   "x.programs.logUpdate": { kind: "mutation" } & Io<typeof logUpdate>;
+  "x.programs.logRemove": { kind: "mutation" } & Io<typeof logRemove>;
   "x.programs.sessionComplete": { kind: "mutation" } & Io<typeof sessionComplete>;
   "x.programs.history": { kind: "query" } & Io<typeof history>;
   "x.programs.progress": { kind: "query" } & Io<typeof progress>;
@@ -737,6 +747,8 @@ export const PROGRAMS_HOOKS_CALL = {
   useLogSet: ["x.programs.logAdd"],
   useUpdateSet: ["x.programs.logUpdate"],
   useMarkSession: ["x.programs.sessionComplete"],
+  useSessionLog: ["x.programs.sessionGet", "x.programs.logAdd", "x.programs.logRemove"],
+  useUnsavedSets: [],
   useHistory: ["x.programs.history"],
   useProgress: ["x.programs.progress"],
   useClientSessions: ["record.list"],
@@ -780,6 +792,12 @@ export function createProgramsHooks<C extends ClientHolding>(react: ProgramsReac
 function allProgramsHooks(react: ProgramsReact, api: ProgramsClient) {
   const { useQuery, useMutation, useState } = react;
   const useEffect: UseEffect = react.useEffect ?? (() => undefined);
+  const logs = sessionLogs(api);
+  const needsEffect = () => {
+    if (!react.useEffect) {
+      throw new Error("Logging sets needs the app's useEffect: pass it to createProgramsHooks");
+    }
+  };
   return {
     // A member's (or, for staff, a named client's) training.
     useToday(input: In<"x.programs.today"> = {}) {
@@ -799,6 +817,38 @@ function allProgramsHooks(react: ProgramsReact, api: ProgramsClient) {
     },
     useMarkSession() {
       return useMutation(api.mutation("x.programs.sessionComplete"));
+    },
+    /**
+     * Logging a session set by set (`./logging.ts`): the session from the host, and its log, a
+     * queue that shows every tick and key press at once and saves them in order, one at a time,
+     * retrying what fails. The log outlives the screen: leaving it drops nothing, and `flush`
+     * sends what waits (the app going to the background, finishing). A coach names the client.
+     */
+    useSessionLog(input: In<"x.programs.sessionGet">) {
+      const detail = useQuery(api.query("x.programs.sessionGet", input));
+      const log = logs.of(input.sessionId, input.personId);
+      needsEffect();
+      // Re-rendered on every change of the log, whoever made it.
+      const [, setSeen] = useState(0);
+      useEffect(() => log.subscribe(() => setSeen((n) => n + 1)), [log]);
+      const data = detail.data;
+      useEffect(() => {
+        if (!data) return undefined;
+        log.dispatch({
+          type: "load",
+          exercises: logExercisesOf(data.session.plan as unknown as Session | null, data.exercises),
+          logged: data.logged,
+        });
+        return undefined;
+      }, [data, log]);
+      return { detail, log, state: log.getState() };
+    },
+    /** The sets not yet saved in every session's log, and a flush of them all (Today, the app). */
+    useUnsavedSets() {
+      needsEffect();
+      const [, setSeen] = useState(0);
+      useEffect(() => logs.subscribe(() => setSeen((n) => n + 1)), []);
+      return { count: logs.unsaved(), failure: logs.failure(), flush: logs.flush };
     },
     useHistory(input: In<"x.programs.history">) {
       return useQuery(api.query("x.programs.history", input));
@@ -997,6 +1047,77 @@ function allProgramsHooks(react: ProgramsReact, api: ProgramsClient) {
     },
   };
 }
+
+/**
+ * The session logs of one hooks object, by session and person: they live as long as the app, not
+ * the screen, so a save still out when the screen is left lands.
+ */
+function sessionLogs(api: ProgramsClient) {
+  const logs = new Map<string, SessionLog>();
+  const listeners = new Set<() => void>();
+  const notify = () => {
+    for (const listener of [...listeners]) listener();
+  };
+  const add = api.mutation("x.programs.logAdd").mutationFn;
+  const remove = api.mutation("x.programs.logRemove").mutationFn;
+  const all = () => [...logs.values()];
+  return {
+    of(sessionId: string, personId?: string): SessionLog {
+      const key = `${sessionId}|${personId ?? ""}`;
+      const found = logs.get(key);
+      if (found) return found;
+      const who = personId ? { personId } : {};
+      // One input object per save and revision, so a retry is sent with the same idempotency key.
+      const inputs = new WeakMap<SaveOp, object>();
+      const send = (op: SaveOp) => {
+        if (op.kind === "remove") {
+          const input = inputs.get(op) ?? {
+            sessionId,
+            item: op.item,
+            exerciseId: op.exercise,
+            setNumber: op.setNumber,
+            ...who,
+          };
+          inputs.set(op, input);
+          return remove(input as In<"x.programs.logRemove">);
+        }
+        const input = inputs.get(op) ?? {
+          sessionId,
+          item: op.item,
+          exerciseId: op.exercise,
+          ...(op.level !== null ? { level: op.level } : {}),
+          setNumber: op.setNumber,
+          actual: op.actual,
+          ...(op.rpe !== null ? { rpe: op.rpe } : {}),
+          ...who,
+        };
+        inputs.set(op, input);
+        return add(input as In<"x.programs.logAdd">);
+      };
+      const log = createSessionLog({ send });
+      log.subscribe(notify);
+      logs.set(key, log);
+      return log;
+    },
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    unsaved: () => all().reduce((n, log) => n + unsavedOf(log), 0),
+    failure: () =>
+      all()
+        .find((log) => log.getState().failure)
+        ?.getState().failure ?? null,
+    async flush(timeoutMs?: number): Promise<boolean> {
+      const results = await Promise.all(all().map((log) => log.flush(timeoutMs)));
+      return results.every(Boolean);
+    },
+  };
+}
+
+const unsavedOf = (log: SessionLog) => unsaved(log.getState());
 
 /** Every hook of this entry, as a client of all its operations gets them. A block takes the ones it calls: `Pick<ProgramsHooks, "useToday">`. */
 export type ProgramsHooks = ReturnType<typeof allProgramsHooks>;
