@@ -119,9 +119,7 @@ function TrashPage() {
           label: "Undo",
           onClick: () =>
             void trashAgain(item.object, item.id)
-              .then(() =>
-                invalidateAfterWrite(client, `${item.object}.delete`, TRASH_TOUCHES),
-              )
+              .then(() => invalidateAfterWrite(client, `${item.object}.delete`, TRASH_TOUCHES))
               .catch((error: unknown) => toast.error(errorMessage(error))),
         },
       });
