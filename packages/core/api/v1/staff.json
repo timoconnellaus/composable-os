@@ -41365,6 +41365,743 @@
       ]
     },
     {
+      "name": "location.close",
+      "description": "Close a location: it takes no new classes, appointments or shifts. Classes already made there are not cancelled (cancel them with the closure or cancel tools, which tell members). The last open location cannot be closed. A person only, never an AI. Returns the location.",
+      "risk": "destructive",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A location's id (loc_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "shortName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "public": {
+            "type": "boolean",
+            "description": "Shown on the website and in the app while open"
+          },
+          "dropInPrice": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "main": {
+            "type": "boolean",
+            "description": "The main location: the first, whose zone is the organisation's (pay and the books)"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "shortName",
+          "address",
+          "timezone",
+          "public",
+          "dropInPrice",
+          "state",
+          "notes",
+          "main",
+          "createdAt",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "location.get",
+        "location.list"
+      ]
+    },
+    {
+      "name": "location.create",
+      "description": "Add a place the business works from (a second studio, a branch), open from now. Its time zone defaults to the organisation's. Its name is unique among locations. A request from an AI always waits for a person to apply it. Returns the location.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "description": "The location's name, e.g. City studio"
+          },
+          "shortName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16,
+            "description": "A short name for a badge, at most 16 characters, e.g. \"City\""
+          },
+          "address": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "The location's address, one line per line of the address"
+          },
+          "timezone": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "The IANA time zone the location works in, e.g. Europe/London"
+          },
+          "public": {
+            "default": true,
+            "description": "Show it on the website and in the app",
+            "type": "boolean"
+          },
+          "dropInPrice": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000000,
+            "description": "A drop-in's price at this location, in minor units of the deployment's currency (cents). Used when the class type sets none; null: the organisation's price"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 5000,
+            "description": "Notes for staff; never shown to the public"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "shortName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "public": {
+            "type": "boolean",
+            "description": "Shown on the website and in the app while open"
+          },
+          "dropInPrice": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "main": {
+            "type": "boolean",
+            "description": "The main location: the first, whose zone is the organisation's (pay and the books)"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "shortName",
+          "address",
+          "timezone",
+          "public",
+          "dropInPrice",
+          "state",
+          "notes",
+          "main",
+          "createdAt",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "location.get",
+        "location.list"
+      ]
+    },
+    {
+      "name": "location.get",
+      "description": "One place the business works from. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A location's id (loc_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "shortName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "public": {
+            "type": "boolean",
+            "description": "Shown on the website and in the app while open"
+          },
+          "dropInPrice": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "main": {
+            "type": "boolean",
+            "description": "The main location: the first, whose zone is the organisation's (pay and the books)"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "shortName",
+          "address",
+          "timezone",
+          "public",
+          "dropInPrice",
+          "state",
+          "notes",
+          "main",
+          "createdAt",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "location.list",
+      "description": "Every place the business works from (a studio, a branch), the main location first: each one's name, short name, address, time zone, whether the public is shown it, its drop-in price, and whether it is open or closed. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "shortName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "address": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "timezone": {
+                  "type": "string"
+                },
+                "public": {
+                  "type": "boolean",
+                  "description": "Shown on the website and in the app while open"
+                },
+                "dropInPrice": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "open",
+                    "closed"
+                  ]
+                },
+                "notes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "main": {
+                  "type": "boolean",
+                  "description": "The main location: the first, whose zone is the organisation's (pay and the books)"
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "updatedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "shortName",
+                "address",
+                "timezone",
+                "public",
+                "dropInPrice",
+                "state",
+                "notes",
+                "main",
+                "createdAt",
+                "updatedAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "location.reopen",
+      "description": "Open a closed location again: it takes new classes, appointments and shifts. A person only, never an AI. Returns the location.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A location's id (loc_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "shortName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "public": {
+            "type": "boolean",
+            "description": "Shown on the website and in the app while open"
+          },
+          "dropInPrice": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "main": {
+            "type": "boolean",
+            "description": "The main location: the first, whose zone is the organisation's (pay and the books)"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "shortName",
+          "address",
+          "timezone",
+          "public",
+          "dropInPrice",
+          "state",
+          "notes",
+          "main",
+          "createdAt",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "location.get",
+        "location.list"
+      ]
+    },
+    {
+      "name": "location.update",
+      "description": "Change a location's name, short name, address, time zone, whether the public is shown it, its drop-in price or its notes; null clears an optional one. The main location's zone is the organisation's, changed in Settings → General (settings.update), not here. Records already made keep their own zone. A request from an AI always waits for a person to apply it. Returns the location.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A location's id (loc_…)"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "description": "The location's name, e.g. City studio"
+          },
+          "shortName": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 16,
+                "description": "A short name for a badge, at most 16 characters, e.g. \"City\""
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "address": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "description": "The location's address, one line per line of the address"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timezone": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "The IANA time zone the location works in, e.g. Europe/London"
+          },
+          "public": {
+            "description": "Show it on the website and in the app",
+            "type": "boolean"
+          },
+          "dropInPrice": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100000000,
+                "description": "A drop-in's price at this location, in minor units of the deployment's currency (cents). Used when the class type sets none; null: the organisation's price"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 5000,
+                "description": "Notes for staff; never shown to the public"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "shortName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "public": {
+            "type": "boolean",
+            "description": "Shown on the website and in the app while open"
+          },
+          "dropInPrice": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "main": {
+            "type": "boolean",
+            "description": "The main location: the first, whose zone is the organisation's (pay and the books)"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "shortName",
+          "address",
+          "timezone",
+          "public",
+          "dropInPrice",
+          "state",
+          "notes",
+          "main",
+          "createdAt",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "location.get",
+        "location.list"
+      ]
+    },
+    {
       "name": "media.captionDelete",
       "description": "Remove one video's caption track in a language.",
       "risk": "destructive",

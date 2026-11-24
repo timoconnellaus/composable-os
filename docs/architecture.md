@@ -1752,6 +1752,18 @@ the current version of a record they may read shows in a field they may read
 `IMAGES` is bound. The `image` field type is `{ media, alt, focal? }`. The Trash purge deletes a
 picture's row, and a trigger queues its R2 key on the blob deletion path (ADR 0320).
 
+**Locations** ([ADR 0910](adr/0910-locations-a-base-record-inside-the-one-organisation.md),
+`packages/core/src/fields/location.ts`, `packages/core/src/operations/location.ts`; stage 64). A
+base record, `location` (`core_location`, migration 1390): a place the one organisation works from,
+never a tenant. The migration makes the main location (`main = 1`) from `org_name` and
+`org_timezone`; `settings.update` keeps its zone the organisation's. `location.create` and
+`location.update` (`settings:manage`) wait for a person when an AI asks; `location.close` and
+`location.reopen` are a person's only, and a trigger refuses closing the last open location. The
+public reads a public open location's name, short name, address and zone through `public.list` and
+`public.get` from a pack's tool: the `rec_location` view's `listed` column is the public
+declaration's condition ([ADR 0916](adr/0916-public-reads-of-locations.md)). Located records, the
+location's zone as their default, coverage and staff limits are the stage's later steps.
+
 **Video and files** (stage 42, [ADR 0475](adr/0475-video-and-file-media-in-stream.md),
 `packages/core/src/operations/media-video.ts`, `packages/core/src/records/stream.ts`). A media
 item has a kind (`image`, `file`, `video`; migration 0510). A `file` is a PDF in R2, served as a

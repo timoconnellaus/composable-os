@@ -856,6 +856,18 @@ _Avoid_: build, artifact (for the bundle as a whole), package
 Which releases a deployment is offered: **stable** (`X.Y.Z` only) or **beta** (also `X.Y.Z-beta.N`).
 Set in Settings → Updates. See ADR 0161.
 
+**Location** (stage 64)
+One place the business works from, inside the one organisation (ADR 0910): a gym's second studio,
+in trades a branch or depot. A base record (`location`, `core_location`) with a name, a short name
+for a badge, an address, its own time zone, whether the public is shown it, an optional drop-in
+price, and `open` or `closed` (a person closes one; the last open one never). Never a tenant. The
+public reads a public open location's name, short name, address and zone (ADR 0916).
+_Avoid_: site (a site is a client app), branch (except in trades), the location hint
+
+**Main location**
+The first location, made by migration 1390 from the organisation's name and zone. Its zone is the
+organisation's (pay periods and the books) and changes only with it, in Settings → General.
+
 **Location hint**
 Where a new install asks Cloudflare to create its D1 database and R2 buckets (`oc` is Oceania),
 chosen at the first install (`--location`, or `location` in a client's `product.ts`) and kept in

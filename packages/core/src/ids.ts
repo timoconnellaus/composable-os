@@ -141,6 +141,8 @@ export const ID_PREFIXES = {
   journeyStepLog: "jnl",
   /** One closed version of a finance month (stage 52, ADR 0790). */
   financePeriod: "fip",
+  /** A place the business works from (stage 64, ADR 0910). */
+  location: "loc",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

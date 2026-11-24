@@ -2,9 +2,11 @@
 // the base currency (ADR 0101: every currency field without its own currency displays in it;
 // changing it relabels amounts, it never converts them), and since stage 8 the organisation's
 // name, logo and timezone (ADR 0167), and since stage 7b the assistant's name (ADR 0200). Which
-// models run is not here: that is the model registry (ai.settings, Settings → AI).
+// models run is not here: that is the model registry (ai.settings, Settings → AI). The main
+// location follows the organisation's zone and name (stage 64, ADR 0910).
 import { z } from "zod";
 import { defineOperation } from "../operation.ts";
+import { followOrganisation } from "./location.ts";
 
 export { COMMON_CURRENCIES } from "../currencies.ts";
 
@@ -102,6 +104,9 @@ export const settingsUpdate = defineOperation({
           ),
       );
     }
+    // The main location's zone is the organisation's, and its name the organisation's while it
+    // was not renamed apart (stage 64, ADR 0910).
+    await followOrganisation(ctx, before, after as unknown as GeneralSettings);
     // A logo is long and says nothing in a diff.
     const audit = (s: Record<string, unknown>) => ({
       ...s,
