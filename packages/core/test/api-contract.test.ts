@@ -100,6 +100,15 @@ const computedRoles: PackRolesFile = {
       }));
     })
     .sort((a, b) => a.permission.localeCompare(b.permission)),
+  // The packs each pack requires (Courses: Programs and Content), so a client repo's tools bring
+  // them: the host installs them first, and a block may use theirs.
+  requires: Object.fromEntries(
+    releasePackExtensions
+      .map((extension) => toManifest(extension))
+      .filter((manifest) => manifest.requires?.length)
+      .map((manifest): [string, string[]] => [manifest.id, [...(manifest.requires ?? [])]])
+      .sort(([a], [b]) => a.localeCompare(b)),
+  ),
 };
 
 // scripts/write-api-contract.mjs reads these lines (only it asks for them: they are large).

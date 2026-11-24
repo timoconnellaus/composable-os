@@ -8,6 +8,7 @@ import {
   blockFolders,
   lintBillingNames,
   lintBlocks,
+  lintNativeColour,
   lintNoPurchase,
   lintSource,
   lintUnlisted,
@@ -133,4 +134,46 @@ test("every native courses block is marked noPurchase", async () => {
   for (const dir of natives) {
     assert.equal(JSON.parse(readFileSync(join(dir, "block.json"), "utf8")).noPurchase, true, dir);
   }
+});
+
+test("a native block's text, spinner and colours come from the theme (readable on a dark theme)", () => {
+  const problems = lintBlocks([fixture("native-dark")], root);
+  const at = (line, rule) => problems.some((p) => p.includes(`dark-screen.tsx:${line}: ${rule}`));
+  assert.ok(at(7, "native-text-colour"), problems.join("\n"));
+  assert.ok(at(8, "native-text-colour"), problems.join("\n"));
+  assert.ok(at(12, "native-text-colour"), "the ActivityIndicator with no colour");
+  assert.ok(at(18, "native-literal-colour"), "the background of its own");
+  // The themed Text and the one inside it, which inherits its colour, pass.
+  assert.equal(problems.length, 4, problems.join("\n"));
+
+  const rules = (source) => lintNativeColour(source).map((p) => p.rule);
+  // native-base's Text takes the theme's colour by itself.
+  assert.deepEqual(
+    rules('import { Text } from "../native-base/text.tsx";\nconst a = <Text>Hi</Text>;'),
+    [],
+  );
+  // React Native's own, renamed, is still checked; an inline themed colour passes.
+  assert.deepEqual(rules('import { Text as T } from "react-native";\nconst a = <T>Hi</T>;'), [
+    "native-text-colour",
+  ]);
+  assert.deepEqual(
+    rules(
+      'import { Text } from "react-native";\nconst a = <Text style={{ color: theme.color.muted }}>Hi</Text>;',
+    ),
+    [],
+  );
+  // A colour that is not the theme's, in a prop or a style, is refused.
+  assert.deepEqual(
+    rules(
+      'import { ActivityIndicator } from "react-native";\nconst a = <ActivityIndicator color="#000" />;',
+    ),
+    ["native-text-colour", "native-literal-colour"],
+  );
+  // Both branches of a conditional style must give a colour.
+  assert.deepEqual(
+    rules(
+      'import { Text, StyleSheet } from "react-native";\nconst a = <Text style={on ? s.a : s.b}>Hi</Text>;\nconst s = StyleSheet.create({ a: { color: theme.color.text }, b: { fontSize: 1 } });',
+    ),
+    ["native-text-colour"],
+  );
 });

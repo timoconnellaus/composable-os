@@ -12,8 +12,11 @@
 // never read. Approval is step 2: a finished or entered entry waits for an approver.
 //
 // No note reaches the audit log (redacted) and no entry's times reach a notice to anyone else.
+import type { CoreDatabase } from "@composable-os/db";
+import type { ExpressionBuilder } from "kysely";
 import { z } from "zod";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
+import { getObject } from "../fields/index.ts";
 import { newId } from "../ids.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { isTimezone, loadGeneralSettings } from "../settings.ts";
@@ -23,6 +26,7 @@ import {
   type AgainstRef,
   addDays,
   assertNoOverlap,
+  changedOne,
   ENTRY_MAX_HOURS,
   entryById,
   inLockedPeriod,
@@ -75,6 +79,25 @@ async function ownEntry(ctx: HandlerContext, id: string): Promise<StoredEntry> {
   return row;
 }
 
+/**
+ * The entry exactly as it was read: every column a person's correction reads, not only its time
+ * stamp (two corrections made in the same millisecond would both match that).
+ */
+function unchanged(eb: ExpressionBuilder<CoreDatabase, "core_time_entry">, entry: StoredEntry) {
+  return eb.and([
+    eb("id", "=", entry.id),
+    eb("state", "=", entry.state),
+    eb("starts", "=", entry.starts),
+    eb("ends", "is", entry.ends),
+    eb("break_minutes", "=", entry.break_minutes),
+    eb("against_object", "is", entry.against_object),
+    eb("against_record", "is", entry.against_record),
+    eb("note", "is", entry.note),
+    eb("finish_missing", "=", entry.finish_missing),
+    eb("updated_at", "=", entry.updated_at),
+  ]);
+}
+
 /** An entry inside a locked pay period is never made or changed. */
 async function assertPeriodOpen(ctx: HandlerContext, seconds: number): Promise<void> {
   if (await inLockedPeriod(ctx.db, seconds)) {
@@ -96,7 +119,9 @@ async function zones(ctx: HandlerContext, given?: string): Promise<{ org: string
 /**
  * Times a person enters afterwards: a start and finish in the past, at most ENTRY_MAX_HOURS
  * apart, starting no more than the setting's days back (by the organisation's local date), and
- * not in a locked pay period; the break shorter than the time.
+ * not in a locked pay period; the break shorter than the time. The finish of an entry whose
+ * finish is missing (`late`) is taken however long ago it started: otherwise an entry left open
+ * past the setting's days could never be closed, and its person could record no time again.
  */
 async function checkEntered(
   ctx: HandlerContext,
@@ -104,6 +129,7 @@ async function checkEntered(
   ends: number,
   breakMins: number,
   org: string,
+  { late = false }: { late?: boolean } = {},
 ): Promise<string> {
   if (!(ends > starts)) {
     throw new ValidationError("An entry must finish after it starts", { field: "endsAt" });
@@ -127,7 +153,7 @@ async function checkEntered(
   const { enterDays } = await timeSettings(ctx.db);
   const today = localParts(Date.parse(ctx.now), org).date;
   const localDateOfStart = localParts(starts * 1000, org).date;
-  if (localDateOfStart < addDays(today, -enterDays)) {
+  if (!late && localDateOfStart < addDays(today, -enterDays)) {
     throw new ValidationError(
       `Time is entered up to ${enterDays} days back. For earlier time, ask whoever rosters.`,
       { field: "startsAt", rule: "time_too_old", enterDays },
@@ -379,6 +405,7 @@ export const staffingTimeClockOut = defineOperation({
         field: "breakMinutes",
       });
     }
+    await assertPeriodOpen(ctx, open.starts);
     const changes = {
       ends: now,
       break_minutes: breakMins,
@@ -386,13 +413,16 @@ export const staffingTimeClockOut = defineOperation({
       ...(input.note !== undefined ? { note: input.note || null } : {}),
       updated_at: ctx.now,
     };
-    // Guarded: an entry finished or withdrawn meanwhile is left as it is.
+    // Guarded: an entry finished, withdrawn or marked finish missing meanwhile is left as it is,
+    // and the call fails rather than answer a finish that was not saved.
     ctx.write(
       ctx.db
         .updateTable("core_time_entry")
         .set(changes)
         .where("id", "=", open.id)
-        .where("ends", "is", null),
+        .where("ends", "is", null)
+        .where("finish_missing", "=", 0),
+      changedOne(),
     );
     return {
       id: open.id,
@@ -515,15 +545,19 @@ export const staffingTimeEdit = defineOperation({
     const breakMins = input.breakMinutes ?? entry.break_minutes;
     const timesChanged = starts !== entry.starts || ends !== entry.ends;
     let date = entry.local_date;
-    if (ends !== null) {
-      await assertPeriodOpen(ctx, entry.starts);
-      if (timesChanged || breakMins !== entry.break_minutes) {
-        date = await checkEntered(ctx, starts, ends, breakMins, org);
-      }
-    } else {
-      await assertPeriodOpen(ctx, entry.starts);
+    await assertPeriodOpen(ctx, entry.starts);
+    if (ends !== null && (timesChanged || breakMins !== entry.break_minutes)) {
+      const late = entry.ends === null && entry.finish_missing === 1;
+      date = await checkEntered(ctx, starts, ends, breakMins, org, { late });
     }
-    const against = await againstOf(ctx, input.against);
+    // What it is against: as given, or the shift it is against checked again (a shift given to
+    // someone else since stays theirs, never this person's time).
+    const against =
+      input.against === undefined && entry.against_object && entry.against_record
+        ? getObject(entry.against_object)?.staffed
+          ? await againstOf(ctx, { object: entry.against_object, id: entry.against_record })
+          : undefined
+        : await againstOf(ctx, input.against);
     if (timesChanged) await assertNoOverlap(ctx, account, starts, ends, entry.id);
     const finished = ends !== null;
     const changes = {
@@ -543,14 +577,14 @@ export const staffingTimeEdit = defineOperation({
       ...(input.note !== undefined ? { note: input.note || null } : {}),
       updated_at: ctx.now,
     };
-    // Guarded: an entry approved or changed meanwhile is left as it is.
+    // Guarded: an entry approved or changed meanwhile is left as it is, and the call fails
+    // rather than answer a change that was not saved.
     ctx.write(
       ctx.db
         .updateTable("core_time_entry")
         .set(changes)
-        .where("id", "=", entry.id)
-        .where("state", "=", entry.state)
-        .where("updated_at", "=", entry.updated_at),
+        .where((eb) => unchanged(eb, entry)),
+      changedOne(),
     );
     return {
       id: entry.id,
@@ -563,8 +597,8 @@ export const staffingTimeWithdraw = defineOperation({
   name: "staffing.time.withdraw",
   description:
     "Tool-only (a shipped pack's tool): withdraw one of your own entries before it is approved " +
-    "(waiting or rejected): it is removed. An open entry is finished first. Never in a locked " +
-    "pay period. A person's own act. Returns its id.",
+    "(waiting or rejected, or open with its finish missing): it is removed. An open entry is " +
+    "otherwise finished first. Never in a locked pay period. A person's own act. Returns its id.",
   input: z.object({ id: z.string().min(1).max(64) }),
   output: z.object({ id: z.string() }),
   permission: "records:write",
@@ -574,7 +608,8 @@ export const staffingTimeWithdraw = defineOperation({
   async handler(input, ctx) {
     await assertTimeCall(ctx, "staffing.time.withdraw");
     const entry = await ownEntry(ctx, input.id);
-    if (entry.state !== "waiting" && entry.state !== "rejected") {
+    const missing = entry.state === "open" && entry.finish_missing === 1;
+    if (entry.state !== "waiting" && entry.state !== "rejected" && !missing) {
       throw new ConflictError(
         entry.state === "open"
           ? "This entry is still open: finish it first, then withdraw it."
@@ -584,10 +619,8 @@ export const staffingTimeWithdraw = defineOperation({
     }
     await assertPeriodOpen(ctx, entry.starts);
     ctx.write(
-      ctx.db
-        .deleteFrom("core_time_entry")
-        .where("id", "=", entry.id)
-        .where("state", "in", ["waiting", "rejected"]),
+      ctx.db.deleteFrom("core_time_entry").where((eb) => unchanged(eb, entry)),
+      changedOne(),
     );
     return { id: entry.id };
   },
@@ -637,7 +670,10 @@ export const staffingTimeMine = defineOperation({
       .where("account_id", "=", account)
       .where("ends", "is", null)
       .executeTakeFirst();
-    const items = await itemsOf(ctx.db, open ? [open, ...rows] : rows);
+    const items = await itemsOf(ctx.db, [
+      ...(open ? [open] : []),
+      ...rows.filter((r) => r.id !== open?.id),
+    ]);
     const proposed = open ? null : await proposedShift(ctx, account, secondsOf(ctx.now));
     return {
       open: open ? (items[0] ?? null) : null,

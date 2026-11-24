@@ -29,8 +29,7 @@ classes and duties and nobody is ever booked twice at once. Two things the claim
   of it (a contract check), because the reconciler builds triggers on its table: a kind inserted
   (a REPLACE too), deleted, or given other minutes or another id derives again the claims of its
   shifts that **have not ended**, by the database's clock. So a service's new buffer holds from now
-  on, and is refused whole when it would reach another shift. Shifts that have ended keep the claim
-  they had: changing a buffer never fails on history (the rule stage 49 step 2 takes for `occupies`). The
+  on, and is refused whole when it would reach another shift. The
   shift's own kind column joins the columns its update trigger watches, and is indexed (live rows),
   so the kind's trigger finds its shifts by it.
 - **The claim keeps its margins** (`margin_before`, `margin_after`, seconds, migration 1091). A
@@ -51,6 +50,13 @@ classes and duties and nobody is ever booked twice at once. Two things the claim
   many (`conflict`, `rule: "staffed_account"`). A shift with **nobody** on it stays allowed: the
   host's generation and a leaver make dates uncovered (ADRs 0621 and 0624), and an uncovered
   appointment claims no one's time, so it cannot double-book anyone.
+- **A margin counts only while it lies ahead** (the review of PR #360), by the database's clock:
+  the buffer before until the shift starts, the buffer after until it has passed. Behind them a
+  claim is the shift's own time, whichever path derives it (the shift's own triggers, the kind's,
+  a reconcile) and in the read before the write. So deriving a claim again never widens history:
+  marking a session `attended` after it ended, a reconcile after a buffer grew (no past claim is
+  skipped), or a buffer before grown while a session is under way right after one that ended. A
+  claim may shrink as its margins fall behind it; it never grows over the past.
 - **History is never refused** here either: a shift that has ended may name a profile with no
   account (it claims nothing), and editing it is not refused.
 
@@ -64,5 +70,8 @@ classes and duties and nobody is ever booked twice at once. Two things the claim
   behind any real clock. A shift ending while a request runs is judged by the database's now.
 - A reconcile derives every claim again with the margins as they are now, and a declaration added
   over shifts whose buffers clash and have not ended is refused (`staffed_conflict`), as ADR 0621.
+- **The host's generation never fails on a profile with no account**: a series date naming one,
+  where the account is required, is made with nobody on it, as a date naming a leaver is (ADR
+  0624); the series keeps its value for a rosterer to change.
 - Not here: the open-hours check and free times read these margins (step 4); a practitioner as the
   account (step 7).

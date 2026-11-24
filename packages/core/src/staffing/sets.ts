@@ -47,8 +47,11 @@ function tooLarge(): ValidationError {
 export interface HeldClaim {
   object: string;
   id: string;
+  /** The claim, margins included (ADR 0760). */
   starts: number;
   ends: number;
+  /** The shift's own time, without them. */
+  own: { starts: number; ends: number };
 }
 
 /** Every claim of `accounts` overlapping `lo`..`hi` (unix seconds), by account. */
@@ -63,7 +66,15 @@ export async function claimsOf(
   for (const part of chunks([...new Set(accounts)])) {
     const found = await ctx.db
       .selectFrom("core_staff_time")
-      .select(["account_id", "object_type", "record_id", "starts", "ends"])
+      .select([
+        "account_id",
+        "object_type",
+        "record_id",
+        "starts",
+        "ends",
+        "margin_before",
+        "margin_after",
+      ])
       .where("account_id", "in", jsonList(part))
       .where("starts", "<", hi)
       .where("ends", ">", lo)
@@ -73,7 +84,13 @@ export async function claimsOf(
     if (rows > SET_ROWS_MAX) throw tooLarge();
     for (const r of found) {
       const list = out.get(r.account_id) ?? [];
-      list.push({ object: r.object_type, id: r.record_id, starts: r.starts, ends: r.ends });
+      list.push({
+        object: r.object_type,
+        id: r.record_id,
+        starts: r.starts,
+        ends: r.ends,
+        own: { starts: r.starts + r.margin_before, ends: r.ends - r.margin_after },
+      });
       out.set(r.account_id, list);
     }
   }

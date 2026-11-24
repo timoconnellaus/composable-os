@@ -6,15 +6,9 @@
 // access to the course (the host's `requireAccess`), so no one else is assigned anything.
 import { defineAutomation } from "@composable-os/sdk";
 import { asOutline, sessionPrograms } from "./outline.ts";
+import { COURSE, PROGRESS, type RecordShape } from "./tools.ts";
 
-const COURSE = "courses.course";
-const PROGRESS = "courses.progress";
 const ASSIGNMENT = "programs.assignment";
-
-interface RecordShape {
-  id: string;
-  values: Record<string, unknown>;
-}
 
 export const assignSessions = defineAutomation({
   label: "Assign a course's sessions",

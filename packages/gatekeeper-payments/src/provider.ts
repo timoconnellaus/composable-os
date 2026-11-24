@@ -11,8 +11,13 @@ import type {
   PaymentsPauseSubscriptionInput,
   PaymentsPayment,
   PaymentsPortalInput,
+  PaymentsPresentation,
+  PaymentsPresentInput,
   PaymentsProviderName,
+  PaymentsReader,
   PaymentsRefundInput,
+  PaymentsRegisterReaderInput,
+  PaymentsRemoveReaderInput,
   PaymentsResumeSubscriptionInput,
   PaymentsSubscription,
   PaymentsSubscriptionCheckoutInput,
@@ -81,6 +86,22 @@ export interface PaymentProvider {
   voidPendingUpdate(input: PaymentsVoidUpdateInput): Promise<void>;
   /** Opens the customer portal for one customer: card, billing details and invoices only. */
   openPortal(input: PaymentsPortalInput): Promise<{ url: string }>;
+  /**
+   * Registers a card reader to the account at its address (stage 50, ADR 0774). Throws
+   * `ActionApplyError` when the provider refused it (a wrong or used code) and registered nothing.
+   */
+  registerReader(input: PaymentsRegisterReaderInput): Promise<PaymentsReader>;
+  /** The account's readers, at most 100. */
+  listReaders(): Promise<PaymentsReader[]>;
+  /** Takes a reader off the account; one already gone is not an error. Throws as `refund` does. */
+  removeReader(input: PaymentsRemoveReaderInput): Promise<void>;
+  /**
+   * A card-present payment of `amount` on the reader, the order id in its metadata. The same
+   * idempotency key makes no second payment: a retry re-presents the same one, or answers `paid`.
+   */
+  presentPayment(input: PaymentsPresentInput): Promise<Omit<PaymentsPresentation, "provider">>;
+  /** Clears the payment on the reader, if any. */
+  cancelPresented(readerRef: string): Promise<void>;
   /** Verifies a webhook delivery; returns the typed events it carries (possibly none), or a rejection reason. */
   verifyWebhook(
     headers: Record<string, string>,

@@ -8,6 +8,7 @@ import {
   invalidateFromMeta,
   NetworkError,
   type RequestInitLike,
+  signInErrorWords,
   type Tokens,
   tokenSession,
   UpgradeRequiredError,
@@ -209,5 +210,68 @@ describe("token sessions (ADR 0419)", () => {
     await expect(session.headers()).rejects.toBeInstanceOf(ApiError);
     expect(store.peek()).toBeNull();
     expect(await session.headers()).toEqual({});
+  });
+
+  it("says why a sign-in failed: not switched on, too many tries, offline (no silent failure)", async () => {
+    const failure = async (reply: { status: number; body: unknown } | "drop") => {
+      const h = host(() => reply);
+      const session = tokenSession({ baseUrl: "https://h", store: memoryStore(), fetch: h.fetch });
+      return session.requestCode("ada@example.com").then(
+        () => null,
+        (error: unknown) => error,
+      );
+    };
+    // Sign-in not switched on: the host answers 503 (ADR 0455).
+    const off = await failure({
+      status: 503,
+      body: {
+        error: {
+          code: "forbidden",
+          message: "Customer sign-in is not set up",
+          details: { reason: "sign_in_not_set_up" },
+        },
+      },
+    });
+    expect(signInErrorWords(off)).toBe(
+      "Signing in is not switched on here yet. Try again later, or ask the business.",
+    );
+    // Too many tries, with how long to wait when the host says.
+    const limited = await failure({
+      status: 429,
+      body: {
+        error: { code: "rate_limited", message: "Slow down", details: { retryAfterSeconds: 90 } },
+      },
+    });
+    expect(signInErrorWords(limited)).toBe("Too many tries. Wait 2 minutes, then try again.");
+    expect(signInErrorWords(new ApiError("rate_limited", "Slow down", 429))).toBe(
+      "Too many tries. Wait a few minutes, then try again.",
+    );
+    // Offline: no answer at all.
+    const offline = await failure("drop");
+    expect(offline).toBeInstanceOf(NetworkError);
+    expect(signInErrorWords(offline)).toContain("Check your connection and try again");
+    // A wrong code, a bad address, and anything else, each with what to do next.
+    expect(
+      signInErrorWords(new ApiError("forbidden", "No", 401, { reason: "invalid_code" }), "sign-in"),
+    ).toBe("That code did not work. Check it, or ask for a new one.");
+    expect(signInErrorWords(new ApiError("invalid_input", "email", 400))).toContain(
+      "email address",
+    );
+    expect(signInErrorWords(new Error("boom"), "sign-in")).toBe(
+      "We could not sign you in just now. Try again in a moment.",
+    );
+  });
+
+  it("reads the status of an answer that is not JSON (a gateway's page)", async () => {
+    const fetch: FetchLike = async () => ({
+      status: 503,
+      headers: { get: () => null },
+      text: async () => "<html>Service unavailable</html>",
+    });
+    const session = tokenSession({ baseUrl: "https://h", store: memoryStore(), fetch });
+    const error = await session.requestCode("ada@example.com").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(503);
+    expect(signInErrorWords(error)).toContain("not switched on");
   });
 });

@@ -2,10 +2,10 @@
 // exercise the sets and bests the host worked out; pressing an exercise shows its sets.
 import type { ProgramsHooks } from "@composable-os/pack-programs/client";
 import { useState } from "react";
-import { Text } from "react-native";
 import { List } from "../native-base/list.tsx";
 import { Row } from "../native-base/row.tsx";
 import { Screen } from "../native-base/screen.tsx";
+import { Text } from "../native-base/text.tsx";
 
 const best = (b: { load: number | null; reps: number | null; seconds: number | null }) =>
   [
@@ -32,7 +32,15 @@ export function ProgressScreen({
   if (!progress.data)
     return (
       <Screen title="Progress">
-        <Text>Loading…</Text>
+        {progress.error ? (
+          <Text tone="danger" accessibilityRole="alert">
+            We could not load your progress. Check the connection and try again.
+          </Text>
+        ) : (
+          <Text tone="muted" accessibilityRole="progressbar">
+            Loading…
+          </Text>
+        )}
       </Screen>
     );
   return (
@@ -52,6 +60,11 @@ export function ProgressScreen({
           />
         ))}
       </List>
+      {exercise && history.error ? (
+        <Text tone="danger" accessibilityRole="alert">
+          We could not load the sets. Check the connection and try again.
+        </Text>
+      ) : null}
       {exercise && history.data ? (
         <List>
           {history.data.sets.map((s) => (

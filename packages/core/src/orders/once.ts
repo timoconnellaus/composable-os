@@ -67,7 +67,7 @@ export async function holdOncePerPerson(
   const personId = buyer.personId as string;
   const had = await ctx.db
     .selectFrom("core_sellable_once")
-    .select(["object_type", "state"])
+    .select(["object_type", "state", "person_id"])
     .where("person_id", "in", samePeople(ctx.db, personId))
     .where("object_type", "in", [...objects])
     .where("state", "in", ["held", "used"])
@@ -75,12 +75,17 @@ export async function holdOncePerPerson(
   for (const line of lines) {
     const row = had.find((h) => h.object_type === line.object);
     if (!row) continue;
-    // A customer is told only about themselves; staff see the same words.
+    // A customer is told only about themselves; staff see the same words. Another Person sharing
+    // the folded address is named as "the same address" (ADR 0692), never by who they are.
+    const whose =
+      row.person_id === personId
+        ? "for this person"
+        : "for someone with this address (a +tag aside)";
     refuse(
       row.state === "used" ? "used" : "held",
       row.state === "used"
-        ? "This is one per person, and it has been bought for this person already"
-        : "This is one per person, and an order for it is waiting to be paid",
+        ? `This is one per person, and it has been bought ${whose} already`
+        : `This is one per person, and an order for it ${whose} is waiting to be paid`,
       line.position,
     );
   }

@@ -11,7 +11,7 @@
 // its start and finish are `ctx.now`, never a time the request carries. No finish is ever
 // invented: an entry left open is marked finish missing and its person told.
 import type { CoreDatabase } from "@composable-os/db";
-import { type Kysely, type Selectable, sql } from "kysely";
+import { CompiledQuery, type Kysely, type Selectable, sql } from "kysely";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
 import { objectTableOf } from "../extensions/schema.ts";
 import { getObject } from "../fields/index.ts";
@@ -98,16 +98,19 @@ export async function resolveAgainst(
   }
   if (object.staffed) {
     const s = await loadShift(ctx, ref.object, ref.id);
-    if (!s || s.deleted) throw new NotFoundError(ref.object, ref.id);
-    const claim = await claimOf(ctx.db, ref);
-    if (!claim || claim.account_id !== account) {
-      if (!s.shift.live) {
-        throw new ConflictError("This shift is cancelled, so no time is recorded against it.", {
-          rule: "shift_not_live",
-        });
-      }
+    if (!s) throw new NotFoundError(ref.object, ref.id);
+    // Someone else's shift is refused the same way whatever its state: whether a colleague's
+    // shift is cancelled or in the Trash is not the caller's to learn here.
+    if (s.shift.account !== account) {
       throw new ForbiddenError("This is not one of your shifts, so no time is recorded on it.", {
         rule: "not_your_shift",
+      });
+    }
+    if (s.deleted) throw new NotFoundError(ref.object, ref.id);
+    const claim = await claimOf(ctx.db, ref);
+    if (!claim || claim.account_id !== account) {
+      throw new ConflictError("This shift is cancelled, so no time is recorded against it.", {
+        rule: "shift_not_live",
       });
     }
     return {
@@ -224,6 +227,14 @@ export async function inLockedPeriod(db: Kysely<CoreDatabase>, seconds: number):
     .executeTakeFirst();
   return Boolean(row);
 }
+
+/**
+ * A statement for the batch right after a guarded write: it fails the batch whole
+ * (`core_staff_changed`) unless that write changed exactly one row, so an answer never reports
+ * a change that was not made (an entry finished, approved or changed a moment before).
+ */
+export const changedOne = () =>
+  CompiledQuery.raw("INSERT INTO core_staff_guard (expected, actual) VALUES (1, changes())");
 
 /** One entry as the person and the screens read it. */
 export interface TimeEntryItem {
@@ -371,6 +382,9 @@ export async function finishMissing(ctx: HandlerContext, hours: number): Promise
         .where("id", "=", entry.id)
         .where("ends", "is", null)
         .where("finish_missing", "=", 0),
+      // An entry finished meanwhile fails the tick whole (nothing marked, nobody told); the next
+      // tick reads it again and leaves it.
+      changedOne(),
     );
     await queueNotice(ctx, {
       to: [entry.account_id],

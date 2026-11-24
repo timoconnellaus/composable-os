@@ -108,8 +108,9 @@ object, which is one per confirmed address until staff merge two People. "A comp
 visitors to try a plan turns customer sign-up to `open`" above is superseded by this switch.
 
 ## Amended 2026-11-24: one person per folded address (ADR 0692)
-"Per holder" now counts every live Person sharing a folded address with the holder (`a+1@x` and
+"Per holder" now counts every Person sharing a folded address with the holder (`a+1@x` and
 `a+2@x`, issue #225), which this record accepted as two holders "until staff merge them". Each
 check (a trial used, a subscription with the plan's trial, an unreleased hold, a continuation)
 reads those People, and migration 0955's trigger refuses a hold while one of them has an
-unreleased or used one on the plan object. A page still goes back only to whoever opened it.
+unreleased or used one on the plan object. A page still goes back only to whoever opened it,
+and only for the same holder: staff who opened one for `+1` get `+2` a page of their own.

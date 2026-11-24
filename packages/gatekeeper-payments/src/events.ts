@@ -67,6 +67,15 @@ export function describeEvent(event: PaymentsEvent): ObservationDescription {
         `(now ${event.subscription.status}) from ${event.provider} (event \`${event.eventId}\`).${invoice}`,
     };
   }
+  if (event.kind === "reader") {
+    return {
+      title: "Reader event",
+      description:
+        `Received a verified report from ${event.provider} that reader \`${event.readerRef}\` ` +
+        `took no payment (${event.outcome}${event.failureCode ? `, ${event.failureCode}` : ""}` +
+        `${event.checkoutRef ? `, payment \`${event.checkoutRef}\`` : ""}, event \`${event.eventId}\`).`,
+    };
+  }
   const amount = formatMinor(event.amount, event.currency);
   const description =
     event.kind === "payment"

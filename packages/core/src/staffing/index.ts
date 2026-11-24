@@ -196,14 +196,21 @@ export async function shiftOf(
   const stateField = object.states?.field;
   const state = stateField ? values[stateField] : null;
   const kind = text(values[def.kind]);
+  const starts = secondsOf(values[def.starts]);
+  const ends = secondsOf(values[def.ends]);
+  // Only the margins still ahead count, as the triggers derive them (staffing/sql.ts): the
+  // buffer before until the shift starts, the buffer after until it has passed.
+  const margins = await marginsOf(ctx, object, kind);
+  const now = Math.floor(Date.parse(ctx.now) / 1000);
   return {
     covered: who !== null,
     account,
-    starts: secondsOf(values[def.starts]),
-    ends: secondsOf(values[def.ends]),
+    starts,
+    ends,
     live: typeof state === "string" && def.live.includes(state),
     kind,
-    ...(await marginsOf(ctx, object, kind)),
+    before: starts !== null && starts > now ? margins.before : 0,
+    after: ends !== null && ends + margins.after > now ? margins.after : 0,
   };
 }
 
@@ -1005,6 +1012,21 @@ export async function personDeactivated(
     .where("id", "=", shift.account)
     .executeTakeFirst();
   return Boolean(row?.deactivated_at);
+}
+
+/**
+ * Whether the person a record's values name is a profile holding no account, on an object that
+ * requires one (ADR 0760): the host's generation makes such a date with nobody on it rather than
+ * fail (the review of PR #360), as for a leaver.
+ */
+export async function personWithoutAccount(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  values: Record<string, unknown>,
+): Promise<boolean> {
+  if (object.staffed?.account !== "required") return false;
+  const shift = await shiftOf(ctx, object, values);
+  return Boolean(shift?.covered && !shift.account);
 }
 
 /**

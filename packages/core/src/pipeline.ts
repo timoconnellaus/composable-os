@@ -85,7 +85,7 @@ import type { Judge } from "./judge/types.ts";
 import { errorForLog } from "./log.ts";
 import type { ModelRunner } from "./models.ts";
 import { notifyStatements } from "./notifications/send.ts";
-import type { MediaUpload } from "./operation.ts";
+import type { FollowerBudget, MediaUpload } from "./operation.ts";
 import {
   type AnyOperation,
   type ApplyingApproval,
@@ -162,6 +162,12 @@ export interface InvocationContext {
   floor?: GateFloor;
   /** Clock override for tests. */
   clock?: () => Date;
+  /**
+   * Set by platform code only (the minute cron's timed moves, ADR 0841): the records state
+   * cascades may still move, shared by every call made with it. Absent: each call has its own,
+   * FOLLOWERS_MAX.
+   */
+  followerBudget?: FollowerBudget | undefined;
   /**
    * What the caller's credential allows (an MCP token's scopes, ADR 0021). The call needs its
    * permission in both the user's role and this list. Omitted means the role alone decides.
@@ -918,6 +924,7 @@ async function invokeOnce<O extends AnyOperation>(
     floor: ctx.floor ?? {},
     grantedPermissions: ctx.grantedPermissions,
     permissionGrants: packRole ? [] : grants,
+    ...(ctx.followerBudget ? { followerBudget: ctx.followerBudget } : {}),
     ...(roleToday ? { roleToday } : {}),
     ...(roleLooksAfter ? { roleLooksAfter } : {}),
     ...(ctx.markStanding ? { markStanding: ctx.markStanding } : {}),
@@ -1334,7 +1341,8 @@ async function invokeOnce<O extends AnyOperation>(
       // And the journey signals the write made (stage 53, ADR 0802), standing as its marks do.
       ...signalStatements({ db: ctx.db.query }, changes, {
         standing: staffStanding(ctx),
-        bulk: isBulkOperation(op.name, bulkSize),
+        // A bulk-write operation is bulk whatever its size: an import's last chunk of one record.
+        bulk: isBulkOperation(op.name, bulkSize) || op.risk === "bulk-write",
         now,
       }),
     );

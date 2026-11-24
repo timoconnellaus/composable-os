@@ -21,10 +21,11 @@ import {
   timeIn,
 } from "@composable-os/pack-dailychecks/client";
 import { useEffect, useState } from "react";
-import { AppState, Text, View } from "react-native";
+import { AppState, View } from "react-native";
 import { Button } from "../native-base/button.tsx";
 import { Field } from "../native-base/field.tsx";
 import { Screen } from "../native-base/screen.tsx";
+import { Text } from "../native-base/text.tsx";
 
 export type TodayHooks = Pick<DailyChecksHooks, "useToday" | "useTick" | "useDone">;
 
@@ -63,10 +64,14 @@ export function TodaysChecklistsScreen({
   return (
     <Screen title="Today's checklists">
       {answer.isPending || hidden ? (
-        <Text accessibilityRole="progressbar">Loading today's checklists…</Text>
+        <Text tone="muted" accessibilityRole="progressbar">
+          Loading today's checklists…
+        </Text>
       ) : null}
       {answer.error ? (
-        <Text accessibilityRole="alert">{dayRefusal(answer.error).message}</Text>
+        <Text tone="danger" accessibilityRole="alert">
+          {dayRefusal(answer.error).message}
+        </Text>
       ) : null}
       {data && !items.length ? <Text>Nothing is due for you today.</Text> : null}
       {data
@@ -144,7 +149,11 @@ function DayChecklistNative({
       state === "clear" ? "Tick cleared." : "Ticked.",
     );
   };
-  const alert = (r: DayRefusal) => <Text accessibilityRole="alert">{r.message}</Text>;
+  const alert = (r: DayRefusal) => (
+    <Text tone="danger" accessibilityRole="alert">
+      {r.message}
+    </Text>
+  );
   const finished = finishedLabel(item, locale, zone);
 
   return (
@@ -230,7 +239,11 @@ function DayChecklistNative({
           }
         />
       ) : null}
-      {said ? <Text accessibilityRole="alert">{said}</Text> : null}
+      {said ? (
+        <Text tone="danger" accessibilityRole="alert">
+          {said}
+        </Text>
+      ) : null}
       {refusal && refusal.step === null ? alert(refusal.refusal) : null}
     </View>
   );

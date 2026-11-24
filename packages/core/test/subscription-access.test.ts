@@ -363,6 +363,30 @@ describe("one free trial per person per plan object", () => {
     expect(await subscribe(dotless)).toMatchObject({ trialDays: 7, noTrial: null });
   });
 
+  it("never hands staff starting one for a+2@ the open page they opened for a+1@ (review of step 2)", async () => {
+    const tag = unique("foldstaff").toLowerCase();
+    const one = await createBuyer(admin, "staff1", `${tag}+1@shop.example`);
+    const two = await createBuyer(admin, "staff2", `${tag}+2@shop.example`);
+    const forOne = await staffStart(one.email);
+    expect(forOne).toMatchObject({ trialDays: 7, noTrial: null });
+    const forTwo = await staffStart(two.email);
+    // A fresh page for +2's own Person, with no trial while +1's is open.
+    expect(forTwo.subscriptionId).not.toBe(forOne.subscriptionId);
+    expect(forTwo.url).not.toBe(forOne.url);
+    expect(forTwo).toMatchObject({ trialDays: null, noTrial: "held" });
+    const { results } = await env.DB.prepare(
+      "SELECT holder_person_id, payer_person_id FROM core_subscription_checkout WHERE id = ?",
+    )
+      .bind(forTwo.subscriptionId)
+      .all<{ holder_person_id: string; payer_person_id: string }>();
+    expect(results[0]).toEqual({
+      holder_person_id: two.principal.personId,
+      payer_person_id: two.principal.personId,
+    });
+    // The same staff starting +1's again still get +1's page back.
+    expect((await staffStart(one.email)).subscriptionId).toBe(forOne.subscriptionId);
+  });
+
   it("gives one trial to two starts at once by a+1@ and a+2@: the database refuses the other hold", async () => {
     const tag = unique("foldrace").toLowerCase();
     const one = await createBuyer(admin, "race1", `${tag}+1@shop.example`);

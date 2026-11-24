@@ -224,12 +224,19 @@ export async function decideTrial(
       blocked = "unconfirmed";
       continue;
     }
-    // Still open. The caller's own page for this plan comes back, with its terms; anyone else's
-    // is never handed out.
+    // Still open. The caller's own page for this plan and this holder comes back, with its terms;
+    // anyone else's is never handed out. The holder is compared too: the holds read are those of
+    // every Person sharing a folded address, and staff opening one for `+1` and then starting one
+    // for `+2` must get `+2` a page of their own (ADR 0692).
     const expiresAt = new Date(
       Date.parse(row.held_until) - TRIAL_HOLD_AFTER_EXPIRY_MS,
     ).toISOString();
-    if (!held && row.opened_by === start.caller && row.plan_id === start.planId) {
+    if (
+      !held &&
+      row.opened_by === start.caller &&
+      row.plan_id === start.planId &&
+      row.holder_person_id === start.holderPersonId
+    ) {
       held = {
         checkoutId: row.checkout_id,
         url: row.url,

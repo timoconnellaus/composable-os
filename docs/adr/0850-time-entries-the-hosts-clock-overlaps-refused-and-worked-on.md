@@ -37,16 +37,20 @@ races, as the shift claim does.
   `rule: "time_overlap"`), half-open (12:00 to 15:00 follows 09:00 to 12:00), an open entry running
   on from its start. As migration 0811's claim triggers, each leaves out only the row's own id, so
   an `INSERT OR REPLACE`, an upsert and an `UPDATE OR REPLACE` are refused too (D1 runs with
-  recursive triggers off). The check reads by an index on account and end, so a person's history is
+  recursive triggers off). The id is `NOT NULL` and compared with `IS NOT`, so a NULL id cannot
+  slip past the check (the review of PR #364). The check reads by an index on account and end, so a person's history is
   never read. A write the host reads first names the other entry (`entry`, its times). Entries are
   separate from the shift claim: an entry may run past its shift into another shift's time.
-- **One open entry per person** (a partial unique index): of twenty starts at once, one lands, the
-  rest are refused. A start may carry an **idempotency key** (`key`, 16 to 128 characters, unique
+- **One open entry per person** (a partial unique index, and the trigger saying so first,
+  `core_time_open`, answered as `rule: "time_open"`): of twenty starts at once, one lands, the rest
+  are refused. A start may carry an **idempotency key** (`key`, 16 to 128 characters, unique
   per account in `start_key`): a retry with it answers the entry it made (`replayed`).
 - **What an entry is against is declared, not hard-coded.** A **shift** is a record of a `staffed`
-  object, and it must be one of the person's own live, covered shifts: read from its time claim, so
-  a cancelled shift, one in the Trash or someone else's is refused (`shift_not_live`,
-  `not_your_shift`). A **job** is a record of an object that declares **`workedOn`** (below), in one
+  object, and it must be one of the person's own live, covered shifts: read from its time claim.
+  Someone else's shift is refused as `not_your_shift` whatever its state, so a colleague's shift
+  never says whether it is cancelled or in the Trash; one of their own that is cancelled is
+  `shift_not_live`. A correction checks the shift it is against again (a shift given to someone
+  else since is refused until the entry says other work). A **job** is a record of an object that declares **`workedOn`** (below), in one
   of its live states and out of the Trash (`not_live`). Nothing is **other work**. Any other object
   is refused (`not_worked_on`). With no `against`, a start proposes the person's own shift under way
   or starting within 60 minutes (`proposed`, so the screen shows "not this shift"); `null` is other
@@ -73,13 +77,18 @@ races, as the shift claim does.
   the triggers). A person corrects their own entry until it is approved: what it is against, the
   break, the note, and a finished entry's times; changing a clocked entry's times makes it
   `entered` (they are no longer the host's clock); a rejected entry corrected waits again. An open
-  entry keeps the host's start and is finished by the clock. A person withdraws a waiting or
-  rejected entry (deleted); an open one is finished first.
+  entry keeps the host's start and is finished by the clock, never inside a locked pay period. A
+  person withdraws a waiting or rejected entry (deleted); an open one is finished first, unless
+  its finish is missing. Every correction, finish and withdrawal is guarded on the entry exactly
+  as it was read, and fails whole (`core_staff_changed`) rather than answer a change that was not
+  saved.
 - **Finish missing** (the minute cron, `staffing.due`): an entry still open `finishMissingHours`
   after its shift's end, or 14 hours after its start with no shift (or a shift cancelled meanwhile),
   is marked `finish_missing` and its person told once ("Enter the time you finished", to them only).
   No finish is written; the clock can no longer finish it, and the person enters their real finish
-  with `edit`. At most 50 a tick; a quiet minute reads one indexed row and writes nothing.
+  with `edit` however long ago it started (the days-back setting does not apply to it), or
+  withdraws it, so an entry left open never stops them recording time again. Inside a locked pay
+  period, whoever handles pay reopens it first (step 3 refuses a lock while an entry is open). At most 50 a tick; a quiet minute reads one indexed row and writes nothing.
 - **Until step 2, every finished or entered entry waits.** Approval on a match with the roster and
   the approver's acts are step 2's; the columns are in place so it needs no migration.
 
