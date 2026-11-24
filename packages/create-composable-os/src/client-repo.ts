@@ -260,9 +260,11 @@ export async function generateClients(
   }
   // A client per pack role the mobile app's staff sign in with (ADR 0451): only that role's
   // operations, from the release's roles.json and its staff contract. Never the staff client.
+  // And the owner's client, when the app has it (ADR 0872): Today's short list, from the same file.
   const roles = product.mobile?.roles ?? [];
-  if (roles.length && product.mobile) {
-    const { renderRoleClient } = await import("@composable-os/client-gen");
+  const owner = product.mobile?.owner === true;
+  if ((roles.length || owner) && product.mobile) {
+    const { renderOwnerClient, renderRoleClient } = await import("@composable-os/client-gen");
     const rolesFile = kit.get(`${KIT.contract}roles.json`);
     if (!rolesFile) {
       throw new CliError(
@@ -274,6 +276,18 @@ export async function generateClients(
     const staff = perAudience[2] as ApiContract;
     const dir = join(product.mobile.dir, product.mobile.clientDir ?? "src/client", "roles");
     mkdirSync(join(root, dir), { recursive: true });
+    if (owner) {
+      if (!parsed.owner) {
+        throw new CliError(
+          "The release's roles.json has no owner's client (mobile.owner): it is older than it. Upgrade the platform version first.",
+        );
+      }
+      writeFileSync(
+        join(root, dir, "owner.ts"),
+        renderOwnerClient(staff, parsed.owner, { product: product.id }),
+      );
+      written.push(join(dir, "owner.ts"));
+    }
     for (const entry of roles) {
       const { role: name, grants } = mobileRole(entry);
       const role = declared.find((r) => r.name === name);

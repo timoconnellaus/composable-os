@@ -47,11 +47,12 @@ export const SESSION_CHECKED_COOKIE = "cos-session-checked";
 /** At most this often, the session is checked and its cookie given a fresh lifetime. */
 export const SESSION_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
+/** The header's `name=value` pairs; a pair with no `=` or no name is not a cookie. */
 function cookiePairs(header: string | null | undefined): [string, string][] {
-  return (header ?? "")
-    .split(/;\s*/)
-    .map((pair) => [pair.slice(0, pair.indexOf("=")), pair.slice(pair.indexOf("=") + 1)])
-    .filter(([name]) => Boolean(name)) as [string, string][];
+  return (header ?? "").split(/;\s*/).flatMap((pair): [string, string][] => {
+    const at = pair.indexOf("=");
+    return at > 0 ? [[pair.slice(0, at), pair.slice(at + 1)]] : [];
+  });
 }
 
 export interface KeepSignedInOptions {

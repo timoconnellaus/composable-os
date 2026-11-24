@@ -15,8 +15,8 @@ import {
 } from "@composable-os/ui/components/select";
 import { Textarea } from "@composable-os/ui/components/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@composable-os/ui/components/tooltip";
-import { Link } from "@tanstack/react-router";
 import { SigmaIcon } from "lucide-react";
+import { HrefLink } from "#/components/href-link";
 import { RecordPicker } from "#/components/record-picker";
 import { formatDate, formatDateTime } from "#/lib/format";
 import { useOp } from "#/lib/query";
@@ -74,16 +74,10 @@ function formatNumber(value: number, kind: string): string {
 
 function RecordLink({ object, id }: { object: string; id: string }) {
   const query = useOp("record.get", { object, id }, { staleTime: 60_000, retry: false });
-  const href = recordHref(object, id);
-  const label = query.data?.title ?? id;
-  return href.startsWith("/x/") ? (
-    <Link to="/x/$object/$id" params={{ object, id }} className="hover:underline">
-      {label}
-    </Link>
-  ) : (
-    <a href={href} className="hover:underline">
-      {label}
-    </a>
+  return (
+    <HrefLink href={recordHref(object, id)} className="hover:underline">
+      {query.data?.title ?? id}
+    </HrefLink>
   );
 }
 

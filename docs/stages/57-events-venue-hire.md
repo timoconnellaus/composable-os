@@ -30,6 +30,18 @@ all is not known; see "Suggested build order".
 
 ## Status
 
+- **Step 1, the room calendar** (branch `feat/stage-57-provisional`, ADR 0844, no migration):
+  `occupies.provisional` (live states shown as provisional; the claim is unchanged) and
+  `occupies.title` (a text or select field, or `relation.field` of one of the extension's own
+  records; the object's label otherwise), checked by the contract; `rooms.week` and `rooms.check`,
+  tool-only staff reads of `core_thing_time` in `packages/core/src/occupancy/` (room, kind, record,
+  title, own times, times taken with margins, provisional; a fixed role's caller gets the room and
+  the times only; no names, no money; at most 62 days, 2,000 claims an answer, statements bounded
+  by the occupying objects). Bookings' class declares `title: "title"`. Generation over a taken
+  room is stage 49's rule, used unchanged (made without its room, rosterers told, the other record
+  untouched), now also tested against a confirmed room use. Left: no shipped pack calls the reads
+  yet (steps 5 and 6); stage 49's appointment declares its service as its title when built; each
+  claim carries instants and the answer the organisation's zone, not a zone per claim.
 - **Step 2, cascades widened** (branch `feat/stage-57-cascades`, PR #355, ADR 0841, no
   migration): a child that draws no places may `follows` a pool (a member of the pool, or a
   claimant of the parent or of a member, is still refused); a child may follow a parent in an

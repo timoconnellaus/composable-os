@@ -554,6 +554,23 @@ export function toOperationError(error: unknown): OperationError {
       { rule: "leave_below_zero" },
     );
   }
+  // Locations (migration 1390, ADR 0910): a second with one name, the last open one closed, or
+  // the main location changed, by a path that did not check first or a race it lost.
+  if (message.includes("UNIQUE constraint failed: core_location.name")) {
+    return new ConflictError("There is already a location with that name.", {
+      rule: "location_name",
+    });
+  }
+  if (message.includes("core_location_last_open")) {
+    return new ConflictError("This is the only open location, so it cannot be closed.", {
+      rule: "last_open_location",
+    });
+  }
+  if (message.includes("core_location_main_kept")) {
+    return new ConflictError("The main location stays the main location.", {
+      rule: "main_location",
+    });
+  }
   if (message.includes("core_leave_type_used")) {
     return new ConflictError(
       "Leave or a balance is recorded in this type, so its unit cannot change and it is not removed. Make it inactive instead.",

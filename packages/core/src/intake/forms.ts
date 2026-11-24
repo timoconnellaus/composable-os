@@ -1,13 +1,14 @@
 // The form side of the public-write door (stage 29 step 2, ADR 0720): the questions a business
 // saves are checked on every write, and the door finds a form only while it takes answers from
 // the caller.
-import type { Questions } from "@composable-os/sdk";
+import { type Questions, SLUG_MAX, SLUG_RE } from "@composable-os/sdk";
 import { NotFoundError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import type { HandlerContext } from "../operation.ts";
 import { loadRecord } from "../operations/record.ts";
 import { liveContent } from "../records/publish.ts";
 import { orgReader } from "../visibility/index.ts";
+import { listVisible } from "../visibility/records.ts";
 import {
   type DestinationObject,
   destinationObjectOf,
@@ -37,6 +38,29 @@ export interface OpenForm {
 
 /** Who is asking, for "open to this caller": the public, a signed-in customer, or staff. */
 export type Asker = "public" | "customer" | "staff";
+
+/**
+ * The id of the live form of `objectName` whose address is `slug` (a form object with
+ * `publishable.slug`), or not found: the same answer as `openForm` gives, so an address tells a
+ * caller nothing a closed or unpublished form would not. Whether it takes answers is `openForm`'s.
+ */
+export async function formIdBySlug(
+  ctx: HandlerContext,
+  objectName: string,
+  slug: string,
+): Promise<string> {
+  const object = formObjectOf(getObject(objectName));
+  const notFound = () => new NotFoundError(objectName, slug);
+  const field = object?.publishable?.slug;
+  if (!object || !field || slug.length > SLUG_MAX || !SLUG_RE.test(slug)) throw notFound();
+  const page = await listVisible(orgReader(ctx.db), object, {
+    filter: { field, op: "eq", value: slug },
+    limit: 1,
+  });
+  const id = page.items[0]?.id;
+  if (!id) throw notFound();
+  return id;
+}
 
 /**
  * The form `id` of `objectName`, published and taking answers from `asker` now; otherwise not

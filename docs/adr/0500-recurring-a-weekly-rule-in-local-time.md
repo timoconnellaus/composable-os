@@ -134,3 +134,9 @@ Records detached under the rule above stay detached whole; `recurring.follow` ma
 again. An edit to one of a series' records and a change of the series guard each other per
 occurrence (`core_recurrence_guard`), so they cannot overwrite each other; edits of different
 records do not contend. See [ADR 0620](0620-field-level-exceptions-in-recurring.md).
+
+## Amended 2026-11-24 (stage 59 step 1): the interval rule
+"The rule is weekly" above still holds for a rule without `unit`. A rule may now say every N
+weeks on given weekdays, every N months on a day (the last day when the month is shorter) or every
+N years on a date, fixed on the calendar from `from`, and a length in days (`lengthDays`). See
+[ADR 0860](0860-the-interval-rule-in-recurring.md).

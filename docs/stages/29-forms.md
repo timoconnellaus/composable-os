@@ -43,6 +43,19 @@ interview.
   destination fields are filtered by what the intake lists; an anonymous form forgets the caller
   before any check; counts use `deleted_at IS NULL`; a raced first answer is told to send again.
   Not yet tried on a live host.
+- Step 3, built (`feat/stage-29-forms-spine`): the Forms pack (`packs/forms`, ADR 0726): `forms.form`
+  (publishable, slug as its address, kinds enquiry, sign-up, survey, feedback and staff, receipt
+  on by default, a low-rating level) and `forms.submission` (the inbox: new, in hand, done, spam;
+  owner by assignment rules; titled after its form); tools `form`, `submit` (customers and the
+  public), `enter`, `move`, `markSpam`, `notSpam` (staff, `forms:answer`); views (new answers, in
+  hand, spam, "Asked to hear from us", open forms) and Person and form tabs; the hourly cap setting
+  (`personApproves`); the low-rating notice (an automation). Platform: `intake.open` takes a
+  form's `slug`; `intake` gains `hourlyCap` (a form's) and `marketing` (a submission's,
+  host-only). Decided while building: no public scope on a form (the public reads it only through
+  `intake.open`, as a `when` cannot say who may answer); spam moves are `markSpam`'s and
+  `notSpam`'s only, both `personApproves`; a form's status is `personApproves`; the retention
+  settings wait for step 7 and `x.forms.ask` and `forms:manage` for step 5; the pack is not added
+  to the CRM's packs. Not yet tried on a live host.
 
 ## Goal
 

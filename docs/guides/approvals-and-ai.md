@@ -30,6 +30,9 @@ action with its diff; a person approves or rejects it
   `humanOnly` ([ADR 0512](../adr/0512-one-per-person-and-tools-only-a-person-may-call.md)).
 - A tool or a field may be **a person's to approve** (`personApproves`): anyone else's call waits
   for a person whatever the policy says ([ADR 0552](../adr/0552-a-tool-a-person-approves.md)).
+- **A change to how the system is set up** (an extension, a schema change) is never approved from
+  a device session, such as the company's app on a phone: the host refuses it there, and a person
+  reviews it in the web admin ([ADR 0872](../adr/0872-the-owners-client.md)).
 
 Each operation's actors and each tool's flags are on their reference pages.
 

@@ -54,6 +54,7 @@ import { integrationOperations } from "./integration.ts";
 import { inviteOperations } from "./invite.ts";
 import { journeyOperations } from "./journey.ts";
 import { judgeOperations } from "./judge.ts";
+import { locationOperations } from "./location.ts";
 import { meOperations } from "./me.ts";
 import { meAttentionOperations } from "./me-attention.ts";
 import { mediaOperations } from "./media.ts";
@@ -62,6 +63,7 @@ import { memoryOperations } from "./memory.ts";
 import { myOperations } from "./my.ts";
 import { myWriteOperations } from "./my-write.ts";
 import { noteOperations } from "./note.ts";
+import { noteKindOperations } from "./note-kind.ts";
 import { notificationOperations } from "./notification.ts";
 import { notificationDeliveryOperations } from "./notification-delivery.ts";
 import { orderOperations } from "./order.ts";
@@ -80,6 +82,7 @@ import { recordVersionOperations } from "./record-versions.ts";
 import { recurringOperations } from "./recurring.ts";
 import { restrictedOperations } from "./restricted.ts";
 import { retentionOperations } from "./retention.ts";
+import { roomsOperations } from "./rooms.ts";
 import { routineOperations } from "./routine.ts";
 import { routineMailOperations } from "./routine-mail.ts";
 import { screenOperations } from "./screens.ts";
@@ -135,6 +138,7 @@ export const coreOperations = [
   ...recordVersionOperations,
   ...contentOperations,
   ...ackOperations,
+  ...locationOperations,
   ...mediaOperations,
   ...mediaVideoOperations,
   ...recordImportOperations,
@@ -192,6 +196,7 @@ export const coreOperations = [
   ...meAttentionOperations,
   ...personLinkOperations,
   ...noteOperations,
+  ...noteKindOperations,
   ...carerOperations,
   ...personCodeOperations,
   ...orderOperations,
@@ -202,6 +207,7 @@ export const coreOperations = [
   ...stockOperations,
   ...recurringOperations,
   ...staffingOperations,
+  ...roomsOperations,
   ...staffingFeedOperations,
   ...staffingHoursOperations,
   ...staffingFreeOperations,

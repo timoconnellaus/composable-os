@@ -44,6 +44,7 @@ import { countQueryOptions } from "#/lib/count";
 import { callOp } from "#/lib/operations";
 import { errorMessage, useOp } from "#/lib/query";
 import { useObjectInfo } from "#/lib/schema";
+import { browserTimeZone } from "#/lib/time-zones";
 import { useUserLabel, useUsers } from "#/lib/users-adapter";
 
 type TasksTab = "mine" | "all";
@@ -56,14 +57,6 @@ export const Route = createFileRoute("/_app/tasks")({
   }),
   component: TasksPage,
 });
-
-function browserTimeZone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  } catch {
-    return "UTC";
-  }
-}
 
 function TasksPage() {
   const search = Route.useSearch();

@@ -1000,6 +1000,7 @@ function occupiesDefinition(
   const declared = object.definition.occupies;
   if (!declared) return {};
   const target = (local: string) => own.find((f) => f.localName === local)?.definition.to;
+  // A field of the record, or `relation.field` of what a relation names.
   const margin = (m: { field: string } | undefined) => {
     if (!m) return undefined;
     const [first, second] = m.field.split(".") as [string, string | undefined];
@@ -1009,6 +1010,7 @@ function occupiesDefinition(
   };
   const before = margin(declared.before);
   const after = margin(declared.after);
+  const title = margin(declared.title === undefined ? undefined : { field: declared.title });
   return {
     occupies: {
       thing: declared.thing,
@@ -1019,6 +1021,8 @@ function occupiesDefinition(
       ...(before ? { before } : {}),
       ...(after ? { after } : {}),
       ...(declared.only ? { only: declared.only } : {}),
+      ...(declared.provisional ? { provisional: [...declared.provisional] } : {}),
+      ...(title ? { title } : {}),
     },
   };
 }

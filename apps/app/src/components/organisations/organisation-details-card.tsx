@@ -13,24 +13,18 @@ import {
 } from "@composable-os/ui/components/card";
 import { Input } from "@composable-os/ui/components/input";
 import { Label } from "@composable-os/ui/components/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@composable-os/ui/components/select";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { PencilIcon } from "lucide-react";
-import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useHotkey } from "#/lib/hotkeys";
 import { patchRecord, plainPatch } from "#/lib/optimistic";
 import { errorMessage, useOpMutation } from "#/lib/query";
-import { useUserLabel, useUsers } from "#/lib/users-adapter";
+import { useUserLabel } from "#/lib/users-adapter";
 import { RowList, TagInput } from "../fields.tsx";
 import { Markdown, MarkdownEditor } from "../markdown.tsx";
+import { Empty, Item, OwnerField, PrimaryToggle } from "../record/details-parts.tsx";
 import { RecordPicker } from "../record-picker.tsx";
 import {
   BLANK_ADDRESS,
@@ -46,8 +40,6 @@ export interface OrganisationDetailsCardProps {
   /** Read-only (e.g. the organisation is in Trash). */
   readOnly?: boolean;
 }
-
-const NO_OWNER = "__none__";
 
 export function OrganisationDetailsCard({ organisation, readOnly }: OrganisationDetailsCardProps) {
   const [editing, setEditing] = useState(false);
@@ -98,17 +90,6 @@ export function OrganisationDetailsCard({ organisation, readOnly }: Organisation
     </Card>
   );
 }
-
-function Item({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="grid gap-0.5">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="min-w-0 text-sm break-words">{children}</dd>
-    </div>
-  );
-}
-
-const Empty = () => <span className="text-muted-foreground">—</span>;
 
 /** An external link for a website value, adding https:// when it has no scheme. */
 export function websiteHref(website: string): string {
@@ -225,7 +206,6 @@ function DetailsForm({
   const [error, setError] = useState<string | null>(retry?.error ?? null);
   const client = useQueryClient();
   const update = useOpMutation("organisation.update");
-  const users = useUsers();
   const formRef = useRef<HTMLFormElement>(null);
   const set = <K extends keyof OrganisationDraft>(key: K, value: OrganisationDraft[K]) =>
     setDraft((d) => ({ ...d, [key]: value }));
@@ -233,11 +213,6 @@ function DetailsForm({
   useEffect(() => {
     formRef.current?.querySelector<HTMLInputElement>("input")?.focus();
   }, []);
-
-  const owners = [...users];
-  if (org.ownerId && !owners.some((u) => u.id === org.ownerId)) {
-    owners.push({ id: org.ownerId, name: org.ownerId, email: "" });
-  }
 
   async function onSubmit(event?: FormEvent) {
     event?.preventDefault();
@@ -414,25 +389,12 @@ function DetailsForm({
         />
       </div>
 
-      <div className="grid gap-1.5">
-        <Label htmlFor="edit-org-owner">Owner</Label>
-        <Select
-          value={draft.ownerId ?? NO_OWNER}
-          onValueChange={(value) => set("ownerId", value === NO_OWNER ? null : value)}
-        >
-          <SelectTrigger id="edit-org-owner" className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={NO_OWNER}>No owner</SelectItem>
-            {owners.map((user) => (
-              <SelectItem key={user.id} value={user.id}>
-                {user.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      <OwnerField
+        id="edit-org-owner"
+        saved={org.ownerId}
+        value={draft.ownerId}
+        onChange={(ownerId) => set("ownerId", ownerId)}
+      />
 
       <div className="grid gap-1.5">
         <Label htmlFor="edit-org-tags">Tags</Label>
@@ -463,28 +425,5 @@ function DetailsForm({
         </Button>
       </div>
     </form>
-  );
-}
-
-function PrimaryToggle({
-  checked,
-  label,
-  onChange,
-}: {
-  checked: boolean;
-  label: string;
-  onChange: () => void;
-}) {
-  return (
-    <label className="flex items-center gap-1 text-xs text-muted-foreground">
-      <input
-        type="radio"
-        checked={checked}
-        onChange={onChange}
-        aria-label={label}
-        className="accent-primary"
-      />
-      Primary
-    </label>
   );
 }

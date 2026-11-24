@@ -74,6 +74,13 @@ Get one activity by id with its payload, author and linked records. Deleted acti
 | `threadKey` | string or null |   |   |   |
 | `level` | `"coaches"`, `"sensitive"` |   |   |   |
 | `locked` | boolean |   |   |   |
+| `kind` | object |   |   |   |
+| `kind.id` | string | yes |   |   |
+| `kind.name` | string | yes |   |   |
+| `sections` | array of object or null |   |   |   |
+| `sections.key` | string | yes |   |   |
+| `sections.label` | string | yes |   |   |
+| `sections.text` | string | yes |   |   |
 
 ## activity.getBody
 
@@ -149,6 +156,13 @@ List live activities across all records (the Activity feed), newest first by def
 | `items[].threadKey` | string or null |   |   |   |
 | `items[].level` | `"coaches"`, `"sensitive"` |   |   |   |
 | `items[].locked` | boolean |   |   |   |
+| `items[].kind` | object |   |   |   |
+| `items[].kind.id` | string | yes |   |   |
+| `items[].kind.name` | string | yes |   |   |
+| `items[].sections` | array of object or null |   |   |   |
+| `items[].sections.key` | string | yes |   |   |
+| `items[].sections.label` | string | yes |   |   |
+| `items[].sections.text` | string | yes |   |   |
 | `nextCursor` | string or null | yes |   |   |
 
 ## activity.listForRecord
@@ -199,11 +213,18 @@ A record's timeline: live activities linked to the record, newest first (by occu
 | `items[].threadKey` | string or null |   |   |   |
 | `items[].level` | `"coaches"`, `"sensitive"` |   |   |   |
 | `items[].locked` | boolean |   |   |   |
+| `items[].kind` | object |   |   |   |
+| `items[].kind.id` | string | yes |   |   |
+| `items[].kind.name` | string | yes |   |   |
+| `items[].sections` | array of object or null |   |   |   |
+| `items[].sections.key` | string | yes |   |   |
+| `items[].sections.label` | string | yes |   |   |
+| `items[].sections.text` | string | yes |   |   |
 | `nextCursor` | string or null | yes |   |   |
 
 ## activity.log
 
-Log a note, email, call or meeting on one or more records' timelines (people, organisations, tasks). Each type takes a typed payload: email needs a direction and optional from/to/cc; call takes direction, durationSeconds and outcome; meeting takes startsAt/endsAt, location, url and attendees; note takes none. Notes need a body. occurredAt defaults to now. System activities cannot be logged; the CRM posts them itself. Returns the activity with its links.
+Log a note, email, call or meeting on one or more records' timelines (people, organisations, tasks). Each type takes a typed payload: email needs a direction and optional from/to/cc; call takes direction, durationSeconds and outcome; meeting takes startsAt/endsAt, location, url and attendees; note takes none. A note has a kind (note.kinds.list; default Note) and a level (default the kind's, never below its lowest); a kind with a template takes its sections instead of a body. Notes need a body or sections. occurredAt defaults to now. System activities cannot be logged; the CRM posts them itself. Returns the activity with its links.
 
 |  |  |
 | --- | --- |
@@ -242,6 +263,13 @@ No fields.
 | `threadKey` | string or null |   |   |   |
 | `level` | `"coaches"`, `"sensitive"` |   |   |   |
 | `locked` | boolean |   |   |   |
+| `kind` | object |   |   |   |
+| `kind.id` | string | yes |   |   |
+| `kind.name` | string | yes |   |   |
+| `sections` | array of object or null |   |   |   |
+| `sections.key` | string | yes |   |   |
+| `sections.label` | string | yes |   |   |
+| `sections.text` | string | yes |   |   |
 
 ## activity.proposeNote
 
@@ -290,6 +318,13 @@ Propose a note on a record for the person to OK, instead of adding it straight a
 | `threadKey` | string or null |   |   |   |
 | `level` | `"coaches"`, `"sensitive"` |   |   |   |
 | `locked` | boolean |   |   |   |
+| `kind` | object |   |   |   |
+| `kind.id` | string | yes |   |   |
+| `kind.name` | string | yes |   |   |
+| `sections` | array of object or null |   |   |   |
+| `sections.key` | string | yes |   |   |
+| `sections.label` | string | yes |   |   |
+| `sections.text` | string | yes |   |   |
 
 ## activity.restore
 
@@ -334,6 +369,13 @@ Restore an activity from Trash, putting it back on its linked records' timelines
 | `threadKey` | string or null |   |   |   |
 | `level` | `"coaches"`, `"sensitive"` |   |   |   |
 | `locked` | boolean |   |   |   |
+| `kind` | object |   |   |   |
+| `kind.id` | string | yes |   |   |
+| `kind.name` | string | yes |   |   |
+| `sections` | array of object or null |   |   |   |
+| `sections.key` | string | yes |   |   |
+| `sections.label` | string | yes |   |   |
+| `sections.text` | string | yes |   |   |
 
 ## activity.setPrivate
 
@@ -381,10 +423,17 @@ Mark a synced email or meeting private (only you see it: it leaves everyone else
 | `threadKey` | string or null |   |   |   |
 | `level` | `"coaches"`, `"sensitive"` |   |   |   |
 | `locked` | boolean |   |   |   |
+| `kind` | object |   |   |   |
+| `kind.id` | string | yes |   |   |
+| `kind.name` | string | yes |   |   |
+| `sections` | array of object or null |   |   |   |
+| `sections.key` | string | yes |   |   |
+| `sections.label` | string | yes |   |   |
+| `sections.text` | string | yes |   |   |
 
 ## activity.update
 
-Edit a note, email, call or meeting: subject, body, occurredAt, payload (validated for the activity's type, replacing the old payload), links (replacing the list) or a note's level. The type cannot change. System activities cannot be edited. A note is changed by its author or someone allowed to manage notes; lowering a level is a person's, with that permission. Returns the updated activity.
+Edit a note, email, call or meeting: subject, body, occurredAt, payload (validated for the activity's type, replacing the old payload), links (replacing the list), or a note's level, kind (kindId) and template sections (which remake its body). The type cannot change. System activities cannot be edited. A note is changed by its author or someone allowed to manage notes; lowering a level is a person's, with that permission, and never below the kind's lowest. Returns the updated activity.
 
 |  |  |
 | --- | --- |
@@ -405,6 +454,10 @@ Edit a note, email, call or meeting: subject, body, occurredAt, payload (validat
 | `links[].object` | string | yes | max length 64, pattern `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9]*)?$` | Object type: person, organisation, task or an extension object (&lt;ext&gt;.&lt;object&gt;) |
 | `links[].id` | string | yes | min length 1, max length 64 | Record id, e.g. per_… |
 | `level` | `"staff"`, `"coaches"`, `"sensitive"` |   |   | Who may read the note: staff (every staff account, the default), coaches (its author, the staff who look after the one Person it is about, and managers) or sensitive (its author and the people the business named one by one; every opening is recorded). A note at coaches or sensitive is about exactly one Person. Notes only. |
+| `kindId` | string (starts_with) |   | max length 64, pattern `^nkd_.*` | The kind of note (note.kinds.list). Default: Note |
+| `sections` | array of object |   | at most 12 | A note from its kind's template: each section's key and text. The body is made from them; give one or the other. A kind with a required section takes its sections. |
+| `sections[].key` | string | yes | min length 1, max length 40 | The template section's key |
+| `sections[].text` | string | yes | max length 20000 | What the person wrote under it (Markdown) |
 
 ### Output
 
@@ -433,3 +486,10 @@ Edit a note, email, call or meeting: subject, body, occurredAt, payload (validat
 | `threadKey` | string or null |   |   |   |
 | `level` | `"coaches"`, `"sensitive"` |   |   |   |
 | `locked` | boolean |   |   |   |
+| `kind` | object |   |   |   |
+| `kind.id` | string | yes |   |   |
+| `kind.name` | string | yes |   |   |
+| `sections` | array of object or null |   |   |   |
+| `sections.key` | string | yes |   |   |
+| `sections.label` | string | yes |   |   |
+| `sections.text` | string | yes |   |   |
