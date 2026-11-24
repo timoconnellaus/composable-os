@@ -38,9 +38,10 @@ function readableField(ctx: HandlerContext, objectName: string, fieldName: strin
       rule: "restricted_field",
     });
   }
-  // The tool names the field's permission, so the pipeline held its caller to it (ADR 0625).
+  // The tool names the field's permission and no other, so the pipeline held its caller to that
+  // one (ADR 0625): a tool naming several opens to a holder of any one of them (ADR 0600).
   const named = tool.permission === null ? [] : [tool.permission].flat();
-  if (!named.includes(field.permission)) {
+  if (!named.length || named.some((p) => p !== field.permission)) {
     throw new ForbiddenError(`Reading ${object.name}.${field.name} needs ${field.permission}.`, {
       rule: "restricted",
       permission: field.permission,

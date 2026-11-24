@@ -1053,6 +1053,24 @@ export function screenIssues(m: ExtensionManifest): { path: string; message: str
  * The contract check: structure (zod), names, references, permissions and formulas. Returns
  * every issue found (empty when the manifest is valid) and the parsed manifest when it parsed.
  */
+/** Every property name of a JSON schema, at any depth (objects, arrays, unions). */
+function schemaKeys(schema: unknown, into: Set<string> = new Set()): Set<string> {
+  if (!schema || typeof schema !== "object") return into;
+  const node = schema as Record<string, unknown>;
+  const properties = node.properties;
+  if (properties && typeof properties === "object") {
+    for (const [key, value] of Object.entries(properties as Record<string, unknown>)) {
+      into.add(key);
+      schemaKeys(value, into);
+    }
+  }
+  for (const key of ["items", "additionalProperties"]) schemaKeys(node[key], into);
+  for (const key of ["anyOf", "oneOf", "allOf"]) {
+    if (Array.isArray(node[key])) for (const part of node[key] as unknown[]) schemaKeys(part, into);
+  }
+  return into;
+}
+
 export function validateManifest(
   input: unknown,
   options: ValidateOptions = {},
@@ -1859,16 +1877,17 @@ export function validateManifest(
         );
       }
     }
-    // Input fields the audit log never keeps (ADR 0626): each a field of the tool's input.
+    // Input fields the audit log never keeps (ADR 0626): each a field of the tool's input, at any
+    // depth (the audit's redaction is deep).
+    const inputKeys = schemaKeys(tool.inputSchema);
     for (const field of tool.redact ?? []) {
-      const properties = (tool.inputSchema.properties ?? {}) as Record<string, unknown>;
-      if (!Object.hasOwn(properties, field)) {
+      if (!inputKeys.has(field)) {
         contract(`tools.${name}.redact`, `"${field}" is not a field of the tool's input`);
       }
     }
-    // A tool that takes a restricted field's value by its name keeps it out of the audit (ADR
-    // 0811): it lists it in `redact`.
-    for (const field of Object.keys(tool.inputSchema.properties ?? {})) {
+    // A tool that takes a restricted field's value by its name, at any depth of its input, keeps it
+    // out of the audit (ADR 0811): it lists it in `redact`.
+    for (const field of inputKeys) {
       const restrictedField = Object.values(m.objects).some((object) =>
         Object.entries(object.fields).some(([n, f]) => n === field && isRestrictedField(f)),
       );

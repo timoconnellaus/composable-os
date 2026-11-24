@@ -488,6 +488,8 @@ export function planFromState(
           "core_record_tags",
           "core_search_docs",
           "core_published_text",
+          // Restricted values follow their object's name (ADR 0811).
+          "core_restricted_value",
         ]) {
           dataStatements.push(
             CompiledQuery.raw(`UPDATE ${table} SET object_type = ? WHERE object_type = ?`, [

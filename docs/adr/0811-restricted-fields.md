@@ -25,8 +25,9 @@ Forms' answers "for owners and managers only", need it for a pack's field.
   `personApproves` or `renamedFrom`; named by nothing else of the object (its title, an index, a
   uniqueness rule, `requireOneOf`, an option's `requires`, `public.read`, `signedIn.read`,
   `customerVia.read`, `publishable.content`, a seed); never on another object (`fields`); no
-  formula reads it. A tool whose input has a property named as one of the pack's restricted fields
-  lists it in `redact`. A runtime extension cannot declare one (it cannot declare a restricted
+  formula reads it. A tool whose input has a property, at any depth, named as one of the pack's
+  restricted fields lists it in `redact`; a tool that takes the words under another name and writes
+  them into the field must redact that name itself (the contract cannot see it). A runtime extension cannot declare one (it cannot declare a restricted
   permission), nor list `record.readRestricted`.
 - **Where it is kept.** `core_restricted_value` (migration 1190): the record (its object's
   registry name and id), the field's registry name, the value (1 to 4,000 characters; a `text`
@@ -48,7 +49,8 @@ Forms' answers "for owners and managers only", need it for a pack's field.
   customer is their own Person only (not a dependant's, not one shared with every signed-in
   customer), in one read per page. Staff: only `record.readRestricted { object, field, ids }`
   (at most 50 live records): actors `extension` only, from a tool of the pack that declares the
-  field, a tool that is `humanOnly` and names the field's permission, called by a person
+  field, a tool that is `humanOnly` and names the field's permission and no other (a tool naming several
+  opens to a holder of any one, ADR 0600), called by a person
   themselves (`calledBy.actor` is `human`, not an approval of another actor's call). The pipeline
   already held that person to the permission when the tool was called (ADR 0625: an admin, or one
   an admin granted it), so no assistant, MCP client, automation, other pack or member without the
@@ -59,14 +61,17 @@ Forms' answers "for owners and managers only", need it for a pack's field.
 - **No audit row holds a value.** The pipeline adds the restricted fields of the object an
   operation's input names (`input.object`) to the operation's `redact`, wherever they appear in
   the input: a customer's write, a refused staff write, an import's rows. Errors name the field,
-  never the value.
+  never the value. A customer's write is audited with `[redacted]` in the field's place: staff see
+  that a value was written (or removed), never what it said.
 - **Erase, purge and drop.** Erasing a Person deletes every restricted value of a record whose
   customer is them, in the Trash or not and whatever becomes of the record (read before the
   erase's batch clears or deletes those records); any other value that mentions their terms is
   scrubbed as free text is, or deleted when it is only their address or id. Purging a Person from
   the Trash deletes what they wrote, as erasing does. Dropping a hidden restricted field, or its
   object (`extension.dropHidden`), drops its values. A merge moves the records, and the values
-  follow their record's id.
+  follow their record's id; an object's rename (`renamedFrom`) renames its values' `object_type`
+  with its links and tags. A record the erase deletes (a required relation to the subject, a
+  waiter) loses its restricted values whoever wrote them.
 
 ## Why
 - A table of the host's own is the only place no bulk path reaches by construction: every one of
@@ -97,4 +102,6 @@ permission reads it and the audit row names the records and no value; an absent 
 `humanOnly`, an assistant's or no caller, an approval, another permission, another pack, and a
 direct call by a person, an assistant or MCP are refused; at most 50 ids; erase deletes the
 author's values and scrubs another's that named them; purge deletes them; dropping the hidden
-field drops them.
+field drops them; an object's rename keeps them readable and erasable; a record an erase deletes
+through a required relation loses another author's values; a tool naming another permission beside
+the field's is refused; a nested input property named as the field must be redacted.

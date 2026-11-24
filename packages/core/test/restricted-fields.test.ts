@@ -198,6 +198,19 @@ describe("the contract", () => {
         pack({ tools: { feedback: tool({ inputSchema: takes, redact: ["feedback"] }) } as never }),
       ),
     ).toBe("");
+    // At any depth of the input: the audit's redaction is deep.
+    const nested = {
+      type: "object",
+      properties: { review: { type: "object", properties: { feedback: { type: "string" } } } },
+    };
+    expect(
+      messages(pack({ tools: { feedback: tool({ inputSchema: nested }) } as never })),
+    ).toContain("list it in redact");
+    expect(
+      messages(
+        pack({ tools: { feedback: tool({ inputSchema: nested, redact: ["feedback"] }) } as never }),
+      ),
+    ).toBe("");
   });
 
   it("has no column, no view column and no registry field; its object names it apart", async () => {
@@ -348,6 +361,8 @@ describe("no staff path but the restricted read reaches it", () => {
       { ...personTool, startedByApproval: true },
       { ...personTool, permission: `${id}:other` },
       { ...personTool, permission: null },
+      // Naming another permission beside it opens the tool to a holder of that one (ADR 0600).
+      { ...personTool, permission: [`${id}:other`, PERMISSION] },
     ]) {
       await expect(invoke("record.readRestricted", input, asTool(t))).rejects.toMatchObject({
         code: "forbidden",
@@ -434,5 +449,83 @@ describe("erase, purge and drop", () => {
     await applyPlan((statements) => db.batch(statements), drop);
     await refreshSchemaRegistry(db.query);
     expect(await stored(mine)).toBeNull();
+  });
+});
+
+describe("the review of PR #368", () => {
+  const ext = extId("rvw");
+  const perm = `${ext}:feedback`;
+  const second = (name: string, renamedFrom?: string) =>
+    manifest(ext, {
+      grantable: [perm],
+      restricted: [perm],
+      objects: {
+        [name]: {
+          label: "Review",
+          plural: "Reviews",
+          titleField: "words",
+          ...(renamedFrom ? { renamedFrom } : {}),
+          fields: {
+            words: { type: "text", label: "Words" },
+            person: { type: "relation", label: "Person", to: "person" },
+            coach: { type: "relation", label: "Coach", to: "person", required: true },
+            feedback: { type: "longText", label: "Private feedback", restricted: perm },
+          },
+          customer: { field: "person", read: ["words", "feedback"], write: ["words", "feedback"] },
+        },
+      } as never,
+    });
+  const value = async (object: string, record: string) =>
+    (
+      await env.DB.prepare(
+        "SELECT value FROM core_restricted_value WHERE object_type = ? AND record_id = ?",
+      )
+        .bind(object, record)
+        .first<{ value: string }>()
+    )?.value ?? null;
+  const written = async (object: string, personId: string, coach: string) => {
+    const made = await invoke(
+      "record.create",
+      { object, values: { words: "Fine", person: personId, coach } },
+      context(admin),
+    );
+    const changed = await call(
+      "fixture.myUpdate",
+      { object, id: made.id, values: { feedback: SECRET } },
+      asCustomer(personId),
+    );
+    expect(changed).toMatchObject({ ok: true });
+    return made.id as string;
+  };
+
+  it("1: an object's rename takes its restricted values with it, and erase still reaches them", async () => {
+    await reconcile(second("review"));
+    const writer = (await invoke("person.create", { givenName: "Rhea" }, context(admin))).id;
+    const coach = (await invoke("person.create", { givenName: "Cole" }, context(admin))).id;
+    const record = await written(`${ext}.review`, writer, coach);
+    await reconcile(second("rating", "review"));
+    expect(await value(`${ext}.review`, record)).toBeNull();
+    expect(await value(`${ext}.rating`, record)).toBe(SECRET);
+    const got = await call(
+      "fixture.myGet",
+      { object: `${ext}.rating`, id: record },
+      asCustomer(writer),
+    );
+    expect(got).toMatchObject({ ok: true, value: { values: { feedback: SECRET } } });
+    await invoke("person.erase", { id: writer }, context(admin));
+    expect(await value(`${ext}.rating`, record)).toBeNull();
+  });
+
+  it("2: a record erase deletes through a required relation loses its values, whoever wrote them", async () => {
+    const object = `${ext}.rating`;
+    const writer = (await invoke("person.create", { givenName: "Wren" }, context(admin))).id;
+    const coach = (await invoke("person.create", { givenName: "Cass" }, context(admin))).id;
+    const record = await written(object, writer, coach);
+    await invoke("person.erase", { id: coach }, context(admin));
+    const left = await env.DB.prepare(`SELECT count(*) AS n FROM x_${ext}_rating WHERE id = ?`)
+      .bind(record)
+      .first<{ n: number }>();
+    expect(left?.n).toBe(0);
+    expect(await value(object, record)).toBeNull();
   });
 });

@@ -401,6 +401,19 @@ export async function queueEraseExtensions(ctx: HandlerContext, s: StoreSubject)
         .where("record_id", "=", record.id),
     );
   }
+  // A deleted record's restricted values (ADR 0811), whoever wrote them: one statement per object.
+  const deletedIds = new Map<string, string[]>();
+  for (const record of deleted) {
+    deletedIds.set(record.object, [...(deletedIds.get(record.object) ?? []), record.id]);
+  }
+  for (const [object, ids] of deletedIds) {
+    ctx.write(
+      CompiledQuery.raw(
+        "DELETE FROM core_restricted_value WHERE object_type = ? AND record_id IN (SELECT value FROM json_each(?))",
+        [object, JSON.stringify(ids)],
+      ),
+    );
+  }
 
   // 3. Free text in any extension table that mentions a term (not names: not known to be about
   // them). Linear in the extension tables' size; erase is rare and admin-run.

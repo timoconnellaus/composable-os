@@ -263,8 +263,8 @@ extension declares it; it never implements it. Each behaviour the platform has i
   dashboard, formula or timeline has it, and nothing else of the object may name it (title,
   indexes, `unique`, `public`, `publishable`, seeds). The customer writes it with `my.create` /
   `my.update` and reads their own; staff read it only from a `humanOnly` tool of yours that names
-  the permission, calling `record.readRestricted { object, field, ids }` (up to 50; every read
-  audited). A tool whose input takes it by name lists it in `redact`. Shipped and repository
+  the permission and no other, calling `record.readRestricted { object, field, ids }` (up to 50; every read
+  audited). A tool whose input takes it (by its name, at any depth, or any other) lists that key in `redact`. Shipped and repository
   extensions only.
 
 - **`public`** on an object: what the public may read (ADR 0438), `public: { read: [fields],
