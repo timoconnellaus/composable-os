@@ -33,7 +33,9 @@ meetings, and on the timeline of anything else it is linked to (a class, a deal)
 - **Looks after**: a staff account set on a person's page as one of their coaches. It reads the
   person's `coaches` notes while the row is live.
 - **The notes permissions**: `notes:clients`, `notes:sensitive` and `notes:manage`, held by admins
-  and given to others one by one by a human admin, never to oneself, and never anything for an AI.
+  and given to others one by one by a human admin, never to oneself. They give an AI nothing, except
+  that an AI acting for a holder of `notes:manage` may draft a kind's name and template, which waits
+  for a person who holds it.
 
 ## How the pieces fit
 

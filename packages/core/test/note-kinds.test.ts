@@ -443,3 +443,122 @@ describe("an AI and the kinds", () => {
     expect(refused.details?.rule).toBe("note_level_person");
   });
 });
+
+describe("the review's sequences (PR #434)", () => {
+  it("an erase scrubs a surviving note's sections as well as its body", async () => {
+    const email = `${unique("erased")}@example.com`;
+    const erased = await invoke(
+      "person.create",
+      { givenName: "Erin", familyName: unique("Gone"), emails: [{ email }] },
+      as(member),
+    );
+    const other = await invoke("person.create", { displayName: unique("Stays") }, as(member));
+    const note = await invoke(
+      "activity.log",
+      {
+        type: "note",
+        kindId: "nkd_session",
+        level: "staff",
+        sections: [{ key: "worked_on", text: `Partner work, write to ${email}` }],
+        links: [
+          { object: "person", id: erased.id },
+          { object: "person", id: other.id },
+        ],
+      },
+      as(member),
+    );
+    await invoke("person.erase", { id: erased.id }, as(admin));
+    const row = await env.DB.prepare("SELECT body, sections FROM core_activity WHERE id = ?")
+      .bind(note.id)
+      .first<{ body: string; sections: string }>();
+    expect(row?.body).not.toContain(email);
+    expect(row?.sections).not.toContain(email);
+    const read = await invoke("activity.get", { id: note.id }, as(member));
+    expect(JSON.stringify(read.sections)).not.toContain(email);
+    expect(read.sections?.[0]).toMatchObject({ key: "worked_on", label: "Worked on" });
+  });
+
+  it("Note never has a required section, so a note written without a kind is never refused", async () => {
+    expect(
+      (
+        await refusal(
+          invoke(
+            "note.kinds.save",
+            { id: "nkd_note", name: "Note", sections: [{ label: "Summary", required: true }] },
+            as(admin),
+          ),
+        )
+      ).details?.rule,
+    ).toBe("note_kind_default");
+    await expect(
+      env.DB.prepare(
+        `UPDATE core_note_kind SET sections = '[{"key":"s","label":"S","hint":null,"required":true}]'
+         WHERE id = 'nkd_note'`,
+      ).run(),
+    ).rejects.toThrow(/core_note_kind_default/);
+    const note = await invoke(
+      "activity.log",
+      { type: "note", body: "hi", links: [{ object: "person", id: person }] },
+      as(member),
+    );
+    expect(note.kind?.id).toBe("nkd_note");
+  });
+
+  it("a note made from sections is held to a body's limit", async () => {
+    const kind = await invoke(
+      "note.kinds.save",
+      {
+        name: unique("Long"),
+        sections: Array.from({ length: 12 }, (_, i) => ({ label: `Part ${i + 1}` })),
+      },
+      as(admin),
+    );
+    const refused = await refusal(
+      invoke(
+        "activity.log",
+        {
+          type: "note",
+          kindId: kind.id,
+          sections: kind.sections.map((s) => ({ key: s.key, text: "x".repeat(20_000) })),
+          links: [{ object: "person", id: person }],
+        },
+        as(member),
+      ),
+    );
+    expect(refused.details?.rule).toBe("note_too_long");
+  });
+
+  it("only a person moves a note to another kind", async () => {
+    const note = await invoke(
+      "activity.log",
+      { type: "note", body: "Plain", links: [{ object: "person", id: person }] },
+      as(member),
+    );
+    const refused = await refusal(
+      invoke("activity.update", { id: note.id, kindId: "nkd_from_client" }, as(member, "mcp")),
+    );
+    expect(refused.details?.rule).toBe("note_kind_person");
+  });
+
+  it("a note moved to another kind leaves the old template's sections and meets the new one's", async () => {
+    const note = await invoke(
+      "activity.log",
+      {
+        type: "note",
+        kindId: "nkd_session",
+        level: "staff",
+        sections: [{ key: "worked_on", text: "Rows" }],
+        links: [{ object: "person", id: person }],
+      },
+      as(member),
+    );
+    const moved = await invoke("activity.update", { id: note.id, kindId: "nkd_note" }, as(member));
+    expect(moved).toMatchObject({ kind: { id: "nkd_note" }, sections: null });
+    expect(moved.body).toContain("Rows");
+    // Back into a kind with a required section, with no sections: refused, as a new note is.
+    expect(
+      (await refusal(invoke("activity.update", { id: note.id, kindId: "nkd_session" }, as(member))))
+        .details?.rule,
+    ).toBe("note_section_required");
+  });
+});

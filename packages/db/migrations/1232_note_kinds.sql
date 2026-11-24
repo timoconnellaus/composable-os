@@ -64,6 +64,24 @@ VALUES
   ('nkd_from_client', 'from_client', 'From the client', 'coaches', 'staff', '[]', 1, 3,
    '2026-11-24T00:00:00.000Z', '2026-11-24T00:00:00.000Z');
 
+-- Note's template never has a required section: a note written without a kind has a body only,
+-- and a required section would refuse every one (the operation says why first).
+CREATE TRIGGER core_note_kind_note_insert
+BEFORE INSERT ON core_note_kind
+WHEN NEW.key IS 'note'
+  AND EXISTS (SELECT 1 FROM json_each(NEW.sections) s WHERE json_extract(s.value, '$.required') = 1)
+BEGIN
+  SELECT RAISE(ABORT, 'core_note_kind_default');
+END;
+
+CREATE TRIGGER core_note_kind_note_update
+BEFORE UPDATE OF sections, key ON core_note_kind
+WHEN NEW.key IS 'note'
+  AND EXISTS (SELECT 1 FROM json_each(NEW.sections) s WHERE json_extract(s.value, '$.required') = 1)
+BEGIN
+  SELECT RAISE(ABORT, 'core_note_kind_default');
+END;
+
 -- Every note already held is a Note. Before the triggers below: it changes no level.
 UPDATE core_activity SET kind_id = 'nkd_note' WHERE type = 'note' AND kind_id IS NULL;
 
