@@ -374,86 +374,8 @@ export function basisLabel(basis: string): string {
 
 // --- Refusals --------------------------------------------------------------------------------------
 
-/**
- * Every refusal the roster's tools can give a screen, each with its own designed state. `kind`
- * says which state to show; `message` is the host's own words (they name the other shift, who
- * took an offer, the dates a pattern would clash on).
- */
-export type RosterRefusalKind =
-  | "double_booked"
-  | "nobody_qualified"
-  | "not_qualified"
-  | "no_profile"
-  | "offer_stale"
-  | "offer_taken"
-  | "offer_closed"
-  | "offer_open"
-  | "offer_cutoff"
-  | "own_offer"
-  | "offered_to_someone_else"
-  | "unavailable_confirm"
-  | "shift_not_live"
-  | "shift_not_started"
-  | "not_yours"
-  | "rostering"
-  | "forbidden"
-  | "pay_period_locked"
-  | "pay_period_held"
-  | "pay_period_unset"
-  | "pay_period_open"
-  | "pay_period_not_locked"
-  | "pay_period_too_large"
-  | "roster_changed"
-  | "recurring_not_generated"
-  | "recurring_moved"
-  | "recurring_past"
-  | "deactivate_confirm"
-  | "address_lost"
-  | "checklist_window"
-  | "checklist_closed"
-  | "checklist_not_live"
-  | "checklist_nobody"
-  | "checklist_not_yours"
-  | "checklist_not_your_tick"
-  | "checklist_nothing_to_clear"
-  | "checklist_too_many_ticks"
-  | "checklist_for_why"
-  | "checklist_note_needed"
-  | "checklist_why"
-  | "checklist_incomplete"
-  | "checklist_open"
-  | "human_only"
-  | "not_found"
-  | "invalid"
-  | "network"
-  | "other";
-
-export interface RosterRefusal {
-  kind: RosterRefusalKind;
-  /** The host's words, or ours for a network failure or a refusal with none. */
-  message: string;
-  /** Who took an offer (`offer_taken`), as the host named them in `message`. */
-  takenBy?: string | null;
-  /** The dates a pattern change would clash on (`double_booked` of a pattern). */
-  dates?: string[];
-  /** The other shift (`double_booked`). */
-  other?: { title: string; startsAt: string; endsAt: string } | null;
-}
-
-function record(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
-}
-
-/** The host's details of an error: its own, or a pack tool's that carries the host's inside. */
-function hostDetails(error: unknown): Record<string, unknown> | null {
-  const details = record(record(error)?.details);
-  if (!details) return null;
-  if (typeof details.rule === "string") return details;
-  const inner = record(details.details);
-  return inner && typeof inner.rule === "string" ? inner : null;
-}
-
-const KNOWN_RULES: ReadonlySet<string> = new Set<RosterRefusalKind>([
+/** A rule the host's refusal names, each with its own designed state. */
+const HOST_RULES = [
   "double_booked",
   "nobody_qualified",
   "not_qualified",
@@ -495,13 +417,54 @@ const KNOWN_RULES: ReadonlySet<string> = new Set<RosterRefusalKind>([
   "checklist_incomplete",
   "checklist_open",
   "human_only",
-]);
+] as const;
+
+/**
+ * Every refusal the roster's tools can give a screen, each with its own designed state. `kind`
+ * says which state to show; `message` is the host's own words (they name the other shift, who
+ * took an offer, the dates a pattern would clash on).
+ */
+export type RosterRefusalKind =
+  | (typeof HOST_RULES)[number]
+  | "forbidden"
+  | "address_lost"
+  | "not_found"
+  | "invalid"
+  | "network"
+  | "other";
+
+export interface RosterRefusal {
+  kind: RosterRefusalKind;
+  /** The host's words, or ours for a network failure or a refusal with none. */
+  message: string;
+  /** Who took an offer (`offer_taken`), as the host named them in `message`. */
+  takenBy?: string | null;
+  /** The dates a pattern change would clash on (`double_booked` of a pattern). */
+  dates?: string[];
+  /** The other shift (`double_booked`). */
+  other?: { title: string; startsAt: string; endsAt: string } | null;
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+/** The host's details of an error: its own, or a pack tool's that carries the host's inside. */
+function hostDetails(error: unknown): Record<string, unknown> | null {
+  const details = record(record(error)?.details);
+  if (!details) return null;
+  if (typeof details.rule === "string") return details;
+  const inner = record(details.details);
+  return inner && typeof inner.rule === "string" ? inner : null;
+}
+
+const KNOWN_RULES: ReadonlySet<string> = new Set(HOST_RULES);
+const isHostRule = (rule: string): rule is (typeof HOST_RULES)[number] => KNOWN_RULES.has(rule);
 
 /** The words for a refusal the host gave without its own (it always gives some). */
-const FALLBACK: Partial<Record<RosterRefusalKind, string>> = {
+const FALLBACK = {
   forbidden:
     "You can't do that on the roster. If you think you should, ask whoever runs the roster.",
-  rostering: "Only someone who rosters can do that. Ask an admin if you should.",
   not_found: "That is no longer there. It may have been changed or removed: refresh the roster.",
   network: "We could not reach the business just now. Check your connection and try again.",
   other: "That did not work. Try again.",
@@ -510,11 +473,11 @@ const FALLBACK: Partial<Record<RosterRefusalKind, string>> = {
 /** What the host's refusal of a roster call was, for the screen's designed state. */
 export function rosterRefusal(error: unknown): RosterRefusal {
   const e = record(error);
-  if (e?.name === "NetworkError") return { kind: "network", message: FALLBACK.network as string };
+  if (e?.name === "NetworkError") return { kind: "network", message: FALLBACK.network };
+  const outer = record(e?.details);
   // A retried call whose answer the host never keeps (a new calendar address): it was made, but
   // cannot be shown again.
-  const reason = record(record(error)?.details)?.reason;
-  if (reason === "idempotency_response_lost") {
+  if (outer?.reason === "idempotency_response_lost") {
     return {
       kind: "address_lost",
       message:
@@ -524,9 +487,9 @@ export function rosterRefusal(error: unknown): RosterRefusal {
   const details = hostDetails(error);
   const rule = typeof details?.rule === "string" ? details.rule : null;
   const message = typeof e?.message === "string" && e.message ? e.message : null;
-  if (rule && KNOWN_RULES.has(rule)) {
-    const kind = rule as RosterRefusalKind;
-    const out: RosterRefusal = { kind, message: message ?? FALLBACK.other ?? "" };
+  if (rule && isHostRule(rule)) {
+    const kind = rule;
+    const out: RosterRefusal = { kind, message: message ?? FALLBACK.other };
     if (kind === "offer_taken") {
       out.takenBy = typeof details?.takenBy === "string" ? details.takenBy : null;
     }
@@ -546,17 +509,14 @@ export function rosterRefusal(error: unknown): RosterRefusal {
     return out;
   }
   const code = typeof e?.code === "string" ? e.code : null;
-  const inner =
-    typeof record(e?.details)?.code === "string" ? String(record(e?.details)?.code) : null;
+  const inner = typeof outer?.code === "string" ? outer.code : null;
   const surface = inner ?? code;
-  if (surface === "forbidden") {
-    return { kind: "forbidden", message: FALLBACK.forbidden as string };
-  }
-  if (surface === "not_found") return { kind: "not_found", message: FALLBACK.not_found as string };
+  if (surface === "forbidden") return { kind: "forbidden", message: FALLBACK.forbidden };
+  if (surface === "not_found") return { kind: "not_found", message: FALLBACK.not_found };
   if (surface === "invalid_input" || surface === "validation") {
     return { kind: "invalid", message: message ?? "Something entered is not right." };
   }
-  return { kind: "other", message: message ?? (FALLBACK.other as string) };
+  return { kind: "other", message: message ?? FALLBACK.other };
 }
 
 /** The roster's own copy for a refusal kind that asks the person to do something next. */
