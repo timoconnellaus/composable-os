@@ -105,6 +105,10 @@ export type Role = (typeof ROLES)[number];
  * - `journeys:publish` publish a journey's version: the approval of its wording (decision 3).
  *   Admins by default, grantable. An AI acting for an account that holds it may ask; its request
  *   always waits for a person who holds it too (ADR 0480), never the adjudicator.
+ * - `orders:discount` give money off a pending order with a reason, and take it off again
+ *   (stage 34, ADR 0691). Admins by default, grantable as `orders:refund` is. Within the limit a
+ *   human admin sets it applies at once; above it, and always for an AI, it waits for a human
+ *   admin's approval.
  * - `people:cards` issue, revoke and list the check-in cards a business gives its members (stage
  *   51, ADR 0783). Admins and members by default, grantable to any staff account (a fixed-role
  *   one included, ADR 0600). A person only whatever is granted (`actors: ["human"]`).
@@ -136,6 +140,7 @@ export const PERMISSIONS = [
   "journeys:read",
   "journeys:manage",
   "journeys:publish",
+  "orders:discount",
   "people:cards",
   "stock:adjust",
 ] as const;
@@ -180,6 +185,7 @@ export const GRANTABLE_PERMISSIONS = [
   "notes:manage",
   "journeys:manage",
   "journeys:publish",
+  "orders:discount",
   "people:cards",
   "stock:adjust",
 ] as const;

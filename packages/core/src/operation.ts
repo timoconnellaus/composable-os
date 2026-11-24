@@ -583,6 +583,14 @@ export interface OperationDefinition<
    */
   alwaysReview?: true | readonly Actor[];
   /**
+   * A call waits for review when this says so, from the input and what the database
+   * holds now (stage 34, ADR 0691: a staff discount over the limit a human admin set). Asked only
+   * when the gate would apply the call at once and it is not the approved application of a
+   * pending action. Such a review is the operation's own rule, so the adjudicator never
+   * approves it; a `deny` still applies.
+   */
+  reviewWhen?: (input: z.output<In>, db: Kysely<CoreDatabase>) => Promise<boolean>;
+  /**
    * A read that writes an audit row for every successful call, a person's included (stage 44,
    * ADR 0643: who read whose health answers). The row holds `auditSummary`'s result, never the
    * output, so give one that names no value read.

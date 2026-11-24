@@ -4,6 +4,7 @@ import "./holds.ts";
 import "./grants.ts";
 import "./moves.ts";
 
+export * from "./adjustments.ts";
 export * from "./checkout.ts";
 export * from "./events.ts";
 export * from "./gateway.ts";
@@ -19,4 +20,5 @@ export * from "./refund-due.ts";
 export * from "./refunds.ts";
 export * from "./sellable.ts";
 export * from "./settings.ts";
+export * from "./staff-discounts.ts";
 export * from "./tax.ts";

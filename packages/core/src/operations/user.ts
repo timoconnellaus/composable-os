@@ -405,6 +405,7 @@ export async function grantable(
     "notes:manage": "Change and delete others' notes, and lower a note's level",
     "journeys:manage": "Write journeys, set them live, pause them and add people to them",
     "journeys:publish": "Approve a journey's wording by publishing it",
+    "orders:discount": "Give money off an order at the desk, with a reason (up to the set limit)",
     "people:cards": "Issue and revoke members' check-in cards",
     "stock:adjust": "Record opening stock and correct how many are on hand",
   };

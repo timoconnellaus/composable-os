@@ -2421,6 +2421,8 @@ export interface CoreOrderTable {
    * time), as against `paid_at` (when the host processed it). Null: not a period's order.
    */
   provider_paid_at: Defaulted<Timestamp | null>;
+  /** Migration 0950: the sum of the order's adjustments; `total` is after them (ADR 0690). */
+  discount: Generated<number>;
 }
 
 export interface CoreOrderLineTable {
@@ -2439,6 +2441,34 @@ export interface CoreOrderLineTable {
   tax_amount: Generated<number>;
   /** Migration 0516: the product tax code it was last charged at. */
   tax_code: Defaulted<string | null>;
+  /** Migration 0950: the line's share of the order's adjustments; its net is the difference. */
+  line_discount: Generated<number>;
+}
+
+/**
+ * Money off an order (stage 34, ADR 0690, migration 0950): on a line, or on the whole order and
+ * spread over its lines. Never changed, except marked removed once and a reason blanked by erase.
+ */
+export interface CoreOrderAdjustmentTable {
+  id: string;
+  order_id: string;
+  /** Null: the whole order, spread over its lines in proportion. */
+  line_id: string | null;
+  kind: "code" | "automatic" | "staff" | "referral";
+  source_object: Defaulted<string | null>;
+  source_id: Defaulted<string | null>;
+  /** A staff adjustment: the user who gave it. */
+  given_by: Defaulted<string | null>;
+  reason: Defaulted<string | null>;
+  /** Asked as a percentage, when it was. */
+  percent: Defaulted<number | null>;
+  /** Positive minor units. */
+  amount: number;
+  /** The pending action it waited in, when it did. */
+  approval: Defaulted<string | null>;
+  created_at: Timestamp;
+  removed_at: Defaulted<Timestamp | null>;
+  removed_by: Defaulted<string | null>;
 }
 
 /** A record a paid order line granted (stage 27, ADR 0435, migration 0450). */
@@ -2789,6 +2819,8 @@ export interface CrmOrderView {
   tax_country: string | null;
   /** Paid less refunded, less the tax still held. */
   net: number;
+  /** Migration 0950: the sum of the order's adjustments (ADR 0690). */
+  discount: number;
 }
 
 export interface CrmOrderLineView {
@@ -2805,6 +2837,30 @@ export interface CrmOrderLineView {
   created_at: Timestamp;
   tax_amount: number;
   tax_code: string | null;
+  /** Migration 0950: the line's share of the adjustments, and its total after them. */
+  line_discount: number;
+  line_net: number;
+}
+
+/** Migration 0950: an order's adjustments, for reports (ADR 0690). */
+export interface CrmOrderAdjustmentView {
+  id: string;
+  order_id: string;
+  person_id: string | null;
+  line_id: string | null;
+  kind: "code" | "automatic" | "staff" | "referral";
+  source_object: string | null;
+  source_id: string | null;
+  given_by: string | null;
+  reason: string | null;
+  percent: number | null;
+  amount: number;
+  approval: string | null;
+  created_at: Timestamp;
+  removed_at: Timestamp | null;
+  removed_by: string | null;
+  order_state: OrderState;
+  currency: string;
 }
 
 export interface CrmStageHistoryView {
@@ -3368,6 +3424,7 @@ export interface CoreDatabase {
   core_transition_history: CoreTransitionHistoryTable;
   core_order: CoreOrderTable;
   core_order_line: CoreOrderLineTable;
+  core_order_adjustment: CoreOrderAdjustmentTable;
   core_order_grant: CoreOrderGrantTable;
   core_order_payment: CoreOrderPaymentTable;
   core_order_checkout: CoreOrderCheckoutTable;
@@ -3503,6 +3560,7 @@ export interface CoreDatabase {
   rec_task: CrmTasksView;
   rec_order: CrmOrderView;
   rec_order_line: CrmOrderLineView;
+  rec_order_adjustment: CrmOrderAdjustmentView;
   rec_task_link: CrmTaskLinksView;
   rec_record_tag: CrmRecordTagsView;
 }

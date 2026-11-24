@@ -224,6 +224,20 @@ export function toOperationError(error: unknown): OperationError {
       reason: "order_stale",
     });
   }
+  // An order's price and its payment page crossed (migration 0951, ADR 0690): a discount given
+  // once its page is open, or a page recorded for a price a discount changed meanwhile.
+  if (message.includes("core_order_checkout_open")) {
+    return new ConflictError(
+      "The payment page for this order is already open, so its price cannot change: cancel it and start a new one",
+      { rule: "checkout_open" },
+    );
+  }
+  if (message.includes("core_order_checkout_stale")) {
+    return new ConflictError(
+      "The order's price changed while its payment page was being opened. Pay again for the new price.",
+      { rule: "price_changed" },
+    );
+  }
   // A subscription written from an older read of it (migration 0530): as for an order.
   if (message.includes("core_subscription_stale")) {
     return new ConflictError("The subscription changed while this was being applied. Try again.", {

@@ -2628,6 +2628,10 @@
             "description": "The country the latest taxed payment was for",
             "type": ["string", "null"]
           },
+          "discount": {
+            "type": "number",
+            "description": "Money taken off the order (its discounts), already out of the total"
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -2660,6 +2664,10 @@
                 "taxAmount": {
                   "type": "number",
                   "description": "The tax inside this line's payments, as the payment provider calculated it"
+                },
+                "discount": {
+                  "type": "number",
+                  "description": "The line's share of the order's discounts: it costs total less this"
                 }
               },
               "required": [
@@ -2671,7 +2679,62 @@
                 "quantity",
                 "unitPrice",
                 "total",
-                "taxAmount"
+                "taxAmount",
+                "discount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "adjustments": {
+            "description": "Staff only: the discounts on the order, in the order they were given",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "lineId": {
+                  "description": "The line it is on; null: spread over the order",
+                  "type": ["string", "null"]
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["code", "automatic", "staff", "referral"]
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "What it took off, in the currency's minor unit"
+                },
+                "percent": {
+                  "description": "The percentage asked for, when it was one",
+                  "type": ["number", "null"]
+                },
+                "reason": {
+                  "type": ["string", "null"]
+                },
+                "givenBy": {
+                  "description": "The staff account that gave it",
+                  "type": ["string", "null"]
+                },
+                "approval": {
+                  "description": "The approval it waited in, when it did",
+                  "type": ["string", "null"]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "lineId",
+                "kind",
+                "amount",
+                "percent",
+                "reason",
+                "givenBy",
+                "approval",
+                "createdAt"
               ],
               "additionalProperties": false
             }
@@ -2704,6 +2767,7 @@
           "taxAmount",
           "taxRefunded",
           "taxCountry",
+          "discount",
           "lines"
         ],
         "additionalProperties": false
@@ -2847,6 +2911,10 @@
             "description": "The country the latest taxed payment was for",
             "type": ["string", "null"]
           },
+          "discount": {
+            "type": "number",
+            "description": "Money taken off the order (its discounts), already out of the total"
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -2879,6 +2947,10 @@
                 "taxAmount": {
                   "type": "number",
                   "description": "The tax inside this line's payments, as the payment provider calculated it"
+                },
+                "discount": {
+                  "type": "number",
+                  "description": "The line's share of the order's discounts: it costs total less this"
                 }
               },
               "required": [
@@ -2890,7 +2962,62 @@
                 "quantity",
                 "unitPrice",
                 "total",
-                "taxAmount"
+                "taxAmount",
+                "discount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "adjustments": {
+            "description": "Staff only: the discounts on the order, in the order they were given",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "lineId": {
+                  "description": "The line it is on; null: spread over the order",
+                  "type": ["string", "null"]
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["code", "automatic", "staff", "referral"]
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "What it took off, in the currency's minor unit"
+                },
+                "percent": {
+                  "description": "The percentage asked for, when it was one",
+                  "type": ["number", "null"]
+                },
+                "reason": {
+                  "type": ["string", "null"]
+                },
+                "givenBy": {
+                  "description": "The staff account that gave it",
+                  "type": ["string", "null"]
+                },
+                "approval": {
+                  "description": "The approval it waited in, when it did",
+                  "type": ["string", "null"]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "lineId",
+                "kind",
+                "amount",
+                "percent",
+                "reason",
+                "givenBy",
+                "approval",
+                "createdAt"
               ],
               "additionalProperties": false
             }
@@ -2923,6 +3050,7 @@
           "taxAmount",
           "taxRefunded",
           "taxCountry",
+          "discount",
           "lines"
         ],
         "additionalProperties": false
@@ -3132,6 +3260,10 @@
             "description": "The country the latest taxed payment was for",
             "type": ["string", "null"]
           },
+          "discount": {
+            "type": "number",
+            "description": "Money taken off the order (its discounts), already out of the total"
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -3164,6 +3296,10 @@
                 "taxAmount": {
                   "type": "number",
                   "description": "The tax inside this line's payments, as the payment provider calculated it"
+                },
+                "discount": {
+                  "type": "number",
+                  "description": "The line's share of the order's discounts: it costs total less this"
                 }
               },
               "required": [
@@ -3175,7 +3311,62 @@
                 "quantity",
                 "unitPrice",
                 "total",
-                "taxAmount"
+                "taxAmount",
+                "discount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "adjustments": {
+            "description": "Staff only: the discounts on the order, in the order they were given",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "lineId": {
+                  "description": "The line it is on; null: spread over the order",
+                  "type": ["string", "null"]
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["code", "automatic", "staff", "referral"]
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "What it took off, in the currency's minor unit"
+                },
+                "percent": {
+                  "description": "The percentage asked for, when it was one",
+                  "type": ["number", "null"]
+                },
+                "reason": {
+                  "type": ["string", "null"]
+                },
+                "givenBy": {
+                  "description": "The staff account that gave it",
+                  "type": ["string", "null"]
+                },
+                "approval": {
+                  "description": "The approval it waited in, when it did",
+                  "type": ["string", "null"]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "lineId",
+                "kind",
+                "amount",
+                "percent",
+                "reason",
+                "givenBy",
+                "approval",
+                "createdAt"
               ],
               "additionalProperties": false
             }
@@ -3212,6 +3403,7 @@
           "taxAmount",
           "taxRefunded",
           "taxCountry",
+          "discount",
           "lines",
           "token"
         ],
@@ -3300,6 +3492,10 @@
             "description": "The country the latest taxed payment was for",
             "type": ["string", "null"]
           },
+          "discount": {
+            "type": "number",
+            "description": "Money taken off the order (its discounts), already out of the total"
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -3332,6 +3528,10 @@
                 "taxAmount": {
                   "type": "number",
                   "description": "The tax inside this line's payments, as the payment provider calculated it"
+                },
+                "discount": {
+                  "type": "number",
+                  "description": "The line's share of the order's discounts: it costs total less this"
                 }
               },
               "required": [
@@ -3343,7 +3543,62 @@
                 "quantity",
                 "unitPrice",
                 "total",
-                "taxAmount"
+                "taxAmount",
+                "discount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "adjustments": {
+            "description": "Staff only: the discounts on the order, in the order they were given",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "lineId": {
+                  "description": "The line it is on; null: spread over the order",
+                  "type": ["string", "null"]
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["code", "automatic", "staff", "referral"]
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "What it took off, in the currency's minor unit"
+                },
+                "percent": {
+                  "description": "The percentage asked for, when it was one",
+                  "type": ["number", "null"]
+                },
+                "reason": {
+                  "type": ["string", "null"]
+                },
+                "givenBy": {
+                  "description": "The staff account that gave it",
+                  "type": ["string", "null"]
+                },
+                "approval": {
+                  "description": "The approval it waited in, when it did",
+                  "type": ["string", "null"]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "lineId",
+                "kind",
+                "amount",
+                "percent",
+                "reason",
+                "givenBy",
+                "approval",
+                "createdAt"
               ],
               "additionalProperties": false
             }
@@ -3376,6 +3631,7 @@
           "taxAmount",
           "taxRefunded",
           "taxCountry",
+          "discount",
           "lines"
         ],
         "additionalProperties": false

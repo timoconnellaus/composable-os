@@ -816,12 +816,17 @@ async function invokeOnce<O extends AnyOperation>(
   // Some changes always wait for a person (extension installs and upgrades, ADR 0041).
   // A person's own fields and settings (a gym's booking rules, ADR 0507): anyone else's write of
   // one waits for a person, as an AI's publish does (ADR 0480).
+  // An operation's own rule for when a call waits (a staff discount over the limit, ADR 0691).
   const forced =
     op.alwaysReview === true ||
     (Array.isArray(op.alwaysReview) && op.alwaysReview.includes(ctx.actor)) ||
     (!ctx.approval &&
       ALWAYS_REVIEWED_PUBLISHERS.includes(ctx.actor) &&
-      (await touchesPersonApproves(ctx.db.query, op.name, input)));
+      (await touchesPersonApproves(ctx.db.query, op.name, input))) ||
+    (!ctx.approval &&
+      decision === "auto" &&
+      op.reviewWhen !== undefined &&
+      (await op.reviewWhen(input, ctx.db.query)));
   if (forced && decision === "auto" && !ctx.approval) decision = "review";
   // Applied by the adjudicator, asked again: what a person approves may have joined the action
   // since it was queued (a family link on a merge, ADR 0540). Then it is a person's to apply.
@@ -2007,6 +2012,14 @@ function outsideError(error: unknown): OperationError {
   // `show` decides what outsiders are told, through stock.get).
   if (typed.code === "invalid_input" && (typed.details as { rule?: unknown })?.rule === "stock") {
     return new ValidationError("There are not enough in stock", { rule: "stock" });
+  }
+  // A discount given while the buyer's payment page was being opened (migration 0951, ADR 0690):
+  // their own checkout, so they are told to pay again for the new price, and no more than that.
+  if (
+    typed.code === "conflict" &&
+    (typed.details as { rule?: unknown })?.rule === "price_changed"
+  ) {
+    return typed;
   }
   // A free trial another start took a moment before (migration 0531, ADR 0489): the caller's own
   // start, so they are told to start again (which gives them that page), and no more than that.
