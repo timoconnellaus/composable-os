@@ -534,14 +534,20 @@ export async function movesStartedShiftById(
   const table = objectTableOf(object.name);
   const column = (f: string) => object.fields.find((x) => x.name === f)?.column;
   const startsCol = def ? column(def.starts) : undefined;
-  if (!def || !table || !startsCol) return false;
+  const endsCol = def ? column(def.ends) : undefined;
+  if (!def || !table || !startsCol || !endsCol) return false;
   if (!Object.hasOwn(values, def.starts) && !Object.hasOwn(values, def.ends)) return false;
   const row = (await db
     .selectFrom(table)
-    .select(`${startsCol} as starts`)
+    .select([`${startsCol} as starts`, `${endsCol} as ends`])
     .where("id", "=", id)
-    .executeTakeFirst()) as { starts?: unknown } | undefined;
-  return movesStartedShift(object, { [def.starts]: row?.starts ?? null }, values, now);
+    .executeTakeFirst()) as { starts?: unknown; ends?: unknown } | undefined;
+  return movesStartedShift(
+    object,
+    { [def.starts]: row?.starts ?? null, [def.ends]: row?.ends ?? null },
+    values,
+    now,
+  );
 }
 
 /** Notes a claim written (or released, null) by this batch, for the batch's later reads. */
