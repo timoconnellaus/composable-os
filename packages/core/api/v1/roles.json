@@ -18,7 +18,37 @@
         "x.bookings.markAttended",
         "x.bookings.markNoShow",
         "x.bookings.roster",
-        "x.bookings.undoAttended"
+        "x.bookings.undoAttended",
+        "x.dailychecks.day",
+        "x.dailychecks.done",
+        "x.dailychecks.tick",
+        "x.dailychecks.today"
+      ]
+    },
+    {
+      "name": "programs.coach",
+      "pack": "programs",
+      "label": "Coach",
+      "description": "Sees the clients they coach (an active program naming them their coach): their sessions, sets, history and progress, and logs sets and marks sessions for them. Nothing else: no other clients, no class sessions, no programs, no assigning, no people.",
+      "read": ["programs.assignment", "programs.session"],
+      "operations": [
+        "ack.confirm",
+        "ack.mine",
+        "record.get",
+        "record.list",
+        "screens.mine",
+        "x.dailychecks.day",
+        "x.dailychecks.done",
+        "x.dailychecks.tick",
+        "x.dailychecks.today",
+        "x.programs.history",
+        "x.programs.logAdd",
+        "x.programs.logRemove",
+        "x.programs.logUpdate",
+        "x.programs.progress",
+        "x.programs.sessionComplete",
+        "x.programs.sessionGet",
+        "x.programs.today"
       ]
     },
     {
@@ -31,6 +61,10 @@
         "ack.confirm",
         "ack.mine",
         "screens.mine",
+        "x.dailychecks.day",
+        "x.dailychecks.done",
+        "x.dailychecks.tick",
+        "x.dailychecks.today",
         "x.rostering.away",
         "x.rostering.back",
         "x.rostering.checklist",
@@ -63,6 +97,10 @@
         "record.get",
         "record.list",
         "screens.mine",
+        "x.dailychecks.day",
+        "x.dailychecks.done",
+        "x.dailychecks.tick",
+        "x.dailychecks.today",
         "x.ticketing.checkIn",
         "x.ticketing.undoCheckIn"
       ]

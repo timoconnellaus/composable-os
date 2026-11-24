@@ -64,7 +64,39 @@ async function check(dir: string, json: boolean, io: ExtIo): Promise<number> {
   for (const line of rolesSummary(result.manifest)) io.out(line);
   // And what it emails members without a person's approval (ADR 0590).
   for (const line of routineMailSummary(result.manifest)) io.out(line);
+  // And the moments about a Person it lets a journey start or stop on (stage 53, ADR 0802).
+  for (const line of journeySignalsSummary(result.manifest)) io.out(line);
   return 0;
+}
+
+/**
+ * One line for each journey signal the manifest declares (stage 53, ADR 0802): what the host
+ * records about a Person on every write. Empty when it declares none.
+ */
+export function journeySignalsSummary(
+  manifest:
+    | {
+        id: string;
+        journeySignals?: Record<
+          string,
+          { label: string; object: string; enters?: string[]; from?: string[] }
+        >;
+      }
+    | null
+    | undefined,
+): string[] {
+  const signals = Object.entries(manifest?.journeySignals ?? {});
+  if (!manifest || !signals.length) return [];
+  return [
+    "This extension declares journey signals, recorded by the host for the Person on every write:",
+    ...signals.map(
+      ([name, signal]) =>
+        `  ${manifest.id}.${name} (${signal.label}): ${signal.object} ` +
+        (signal.enters
+          ? `enters ${signal.enters.join(" or ")}${signal.from ? ` from ${signal.from.join(" or ")}` : ""}`
+          : "created"),
+    ),
+  ];
 }
 
 /**
@@ -104,7 +136,15 @@ export function rolesSummary(
   manifest:
     | {
         id: string;
-        roles?: Record<string, { label: string; permissions: string[]; read: string[] }>;
+        roles?: Record<
+          string,
+          {
+            label: string;
+            permissions: string[];
+            read: string[];
+            looksAfter?: Record<string, string>;
+          }
+        >;
         grantable?: string[];
         restricted?: string[];
         tools?: Record<string, { permission?: string | string[] }>;
@@ -134,7 +174,11 @@ export function rolesSummary(
           ...roles.map(
             ([name, role]) =>
               `  role ${manifest.id}.${name} (${role.label}): tools with ${role.permissions.join(", ") || "no permission"}; ` +
-              `reads ${role.read.join(", ") || "nothing"}`,
+              `reads ${role.read.join(", ") || "nothing"}` +
+              // Limited to the People its holder looks after (ADR 0881).
+              (role.looksAfter && Object.keys(role.looksAfter).length
+                ? `; only the people its holder looks after on ${Object.keys(role.looksAfter).join(", ")}`
+                : ""),
           ),
         ]
       : []),

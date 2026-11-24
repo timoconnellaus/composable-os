@@ -29,6 +29,11 @@ const PROGRAM = "programs.program";
 const ASSIGNMENT = "programs.assignment";
 const SESSION = "programs.session";
 const LOG = "programs.log";
+/**
+ * The coach role's tools (ADR 0881): a client's training, read and logged for them. Any member of
+ * staff calls them as before; the coach role holds them for the People it looks after only.
+ */
+const COACH = "programs:coach";
 
 /** Sessions written in one call: record.createMany's cap (ADR 0448). */
 const SESSIONS_PER_BATCH = 50;
@@ -142,6 +147,11 @@ export const assign = defineTool({
       personId: id.optional().describe("A person: a client program"),
       classTypeId: id.optional().describe("A class type: a class program"),
       startDate: date,
+      coachId: id
+        .optional()
+        .describe(
+          "A staff account (usr_…): the client's coach on it, who with the coach role sees and logs their training",
+        ),
     })
     .refine((v) => Boolean(v.personId) !== Boolean(v.classTypeId), {
       message: "Name a person or a class type, not both",
@@ -225,6 +235,7 @@ export const assign = defineTool({
             [who.field]: who.value,
             startDate: input.startDate,
             endDate,
+            ...(input.coachId ? { coach: input.coachId } : {}),
             ...(ctx.caller?.kind === "staff"
               ? { assignedBy: ctx.caller.userId, assignedByName: ctx.caller.name }
               : {}),
@@ -475,6 +486,7 @@ export const today = defineTool({
   }),
   risk: "read",
   audiences: ["staff", "customer"],
+  permission: COACH,
   async handler(input, ctx) {
     const day = input.date ?? todayUtc();
     const person = personFilter(ctx, input.personId);
@@ -510,6 +522,7 @@ export const sessionGet = defineTool({
   }),
   risk: "read",
   audiences: ["staff", "customer"],
+  permission: COACH,
   async handler(input, ctx) {
     const record = await get(ctx, SESSION, input.sessionId);
     const session = sessionOf(record);
@@ -711,6 +724,7 @@ export const logAdd = defineTool({
   output: loggedSet,
   risk: "write",
   audiences: ["staff", "customer"],
+  permission: COACH,
   customerFields: {
     [LOG]: [
       "label",
@@ -833,6 +847,7 @@ export const logUpdate = defineTool({
   output: loggedSet,
   risk: "write",
   audiences: ["staff", "customer"],
+  permission: COACH,
   async handler(input, ctx) {
     const values: Record<string, unknown> = {
       ...(input.actual?.reps !== undefined ? { actualReps: input.actual.reps } : {}),
@@ -875,6 +890,7 @@ export const logRemove = defineTool({
   }),
   risk: "write",
   audiences: ["staff", "customer"],
+  permission: COACH,
   async handler(input, ctx) {
     // A session the caller may not read is not found, as for logging on it.
     const record = await get(ctx, SESSION, input.sessionId);
@@ -923,6 +939,7 @@ export const sessionComplete = defineTool({
   output: z.object({ changed: z.boolean(), session: sessionOut }),
   risk: "write",
   audiences: ["staff", "customer"],
+  permission: COACH,
   customerFields: { [SESSION]: ["state", "completedAt"] },
   async handler(input, ctx) {
     const current = sessionOf(await get(ctx, SESSION, input.sessionId));
@@ -995,6 +1012,7 @@ export const history = defineTool({
   }),
   risk: "read",
   audiences: ["staff", "customer"],
+  permission: COACH,
   async handler(input, ctx) {
     const person = personFilter(ctx, input.personId);
     const exercise = await get(ctx, EXERCISE, input.exerciseId);
@@ -1051,6 +1069,7 @@ export const progress = defineTool({
   }),
   risk: "read",
   audiences: ["staff", "customer"],
+  permission: COACH,
   async handler(input, ctx) {
     const person = personFilter(ctx, input.personId);
     const only = input.assignmentId

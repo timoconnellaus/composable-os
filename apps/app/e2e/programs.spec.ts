@@ -1,9 +1,9 @@
 // Stage 41 end to end, one test per journey: a coach builds, publishes and assigns a program in
-// the builder block; a client signs in with an emailed code and logs a session in the today
-// block. The blocks are the pack's own web blocks, mounted where they sit (`/blocks`, development
-// only), calling the host's HTTP surface from the browser as a client app would. In local dev
-// Programs is the org's own extension (scripts/dev-setup.mjs), installed by an admin here as a
-// product that lists the pack would have it.
+// the builder block; a client signs in with an emailed code, logs a session in the today block
+// and corrects the set in the history block. The blocks are the pack's own web blocks, mounted
+// where they sit (`/blocks`, development only), calling the host's HTTP surface from the browser
+// as a client app would. In local dev Programs is the org's own extension (scripts/dev-setup.mjs),
+// installed by an admin here as a product that lists the pack would have it.
 import { type APIRequestContext, expect, type Page, test } from "@playwright/test";
 import { open, unique } from "./helpers.ts";
 import {
@@ -117,7 +117,11 @@ test("a coach builds a program, publishes it and assigns it", async ({ page }) =
   });
 });
 
-test("a client signs in and logs a session", async ({ page, browser, baseURL }) => {
+test("a client signs in, logs a session and corrects it in their history", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
   test.setTimeout(240_000);
   const bank = await setUp(page);
   const email = `${unique("member")}@members.test`.toLowerCase();
@@ -263,6 +267,20 @@ async function memberLogsTheirSession(
   await expect(view.getByTestId("set-row").first()).toHaveAttribute("data-done", "true");
   await view.getByRole("button", { name: "Finish session" }).click();
   await expect(view.getByRole("button", { name: "Done" })).toBeVisible();
+
+  // Looking back, in the history block: the session with its sets done, opened set by set, and
+  // the logged set corrected (the host's logUpdate: what was done, never the target).
+  await memberPage.goto(block("programs-history", "SessionHistory", { until: "2028-02-07" }));
+  const history = memberPage.getByTestId("session-history");
+  const past = history.getByTestId("past-session").first();
+  await expect(past.getByTestId("sets-done")).toHaveText("1 of 1 sets");
+  await past.getByRole("button", { name: /Press/ }).click();
+  const pastSet = past.getByTestId("past-set").first();
+  await expect(pastSet.getByTestId("past-set-done")).toHaveText("7 reps @ 20 kg · RPE 8.5");
+  await pastSet.getByRole("button", { name: "Correct" }).click();
+  await pastSet.getByLabel("Set 1 reps done").fill("6");
+  await pastSet.getByRole("button", { name: "Save" }).click();
+  await expect(pastSet.getByTestId("past-set-done")).toHaveText("6 reps @ 20 kg · RPE 8.5");
   await member.close();
 
   const logged = await op<{ items: { values: Record<string, unknown> }[] }>(
@@ -275,7 +293,7 @@ async function memberLogsTheirSession(
   );
   expect(logged.items.map((l) => l.values)).toEqual([
     expect.objectContaining({
-      actualReps: 7,
+      actualReps: 6,
       actualLoad: 20,
       rpe: 8.5,
       targetReps: 8,
