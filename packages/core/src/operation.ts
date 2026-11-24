@@ -182,6 +182,11 @@ export interface HandlerContext {
    * account it is for; absent when it holds no such role. A tool's run carries it on.
    */
   readonly roleLooksAfter?: import("./pack-role-looks-after.ts").LooksAfterLimit | undefined;
+  /**
+   * The staff caller's pack role reach through the records that name it (ADR 0755), with the
+   * account it is for; absent when it holds no such role. A tool's run carries it on.
+   */
+  readonly roleMine?: import("./pack-role-mine.ts").MineLimit | undefined;
   /** The caller's reason for the change, when it gave one (MCP). */
   readonly reason?: string | undefined;
   /**

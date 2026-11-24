@@ -187,3 +187,11 @@ installed): Daily checklists' `today`, `day`, `tick` and `done`, whose host oper
 only the checklists the account may do (ADR 0651). Nothing else is opened: the registry walk in
 `packages/core/test/screens.test.ts` lists exactly these beside each role's own tools, its reads
 and `screens.mine`, and `api/v1/roles.json` lists them for each role's client.
+
+## Amendment, 2026-11-24 (stage 39 step 3, ADR 0755)
+A role may also declare `mine: { <object>: { through, who, path?, live?, within? } }`: its holder
+reaches those objects' records only through a live record of its pack naming it (`who` on
+`through`), within a window around that record's datetimes, along a path of relations to the
+object (a crew place to its visit to its job), on the role's reads and inside its tools. Jobs'
+crew role will declare it (stage 39 step 5). See
+[ADR 0755](0755-the-mine-reach-for-pack-roles.md).

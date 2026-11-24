@@ -41,6 +41,7 @@ import { FIELD_TYPES, type FieldTypeName, formulaTypeOf } from "./field-types.ts
 import { checkFormula, type FormulaFieldRef } from "./formula/compile.ts";
 import { checkObjectIntake, intakeManifestSchema } from "./intake.ts";
 import { journeySignalIssues, journeySignalsManifestSchema } from "./journey-signals.ts";
+import { checkRoleMine, mineManifestSchema } from "./mine.ts";
 import { checkObjectOccupies, occupiesManifestSchema } from "./occupies.ts";
 import { checkObjectRecurring, recurringManifestSchema } from "./recurring.ts";
 import { renamedMessage } from "./renamed.ts";
@@ -401,6 +402,8 @@ export const roleManifestSchema = z.object({
     .optional(),
   /** Objects whose records the role reaches only for the People its holder looks after (ADR 0889). */
   looksAfter: z.record(z.string().max(80), z.string().max(40)).optional(),
+  /** Objects whose records the role reaches only through a live record naming its holder (ADR 0755). */
+  mine: z.record(z.string().max(80), mineManifestSchema).optional(),
 });
 export type RoleManifest = z.infer<typeof roleManifestSchema>;
 
@@ -874,6 +877,8 @@ export function toManifest(extension: Extension): ExtensionManifest {
           read: [...role.read],
           ...(role.today ? { today: { ...role.today } } : {}),
           ...(role.looksAfter ? { looksAfter: { ...role.looksAfter } } : {}),
+          // Plain data: copied so the manifest shares nothing with the definition.
+          ...(role.mine ? { mine: JSON.parse(JSON.stringify(role.mine)) } : {}),
         },
       ]),
     ),
@@ -2216,6 +2221,8 @@ export function validateManifest(
         contract(lp, `${object} is limited to today already: one limit an object`);
       }
     }
+    // A role reaching records only through a live record naming its holder (ADR 0755).
+    checkRoleMine(m, name, role, contract);
   }
 
   for (const issue of screenIssues(m)) contract(issue.path, issue.message);

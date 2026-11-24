@@ -171,6 +171,8 @@ export function toolOperation(
                 ...(ctx.roleToday ? { roleToday: ctx.roleToday } : {}),
                 // And one limited to the People they look after (ADR 0889).
                 ...(ctx.roleLooksAfter ? { roleLooksAfter: ctx.roleLooksAfter } : {}),
+                // And one reaching only the records that name them (ADR 0755).
+                ...(ctx.roleMine ? { roleMine: ctx.roleMine } : {}),
                 // Who approved it, for a tool a person approves called by another actor.
                 ...(ctx.approval?.approvedBy ? { approvedBy: ctx.approval.approvedBy } : {}),
                 // A run calling this tool: the weaker of its standing and the tool's wins.

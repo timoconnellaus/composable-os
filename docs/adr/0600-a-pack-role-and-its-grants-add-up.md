@@ -217,3 +217,7 @@ accept it beside a pack role. Every other core permission still counts for nothi
 session. A grant of it opens exactly the core operations whose permission it is (the
 `agreement.desk.*` staff operations) and nothing else; enrolling or revoking a device stays an
 admin's.
+
+**Amended 2026-11-24** (stage 39 step 3, [ADR 0755](0755-the-mine-reach-for-pack-roles.md)):
+the role's "mine" reach (`roleMineFor`) travels as its other limits do: only on a call the role
+allows, never on one a grant of the tool's permission allows, and not on another pack's tool.

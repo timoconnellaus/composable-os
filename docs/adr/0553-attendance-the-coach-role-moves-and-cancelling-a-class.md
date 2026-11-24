@@ -150,3 +150,10 @@ shift, who is on it, its time, kind and place) and offers and takes shifts, thro
 tools; the coach role itself still reaches class lists, bookings and names only today. The roster
 read returns nothing of a class's bookings, places or list, nor any Person. And a class's and a
 series' coach are now `personApproves`: an assistant's swap waits for a person.
+
+## Amendment, 2026-11-24 (stage 39 step 3, ADR 0755)
+A third limit sits beside today's: a role's `mine` reach, through the records of its pack that
+name its holder within a window (Jobs' crew on the jobs it has a crew place on, a week either side
+of the visit). An object takes one limit: the contract check refuses `mine` on an object already
+limited to today. Unlike today's, its list predicate is a subquery with the account bound once,
+not a list of ids. See [ADR 0755](0755-the-mine-reach-for-pack-roles.md).

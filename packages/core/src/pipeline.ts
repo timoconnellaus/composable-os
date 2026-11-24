@@ -105,12 +105,14 @@ import {
 } from "./operation.ts";
 import type { VoiceRuntime } from "./operations/voice.ts";
 import { holdRoleLooksAfter, type LooksAfterLimit } from "./pack-role-looks-after.ts";
+import { holdRoleMine, type MineLimit } from "./pack-role-mine.ts";
 import { holdRoleToday, type TodayLimits } from "./pack-role-today.ts";
 import {
   type HeldPackRole,
   loadStaffRights,
   roleLimitsFor,
   roleLooksAfterFor,
+  roleMineFor,
   type StaffRights,
   staffMayCall,
   staffRightsReach,
@@ -187,6 +189,12 @@ export interface InvocationContext {
    * caller's pack role limit to the People they look after, held on this call as on the account's.
    */
   roleLooksAfter?: LooksAfterLimit | undefined;
+  /**
+   * Set by platform code only (a tool run, for the staff account that started it, ADR 0755): the
+   * caller's pack role reach through the records that name it, held on this call as on the
+   * account's own.
+   */
+  roleMine?: MineLimit | undefined;
   /**
    * Set by platform code only (a tool run, ADR 0590): who stands behind what the tool writes, from
    * the verified caller that started it (a person, a customer, an AI). Absent: the host.
@@ -776,6 +784,8 @@ async function invokeOnce<O extends AnyOperation>(
   // The limit to the People the account looks after (ADR 0889), the same way.
   const roleLooksAfter: LooksAfterLimit | undefined =
     roleLooksAfterFor(rights, op, ctx.user.id) ?? ctx.roleLooksAfter;
+  // And the reach through the records that name the account (ADR 0755), the same way.
+  const roleMine: MineLimit | undefined = roleMineFor(rights, op, ctx.user.id) ?? ctx.roleMine;
   if (packRole && !staffRightsReach(rights, op)) {
     const error = packRoleRefusal(packRole, op);
     const gate = evaluateGate(
@@ -965,6 +975,7 @@ async function invokeOnce<O extends AnyOperation>(
     ...(ctx.followerBudget ? { followerBudget: ctx.followerBudget } : {}),
     ...(roleToday ? { roleToday } : {}),
     ...(roleLooksAfter ? { roleLooksAfter } : {}),
+    ...(roleMine ? { roleMine } : {}),
     ...(ctx.markStanding ? { markStanding: ctx.markStanding } : {}),
     ...(ctx.markGiven ? { markGiven: ctx.markGiven } : {}),
     reason: ctx.reason,
@@ -1169,6 +1180,8 @@ async function invokeOnce<O extends AnyOperation>(
   // simulated or overlaid included); a list holds it in its own query (record.list).
   try {
     await holdRoleLooksAfter(ctx.db.query, roleLooksAfter, op.name, input);
+    // And the reach through the records that name the account (ADR 0755), the same way.
+    await holdRoleMine(ctx.db.query, roleMine, op.name, input, Date.parse(now));
   } catch (error) {
     return fail(error, decision);
   }

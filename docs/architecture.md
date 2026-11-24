@@ -1917,7 +1917,15 @@ A role's `looksAfter` names, by object, its relation to the Person; a pack's obj
 `team` (its user fields naming who looks after the Person it is about, while live), and the host
 holds a list of a limited object to those People in its own query (one subquery, the account bound
 once), finds no record of anyone else's for a get, update or create, and refuses any other
-operation on it ([ADR 0889](adr/0889-a-pack-role-limited-to-the-people-its-holder-looks-after.md)). A tool may name several permissions, any one of which opens it.
+operation on it ([ADR 0889](adr/0889-a-pack-role-limited-to-the-people-its-holder-looks-after.md)).
+A role's `mine` names, by object, the records of its pack that name its holder (`through` and its
+user field `who`), the relations from them to the object (`path`), the states in which they count
+and a window around their datetimes; the host holds a list of the object to the records those
+lead to in its own query (one subquery, the account and the window bound once), finds no other
+for a get or update, refuses creating the object or a naming record and any change to a field
+that decides the reach, and refuses any other operation
+([ADR 0755](adr/0755-the-mine-reach-for-pack-roles.md): Jobs' crew on the jobs it has a crew place
+on, a week either side of the visit). A tool may name several permissions, any one of which opens it.
 A pack may declare a tool permission **restricted**
 ([ADR 0625](adr/0625-restricted-pack-permissions.md)): a tool naming only restricted permissions is
 held by admins and by a grant of it, never by a member's or viewer's own role or by a pack role,

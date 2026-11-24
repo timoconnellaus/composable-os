@@ -160,6 +160,28 @@ describe("the staff roles an extension declares (stage 27, ADR 0436)", () => {
     ]);
   });
 
+  it("says which objects a role reaches only through the records naming its holder (ADR 0755)", () => {
+    expect(
+      rolesSummary({
+        id: "jobs",
+        roles: {
+          crew: {
+            label: "Crew",
+            permissions: ["jobs:crew"],
+            read: [],
+            mine: {
+              "jobs.job": { through: "jobs.assignment" },
+              "jobs.visit": { through: "jobs.assignment" },
+            },
+          },
+        },
+      }),
+    ).toEqual([
+      "This extension declares staff roles. An account given one may do this and nothing else:",
+      "  role jobs.crew (Crew): tools with jobs:crew; reads nothing; only through the jobs.assignment records naming its holder on jobs.job, jobs.visit",
+    ]);
+  });
+
   it("names what each grantable permission opens, which adds up with a role (ADR 0600)", () => {
     expect(
       rolesSummary({

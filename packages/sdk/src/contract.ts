@@ -11,6 +11,7 @@ import type { DocumentPathSpec, DocumentSchema } from "./document.ts";
 import type { FieldTypeName } from "./field-types.ts";
 import type { IntakeSpec } from "./intake.ts";
 import type { JourneySignalSpec } from "./journey-signals.ts";
+import type { MineSpec } from "./mine.ts";
 import type { OccupiesSpec } from "./occupies.ts";
 import type { RecurringScheduleSpec } from "./recurring.ts";
 import type { RoutineMailModule, RoutineMailSpec } from "./routine-mail.ts";
@@ -780,6 +781,18 @@ export interface RoleSpec {
    * them, and any other operation naming the object is refused. Other staff are not limited.
    */
   looksAfter?: Readonly<Record<string, string>>;
+  /**
+   * Objects whose records the role reaches only through a live record of this extension naming
+   * its holder (ADR 0755), by object: that record's object (`through`), its user field naming the
+   * holder (`who`), the relations from it to the object reached (`path`), the states in which it
+   * counts (`live`) and a window around its datetimes (`within`). Jobs' crew reaches the jobs on
+   * which it has a crew place, from a week before the visit to a week after. The host holds it on
+   * every call the account makes and every call of a tool run it started: a list holds only those
+   * records, a read or a change of another is not found, a new record is refused, a change to a
+   * field that decides the reach is refused, and so is any other operation. Other staff are not
+   * limited.
+   */
+  mine?: Readonly<Record<string, MineSpec>>;
 }
 
 /**

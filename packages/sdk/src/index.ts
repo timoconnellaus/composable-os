@@ -17,6 +17,7 @@ export * from "./intake.ts";
 export * from "./journey-signals.ts";
 export * from "./manifest.ts";
 export * from "./media.ts";
+export * from "./mine.ts";
 export * from "./occupies.ts";
 export * from "./permissions.ts";
 export * from "./questions.ts";

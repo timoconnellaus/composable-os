@@ -254,6 +254,7 @@ export {
   type LooksAfterTeam,
   looksAfterWhere,
 } from "./pack-role-looks-after.ts";
+export { holdRoleMine, type MineLimit, type MineReach, mineWhere } from "./pack-role-mine.ts";
 export { holdRoleToday, type TodayLimit, type TodayLimits } from "./pack-role-today.ts";
 export * from "./pack-roles.ts";
 export {

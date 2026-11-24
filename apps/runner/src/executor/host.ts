@@ -21,6 +21,7 @@ import {
   intakeRuntime,
   invokeByName,
   type LooksAfterLimit,
+  type MineLimit,
   OperationError,
   type Origin,
   type OutsidePrincipal,
@@ -183,6 +184,11 @@ export interface RunState {
    * run's record reads and writes of these objects reach those People's records only.
    */
   roleLooksAfter?: LooksAfterLimit;
+  /**
+   * The calling staff account's pack role reach through the records that name it (ADR 0755): the
+   * run's record reads and writes of these objects reach only those records.
+   */
+  roleMine?: MineLimit;
   /**
    * Set for a tool declared `risk: "read"` (ADR 0022 amendment, 2026-11-22): it may only read.
    * Its operation calls must be read operations, its storage answers `get` and `list` only, and
@@ -406,6 +412,7 @@ export class RunHost extends RpcTarget {
             // runs of tools it calls (ADR 0553): the pipeline holds it before each operation.
             ...(run.roleToday ? { roleToday: run.roleToday } : {}),
             ...(run.roleLooksAfter ? { roleLooksAfter: run.roleLooksAfter } : {}),
+            ...(run.roleMine ? { roleMine: run.roleMine } : {}),
             // Who stands behind what the tool writes (ADR 0590): its caller, not the extension.
             ...this.#marks(),
             ...(run.simulate ? { simulate: run.simulate } : this.#events()),

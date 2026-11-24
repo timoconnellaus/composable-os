@@ -24,13 +24,14 @@
 // `agreements:desk`), never another core permission.
 // Each call is allowed by one authority, decided here (`staffAuthority`): a grant that opens the
 // tool, else the pack role. The role's limits (today's records only, ADR 0553; the People its
-// holder looks after, ADR 0889) bind what the role gives and nothing else, and the pipeline
-// carries them only on a call the role allowed.
+// holder looks after, ADR 0889; the records that name its holder, ADR 0755) bind what the role
+// gives and nothing else, and the pipeline carries them only on a call the role allowed.
 import type { CoreDatabase, CrmDb } from "@composable-os/db";
 import type { ExtensionManifest, RoleManifest } from "@composable-os/sdk";
 import { type Kysely, sql } from "kysely";
 import type { AnyOperation } from "./operation.ts";
 import type { LooksAfter, LooksAfterLimit, LooksAfterTeam } from "./pack-role-looks-after.ts";
+import type { MineLimit, MineReach } from "./pack-role-mine.ts";
 import { FIXED_ROLE_CORE_GRANTS, holdsPermission, type Role } from "./principals.ts";
 
 /** A pack role as an account holds it. */
@@ -47,6 +48,8 @@ export interface HeldPackRole {
   readonly today?: import("./pack-role-today.ts").TodayLimits;
   /** Objects reached only for the People the holder looks after, and the teams saying so (ADR 0889). */
   readonly looksAfter?: LooksAfter;
+  /** Objects reached only through a live record naming the holder, and how (ADR 0755). */
+  readonly mine?: Readonly<Record<string, MineReach>>;
 }
 
 /** The reads a pack role's `read` opens, on the objects it lists. Nothing else reads for it. */
@@ -103,6 +106,43 @@ function teamsOf(extension: string, manifest: Partial<ExtensionManifest> | null)
   });
 }
 
+/**
+ * The role's "mine" reach (ADR 0755) as the host holds it: each `through` object's states field
+ * read from the manifest. A reach whose `live` names states its object no longer has reaches
+ * nothing (fail closed: its path is left unwalkable).
+ */
+function mineOf(
+  extension: string,
+  role: RoleManifest,
+  manifest: Partial<ExtensionManifest> | null,
+): Record<string, MineReach> {
+  return Object.fromEntries(
+    Object.entries(role.mine ?? {}).map(([object, spec]) => {
+      const local = spec.through.startsWith(`${extension}.`)
+        ? spec.through.slice(extension.length + 1)
+        : "";
+      const states = Object.hasOwn(manifest?.objects ?? {}, local)
+        ? manifest?.objects?.[local]?.states
+        : undefined;
+      const unreadable = spec.live && !states;
+      return [
+        object,
+        Object.freeze({
+          through: unreadable ? "" : spec.through,
+          who: spec.who,
+          path: Object.freeze(spec.path ? spec.path.split(".") : []),
+          ...(spec.live && states
+            ? {
+                live: Object.freeze({ field: states.field, states: Object.freeze([...spec.live]) }),
+              }
+            : {}),
+          ...(spec.within ? { within: Object.freeze({ ...spec.within }) } : {}),
+        }),
+      ];
+    }),
+  );
+}
+
 function held(
   name: string,
   role: RoleManifest | undefined,
@@ -125,6 +165,7 @@ function held(
           }),
         }
       : {}),
+    ...(role?.mine ? { mine: Object.freeze(mineOf(extension, role, manifest)) } : {}),
   });
 }
 
@@ -316,6 +357,23 @@ export function roleLooksAfterFor(
   // and holding it there would refuse those operations (it fails closed).
   if (op.name.startsWith("x.") && !op.name.startsWith(`x.${role.extension}.`)) return undefined;
   return grantOpens(rights.grants, op) ? undefined : { userId, ...looksAfter };
+}
+
+/**
+ * The pack role's "mine" reach a call of `op` holds (ADR 0755): as for the People its holder
+ * looks after (`roleLooksAfterFor`), the role's unless a grant opens the operation, and not on
+ * another pack's tool. `userId` is the account the records must name.
+ */
+export function roleMineFor(
+  rights: StaffRights,
+  op: AnyOperation,
+  userId: string,
+): MineLimit | undefined {
+  const role = rights.packRole;
+  const mine = role?.mine;
+  if (!role || !mine) return undefined;
+  if (op.name.startsWith("x.") && !op.name.startsWith(`x.${role.extension}.`)) return undefined;
+  return grantOpens(rights.grants, op) ? undefined : Object.freeze({ userId, reach: mine });
 }
 
 /**
