@@ -56,6 +56,7 @@ import { assertAuthorWrite, authorFields } from "../records/authored.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { jsonList, restorableUntil, TRASH_RETENTION_DAYS } from "../records/common.ts";
 import { FOLLOWERS_MAX, followerIds, followersOf } from "../records/follows.ts";
+import { assertMayChangeGatedStages, stageFacts } from "../records/host-facts.ts";
 import { applyTransition, callerMover } from "../records/lifecycle.ts";
 import { leavingPublishWrites } from "../records/publish.ts";
 import {
@@ -288,8 +289,9 @@ async function prepareValues(
     // Read-only fields are maintained by the host, or by the declaring extension's own code
     // (a tool or automation of that extension, ADR 0246): Leads sets a lead's deal on conversion.
     // A holder's terms (its uses, its dates, whose they are) only through a tool only a person
-    // with a permission may call (ADR 0513): never any other code of the extension.
-    const term = holderTerms(object).has(name);
+    // with a permission may call (ADR 0513): never any other code of the extension. So too a
+    // fact a stage waits on (ADR 0750: a quote's acceptance, a sign-off).
+    const term = holderTerms(object).has(name) || stageFacts(object).has(name);
     const ownCode =
       field.fieldType !== "formula" &&
       field.extension !== undefined &&
@@ -701,6 +703,8 @@ export async function createRecord(
   const asked = requester
     ? await resolveStateRequest(ctx, object, null, values, requester)
     : values;
+  // The stages a host fact gates are an admin's, in person (ADR 0750).
+  assertMayChangeGatedStages(ctx, object, options.by);
   // Who must read a record staff confirm is a person's choice (ADR 0702).
   if (options.by !== "host") await assertMayChangeMustRead(ctx, object, null, asked, null);
   // What an order line grants, given by a person's tool instead (a pass by hand, ADR 0513): its
@@ -1102,6 +1106,7 @@ export async function updateRecord(
   // A move asked for by name (`cancel`) becomes the state the host picks (ADR 0503).
   const asked = await resolveStateRequest(ctx, object, before.values, values, by);
   if (options.from !== undefined) assertMovesFrom(object, before.values, asked, options.from);
+  assertMayChangeGatedStages(ctx, object, by);
   // Who must read a record staff confirm: a person's, and once published a manager's (ADR 0702).
   if (by !== "host") await assertMayChangeMustRead(ctx, object, id, asked, before.values);
   let prepared = await prepareValues(ctx, object, asked, "update", options);
@@ -1545,6 +1550,7 @@ export const recordDelete = defineOperation({
     const object = requireExtensionObject(input.object);
     const before = await loadRecord(ctx, object, input.id);
     if (!before) throw new NotFoundError(input.object, input.id);
+    assertMayChangeGatedStages(ctx, object, undefined);
     // Places people have paid for keep their record out of Trash (ADR 0431), and so does a use
     // a spender holds (ADR 0493).
     await assertNoConfirmedClaims(ctx, object, input.id);
@@ -1607,6 +1613,7 @@ export const recordRestore = defineOperation({
     const deletedAt = row.rows[0]?.deleted_at;
     if (deletedAt === undefined) throw new NotFoundError(input.object, input.id);
     if (deletedAt === null) throw new ValidationError(`${input.id} is not in Trash`);
+    assertMayChangeGatedStages(ctx, object, undefined);
     // Its slug may have been taken while it was in the Trash (stage 28, ADR 0444).
     await assertRestorable(ctx, object, input.id);
     // Back with someone on it (a shift's person, a series' regular person): a rosterer's (ADR 0626).

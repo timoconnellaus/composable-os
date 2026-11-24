@@ -223,7 +223,9 @@ How stage 3a built it ([ADR 0040](adr/0040-extension-runtime-build.md)):
 - **Stage behaviour** ([ADR 0100](adr/0100-stage-behaviour-and-object-contract-additions.md)):
   an object's declarative `stages` key is enforced by the host inside `record.create`,
   `record.update` and `import.records.commit` (`packages/core/src/records/stages.ts`): stage rules
-  (a `StageRuleError` naming the missing fields), default stage and pipeline, probability,
+  (a `StageRuleError` naming the missing fields; a rule may require a read-only host fact, set
+  only by the host or a person's tool, whose stages only an admin in person changes, ADR 0750),
+  default stage and pipeline, probability,
   status and won/lost date, `core_transition_history` rows (read as `rec_stage_history`) and
   "Moved to <stage>" timeline posts on the record and its `timelineLinks`. Since stage 25 it runs
   on the transition engine it shares with `states` (see Behaviours,
