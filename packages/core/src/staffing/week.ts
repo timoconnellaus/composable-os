@@ -123,6 +123,22 @@ export async function rosterRange(
     const titleCol = column(object, object.titleField);
     const [placeField, placeOf] = (def.place ?? "").split(".") as [string, string | undefined];
     const placeCol = def.place ? column(object, placeField) : null;
+    // Whose each shift is: the user field itself, or its holder's account (a coach profile's).
+    const holder = def.who.account && def.who.object ? getObject(def.who.object) : undefined;
+    const holderTable = holder ? objectTableOf(holder.name) : undefined;
+    const holderCol = holder ? column(holder, def.who.account) : null;
+    const held = holderTable && holderCol ? { table: holderTable, column: holderCol } : null;
+    // One person's roster is filtered here, before the limit, so their later shifts are not cut
+    // off by everyone else's.
+    let whose = sql`1 = 1`;
+    if (range.account !== undefined) {
+      if (!def.who.account) whose = sql`${sql.ref(who)} = ${range.account}`;
+      else if (held) {
+        whose = sql`${sql.ref(who)} IN (SELECT id FROM ${sql.table(held.table)} WHERE ${sql.ref(
+          held.column,
+        )} = ${range.account})`;
+      } else continue;
+    }
     const rows = await sql<{
       id: string;
       who: string | null;
@@ -140,6 +156,7 @@ export async function rosterRange(
         AND ${sql.ref(starts)} >= ${lo} AND ${sql.ref(starts)} < ${hi}
         AND CAST(strftime('%s', ${sql.ref(starts)}) AS INTEGER) >= ${range.from}
         AND CAST(strftime('%s', ${sql.ref(starts)}) AS INTEGER) < ${range.to}
+        AND ${whose}
       ORDER BY ${sql.ref(starts)} LIMIT ${PER_OBJECT + 1}`.execute(ctx.db);
     if (!rows.rows.length) continue;
     // More than one read gives: the answer says it was cut short (ask for fewer days).
@@ -147,18 +164,14 @@ export async function rosterRange(
       truncated = true;
       rows.rows.length = PER_OBJECT;
     }
-    // Whose each shift is: the user field itself, or its holder's account (a coach profile's).
     const accountOf = new Map<string, string | null>();
-    if (def.who.account && def.who.object) {
-      const holder = getObject(def.who.object);
-      const holderTable = holder ? objectTableOf(holder.name) : undefined;
-      const holderCol = holder ? column(holder, def.who.account) : null;
+    if (def.who.account && held) {
       const ids = [...new Set(rows.rows.map((r) => r.who).filter((w): w is string => !!w))];
-      if (holderTable && holderCol && ids.length) {
-        const held = await sql<{ id: string; account: string | null }>`SELECT id, ${sql.ref(
-          holderCol,
-        )} AS account FROM ${sql.table(holderTable)} WHERE id IN ${jsonList(ids)}`.execute(ctx.db);
-        for (const h of held.rows) accountOf.set(h.id, text(h.account));
+      if (ids.length) {
+        const accounts = await sql<{ id: string; account: string | null }>`SELECT id, ${sql.ref(
+          held.column,
+        )} AS account FROM ${sql.table(held.table)} WHERE id IN ${jsonList(ids)}`.execute(ctx.db);
+        for (const h of accounts.rows) accountOf.set(h.id, text(h.account));
       }
     }
     const kindObject = kindObjectOf(object);
