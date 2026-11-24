@@ -27,6 +27,8 @@ const TEAM_TOOL = {
 /** The rosterers' tools: restricted (held by admins and by grant only, ADR 0625). */
 const MANAGE = "rostering:manage";
 
+/** A shift, by its object and record id. */
+const shiftRef = { object: z.string().min(1).max(81), id: z.string().min(1).max(64) };
 const localDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date, YYYY-MM-DD");
 const localDateTime = z
   .string()
@@ -199,8 +201,7 @@ export const offer = defineTool({
     "Offers close at the cut-off before the shift starts. Whoever rosters may offer any shift, " +
     "and one with nobody on it. A person's own act.",
   input: z.object({
-    object: z.string().min(1).max(81),
-    id: z.string().min(1).max(64),
+    ...shiftRef,
     to: z.string().min(1).max(64).optional().describe("A staff account: offer it to them only"),
   }),
   output: z.object({ offer: offerShape, told: z.number().nullable() }),
@@ -462,8 +463,7 @@ export const assign = defineTool({
     "people on and off it are told; its open offer is cancelled. Whoever rosters; an assistant " +
     "may ask, and a person applies it.",
   input: z.object({
-    object: z.string().min(1).max(81),
-    id: z.string().min(1).max(64),
+    ...shiftRef,
     account: z.string().min(1).max(64).nullable(),
   }),
   output: z.object({ shift: summary, warnings: z.array(warning) }),
@@ -479,8 +479,7 @@ export const check = defineTool({
     "shift would be made with: its warnings (away, not qualified, nobody on it) and the other " +
     "shift it would clash with (refused). Changes nothing. Whoever rosters.",
   input: z.object({
-    object: z.string().min(1).max(81),
-    id: z.string().min(1).max(64),
+    ...shiftRef,
     account: z.string().min(1).max(64).nullable().optional(),
   }),
   output: z.object({
@@ -523,7 +522,7 @@ export const candidates = defineTool({
     "made with (warnings, or the shift it would clash with), the eligible first; who is on it; " +
     "and, for a shift of a weekly pattern, the pattern's person and whether it keeps its own. " +
     "Whoever rosters.",
-  input: z.object({ object: z.string().min(1).max(81), id: z.string().min(1).max(64) }),
+  input: z.object(shiftRef),
   output: z.object({
     current: z.object({ account: z.string().nullable(), name: z.string().nullable() }),
     pattern: z
@@ -542,7 +541,7 @@ export const follow = defineTool({
     "Put a shift of a weekly pattern back to its pattern's person: it drops its own person and " +
     "follows the pattern again. Refused for a one-off shift, and if the pattern's person is on " +
     "another shift then. Whoever rosters; an assistant may ask, and a person applies it.",
-  input: z.object({ object: z.string().min(1).max(81), id: z.string().min(1).max(64) }),
+  input: z.object(shiftRef),
   output: z.object({ object: z.string(), id: z.string(), warnings: z.array(warning) }),
   risk: "write",
   permission: MANAGE,
@@ -772,8 +771,7 @@ export const markNotWorked = defineTool({
     "shift in a locked pay period is refused until the period is reopened. Whoever rosters; an " +
     "assistant may ask, and a person applies it.",
   input: z.object({
-    object: z.string().min(1).max(81),
-    id: z.string().min(1).max(64),
+    ...shiftRef,
     notWorked: z.boolean().default(true),
     reason: z.string().trim().min(1).max(500).optional(),
   }),
@@ -1064,8 +1062,6 @@ const checklistRun = z.object({
     }),
   ),
 });
-
-const shiftRef = { object: z.string().min(1).max(81), id: z.string().min(1).max(64) };
 
 export const checklist = defineTool({
   description:
