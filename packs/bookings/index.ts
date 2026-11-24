@@ -543,13 +543,15 @@ export default defineExtension({
       },
       // A class takes its room while it is on, when the room takes one booking at a time (stage
       // 49, ADR 0765): the host refuses a second class (or, later, an appointment) in it at an
-      // overlapping time, for every writer. A shared room is never claimed.
+      // overlapping time, for every writer. A shared room is never claimed. The room calendar
+      // shows it by its title (stage 57, ADR 0844).
       occupies: {
         thing: "room",
         starts: "startsAt",
         ends: "endsAt",
         live: ["scheduled", "done"],
         only: "exclusive",
+        title: "title",
       },
       public: {
         read: CLASS_READ,

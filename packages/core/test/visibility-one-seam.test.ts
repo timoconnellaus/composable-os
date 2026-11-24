@@ -182,6 +182,9 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "journeys/entries.ts": [3, WHY.write],
   "notifications/routes.ts": [2, WHY.org],
   "notifications/send.ts": [2, WHY.org],
+  // The room calendar (stage 57 step 1, ADR 0844): each occupant's times, state and declared
+  // title, by id, for the claims in a range; never a Person, a hirer or money.
+  "occupancy/index.ts": [1, WHY.host],
   "operations/activity.ts": [1, WHY.part],
   "operations/affiliation.ts": [5, WHY.part],
   // and agreement.listHealthNotes: the list's own record and the People on the declared list.

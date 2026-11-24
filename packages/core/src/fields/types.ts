@@ -665,6 +665,13 @@ export interface OccupiesDefinition {
   before?: OccupiesMargin | undefined;
   after?: OccupiesMargin | undefined;
   only?: string | undefined;
+  /** Live states the room calendar shows as provisional (ADR 0844); the claim is the same. */
+  provisional?: readonly string[] | undefined;
+  /**
+   * What the room calendar shows for a record (ADR 0844): a field of the record, or of what `via`
+   * names (`viaObject`). Left out, the object's label.
+   */
+  title?: { field: string; via?: string | undefined; viaObject?: string | undefined } | undefined;
 }
 
 /** A margin of a claim on a thing, in minutes: a field of the record, or of what `via` names. */

@@ -1603,6 +1603,16 @@ never is. A **buffer** (minutes kept free before or after) enters the claim. One
 time: not a capacity.
 _Avoid_: reservation, slot
 
+**Room calendar** and **provisional** (stage 57, built in step 1: ADR 0844)
+The **room calendar** is every claim on the business's rooms in a range, whatever takes them (a
+class, an appointment, a hire, an event, a block), read from the one claim by a pack's tool
+(`rooms.week`, and `rooms.check` for one room at one time). Each shows its kind, a **title** its
+object declares (an appointment's service, never its client), its times with set-up and
+pack-down, and whether it is **provisional**: held, not yet firm (a hire before its deposit). A
+provisional claim refuses a clash as a firm one does. Someone on a fixed role sees only that a
+room is taken, and when. Nobody's name and no money are on it.
+_Avoid_: availability (Venue hire's tool over it), schedule, timetable (the classes')
+
 **Buffer** (stage 49, built in step 1: ADR 0760)
 The gap a kind of session keeps before or after itself (15 minutes after a personal training
 session). It is part of the provider's time claim, so nothing else of theirs is booked in it, but

@@ -1294,6 +1294,17 @@ skipped and reported); a series' date whose room is taken is made with no room (
 and the rosterers are told. Bookings' class declares it; appointments (stage 49 step 5) and stage
 57's venues reuse it.
 
+**The room calendar** ([ADR 0844](adr/0844-the-room-calendar-and-provisional-and-title-on-occupies.md),
+`packages/core/src/occupancy/`, `operations/rooms.ts`; stage 57 step 1). Two display-only keys on
+`occupies`: `provisional` (live states shown as provisional: a hold) and `title` (a text or select
+field of the record, or `relation.field` of one of the extension's own records: an appointment's
+service; the object's label otherwise). Neither changes the claim. `rooms.week { from, to, roomIds? }`
+(local dates, at most 62 days) and `rooms.check { roomId, starts, ends }` are tool-only staff reads
+of `core_thing_time`: each claim's room, object and label, record id, title, own times, times taken
+with margins, and provisional, never a name or money; a caller holding a pack's fixed role gets only
+the room and the times it is taken. One read of the claims, then one per occupying object; a free
+answer is a guide and the database still decides.
+
 **Offers, takes and the roster's notices** ([ADR 0623](adr/0623-offers-and-takes-the-race-and-the-cut-off.md),
 [ADR 0624](adr/0624-the-rosters-notices-uncovered-shifts-and-leaving.md), stage 45 step 3). The
 host's tool-only staffing operations (`packages/core/src/operations/staffing.ts`) write who may do
