@@ -39,6 +39,7 @@ import {
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
 import { newId } from "../ids.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
+import { jsonList } from "../records/common.ts";
 
 const documentId = z.string().min(1).max(64).describe("The document's id (agd_…)");
 
@@ -176,7 +177,7 @@ async function pointsOf(ctx: HandlerContext, ids: string[]): Promise<Map<string,
   const rows = await ctx.db
     .selectFrom("core_agreement_point")
     .select(["document_id", "point"])
-    .where("document_id", "in", ids)
+    .where("document_id", "in", jsonList(ids))
     .orderBy("point")
     .execute();
   for (const row of rows)
@@ -362,7 +363,8 @@ export const agreementList = defineOperation({
       ? ((await ctx.db
           .selectFrom("core_agreement_version")
           .selectAll()
-          .where("document_id", "in", ids)
+          // Up to 500 documents: one bound parameter, D1 binds at most 100 a statement.
+          .where("document_id", "in", jsonList(ids))
           .orderBy("number")
           .execute()) as VersionRow[])
       : [];

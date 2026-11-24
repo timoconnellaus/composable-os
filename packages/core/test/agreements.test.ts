@@ -1129,3 +1129,15 @@ describe("core permission namespaces are reserved (review B5)", () => {
     ).toMatchObject({ code: "invalid_input" });
   });
 });
+
+describe("the list's bound variables", () => {
+  it("lists more documents than one statement may bind one by one", async () => {
+    // Past D1's 100 bound variables a statement: the versions and points are read for every
+    // listed document at once.
+    for (let n = 0; n < 101; n += 1) {
+      await invoke("agreement.create", { title: unique("Bulk"), kind: "other" }, context(admin));
+    }
+    const listed = await invoke("agreement.list", {}, context(admin));
+    expect(listed.items.length).toBeGreaterThan(100);
+  }, 60_000);
+});
