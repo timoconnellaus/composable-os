@@ -1848,6 +1848,33 @@ the erase is scrubbed after it. Merge moves acceptances unchanged (`agreement.me
 them for the preview). Signing at the desk and cooling off are the later steps
 (`docs/stages/44-agreements.md`).
 
+**Quotes, invoices and credit notes** (stage 35, ADRs
+[0730](adr/0730-quotes-invoices-and-credit-notes-as-core-records.md) and
+[0732](adr/0732-tax-worked-out-by-the-host-on-documents.md), `packages/core/src/invoices/`) are base
+records beside Order: `core_quote`, `core_invoice`, `core_credit_note` and their lines (migration
+1030), the base objects `quote`, `invoice` and `creditNote` in the field registry, staff only. A
+**draft** has no number; staff with `invoices:write` (and the assistant for them, through the gate)
+write it with `quote.*` and `invoice.*` (`create`, `update`, `addLine`, `updateLine`, `removeLine`,
+`delete`). A line is a record for sale, priced by the host with `priceLines` as an order's line is,
+or a typed line; every write moves the draft's `version` from the one read (compare-and-set) and
+recomputes its totals. The host works out the **tax** on each line from the business's own rates
+(the invoice settings), rounded half up, added on top or taken out as the document's amounts are
+typed; the document's tax is the sum of its lines', by rate (`invoices/tax.ts`). A **number** is
+given in the batch that sends or issues the document, by SQL against its series row
+(`core_document_counter`, `numberStatements`): consecutive, never shared, none used by a failed
+batch; a human admin sets a series' prefix and next number, which only goes up. Once sent or
+issued, triggers refuse any change to what the document says, raw SQL included; only its state and
+the host's bookkeeping fields move, and an erase only detaches the Person (`ON DELETE SET NULL`).
+The **document event log** (`core_invoice_event`) is append-only and read by cursor
+(`invoice.events`, `invoices:payments`): the steps that issue, send, apply payments and credit
+write it in their own batch. The **invoice settings** (`invoice.settings.*`, a human admin's) hold
+the business's details and bank details (a change tells every admin), the tax rates (a rate never
+changes, it is retired), terms, validity, reminders, the threshold for recorded payments, the footer
+and retention. `rec_quote`, `rec_invoice` and `rec_credit_note` carry numbers, states, dates,
+amounts and the bill-to's ids, never addresses, notes or bank details. Issuing as an order, recorded
+payments, credit notes, quotes' acceptance, sending and reminders, the customer's side and the
+Invoicing pack are the later steps (`docs/stages/35-invoices-quotes.md`).
+
 Two reasons this is the centre of the design. Extension tools cannot run several writes as one
 transaction, so anything that must be atomic (take the last place and create the order) has to be
 the host's. And a rule in the host holds for a person, an MCP client, an import and a client app

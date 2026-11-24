@@ -9,7 +9,13 @@ import { defineObject } from "../fields/types.ts";
 import { listInputSchema, pageQuery, pageSchema, selectFields } from "../list.ts";
 import { defineOperation } from "../operation.ts";
 import { availablePackRoles, PACK_ROLE_NAME_RE, parseGrants } from "../pack-roles.ts";
-import { GRANTABLE_PERMISSIONS, holdsPermission, PERMISSIONS, ROLES } from "../principals.ts";
+import {
+  GRANTABLE_PERMISSIONS,
+  holdsPermission,
+  PERMISSIONS,
+  RESTRICTED_PERMISSIONS,
+  ROLES,
+} from "../principals.ts";
 import { feedRevocations } from "../staffing/feed.ts";
 
 /** Users are not a record object (no tags, links or timeline); this only drives user.list. */
@@ -390,6 +396,11 @@ export async function grantable(
     "agreements:paper": "Record that someone signed an agreement on paper",
     "agreements:health": "Read members' health form answers (every read is logged)",
     "checklists:write": "Write the checklists staff tick off (their steps, and which are in use)",
+    "invoices:write": "Draft quotes, invoices and credit notes",
+    "invoices:send": "Send quotes, and issue and send invoices",
+    "invoices:credit": "Issue credit notes and void invoices",
+    "invoices:payments":
+      "Record payments taken another way (transfer, cash, card machine), and read the invoice log",
   };
   return [
     ...GRANTABLE_PERMISSIONS.map((permission) => ({
@@ -397,7 +408,7 @@ export async function grantable(
       label: labels[permission],
       from: "core",
       forFixedRole: false,
-      restricted: false,
+      restricted: RESTRICTED_PERMISSIONS.includes(permission),
     })),
     ...packs,
   ];

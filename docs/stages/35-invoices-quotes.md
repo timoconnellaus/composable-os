@@ -40,6 +40,22 @@ owner's earlier decisions in the Accounting sync interview and stage 48 (decisio
 built in. Build may start with steps 1 and 2. Step 3 waits for stage 34's step 1 (adjustments) to
 merge; step 4 builds on, or builds, stage 34's shared step "an order paid another way".
 
+- **Step 2, records, numbering, settings, drafts and the event log** (`feat/stage-35-invoice-records`;
+  migration 1030, ADRs 0730 and 0732, ADRs 0479 and 0625 amended): `core_quote`, `core_invoice`,
+  `core_credit_note` and their lines, with triggers that refuse any change to a sent or issued
+  document and any number but the series' next; the three series (`core_document_counter`) and
+  `numberStatements`, the SQL that gives a number in the issuing batch; the append-only
+  `core_invoice_event` and `eventStatement`; `rec_quote`, `rec_invoice`, `rec_credit_note`; the
+  base objects in the field registry (staff only); the permissions `invoices:write`, `:send`,
+  `:credit` and `:payments` (restricted); the invoice settings (`invoice.settings.get` /
+  `.update`, a human admin's; a bank-details change tells every admin); the host's tax arithmetic
+  and the deposit split (`invoices/tax.ts`); the draft operations `quote.*` and `invoice.*`
+  (`create`, `update`, `addLine`, `updateLine`, `removeLine`, `delete`, `get`, `list`) with lines
+  from a record for sale (priced by `priceLines`) or typed; `invoice.events`. Not in this step:
+  issuing, sending, `invoice.fromQuote` (step 6), `creditNote.create` (step 5), a price-list item's
+  category and own rate (step 10), erase and the purge (step 11). No row of the event log is
+  written yet: each later step writes its own events.
+
 ## Goal
 
 A business writes a quote, sends it, and the customer accepts it online with a typed name or a

@@ -1674,6 +1674,58 @@ admin may override per object in Settings → Orders. Which code fits is the com
 its accountant.
 _Avoid_: tax rate (the provider sets rates), tax class
 
+**Quote**
+An offer of work or goods at stated prices, valid until a date, accepted or declined by the
+customer. A core record (`core_quote`, `qt_…`): a draft has no number and staff change it freely;
+once sent it has its number and nothing it says changes (a new quote replaces it). Stage 35, ADR
+0730.
+_Avoid_: estimate (Jobs' estimate lines are what a quote is made from)
+
+**Invoice**
+A numbered request for payment, issued to a bill-to, with its own order from issue (stage 35
+step 3). Kinds `standard`, `deposit`, `final`. A core record (`core_invoice`, `inv_…`): a draft has
+no number; once issued the database refuses any change to its lines, totals, tax, bill-to, dates
+and snapshot, and a mistake is put right with a credit note (ADR 0730).
+_Avoid_: bill, the provider's invoice (`core_order.invoice_ref`, a subscription period's, is not
+one of these)
+
+**Credit note**
+A numbered document that reduces what an invoice asks for, in part or in full (`core_credit_note`,
+`cn_…`; its operations are stage 35 step 5).
+_Avoid_: refund for it (a refund is money going back, which a credit note may cause)
+
+**Bill-to**
+Whom a quote, invoice or credit note is addressed to: a Person, or an Organisation with its contact
+Person. Printed with its name, address, tax number and email as at sending or issue; an erase
+detaches the Person and keeps what was printed.
+
+**Issue** (a document)
+Giving a draft invoice or credit note its number and making it final; for a quote, sending it. The
+number is the next of its series (`Q-`, `INV-`, `CN-`), given in the issuing batch, so two issues
+never share one and a failed issue uses none. A human admin sets a series' prefix and next number,
+which only goes up.
+_Avoid_: finalise, post
+
+**Document line**
+One line of a quote, invoice or credit note: a record for sale, priced by the host as an order's
+line is, or a line typed by staff (description, quantity to three decimals, unit, unit price), with
+its tax rate and an optional discount. Never negative: money off is a discount, a deposit paid is
+a host's deduction line.
+
+**Tax rate** (of the business)
+One of the business's own rates, entered once by a human admin in the invoice settings: a key, a
+label as printed and a rate. The host works out each document line's tax from it, rounded half up,
+added on top or taken out as the document's amounts are typed. A rate never changes: a new rate
+is a new key and the old one is retired (ADR 0732). Not used at checkout, where the provider works
+the tax out (Tax at checkout).
+_Avoid_: tax code (the provider's code for an object)
+
+**Document event log**
+The append-only log of what happened to quotes, invoices and credit notes in money terms (issued,
+sent, payment applied or reversed, credited, refund confirmed, paid back, voided), written by the
+host in each event's own batch and read by cursor (`invoice.events`); the database refuses any
+change to a row. What finance reports and the accounting sync read (stage 35 decision 11).
+
 **Guest**
 Someone buying without an account. Their order is placed with an email address, belongs to the
 Person that address matches or creates, and is reached again with the order's token. A guest

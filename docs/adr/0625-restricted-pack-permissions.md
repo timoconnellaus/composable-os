@@ -97,6 +97,11 @@ leave it out of the notices it causes, and refuse a run that was not called for 
   pack's tool cannot call it for an admin; a runtime extension may not declare it. The offer and the
   take record the people who called the tools, not the extension's account.
 
+> Amended 2026-11-24 ([ADR 0730](0730-quotes-invoices-and-credit-notes-as-core-records.md), stage
+> 35 step 2): a core grantable permission can be restricted too (`RESTRICTED_PERMISSIONS` in
+> `principals.ts`). The first is `invoices:payments`: held by admins and by a grant, and a human
+> admin never grants it to their own account (`user.grants` refuses it, as for a pack's).
+
 ## Consequences
 - The MCP surface and the admin's screens may still list a restricted tool to a member who
   cannot call it: the pipeline decides each call, so they only over-list.

@@ -90,6 +90,16 @@ export type Role = (typeof ROLES)[number];
  *   Admins by default, grantable as `orders:refund` is. An AI acting for an account that holds it
  *   may draft one; its write always waits for a person who holds it too, so a checklist staff are
  *   asked to follow is always one a person approved.
+ * - `invoices:write` draft quotes, invoices and credit notes (stage 35, ADR 0730). Admins by
+ *   default, grantable. The assistant may draft for an account that holds it, through the gate.
+ * - `invoices:send` send a quote, issue and send an invoice, and change an issued invoice's due
+ *   date, part payments and reminders (stage 35). Admins by default, grantable; an AI may ask, a
+ *   person approves.
+ * - `invoices:credit` issue a credit note and void an invoice (stage 35). Admins by default,
+ *   grantable; a person only whatever is granted.
+ * - `invoices:payments` record and reverse a payment taken another way, read the document event
+ *   log and export invoices (stage 35, decision 7). Restricted: admins, and the accounts another
+ *   human admin grants it to (never one's own, ADR 0625's rule); a person only.
  */
 export const PERMISSIONS = [
   "records:read",
@@ -109,6 +119,10 @@ export const PERMISSIONS = [
   "agreements:paper",
   "agreements:health",
   "checklists:write",
+  "invoices:write",
+  "invoices:send",
+  "invoices:credit",
+  "invoices:payments",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -146,7 +160,19 @@ export const GRANTABLE_PERMISSIONS = [
   "agreements:paper",
   "agreements:health",
   "checklists:write",
+  "invoices:write",
+  "invoices:send",
+  "invoices:credit",
+  "invoices:payments",
 ] as const;
+
+/**
+ * Core grantable permissions that are restricted (ADR 0625's rule for a pack's, stage 35 decision
+ * 7): a human admin grants one to another account, never to their own.
+ */
+export const RESTRICTED_PERMISSIONS: readonly (typeof GRANTABLE_PERMISSIONS)[number][] = [
+  "invoices:payments",
+];
 
 /**
  * The account's role, or a permission granted to it (ADR 0449), allows `permission`. A pack role

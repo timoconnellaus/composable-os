@@ -7,6 +7,7 @@ import { taskObject } from "./task.ts";
 import type { ObjectDefinition } from "./types.ts";
 
 export { activityObject } from "./activity.ts";
+export * from "./invoice.ts";
 export * from "./media.ts";
 export * from "./order.ts";
 export { organisationObject } from "./organisation.ts";

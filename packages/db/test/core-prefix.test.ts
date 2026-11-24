@@ -50,6 +50,9 @@ it("after migrations every read view is rec_<object>, and none keeps the old pre
     "rec_allowance_use",
     "rec_capacity",
     "rec_capacity_claim",
+    // Stage 35 (migration 1030): quotes, invoices and credit notes.
+    "rec_credit_note",
+    "rec_invoice",
     // Stage 28 (migration 0461): the media library.
     "rec_media",
     "rec_order",
@@ -57,6 +60,7 @@ it("after migrations every read view is rec_<object>, and none keeps the old pre
     "rec_organisation",
     "rec_person",
     "rec_publish_version",
+    "rec_quote",
     "rec_record_tag",
     "rec_stage_history",
     "rec_state_history",

@@ -113,10 +113,11 @@ describe("rows read on the AI paths", () => {
     // 0854) and stage 45's pay periods (migration 0813: four tables, five indexes, twelve
     // triggers) to about 691; stage 45's checklists (migration 0815: five tables, seven indexes, ten
     // triggers) to about 728; a child's paper copy to the guardian (migration 0857: an index, four
-    // triggers) to about 744.
+    // triggers) to about 744; stage 35's quotes, invoices and credit notes (migration 1030: eight
+    // tables, fourteen indexes, twenty-one triggers, three views) to about 794.
     expect(
       await measure("summary.get", { subject: { kind: "record", object: "person", id: personId } }),
-    ).toBeLessThan(760);
+    ).toBeLessThan(810);
     expect(
       await measure("summary.get", {
         subject: { kind: "record", object: "organisation", id: orgId },

@@ -8,6 +8,7 @@
 //
 // Both objects declare a customer: a signed-in customer reads their own orders and those orders'
 // lines through the visibility seam, and nobody else's. Nothing is writable by a customer.
+import { creditNoteObject, invoiceObject, quoteObject } from "./invoice.ts";
 import { mediaObject } from "./media.ts";
 import { subscriptionObject } from "./subscription.ts";
 import { defineObject, type ObjectDefinition, type StatesDefinition } from "./types.ts";
@@ -263,6 +264,10 @@ export const BASE_OBJECTS = {
   media: mediaObject,
   // Stage 32a (ADR 0485): a subscription the payment provider runs.
   subscription: subscriptionObject,
+  // Stage 35 (ADR 0730): quotes, invoices and credit notes.
+  quote: quoteObject,
+  invoice: invoiceObject,
+  creditNote: creditNoteObject,
 } as const satisfies Record<string, ObjectDefinition>;
 
 export type BaseObjectName = keyof typeof BASE_OBJECTS;
@@ -273,4 +278,7 @@ export const BASE_TABLES = {
   orderLine: "core_order_line",
   media: "core_media",
   subscription: "core_subscription",
+  quote: "core_quote",
+  invoice: "core_invoice",
+  creditNote: "core_credit_note",
 } as const satisfies Record<BaseObjectName, string>;

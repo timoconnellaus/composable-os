@@ -38,6 +38,13 @@ const RECORD_TABLES = [
   "core_order_line",
   // Stage 28 (ADR 0444): media items are records.
   "core_media",
+  // Stage 35 (ADR 0730): quotes, invoices and credit notes, and their lines.
+  "core_quote",
+  "core_quote_line",
+  "core_invoice",
+  "core_invoice_line",
+  "core_credit_note",
+  "core_credit_note_line",
 ];
 
 // `rec_user` is the staff directory, not a record: no object declares it, and it is read by
@@ -95,6 +102,12 @@ const WHY = {
    * their display name for staff. Never a list of anyone else.
    */
   agreements: "agreements: the Trash, minor and name facts of a Person the host was given",
+  /**
+   * Quotes, invoices and credit notes (stage 35, ADR 0730), staff only: the issuing batch's
+   * check that the document is still a draft, and which tax rate keys documents' lines use
+   * (keys, never a document) when an admin changes the rates.
+   */
+  invoices: "invoices: host code for a document it is numbering, or the rate keys lines use",
 } as const;
 type Why = (typeof WHY)[keyof typeof WHY];
 
@@ -140,6 +153,7 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "entitlements.ts": [2, WHY.org],
   "filter.ts": [1, WHY.part],
   "integrations/outbound-check.ts": [2, WHY.org],
+  "invoices/numbering.ts": [1, WHY.invoices],
   "notifications/delivery.ts": [1, WHY.org],
   "notifications/digest-content.ts": [4, WHY.org],
   "notifications/routes.ts": [2, WHY.org],
@@ -150,6 +164,7 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "operations/agreement-acceptance.ts": [6, WHY.agreements],
   "operations/agreement.ts": [1, WHY.agreements],
   "operations/duplicate.ts": [3, WHY.later],
+  "operations/invoice.ts": [2, WHY.invoices],
   "operations/enrichment.ts": [8, WHY.write],
   "operations/erasure.ts": [2, WHY.write],
   "operations/import.ts": [8, WHY.write],

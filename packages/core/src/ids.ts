@@ -109,6 +109,13 @@ export const ID_PREFIXES = {
   checklistNote: "ckn",
   /** One tick of a checklist run's step, never changed (ADR 0650). */
   checklistTick: "ckt",
+  /** A quote, an invoice and a credit note, and their lines (stage 35, ADR 0730). */
+  quote: "qt",
+  quoteLine: "qtl",
+  invoice: "inv",
+  invoiceLine: "inl",
+  creditNote: "cn",
+  creditNoteLine: "cnl",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;
