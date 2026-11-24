@@ -59,8 +59,13 @@ describe("the Forms pack (test host)", () => {
       expect(object?.customer).toBeUndefined();
       expect(object?.signedIn).toBeUndefined();
     }
-    // Opening and closing a form, and the hourly cap, are a person's.
-    expect(form?.fields.status?.personApproves).toBe(true);
+    // Opening and closing a form, its dates, its cap, its address and the hourly cap are a
+    // person's.
+    for (const field of ["status", "opensAt", "closesAt", "dailyCap", "slug"]) {
+      expect(form?.fields[field]?.personApproves, field).toBe(true);
+    }
+    // No destination can be chosen until a pack's record takes a form's answers (step 6).
+    expect(form?.fields.destination?.options).toBeUndefined();
     expect(host.manifest.settings.hourlyCap).toMatchObject({ default: 200, personApproves: true });
     // The pack gives no role any reach: a coach or the door reads none of it.
     expect(host.manifest.roles).toEqual({});
@@ -204,20 +209,24 @@ describe("the low-rating notice", () => {
       .then((result) => ({ host, result }));
   };
 
-  it("tells the form's person of a rating at or under its level", async () => {
-    const { result } = await run({
-      [FORM]: [form({ lowRating: 2, notify: "usr_manager" })],
-      [SUBMISSION]: [submission({ rating: 2 })],
+  it("tells the answers' owner of a rating at or under the form's level", async () => {
+    const { host, result } = await run({
+      [FORM]: [form({ lowRating: 2, notify: "usr_other" })],
+      [SUBMISSION]: [submission({ rating: 2, owner: "usr_manager" })],
     });
     expect(result.matched).toBe(true);
     expect(result.undeclared).toEqual([]);
     expect(result.error).toBeNull();
     expect(result.notifications).toHaveLength(1);
-    expect(JSON.stringify(result.notifications[0])).toContain("usr_manager");
+    expect(JSON.stringify(result.notifications[0])).toContain("owner");
+    // The declared recipients are the ones it may tell.
+    const declared = host.manifest.automations.lowRating?.steps[0];
+    expect(JSON.stringify(declared)).toContain('"field":"owner"');
+    expect(JSON.stringify(declared)).toContain('"admins"');
     expect(JSON.stringify(result.notifications[0])).toContain("A low rating: After class");
   });
 
-  it("tells the admins when the form names nobody, and nobody above the level", async () => {
+  it("tells the admins when the answers have no owner, and nobody above the level", async () => {
     const low = await run({
       [FORM]: [form({ lowRating: 6 })],
       [SUBMISSION]: [submission({ rating: 3 })],

@@ -108,3 +108,10 @@ window applies to both).
   auto-approvable, always reviewed by core and approved only by a human admin), `listReaders`,
   `presentPayment` and `cancelPresented`, all the host's own call only. A payment on a reader arrives as the same `payment` event, through the one
   verified door; a reader's action that took no payment is a new `reader` event. See ADR 0774.
+
+## Amendment, 2026-11-24 (stage 34 step 3, ADR 0694): refunds by method
+Refunds go back the way the money came. `order.refund` sends only the provider's payments through
+the gatekeeper, as above. A payment a person recorded is paid back by a person, who records it
+(`order.recordRefund`, `orders:refund`, human only): a confirmed refund row of method `recorded`,
+with nothing sent and nothing in Approvals. Refunds back onto a voucher or stored value come with
+stage 34 steps 7 and 8. See ADR 0694.

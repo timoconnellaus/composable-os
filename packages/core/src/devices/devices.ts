@@ -28,6 +28,7 @@ import type { CoreDatabase } from "@composable-os/db";
 import type { Compilable, CompiledQuery, Kysely } from "kysely";
 import { ForbiddenError } from "../errors.ts";
 import { notifyStatements } from "../notifications/send.ts";
+import { loadDeviceRole } from "../pack-roles.ts";
 import { nextCredential, secretHash } from "./secret.ts";
 
 type Db = Kysely<CoreDatabase>;
@@ -348,27 +349,12 @@ export function noticeTime(iso: string): string {
 }
 
 /**
- * Whether an installed, active, shipped pack declares this device role (stage 51 step 2 adds the
- * declaration, `deviceRoles` in a pack's manifest): a device of use `role` holds one, and nothing
- * else. Until a pack declares one, no device can be given the `role` use.
+ * Whether an installed, active, shipped pack declares this device role (`deviceRoles` in its
+ * manifest, ADR 0781): a device of use `role` holds one, and nothing else. Until a pack declares
+ * one, no device can be given the `role` use.
  */
 export async function deviceRoleDeclared(db: Db, role: string): Promise<boolean> {
-  const match = /^([a-z][a-z0-9]{1,29})\.([a-z][a-zA-Z0-9]{0,39})$/.exec(role);
-  if (!match) return false;
-  const row = await db
-    .selectFrom("core_extensions")
-    .select("manifest")
-    .where("id", "=", match[1] as string)
-    .where("status", "=", "active")
-    .where("source", "=", "shipped")
-    .executeTakeFirst();
-  if (!row?.manifest) return false;
-  try {
-    const manifest = JSON.parse(row.manifest) as { deviceRoles?: Record<string, unknown> };
-    return Boolean(manifest.deviceRoles && Object.hasOwn(manifest.deviceRoles, match[2] as string));
-  } catch {
-    return false;
-  }
+  return (await loadDeviceRole(db, role)) !== null;
 }
 
 /** The names of the staff users `ids`, for lists and notices. */

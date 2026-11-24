@@ -170,12 +170,12 @@ Take a submission out of Spam: it is back in the inbox as new. A person's act: t
 
 ### lowRating
 
-**Tell of a low rating.** When answers arrive with a rating at or under the form's 'tell at a rating of', tells the form's 'who is told', or the admins when it names nobody. Answers kept as spam tell nobody.
+**Tell of a low rating.** When answers arrive with a rating at or under the form's 'tell at a rating of', tells the answers' owner, or the admins when they have none. Answers kept as spam tell nobody.
 
 |  |  |
 | --- | --- |
 | Trigger | record on forms.submission (created) |
-| Steps | `tell` Tell the form's person, or the admins |
+| Steps | `tell` Tell the owner, or the admins |
 
 ## Core operations it may call
 

@@ -460,10 +460,19 @@ describe("the team role (criterion 7)", () => {
   it("is refused every operation in the registry but Rostering's team tools", async () => {
     const cleaner = await fixedRole("Cleaner Walk", "rostering.team");
     const open = await reach(asUser(cleaner));
-    // And the screens of the admin it may open (stage 47, ADR 0660), and every pack role's own
-    // read-and-understood list and confirmations (ADR 0702).
+    // And the screens of the admin it may open (stage 47, ADR 0660), every pack role's own
+    // read-and-understood list and confirmations (ADR 0702), and the published versions every
+    // staff account reads (ADR 0701, allowed on a staff-read object only).
     expect([...open].sort()).toEqual(
-      [...TEAM_TOOLS, "screens.mine", "ack.confirm", "ack.mine"].sort(),
+      [
+        ...TEAM_TOOLS,
+        "screens.mine",
+        "ack.confirm",
+        "ack.mine",
+        "content.search",
+        "content.staffGet",
+        "content.staffList",
+      ].sort(),
     );
     // No record read, not even of Rostering's own objects.
     for (const object of [SHIFT, DUTY, SERIES, CLASS, "person"]) {

@@ -6,6 +6,10 @@
 //   GET  /desk, /enrol       the tablet's two pages (TanStack Start routes, rendered here only)
 //   POST /api/desk/<call>    the desk calls: desk.status, device.claim (at /enrol), desk.claim,
 //                            desk.documents, desk.accept, desk.heartbeat, desk.finish
+//   POST /api/desk/<call>    a device's calls (stage 51, ADR 0781): device.heartbeat and a pack's
+//                            tools (`x.<pack>.<tool>`), called as the enrolled device; the
+//                            pipeline resolves it from its credential and refuses anything its
+//                            device role does not hold
 //
 // and the build's static files (answered before the Worker runs). Everything else is not found
 // here: no admin page, server function, HTTP surface, MCP or sign-in. The staff origin serves none
@@ -26,6 +30,7 @@
 import { createIdentityProvider, type IdentityEnv } from "@composable-os/auth";
 import {
   type DeskRequest,
+  type DeviceCaller,
   dataReply,
   errorReply,
   ForbiddenError,
@@ -57,6 +62,13 @@ export const DESK_CALLS = new Set([
   "desk.finish",
 ]);
 
+/**
+ * A device's calls (ADR 0781): its heartbeat and a pack's tools. Which ones it may make is the
+ * pipeline's to decide, from the device's role; any other name is answered as not found here.
+ */
+export const DEVICE_CALL_RE =
+  /^(?:device\.heartbeat|x\.[a-z][a-z0-9]{1,29}\.[a-z][a-zA-Z0-9]{0,39})$/;
+
 /** The desk's own pages. */
 export const DESK_PAGES = new Set(["/desk", "/enrol"]);
 
@@ -73,6 +85,8 @@ const DEVICE_MAX_AGE = 400 * 24 * 60 * 60;
 const SESSION_MAX_AGE = 20 * 60;
 
 const PUBLIC: PublicPrincipal = Object.freeze({ kind: "public" });
+/** A device call: which device, the pipeline reads from its credential (ADR 0781). */
+const DEVICE: DeviceCaller = Object.freeze({ kind: "device" });
 
 /** What every desk answer carries: never framed, never cached, no referrer, nothing else loaded. */
 export const DESK_HEADERS: Readonly<Record<string, string>> = Object.freeze({
@@ -151,8 +165,9 @@ export async function handleDesk(
     }
     return withDeskHeaders(await page(request));
   }
-  const call = /^\/api\/desk\/([a-z][a-zA-Z]*\.[a-z][a-zA-Z]*)$/.exec(url.pathname)?.[1];
-  if (!call || !DESK_CALLS.has(call)) {
+  const call = /^\/api\/desk\/([a-z][a-zA-Z0-9.]*)$/.exec(url.pathname)?.[1];
+  const deviceCall = Boolean(call && DEVICE_CALL_RE.test(call));
+  if (!call || (!DESK_CALLS.has(call) && !deviceCall)) {
     return reply(errorReply(new OperationError("not_found", "Not found"), true));
   }
   try {
@@ -201,10 +216,18 @@ export async function handleDesk(
       issue: (set) => Object.assign(issued, set),
     };
     const ctx = await outsideContext(env, createCrmDb(env.DB), PUBLIC, null);
-    const data = await invokeByName(call, input, {
-      ...ctx,
-      desk: { secret: env.DESK_SECRET, origin: deskOrigin(env, url.origin), request: deskRequest },
-    });
+    const desk = {
+      secret: env.DESK_SECRET,
+      origin: deskOrigin(env, url.origin),
+      request: deskRequest,
+    };
+    // A device's call is made as the enrolled device: the pipeline reads which from the
+    // credential and holds it to its device role (ADR 0781).
+    const data = await invokeByName(
+      call,
+      input,
+      deviceCall ? { ...ctx, principal: DEVICE, desk } : { ...ctx, desk },
+    );
     // The cookies go only with an answer that succeeded.
     const set: string[] = [];
     if (issued.credential !== undefined) {

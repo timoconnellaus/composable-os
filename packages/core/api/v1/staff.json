@@ -18646,7 +18646,8 @@
               "automation",
               "extension",
               "customer",
-              "public"
+              "public",
+              "device"
             ]
           },
           "operation": {
@@ -19602,6 +19603,8 @@
             "enum": [
               "active",
               "disabled",
+              "waiting",
+              "broken",
               "paused",
               "killed",
               "removed"
@@ -19655,6 +19658,8 @@
             "enum": [
               "active",
               "disabled",
+              "waiting",
+              "broken",
               "paused",
               "killed",
               "removed"
@@ -19788,6 +19793,8 @@
             "enum": [
               "active",
               "disabled",
+              "waiting",
+              "broken",
               "paused",
               "killed",
               "removed"
@@ -19798,6 +19805,18 @@
               "string",
               "null"
             ]
+          },
+          "waitingFor": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "unknownObjects": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "lastRunAt": {
             "type": [
@@ -20102,6 +20121,8 @@
           "triggerText",
           "status",
           "pausedReason",
+          "waitingFor",
+          "unknownObjects",
           "lastRunAt",
           "lastRunStatus",
           "runs7d",
@@ -20167,7 +20188,7 @@
     },
     {
       "name": "automation.list",
-      "description": "List the automations installed extensions declare, with their status (active, disabled, paused by a rail, stopped by the kill switch, removed), trigger in plain English, last run and 7-day run and error counts. `manualFor` lists the manual automations of one object (the buttons on its record pages and bulk actions on its lists). Read-only.",
+      "description": "List the automations installed extensions declare, with their status (active, disabled, waiting for an extension it runs only with (`waitingFor`), paused by a rail, stopped by the kill switch, removed), trigger in plain English, last run and 7-day run and error counts. `manualFor` lists the manual automations of one object (the buttons on its record pages and bulk actions on its lists). Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -20230,6 +20251,8 @@
                   "enum": [
                     "active",
                     "disabled",
+                    "waiting",
+                    "broken",
                     "paused",
                     "killed",
                     "removed"
@@ -20240,6 +20263,18 @@
                     "string",
                     "null"
                   ]
+                },
+                "waitingFor": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "unknownObjects": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
                 },
                 "lastRunAt": {
                   "type": [
@@ -20314,6 +20349,8 @@
                 "triggerText",
                 "status",
                 "pausedReason",
+                "waitingFor",
+                "unknownObjects",
                 "lastRunAt",
                 "lastRunStatus",
                 "runs7d",
@@ -25530,7 +25567,9 @@
         "content.list",
         "content.preview",
         "content.previewLinks",
-        "content.search"
+        "content.search",
+        "content.staffGet",
+        "content.staffList"
       ]
     },
     {
@@ -25636,7 +25675,9 @@
         "content.list",
         "content.preview",
         "content.previewLinks",
-        "content.search"
+        "content.search",
+        "content.staffGet",
+        "content.staffList"
       ]
     },
     {
@@ -25696,12 +25737,14 @@
         "content.list",
         "content.preview",
         "content.previewLinks",
-        "content.search"
+        "content.search",
+        "content.staffGet",
+        "content.staffList"
       ]
     },
     {
       "name": "content.search",
-      "description": "Search the published records of a content object (help pages, blog posts) by the words the public reads in them: their published versions only, never a draft or a working copy. Every word of two letters or more must match the start of a word, so partial input works. Best matches first, one result per record, each with its slug, title, the section the best match is in (its heading and anchor, to link to) and a highlighted snippet as plain and matching parts. Pass nextCursor back as cursor. Read-only.",
+      "description": "Search the published records of a content object (help pages, blog posts) by the words the public reads in them: their published versions only, never a draft or a working copy. Staff searching an object they read as published (procedures) search all its published words. Every word of two letters or more must match the start of a word, so partial input works. Best matches first, one result per record, each with its slug, title, the section the best match is in (its heading and anchor, to link to) and a highlighted snippet as plain and matching parts. Pass nextCursor back as cursor. Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -25893,8 +25936,275 @@
       "invalidates": []
     },
     {
+      "name": "content.staffGet",
+      "description": "Read one published record (a procedure) of an object staff read as published, by id or by slug: its current published version, never the working copy being edited, with its content fields, its slug, the version number and when it was published. A draft, an unpublished record and an unknown id or slug are all not found. Every staff account may read it, pack roles included. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "A publishable object staff read the published version of, e.g. `knowledge.procedure`"
+          },
+          "id": {
+            "description": "Record id",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The record's address, e.g. `summer-launch`"
+          }
+        },
+        "required": [
+          "object"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "values": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "The published version these values are"
+          },
+          "publishedAt": {
+            "type": "string",
+            "description": "When that version was published"
+          },
+          "redirect": {
+            "description": "Read by an old slug: the slug the record has now; else null",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "values",
+          "version",
+          "publishedAt",
+          "redirect"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "content.staffList",
+      "description": "A page of the published records (procedures) of an object staff read as published: current published versions only, never a working copy, each with its content fields, its slug, its version number and when it was published. Filter and sort on those fields (and publishedVersion, publishedAt); pass nextCursor back as cursor. Every staff account may read it, pack roles included. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "A publishable object staff read the published version of, e.g. `knowledge.procedure`"
+          },
+          "filter": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "sort": {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "direction": {
+                "default": "asc",
+                "type": "string",
+                "enum": [
+                  "asc",
+                  "desc"
+                ]
+              }
+            },
+            "required": [
+              "field"
+            ]
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": [
+          "object"
+        ],
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "field": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "eq",
+                      "neq",
+                      "lt",
+                      "lte",
+                      "gt",
+                      "gte",
+                      "between",
+                      "in",
+                      "not_in",
+                      "contains",
+                      "not_contains",
+                      "starts_with",
+                      "ends_with",
+                      "is_null",
+                      "is_not_null"
+                    ]
+                  },
+                  "value": {}
+                },
+                "required": [
+                  "field",
+                  "op"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "and": {
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/__schema0"
+                    }
+                  }
+                },
+                "required": [
+                  "and"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "or": {
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/__schema0"
+                    }
+                  }
+                },
+                "required": [
+                  "or"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "values": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {}
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991,
+                  "description": "The published version these values are"
+                },
+                "publishedAt": {
+                  "type": "string",
+                  "description": "When that version was published"
+                }
+              },
+              "required": [
+                "object",
+                "id",
+                "values",
+                "version",
+                "publishedAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "customer.disable",
-      "description": "Disable a customer account: it can no longer sign in, and every session it has ends at once. Its Person and records are kept. Undo with customer.enable. Admins only, humans only.",
+      "description": "Disable a customer account: it can no longer sign in, every session it has ends at once and its calendar link stops working. Its Person and records are kept. Undo with customer.enable. Admins only, humans only.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -26209,6 +26519,49 @@
         "additionalProperties": false
       },
       "invalidates": []
+    },
+    {
+      "name": "customer.revokeCalendarFeed",
+      "description": "Turn off a customer's private calendar link (their bookings for a calendar app), when they ask or it was shared by mistake: it then answers as if it never existed. Staff can never make or see one: the customer makes a new link themselves. Admins only.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Customer account id (cus_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "revoked": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "revoked"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "customer.list",
+        "customer.settings.get"
+      ]
     },
     {
       "name": "customer.revokeSessions",
@@ -49755,7 +50108,7 @@
     },
     {
       "name": "order.payments",
-      "description": "An order's money in detail, for staff: each checkout opened, each verified payment (applied, late or not matching) and each refund (asked for or confirmed), with what can still be refunded per payment. Amounts are in the currency's minor unit. Read-only.",
+      "description": "An order's money in detail, for staff: each checkout opened, each payment (the provider's, applied, late or not matching; or one a person recorded, and its reversal) and each refund (asked for or confirmed), with what can still be refunded per payment. Amounts are in the currency's minor unit. Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -49861,6 +50214,50 @@
                     "string",
                     "null"
                   ]
+                },
+                "method": {
+                  "type": "string",
+                  "description": "provider (the payment page), or recorded (taken another way by a person)"
+                },
+                "recordedKind": {
+                  "description": "A recorded one: transfer, cash, …",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "recordedBy": {
+                  "description": "A recorded one: who received it",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "receivedOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "reference": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "reverses": {
+                  "description": "A reversal: the payment it takes back off (its amount is negative)",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "reason": {
+                  "description": "A reversal's reason",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -49873,7 +50270,14 @@
                 "resolved",
                 "receivedAt",
                 "taxAmount",
-                "taxCountry"
+                "taxCountry",
+                "method",
+                "recordedKind",
+                "recordedBy",
+                "receivedOn",
+                "reference",
+                "reverses",
+                "reason"
               ],
               "additionalProperties": false
             }
@@ -49925,6 +50329,16 @@
                     "number",
                     "null"
                   ]
+                },
+                "method": {
+                  "type": "string",
+                  "description": "provider, or recorded (paid back by a person)"
+                },
+                "recordedKind": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -49936,7 +50350,9 @@
                 "pendingActionId",
                 "createdAt",
                 "confirmedAt",
-                "taxAmount"
+                "taxAmount",
+                "method",
+                "recordedKind"
               ],
               "additionalProperties": false
             }
@@ -49949,6 +50365,9 @@
                 "paymentRef": {
                   "type": "string"
                 },
+                "method": {
+                  "type": "string"
+                },
                 "paid": {
                   "type": "number"
                 },
@@ -49958,6 +50377,7 @@
               },
               "required": [
                 "paymentRef",
+                "method",
                 "paid",
                 "refundable"
               ],
@@ -49974,6 +50394,681 @@
         "additionalProperties": false
       },
       "invalidates": []
+    },
+    {
+      "name": "order.recordPayment",
+      "description": "Record a payment taken another way than the payment page (a bank transfer, cash, a cheque, a card machine) on an order still owed money: any amount up to what is owed, never more (a drop-in that books a place is paid in full). The order becomes paid (or part paid) as if the provider had been paid, and what it bought is given. The payment names you as the person who received it. Admins are told of one over the amount an admin set, or when the buyer had opened a payment page (a payment made there now is refunded). A person only, with the permission to record payments: AI assistants, MCP clients, automations and extensions are refused. Returns the payment's id and the order.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Order id (ord_…)"
+          },
+          "amount": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000000,
+            "description": "What was received, in the currency's minor unit (cents)"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "transfer",
+              "cash",
+              "cheque",
+              "card_machine",
+              "other"
+            ],
+            "description": "How it was paid: transfer, cash, cheque, card_machine or other"
+          },
+          "receivedOn": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "The day it was received (YYYY-MM-DD)"
+          },
+          "reference": {
+            "description": "The payer's reference: a bank reference, a cheque number",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "id",
+          "amount",
+          "kind",
+          "receivedOn"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "paymentId": {
+            "type": "string"
+          },
+          "order": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "part_paid",
+                  "paid",
+                  "cancelled",
+                  "expired",
+                  "refunded"
+                ]
+              },
+              "currency": {
+                "type": "string"
+              },
+              "total": {
+                "type": "number"
+              },
+              "paid": {
+                "type": "number"
+              },
+              "balance": {
+                "type": "number"
+              },
+              "refunded": {
+                "type": "number",
+                "description": "What has gone back to the buyer, confirmed by the provider"
+              },
+              "pay": {
+                "type": "string",
+                "enum": [
+                  "full",
+                  "deposit"
+                ]
+              },
+              "deposit": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "balanceDueAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expiresAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "paidAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "taxAmount": {
+                "type": "number",
+                "description": "The tax inside what has been paid, as the payment provider calculated it. Prices include it, so it does not add to the total. Zero when tax is off or none was charged."
+              },
+              "taxRefunded": {
+                "type": "number",
+                "description": "The tax the provider said went back with refunds"
+              },
+              "taxCountry": {
+                "description": "The country the latest taxed payment was for",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "discount": {
+                "type": "number",
+                "description": "Money taken off the order (its discounts), already out of the total"
+              },
+              "lines": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "position": {
+                      "type": "number"
+                    },
+                    "object": {
+                      "type": "string"
+                    },
+                    "recordId": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "type": "number"
+                    },
+                    "unitPrice": {
+                      "type": "number"
+                    },
+                    "total": {
+                      "type": "number"
+                    },
+                    "taxAmount": {
+                      "type": "number",
+                      "description": "The tax inside this line's payments, as the payment provider calculated it"
+                    },
+                    "discount": {
+                      "type": "number",
+                      "description": "The line's share of the order's discounts: it costs total less this"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "position",
+                    "object",
+                    "recordId",
+                    "title",
+                    "quantity",
+                    "unitPrice",
+                    "total",
+                    "taxAmount",
+                    "discount"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "adjustments": {
+                "description": "Staff only: the discounts on the order, in the order they were given",
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "lineId": {
+                      "description": "The line it is on; null: spread over the order",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "code",
+                        "automatic",
+                        "staff",
+                        "referral"
+                      ]
+                    },
+                    "amount": {
+                      "type": "number",
+                      "description": "What it took off, in the currency's minor unit"
+                    },
+                    "percent": {
+                      "description": "The percentage asked for, when it was one",
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "reason": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "givenBy": {
+                      "description": "The staff account that gave it",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "approval": {
+                      "description": "The approval it waited in, when it did",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "lineId",
+                    "kind",
+                    "amount",
+                    "percent",
+                    "reason",
+                    "givenBy",
+                    "approval",
+                    "createdAt"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "personId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "email": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "placedAs": {
+                "type": "string",
+                "enum": [
+                  "customer",
+                  "public",
+                  "staff"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "state",
+              "currency",
+              "total",
+              "paid",
+              "balance",
+              "refunded",
+              "pay",
+              "deposit",
+              "balanceDueAt",
+              "expiresAt",
+              "paidAt",
+              "createdAt",
+              "taxAmount",
+              "taxRefunded",
+              "taxCountry",
+              "discount",
+              "lines"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "paymentId",
+          "order"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "order.get",
+        "order.list",
+        "order.overdue",
+        "order.paidLate",
+        "order.payments",
+        "order.settings.get",
+        "order.view"
+      ]
+    },
+    {
+      "name": "order.recordRefund",
+      "description": "Record money paid back by hand on a payment that was recorded (taken by transfer, cash and so on): how it went back, how much (default: all that is left on that payment) and why. Nothing is sent: you say you paid it. The order is refunded once everything paid has gone back. Payments made on the payment page are refunded with order.refund instead. A person only, with the refund permission. Returns the refund and the order.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Order id (ord_…)"
+          },
+          "paymentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The recorded payment it went back on (opy_…)"
+          },
+          "amount": {
+            "description": "Minor units; default all",
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "transfer",
+              "cash",
+              "cheque",
+              "card_machine",
+              "other"
+            ],
+            "description": "How it was paid back: transfer, cash, cheque, card_machine or other"
+          },
+          "reference": {
+            "description": "Its reference, if any",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "Why, in staff's words"
+          }
+        },
+        "required": [
+          "id",
+          "paymentId",
+          "kind",
+          "reason"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "refundId": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "order": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "part_paid",
+                  "paid",
+                  "cancelled",
+                  "expired",
+                  "refunded"
+                ]
+              },
+              "currency": {
+                "type": "string"
+              },
+              "total": {
+                "type": "number"
+              },
+              "paid": {
+                "type": "number"
+              },
+              "balance": {
+                "type": "number"
+              },
+              "refunded": {
+                "type": "number",
+                "description": "What has gone back to the buyer, confirmed by the provider"
+              },
+              "pay": {
+                "type": "string",
+                "enum": [
+                  "full",
+                  "deposit"
+                ]
+              },
+              "deposit": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "balanceDueAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expiresAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "paidAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "taxAmount": {
+                "type": "number",
+                "description": "The tax inside what has been paid, as the payment provider calculated it. Prices include it, so it does not add to the total. Zero when tax is off or none was charged."
+              },
+              "taxRefunded": {
+                "type": "number",
+                "description": "The tax the provider said went back with refunds"
+              },
+              "taxCountry": {
+                "description": "The country the latest taxed payment was for",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "discount": {
+                "type": "number",
+                "description": "Money taken off the order (its discounts), already out of the total"
+              },
+              "lines": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "position": {
+                      "type": "number"
+                    },
+                    "object": {
+                      "type": "string"
+                    },
+                    "recordId": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "type": "number"
+                    },
+                    "unitPrice": {
+                      "type": "number"
+                    },
+                    "total": {
+                      "type": "number"
+                    },
+                    "taxAmount": {
+                      "type": "number",
+                      "description": "The tax inside this line's payments, as the payment provider calculated it"
+                    },
+                    "discount": {
+                      "type": "number",
+                      "description": "The line's share of the order's discounts: it costs total less this"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "position",
+                    "object",
+                    "recordId",
+                    "title",
+                    "quantity",
+                    "unitPrice",
+                    "total",
+                    "taxAmount",
+                    "discount"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "adjustments": {
+                "description": "Staff only: the discounts on the order, in the order they were given",
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "lineId": {
+                      "description": "The line it is on; null: spread over the order",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "code",
+                        "automatic",
+                        "staff",
+                        "referral"
+                      ]
+                    },
+                    "amount": {
+                      "type": "number",
+                      "description": "What it took off, in the currency's minor unit"
+                    },
+                    "percent": {
+                      "description": "The percentage asked for, when it was one",
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "reason": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "givenBy": {
+                      "description": "The staff account that gave it",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "approval": {
+                      "description": "The approval it waited in, when it did",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "lineId",
+                    "kind",
+                    "amount",
+                    "percent",
+                    "reason",
+                    "givenBy",
+                    "approval",
+                    "createdAt"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "personId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "email": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "placedAs": {
+                "type": "string",
+                "enum": [
+                  "customer",
+                  "public",
+                  "staff"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "state",
+              "currency",
+              "total",
+              "paid",
+              "balance",
+              "refunded",
+              "pay",
+              "deposit",
+              "balanceDueAt",
+              "expiresAt",
+              "paidAt",
+              "createdAt",
+              "taxAmount",
+              "taxRefunded",
+              "taxCountry",
+              "discount",
+              "lines"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "refundId",
+          "amount",
+          "order"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "order.get",
+        "order.list",
+        "order.overdue",
+        "order.paidLate",
+        "order.payments",
+        "order.settings.get",
+        "order.view"
+      ]
     },
     {
       "name": "order.refund",
@@ -50191,6 +51286,314 @@
         },
         "required": [
           "released"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "order.get",
+        "order.list",
+        "order.overdue",
+        "order.paidLate",
+        "order.payments",
+        "order.settings.get",
+        "order.view"
+      ]
+    },
+    {
+      "name": "order.reversePayment",
+      "description": "Reverse a payment recorded in error (order.recordPayment): a second entry takes it back off, nothing is deleted, and an order it had paid is part paid again with the amount owed. What the order gave stays: take the right payment or cancel the order. A drop-in's booking is cancelled first. Not for the payment provider's payments (refund those). Admins are told. A person only, with the permission to record payments. Get the payment's id from order.payments. Returns the reversal's id and the order.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "paymentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The recorded payment (opy_…)"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "Why it was entered in error"
+          }
+        },
+        "required": [
+          "paymentId",
+          "reason"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "paymentId": {
+            "type": "string"
+          },
+          "order": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "part_paid",
+                  "paid",
+                  "cancelled",
+                  "expired",
+                  "refunded"
+                ]
+              },
+              "currency": {
+                "type": "string"
+              },
+              "total": {
+                "type": "number"
+              },
+              "paid": {
+                "type": "number"
+              },
+              "balance": {
+                "type": "number"
+              },
+              "refunded": {
+                "type": "number",
+                "description": "What has gone back to the buyer, confirmed by the provider"
+              },
+              "pay": {
+                "type": "string",
+                "enum": [
+                  "full",
+                  "deposit"
+                ]
+              },
+              "deposit": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "balanceDueAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expiresAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "paidAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "taxAmount": {
+                "type": "number",
+                "description": "The tax inside what has been paid, as the payment provider calculated it. Prices include it, so it does not add to the total. Zero when tax is off or none was charged."
+              },
+              "taxRefunded": {
+                "type": "number",
+                "description": "The tax the provider said went back with refunds"
+              },
+              "taxCountry": {
+                "description": "The country the latest taxed payment was for",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "discount": {
+                "type": "number",
+                "description": "Money taken off the order (its discounts), already out of the total"
+              },
+              "lines": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "position": {
+                      "type": "number"
+                    },
+                    "object": {
+                      "type": "string"
+                    },
+                    "recordId": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "type": "number"
+                    },
+                    "unitPrice": {
+                      "type": "number"
+                    },
+                    "total": {
+                      "type": "number"
+                    },
+                    "taxAmount": {
+                      "type": "number",
+                      "description": "The tax inside this line's payments, as the payment provider calculated it"
+                    },
+                    "discount": {
+                      "type": "number",
+                      "description": "The line's share of the order's discounts: it costs total less this"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "position",
+                    "object",
+                    "recordId",
+                    "title",
+                    "quantity",
+                    "unitPrice",
+                    "total",
+                    "taxAmount",
+                    "discount"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "adjustments": {
+                "description": "Staff only: the discounts on the order, in the order they were given",
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "lineId": {
+                      "description": "The line it is on; null: spread over the order",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "code",
+                        "automatic",
+                        "staff",
+                        "referral"
+                      ]
+                    },
+                    "amount": {
+                      "type": "number",
+                      "description": "What it took off, in the currency's minor unit"
+                    },
+                    "percent": {
+                      "description": "The percentage asked for, when it was one",
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "reason": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "givenBy": {
+                      "description": "The staff account that gave it",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "approval": {
+                      "description": "The approval it waited in, when it did",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "lineId",
+                    "kind",
+                    "amount",
+                    "percent",
+                    "reason",
+                    "givenBy",
+                    "approval",
+                    "createdAt"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "personId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "email": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "placedAs": {
+                "type": "string",
+                "enum": [
+                  "customer",
+                  "public",
+                  "staff"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "state",
+              "currency",
+              "total",
+              "paid",
+              "balance",
+              "refunded",
+              "pay",
+              "deposit",
+              "balanceDueAt",
+              "expiresAt",
+              "paidAt",
+              "createdAt",
+              "taxAmount",
+              "taxRefunded",
+              "taxCountry",
+              "discount",
+              "lines"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "paymentId",
+          "order"
         ],
         "additionalProperties": false
       },
@@ -50572,6 +51975,10 @@
             "additionalProperties": false,
             "description": "How much staff may take off one order on their own (order.adjust). Above it, a discount waits for an admin. Nothing (0) until a human admin sets it."
           },
+          "recordedPaymentNotice": {
+            "type": "number",
+            "description": "Admins are told of a payment recorded by hand (order.recordPayment) for more than this, in minor units. 0 until a human admin sets it: every one is told."
+          },
           "taxObjects": {
             "type": "array",
             "items": {
@@ -50615,6 +52022,7 @@
           "tax",
           "taxCodes",
           "discountLimit",
+          "recordedPaymentNotice",
           "taxObjects"
         ],
         "additionalProperties": false
@@ -50623,7 +52031,7 @@
     },
     {
       "name": "order.settings.update",
-      "description": "Change the order settings: the currency every order is in, the minutes an unpaid order lasts, the least part payment, the sites a buyer may come back to after paying, whether the payment provider calculates tax at checkout, the product tax code of an object for sale, or how much staff may take off an order on their own. Only what you pass changes. Orders already started keep the currency they were started in; turning tax on or off changes only payments made from then on. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
+      "description": "Change the order settings: the currency every order is in, the minutes an unpaid order lasts, the least part payment, the sites a buyer may come back to after paying, whether the payment provider calculates tax at checkout, the product tax code of an object for sale, how much staff may take off an order on their own, or above what a payment recorded by hand tells admins. Only what you pass changes. Orders already started keep the currency they were started in; turning tax on or off changes only payments made from then on. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -50693,6 +52101,12 @@
               "amount"
             ],
             "additionalProperties": false
+          },
+          "recordedPaymentNotice": {
+            "description": "Tell admins of a payment recorded by hand for more than this (minor units)",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000000
           }
         }
       },
@@ -50758,6 +52172,10 @@
             "additionalProperties": false,
             "description": "How much staff may take off one order on their own (order.adjust). Above it, a discount waits for an admin. Nothing (0) until a human admin sets it."
           },
+          "recordedPaymentNotice": {
+            "type": "number",
+            "description": "Admins are told of a payment recorded by hand (order.recordPayment) for more than this, in minor units. 0 until a human admin sets it: every one is told."
+          },
           "previous": {
             "type": "object",
             "properties": {
@@ -50819,6 +52237,10 @@
                 ],
                 "additionalProperties": false,
                 "description": "How much staff may take off one order on their own (order.adjust). Above it, a discount waits for an admin. Nothing (0) until a human admin sets it."
+              },
+              "recordedPaymentNotice": {
+                "type": "number",
+                "description": "Admins are told of a payment recorded by hand (order.recordPayment) for more than this, in minor units. 0 until a human admin sets it: every one is told."
               }
             },
             "required": [
@@ -50828,7 +52250,8 @@
               "returnOrigins",
               "tax",
               "taxCodes",
-              "discountLimit"
+              "discountLimit",
+              "recordedPaymentNotice"
             ],
             "additionalProperties": false
           }
@@ -50841,6 +52264,7 @@
           "tax",
           "taxCodes",
           "discountLimit",
+          "recordedPaymentNotice",
           "previous"
         ],
         "additionalProperties": false
@@ -58843,7 +60267,7 @@
     },
     {
       "name": "query.sql",
-      "description": "Run one read-only SQL query (SQLite dialect) over the rec_* views: rec_person, rec_organisation, rec_affiliation, rec_activity, rec_activity_link, rec_task, rec_task_link, rec_record_tag, rec_user, rec_publish_version (the published versions of publishable records, without their content), rec_capacity and rec_capacity_claim (places, held, taken and claims of records with a capacity), rec_allowance, rec_allowance_period and rec_allowance_use (passes' and memberships' uses: terms, counts per period, every use spent or given back), rec_stock_movement (the stock ledger: every movement of a record with stock, its kind, signed quantity, place and source; on hand is rec_capacity's places - taken), rec_stage_history (stage entered/left times, days_in_stage), rec_state_history (the same for objects with a state machine: state, is_final, days_in_state) and extension objects as rec_x_<ext>_<object> (e.g. rec_x_deals_deal; see schema.objects). Only a single SELECT or WITH is allowed; core_* and sqlite_* tables, PRAGMA, ATTACH, writes, recursive CTEs and named parameters are refused. Pass values as params bound to ? (or ?1, ?2) placeholders, never by pasting them into the SQL. Multi-valued columns (emails, domains, tags) are JSON arrays: use json_each. Returns at most maxRows rows (default 200, max 1000) with truncated set when there were more, and fails after timeoutMs (default 5000). Use list operations for simple filtering; use this for joins, grouping and counts. Read-only.",
+      "description": "Run one read-only SQL query (SQLite dialect) over the rec_* views: rec_person, rec_organisation, rec_affiliation, rec_activity, rec_activity_link, rec_task, rec_task_link, rec_record_tag, rec_user, rec_publish_version (the published versions of publishable records, without their content), rec_capacity and rec_capacity_claim (places, held, taken and claims of records with a capacity), rec_allowance, rec_allowance_period and rec_allowance_use (passes' and memberships' uses: terms, counts per period, every use spent or given back), rec_stock_movement (the stock ledger: every movement of a record with stock, its kind, signed quantity, place and source; on hand is rec_capacity's places - taken), rec_order, rec_order_line, rec_order_adjustment, rec_order_payment and rec_order_refund (orders, their lines, money off, and payments and refunds by method), rec_stage_history (stage entered/left times, days_in_stage), rec_state_history (the same for objects with a state machine: state, is_final, days_in_state) and extension objects as rec_x_<ext>_<object> (e.g. rec_x_deals_deal; see schema.objects). Only a single SELECT or WITH is allowed; core_* and sqlite_* tables, PRAGMA, ATTACH, writes, recursive CTEs and named parameters are refused. Pass values as params bound to ? (or ?1, ?2) placeholders, never by pasting them into the SQL. Multi-valued columns (emails, domains, tags) are JSON arrays: use json_each. Returns at most maxRows rows (default 200, max 1000) with truncated set when there were more, and fails after timeoutMs (default 5000). Use list operations for simple filtering; use this for joins, grouping and counts. Read-only.",
       "risk": "read",
       "audiences": [
         "staff"

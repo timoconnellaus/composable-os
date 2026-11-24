@@ -121,3 +121,9 @@ which gives it the enrolled device's credential and the desk session's token fro
 (`ctx.desk.request`), never from an input. Any other caller is told no such operation exists; it is
 left out of the HTTP contract and the manifest, and listed in `open-operations.json` as `deskOnly`.
 It must be `hostInternal`, and a desk request reaches no other operation.
+
+**Amended 2026-11-24** (stage 51 step 2, [ADR 0781](0781-a-device-as-a-caller-the-device-audience-and-device-roles.md)):
+a fourth audience, `device`: an enrolled device holding a device role, on the desk origin only.
+An operation open to it is open to nobody else, is a `read` or a `write`, is listed in
+`open-operations.json`, and is left out of the HTTP contract; the pipeline resolves the device from
+its credential and lets it call only its role's tools and `device.heartbeat`.

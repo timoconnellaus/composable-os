@@ -139,6 +139,8 @@ export interface ObjectDefinition {
   sellable?: SellableDefinition;
   /** Extension objects: things counted on a shelf, kept from a ledger (stage 37, ADR 0680). */
   stock?: StockDefinition;
+  /** Extension objects: a state whose entering moves stock (stage 37, ADR 0681). */
+  stockMoves?: StockMovesDefinition;
   /** Extension objects: uses held (a pass) or spent (a booking) (stage 32b, ADR 0493). */
   allowance?: AllowanceDefinition;
   /**
@@ -193,6 +195,11 @@ export interface ObjectDefinition {
   workedOn?: WorkedOnDefinition;
   /** Extension objects: a claim on a thing (a room) for the record's time (stage 49, ADR 0765). */
   occupies?: OccupiesDefinition;
+  /**
+   * Extension objects of a shipped pack: records that are events in their customer's calendar
+   * feed (stage 62, ADR 0891), as declared: paths from this object, read as the customer.
+   */
+  calendarEntry?: CalendarEntryDefinition;
   /**
    * Extension objects of a shipped pack: the public-write door (stage 29, ADR 0720), a form the
    * public answers, the submission the host makes, or a destination a form may also make.
@@ -268,6 +275,11 @@ export interface PublishableDefinition {
    * restricted, grantable permission whose holders (and admins) read who has confirmed.
    */
   readonly acknowledge?: { readonly who: string; readonly manage: string };
+  /**
+   * Staff read (ADR 0701): every staff account, pack roles included, reads the current published
+   * version's content and slug through `content.staffGet`, `content.staffList` and `content.search`.
+   */
+  readonly staffRead?: boolean;
 }
 
 /**
@@ -397,6 +409,24 @@ export interface StockDefinition {
   show: "exact" | "low" | "availability";
   /** `low`'s threshold. */
   lowAt?: number | undefined;
+  /** The extension's tool permission whose holders are told of low stock (ADR 0681); else admins. */
+  notify?: string | undefined;
+}
+
+/** The stockMoves declaration as the host enforces it (the SDK's StockMovesSpec), registry names. */
+export interface StockMovesDefinition {
+  move: "add" | "remove" | "set";
+  /** The relation field to the record whose stock moves, and that record's object. */
+  on: string;
+  object: string;
+  quantity: string;
+  /** The state entered: this object's, or with `through`, the state of `throughObject`'s record. */
+  when: string;
+  through?: string | undefined;
+  throughObject?: string | undefined;
+  kind: "received" | "written_off" | "used" | "counted";
+  unitCost?: string | undefined;
+  note?: string | undefined;
 }
 
 /**
@@ -674,6 +704,15 @@ export interface OccupiesDefinition {
    * names (`viaObject`). Left out, the object's label.
    */
   title?: { field: string; via?: string | undefined; viaObject?: string | undefined } | undefined;
+}
+
+/** The SDK's CalendarEntrySpec (ADR 0891): paths of field names from the object, as declared. */
+export interface CalendarEntryDefinition {
+  starts: string;
+  ends: string;
+  title: string;
+  place?: string | undefined;
+  live: readonly string[];
 }
 
 /** A margin of a claim on a thing, in minutes: a field of the record, or of what `via` names. */

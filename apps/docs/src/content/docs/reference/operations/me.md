@@ -268,9 +268,53 @@ No fields.
 | `items[].currency` | string or null | yes |   |   |
 | `items[].usesLeft` | number or null | yes |   | A pass's uses left; null for other kinds |
 
-## me.birthday.get
+## me.calendarFeed.revoke
 
-Your birthday as the business has it, as a signed-in customer: day and month only, or null when none is recorded. Read-only.
+Turn off your private calendar link, as a signed-in customer: it then answers as if it never existed (a calendar app subscribed to it keeps what it last fetched, and gets no more). Make a new one with me.calendarFeed.rotate.
+
+|  |  |
+| --- | --- |
+| Permission | `records:write` |
+| Risk | `write` |
+| Audiences | `customer` |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+No fields.
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `revoked` | boolean | yes |   |   |
+
+## me.calendarFeed.rotate
+
+A new private link for your calendar, as a signed-in customer: your bookings and your children's, from two weeks ago to four months ahead, for a calendar app to subscribe to. It replaces any old link, which stops working at once. The link is shown this once and never again: anyone who has it sees your bookings, so do not share it. Your own act.
+
+|  |  |
+| --- | --- |
+| Permission | `records:write` |
+| Risk | `write` |
+| Audiences | `customer` |
+| Actors | `human` |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+No fields.
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `path` | string | yes |   | The link's address on this host (put the host's origin before it; webcal:// opens it in a calendar app). Shown once. |
+| `createdAt` | string | yes |   |   |
+
+## me.calendarFeed.status
+
+Whether you have a private calendar link (your bookings, and your children's, for a calendar app to subscribe to), and when it was made, as a signed-in customer. Never the link itself: it is shown once, when made. Read-only.
 
 |  |  |
 | --- | --- |
@@ -287,36 +331,8 @@ No fields.
 
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
-| `birthday` | object or null | yes |   | Day and month; null when none is recorded |
-| `birthday.day` | integer | yes | ≥ 1, ≤ 31 | Day of the month, 1 to 31 |
-| `birthday.month` | integer | yes | ≥ 1, ≤ 12 | Month, 1 (January) to 12 (December) |
-
-## me.birthday.set
-
-Give your birthday, as a signed-in customer: day and month only, never a year; null removes it. The business may send you a message on the day. Returns your birthday.
-
-|  |  |
-| --- | --- |
-| Permission | `records:write` |
-| Risk | `write` |
-| Audiences | `customer` |
-| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
-
-### Input
-
-| Field | Type | Required | Limits | Description |
-| --- | --- | --- | --- | --- |
-| `birthday` | object or null | yes |   | Day and month; null when none is recorded |
-| `birthday.day` | integer | yes | ≥ 1, ≤ 31 | Day of the month, 1 to 31 |
-| `birthday.month` | integer | yes | ≥ 1, ≤ 12 | Month, 1 (January) to 12 (December) |
-
-### Output
-
-| Field | Type | Required | Limits | Description |
-| --- | --- | --- | --- | --- |
-| `birthday` | object or null | yes |   | Day and month; null when none is recorded |
-| `birthday.day` | integer | yes | ≥ 1, ≤ 31 | Day of the month, 1 to 31 |
-| `birthday.month` | integer | yes | ≥ 1, ≤ 12 | Month, 1 (January) to 12 (December) |
+| `active` | boolean | yes |   | Whether a calendar link exists (it is never shown again) |
+| `createdAt` | string or null | yes |   | When the current link was made |
 
 ## me.code
 

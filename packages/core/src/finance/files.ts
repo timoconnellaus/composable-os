@@ -3,7 +3,9 @@
 // whom (or say it is a preview, on the very first row), the currency and the notes; then its
 // tables. Every amount is in minor units with a decimal column beside it; every text cell is
 // quoted and guarded against formulas (`csvText`). A closed version's file is made only from its
-// stored rows, so it downloads the same every time.
+// stored rows and its version, so it downloads byte for byte the same every time, a reopen since
+// included, but for its names: who closed it and the staff on a refund are read as their accounts
+// are named when it is downloaded, and an erased customer reads "Erased person" (ADR 0796).
 import { csvText } from "../csv.ts";
 import { currencyDecimals } from "../orders/settings.ts";
 import type { BuiltReport, ReportView } from "./reports.ts";
@@ -93,7 +95,6 @@ export function reportCsv(view: ReportView): string {
             csvText(view.closedAt),
             csvText("Closed by"),
             csvText(view.closedByName),
-            ...(view.reopened ? [csvText("Reopened since; this version is kept as it was")] : []),
           ],
     ),
   );

@@ -337,6 +337,10 @@ describe("the coach role (ADR 0889)", () => {
       [
         "ack.confirm",
         "ack.mine",
+        // Published versions every staff account reads (ADR 0701), on a staff-read object only.
+        "content.search",
+        "content.staffGet",
+        "content.staffList",
         "record.get",
         "record.list",
         "screens.mine",

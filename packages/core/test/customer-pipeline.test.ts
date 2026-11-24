@@ -102,6 +102,10 @@ describe("default closed (criterion 1)", () => {
       // Stage 53 step 7 (ADR 0803): their own birthday.
       "me.birthday.get",
       "me.birthday.set",
+      // Stage 62 step 1 (ADR 0890): their own calendar link, made by them alone.
+      "me.calendarFeed.revoke",
+      "me.calendarFeed.rotate",
+      "me.calendarFeed.status",
       // Stage 51 step 3 (ADR 0783): their own check-in code (and their dependants'), and PIN.
       "me.code",
       "me.deleteAccount",
@@ -476,6 +480,10 @@ describe("the closed handler context (ADR 0413)", () => {
       // Stage 53 step 7 (ADR 0803): a birthday is in no view the seam reads; the caller's own.
       "me.birthday.get",
       "me.birthday.set",
+      // Stage 62 step 1 (ADR 0890): the calendar link is a core table, the caller's own account's.
+      "me.calendarFeed.revoke",
+      "me.calendarFeed.rotate",
+      "me.calendarFeed.status",
       // Stage 51 step 3 (ADR 0783): codes and PINs are core tables, for the caller's own sign-in.
       "me.code",
       "me.deleteAccount",

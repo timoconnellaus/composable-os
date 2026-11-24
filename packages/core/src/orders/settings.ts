@@ -196,3 +196,17 @@ export const NO_DISCOUNT_LIMIT: DiscountLimit = { percent: 0, amount: 0 };
 export async function loadDiscountLimit(db: Kysely<CoreDatabase>): Promise<DiscountLimit> {
   return (await load(db, ORDER_DISCOUNT_LIMIT_SETTING, discountLimitSchema)) ?? NO_DISCOUNT_LIMIT;
 }
+
+// --- Payments taken another way (stage 34, ADR 0694) ---------------------------------------------
+
+/**
+ * Admins are told of a payment a person records (`order.recordPayment`) for more than this, in
+ * minor units. Set only by a human admin; until then it is nothing, so every recorded payment is
+ * told.
+ */
+export const ORDER_RECORDED_NOTICE_SETTING = "order_recorded_payment_notice";
+export const recordedPaymentNoticeSchema = z.number().int().min(0).max(100_000_000);
+
+export async function loadRecordedPaymentNotice(db: Kysely<CoreDatabase>): Promise<number> {
+  return (await load(db, ORDER_RECORDED_NOTICE_SETTING, recordedPaymentNoticeSchema)) ?? 0;
+}

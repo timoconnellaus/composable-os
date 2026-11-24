@@ -15,8 +15,7 @@ signed in. Every answer lands in one inbox, linked to the right Person, where st
 in hand, done, or spam. Nobody outside the business reads an answer, not even the person who sent
 it. A "keep me updated" tick is kept with the exact words the person saw.
 
-It requires no other pack. When [Leads](/packs/leads/) is installed, a form may name a lead as a
-record each answer also makes.
+It requires no other pack.
 
 ## Concepts
 
@@ -46,8 +45,9 @@ record each answer also makes.
   that is a draft, closed, out of its dates or for signed-in customers only is not found. The form
   has no public scope.
 - **Who may answer, anonymity and the destination are published** with the questions: an edit
-  counts once a person publishes it. Publishing, and opening or closing a form, are a person's; an
-  AI may ask.
+  counts once a person publishes it. Publishing, opening or closing a form, its dates, its daily
+  cap and its address are a person's; an AI may ask. A form's old address, after a change, still
+  finds it.
 - **Who reads it**: staff accounts read forms and submissions as any record. No pack-role account
   (a coach, the door, a team member) reads either, and no customer or visitor reads a submission.
 - **Spam**: the door keeps a flood from one address as spam. Moving a submission into or out of
@@ -67,7 +67,7 @@ record each answer also makes.
 4. **Work the inbox.** Staff move a submission with `move` (new, in hand, done), and mark spam
    with `markSpam` or take it back with `notSpam`.
 5. **A low rating.** When answers arrive with a rating at or under the form's level, the
-   `lowRating` automation tells the form's chosen person, or the admins.
+   `lowRating` automation tells the answers' owner, or the admins when they have none.
 
 ## What is built
 
@@ -76,5 +76,6 @@ from us, open forms), the answers tab on a Person and on a form, the hourly cap 
 low-rating notice.
 
 Not in the code yet: the hosted page and the web and native form blocks, personal links, the
-receipt email, a lead as a destination, erase and retention of submissions, the builder and inbox
-screens and the dashboard, and file uploads.
+receipt email, a record of another pack (a lead) as a destination, deleting a person's
+submissions when they are erased (erase clears the Person and the answers it recognises, not free
+text) and retention, the builder and inbox screens and the dashboard, and file uploads.

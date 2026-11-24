@@ -38,8 +38,9 @@ nothing.
   `OWNER_CLIENT_OPERATIONS` and `roles.json`'s `owner` (the listed operations the release serves:
   today the approvals, the inbox and `user.me`; Today's own join with steps 3 and 5);
   `mobile.owner: true` and `cos client generate` writing `roles/owner.ts`; `createOwnerHooks` and
-  Today's words in `@composable-os/client`; the host refusing an extension or schema approval on a
-  staff device session (`origin.staffDevice`, "review on a computer", criterion 6's host half).
+  Today's words in `@composable-os/client`; the host refusing an extension or schema operation on a
+  staff device session, called directly or approved (`origin.staffDevice`, "review on a computer",
+  criterion 6's host half).
   No migration.
 
 ## Goal

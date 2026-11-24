@@ -54,6 +54,10 @@ const OPENED = [
   // Stage 53 step 7 (ADR 0803): the caller's own birthday.
   "me.birthday.get",
   "me.birthday.set",
+  // Stage 62 step 1 (ADR 0890): the caller's own calendar link.
+  "me.calendarFeed.revoke",
+  "me.calendarFeed.rotate",
+  "me.calendarFeed.status",
   // Stage 51 step 3 (ADR 0783): the caller's own check-in code and PIN.
   "me.code",
   "me.deleteAccount",
@@ -95,6 +99,9 @@ describe("what this step opens", () => {
           "me.attention",
           "me.birthday.get",
           "me.birthday.set",
+          "me.calendarFeed.revoke",
+          "me.calendarFeed.rotate",
+          "me.calendarFeed.status",
           "me.code",
           "me.deleteAccount",
           "me.pin.clear",

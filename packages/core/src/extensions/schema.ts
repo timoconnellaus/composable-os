@@ -4,6 +4,7 @@ import type { CoreDatabase } from "@composable-os/db";
 import {
   type AgreementsManifest,
   type AllowanceManifest,
+  type CalendarEntryManifest,
   type CapacityManifest,
   type ChecklistsManifest,
   type ClaimsManifest,
@@ -26,6 +27,7 @@ import {
   type StagesManifest,
   type StatesManifest,
   type StockManifest,
+  type StockMovesManifest,
   sellableFinance,
   spendsOnList,
   type UniqueManifest,
@@ -87,6 +89,7 @@ export interface ObjectDefinitionJson {
   capacity?: CapacityManifest;
   sellable?: SellableManifest;
   stock?: StockManifest;
+  stockMoves?: StockMovesManifest;
   allowance?: AllowanceManifest;
   /** An agreement point (stage 44, ADR 0641), as declared. */
   agreements?: AgreementsManifest;
@@ -104,6 +107,8 @@ export interface ObjectDefinitionJson {
   workedOn?: WorkedOnManifest;
   /** A claim on a thing (stage 49, ADR 0765), as declared. */
   occupies?: OccupiesManifest;
+  /** Events in a customer's calendar feed (stage 62, ADR 0891), as declared. */
+  calendarEntry?: CalendarEntryManifest;
   /** The public-write door (stage 29, ADR 0720), as declared. */
   intake?: IntakeManifest;
   /** A checklist its person ticks off (stage 45 step 4b, ADR 0650), as declared. */
@@ -140,6 +145,7 @@ export interface ObjectDefinitionJson {
     date?: string | undefined;
     publishIn?: string[] | undefined;
     acknowledge?: { who: string; manage: string } | undefined;
+    staffRead?: boolean | undefined;
   };
   navigationOrder?: number;
   requireOneOf?: string[][];
@@ -878,6 +884,36 @@ function stockDefinition(object: ObjectState, own: FieldState[]): ObjectDefiniti
     ...(declared.reorderQty ? { reorderQty: nameOf(declared.reorderQty) } : {}),
     show: declared.show ?? "availability",
     ...(declared.lowAt !== undefined ? { lowAt: declared.lowAt } : {}),
+    ...(declared.notify ? { notify: declared.notify } : {}),
+  };
+}
+
+/** The stockMoves declaration (ADR 0681), with registry field names and the objects it names. */
+function stockMovesDefinition(
+  object: ObjectState,
+  own: FieldState[],
+): ObjectDefinition["stockMoves"] {
+  const declared = object.definition.stockMoves;
+  if (!declared) return undefined;
+  const fieldOf = (local: string) => own.find((f) => f.localName === local);
+  const on = fieldOf(declared.on);
+  const through = declared.through ? fieldOf(declared.through) : undefined;
+  if (!on?.definition.to || (declared.through && !through?.definition.to)) return undefined;
+  const nameOf = (local: string | undefined) =>
+    local === undefined ? undefined : (fieldOf(local)?.name ?? local);
+  const kind =
+    declared.kind ??
+    (declared.move === "add" ? "received" : declared.move === "set" ? "counted" : "written_off");
+  return {
+    move: declared.move,
+    on: on.name,
+    object: on.definition.to,
+    quantity: nameOf(declared.quantity) as string,
+    when: declared.when,
+    ...(through ? { through: through.name, throughObject: through.definition.to } : {}),
+    kind: kind as NonNullable<ObjectDefinition["stockMoves"]>["kind"],
+    ...(declared.unitCost ? { unitCost: nameOf(declared.unitCost) } : {}),
+    ...(declared.note ? { note: nameOf(declared.note) } : {}),
   };
 }
 
@@ -1338,6 +1374,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
     const capacity = capacityDefinition(object, own);
     const sellable = sellableDefinition(object, own);
     const stock = stockDefinition(object, own);
+    const stockMoves = stockMovesDefinition(object, own);
     const allowance = allowanceDefinition(object);
     const publishable = object.definition.publishable;
     const restricted = restrictedOf(object);
@@ -1370,6 +1407,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...(capacity ? { capacity } : {}),
       ...(sellable ? { sellable } : {}),
       ...(stock ? { stock } : {}),
+      ...(stockMoves ? { stockMoves } : {}),
       ...(allowance ? { allowance } : {}),
       ...(object.definition.agreements ? { agreements: object.definition.agreements } : {}),
       ...(object.definition.healthNotes ? { healthNotes: object.definition.healthNotes } : {}),
@@ -1382,6 +1420,14 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...staffedDefinition(object, own),
       ...workedOnDefinition(object, own),
       ...occupiesDefinition(object, own),
+      ...(object.definition.calendarEntry
+        ? {
+            calendarEntry: {
+              ...object.definition.calendarEntry,
+              live: [...object.definition.calendarEntry.live],
+            },
+          }
+        : {}),
       ...intakeDefinition(object, own),
       ...checklistsDefinition(object, own),
       ...(object.definition.owner ? { ownerField: object.definition.owner } : {}),
@@ -1405,6 +1451,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
                     },
                   }
                 : {}),
+              ...(publishable.staffRead ? { staffRead: true } : {}),
             },
           }
         : {}),

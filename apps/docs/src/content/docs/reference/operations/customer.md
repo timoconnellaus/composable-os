@@ -8,7 +8,7 @@ editUrl: false
 
 ## customer.disable
 
-Disable a customer account: it can no longer sign in, and every session it has ends at once. Its Person and records are kept. Undo with customer.enable. Admins only, humans only.
+Disable a customer account: it can no longer sign in, every session it has ends at once and its calendar link stops working. Its Person and records are kept. Undo with customer.enable. Admins only, humans only.
 
 |  |  |
 | --- | --- |
@@ -129,6 +129,30 @@ List the org's customer accounts (people outside the org who can sign in to a cl
 | `items[].lastSignInAt` | string or null | yes |   |   |
 | `items[].sessions` | number | yes |   |   |
 | `nextCursor` | string or null | yes |   |   |
+
+## customer.revokeCalendarFeed
+
+Turn off a customer's private calendar link (their bookings for a calendar app), when they ask or it was shared by mistake: it then answers as if it never existed. Staff can never make or see one: the customer makes a new link themselves. Admins only.
+
+|  |  |
+| --- | --- |
+| Permission | `users:manage` |
+| Risk | `write` |
+| Audiences | `staff` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes | min length 1, max length 64 | Customer account id (cus_…) |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes |   |   |
+| `revoked` | boolean | yes |   |   |
 
 ## customer.revokeSessions
 

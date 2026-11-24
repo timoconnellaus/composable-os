@@ -181,7 +181,7 @@ async function deviceContext(env: ApiEnv, db: CrmDb, token: string, url: URL) {
     env,
     // A device session is its user's; roles come from core_user, as for any staff call.
     { userId: user.id, email: user.email, name: user.name, roles: [] },
-    // A device session, not a browser (ADR 0872): a setup change is not approved from it.
+    // A device session, not a browser (ADR 0872): no setup change is made or approved from it.
     { surface: "client", staffDevice: true },
     url.origin,
   );

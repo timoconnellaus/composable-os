@@ -23,6 +23,7 @@ import {
   deletePreview,
   leftForStaffSentences,
 } from "../customers/account-delete.ts";
+import { revokeCustomerFeed } from "../customers/calendar-feed.ts";
 import {
   createEraseRequestStatements,
   eraseRequestDueAt,
@@ -490,7 +491,8 @@ export const meDeleteAccount = defineOperation({
       .executeTakeFirst();
 
     // The provider is asked first: a refusal there leaves the account as it was. Then one batch
-    // (with the audit row): the orders cancelled, disabled, signed out everywhere, the request.
+    // (with the audit row): the orders cancelled, disabled, signed out everywhere, the calendar
+    // link revoked, the request.
     await applyDeletePreview(ctx, preview);
     ctx.write(
       ctx.db
@@ -499,6 +501,8 @@ export const meDeleteAccount = defineOperation({
         .where("id", "=", customerId),
       ctx.db.deleteFrom("core_customer_session").where("customer_id", "=", customerId),
       ...endCustomerDeviceSessions(ctx.db, [customerId]),
+      // Their calendar link (ADR 0890): dead at once, and never back if the account is enabled.
+      revokeCustomerFeed(ctx.db, customerId),
     );
     let request = open;
     if (!request) {

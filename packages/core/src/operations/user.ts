@@ -407,6 +407,7 @@ export async function grantable(
     "journeys:manage": "Write journeys, set them live, pause them and add people to them",
     "journeys:publish": "Approve a journey's wording by publishing it",
     "orders:discount": "Give money off an order at the desk, with a reason (up to the set limit)",
+    "orders:payments": "Record a payment taken another way (transfer, cash), and reverse one",
     "people:cards": "Issue and revoke members' check-in cards",
     "stock:adjust": "Record opening stock and correct how many are on hand",
     "finance:read": "See the finance reports and download their files",
