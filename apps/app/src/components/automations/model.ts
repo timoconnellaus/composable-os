@@ -12,6 +12,7 @@ import type {
   RunStatus,
   RunStepRecord,
 } from "@composable-os/core";
+import { recordHref } from "#/lib/schema";
 
 export type AutomationStatus = AutomationListItem["status"];
 
@@ -415,18 +416,7 @@ export function testReportLines(report: AutomationTestReport): ReportLine[] {
 export function linkHref(link: NotificationLink): string {
   switch (link.kind) {
     case "record":
-      switch (link.object) {
-        case "person":
-          return `/people/${link.id}`;
-        case "organisation":
-          return `/organisations/${link.id}`;
-        case "task":
-          return "/tasks";
-        case "activity":
-          return "/activity";
-        default:
-          return `/x/${link.object}/${link.id}`;
-      }
+      return recordHref(link.object, link.id);
     case "approval":
       return `/approvals?set=${encodeURIComponent(link.changeSetId)}`;
     case "automationRun":
