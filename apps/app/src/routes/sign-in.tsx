@@ -33,15 +33,19 @@ export const Route = createFileRoute("/sign-in")({
   component: SignInPage,
 });
 
-/** Posts to the staff sign-in routes (Better Auth) and says whether it worked. */
+/** Posts to the staff sign-in routes (Better Auth) and says whether it worked (no network: no). */
 async function authPost(path: string, body: unknown): Promise<boolean> {
-  const response = await fetch(`/api/auth${path}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    credentials: "same-origin",
-    body: JSON.stringify(body),
-  });
-  return response.ok;
+  try {
+    const response = await fetch(`/api/auth${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(body),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 /**
