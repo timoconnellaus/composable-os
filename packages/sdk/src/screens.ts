@@ -44,6 +44,9 @@ export function screenGateFingerprint(m: Partial<ExtensionManifest>): string | n
               ),
               humanOnly: tool.humanOnly === true,
               grantLiftsRoleLimits: tool.grantLiftsRoleLimits === true,
+              // ADR 0652: only when set, so a pack declaring neither keeps its fingerprint.
+              ...(tool.anyStaff ? { anyStaff: true } : {}),
+              ...(tool.corePermission ? { corePermission: tool.corePermission } : {}),
             }
           : null,
       ];

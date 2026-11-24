@@ -1348,6 +1348,17 @@ tool-only operations (`checklist.forRecord`, `.tick`, `.complete`, `.correct`, `
 run's person and people who roster, at the screen, never an AI; the tables are in no `rec_*` view.
 `staffing.week` gives everyone a shift's checklist name and its state only to its person and
 rosterers. Notes and reasons are redacted from the audit log and never answered by a write.
+**Checklists on their own** ([ADR 0651](adr/0651-checklists-on-their-own-a-schedule-a-run-a-day-and-who-may-do-it.md),
+`checklists/days.ts`, `operations/checklist-days.ts`, migration 0816): a template may carry a
+schedule (weekdays, a due time, who may do it: staff, a role or pack role, or a grant). Each due day
+gets one run in the same table (`object_type` `checklist.day`, `record_id` `<template>:<date>`),
+made by the same cron for the business's local day (`localDay`) and closed as missed when the day
+ends (the managers, holders of `checklists:write`, told); it copies who may do it, which triggers
+check on every tick and finish, on someone's behalf only by a manager. The tool-only
+`checklist.today`, `.day`, `.dayTick`, `.dayDone` and `.days` serve the Daily checklists pack
+(`packs/dailychecks`), whose tools are open to every staff account, pack roles included
+(`anyStaff`), or held to `checklists:write` (`corePermission`, ADR 0652). Rostering's checklist
+operations never see a day run.
 
 `sellable.moves` ([ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md),
 `packages/core/src/orders/moves.ts` and `refund-due.ts`) is a paid line that moves a record that
@@ -2067,7 +2078,8 @@ time and emits `virtual:cos-screens`, one lazy chunk per screen (a missing block
 the build; the server's build holds none), so the admin's source names no pack. The core read
 `screens.mine` answers which screens the caller may open (the pack active and shipped, and the
 pipeline's `staffAuthority` for every gate tool, as a person; empty for any other actor; the one
-core read every pack role reaches). The admin's navigation, `/s/<pack>/<screen>` (client-only,
+core read every pack role reaches; a gate tool may be `anyStaff` or held to a core permission, ADR
+0652). The admin's navigation, `/s/<pack>/<screen>` (client-only,
 "not found" when not listed) and the record tabs render that answer; each screen sits in an error
 boundary, with its pack's hooks over the staff client on the app's own origin
 (`src/lib/staff-client.ts`), and its data is forgotten when it closes. An account with a pack role
@@ -2101,7 +2113,8 @@ and the mobile Account tab are plain pages over the same entry.
 | Content | `publishable`, rich text, slugs, media | stage 28: steps 1 to 6 built (rich text, `publishable` completed, public reads, media, the editor, the pack: posts and categories, hooks, web and native renderers); the first client's import and blog routes are its own repository's |
 | Courses | `publishable`, `sellable` (grants and a tax code), `access` and holders' parts, `states`, `customer` with `requireAccess`, `requires: ["programs"]`, video media and `media.play` | stage 42: steps 1 to 4, 6, 7 and the draft built ([ADR 0478](adr/0478-the-courses-pack.md)); the import and the first client to come |
 | Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `staffed` (a class is its coach's shift, stage 45), `occupies` (a class takes a room marked "one booking at a time", stage 49 step 2, [ADR 0765](adr/0765-occupies-the-claim-on-a-thing.md)), `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer` with `guardians`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 6 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md); parents booking for their children, [ADR 0540](adr/0540-the-family-link.md)); step 7, attendance, moves and cancelling a class; step 8, drop-ins with `sellable.moves`, [ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md)); step 9, messages, the reminder, the dashboard and the coach's app screen, [ADR 0572](adr/0572-bookings-messages-the-dashboard-and-the-coachs-app-screen.md); step 10 to come |
-| Rostering | `recurring` (duty series, a horizon from its setting), `staffed` (a duty shift is its person's shift), `states`, a pack role (`rostering.team`), grantable and restricted permissions, the roster's rules (`staffing`), the host's tool-only `staffing.*` operations | stage 45: step 4 built (duties, duty series and shifts, the team role, the roster's tools, settings, [ADR 0626](adr/0626-the-rostering-pack-and-bookings-additions.md)); step 6 built (pay periods: `rostering:pay`, restricted and a person's only, who is counted, totals, the not-worked mark, lock, reopen and export, [ADR 0627](adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md)); step 5 built (each person's private calendar feed: `feed`, `feedRotate`, `feedRevoke`, [ADR 0628](adr/0628-the-staff-calendar-feed-and-the-shared-calendar-writer.md)); step 7 built (the screens as blocks over `@composable-os/pack-rostering/client`, my calendar among them, role clients with grants, `cos rostering import`, [ADR 0629](adr/0629-the-rosters-screens-role-clients-with-grants-and-the-roster-import.md)); checklists (4b) to come |
+| Rostering | `recurring` (duty series, a horizon from its setting), `staffed` (a duty shift is its person's shift), `states`, a pack role (`rostering.team`), grantable and restricted permissions, the roster's rules (`staffing`), the host's tool-only `staffing.*` operations | stage 45: step 4 built (duties, duty series and shifts, the team role, the roster's tools, settings, [ADR 0626](adr/0626-the-rostering-pack-and-bookings-additions.md)); step 6 built (pay periods: `rostering:pay`, restricted and a person's only, who is counted, totals, the not-worked mark, lock, reopen and export, [ADR 0627](adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md)); step 5 built (each person's private calendar feed: `feed`, `feedRotate`, `feedRevoke`, [ADR 0628](adr/0628-the-staff-calendar-feed-and-the-shared-calendar-writer.md)); step 7 built (the screens as blocks over `@composable-os/pack-rostering/client`, my calendar among them, role clients with grants, `cos rostering import`, [ADR 0629](adr/0629-the-rosters-screens-role-clients-with-grants-and-the-roster-import.md)); checklists (4b) built (a duty's checklist, [ADR 0650](adr/0650-checklists-templates-runs-ticks-and-a-done-run-kept-unchanged.md)) |
+| Daily checklists | no objects: screens and tools over the host's tool-only day-run operations (`checklist.today`, `.day`, `.dayTick`, `.dayDone`, `.days`), tools open to every staff account (`anyStaff`) or held to `checklists:write` (`corePermission`) | built (checklists on their own, [ADR 0651](adr/0651-checklists-on-their-own-a-schedule-a-run-a-day-and-who-may-do-it.md), [ADR 0652](adr/0652-a-tool-for-every-staff-account-and-a-tool-held-to-a-core-permission.md)): Today's checklists (web and the app) and Checklist history; requires nothing |
 | Memberships | `allowance` (holders), recurring billing with `recurring.grants` and `recurring.pause`, `sellable.onePerPerson`, `humanOnly` tools, `requires: ["programs"]` | stage 32b: steps 5 to 7 built (the behaviour, the pack, plan changes and pauses, the dashboard, views and blocks); the import (step 8) to come |
 
 ### Client repos

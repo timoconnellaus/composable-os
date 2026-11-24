@@ -1567,6 +1567,18 @@ export interface CoreChecklistTable {
   created_at: string;
   updated_by: string;
   updated_at: string;
+  /**
+   * Migration 0816 (ADR 0651): its standing schedule, if it has one: the ISO weekdays it is due
+   * (JSON, 1 Monday … 7 Sunday), the local time it is due by (HH:MM), and who may do it.
+   */
+  days: ColumnType<string | null, string | null | undefined, string | null>;
+  due_by: ColumnType<string | null, string | null | undefined, string | null>;
+  doers_kind: ColumnType<
+    "staff" | "role" | "grant" | null,
+    "staff" | "role" | "grant" | null | undefined,
+    "staff" | "role" | "grant" | null
+  >;
+  doers_value: ColumnType<string | null, string | null | undefined, string | null>;
 }
 
 /** Migration 0815: a template's steps as they are now (position from 0). */
@@ -1603,6 +1615,15 @@ export interface CoreChecklistRunTable {
   closed_by: string | null;
   closed_why: string | null;
   missed_steps: string | null;
+  /** Migration 0816 (ADR 0651): a day run's copy of who may do it; null on a record's run. */
+  doers_kind: ColumnType<
+    "staff" | "role" | "grant" | null,
+    "staff" | "role" | "grant" | null | undefined,
+    "staff" | "role" | "grant" | null
+  >;
+  doers_value: ColumnType<string | null, string | null | undefined, string | null>;
+  /** A day run's due-by time (unix seconds), or null. */
+  due_at: ColumnType<number | null, number | null | undefined, number | null>;
 }
 
 /**

@@ -8,6 +8,8 @@
 //   - `record.get` and `record.list` on the objects of that pack the role lists, and
 //   - `screens.mine`, the screens of the admin it may open (stage 47, ADR 0660),
 //   - its own read-and-understood list and confirmations (`ack.mine`, `ack.confirm`, ADR 0702),
+//   - a shipped pack's tools open to every staff account (`anyStaff`, ADR 0652), whose host
+//     operation decides by its own rule (Daily checklists: the checklist's "who may do it"),
 // and is refused every other operation, by the pipeline, before its input is looked at. Its own
 // `role` grants nothing while the pack role is held.
 //
@@ -208,6 +210,9 @@ export async function availablePackRoles(
  * learns nothing about any other operation, not even whether its input was valid.
  */
 export function packRoleReaches(role: HeldPackRole, op: AnyOperation): boolean {
+  // A pack's tool open to every staff account (ADR 0652): its host operation decides who may do
+  // what, by a rule of its own (a checklist's "who may do it").
+  if (op.packAnyStaff === true) return true;
   if (op.packPermissions === undefined && PACK_ROLE_OWN.includes(op.name)) return true;
   if (op.packPermissions !== undefined) {
     return op.packPermissions.some((p) => role.permissions.includes(p));
@@ -326,7 +331,12 @@ export function staffMayCall(
 /** Whether the role allows `op` with this (parsed) input. */
 export function packRoleAllows(role: HeldPackRole, op: AnyOperation, input: unknown): boolean {
   if (!packRoleReaches(role, op)) return false;
-  if (op.packPermissions !== undefined || PACK_ROLE_OWN.includes(op.name)) return true;
+  if (
+    op.packPermissions !== undefined ||
+    op.packAnyStaff === true ||
+    PACK_ROLE_OWN.includes(op.name)
+  )
+    return true;
   // The account's own screens (ADR 0660): its input is empty, and its answer is the account's.
   if (PACK_ROLE_CORE_READS.includes(op.name)) return true;
   // record.get and record.list name their object in the input.

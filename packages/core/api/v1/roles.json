@@ -18,7 +18,11 @@
         "x.bookings.markAttended",
         "x.bookings.markNoShow",
         "x.bookings.roster",
-        "x.bookings.undoAttended"
+        "x.bookings.undoAttended",
+        "x.dailychecks.day",
+        "x.dailychecks.done",
+        "x.dailychecks.tick",
+        "x.dailychecks.today"
       ]
     },
     {
@@ -52,6 +56,10 @@
         "ack.confirm",
         "ack.mine",
         "screens.mine",
+        "x.dailychecks.day",
+        "x.dailychecks.done",
+        "x.dailychecks.tick",
+        "x.dailychecks.today",
         "x.rostering.away",
         "x.rostering.back",
         "x.rostering.checklist",
@@ -84,6 +92,10 @@
         "record.get",
         "record.list",
         "screens.mine",
+        "x.dailychecks.day",
+        "x.dailychecks.done",
+        "x.dailychecks.tick",
+        "x.dailychecks.today",
         "x.ticketing.checkIn",
         "x.ticketing.undoCheckIn"
       ]

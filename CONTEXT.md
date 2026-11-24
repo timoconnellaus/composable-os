@@ -1575,7 +1575,13 @@ behalf**, with why: shown as "ticked by X for Y", never as the person's own. Mar
 never changes; one not done by then is **missed**, and the rosterers are told. A **correction** is a
 note someone who rosters adds beside a closed run. Read only by the run's person and people who
 roster, never by other staff or an AI; templates are read by everyone.
-_Avoid_: task list, to-do (a task is something else), inspection
+A checklist may also be **done on its own** (ADR 0651): a **schedule** on the template (the days of
+the week it is due in the business's time zone, a time it is due by, and who may do it: everyone on
+staff, a role or pack role, or a grant). Each due day gets one **day's run**, open for that local
+day, ticked by anyone who may do it; whoever ticks the last step **finishes** it; not finished by
+the end of the day, it is missed. Those who **manage checklists** (`checklists:write`) see how each
+day went and may tick for someone. Its screens are the Daily checklists pack's.
+_Avoid_: task list, to-do (a task is something else), inspection, daily task
 
 **Follows** (a state cascade)
 An object whose records move when the record a relation points to moves (`states.follows`): a
@@ -1838,8 +1844,9 @@ A fixed staff role a pack declares (ADR 0436): the permissions of its own tools 
 its own an account given it may read. A human admin gives at most one to a staff account; while
 it is held, it and the pack permissions granted to the account (ADR 0600) are all that account may
 do, on every operation; the role's limits bind only the calls the role allows (today only, ADR
-0553; only the People its holder looks after, through a pack's team, ADR 0881). The door role is
-Ticketing's.
+0553; only the People its holder looks after, through a pack's team, ADR 0881). It also reaches a
+shipped pack's tools open to every staff account (`anyStaff`, ADR 0652: Daily checklists' today
+and tick), whose host operation decides what it may do. The door role is Ticketing's.
 Stage 14a's roles and teams will extend it.
 _Avoid_: role (alone, it means admin, member or viewer), team, scope
 
