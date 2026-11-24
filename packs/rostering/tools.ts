@@ -30,6 +30,8 @@ const MANAGE = "rostering:manage";
 /** How someone is counted for pay; a counted shift's is one of the first two. */
 const basis = z.enum(["by_time", "by_class", "not_counted"]);
 const countedBasis = z.enum(["by_time", "by_class"]);
+/** A shift's kind of work (a class type or a duty), by its object and record id. */
+const kindRef = z.object({ object: z.string(), id: z.string() }).nullable();
 /** A shift, by its object and record id. */
 const shiftRef = { object: z.string().min(1).max(81), id: z.string().min(1).max(64) };
 const localDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date, YYYY-MM-DD");
@@ -361,7 +363,7 @@ export const myPay = defineTool({
     totals: z.array(
       z.object({
         basis: countedBasis,
-        kind: z.object({ object: z.string(), id: z.string() }).nullable(),
+        kind: kindRef,
         kindName: z.string(),
         shifts: z.number(),
         minutes: z.number(),
@@ -878,8 +880,6 @@ export const periods = defineTool({
   humanOnly: true,
   handler: async (input, ctx) => (await ctx.ops.call("staffing.payPeriod.list", input)) as never,
 });
-
-const kindRef = z.object({ object: z.string(), id: z.string() }).nullable();
 
 export const periodTotals = defineTool({
   description:
