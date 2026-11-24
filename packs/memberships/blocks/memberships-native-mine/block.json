@@ -2,7 +2,7 @@
   "name": "memberships-native-mine",
   "pack": "memberships",
   "skin": "native",
-  "operations": ["x.memberships.mine", "subscription.list"],
+  "operations": ["x.memberships.mine", "subscription.list", "subscription.coolingOff"],
   "files": ["mine-screen.tsx", "LICENSE"],
   "dependsOn": ["native-base"],
   "packages": {

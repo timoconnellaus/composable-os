@@ -10,6 +10,7 @@ import {
   type Block,
   embedKind,
   embedPlayer,
+  headingAnchors,
   type Inline,
   inlineText,
   type ListBody,
@@ -23,6 +24,8 @@ import { Button } from "../ui-button/button.tsx";
 export type BlockRenderer<T extends Block["type"]> = (props: {
   block: Extract<Block, { type: T }>;
   children?: ReactNode;
+  /** A heading's anchor (ADR 0700): give it as the element's `id`, so `#<anchor>` lands on it. */
+  anchor?: string;
 }) => ReactNode;
 
 export interface RichTextProps {
@@ -105,9 +108,11 @@ const TONES = {
 function DefaultBlock({
   block,
   mediaUrl,
+  anchor,
 }: {
   block: Block;
   mediaUrl: (id: string, width: number) => string;
+  anchor?: string | undefined;
 }): ReactNode {
   switch (block.type) {
     case "paragraph":
@@ -121,7 +126,7 @@ function DefaultBlock({
       const level = Math.min(Math.max(block.level + 1, 2), 6);
       const Tag = `h${level}` as "h2" | "h3" | "h4" | "h5" | "h6";
       return (
-        <Tag data-block="heading" data-level={block.level} className="font-semibold">
+        <Tag id={anchor} data-block="heading" data-level={block.level} className="font-semibold">
           <Runs content={block.content} />
         </Tag>
       );
@@ -215,17 +220,21 @@ export function RichText({
 }: RichTextProps) {
   const blocks = value?.blocks ?? [];
   if (!blocks.length) return null;
+  // Each heading's anchor, made by the host's own rule: search results and citations link to it.
+  const anchors = headingAnchors(value);
+  let heading = 0;
   return (
     <div className={className ?? "grid gap-4"} data-rich-text="">
       {blocks.map((block, i) => {
         const custom = components[block.type] as BlockRenderer<typeof block.type> | undefined;
+        const anchor = block.type === "heading" ? anchors[heading++] : undefined;
         return (
           // biome-ignore lint/suspicious/noArrayIndexKey: blocks are positional in a document.
           <div key={i} className="contents">
             {custom ? (
-              custom({ block } as never)
+              custom({ block, ...(anchor ? { anchor } : {}) } as never)
             ) : (
-              <DefaultBlock block={block} mediaUrl={mediaUrl} />
+              <DefaultBlock block={block} mediaUrl={mediaUrl} anchor={anchor} />
             )}
           </div>
         );
