@@ -99,7 +99,9 @@ export function Timetable({
       <ul className="grid gap-2">
         {timetable.data.classes.map((klass) => (
           <ClassRow
-            key={klass.id}
+            // One row per person and class: a cancel previewed for one person is never confirmed
+            // for another after "Booking for" changes.
+            key={`${chosen?.personId ?? "self"}:${klass.id}`}
             klass={klass}
             booking={bookingFor(klass.id, mine.data?.bookings)}
             forPerson={chosen ? { id: chosen.personId, name: chosen.name } : null}
