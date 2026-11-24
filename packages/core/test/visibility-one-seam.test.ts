@@ -112,7 +112,7 @@ const WHY = {
    * A pack role's limit (ADR 0889): which People the staff account looks after, read to narrow
    * what its role reaches, never answered to anyone.
    */
-  role: "a pack role's limit: the People its holder looks after, to narrow a staff read",
+  role: "a pack role's limit (the People its holder looks after, the records naming its holder), to narrow a staff read",
   /**
    * The public-write door (stage 29, ADRs 0720 and 0721): the counts its caps and spam rule take
    * of a form's submissions, and the empty fields of a Person the host itself matched. Nothing it
@@ -247,6 +247,7 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   // Programs' coach role (ADR 0889): the People an account looks after (its team's live records)
   // and whether a record is one of theirs; it only narrows what a staff read reaches.
   "pack-role-looks-after.ts": [4, WHY.role],
+  "pack-role-mine.ts": [8, WHY.role],
   "orders/orders.ts": [2, WHY.host],
   "people-codes/identify.ts": [3, WHY.codes],
   "records/erase-log.ts": [1, WHY.write],

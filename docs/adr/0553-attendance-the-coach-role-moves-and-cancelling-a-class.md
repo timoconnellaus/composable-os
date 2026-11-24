@@ -160,3 +160,10 @@ series' coach are now `personApproves`: an assistant's swap waits for a person.
   and a call's clock (`InvocationContext.clock`) never reached the run's calls, so the
   attendance and coach-desk tests could not pin it and failed when a run crossed the business's
   midnight. A top-level call still holds to its own clock.
+
+## Amendment, 2026-11-24 (stage 39 step 3, ADR 0755)
+A third limit sits beside today's: a role's `mine` reach, through the records of its pack that
+name its holder within a window (Jobs' crew on the jobs it has a crew place on, a week either side
+of the visit). An object takes one limit: the contract check refuses `mine` on an object already
+limited to today. Unlike today's, its list predicate is a subquery with the account bound once,
+not a list of ids. See [ADR 0755](0755-the-mine-reach-for-pack-roles.md).

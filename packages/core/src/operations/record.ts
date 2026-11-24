@@ -57,6 +57,7 @@ import { listInputSchema, pageSchema, runListQuery } from "../list.ts";
 import type { RecordRef } from "../operation.ts";
 import { defineOperation, type HandlerContext, personsTool } from "../operation.ts";
 import { looksAfterWhere } from "../pack-role-looks-after.ts";
+import { mineWhere } from "../pack-role-mine.ts";
 import { assertMayChangeMustRead } from "../records/acknowledge.ts";
 import { assertAuthorWrite, authorFields } from "../records/authored.ts";
 import { viewColumnOf } from "../records/columns.ts";
@@ -1885,12 +1886,17 @@ export const recordList = defineOperation({
   mcp: { idempotent: true },
   async handler(input, ctx) {
     const object = requireObject(input.object);
-    // A pack role limited to the People its holder looks after (ADR 0889): in the list's own query.
+    // A pack role limited to the People its holder looks after (ADR 0889), or to the records
+    // that name its holder (ADR 0755): in the list's own query.
+    const limits = [
+      looksAfterWhere(ctx.roleLooksAfter, object.name, object.source),
+      mineWhere(ctx.roleMine, object.name, object.source, Date.parse(ctx.now)),
+    ].filter((w) => w !== undefined);
     const page = await runListQuery<{ id: string }>(
       ctx,
       object,
       input,
-      looksAfterWhere(ctx.roleLooksAfter, object.name, object.source),
+      limits.length ? sql.join(limits, sql` AND `) : undefined,
     );
     const items = page.rows.map((row) => {
       const record = fromRow(object, row as Record<string, unknown>);

@@ -223,3 +223,7 @@ admin's.
 itself (not a grant) now reaches `content.staffGet`, `content.staffList` and `content.search` on an
 object that declares `staffRead`. A grant still opens only pack tools and `FIXED_ROLE_CORE_GRANTS`'
 operations; it adds nothing to these reads and they add nothing to it.
+
+**Amended 2026-11-24** (stage 39 step 3, [ADR 0755](0755-the-mine-reach-for-pack-roles.md)):
+the role's "mine" reach (`roleMineFor`) travels as its other limits do: only on a call the role
+allows, never on one a grant of the tool's permission allows, and not on another pack's tool.

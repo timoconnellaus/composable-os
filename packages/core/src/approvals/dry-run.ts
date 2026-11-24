@@ -75,6 +75,7 @@ const CONTEXT_KEYS = {
   roleToday: "data",
   roleTodayAt: "data",
   roleLooksAfter: "data",
+  roleMine: "data",
   markStanding: "data",
   markGiven: "data",
   reason: "data",

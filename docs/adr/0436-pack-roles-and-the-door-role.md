@@ -203,3 +203,11 @@ staff account: the role's tools (each open to the new `device` audience only) an
 the pack's manifest as this ADR decides a pack role's (`loadDeviceRole`, `deviceRoleReaches` in
 `pack-roles.ts`). `ctx.caller` gains `{ kind: "device", deviceId, name }`; the tool's own calls run
 as the extension. See [ADR 0781](0781-a-device-as-a-caller-the-device-audience-and-device-roles.md).
+
+## Amendment, 2026-11-24 (stage 39 step 3, ADR 0755)
+A role may also declare `mine: { <object>: { through, who, path?, live?, within? } }`: its holder
+reaches those objects' records only through a live record of its pack naming it (`who` on
+`through`), within a window around that record's datetimes, along a path of relations to the
+object (a crew place to its visit to its job), on the role's reads and inside its tools. Jobs'
+crew role will declare it (stage 39 step 5). See
+[ADR 0755](0755-the-mine-reach-for-pack-roles.md).
