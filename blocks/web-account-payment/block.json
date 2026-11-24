@@ -1,0 +1,11 @@
+{
+  "name": "web-account-payment",
+  "pack": null,
+  "skin": "web",
+  "operations": ["subscription.portal"],
+  "files": ["payment.tsx", "LICENSE"],
+  "dependsOn": ["ui-button"],
+  "packages": {
+    "@composable-os/client": "*"
+  }
+}

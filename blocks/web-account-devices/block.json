@@ -1,0 +1,11 @@
+{
+  "name": "web-account-devices",
+  "pack": null,
+  "skin": "web",
+  "operations": ["me.sessions.list", "me.sessions.revoke"],
+  "files": ["devices.tsx", "LICENSE"],
+  "dependsOn": ["ui-button"],
+  "packages": {
+    "@composable-os/client": "*"
+  }
+}

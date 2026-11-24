@@ -7,6 +7,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./formula": "./src/formula/index.ts",
+    "./rich-text": "./src/rich-text.ts",
     "./testing": "./src/testing.ts"
   },
   "scripts": {

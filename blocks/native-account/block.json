@@ -1,0 +1,31 @@
+{
+  "name": "native-account",
+  "pack": null,
+  "skin": "native",
+  "operations": [
+    "me.get",
+    "me.update",
+    "me.sessions.list",
+    "me.sessions.revoke",
+    "me.family",
+    "my.list",
+    "subscription.list",
+    "me.agreements.due",
+    "me.agreements.list",
+    "me.agreements.get",
+    "me.agreements.accept"
+  ],
+  "files": ["account-screen.tsx", "LICENSE"],
+  "dependsOn": [
+    "native-account-details",
+    "native-account-devices",
+    "native-account-family",
+    "native-account-orders",
+    "native-account-payment",
+    "native-my-agreements",
+    "native-base"
+  ],
+  "packages": {
+    "@composable-os/client": "*"
+  }
+}

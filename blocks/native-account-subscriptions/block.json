@@ -1,0 +1,12 @@
+{
+  "name": "native-account-subscriptions",
+  "pack": null,
+  "skin": "native",
+  "noPurchase": true,
+  "operations": ["subscription.list"],
+  "files": ["subscriptions.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/client": "*"
+  }
+}
