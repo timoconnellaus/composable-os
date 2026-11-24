@@ -26,6 +26,7 @@ import { handleApi, handleCustomerAuth } from "../src/server/http/api.ts";
 import { handleNativeStaffSignIn } from "../src/server/http/native.ts";
 import { boundTestEnv, sentCodes } from "./bound-env.ts";
 import { browserOrigin, confirmForm, confirmRequest, signInInBrowser } from "./browser-sign-in.ts";
+import { memoryStore } from "./helpers.ts";
 import { callAs, ORIGIN, signUp, type TestUser, unique } from "./mcp-helpers.ts";
 
 const hostEnv = boundTestEnv(env);
@@ -68,17 +69,6 @@ const phone: FetchLike = async (url, init) => {
     text: async () => text,
   };
 };
-
-function memoryStore() {
-  let saved: Tokens | null = null;
-  return {
-    load: async () => saved,
-    save: async (tokens: Tokens | null) => {
-      saved = tokens;
-    },
-    peek: () => saved,
-  };
-}
 
 /** One call over the surface with a bearer token, as the generated client makes it. */
 async function call(token: string, name: string, input: unknown = {}) {
