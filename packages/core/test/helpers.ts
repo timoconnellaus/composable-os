@@ -77,7 +77,7 @@ export async function refusal(promise: Promise<unknown>) {
   try {
     await promise;
   } catch (error) {
-    return error as { code: string; message: string; details?: Record<string, unknown> };
+    return error as { code: string; message: string; details: Record<string, unknown> };
   }
   throw new Error("expected a refusal");
 }
