@@ -3,6 +3,7 @@
 // diffs and reconciles the manifest. `validateManifest` is the contract check `extension.check`
 // runs; it returns structured issues a model can act on.
 import { z } from "zod";
+import { MUST_READ_SCHEMA } from "./acknowledge.ts";
 import {
   agreementsManifestSchema,
   checkObjectAgreements,
@@ -38,6 +39,7 @@ import {
 } from "./document.ts";
 import { FIELD_TYPES, type FieldTypeName, formulaTypeOf } from "./field-types.ts";
 import { checkFormula, type FormulaFieldRef } from "./formula/compile.ts";
+import { checkObjectOccupies, occupiesManifestSchema } from "./occupies.ts";
 import { checkObjectRecurring, recurringManifestSchema } from "./recurring.ts";
 import { renamedMessage } from "./renamed.ts";
 import { routineMailIssues, routineMailManifestSchema } from "./routine-mail.ts";
@@ -218,6 +220,7 @@ export const objectManifestSchema = z.object({
   unique: uniqueManifestSchema.optional(),
   recurring: recurringManifestSchema.optional(),
   staffed: staffedManifestSchema.optional(),
+  occupies: occupiesManifestSchema.optional(),
   checklists: checklistsManifestSchema.optional(),
   owner: z.string().max(40).optional(),
   customer: z
@@ -286,6 +289,10 @@ export const objectManifestSchema = z.object({
       content: z.array(z.string().max(40)).min(1).max(40),
       slug: z.string().max(40).optional(),
       date: z.string().max(40).optional(),
+      acknowledge: z
+        .object({ who: z.string().max(40), manage: z.string().max(80) })
+        .strict()
+        .optional(),
     })
     .strict()
     .optional(),
@@ -1248,6 +1255,7 @@ export function validateManifest(
     checkObjectUnique(m, name, object, contract);
     checkObjectRecurring(m, name, object, contract);
     checkObjectStaffed(m, name, object, contract);
+    checkObjectOccupies(m, name, object, contract);
     checkObjectChecklists(m, name, object, contract);
     object.requireOneOf?.forEach((group, i) => {
       for (const field of group) {
@@ -1477,6 +1485,39 @@ export function validateManifest(
         contract(
           `objects.${name}.fields.${taken}`,
           `"${taken}" is the host's on a publishable object`,
+        );
+      }
+    }
+    // Read and understood (stage 38, ADR 0702): who must read is a "must read" document of the
+    // object's own, outside the content; who manages it is a restricted, grantable permission;
+    // and nobody outside the org reads the object.
+    if (p.acknowledge) {
+      const { who, manage } = p.acknowledge;
+      const field = object.fields[who];
+      if (
+        field?.type !== "document" ||
+        JSON.stringify(field.schema) !== JSON.stringify(MUST_READ_SCHEMA)
+      ) {
+        contract(
+          `${path}.acknowledge.who`,
+          `acknowledge.who must name a document field of ${name} whose schema is MUST_READ_SCHEMA`,
+        );
+      } else if (p.content.includes(who)) {
+        contract(
+          `${path}.acknowledge.who`,
+          "Who must read is not content: it changes at once, not with a publish. Leave it out of content",
+        );
+      }
+      if (!(m.restricted ?? []).includes(manage) || !(m.grantable ?? []).includes(manage)) {
+        contract(
+          `${path}.acknowledge.manage`,
+          `acknowledge.manage must be a restricted and grantable permission of this extension (restricted and grantable list "${manage}")`,
+        );
+      }
+      if (object.public || object.signedIn) {
+        contract(
+          `${path}.acknowledge`,
+          "An acknowledged object is for staff: it declares no public or signedIn",
         );
       }
     }

@@ -46,3 +46,37 @@ export async function runPublishDue(
   }
   return { published, dropped, rounds };
 }
+
+/**
+ * The published-text index caught up with the objects' declarations (ADR 0700): `content.reindex`
+ * a round at a time, through the pipeline as the minute cron's automation. With nothing to do it
+ * is one read.
+ */
+export async function runReindexDue(
+  db: CrmDb,
+  { floor, clock, events, maxRounds = 5 }: PublishDueOptions = {},
+): Promise<{ records: number; rounds: number; more: boolean }> {
+  let records = 0;
+  let rounds = 0;
+  let more = false;
+  while (rounds < maxRounds) {
+    rounds += 1;
+    const result = (await invoke(
+      "content.reindex",
+      {},
+      {
+        actor: "automation",
+        user: SYSTEM_USER,
+        origin: { surface: "system", automationId: "system.reindex" },
+        db,
+        ...(floor ? { floor } : {}),
+        ...(clock ? { clock } : {}),
+        ...(events ? { events } : {}),
+      },
+    )) as { records: number; more: boolean };
+    records += result.records;
+    more = result.more;
+    if (!more) break;
+  }
+  return { records, rounds, more };
+}
