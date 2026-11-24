@@ -4,6 +4,7 @@ import { createExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vitest";
 import {
+  devOrgPacks,
   listedPacks,
   orgExtensionsKey,
   packsProblem,
@@ -150,6 +151,23 @@ describe("the org's own extensions", () => {
       BLOBS: env.BLOBS,
     });
     expect(dev.map((e) => e.id)).toEqual(["deals", "bookings"]);
+  });
+
+  it("ignores COS_DEV_ORG_PACKS outside a development build: it fails closed (ADR 0660)", async () => {
+    // A var set by hand on a deployed Worker (wrangler deploy --var, the dashboard) is not enough.
+    const hash = await putOrg([{ ...renewals, id: "bookings" }]);
+    const deployed = {
+      COS_PACKS: "deals",
+      COS_ORG_EXTENSIONS: hash,
+      COS_DEV_ORG_PACKS: "1",
+      BLOBS: env.BLOBS,
+    };
+    await expect(shippedExtensions(deployed, false)).rejects.toThrow(/bookings has a pack's id/);
+    expect(devOrgPacks(deployed, false)).toBe(false);
+    expect(devOrgPacks({ COS_DEV_ORG_PACKS: "true" }, true)).toBe(false);
+    expect(devOrgPacks({}, true)).toBe(false);
+    // These tests run as a Vite development build, as `vite dev` does.
+    expect(devOrgPacks(deployed)).toBe(true);
   });
 
   it("are none when nothing is pinned", async () => {
