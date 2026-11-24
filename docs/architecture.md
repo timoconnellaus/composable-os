@@ -387,7 +387,15 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   another currency and a locked day, and voids only the host's own documents), the fake books and
   the conformance suite. The fake books run as `cos-gatekeeper-accounting-fake` in development and
   cos-runner's tests only (`wrangler.fake.jsonc`, never released); the catalogue marks an
-  accounting gatekeeper `implements: "accounting"`.
+  accounting gatekeeper `implements: "accounting"`. **The books are the host's alone**
+  ([ADR 0881](adr/0881-the-accounting-connection-is-the-hosts-alone.md)): the integration host
+  opens a session on such a connection only for `callAsHost` with purpose `accounting` (the
+  system user; its entries apply at once unless the deploy-time floor denies them, as an order's
+  confirmation does), and that purpose opens nothing else. `integration.call`, the host's `call`
+  (which Code Mode and an extension's `codemode:<gatekeeper>` go through) and a code session are
+  refused for every caller (`accounting_host_only`); no `codemode:` module is an accounting
+  gatekeeper. A void (`accounting.void`) is in `ALWAYS_REVIEWED_KINDS` and only a human admin
+  approves it.
   `gatekeeper-booking-system` (stage 65, ADR 0920) is the **booking-system contract** in the same
   shape, and read only: the session's types and input checks, the shared facet
   (`BookingSystemGatekeeper`, which records each read as an observation, copies every answer into
@@ -1011,6 +1019,12 @@ As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
   `coaches` note's text writes an audit row naming its id (`ctx.auditRead`); a sensitive note is
   listed locked and read with `note.open`, every opening audited. Its changes are audited by
   field name and are no automation event.
+  A note has a **kind** (`core_note_kind`, migration 1232, ADR
+  [0833](adr/0833-note-kinds-and-templates.md)): it starts at its kind's level and is never below
+  its kind's lowest (the operations, and triggers for every writer); a kind's template's sections
+  make its body. Kinds are kept by `notes:manage` (an AI drafts wording only, waiting for a
+  person), and composed by the `web-note-composer` and `native-note-composer` blocks over
+  `@composable-os/client`'s notes entry.
 - **The audience check** is the pipeline's first step. A caller outside an operation's audiences
   gets the answer an unknown operation gets. `packages/core/open-operations.json` lists what is
   open, and a test keeps it equal to the registry.
@@ -1226,8 +1240,11 @@ read before the write gives the clear message and the dry run's answer.
 
 **`recurring`** ([ADR 0500](adr/0500-recurring-a-weekly-rule-in-local-time.md),
 `packages/core/src/recurring/`, `packages/core/src/time/local.ts`). A series (a timetable line)
-declares a weekly rule in local wall-clock time and the fields it fills on the records it makes:
+declares a rule in local wall-clock time and the fields it fills on the records it makes:
 `recurring: { generates, link, rule, into, copy, cancel, ended?, closures?, horizonDays? }`. The
+rule is weekly, or with `rule.unit` every N weeks, months or years (`every`, `day`, `month`; a day
+the month lacks is its last), fixed on the calendar from `from`, and a length may be in days
+(`lengthDays`) ([ADR 0860](adr/0860-the-interval-rule-in-recurring.md)). The
 minute cron (`runRecurringDue` → `recurring.generate`, as the host) makes each due series'
 records up to its horizon (56 days by default): a series is due when written, and daily at 00:05
 in its zone. `core_recurrence_occurrence` (migration 0560) keys each record on the series and
@@ -1299,6 +1316,17 @@ reconcile over records that clash and have not ended is refused (`occupies_confl
 skipped and reported); a series' date whose room is taken is made with no room (a field exception)
 and the rosterers are told. Bookings' class declares it; appointments (stage 49 step 5) and stage
 57's venues reuse it.
+
+**The room calendar** ([ADR 0844](adr/0844-the-room-calendar-and-provisional-and-title-on-occupies.md),
+`packages/core/src/occupancy/`, `operations/rooms.ts`; stage 57 step 1). Two display-only keys on
+`occupies`: `provisional` (live states shown as provisional: a hold) and `title` (a text or select
+field of the record, or `relation.field` of one of the extension's own records: an appointment's
+service; the object's label otherwise). Neither changes the claim. `rooms.week { from, to, roomIds? }`
+(local dates, at most 62 days) and `rooms.check { roomId, starts, ends }` are tool-only staff reads
+of `core_thing_time`: each claim's room, object and label, record id, title, own times, times taken
+with margins, and provisional, never a name or money; a caller holding a pack's fixed role gets only
+the room and the times it is taken. One read of the claims, then one per occupying object; a free
+answer is a guide and the database still decides.
 
 **Offers, takes and the roster's notices** ([ADR 0623](adr/0623-offers-and-takes-the-race-and-the-cut-off.md),
 [ADR 0624](adr/0624-the-rosters-notices-uncovered-shifts-and-leaving.md), stage 45 step 3). The
@@ -1637,7 +1665,16 @@ record and the notice to staff. Only the door creates a submission, and its form
 certainty, via and rating are the host's alone on every path; who may answer, anonymity and the
 destination are read from the published version, as the questions are. An anonymous form keeps no Person, and the call forgets the
 customer (`ctx.anonymise`): no account or session in its audit row, marks or events. No client
-address, user agent or fingerprint is stored.
+address, user agent or fingerprint is stored. A form object with `publishable.slug` is
+also opened by its address (`intake.open { slug }`, step 3), and a form that does not take the
+caller's answers is not found by it, naming the address and never the id. A form may name a number
+setting of its pack, one a person approves, as the deployment's hourly cap (`hourlyCap`); a
+submission may name a boolean the host sets when a `marketing` consent line was ticked
+(`marketing`), host-only as its other evidence. The Forms pack (`packs/forms`, step 3,
+[ADR 0726](adr/0726-the-forms-pack-forms-submissions-and-who-reads-them.md)) is the first to
+declare it: a form with no public scope (the public reads it only through `intake.open`), a
+submission inbox (new, in hand, done, spam) read only by staff accounts, with no pack role reaching
+either.
 
 **`publishable`** ([ADR 0446](adr/0446-publishable-without-its-public-half.md),
 [ADR 0441](adr/0441-publishable-states-schedules-and-versions.md),
@@ -1726,6 +1763,18 @@ the current version of a record they may read shows in a field they may read
 `/api/media/<id>` over the binding (the client template's `mediaRoute`). Widths come from Cloudflare Images when
 `IMAGES` is bound. The `image` field type is `{ media, alt, focal? }`. The Trash purge deletes a
 picture's row, and a trigger queues its R2 key on the blob deletion path (ADR 0320).
+
+**Locations** ([ADR 0910](adr/0910-locations-a-base-record-inside-the-one-organisation.md),
+`packages/core/src/fields/location.ts`, `packages/core/src/operations/location.ts`; stage 64). A
+base record, `location` (`core_location`, migration 1390): a place the one organisation works from,
+never a tenant. The migration makes the main location (`main = 1`) from `org_name` and
+`org_timezone`; `settings.update` keeps its zone the organisation's. `location.create` and
+`location.update` (`settings:manage`) wait for a person when an AI asks; `location.close` and
+`location.reopen` are a person's only, and a trigger refuses closing the last open location. The
+public reads a public open location's name, short name, address and zone through `public.list` and
+`public.get` from a pack's tool: the `rec_location` view's `listed` column is the public
+declaration's condition ([ADR 0916](adr/0916-public-reads-of-locations.md)). Located records, the
+location's zone as their default, coverage and staff limits are the stage's later steps.
 
 **Video and files** (stage 42, [ADR 0475](adr/0475-video-and-file-media-in-stream.md),
 `packages/core/src/operations/media-video.ts`, `packages/core/src/records/stream.ts`). A media
@@ -2104,9 +2153,11 @@ open offer on a plan object, or a subscription from one that has not ended, gets
 (`subscription.offer.list`, `.export`; the Subscriptions section's Continuation offers) lists who
 took theirs and when they are charged from.
 
-**Finance** (stage 52, step 1 built: ADRs [0790](adr/0790-finance-periods-the-business-day-and-the-monthly-close.md),
-[0791](adr/0791-the-figures-for-the-books-book-entries.md) and
-[0794](adr/0794-finance-read-and-finance-close.md), `packages/core/src/finance/`, migration 1150).
+**Finance** (stage 52, steps 1 to 3 built: ADRs [0790](adr/0790-finance-periods-the-business-day-and-the-monthly-close.md),
+[0791](adr/0791-the-figures-for-the-books-book-entries.md),
+[0794](adr/0794-finance-read-and-finance-close.md) and
+[0796](adr/0796-day-summaries-and-the-first-reports.md), `packages/core/src/finance/`, migrations
+1150 and 1153).
 Core, not a pack: the figures for the books are read from orders, payments, refunds, payouts and
 stored value. Every date is a business day, local in the organisation's zone (`finance/day.ts`). The
 business closes each calendar month (`finance.close`, a person with `finance:close`) once it has
@@ -2122,8 +2173,18 @@ counted in the first open month, marked as belonging to it. Reopening (`finance.
 keeps the version; closing again writes the next. A month keeps the zone it was closed in. The
 tables are in no `rec_*` view. `finance:read` and `finance:close` are admins' and grantable; an AI
 reads figures and never closes, reopens or changes the settings (`finance.settings.update`, a human
-admin's). The reports, the files (`csvText`, shared in `packages/core/src/csv.ts` with the pay
-export), payouts and the screens are the stage's later steps.
+admin's). **Day summaries, Sales, Tax and Refunds** (`finance/book.ts`): a month's applied
+payments (by `received_at`), late payments staff honoured (by `resolved_at`) and confirmed refunds
+(by `confirmed_at`, migration 1153 indexes the three) are each split over the order's lines by their
+net (`splitInProportion`), their tax over the lines by the tax each carries; a refund the provider
+gave no tax for carries an estimate in proportion, marked (`tax_estimated:`). One `day` entry per
+business day money moved (`money_in:provider` and `money_out:provider` against `sales:`,
+`refunds:` and `tax:` lines), and the report rows, are made from the same shares, so the entries
+add up to the reports. `finance.report` reads a closed version's rows or previews an open month or
+any span of days; `finance.entries` lists a closed version's entries, paged (never a preview's);
+`finance.export` (a person only) is one CSV per report (`finance/files.ts`, `csvText` shared in
+`packages/core/src/csv.ts` with the pay export). Payouts, Money owed, Unearned, Members, held
+balances and the screens are the stage's later steps.
 
 **`capacity`** (stage 26, ADRs 0430 to 0433). An object names its places field and, optionally, a
 pool (a relation to a parent object with a capacity, one level). The host keeps a counter per record
@@ -2407,6 +2468,7 @@ and the mobile Account tab are plain pages over the same entry.
 | Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `staffed` (a class is its coach's shift, stage 45), `occupies` (a class takes a room marked "one booking at a time", stage 49 step 2, [ADR 0765](adr/0765-occupies-the-claim-on-a-thing.md)), `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer` with `guardians`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 6 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md); parents booking for their children, [ADR 0540](adr/0540-the-family-link.md)); step 7, attendance, moves and cancelling a class; step 8, drop-ins with `sellable.moves`, [ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md)); step 9, messages, the reminder, the dashboard and the coach's app screen, [ADR 0572](adr/0572-bookings-messages-the-dashboard-and-the-coachs-app-screen.md); step 10 to come |
 | Rostering | `recurring` (duty series, a horizon from its setting), `staffed` (a duty shift is its person's shift), `states`, a pack role (`rostering.team`), grantable and restricted permissions, the roster's rules (`staffing`), the host's tool-only `staffing.*` operations | stage 45: step 4 built (duties, duty series and shifts, the team role, the roster's tools, settings, [ADR 0626](adr/0626-the-rostering-pack-and-bookings-additions.md)); step 6 built (pay periods: `rostering:pay`, restricted and a person's only, who is counted, totals, the not-worked mark, lock, reopen and export, [ADR 0627](adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md)); step 5 built (each person's private calendar feed: `feed`, `feedRotate`, `feedRevoke`, [ADR 0628](adr/0628-the-staff-calendar-feed-and-the-shared-calendar-writer.md)); step 7 built (the screens as blocks over `@composable-os/pack-rostering/client`, my calendar among them, role clients with grants, `cos rostering import`, [ADR 0629](adr/0629-the-rosters-screens-role-clients-with-grants-and-the-roster-import.md)); checklists (4b) built (a duty's checklist, [ADR 0650](adr/0650-checklists-templates-runs-ticks-and-a-done-run-kept-unchanged.md)) |
 | Daily checklists | no objects: screens and tools over the host's tool-only day-run operations (`checklist.today`, `.day`, `.dayTick`, `.dayDone`, `.days`), tools open to every staff account (`anyStaff`) or held to `checklists:write` (`corePermission`) | built (checklists on their own, [ADR 0651](adr/0651-checklists-on-their-own-a-schedule-a-run-a-day-and-who-may-do-it.md), [ADR 0652](adr/0652-a-tool-for-every-staff-account-and-a-tool-held-to-a-core-permission.md)): Today's checklists (web and the app) and Checklist history; requires nothing |
+| Forms | `publishable` with a slug and no public half, `intake` (form and submission), `states` (moves into and out of spam only by `personApproves` tools), a status field and a setting a person approves, a low-rating automation | stage 29: step 3 built (forms and submissions, the inbox's tools, views among them "Asked to hear from us", the hourly cap setting, the low-rating notice, the staff form kind, [ADR 0726](adr/0726-the-forms-pack-forms-submissions-and-who-reads-them.md)); the hosted page and blocks, personal links and receipts, Leads as a destination, erase, and the screens and dashboard to come |
 | Memberships | `allowance` (holders), recurring billing with `recurring.grants` and `recurring.pause`, `sellable.onePerPerson`, `humanOnly` tools, `requires: ["programs"]` | stage 32b: steps 5 to 7 built (the behaviour, the pack, plan changes and pauses, the dashboard, views and blocks); the import (step 8) to come |
 
 ### Client repos
@@ -2444,7 +2506,11 @@ As built so far (stage 24; ADRs [0420](adr/0420-packs-as-packages-as-built.md),
   open too, from `roles.json`'s `grants`
   ([ADR 0629](adr/0629-the-rosters-screens-role-clients-with-grants-and-the-roster-import.md)). A pack's hooks give
   any client the hooks it holds the operations of, and a block takes only the hooks it calls
-  ([ADR 0453](adr/0453-pack-hooks-over-the-clients-operations.md)). A web app's
+  ([ADR 0453](adr/0453-pack-hooks-over-the-clients-operations.md)). `mobile.owner: true` adds the
+  **owner's client** (`roles/owner.ts`, from `roles.json`'s `owner`): only Today's, the approvals'
+  and the inbox's operations, for any staff account, with `createOwnerHooks` in
+  `@composable-os/client`; the host refuses a setup approval on a staff device session
+  ([ADR 0872](adr/0872-the-owners-client.md)). A web app's
   `operationRoute` passes the browser's allowed calls to `HOST`, same origin only.
 - **Environments** ([ADR 0450](adr/0450-client-environments.md)): `product.ts` may declare
   several deployments (`staging`, `live`), each its own host in the same account (`<id>-staging-app`;

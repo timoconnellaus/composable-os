@@ -13,13 +13,12 @@ import {
   type AgreementsHooks,
   copyWords,
   dueForRefusal,
-  dueReasonWords,
   forgetAfter,
   type RefusedDocument,
 } from "@composable-os/client";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../ui-button/button.tsx";
-import { Agree, useForgetOnLeave } from "./agree.tsx";
+import { Agree, GuardianAgrees, useForgetOnLeave } from "./agree.tsx";
 
 export function MemberAgreementStep({
   agreements,
@@ -111,17 +110,11 @@ export function MemberAgreementStep({
           }}
         />
       ) : (
-        <div className="grid gap-2" data-agreement-guardian>
-          <h2 className="text-lg font-semibold">{item.title}</h2>
-          <p role="alert">{dueReasonWords("guardian")}</p>
-          <p className="text-sm">
-            A parent or guardian linked to you agrees to it from their own account, or the business
-            records a paper form they signed.
-          </p>
+        <GuardianAgrees title={item.title} announce>
           <Button type="button" variant="outline" onClick={onCancel}>
             Back
           </Button>
-        </div>
+        </GuardianAgrees>
       )}
     </section>
   );

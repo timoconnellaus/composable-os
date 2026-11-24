@@ -7449,6 +7449,171 @@
       "pack": "courses"
     },
     {
+      "name": "x.forms.form",
+      "description": "A form by its address, as the caller may answer it now: its version, title, questions and thank-you words, whether it is anonymous, whether a Turnstile token is needed, and the host's token of when it was shown (send it back with the answers). A form that is not open to the caller now (a draft, closed, not published, out of its dates, for signed-in customers only, or no such address) is not found, the same answer whatever the reason. Read-only. (Extension tool from Forms 0.1.0.)",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The form's address, e.g. ask-about-a-trial"
+          }
+        },
+        "required": ["slug"],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "number",
+            "description": "The version shown: send it with the answers"
+          },
+          "title": {
+            "type": ["string", "null"]
+          },
+          "questions": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": {}
+                }
+              }
+            },
+            "required": ["items"],
+            "additionalProperties": false,
+            "description": "The questions, in the platform's question schema, in order"
+          },
+          "thanks": {
+            "description": "The words to show once the answers are sent",
+            "type": ["string", "null"]
+          },
+          "anonymous": {
+            "type": "boolean",
+            "description": "Nothing kept says who answered"
+          },
+          "turnstile": {
+            "type": "boolean",
+            "description": "A Turnstile token must be sent with the answers"
+          },
+          "shown": {
+            "description": "Send back as `shown` with the answers",
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "title",
+          "questions",
+          "thanks",
+          "anonymous",
+          "turnstile",
+          "shown"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "forms"
+    },
+    {
+      "name": "x.forms.submit",
+      "description": "Send answers to a form the caller may answer (from `form`). The host checks the form is still open to them, a visitor's Turnstile token and when the form was shown, the caps and the answers against the version shown, then keeps them in the business's inbox, linked to the sender's person by the email answered. Answers that break the form are refused naming the question's key; a form published again since it was shown is refused with 'load it again'; too many answers just now is 'try again later'. Kept, kept as spam or dropped, the answer is the same. (Extension tool from Forms 0.1.0.)",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The form (forms.form record id)"
+          },
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "description": "The version `form` showed"
+          },
+          "answers": {
+            "propertyNames": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "description": "The answers by question key: text, email, phone and date as strings (a date YYYY-MM-DD), number and rating as numbers, a choice as a string or a list of strings, yes/no and a tick box as true or false. Leave out what was not answered.",
+            "type": "object",
+            "properties": {},
+            "additionalProperties": {}
+          },
+          "via": {
+            "type": "string",
+            "enum": ["site", "app", "page"],
+            "description": "Which way in: the business's website, its app, or the form's own page"
+          },
+          "turnstileToken": {
+            "type": "string",
+            "maxLength": 4096,
+            "description": "A visitor's Turnstile token"
+          },
+          "shown": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "`form`'s shown token"
+          },
+          "honeypot": {
+            "type": "string",
+            "maxLength": 1000,
+            "description": "The hidden field a person leaves empty"
+          }
+        },
+        "required": ["id", "version", "answers"],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "received": {
+            "type": "boolean",
+            "const": true,
+            "description": "The answers were sent: shown the same whatever the host's spam checks decided"
+          }
+        },
+        "required": ["received"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.family",
+        "me.get",
+        "me.sessions.list",
+        "my.get",
+        "my.list",
+        "x.forms.form"
+      ],
+      "pack": "forms"
+    },
+    {
       "name": "x.memberships.buy",
       "description": "Start an order for one pass (a class pack, a drop-in or an intro offer). A signed-in customer buys as themselves; a guest gives their email address, and may not buy an intro offer (the host refuses it: one per person, signed in). The host prices it from the pass type, refuses one not on sale, and refuses a second intro offer for the same person. Nothing is paid here: the buyer then calls order.checkout with the order's id (and a guest's token) to pay on the provider's page; the pass is granted when the provider confirms the payment. Amounts in the minor unit. (Extension tool from Memberships 0.1.0.)",
       "risk": "write",

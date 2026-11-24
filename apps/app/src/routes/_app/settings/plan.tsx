@@ -13,10 +13,10 @@ import {
 import { Skeleton } from "@composable-os/ui/components/skeleton";
 import { createFileRoute } from "@tanstack/react-router";
 import { ExternalLinkIcon, LockIcon } from "lucide-react";
-import { EmptyState } from "#/components/empty-state";
+import { ErrorState } from "#/components/empty-state";
 import { PageLayout } from "#/components/layout/page-layout";
 import { formatDateTime } from "#/lib/format";
-import { errorMessage, useOp } from "#/lib/query";
+import { useOp } from "#/lib/query";
 
 export const Route = createFileRoute("/_app/settings/plan")({ component: PlanPage });
 
@@ -84,7 +84,13 @@ function PlanCard() {
   const plan = useOp("plan.get", {});
   if (plan.isPending) return <Skeleton className="h-40" />;
   if (plan.isError) {
-    return <EmptyState title="Could not load the plan" description={errorMessage(plan.error)} />;
+    return (
+      <ErrorState
+        title="Could not load the plan"
+        error={plan.error}
+        onRetry={() => void plan.refetch()}
+      />
+    );
   }
   const { entitlements, usage, billingUrl } = plan.data;
   if (!entitlements) {

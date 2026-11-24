@@ -14,7 +14,7 @@ import { Input } from "@composable-os/ui/components/input";
 import { Label } from "@composable-os/ui/components/label";
 import { useState } from "react";
 import { toast } from "sonner";
-import { formatDateTime } from "#/lib/format";
+import { formatDateTime, localDateTimeInput } from "#/lib/format";
 import { errorMessage, useOp, useOpMutation } from "#/lib/query";
 
 const STATE_LABEL: Record<string, string> = {
@@ -23,12 +23,6 @@ const STATE_LABEL: Record<string, string> = {
   published: "Published",
   unpublished: "Unpublished",
 };
-
-function toLocalInput(iso: string): string {
-  const at = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
-}
 
 export function PublishCard({
   object,
@@ -54,7 +48,7 @@ export function PublishCard({
   const unpublish = useOpMutation("record.unpublish", { invalidates });
   const restore = useOpMutation("record.restoreVersion", { invalidates });
   const versions = useOp("record.versions", { object, id });
-  const [at, setAt] = useState(() => toLocalInput(new Date(Date.now() + 3_600_000).toISOString()));
+  const [at, setAt] = useState(() => localDateTimeInput(new Date(Date.now() + 3_600_000)));
   const [compareWith, setCompareWith] = useState<number | null>(null);
   const [readAgain, setReadAgain] = useState<boolean | null>(null);
   const compare = useOp(

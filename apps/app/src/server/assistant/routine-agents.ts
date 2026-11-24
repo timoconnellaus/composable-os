@@ -5,16 +5,14 @@
 
 import { env } from "cloudflare:workers";
 import {
-  type ActingUser,
   type CoreOutput,
   cardOf,
   invokeByName,
   parseFloor,
-  ROLES,
-  type Role,
   registerRoutineAgentStarter,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
+import { actingUserOf } from "../acting-user.ts";
 import { aiContextFor } from "../ai.ts";
 import { agentJobsFor, type OperationsEnv } from "../operations.ts";
 
@@ -32,10 +30,7 @@ registerRoutineAgentStarter(async ({ userId, brief, profile }) => {
     .select(["id", "email", "name", "role"])
     .where("id", "=", userId)
     .executeTakeFirstOrThrow();
-  const user: ActingUser = {
-    ...row,
-    role: (ROLES as readonly string[]).includes(row.role) ? (row.role as Role) : "viewer",
-  };
+  const user = actingUserOf(row);
   const agentJobs = agentJobsFor(appEnv);
   const out = (await invokeByName(
     "agent.start",

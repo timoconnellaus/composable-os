@@ -93,3 +93,9 @@ From the owner's answers to stage 46's open questions, the same day:
 - Hosted hostnames are on `composableos.app`. A moved host's source is kept for 90 days. Fair-use
   limits are set after two months of reported usage.
 
+
+## Amended 2026-11-24: a client with several locations is one host
+A client with two or three locations it owns runs them from one host, sharing one member list
+(stage 64, decision 1; [ADR 0910](0910-locations-a-base-record-inside-the-one-organisation.md)):
+the locations are records inside it, and clients are still kept apart by their data, never by a
+tenant id. Only a franchise (each location a different owner) is several hosts, one per owner.

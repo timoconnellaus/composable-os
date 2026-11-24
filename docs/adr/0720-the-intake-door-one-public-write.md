@@ -89,3 +89,13 @@ abuse check between. A door inside the Forms pack would need a second one for Re
 - Staff are told of each submission: the form's `notify` user, else the admins. A per-user list,
   and the owner rule, wait for a field that holds several users.
 - Not yet tried on a live host.
+
+## Amended 2026-11-24, stage 29 step 3 ([ADR 0726](0726-the-forms-pack-forms-submissions-and-who-reads-them.md))
+- A form object with `publishable.slug` is also opened by its address: `intake.open` takes `id` or
+  `slug`. A form that does not take the caller's answers is not found by the address, and the
+  refusal names the address given, never the form's id.
+- `intake` gains `hourlyCap` on a form (ADR 0722, amended) and `marketing` on a submission: a
+  boolean the host sets when a `marketing` consent line of the version was ticked, one of the
+  submission's host-only fields.
+- The Forms pack declares no public scope on its form, though this ADR allowed one: a `when` cannot
+  say who may answer, so the public reads a form only through the door.

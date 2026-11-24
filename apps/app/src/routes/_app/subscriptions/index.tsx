@@ -15,7 +15,6 @@ import {
   TableRow,
 } from "@composable-os/ui/components/table";
 import { Tabs, TabsList, TabsTrigger } from "@composable-os/ui/components/tabs";
-import { useInfiniteQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { RepeatIcon } from "lucide-react";
 import { useMemo } from "react";
@@ -25,8 +24,7 @@ import { OffersTable } from "#/components/subscriptions/offers-table";
 import { SubscriptionStateBadge } from "#/components/subscriptions/subscription-state-badge";
 import { formatDate } from "#/lib/format";
 import { formatMoney } from "#/lib/money";
-import { callOp } from "#/lib/operations";
-import { opKey } from "#/lib/query";
+import { useInfiniteOp } from "#/lib/query";
 
 type SubscriptionsView = "all" | "trials" | "failing" | "ending" | "offers";
 const VIEWS: readonly SubscriptionsView[] = ["all", "trials", "failing", "ending", "offers"];
@@ -107,13 +105,7 @@ function SubscriptionsTable({ view }: { view: ListView }) {
           : { field: "currentPeriodEnd", direction: "asc" },
     limit: 50,
   };
-  const list = useInfiniteQuery({
-    queryKey: opKey("subscription.list", input),
-    queryFn: ({ pageParam }) =>
-      callOp("subscription.list", { ...input, ...(pageParam ? { cursor: pageParam } : {}) }),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (page) => page.nextCursor ?? undefined,
-  });
+  const list = useInfiniteOp("subscription.list", input);
   const items = useMemo(() => list.data?.pages.flatMap((p) => p.items) ?? [], [list.data]);
 
   if (list.isPending) {

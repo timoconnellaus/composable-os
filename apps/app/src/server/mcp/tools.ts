@@ -93,6 +93,17 @@ type JsonSchema = Record<string, unknown>;
  * operations) or an extension version (extension tool operations are cached objects).
  */
 const inputSchemas = new WeakMap<AnyOperation, JsonSchema>();
+/** The same for describe_operations' `includeSchemas`: each operation's input as it is. */
+const describedSchemas = new WeakMap<AnyOperation, JsonSchema>();
+
+function describedSchema(op: AnyOperation): JsonSchema {
+  let schema = describedSchemas.get(op);
+  if (!schema) {
+    schema = z.toJSONSchema(op.input, { io: "input", unrepresentable: "any" }) as JsonSchema;
+    describedSchemas.set(op, schema);
+  }
+  return schema;
+}
 
 /** The operation's input as JSON Schema, plus a required `reason` for reviewable operations. */
 export function toolInputSchema(op: AnyOperation): JsonSchema {
@@ -384,9 +395,7 @@ export function createCrmMcpServer(caller: McpCaller, version: string): McpServe
           permission: op.permission,
           requiresReason: requiresReason(op),
           allowed: allowedFor(op, caller.context, caller.packRole),
-          ...(args.includeSchemas
-            ? { inputSchema: z.toJSONSchema(op.input, { io: "input", unrepresentable: "any" }) }
-            : {}),
+          ...(args.includeSchemas ? { inputSchema: describedSchema(op) } : {}),
         })),
       });
     },

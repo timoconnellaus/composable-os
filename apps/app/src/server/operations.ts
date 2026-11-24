@@ -26,9 +26,10 @@ import {
   withCodeModeRateLimit,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
-import { getAgentByName } from "agents";
 import { type AiAppEnv, aiContextFor } from "./ai.ts";
-import { type AssistantAgent, threadName } from "./assistant/agent.ts";
+import { approvalExpiryDays } from "./approval-expiry.ts";
+import type { AssistantAgent } from "./assistant/agent.ts";
+import { threadStub } from "./assistant/http.ts";
 import { type AgentJob, jobName } from "./assistant/job.ts";
 import { type DeskEnv, deskHostFor } from "./desk.ts";
 import { hostMailFor } from "./host-mail.ts";
@@ -102,10 +103,7 @@ export function agentJobsFor(env: OperationsEnv): AgentJobHost | undefined {
 export function assistantThreadsFor(env: OperationsEnv): AssistantThreadStore | undefined {
   const namespace = env.ASSISTANT;
   if (!namespace) return undefined;
-  const stub = (userId: string) =>
-    getAgentByName(namespace as never, threadName(userId)) as unknown as Promise<
-      DurableObjectStub<AssistantAgent>
-    >;
+  const stub = (userId: string) => threadStub(namespace, userId);
   return {
     async search(userId, query, limit) {
       return (await stub(userId)).search(userId, query, limit);
@@ -277,7 +275,7 @@ export async function staffContext(
     // Check-in codes, cards and PINs (stage 51, ADR 0783).
     ...personCodeKeysEntry(env),
     ...aiContextFor(env, db),
-    approvalExpiryDays: Number.parseInt(env.APPROVAL_EXPIRY_DAYS ?? "", 10) || undefined,
+    approvalExpiryDays: approvalExpiryDays(env.APPROVAL_EXPIRY_DAYS),
   };
 }
 
