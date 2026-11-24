@@ -174,7 +174,8 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "records/erase-log.ts": [1, WHY.write],
   // Erase (and, ADR 0590, the marks of the erased person's orders).
   "records/erase-stores.ts": [2, WHY.write],
-  "records/erase-subject.ts": [6, WHY.write],
+  // And whether another Person holds a former address now (#302, ADR 0712).
+  "records/erase-subject.ts": [7, WHY.write],
   "records/erase.ts": [8, WHY.write],
   "records/links.ts": [10, WHY.part],
   "records/tags.ts": [1, WHY.part],
@@ -214,6 +215,9 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "subscriptions/changes.ts": [1, WHY.host],
   // `hasBought` (ADR 0458, #221): whose address it is, before anyone has signed in (no caller).
   "customers/accounts.ts": [2, WHY.org],
+  // Changing a sign-in address (stage 48, ADR 0712): whether another Person holds the new address,
+  // and the member's own emails the host is about to rewrite.
+  "customers/email-change.ts": [2, WHY.write],
   // The subscription access source's `covers: "all"`: only live ids (stage 32a review, ADR 0488).
   "subscriptions/access.ts": [1, WHY.access],
   // Continuation offers (stage 32a step 4, ADR 0491): the import matching an address to its one

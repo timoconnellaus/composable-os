@@ -25,6 +25,7 @@ import {
   queueEraseSync,
 } from "./erase-stores.ts";
 import {
+  addressesHeldByOthers,
   ERASED,
   MIN_TERM_LENGTH,
   mentionsSql,
@@ -172,7 +173,10 @@ export async function afterErase(
 export async function queueErase(ctx: HandlerContext, request: EraseRequest): Promise<EraseCounts> {
   const { object, recordId, recordIds } = request;
   // A person's customer sign-in addresses are theirs too (stage 22): redacted, and listed as erased.
-  const accountEmails = object === "person" ? await customerAddresses(ctx, recordIds) : [];
+  // Not one another identified Person holds now (#302, ADR 0712): staff may have moved it to them.
+  const signInEmails = object === "person" ? await customerAddresses(ctx, recordIds) : [];
+  const heldByOthers = await addressesHeldByOthers(ctx.db, signInEmails, recordIds);
+  const accountEmails = signInEmails.filter((email) => !heldByOthers.has(email));
   const terms = [
     ...new Set(
       [...recordIds, ...request.terms, ...accountEmails].map((t) => t.trim().toLowerCase()),

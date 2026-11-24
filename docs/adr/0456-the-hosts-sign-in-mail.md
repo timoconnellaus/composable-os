@@ -94,3 +94,11 @@ on; with it reviewed, nothing is sent.
 Routine mail follows the same shape for a shipped pack's member email: the integration host's own
 queue (`hostRoutineMail()`, answered only by its `sendRoutineMail` for a row it wrote) and the
 message's shape decide email-send's `email.routine` kind; nothing in the request can claim it.
+
+## Amended 2026-11-24 (stage 48: changing the sign-in address)
+The sign-in kind covers three fixed templates, not one
+([ADR 0712](0712-changing-the-sign-in-address-and-a-recent-sign-in.md)): the sign-in code, the
+code sent to a new sign-in address ("Confirm your new … sign-in address", six digits, 15 minutes)
+and the notice to the old address ("Your … sign-in address was changed", the new address only as
+`<first character>•••@<domain>`). The rest of the rule is unchanged: only the host's sign-in queue,
+only the exact words, one recipient, plain text.

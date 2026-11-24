@@ -101,12 +101,28 @@ export type Operations = {
     output: { filename: string; document: { business: string; title: string; versionNumber: number; versionHash: string; body: { blocks: unknown[] }; tickLabel: string; questions?: { key: string; text: string }[]; answers?: ({ key: string; yes: boolean; note?: string }[]) | ("in-app") | ("withheld"); record?: { label: string; value: string }[]; signature?: { width: number; height: number; strokes: number[][][] }; acceptanceId?: string; blank?: boolean } };
   };
   /**
-   * Delete your customer account and ask for your personal data to be erased. You are signed out everywhere at once and can no longer sign in. Staff then erase your data, or tell you by email why some of it must be kept, by the due date returned. Asking again changes nothing.
+   * Delete your customer account and ask for your personal data to be erased, as a signed-in customer who signed in within the last 15 minutes (else sign_in_again). You are signed out everywhere at once and can no longer sign in. Staff then erase your data, or tell you by email why some of it must be kept, by the due date returned. Asking again changes nothing.
    */
   "me.deleteAccount": {
     kind: "mutation";
     input: Record<string, never>;
     output: { disabled: true; sessionsEnded: number; eraseRequest: { requestedAt: string; dueAt: string } };
+  };
+  /**
+   * Ask to change the address you sign in with, as a signed-in customer who signed in within the last 15 minutes (else sign_in_again). A code is emailed to the new address; enter it with me.email.confirm within 15 minutes. Nothing changes until then. Asking again replaces the earlier request. The answer is the same whatever the address: whether it can be used is said only when the code is entered.
+   */
+  "me.email.change": {
+    kind: "mutation";
+    input: { email: string };
+    output: { newEmail: string; expiresAt: string };
+  };
+  /**
+   * Finish changing your sign-in address with the code emailed to the new address, as the signed-in customer it was asked for (by you, or by staff for you). From then on you sign in with the new address, which is also your primary email; the old one is removed from your details and told of the change; every other place you are signed in is signed out. A wrong code five times ends the request. Refused, changing nothing, when the new address is already in use at the business.
+   */
+  "me.email.confirm": {
+    kind: "mutation";
+    input: { code: string };
+    output: { signInEmail: string; sessionsEnded: number };
   };
   /**
    * Your family, as a signed-in customer: yourself, the dependants (children) the gym has linked to you, whom you may book for, and the guardians linked to you, each with their name and id. Only live links; the gym's staff make and end them. Read-only.
@@ -149,7 +165,7 @@ export type Operations = {
     output: { signedOut: boolean };
   };
   /**
-   * Change your own name or primary phone, as a signed-in customer. Only the fields you pass change; pass null to clear one. Your email cannot be changed here. Returns your Person.
+   * Change your own name or primary phone, as a signed-in customer. Only the fields you pass change; pass null to clear one. Your email cannot be changed here: change your sign-in address with me.email.change and me.email.confirm. Returns your Person.
    */
   "me.update": {
     kind: "mutation";
@@ -317,6 +333,8 @@ export const operations = {
   "me.agreements.list": { kind: "query", invalidates: [] },
   "me.agreements.pdf": { kind: "query", invalidates: [] },
   "me.deleteAccount": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.family","me.get","me.sessions.list","my.get","my.list"] },
+  "me.email.change": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.family","me.get","me.sessions.list","my.get","my.list"] },
+  "me.email.confirm": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.family","me.get","me.sessions.list","my.get","my.list"] },
   "me.family": { kind: "query", invalidates: [] },
   "me.get": { kind: "query", invalidates: [] },
   "me.sessions.list": { kind: "query", invalidates: [] },

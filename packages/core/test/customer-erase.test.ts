@@ -90,8 +90,20 @@ const asCustomer = (acc: Account, clock?: () => Date) => ({
   ...(clock ? { clock } : {}),
 });
 
+/** Deletes the account from its first session, signed in just now (ADR 0712: a recent sign-in). */
 async function deleteAccount(acc: Account, clock?: () => Date) {
-  return invokeByName("me.deleteAccount", {}, asCustomer(acc, clock)) as Promise<{
+  const session = acc.sessions[0] as string;
+  await env.DB.prepare("UPDATE core_customer_session SET created_at = ? WHERE id = ?")
+    .bind((clock?.() ?? new Date()).toISOString(), session)
+    .run();
+  return invokeByName(
+    "me.deleteAccount",
+    {},
+    {
+      ...asCustomer(acc, clock),
+      origin: { surface: "client" as const, sessionId: session },
+    },
+  ) as Promise<{
     disabled: true;
     sessionsEnded: number;
     eraseRequest: { requestedAt: string; dueAt: string };
@@ -181,9 +193,17 @@ describe("me.deleteAccount (criterion 12)", () => {
   it("is idempotent: asking again makes no second request and no second notice", async () => {
     const acc = await account();
     const first = await deleteAccount(acc);
-    const again = await deleteAccount(acc);
+    // Asked again from a new sign-in (a recent one is needed, ADR 0712): only that session ends.
+    const session = `ses_${unique("s")}`;
+    await env.DB.prepare(
+      `INSERT INTO core_customer_session (id, customer_id, token, expires_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+      .bind(session, acc.principal.customerId, `token-${session}`, iso(), iso(), iso())
+      .run();
+    const again = await deleteAccount({ ...acc, sessions: [session] });
     expect(again.eraseRequest).toEqual(first.eraseRequest);
-    expect(again.sessionsEnded).toBe(0);
+    expect(again.sessionsEnded).toBe(1);
     const requests = await requestsFor(acc.principal.personId);
     expect(requests).toHaveLength(1);
     expect(await adminNotices(`erase_request:${requests[0]?.id}`)).toHaveLength(1);

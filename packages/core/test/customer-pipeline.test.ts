@@ -80,6 +80,9 @@ describe("default closed (criterion 1)", () => {
       "me.agreements.list",
       "me.agreements.pdf",
       "me.deleteAccount",
+      // Stage 48 (ADR 0712): changing their own sign-in address.
+      "me.email.change",
+      "me.email.confirm",
       // Stage 31a step 6 (ADR 0540): their own family, the children staff linked to them.
       "me.family",
       "me.get",
@@ -420,6 +423,9 @@ describe("the closed handler context (ADR 0413)", () => {
       "me.agreements.list",
       "me.agreements.pdf",
       "me.deleteAccount",
+      // Stage 48 (ADR 0712): the account's address change, its sessions and the Person's emails.
+      "me.email.change",
+      "me.email.confirm",
       "me.sessions.list",
       "me.sessions.revoke",
       "me.signOut",

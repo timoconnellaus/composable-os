@@ -9,6 +9,7 @@ export type OperationErrorCode =
   | "denied"
   | "pending_approval"
   | "second_step_required"
+  | "sign_in_again"
   | "rate_limited"
   | "plan_limit"
   | "not_found"
@@ -141,6 +142,24 @@ export class PlanLimitError extends OperationError {
   override name = "PlanLimitError";
   constructor(message: string, details?: unknown) {
     super("plan_limit", message, details);
+  }
+}
+
+/**
+ * A sensitive act of a customer's (changing the sign-in address, deleting the account) needs a
+ * sign-in made within the last few minutes (stage 48, ADR 0712), and this call's session is older
+ * or unknown. The client sends the person through the code sign-in and back, then asks again.
+ */
+export class SignInAgainError extends OperationError {
+  override name = "SignInAgainError";
+  constructor(withinMinutes: number) {
+    super(
+      "sign_in_again",
+      `Sign in again first: this needs a sign-in within ${withinMinutes} minutes`,
+      {
+        withinMinutes,
+      },
+    );
   }
 }
 

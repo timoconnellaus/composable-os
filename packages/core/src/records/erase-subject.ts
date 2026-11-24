@@ -5,6 +5,12 @@
 //   street lines) are matched case-insensitively everywhere, and only when 6+ characters long,
 //   so redaction stays targeted. They include values the record held before (from its audit
 //   change rows), so an address the person changed away from is found too.
+// - A former address is the subject's only while no other identified Person holds it now (issue
+//   #302, stage 48, ADR 0712): one they moved away from (by changing their sign-in address, staff
+//   editing their emails, or the Trash freeing it) that another live Person, or another Person's
+//   customer account, has since taken is left out of the terms and the erased-address list, so
+//   erasing the first never takes the second's account or redacts their address. A live address
+//   of theirs is always theirs.
 // - Names are matched as whole words, and only in contexts known to be about the subject (a run
 //   whose record was the subject, a notification that links to them, an extension row related to
 //   them, an assistant conversation that looked them up). Never across the database.
@@ -12,6 +18,7 @@
 import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, type RawBuilder, type SqlBool, sql } from "kysely";
 import { scrubPattern } from "../assistant/scrub.ts";
+import { jsonList } from "./common.ts";
 import { sha256Ref } from "./erase-log.ts";
 
 export const ERASED = "[erased]";
@@ -93,18 +100,74 @@ async function formerValues(
   return out.filter((v) => v !== ERASED);
 }
 
+/**
+ * Of `addresses`, the ones another identified Person holds now: a live email of a Person outside
+ * `ids`, or the sign-in address of a customer account linked to a Person outside `ids`.
+ */
+export async function addressesHeldByOthers(
+  db: Kysely<CoreDatabase>,
+  addresses: readonly string[],
+  ids: readonly string[],
+): Promise<Set<string>> {
+  if (!addresses.length) return new Set();
+  const list = jsonList([...addresses]);
+  const subject = jsonList([...ids]);
+  const [people, accounts] = await Promise.all([
+    db
+      .selectFrom("core_person_emails")
+      .select("email")
+      .where("live", "=", 1)
+      .where("email", "in", list)
+      .where("person_id", "not in", subject)
+      .execute(),
+    db
+      .selectFrom("core_customer")
+      .select("email")
+      .where("email", "in", list)
+      .where("person_id", "is not", null)
+      .where("person_id", "not in", subject)
+      .execute(),
+  ]);
+  return new Set([...people, ...accounts].map((row) => row.email));
+}
+
+/**
+ * Addresses the subject's customer accounts held before a sign-in address change (stage 48):
+ * the old address of every confirmed change, and the new address of every change never
+ * confirmed (an address they typed, mentioned in the audit). Read before erase deletes them.
+ */
+async function changedSignInAddresses(
+  db: Kysely<CoreDatabase>,
+  ids: readonly string[],
+): Promise<{ former: string[]; asked: string[] }> {
+  const rows = await db
+    .selectFrom("core_customer_email_change as x")
+    .innerJoin("core_customer as c", "c.id", "x.customer_id")
+    .select(["x.old_email", "x.new_email", "x.confirmed_at"])
+    .where("c.person_id", "in", jsonList([...ids]))
+    .execute();
+  return {
+    former: rows.filter((r) => r.confirmed_at !== null).map((r) => r.old_email),
+    asked: rows.filter((r) => r.confirmed_at === null).map((r) => r.new_email),
+  };
+}
+
 /** A person (and anyone merged into them): emails, phones and profiles, now and before. */
 export async function personSubject(
   db: Kysely<CoreDatabase>,
   ids: readonly string[],
 ): Promise<EraseSubject> {
-  const [people, emails, phones, former] = await Promise.all([
+  const [people, emails, phones, former, changed] = await Promise.all([
     db
       .selectFrom("core_person")
       .select(["display_name", "given_name", "family_name", "social_profiles"])
       .where("id", "in", ids)
       .execute(),
-    db.selectFrom("core_person_emails").select("email").where("person_id", "in", ids).execute(),
+    db
+      .selectFrom("core_person_emails")
+      .select(["email", "live"])
+      .where("person_id", "in", ids)
+      .execute(),
     db
       .selectFrom("core_person_phones")
       .select(["number", "number_normalised"])
@@ -115,6 +178,7 @@ export async function personSubject(
       phones: ["number"],
       socialProfiles: ["url"],
     }),
+    changedSignInAddresses(db, ids),
   ]);
   const profiles = people.flatMap((p) => {
     try {
@@ -125,13 +189,18 @@ export async function personSubject(
       return [];
     }
   });
-  const addresses = [
-    ...new Set(
-      [...emails.map((e) => e.email), ...former.filter((v) => v.includes("@"))].map((e) =>
-        e.trim().toLowerCase(),
-      ),
-    ),
-  ];
+  const lower = (values: readonly string[]) => values.map((e) => e.trim().toLowerCase());
+  // A live address of theirs is theirs. One they held before (in the audit, an address change, or
+  // left behind in the Trash) is theirs only while no other identified Person holds it now (#302).
+  const current = lower(emails.filter((e) => e.live === 1).map((e) => e.email));
+  const before = lower([
+    ...emails.filter((e) => e.live !== 1).map((e) => e.email),
+    ...former.filter((v) => v.includes("@")),
+    ...changed.former,
+  ]).filter((a) => !current.includes(a));
+  const held = await addressesHeldByOthers(db, [...before, ...changed.asked], ids);
+  const addresses = [...new Set([...current, ...before.filter((a) => !held.has(a))])];
+  const asked = changed.asked.filter((a) => !held.has(a));
   const numbers = [
     ...phones.flatMap((p) => [p.number, p.number_normalised]),
     ...former.filter((v) => !v.includes("@") && !/[a-z]/i.test(v)),
@@ -139,6 +208,7 @@ export async function personSubject(
   return {
     terms: normaliseTerms([
       ...addresses,
+      ...asked,
       ...numbers,
       ...numbers.map(digitsOf),
       ...profiles,

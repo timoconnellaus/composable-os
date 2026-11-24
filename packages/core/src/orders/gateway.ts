@@ -300,7 +300,8 @@ export async function callSubscriptionGatekeeper(
     | "unpauseSubscription"
     | "voidPendingUpdate"
     | "getSubscription"
-    | "openPortal",
+    | "openPortal"
+    | "updateCustomerEmail",
   request: unknown,
 ): Promise<IntegrationCallResult> {
   const call = requireHostCalls(integrations);

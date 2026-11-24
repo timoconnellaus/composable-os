@@ -1470,7 +1470,7 @@
     },
     {
       "name": "me.deleteAccount",
-      "description": "Delete your customer account and ask for your personal data to be erased. You are signed out everywhere at once and can no longer sign in. Staff then erase your data, or tell you by email why some of it must be kept, by the due date returned. Asking again changes nothing.",
+      "description": "Delete your customer account and ask for your personal data to be erased, as a signed-in customer who signed in within the last 15 minutes (else sign_in_again). You are signed out everywhere at once and can no longer sign in. Staff then erase your data, or tell you by email why some of it must be kept, by the due date returned. Asking again changes nothing.",
       "risk": "write",
       "audiences": ["customer"],
       "kind": "mutation",
@@ -1504,6 +1504,98 @@
           }
         },
         "required": ["disabled", "sessionsEnded", "eraseRequest"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.family",
+        "me.get",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
+    },
+    {
+      "name": "me.email.change",
+      "description": "Ask to change the address you sign in with, as a signed-in customer who signed in within the last 15 minutes (else sign_in_again). A code is emailed to the new address; enter it with me.email.confirm within 15 minutes. Nothing changes until then. Asking again replaces the earlier request. The answer is the same whatever the address: whether it can be used is said only when the code is entered.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 320,
+            "description": "The new sign-in address"
+          }
+        },
+        "required": ["email"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "newEmail": {
+            "type": "string",
+            "description": "The address the code was sent to"
+          },
+          "expiresAt": {
+            "type": "string",
+            "description": "When the code stops working"
+          }
+        },
+        "required": ["newEmail", "expiresAt"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.family",
+        "me.get",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
+    },
+    {
+      "name": "me.email.confirm",
+      "description": "Finish changing your sign-in address with the code emailed to the new address, as the signed-in customer it was asked for (by you, or by staff for you). From then on you sign in with the new address, which is also your primary email; the old one is removed from your details and told of the change; every other place you are signed in is signed out. A wrong code five times ends the request. Refused, changing nothing, when the new address is already in use at the business.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20,
+            "description": "The emailed code"
+          }
+        },
+        "required": ["code"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "signInEmail": {
+            "type": "string",
+            "description": "Your sign-in address now"
+          },
+          "sessionsEnded": {
+            "type": "number",
+            "description": "Other sessions signed out"
+          }
+        },
+        "required": ["signInEmail", "sessionsEnded"],
         "additionalProperties": false
       },
       "invalidates": [
@@ -1773,7 +1865,7 @@
     },
     {
       "name": "me.update",
-      "description": "Change your own name or primary phone, as a signed-in customer. Only the fields you pass change; pass null to clear one. Your email cannot be changed here. Returns your Person.",
+      "description": "Change your own name or primary phone, as a signed-in customer. Only the fields you pass change; pass null to clear one. Your email cannot be changed here: change your sign-in address with me.email.change and me.email.confirm. Returns your Person.",
       "risk": "write",
       "audiences": ["customer"],
       "kind": "mutation",

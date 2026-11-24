@@ -7,6 +7,7 @@ import type {
   PaymentsChangeSubscriptionInput,
   PaymentsCheckoutInput,
   PaymentsCheckoutTax,
+  PaymentsCustomerEmailInput,
   PaymentsInterval,
   PaymentsPauseSubscriptionInput,
   PaymentsPortalInput,
@@ -504,6 +505,16 @@ export function parsePortalInput(value: unknown): PaymentsPortalInput {
   return {
     customerRef: assertProviderRef(input.customerRef, "customerRef"),
     returnUrl: assertReturnUrl(input.returnUrl),
+  };
+}
+
+export function parseCustomerEmailInput(value: unknown): PaymentsCustomerEmailInput {
+  const input = record(value, "The customer email input");
+  refuseUnknownKeys(input, ["customerRef", "email", "changeId"]);
+  return {
+    customerRef: assertProviderRef(input.customerRef, "customerRef"),
+    email: matching(input.email, "email", EMAIL, "an email address"),
+    changeId: matching(input.changeId, "changeId", /^ech_[A-Za-z0-9_-]{1,64}$/, "a change id"),
   };
 }
 

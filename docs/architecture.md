@@ -959,7 +959,20 @@ As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
   staff. Who may sign up is a human admin's setting: invite only, also buyers (ADR 0458), or
   anyone; and, on top, anyone starting a subscription while a plan is on sale (ADR 0459).
 - **Open operations:** `me.get`, `me.update`, `me.family`, `me.signOut`, `me.sessions.*`,
-  `me.deleteAccount`, `my.list`, `my.get`, and for tools only `my.create`, `my.update`.
+  `me.email.change`, `me.email.confirm`, `me.deleteAccount`, `my.list`, `my.get`, and for tools
+  only `my.create`, `my.update`.
+- **A recent sign-in** (stage 48, [ADR 0712](adr/0712-changing-the-sign-in-address-and-a-recent-sign-in.md)):
+  changing the sign-in address and deleting the account need a sign-in within 15 minutes, read
+  from the calling session's own row (`customers/recent-sign-in.ts`); otherwise `sign_in_again`.
+  A device session exchanged from a browser session starts at that sign-in.
+- **Changing the sign-in address** (ADR 0712, `customers/email-change.ts`,
+  `core_customer_email_change`, migration 0990): `me.email.change` emails a code to the new
+  address as the host's sign-in mail, answering the same for any address; `me.email.confirm`
+  with the code, refused while another Person, account or the erased list holds the address,
+  moves the account's address and the Person's primary email in one batch, ends the other
+  sessions, and after the commit tells the old address and gives the payment provider the new one
+  (`payments.customer.email`, the host's own call). Staff (`customer.changeEmail`,
+  `.cancelEmailChange`, human admins) start or cancel one and never finish it.
 - **A pack's tool called by a customer runs as that customer.** Its operation calls take the same
   outside path with the same principal. It may set an object's writable fields and the fields
   the tool lists in its manifest. A runtime extension can open nothing.
@@ -968,12 +981,14 @@ As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
   (`core_erase_request`, migration 0402; due after `customer.settings` `eraseDueDays`, default
   30; `eraseRequest.list` / `eraseRequest.decline`, shown under Settings → Storage; the daily
   maintenance cron reminds admins once a day about an overdue one.)
-- **Erase and merge:** `person.erase` deletes the person's customer account, its sessions and
-  sign-in codes, invites for their addresses and their erase requests, and lists the account's
-  address as erased. `person.merge` moves the account to the survivor, is refused while both
+- **Erase and merge:** `person.erase` deletes the person's customer account, its sessions,
+  sign-in codes and address changes, invites for their addresses and their erase requests, and
+  lists the account's address as erased. A former address (from the audit or an address change)
+  is the person's only while no other identified Person holds it now (#302, ADR 0712). `person.merge` moves the account to the survivor, is refused while both
   people have an active one, and links a `needs_merge` account the merge resolves.
 - **Limits:** a customer's calls per account and operation, and code requests per address asked
-  for (`customers/limits.ts`, Workers Rate Limiting). Per client address only at the edge, and no
+  for (`customers/limits.ts`, Workers Rate Limiting); address changes per account and per mailbox,
+  counted from their rows. Per client address only at the edge, and no
   address is stored.
 
 The HTTP routes that mount customer sign-in and carry these calls are stage 23's.

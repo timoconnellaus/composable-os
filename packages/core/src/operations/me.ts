@@ -7,16 +7,26 @@
 // person.update runs (the writer registered in operations/person.ts), so uniqueness, search, the
 // audit diff and timeline tracking hold as for staff.
 //
-// The session operations and me.deleteAccount are account bookkeeping, not records, so they are
-// `hostInternal`: they keep `ctx.db` and touch only the caller's own account (taken from the
-// principal, never from input), its sessions and its erase request. A session token never leaves
-// them.
+// The session operations, changing the sign-in address and me.deleteAccount are account
+// bookkeeping, not records, so they are `hostInternal`: they keep `ctx.db` and touch only the
+// caller's own account (taken from the principal, never from input), its sessions, its address
+// change and its erase request. A session token never leaves them.
+//
+// Changing the sign-in address and deleting the account need a sign-in within the last 15
+// minutes (`sign_in_again` otherwise, stage 48, ADR 0712).
 import { z } from "zod";
+import {
+  afterEmailChanged,
+  confirmEmailChange,
+  EMAIL_CHANGE_CODE_MINUTES,
+  startEmailChange,
+} from "../customers/email-change.ts";
 import {
   createEraseRequestStatements,
   eraseRequestDueAt,
   openEraseRequest,
 } from "../customers/erase-requests.ts";
+import { requireRecentSignIn } from "../customers/recent-sign-in.ts";
 import { loadEraseDueDays } from "../customers/settings.ts";
 import { NotFoundError, OperationError } from "../errors.ts";
 import { personObject } from "../fields/person.ts";
@@ -106,7 +116,8 @@ export const meUpdate = defineOperation({
   name: "me.update",
   description:
     "Change your own name or primary phone, as a signed-in customer. Only the fields you pass " +
-    "change; pass null to clear one. Your email cannot be changed here. Returns your Person.",
+    "change; pass null to clear one. Your email cannot be changed here: change your sign-in " +
+    "address with me.email.change and me.email.confirm. Returns your Person.",
   input: z
     .object({
       displayName: shortText(200).min(1).optional(),
@@ -281,12 +292,73 @@ export const meSignOut = defineOperation({
   },
 });
 
+// --- Changing the sign-in address (stage 48, ADR 0712) ------------------------------------------
+
+export const meEmailChange = defineOperation({
+  name: "me.email.change",
+  description:
+    "Ask to change the address you sign in with, as a signed-in customer who signed in within " +
+    `the last 15 minutes (else sign_in_again). A code is emailed to the new address; enter it ` +
+    `with me.email.confirm within ${EMAIL_CHANGE_CODE_MINUTES} minutes. Nothing changes until ` +
+    "then. Asking again replaces the earlier request. The answer is the same whatever the " +
+    "address: whether it can be used is said only when the code is entered.",
+  input: z
+    .object({ email: z.string().trim().min(3).max(320).describe("The new sign-in address") })
+    .strict(),
+  output: z.object({
+    newEmail: z.string().describe("The address the code was sent to"),
+    expiresAt: z.string().describe("When the code stops working"),
+  }),
+  permission: "records:write",
+  risk: "write",
+  audiences: ["customer"],
+  hostInternal: true,
+  mcp: { expose: false },
+  async handler(input, ctx) {
+    const { customerId } = customerOf(ctx);
+    await requireRecentSignIn(ctx);
+    return startEmailChange(ctx, customerId, input.email, "customer");
+  },
+});
+
+export const meEmailConfirm = defineOperation({
+  name: "me.email.confirm",
+  description:
+    "Finish changing your sign-in address with the code emailed to the new address, as the " +
+    "signed-in customer it was asked for (by you, or by staff for you). From then on you sign " +
+    "in with the new address, which is also your primary email; the old one is removed from " +
+    "your details and told of the change; every other place you are signed in is signed out. " +
+    "A wrong code five times ends the request. Refused, changing nothing, when the new address " +
+    "is already in use at the business.",
+  input: z.object({ code: z.string().trim().min(1).max(20).describe("The emailed code") }).strict(),
+  output: z.object({
+    signInEmail: z.string().describe("Your sign-in address now"),
+    sessionsEnded: z.number().describe("Other sessions signed out"),
+  }),
+  permission: "records:write",
+  risk: "write",
+  audiences: ["customer"],
+  hostInternal: true,
+  mcp: { expose: false },
+  // The code is never kept, not even in the audit log.
+  redact: ["code"],
+  async handler(input, ctx) {
+    const { customerId, personId } = customerOf(ctx);
+    const done = await confirmEmailChange(ctx, { customerId, personId }, input.code);
+    return ctx.afterCommit(async () => {
+      await afterEmailChanged(ctx, personId, done.change);
+      return { signInEmail: done.change.newEmail, sessionsEnded: done.sessionsEnded };
+    });
+  },
+});
+
 // --- Deleting the account ----------------------------------------------------------------------
 
 export const meDeleteAccount = defineOperation({
   name: "me.deleteAccount",
   description:
-    "Delete your customer account and ask for your personal data to be erased. You are signed " +
+    "Delete your customer account and ask for your personal data to be erased, as a signed-in " +
+    "customer who signed in within the last 15 minutes (else sign_in_again). You are signed " +
     "out everywhere at once and can no longer sign in. Staff then erase your data, or tell you " +
     "by email why some of it must be kept, by the due date returned. Asking again changes nothing.",
   input: z.object({}).strict(),
@@ -310,6 +382,7 @@ export const meDeleteAccount = defineOperation({
       .where("person_id", "=", personId)
       .executeTakeFirst();
     if (!account) throw new NotFoundError("customer account", customerId);
+    await requireRecentSignIn(ctx);
     const sessions = await ctx.db
       .selectFrom("core_customer_session")
       .select((eb) => eb.fn.countAll<number>().as("n"))
@@ -350,5 +423,7 @@ export const meOperations = [
   meSessionsList,
   meSessionsRevoke,
   meSignOut,
+  meEmailChange,
+  meEmailConfirm,
   meDeleteAccount,
 ] as const;

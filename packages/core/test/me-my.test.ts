@@ -50,6 +50,9 @@ const OPENED = [
   "me.agreements.list",
   "me.agreements.pdf",
   "me.deleteAccount",
+  // Stage 48 (ADR 0712): changing the sign-in address.
+  "me.email.change",
+  "me.email.confirm",
   // Stage 31a step 6 (ADR 0540): the caller's own family links.
   "me.family",
   "me.get",
@@ -84,6 +87,8 @@ describe("what this step opens", () => {
           "me.agreements.list",
           "me.agreements.pdf",
           "me.deleteAccount",
+          "me.email.change",
+          "me.email.confirm",
           "me.sessions.list",
           "me.sessions.revoke",
           "me.signOut",

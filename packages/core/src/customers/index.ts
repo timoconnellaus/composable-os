@@ -2,10 +2,12 @@
 // calls: who may get a code, invites, linking to a Person, the sign-up setting and the code email.
 export * from "./accounts.ts";
 export * from "./code-email.ts";
+export * from "./email-change.ts";
 export * from "./erase-requests.ts";
 export * from "./limits.ts";
 export * from "./merge.ts";
 export * from "./plan-on-sale.ts";
+export * from "./recent-sign-in.ts";
 export * from "./settings.ts";
 export * from "./sign-in-mail.ts";
 export * from "./subscriber-signup.ts";

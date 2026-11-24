@@ -338,6 +338,23 @@ export interface PaymentsPortal {
   url: string;
 }
 
+/** What `updateCustomerEmail()` takes (stage 48, ADR 0712). */
+export interface PaymentsCustomerEmailInput {
+  /** The payer's provider customer. */
+  customerRef: string;
+  /** The address the provider emails this customer at from now on. */
+  email: string;
+  /** The host's id of the address change (ech_…): one request per change at the provider. */
+  changeId: string;
+}
+
+/** A submitted email change: `pending` until the host applies it. */
+export interface PaymentsCustomerEmailReceipt {
+  status: "pending" | "sent";
+  /** The action id in the approval queue. */
+  id: number;
+}
+
 /** A submitted refund: `pending` until the host applies it. */
 export interface PaymentsRefundReceipt {
   status: "pending" | "sent";
@@ -482,6 +499,13 @@ export interface PaymentsSession {
    * past invoices on (no cancelling or plan changes there). Records an observation first.
    */
   openPortal(input: PaymentsPortalInput): Promise<PaymentsPortal>;
+  /**
+   * Submits `payments.customer.email` (never auto-approvable): the provider's customer is given a
+   * new email address, after a member proved it (stage 48, ADR 0712). The host's own call only
+   * (as `openPortal`): any other session is refused, since a customer's billing email decides
+   * where the provider sends their receipts.
+   */
+  updateCustomerEmail(input: PaymentsCustomerEmailInput): Promise<PaymentsCustomerEmailReceipt>;
   /** Asks the host to bind a hook that receives every verified payment, refund and subscription event. */
   subscribe(hook: PaymentsEventHook): Promise<void>;
 }

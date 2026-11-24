@@ -154,6 +154,7 @@ The provider runs the schedule; nothing here charges a card on its own.
 | `cancelSubscription({ when })` | Submits `payments.subscription.cancel` (never auto-approvable). Applied: Stripe `cancel_at_period_end=true`, or `DELETE` for `now`. |
 | `resumeSubscription(input)` | Submits `payments.subscription.resume`. Applied: `cancel_at_period_end=false`. |
 | `openPortal({ customerRef, returnUrl })` | Only for the host's own call (the queue answers `isHostOrders()`; Code Mode, extensions, the assistant and MCP are refused). An observation, then a customer portal session, on a configuration made once and kept in the facet (card, billing details, invoices; no cancel, update or pause). |
+| `updateCustomerEmail({ customerRef, email, changeId })` | Stage 48 (ADR 0712). Only for the host's own call, as `openPortal`: a member proved a new sign-in address and the provider is given it. Submits `payments.customer.email` (never auto-approvable; the host applies its own call at once). Applied: Stripe `POST /v1/customers/:id` with `email`, idempotency key `cos-email-<changeId>-<customerRef>`; the fake records it per customer and refuses one it never made. |
 | `refund({ …, invoiceRef })` | As a refund, and once sent the invoice is credited with a credit note linked to it, so its tax is known. |
 
 Every subscription call to Stripe sends `Stripe-Version: 2026-11-18.endive` (`STRIPE_BILLING_VERSION`).

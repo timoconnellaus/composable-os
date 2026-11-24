@@ -19,6 +19,7 @@ import { SUBSCRIPTION_STATUSES, subscriptionEvent } from "./subscription-shape.j
 import type {
   PaymentsCancelSubscriptionInput,
   PaymentsChangeSubscriptionInput,
+  PaymentsCustomerEmailInput,
   PaymentsEvent,
   PaymentsInvoice,
   PaymentsPauseSubscriptionInput,
@@ -735,6 +736,21 @@ export class StripeProvider implements PaymentProvider {
     const url = stringOrNull(body.url);
     if (url === null) throw new Error("Stripe answered the portal session without a url.");
     return { url };
+  }
+
+  /**
+   * The customer's new email (stage 48, ADR 0712): Stripe sends its receipts and its own emails
+   * there from now on. One request per address change (the idempotency key is the change's id).
+   */
+  async updateCustomerEmail(input: PaymentsCustomerEmailInput): Promise<void> {
+    const form = new URLSearchParams();
+    form.set("email", input.email);
+    await this.#change(
+      "POST",
+      `/v1/customers/${encodeURIComponent(input.customerRef)}`,
+      form,
+      `cos-email-${input.changeId}-${input.customerRef}`,
+    );
   }
 
   /**

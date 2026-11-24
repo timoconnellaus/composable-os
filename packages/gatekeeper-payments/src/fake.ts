@@ -14,6 +14,7 @@ import type {
   PaymentsCancelSubscriptionInput,
   PaymentsChangeSubscriptionInput,
   PaymentsCheckoutTax,
+  PaymentsCustomerEmailInput,
   PaymentsEvent,
   PaymentsInterval,
   PaymentsInvoice,
@@ -206,6 +207,8 @@ export type FakeLedgerState = {
   checkouts: FakeCheckout[];
   refunds: FakeRefund[];
   subscriptions: FakeSubscription[];
+  /** Each customer's email, as the host last gave it (stage 48), by customer ref. */
+  customerEmails: Record<string, string>;
 };
 
 /** What `pay()` did. */
@@ -231,6 +234,7 @@ const IDEMPOTENCY = "idem:";
 const REFUND = "refund:";
 const REFUND_BY_ID = "refund-id:";
 const SUBSCRIPTION = "subscription:";
+const CUSTOMER_EMAIL = "customer-email:";
 const EVENT_COUNTER = "event-counter";
 const CLOCK = "clock";
 
@@ -427,7 +431,27 @@ export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
       checkouts: [...kv.list<FakeCheckout>({ prefix: CHECKOUT })].map(([, row]) => row),
       refunds: [...kv.list<FakeRefund>({ prefix: REFUND })].map(([, row]) => row),
       subscriptions: this.#subscriptions(),
+      customerEmails: Object.fromEntries(
+        [...kv.list<string>({ prefix: CUSTOMER_EMAIL })].map(([key, email]) => [
+          key.slice(CUSTOMER_EMAIL.length),
+          email,
+        ]),
+      ),
     };
+  }
+
+  /**
+   * A customer's new email (stage 48). Refused for a customer the fake never made (no
+   * subscription of theirs), as the provider refuses an unknown customer.
+   */
+  async setCustomerEmail(
+    input: PaymentsCustomerEmailInput,
+  ): Promise<{ ok: true } | { ok: false; reason: string }> {
+    if (!this.#subscriptions().some((s) => s.customerRef === input.customerRef)) {
+      return { ok: false, reason: "no such customer" };
+    }
+    this.ctx.storage.kv.put(CUSTOMER_EMAIL + input.customerRef, input.email);
+    return { ok: true };
   }
 
   // --- Subscriptions (stage 32a, ADR 0485) ----------------------------------------------------
@@ -1070,6 +1094,15 @@ export class FakeProvider implements PaymentProvider {
 
   async openPortal(input: PaymentsPortalInput): Promise<{ url: string }> {
     return { url: `${this.#options.baseUrl}/fake/portal/${encodeURIComponent(input.customerRef)}` };
+  }
+
+  async updateCustomerEmail(input: PaymentsCustomerEmailInput): Promise<void> {
+    const result = await this.#options.ledger.setCustomerEmail(input);
+    if (!result.ok) {
+      throw new ActionApplyError(
+        `The fake provider refused the email change, so nothing changed: ${result.reason}.`,
+      );
+    }
   }
 
   /** Changes the subscription, then confirms it by webhook once this call has returned. */

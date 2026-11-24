@@ -7,6 +7,7 @@ import type {
   PaymentsCancelSubscriptionInput,
   PaymentsChangeSubscriptionInput,
   PaymentsCheckoutInput,
+  PaymentsCustomerEmailInput,
   PaymentsEvent,
   PaymentsPauseSubscriptionInput,
   PaymentsPayment,
@@ -81,6 +82,11 @@ export interface PaymentProvider {
   voidPendingUpdate(input: PaymentsVoidUpdateInput): Promise<void>;
   /** Opens the customer portal for one customer: card, billing details and invoices only. */
   openPortal(input: PaymentsPortalInput): Promise<{ url: string }>;
+  /**
+   * Gives one customer a new email address (stage 48, ADR 0712). Throws as `cancelSubscription`
+   * does.
+   */
+  updateCustomerEmail(input: PaymentsCustomerEmailInput): Promise<void>;
   /** Verifies a webhook delivery; returns the typed events it carries (possibly none), or a rejection reason. */
   verifyWebhook(
     headers: Record<string, string>,

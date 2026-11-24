@@ -381,6 +381,52 @@ describe("signing out and deleting the account end what the cookie can do", () =
     expect((await call("me.get", {}, { cookie: dan.cookie })).status).toBe(404);
   });
 
+  it("deleting the account needs a recent sign-in, and an exchange keeps the sign-in's age (ADR 0712)", async () => {
+    const fay = await newCustomer("Fay");
+    // Fay signed in an hour ago (the session row's own start, which Better Auth wrote once).
+    const anHourAgo = new Date(Date.now() - 3_600_000).toISOString();
+    await env.DB.prepare("UPDATE core_customer_session SET created_at = ? WHERE token = ?")
+      .bind(anHourAgo, tokenOf(fay))
+      .run();
+    const refused = await call("me.deleteAccount", {}, { cookie: fay.cookie });
+    expect(refused.status, JSON.stringify(refused.body)).toBe(403);
+    expect(refused.body.error).toMatchObject({
+      code: "sign_in_again",
+      details: { withinMinutes: 15 },
+    });
+    // Exchanged for an app's tokens, the session is still an hour old.
+    const exchanged = await handleApi(
+      new Request("https://crm.test/api/v1/auth/token", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: fay.cookie },
+        body: JSON.stringify({ deviceName: "Fay's phone" }),
+      }),
+      boundEnv,
+    );
+    expect(exchanged?.status).toBe(200);
+    if (!exchanged) throw new Error("no token route");
+    const { accessToken } = ((await exchanged.json()) as { data: { accessToken: string } }).data;
+    const asTheApp = await handleApi(
+      new Request("https://crm.test/api/v1/op/me.deleteAccount", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${accessToken}`,
+          "idempotency-key": crypto.randomUUID(),
+        },
+        body: "{}",
+      }),
+      boundEnv,
+    );
+    expect(asTheApp?.status).toBe(403);
+    if (!asTheApp) throw new Error("no surface");
+    expect(((await asTheApp.json()) as { error: { code: string } }).error.code).toBe(
+      "sign_in_again",
+    );
+    // Nothing was deleted.
+    expect((await call("me.get", {}, { cookie: fay.cookie })).status).toBe(200);
+  });
+
   it("deleting the account ends every session at once, and no new one starts", async () => {
     const eve = await newCustomer("Eve");
     const second = cookiesOf(await signIn(eve.email));

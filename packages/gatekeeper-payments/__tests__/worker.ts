@@ -122,7 +122,8 @@ export type SessionMethod =
   | "pauseSubscription"
   | "unpauseSubscription"
   | "voidPendingUpdate"
-  | "openPortal";
+  | "openPortal"
+  | "updateCustomerEmail";
 
 export class TestHost extends DurableObject<Cloudflare.Env> {
   #queue = new RecordingQueue();

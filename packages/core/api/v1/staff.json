@@ -23154,6 +23154,103 @@
       ]
     },
     {
+      "name": "customer.cancelEmailChange",
+      "description": "Cancel a change of a customer account's sign-in address that waits for the member's code: the code stops working and the address stays as it is. Admins only, humans only.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Customer account id (cus_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "cancelled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "cancelled"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "customer.list",
+        "customer.settings.get"
+      ]
+    },
+    {
+      "name": "customer.changeEmail",
+      "description": "Start changing a customer account's sign-in address, for a member who asks (by phone, at the desk). A code is emailed to the new address; nothing changes until the member, signed in to their account, enters it on the website or in the app within 15 minutes. You never see the code. Replaces a change already waiting. Admins only, humans only.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Customer account id (cus_…)"
+          },
+          "email": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 320,
+            "description": "The member's new sign-in address"
+          }
+        },
+        "required": [
+          "id",
+          "email"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "newEmail": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "newEmail",
+          "expiresAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "customer.list",
+        "customer.settings.get"
+      ]
+    },
+    {
       "name": "customer.disable",
       "description": "Disable a customer account: it can no longer sign in, and every session it has ends at once. Its Person and records are kept. Undo with customer.enable. Admins only, humans only.",
       "risk": "write",
@@ -23216,6 +23313,68 @@
           "sessions": {
             "type": "number"
           },
+          "emailChange": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "newEmail": {
+                    "type": "string"
+                  },
+                  "startedBy": {
+                    "type": "string",
+                    "enum": [
+                      "customer",
+                      "staff"
+                    ]
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  },
+                  "expired": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "newEmail",
+                  "startedBy",
+                  "createdAt",
+                  "expiresAt",
+                  "expired"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "eraseRequest": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "requestedAt": {
+                    "type": "string"
+                  },
+                  "dueAt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "requestedAt",
+                  "dueAt"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "sessionsEnded": {
             "type": "number"
           }
@@ -23229,6 +23388,8 @@
           "createdAt",
           "lastSignInAt",
           "sessions",
+          "emailChange",
+          "eraseRequest",
           "sessionsEnded"
         ],
         "additionalProperties": false
@@ -23301,6 +23462,68 @@
           "sessions": {
             "type": "number"
           },
+          "emailChange": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "newEmail": {
+                    "type": "string"
+                  },
+                  "startedBy": {
+                    "type": "string",
+                    "enum": [
+                      "customer",
+                      "staff"
+                    ]
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  },
+                  "expired": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "newEmail",
+                  "startedBy",
+                  "createdAt",
+                  "expiresAt",
+                  "expired"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "eraseRequest": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "requestedAt": {
+                    "type": "string"
+                  },
+                  "dueAt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "requestedAt",
+                  "dueAt"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "sessionsEnded": {
             "type": "number"
           }
@@ -23314,6 +23537,8 @@
           "createdAt",
           "lastSignInAt",
           "sessions",
+          "emailChange",
+          "eraseRequest",
           "sessionsEnded"
         ],
         "additionalProperties": false
@@ -23363,7 +23588,7 @@
     },
     {
       "name": "customer.list",
-      "description": "List the org's customer accounts (people outside the org who can sign in to a client app), newest first: address, linked Person, status, when they last signed in and how many sessions are open. Filter by personId (a Person's account) or status. Admins only. Read-only.",
+      "description": "List the org's customer accounts (people outside the org who can sign in to a client app), newest first: address, linked Person, status, when they last signed in, how many sessions are open, a change of the sign-in address waiting for the member's code (the new address shown only in part) and an open erase request. Filter by personId (a Person's account) or status. Admins only. Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -23441,6 +23666,68 @@
                 },
                 "sessions": {
                   "type": "number"
+                },
+                "emailChange": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "newEmail": {
+                          "type": "string"
+                        },
+                        "startedBy": {
+                          "type": "string",
+                          "enum": [
+                            "customer",
+                            "staff"
+                          ]
+                        },
+                        "createdAt": {
+                          "type": "string"
+                        },
+                        "expiresAt": {
+                          "type": "string"
+                        },
+                        "expired": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "newEmail",
+                        "startedBy",
+                        "createdAt",
+                        "expiresAt",
+                        "expired"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "eraseRequest": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "requestedAt": {
+                          "type": "string"
+                        },
+                        "dueAt": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "requestedAt",
+                        "dueAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               },
               "required": [
@@ -23451,7 +23738,9 @@
                 "linkState",
                 "createdAt",
                 "lastSignInAt",
-                "sessions"
+                "sessions",
+                "emailChange",
+                "eraseRequest"
               ],
               "additionalProperties": false
             }

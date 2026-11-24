@@ -33,6 +33,24 @@ question for the owner is open. Step 1, the base headless entry and blocks over 
 operations, built on `feat/stage-48-account-blocks`, ADR 0714 (written with step 1, where the
 native link to the website is built).
 
+- **Steps 2, 3 and 3b built** on `feat/stage-48-email-change` ([ADR
+  0712](../adr/0712-changing-the-sign-in-address-and-a-recent-sign-in.md), migration 0990). A
+  recent sign-in: `me.email.change` and `me.deleteAccount` refuse a session signed in more than 15
+  minutes ago (`sign_in_again`, HTTP 403), read from the session's own row; an app session
+  exchanged from a browser sign-in keeps its age. Changing the sign-in address:
+  `core_customer_email_change`, `me.email.change` (a code to the new address as the host's sign-in
+  mail, the same answer for any address, limited per account and per mailbox), `me.email.confirm`
+  (five tries; refused while another Person, account or the erased list holds the address; else
+  the account's address and the Person's primary email in one batch, other sessions ended, a
+  timeline activity naming no address; after the commit the notice to the old address and the
+  provider given the new one), staff `customer.changeEmail` and `customer.cancelEmailChange`
+  (human admins, never finishing a change), and `customer.list` showing an open change (masked) and
+  an open erase request. The email gatekeeper's sign-in kind takes the change's two fixed
+  templates. The payments gatekeeper's `updateCustomerEmail` (`payments.customer.email`, the
+  host's own call only). Erase reads the change records and takes a former address only while no
+  other identified Person holds it, here and for addresses staff moved (#302 closed). Not built
+  here: the blocks and the staff card's buttons (step 7), the delete preview (step 6).
+
 Vocabulary: "My account" is the customer's own area on the business's website and in its app.
 The draft called it the customer portal; "portal" stays only as the name of the manifest key and
 the operation (`portal`, `me.portal`). The payment provider's own page for a card is "the
