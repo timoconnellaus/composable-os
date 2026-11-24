@@ -17,7 +17,9 @@ import { CURRENCY } from "./order-fixtures.ts";
 
 export interface Gateway {
   checkouts: { ref: string; orderId: string; amount: number; currency: string }[];
-  emails: { to: string[]; subject: string; text: string }[];
+  emails: { to: string[]; subject: string; text: string; idempotencyKey?: string }[];
+  /** The next email's answer: held for a person's approval, or the mail gatekeeper throwing. */
+  nextEmail?: "pending" | "throw" | undefined;
   refunds: Map<number, { orderId: string; paymentRef: string; amount: number; refundId: string }>;
   applied: number[];
   action: number;
@@ -41,6 +43,8 @@ export interface Gateway {
    * default), refused with nothing changed, an unknown outcome, or the call itself failing.
    */
   nextChange: "applied" | "refused" | "unknown" | "throw";
+  /** Stage 44 step 7: how the next cancelSubscription goes at the gatekeeper (as nextChange). */
+  nextCancel: "applied" | "refused" | "unknown" | "throw" | "pending" | "retryable";
   /** Stage 32b second review: what the provider's subscription reads as (getSubscription). */
   providerReads: Map<string, Record<string, unknown>>;
   /** Run before the next plan change, pause or unpause answers (a verified read landing meanwhile). */
@@ -56,8 +60,8 @@ export interface PaymentsDouble {
   connectionId(): string;
   /** Creates the org's payments connection, owned by `ownerId`. Call once, before a refund. */
   connect(ownerId: string): Promise<void>;
-  /** Stores a verified event and applies it, as the host's adapter does. */
-  deliver(event: PaymentsEvent): ReturnType<typeof applyAndReturn>;
+  /** Stores a verified event and applies it, as the host's adapter does (at `clock`, else now). */
+  deliver(event: PaymentsEvent, clock?: () => Date): ReturnType<typeof applyAndReturn>;
   /** Plays the provider: the gatekeeper verified a payment of the last checkout for the order. */
   providerPays(
     orderId: string,
@@ -76,11 +80,23 @@ async function applyAndReturn(
   connectionId: string,
   event: PaymentsEvent,
   crm: CrmDb,
+  clock?: () => Date,
 ) {
-  const key = await recordPaymentEvent(db, event, connectionId, new Date().toISOString());
+  const key = await recordPaymentEvent(
+    db,
+    event,
+    connectionId,
+    (clock?.() ?? new Date()).toISOString(),
+  );
   if (!key) throw new Error("not stored");
   const result = await applyStoredPaymentEvent(
-    { crm, integrations: runtime, events, appOrigin: "https://crm.example.com" },
+    {
+      crm,
+      integrations: runtime,
+      events,
+      appOrigin: "https://crm.example.com",
+      ...(clock ? { clock } : {}),
+    },
     key,
   );
   return { event, result };
@@ -101,6 +117,7 @@ export function paymentsDouble(events: () => Events, crm: () => CrmDb = () => db
     statusAsks: [],
     nextExpiresAt: null,
     nextChange: "applied",
+    nextCancel: "applied",
     providerReads: new Map(),
     beforeAnswer: null,
     beforeSubscribe: null,
@@ -183,8 +200,10 @@ export function paymentsDouble(events: () => Events, crm: () => CrmDb = () => db
           input.method === "pauseSubscription" ||
           input.method === "unpauseSubscription" ||
           input.method === "voidPendingUpdate";
-        const how = changing ? gw.nextChange : "applied";
+        const cancelling = input.method === "cancelSubscription";
+        const how = changing ? gw.nextChange : cancelling ? gw.nextCancel : "applied";
         if (changing) gw.nextChange = "applied";
+        if (cancelling) gw.nextCancel = "applied";
         if (changing && gw.beforeAnswer) {
           const hook = gw.beforeAnswer;
           gw.beforeAnswer = null;
@@ -196,37 +215,85 @@ export function paymentsDouble(events: () => Events, crm: () => CrmDb = () => db
           actionKind: `payments.${input.method}`,
           title: "x",
         };
+        // A cancel waiting for a person: submitted to the approval queue as the integration host
+        // submits one, so a test can reject it or let it expire.
+        const waiting =
+          how === "pending"
+            ? await submitOutbound(db, {
+                connectionId,
+                connectionTitle: "Payments",
+                vendor: "payments",
+                facetKey: "merchant",
+                resourceTitle: "Payments with Fake provider",
+                action: gw.changes.length + 1000,
+                description: {
+                  title: "End a subscription now",
+                  description: "Cancel a subscription.",
+                  fields: [],
+                  actionKind: {
+                    tag: "payments.subscription.cancel",
+                    label: "Cancel a subscription",
+                  },
+                  autoApprovable: false,
+                  descriptionIsComplete: true,
+                },
+                actor: "automation",
+                user: { id: "system", email: "system@crm.invalid", name: "System", role: "admin" },
+                origin: { surface: "system", automationId: "system.orders" },
+              })
+            : null;
         return {
           value:
             input.method === "openPortal"
               ? { url: "https://billing.example/portal" }
               : { status: how === "applied" ? "sent" : "pending", id: gw.changes.length },
-          pending: [],
-          applied: changing && how !== "applied" ? [] : [action],
-          ...(how === "refused"
+          // A cancel waiting for a person at the gatekeeper: only its presence is read.
+          pending: waiting && waiting.decision === "review" ? [waiting.pending] : [],
+          applied: (changing || cancelling) && how !== "applied" ? [] : [action],
+          ...(how === "retryable"
             ? {
                 failed: [
                   {
                     ...action,
-                    outcome: "refused" as const,
-                    message: "Refused by the provider.",
+                    outcome: "retryable" as const,
+                    message: "Pending again at the gatekeeper.",
                   },
                 ],
               }
-            : how === "unknown"
+            : how === "refused"
               ? {
                   failed: [
                     {
                       ...action,
-                      outcome: "unknown" as const,
-                      message: "The provider did not answer.",
+                      outcome: "refused" as const,
+                      message: "Refused by the provider.",
                     },
                   ],
                 }
-              : {}),
+              : how === "unknown"
+                ? {
+                    failed: [
+                      {
+                        ...action,
+                        outcome: "unknown" as const,
+                        message: "The provider did not answer.",
+                      },
+                    ],
+                  }
+                : {}),
         };
       }
       if (input.method === "send") {
+        const how = gw.nextEmail;
+        gw.nextEmail = undefined;
+        if (how === "throw") throw new Error("the mail gatekeeper did not answer");
+        if (how === "pending") {
+          return {
+            value: { status: "pending" },
+            pending: [{ actionId: "pac_mail" } as never],
+            applied: [],
+          };
+        }
         gw.emails.push(input.args[0] as Gateway["emails"][number]);
         return {
           value: { status: "sent" },
@@ -282,8 +349,8 @@ export function paymentsDouble(events: () => Events, crm: () => CrmDb = () => db
     rejectOutbound: async () => undefined,
   };
 
-  const deliver = (event: PaymentsEvent) =>
-    applyAndReturn(runtime, events(), connectionId, event, crm());
+  const deliver = (event: PaymentsEvent, clock?: () => Date) =>
+    applyAndReturn(runtime, events(), connectionId, event, crm(), clock);
 
   return {
     gw,

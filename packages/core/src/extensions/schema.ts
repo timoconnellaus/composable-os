@@ -115,7 +115,12 @@ export interface ObjectDefinitionJson {
   /** Who holds access to a record (ADR 0477), as declared. */
   access?: { sources: AccessSourceJson[] };
   /** Versions of the content fields (ADR 0446), as declared. */
-  publishable?: { content: string[]; slug?: string | undefined; date?: string | undefined };
+  publishable?: {
+    content: string[];
+    slug?: string | undefined;
+    date?: string | undefined;
+    acknowledge?: { who: string; manage: string } | undefined;
+  };
   navigationOrder?: number;
   requireOneOf?: string[][];
   titleDefault?: { from: string[]; suffix?: string | undefined };
@@ -753,6 +758,7 @@ function allowanceDefinition(object: ObjectState): ObjectDefinition["allowance"]
     ...(sp.movedFrom ? { movedFrom: { ...sp.movedFrom } } : {}),
     paidBy: [...(sp.paidBy ?? [])],
     ...(sp.waived ? { waived: sp.waived } : {}),
+    ...(sp.released ? { released: sp.released } : {}),
   };
 }
 
@@ -1012,6 +1018,9 @@ function sellableDefinition(object: ObjectState, own: FieldState[]): ObjectDefin
                   },
                 }
               : {}),
+            ...(declared.recurring.coolingOff
+              ? { coolingOff: { setting: declared.recurring.coolingOff.setting } }
+              : {}),
             ...(declared.recurring.grants
               ? {
                   grants: {
@@ -1201,6 +1210,14 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
               content: [...publishable.content],
               ...(publishable.slug ? { slug: publishable.slug } : {}),
               ...(publishable.date ? { date: publishable.date } : {}),
+              ...(publishable.acknowledge
+                ? {
+                    acknowledge: {
+                      who: publishable.acknowledge.who,
+                      manage: publishable.acknowledge.manage,
+                    },
+                  }
+                : {}),
             },
           }
         : {}),
