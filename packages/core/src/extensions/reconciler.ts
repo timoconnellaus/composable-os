@@ -441,6 +441,7 @@ export function planFromState(
           "core_task_links",
           "core_record_tags",
           "core_search_docs",
+          "core_published_text",
         ]) {
           dataStatements.push(
             CompiledQuery.raw(`UPDATE ${table} SET object_type = ? WHERE object_type = ?`, [

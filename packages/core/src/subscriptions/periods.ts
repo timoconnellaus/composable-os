@@ -58,6 +58,12 @@ const FLAG_WORDS: Record<PeriodFlag, string> = {
   not_as_agreed: "on terms that are not the ones agreed",
 };
 
+/** A provider's timestamp as the host keeps one, or null when it is not a time. */
+function providerTime(value: string): string | null {
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+}
+
 /**
  * Writes the paid order for one paid invoice, in the calling batch. `termsChanged`: the
  * subscription's price, currency or interval is no longer what was agreed at the provider.
@@ -124,6 +130,8 @@ export async function recordPaidPeriod(
     invoice_ref: invoice.ref,
     period_flag: flag,
     paid_at: null,
+    // The provider's own time for the payment (its verified event's), for cooling off (ADR 0647).
+    provider_paid_at: providerTime(event.occurredAt),
     cancelled_at: null,
     refunded_at: null,
     created_at: ctx.now,

@@ -73,6 +73,8 @@ describe("default closed (criterion 1)", () => {
       "content.get",
       "content.list",
       "content.preview",
+      // Stage 38 (ADR 0700): published words, searched as the public reads them.
+      "content.search",
       // Stage 44 step 2 (ADR 0642): a customer's own agreements and their live dependants'.
       "me.agreements.accept",
       "me.agreements.due",
@@ -106,6 +108,10 @@ describe("default closed (criterion 1)", () => {
       "subscription.cancel",
       // Stage 32b (ADR 0530): a member changes their own plan, an upgrade applied once paid.
       "subscription.change",
+      // Stage 44 step 7 (ADR 0647): a payer ends their own in its cooling-off period, and asks
+      // whether they may.
+      "subscription.coolOff",
+      "subscription.coolingOff",
       "subscription.get",
       "subscription.list",
       // Stage 32a step 4 (ADR 0491): a customer's own continuation offers.
@@ -125,6 +131,8 @@ describe("default closed (criterion 1)", () => {
       "content.get",
       "content.list",
       "content.preview",
+      // Stage 38 (ADR 0700): published words, searched as the public reads them.
+      "content.search",
       "media.play",
       "media.serve",
       "order.checkout",
@@ -415,6 +423,8 @@ describe("the closed handler context (ADR 0413)", () => {
       "content.get",
       "content.list",
       "content.preview",
+      // Stage 38 (ADR 0700): published words, searched as the public reads them.
+      "content.search",
       "fixture.bookkeeping",
       // Stage 44 step 2 (ADR 0642): acceptances are core tables, not records: the host reads and
       // writes them for the caller's own Person and live dependants only.
@@ -443,6 +453,10 @@ describe("the closed handler context (ADR 0413)", () => {
       "subscription.cancel",
       // Stage 32b (ADR 0530): a member changes their own plan, an upgrade applied once paid.
       "subscription.change",
+      // Stage 44 step 7 (ADR 0647): the host reads and writes the cooling off for the payer, and
+      // calls the payments gatekeeper to end it.
+      "subscription.coolingOff",
+      "subscription.coolOff",
       "subscription.offer.mine",
       "subscription.portal",
       "subscription.resume",

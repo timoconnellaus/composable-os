@@ -202,6 +202,7 @@ function RecordPage({ info, id }: { info: ObjectInfo; id: string }) {
               values={data.values}
               slugField={info.publishable.slug}
               hasPreview={info.publishable.public}
+              acknowledged={info.publishable.acknowledged}
             />
           )}
           {recordViews.panels}
