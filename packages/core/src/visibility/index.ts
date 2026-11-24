@@ -48,6 +48,7 @@ export {
   type NoteLevel,
   type NoteRights,
   type NoteViewer,
+  noteLevelGuard,
   noteRights,
   noteScopeWhere,
   readsEveryNote,

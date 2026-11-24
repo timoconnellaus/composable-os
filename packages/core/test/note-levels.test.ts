@@ -641,9 +641,7 @@ describe("who looks after whom", () => {
     const note = (await log(author, "coaches", "About someone", [{ object: "person", id: p }])).id;
     expect((await invoke("activity.get", { id: note }, as(coach))).id).toBe(note);
     await invoke("person.delete", { id: p }, as(admin));
-    expect((await refusal(invoke("activity.get", { id: note }, as(coach)))).code).toBe(
-      "not_found",
-    );
+    expect((await refusal(invoke("activity.get", { id: note }, as(coach)))).code).toBe("not_found");
   });
 });
 

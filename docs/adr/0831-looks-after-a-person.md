@@ -16,12 +16,15 @@ otherwise open a member's notes to a casual coach (decision 3).
   removes a Person's rows by the foreign key, and removing the account removes its rows.
 - **Operations**: `carer.set` and `carer.end` need `people:link` (admins by default, grantable)
   and are `actors: ["human"]`: a person on the Person's page decides, never the assistant, an MCP
-  client, an automation or extension code. Each call's audit row records who set what; nothing
+  client, an automation or extension code. Nobody sets themselves (`carer_self`) unless they
+  already read every `coaches` note: `people:link` is not restricted, and setting oneself would
+  open any client's notes one step away. Each call's audit row records who set what; nothing
   goes on the timeline or to an automation. `carer.list` needs `records:read`. Only an active
   staff account can be set.
 - **What a row allows** is decided by the seam alone (`visibility/notes.ts`): while live, the
   account reads the Person's `coaches` notes (a note at that level is about exactly one Person).
-  Ending it takes effect on the next read; the account keeps the notes it wrote.
+  Ending it, or the Person going to the Trash, takes effect on the next read; the account keeps
+  the notes it wrote.
 - **A shipped pack's team** (decided, not built yet): a shipped pack may declare an object's
   `team: { person: "<relation to Person>", staff: ["<user field>"] }`; the staff named on a live
   record about the Person count as looking after them while it is live (a job's crew until it

@@ -40,6 +40,7 @@ import {
   NOTE_LEVELS,
   type NoteLevel,
   type NoteViewer,
+  noteLevelGuard,
   noteRights,
   type Reader,
   visibleTable,
@@ -639,9 +640,7 @@ export const activityUpdate = defineOperation({
     ctx.write(
       // Planned from the level read above: a level changed meanwhile fails the batch whole, so a
       // stale edit never puts back a level someone raised, nor lowers one it was not judged on.
-      sql`INSERT INTO core_note_guard (expected, actual) SELECT 1, count(*) FROM core_activity WHERE id = ${input.id} AND level = ${beforeLevel}`.compile(
-        ctx.db,
-      ),
+      noteLevelGuard(input.id, beforeLevel).compile(ctx.db),
       ctx.db
         .updateTable("core_activity")
         .set({

@@ -57,7 +57,21 @@ paths at once.
   input for every note (`auditRedact`, a new option: a staff note's text is in its change's diff,
   and a pending action keeps it for its approver). `audit.list` for an AI actor leaves out every
   row that changed such a note; `audit.listForRecord` gives a note's history only to someone who
-  may read it. The merge and duplicate counts of linked activities leave them out.
+  may read it. The merge and duplicate counts of linked activities, the audit list and a note's
+  history leave out the notes the caller may not read (`hiddenNoteIds(ctx)`, read through a
+  partial index on kept notes, `core_activity_kept_idx`). The Trash names a kept note by its type,
+  never its text, to everyone.
+- **A level change takes its copies with it.** Raising or lowering a note queues its embedding
+  (its vector is dropped or made again, whatever path embeds, since a kept note's change is no
+  record event). Raising it from `staff` deletes the cached summaries built from it and redacts
+  its earlier audit rows (the change rows of the note, and the `activity.log` / `.update` /
+  `.proposeNote` rows that made them) by ADR 0019's sanctioned redaction: a marker per row naming
+  the operation that raised it, field names kept, values `[erased]`.
+- **A change planned from a level fails when the level moved.** `activity.update` writes `level`
+  only when it changes and carries a guard (`core_note_guard`, migration 1230): if another call
+  changed the level between this call's read and its commit, the batch fails whole
+  (`note_changed`), so a stale edit never puts back a level someone raised and a lowering is
+  judged against the level it lowers.
 
 ## Consequences
 - The Person's timeline shows each reader exactly the notes they may read; the admin screens
@@ -65,6 +79,9 @@ paths at once.
 - A human's read in a dry run (`ctx.simulate`) writes no audit row; only the approval queue and
   test mode simulate, and neither reads restricted notes for a person.
 - Stage 14a's owner and team scopes must extend `visibility/notes.ts`, not add a second scope.
+- A pending action an AI proposed (`activity.proposeNote`) keeps its input and preview after the
+  note it made is raised; only people who could approve it read those, as before.
+- A carer reads nothing of a Person in the Trash.
 - A clinical layer would add a level the seam routes (`clinical`), not a second table.
 
 ## Proof
@@ -74,5 +91,7 @@ Trash, counts and history; each read and opening audited with ids and no text, a
 holding the text; removing a grant, a looks-after or deactivating the author on the next read;
 every AI actor with every grant reads nothing of them and lists none of their audit rows;
 summaries and embeddings leave them out; a timeline read with the note scope runs a fixed number
-of statements whatever the notes on it. `visibility-staff-unchanged.test.ts` still passes: staff
+of statements whatever the notes on it. From the review of PR #373: the Trash shows no kept
+note's text; raising a note drops its cached summary, queues its vector and redacts its staff-level
+audit history; a change planned from an old level fails whole. `visibility-staff-unchanged.test.ts` still passes: staff
 reads return the same rows for the same `rows_read`.

@@ -103,3 +103,11 @@ export function hiddenNoteIds(viewer: NoteViewer): RawBuilder<unknown> {
   if (!scope) return sql`(SELECT NULL WHERE 0)`;
   return sql`(SELECT hn.id FROM core_activity hn WHERE hn.level != 'staff' AND NOT ${scope})`;
 }
+
+/**
+ * A statement for a note's change planned from a read of its level (migration 1230): the batch
+ * fails whole (`core_note_changed`) when the note's level is no longer `level` at commit.
+ */
+export function noteLevelGuard(id: string, level: NoteLevel): RawBuilder<unknown> {
+  return sql`INSERT INTO core_note_guard (expected, actual) SELECT 1, count(*) FROM core_activity WHERE id = ${id} AND level = ${level}`;
+}

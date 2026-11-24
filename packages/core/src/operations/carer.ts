@@ -101,10 +101,13 @@ export const carerSet = defineOperation({
     // oneself would open a client's coaches notes one step away. Someone who already reads every
     // coaches note (an admin, notes:clients) gains nothing by it.
     if (input.userId === ctx.user.id && !noteRights(ctx as NoteViewer)?.clients) {
-      throw new ForbiddenError("You cannot say you look after someone yourself: another person sets it", {
-        field: "userId",
-        rule: "carer_self",
-      });
+      throw new ForbiddenError(
+        "You cannot say you look after someone yourself: another person sets it",
+        {
+          field: "userId",
+          rule: "carer_self",
+        },
+      );
     }
     await requireLivePerson(ctx, input.personId);
     const user = await ctx.db
