@@ -121,3 +121,8 @@ no role held and nobody could be granted). It stays `humanOnly`, the one person-
   reads; a tick of timed moves shares one.
 - A follower made between the cascade's read and its commit fails the move whole, whatever it
   claims ([ADR 0841](0841-cascades-widened.md)).
+
+## Amended 2026-11-24 (stage 39 step 2, ADR 0751)
+A follower's times can follow too, for a staffed follower: `staffed.timesFrom` copies the parent's
+start, end, zone and kind onto it whenever the parent changes them, in the database, beside the
+state cascade ([ADR 0751](0751-times-that-follow.md)). Jobs' crew places declare both.

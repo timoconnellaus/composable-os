@@ -1,0 +1,68 @@
+---
+id: outside
+title: Booking system copy
+summary: The host's read-only copy of a business's booking system, loaded as lists, matched to People by address and never merged.
+stage: 65
+spec: docs/stages/65-booking-system-connection.md
+adrs: [0920, 0921, 0922]
+operations: [outside.]
+---
+
+## What it is for
+
+A business that keeps its booking system for a while still wants the new system to know who its
+members are. The booking system's data reaches the host as **lists** read through the read-only
+booking-system contract: a `members` list (people with their memberships and passes) and a
+`timetable` list (classes, their bookings and their coaches). The host keeps a copy of each and
+never writes anything back.
+
+It is a core capability, not a pack: several packs read who is a member, and what is kept, who is
+linked and what a customer may see are rules of the host.
+
+## Concepts
+
+- **List**: one load of one kind, with the date its file was exported. A load replaces the copy of
+  its kind. A `members` list older than the largest age (31 days by default) is "too old to count".
+- **Outside person**, **outside membership**, **outside class**, **outside booking**, **outside
+  staff**: the copies. An outside person is kept only while they are a member, hold a live pass,
+  are booked in the timetable, or are linked by staff. No phone, postal address, birth date, card
+  or note is kept.
+- **Linked (by address)**: an outside person matched to the one live Person holding the same
+  address (`+tags` dropped). Nothing on the Person changes; their timeline gets one line. When two
+  Persons, or two outside people, share an address, nobody is linked and they wait in **To match**.
+  Someone who gets the address later (a sign-up, an import, a restore, staff) is linked then.
+- **Linked by hand**: a person with `bookingSystem:manage` links an outside person to a Person, or
+  a coach to a staff account, with why; or says "nobody here". Both hold across loads.
+
+## How the pieces fit
+
+- `outside/ingest.ts` reads any booking-system session (the file source, the fake, a system
+  connected later) and plans one batch that replaces the copy of a kind, written set based within
+  D1's limits.
+- `outside/match.ts` holds the host's side of matching: which live Persons and staff accounts hold
+  an address, the erased-address list and the suppressed refs, and the links already held. The
+  rules themselves are the contract package's `matchPeople`.
+- `operations/outside.ts` is how anything reads or changes the copy.
+
+## Main flows
+
+1. A list is read through the contract and planned: who is kept and why, who links, who waits.
+   The batch replaces the copy of that kind and adds one timeline line per Person linked.
+2. A Person is created, given an address, restored or imported: an unlinked outside person with
+   that address is linked then, or waits if another Person holds it too.
+3. Staff open To match (`outside.matches`) and link (`outside.link`) or say "nobody here"
+   (`outside.unlink`), with why.
+4. `outside.status` shows each list's date, its age, and whether it still counts.
+
+## Who may do what
+
+- `bookingSystem:manage` (admins, grantable one by one, never to a pack's fixed role) reads the
+  lists' state, To match and the settings. Linking and unlinking are a person's only, never an AI's.
+- The settings (on or off, which types make a member, the two links, the largest age) are a human
+  admin's (`settings:manage`).
+- The copy is in no `rec_*` view: no SQL, export, search, dashboard or AI record read reaches it.
+
+## What is built
+
+The tables, the settings, the lists' ages, the ingest plan, matching and linking by hand, and the
+operations above. Loading a list from a file and the screens are not built yet.

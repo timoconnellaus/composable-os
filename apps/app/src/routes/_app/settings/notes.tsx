@@ -281,7 +281,7 @@ function KindEditor({ kind, onDone }: { kind: Kind | null; onDone: () => void })
           </div>
           <p className="text-muted-foreground text-sm">
             {fixed
-              ? "Note is the kind of every note written without one, so everyone on the staff reads it. Add a kind of your own for notes kept tighter."
+              ? "Note is the kind of every note written without one, so everyone on the staff reads it and none of its sections is required. Add a kind of your own for notes kept tighter."
               : `${levelWords(defaultLevel).hint} A change applies to notes written from now on.`}
           </p>
 
@@ -344,6 +344,8 @@ function KindEditor({ kind, onDone }: { kind: Kind | null; onDone: () => void })
                 <Label className="font-normal">
                   <Checkbox
                     checked={section.required}
+                    // Note is the kind of a note written without one, which has a body only.
+                    disabled={fixed}
                     onCheckedChange={(checked) =>
                       update(section.row, { required: checked === true })
                     }

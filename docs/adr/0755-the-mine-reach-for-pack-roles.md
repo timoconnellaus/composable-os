@@ -120,10 +120,11 @@ it on that call, as it lifts the others.
   them.** Step 2's `staffed.timesFrom` copies a visit's times onto each crew place, so a write of
   the visit's times moves the window; `states.follows` moves a crew place when its visit moves, so
   a visit move whose follow leads into a live state widens the reach. The hold here sees only the
-  values a call writes. Whichever lands second of step 2 and step 5 must treat the sources of such
-  a copy or follow as deciding: the visit's times `personApproves` and refused under the limit,
-  and no follow from a state outside `live` into one in it (Jobs' visits end in `cancelled`,
-  final). Found at this PR's review; not reproducible here, where neither is declared.
+  values a call writes. Step 2 merged first, so step 5, which declares the `jobs.crew` role, must
+  treat the sources of such a copy or follow as deciding: the visit's times `personApproves` and
+  refused under the limit, and no follow from a state outside `live` into one in it (Jobs' visits
+  end in `cancelled`, final). Found at this PR's review; not reproducible here, where no pack
+  declares a copy or follow onto a `through` object a role's `mine` names.
 - An object that relates to a limited object but is not limited itself (a note on a job) lists
   every such record under the limit: the pack declares `mine` on it, or keeps it out of the role.
   The check does not flag it.

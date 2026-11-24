@@ -28,6 +28,8 @@ import { NOTE_LEVELS } from "../visibility/index.ts";
 /** The kind of a note written without one (migration 1232). */
 export const DEFAULT_NOTE_KIND = "nkd_note";
 export const MAX_SECTIONS = 12;
+/** A note's body at most, written or made from its sections (activity.log's own limit). */
+export const MAX_NOTE_BODY = 100_000;
 
 export const LEVEL_RANK: Record<NoteLevel, number> = { staff: 0, coaches: 1, sensitive: 2 };
 
@@ -219,6 +221,13 @@ export function fillTemplate(
     if (text) sections.push({ key: section.key, label: section.label, text });
   }
   const body = sections.map((s) => `**${s.label}**\n\n${s.text}`).join("\n\n");
+  if (body.length > MAX_NOTE_BODY) {
+    // The body made from the sections is held to a body's own limit (and its sections with it).
+    throw new ValidationError(
+      `This note is too long: at most ${MAX_NOTE_BODY.toLocaleString("en")} characters in all`,
+      { field: "sections", rule: "note_too_long" },
+    );
+  }
   return { sections, body };
 }
 
@@ -363,6 +372,14 @@ export const noteKindsSave = defineOperation({
       );
     }
     const sections = templateOf(input.sections);
+    if (before?.key === "note" && sections.some((s) => s.required)) {
+      // A note written without a kind (the assistant's draft, an import, the API) has a body
+      // only: a required section on Note would refuse every one of them.
+      throw new ValidationError(
+        "Note is the kind of every note written without one: its sections cannot be required",
+        { field: "sections", rule: "note_kind_default" },
+      );
+    }
     const clash = await ctx.db
       .selectFrom("core_note_kind")
       .select("id")

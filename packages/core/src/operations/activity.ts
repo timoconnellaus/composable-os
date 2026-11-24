@@ -55,6 +55,7 @@ import {
   fillTemplate,
   LEVEL_RANK,
   loadNoteKind,
+  MAX_NOTE_BODY,
   type NoteKind,
   requireUsableKind,
 } from "./note-kind.ts";
@@ -119,7 +120,11 @@ export const ACTIVITY_TYPES = ["note", "email", "call", "meeting", "system"] as 
 
 const commonLogFields = {
   subject: z.string().trim().max(500).nullish().describe("Headline: email subject, call topic"),
-  body: z.string().max(100_000).nullish().describe("Markdown body: the note, email text, notes"),
+  body: z
+    .string()
+    .max(MAX_NOTE_BODY)
+    .nullish()
+    .describe("Markdown body: the note, email text, notes"),
   occurredAt: isoDateTime.optional().describe("When it happened. Defaults to now."),
   links: z
     .array(recordRefSchema)
@@ -723,6 +728,13 @@ export const activityUpdate = defineOperation({
     // below the kind's lowest, and sections given remake its body from the kind's template.
     const beforeKindId = before.kind?.id ?? DEFAULT_NOTE_KIND;
     const kindId = input.kindId ?? beforeKindId;
+    if (kindId !== beforeKindId && ctx.actor !== "human") {
+      // A kind decides where a note starts and, with stage 56 step 7, whether an erase keeps it
+      // as evidence: moving a note to another is a person's act, as changing its level is.
+      throw new ForbiddenError("Only a person moves a note to another kind", {
+        rule: "note_kind_person",
+      });
+    }
     const kind =
       before.type !== "note"
         ? null
@@ -744,9 +756,14 @@ export const activityUpdate = defineOperation({
       const filled = fillTemplate(kind, input.sections);
       sections = filled.sections;
       templateBody = filled.body || null;
-    } else if (input.body !== undefined && before.sections?.length) {
-      // A body written over a template note is the note now: its sections no longer say it.
-      sections = null;
+    } else {
+      // Moved to another kind with no sections given: held to that kind's template as a new
+      // note is, and the old kind's sections leave it (its body stays the note).
+      if (kind && kindId !== beforeKindId) assertNoRequiredSections(kind);
+      if (before.sections?.length && (input.body !== undefined || kindId !== beforeKindId)) {
+        // A body written over a template note is the note now: its sections no longer say it.
+        sections = null;
+      }
     }
     const subject = input.subject === undefined ? before.subject : input.subject?.trim() || null;
     const body =

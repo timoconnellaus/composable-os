@@ -138,6 +138,12 @@
 - [Client notes: operations](https://docs.composableos.dev/capabilities/notes/operations/)
 - [Client notes: permissions](https://docs.composableos.dev/capabilities/notes/permissions/)
 - [Client notes: screens](https://docs.composableos.dev/capabilities/notes/screens/)
+- [Booking system copy: behaviours](https://docs.composableos.dev/capabilities/outside/behaviours/)
+- [Booking system copy: decisions](https://docs.composableos.dev/capabilities/outside/decisions/)
+- [Booking system copy](https://docs.composableos.dev/capabilities/outside/): The host's read-only copy of a business's booking system, loaded as lists, matched to People by address and never merged.
+- [Booking system copy: operations](https://docs.composableos.dev/capabilities/outside/operations/)
+- [Booking system copy: permissions](https://docs.composableos.dev/capabilities/outside/permissions/)
+- [Booking system copy: screens](https://docs.composableos.dev/capabilities/outside/screens/)
 
 ## Solutions
 
@@ -324,6 +330,7 @@
 - [order.* operations](https://docs.composableos.dev/reference/operations/order/): The core operations named order.*
 - [organisation.* operations](https://docs.composableos.dev/reference/operations/organisation/): The core operations named organisation.*
 - [outbound.* operations](https://docs.composableos.dev/reference/operations/outbound/): The core operations named outbound.*
+- [outside.* operations](https://docs.composableos.dev/reference/operations/outside/): The core operations named outside.*
 - [person.* operations](https://docs.composableos.dev/reference/operations/person/): The core operations named person.*
 - [personCode.* operations](https://docs.composableos.dev/reference/operations/personcode/): The core operations named personCode.*
 - [plan.* operations](https://docs.composableos.dev/reference/operations/plan/): The core operations named plan.*

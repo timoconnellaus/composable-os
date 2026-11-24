@@ -53,8 +53,11 @@ describe("core registry", () => {
         // journeys:manage. Who may be signed at the desk, and on which tablet, is read by whoever
         // may start a desk session, agreements:desk (ADR 0649).
         // The finance months and figures are read only with finance:read (stage 52, ADR 0794).
+        // The booking system's copy, its lists and To match with bookingSystem:manage (stage 65,
+        // ADR 0922).
         if (op.risk === "read") {
           expect([
+            "bookingSystem:manage",
             "journeys:read",
             "journeys:manage",
             "agreements:desk",

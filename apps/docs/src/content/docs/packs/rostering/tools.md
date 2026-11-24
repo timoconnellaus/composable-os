@@ -80,7 +80,7 @@ The roster: every shift from `from` to `to` (local dates, both included, at most
 | `shifts[].offer.to` | string or null | yes |   |   |
 | `shifts[].offer.from` | string or null | yes |   |   |
 | `shifts[].warnings` | array of object or null | yes |   | For someone who rosters only |
-| `shifts[].warnings.code` | `"unavailable"`, `"not_qualified"`, `"uncovered"` | yes |   |   |
+| `shifts[].warnings.code` | `"unavailable"`, `"not_qualified"`, `"uncovered"`, `"outside_hours"`, `"client_busy"` | yes |   |   |
 | `shifts[].warnings.object` | string | yes |   |   |
 | `shifts[].warnings.id` | string | yes |   |   |
 | `shifts[].warnings.account` | string or null | yes |   |   |
@@ -137,7 +137,7 @@ Your own shifts from `from` to `to` (local dates, both included, at most 62 days
 | `shifts[].offer.to` | string or null | yes |   |   |
 | `shifts[].offer.from` | string or null | yes |   |   |
 | `shifts[].warnings` | array of object or null | yes |   | For someone who rosters only |
-| `shifts[].warnings.code` | `"unavailable"`, `"not_qualified"`, `"uncovered"` | yes |   |   |
+| `shifts[].warnings.code` | `"unavailable"`, `"not_qualified"`, `"uncovered"`, `"outside_hours"`, `"client_busy"` | yes |   |   |
 | `shifts[].warnings.object` | string | yes |   |   |
 | `shifts[].warnings.id` | string | yes |   |   |
 | `shifts[].warnings.account` | string or null | yes |   |   |
@@ -312,7 +312,7 @@ Take an offered shift: it becomes yours at once and nobody approves it, because 
 | `shift.startsAt` | string or null | yes |   |   |
 | `shift.endsAt` | string or null | yes |   |   |
 | `warnings` | array of object | yes |   |   |
-| `warnings[].code` | `"unavailable"`, `"not_qualified"`, `"uncovered"` | yes |   |   |
+| `warnings[].code` | `"unavailable"`, `"not_qualified"`, `"uncovered"`, `"outside_hours"`, `"client_busy"` | yes |   |   |
 | `warnings[].object` | string | yes |   |   |
 | `warnings[].id` | string | yes |   |   |
 | `warnings[].account` | string or null | yes |   |   |
@@ -607,7 +607,7 @@ Put a member of staff on a shift (a class or a duty shift), or nobody (account n
 | `shift.startsAt` | string or null | yes |   |   |
 | `shift.endsAt` | string or null | yes |   |   |
 | `warnings` | array of object | yes |   |   |
-| `warnings[].code` | `"unavailable"`, `"not_qualified"`, `"uncovered"` | yes |   |   |
+| `warnings[].code` | `"unavailable"`, `"not_qualified"`, `"uncovered"`, `"outside_hours"`, `"client_busy"` | yes |   |   |
 | `warnings[].object` | string | yes |   |   |
 | `warnings[].id` | string | yes |   |   |
 | `warnings[].account` | string or null | yes |   |   |
@@ -636,7 +636,7 @@ What putting someone (account; null for nobody; left out for the shift as it is)
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
 | `warnings` | array of object | yes |   |   |
-| `warnings[].code` | `"unavailable"`, `"not_qualified"`, `"uncovered"` | yes |   |   |
+| `warnings[].code` | `"unavailable"`, `"not_qualified"`, `"uncovered"`, `"outside_hours"`, `"client_busy"` | yes |   |   |
 | `warnings[].object` | string | yes |   |   |
 | `warnings[].id` | string | yes |   |   |
 | `warnings[].account` | string or null | yes |   |   |
@@ -882,7 +882,7 @@ Who could be put on a shift: every member of staff with what putting them on it 
 | `people[].eligible` | boolean | yes |   | Qualified, free and available: could take it |
 | `people[].noProfile` | boolean | yes |   | The shift cannot name them (a class needs a coach profile) |
 | `people[].warnings` | array of object | yes |   |   |
-| `people[].warnings[].code` | `"unavailable"`, `"not_qualified"`, `"uncovered"` | yes |   |   |
+| `people[].warnings[].code` | `"unavailable"`, `"not_qualified"`, `"uncovered"`, `"outside_hours"`, `"client_busy"` | yes |   |   |
 | `people[].warnings[].object` | string | yes |   |   |
 | `people[].warnings[].id` | string | yes |   |   |
 | `people[].warnings[].account` | string or null | yes |   |   |
@@ -1151,7 +1151,7 @@ Put a shift of a weekly pattern back to its pattern's person: it drops its own p
 | `object` | string | yes |   |   |
 | `id` | string | yes |   |   |
 | `warnings` | array of object | yes |   |   |
-| `warnings[].code` | `"unavailable"`, `"not_qualified"`, `"uncovered"` | yes |   |   |
+| `warnings[].code` | `"unavailable"`, `"not_qualified"`, `"uncovered"`, `"outside_hours"`, `"client_busy"` | yes |   |   |
 | `warnings[].object` | string | yes |   |   |
 | `warnings[].id` | string | yes |   |   |
 | `warnings[].account` | string or null | yes |   |   |

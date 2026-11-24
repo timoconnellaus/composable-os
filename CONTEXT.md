@@ -616,6 +616,31 @@ system read through its API, by a gatekeeper Worker; each passes the contract's 
 suite**. The fake booking system (`booking-system-fake`) is for development and tests only.
 _Avoid_: connector, sync adapter, import
 
+**Booking system**
+An outside system where a business's members book classes and hold memberships, kept beside the
+new system for a while. Its data reaches the host only through the **booking system contract**,
+read only. _Avoid_: provider (that is payments'), source
+
+**List (booking system)**
+One loaded file of one kind from the booking system: `members` (people with their memberships and
+passes) or `timetable` (classes, their bookings and their coaches), with the date it was exported.
+A load **replaces** the list of its kind. A list is as old as its file: a `members` list past the
+**largest age** (31 days by default) is "too old to count". _Avoid_: import, sync
+
+**Outside person**, **outside membership**, **outside class**, **outside booking**, **outside staff**
+The host's copies of what the booking system's current lists say (`core_outside_*`, ADR 0922), read
+only through `outside.*` and in no `rec_*` view. Each carries the list it came from and so its age.
+An outside person is kept only while they are a member, hold a live pass, are booked in the
+timetable, or are staff-linked. _Avoid_: synced member, imported member (an import makes records
+that stay)
+
+**Linked (by address)**
+An outside person matched to exactly one live Person holding the same (folded) address, or an
+outside coach to one staff account: not a merge, and not proof that the Person is them. Nothing on
+the Person changes. Several candidates, or several outside people on one address, wait in **To
+match** for a person with `bookingSystem:manage` to link by hand (`outside.link`, with why), which
+is kept across loads by ref. _Avoid_: merged, synced
+
 **Suggested contact**
 An external address the org has exchanged mail with at least twice that matches no person,
 shown grouped by domain in the Suggested contacts inbox for one-click add. Nothing is created
@@ -1640,7 +1665,10 @@ A record declares `staffed` to be one. One person's shifts never overlap: a **do
 refused by the database, for every actor. Each live, covered shift whose person has an account
 holds a **time claim** (its own time, never preparation or pack-down, widened by its **buffer**
 when its kind keeps one). A write of a shift answers its **warnings** (away, not qualified,
-uncovered), which never refuse it (ADR 0622).
+uncovered), which never refuse it (ADR 0622). A shift may take its times from another record
+(**times that follow**, `staffed.timesFrom`, ADR 0751): a crew place has its visit's start, end,
+zone and kind, copied by the host, so it moves with its visit, and a move that would put anyone on
+two shifts at once fails whole.
 _Avoid_: session, slot, booking
 
 **Thing** and **`occupies`** (stage 49, built in step 2: ADR 0765)
@@ -1728,6 +1756,18 @@ kind of session or for some only (assessments on Saturdays). Set by the person o
 are not open is time off (unavailable), never a "closed" entry.
 _Avoid_: availability, slot, schedule (say open hours)
 
+**Free time** (stage 49, built in step 4: ADRs 0762 and 0763)
+A start time at which a session of a service can be booked now, with whoever is free then: inside
+a qualified provider's open hours for the whole session, not over their time off or another of
+their shifts (buffers included), with one of the service's rooms free, on no closure, not over
+the client's own sessions, on the service's step (every 30 minutes by default, from local
+midnight) and, for a customer or a visitor, inside the booking window. Worked out by the host
+when asked (`staffing.free`), never stored; it never says why a time is not free. A customer's
+or visitor's booking must be on one (**the customer's check**, refused `not_free_time`); staff
+may book outside open hours or over the client's own, warned (`outside_hours`, `client_busy`),
+never over a clash.
+_Avoid_: slot, availability, opening
+
 **Offer** and **Take** (stage 45, built in step 3: ADR 0623)
 A shift's person **offers** it (or a rosterer offers an uncovered one), to everyone eligible or to
 one named person; a qualified, free person **takes** it, with nobody approving, and rosterers are
@@ -1770,13 +1810,19 @@ member also sees **their own** totals and lines for a period (Rostering's `myPay
 decision of 2026-11-24): the same figures, nothing about anyone else, never through an assistant.
 _Avoid_: payroll, wages; timesheet (a person's time entries in a period, below, not the period)
 
-**Time entry**, **Timesheet** and **Worked on** (stage 58, built in step 1: ADR 0850)
+**Time entry**, **Timesheet** and **Worked on** (stage 58, built in steps 1 and 2: ADRs 0850, 0851)
 A **time entry** is one stretch of time a staff member worked: a start and a finish, unpaid break
 minutes they entered, against one of their own shifts, a job (a record whose object declares
 **`workedOn`**: time can be recorded against it) or nothing (**other work**). **Clocked** when they
 start and finish it (the host's clock, never the phone's); **entered** when typed afterwards (up to
 14 days back, never in a locked pay period). It is **open** while clocked in, then **waiting** for
-an approver (approval is step 2), **approved** or **rejected**. Left open long after its shift
+an **approver** (someone who rosters, never for their own), **approved** (as it is, or **approved
+changed**, the recorded times kept beside) or **rejected** (with why; the person corrects it and it
+waits again). One that **matches** its shift (starts and finishes within the **tolerance**, 5
+minutes by default) is approved by the host and says so; time with no shift always waits. An
+approved entry may be **reopened** while its pay period is open. A **difference** is where an
+entry and the roster disagree: started or finished early or late, **not recorded** (a past shift of
+someone counted by time with nothing recorded), **unrostered** (time with no shift). Left open long after its shift
 ends, it is marked **finish missing** and its person told; no finish is invented. Two entries of
 one person never overlap, refused by the database. A person's **timesheet** for a pay period is
 their time entries in it: a view, not a record. A job keeps no hours of its own: its time is the
@@ -1822,7 +1868,8 @@ _Avoid_: ledger, journal, accounting period (accounting is stage 61's), lock (th
 An object whose records move when the record a relation points to moves (`states.follows`): a
 class cancelled moves its bookings to `cancelled_by_us`, as the host, in the same batch (ADR 0507).
 The parent is in the follower's extension or one it requires (an event's crew shifts and room uses);
-a child that draws places from a pool never follows it (ADR 0841).
+a child that draws places from a pool never follows it (ADR 0841). A staffed follower can follow
+its parent's times too (`staffed.timesFrom`, ADR 0751).
 
 **Approved by a person** (a `personApproves` field or setting)
 A field or extension setting only a person changes: the assistant's, an MCP client's, an
@@ -2153,7 +2200,8 @@ _Avoid_: scanner role, coach role
 **Permission grant**
 A named permission a human admin grants one staff account on top of its role (ADR 0449):
 `records:publish` (a coach who is a member publishes programs), `orders:refund`, `finance:read`
-(a bookkeeper), or a pack tool's
+(a bookkeeper), `bookingSystem:manage` (a manager who loads the booking system's lists), or a pack
+tool's
 permission the pack declares grantable. Read from the account on every call; it adds up with the
 account's role, and with a pack role too when it is a pack's permission (a core one is refused to a
 fixed role's account, ADR 0600); it never lets an AI actor do what only a person may.
