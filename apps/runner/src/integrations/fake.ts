@@ -792,6 +792,21 @@ export class FakeGatekeeper extends DurableObject<
     return this.ctx.storage.kv.get<Journal>("journal") ?? { next: 1, actions: {} };
   }
 
+  /** Journals a new pending action and gives its id. */
+  #journalAction(entry: Journal["actions"][number]): number {
+    const journal = this.#journal();
+    const id = journal.next;
+    journal.next += 1;
+    journal.actions[id] = entry;
+    this.ctx.storage.kv.put("journal", journal);
+    return id;
+  }
+
+  /** Whether action `id` has been applied. */
+  #sent(id: number): boolean {
+    return this.#journal().actions[id]?.status === "sent";
+  }
+
   async send(
     queue: QueueStub,
     message: {
@@ -835,7 +850,7 @@ export class FakeGatekeeper extends DurableObject<
       if (known !== undefined) {
         return {
           id: known,
-          status: this.#journal().actions[known]?.status === "sent" ? "sent" : "pending",
+          status: this.#sent(known) ? "sent" : "pending",
         };
       }
     }
@@ -877,10 +892,7 @@ export class FakeGatekeeper extends DurableObject<
       routineMail !== null &&
       message.internal === undefined &&
       isRoutineShaped({ to, subject, text }, routineMail.siteOrigin);
-    const journal = this.#journal();
-    const id = journal.next;
-    journal.next += 1;
-    journal.actions[id] = {
+    const id = this.#journalAction({
       status: "pending",
       to,
       subject,
@@ -888,8 +900,7 @@ export class FakeGatekeeper extends DurableObject<
       ...(signIn || routine || agreement ? { independent: true } : {}),
       ...(agreement ? { attachments: [AGREEMENT_FILENAME] } : {}),
       ...(queueClass !== "caller" ? { queue: queueClass } : {}),
-    };
-    this.ctx.storage.kv.put("journal", journal);
+    });
     if (slot) this.ctx.storage.kv.put(slot, id);
     const related = Array.isArray(message.relatedRecords) ? message.relatedRecords.map(String) : [];
     await queue.submitAction(id, {
@@ -916,7 +927,7 @@ export class FakeGatekeeper extends DurableObject<
               ? { tag: "fake.internal", label: "Send internal mail" }
               : { tag: "fake.send", label: "Send mail" },
     });
-    return { id, status: this.#journal().actions[id]?.status === "sent" ? "sent" : "pending" };
+    return { id, status: this.#sent(id) ? "sent" : "pending" };
   }
 
   /** A Slack post (`to` is the channel) or DM (`to` is the user); journalled like a send. */
@@ -929,11 +940,12 @@ export class FakeGatekeeper extends DurableObject<
     this.#require("slack");
     const body = String(text ?? "").slice(0, 4000);
     if (!target || !body) throw new Error(`${kind} needs a target and text`);
-    const journal = this.#journal();
-    const id = journal.next;
-    journal.next += 1;
-    journal.actions[id] = { status: "pending", to: [target], subject: `slack.${kind}`, text: body };
-    this.ctx.storage.kv.put("journal", journal);
+    const id = this.#journalAction({
+      status: "pending",
+      to: [target],
+      subject: `slack.${kind}`,
+      text: body,
+    });
     await queue.submitAction(id, {
       title: kind === "post" ? `Post to Slack: ${target}` : `Send a Slack DM to ${target}`,
       description: body,
@@ -949,7 +961,7 @@ export class FakeGatekeeper extends DurableObject<
           ? { tag: "fake.slack.dm", label: "DM a member" }
           : { tag: "fake.slack.post", label: "Post to a channel" },
     });
-    return { id, status: this.#journal().actions[id]?.status === "sent" ? "posted" : "pending" };
+    return { id, status: this.#sent(id) ? "posted" : "pending" };
   }
 
   /**
