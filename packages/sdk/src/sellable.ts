@@ -192,7 +192,22 @@ export interface RecurringSpec {
    * `subscriptions:manage`, as a person; while paused nothing is charged, granted or spent.
    */
   pause?: { minDays?: string; maxDays?: string };
+  /**
+   * A cooling-off period (stage 44 step 7, decision 11, ADR 0647): `setting` names a number setting
+   * of this extension holding whole days (0: off), which a person changes (`personApproves`),
+   * between 0 and `MAX_COOLING_OFF_DAYS`. A new member (a subscription started here without a
+   * continuation offer) may end their subscription within that many days of the provider-confirmed
+   * start, counted in the business's time zone to the end of the last day, for a full refund of
+   * what they paid; each refund waits for a person with `orders:refund` (ADR 0429). Once per
+   * holder. The days in force when a subscription started are kept with it: a setting shortened
+   * later never shortens that member's window. What any law requires is the business's to
+   * confirm; the platform only holds the number.
+   */
+  coolingOff?: { setting: string };
 }
+
+/** The longest cooling-off period the host keeps (days); a longer setting reads as this. */
+export const MAX_COOLING_OFF_DAYS = 90;
 
 /** Where a field of what a subscription grants gets its value (see RecurringSpec.grants). */
 export type RecurringGrantSource =
@@ -349,6 +364,7 @@ export const sellableManifestSchema = z
           .object({ minDays: fieldName.optional(), maxDays: fieldName.optional() })
           .strict()
           .optional(),
+        coolingOff: z.object({ setting: fieldName }).strict().optional(),
         grants: z
           .object({
             object: z.string().max(40),
@@ -442,6 +458,34 @@ export function checkObjectSellable(
       const days = sellable.recurring.pause?.[key];
       if (days !== undefined && !single(days, new Set(["number"]))) {
         contract(`${path}.recurring.pause.${key}`, `"${days}" must be a number field of ${name}`);
+      }
+    }
+    const coolingOff = sellable.recurring.coolingOff;
+    if (coolingOff) {
+      const settings = m.settings ?? {};
+      const setting = Object.hasOwn(settings, coolingOff.setting)
+        ? settings[coolingOff.setting]
+        : undefined;
+      const at = `${path}.recurring.coolingOff.setting`;
+      if (setting?.type !== "number") {
+        contract(at, `"${coolingOff.setting}" must be a number setting of ${m.id}`);
+      } else if (setting.personApproves !== true) {
+        // Refunds follow from it: a person's to change, never an AI's (decision 11).
+        contract(
+          at,
+          `"${coolingOff.setting}" must be a setting a person approves (personApproves): the cooling-off days are never an AI's to change`,
+        );
+      } else if (
+        setting.min === undefined ||
+        setting.min < 0 ||
+        setting.max === undefined ||
+        setting.max > MAX_COOLING_OFF_DAYS ||
+        (typeof setting.default === "number" && setting.default !== 0)
+      ) {
+        contract(
+          at,
+          `"${coolingOff.setting}" must be bounded from 0 to at most ${MAX_COOLING_OFF_DAYS} days, and off (0 or no default) until a person sets it`,
+        );
       }
     }
     if (sellable.onePerPerson !== undefined) {

@@ -6,6 +6,8 @@
 // are left: the host does (`sellable`, the one-trial rule, `onePerPerson`, `allowance.get`). The
 // billing actions (subscribe, cancel, resume, change plan, the provider's portal, buying a pass)
 // are the web's; a native block reads only (the block lint). Pausing is staff's (decision 10).
+// Whether a member may cool off (stage 44 step 7) is the host's: a block asks, and never works
+// the window out on the device.
 // Whether a change is an upgrade (now, prorated) or a downgrade (next period) is the host's.
 import { type ClientHolding, type PackClient, packHooks } from "@composable-os/client";
 import type { z } from "@composable-os/sdk";
@@ -70,6 +72,66 @@ export interface SubscriptionChange {
   actionUrl?: string | null;
   /** What came of ending a pause early: refused or unknown, staff ask again. */
   endOutcome?: "sent" | "pending" | "unknown" | "refused" | null;
+}
+
+/** Why cooling off is not offered (`subscription.coolingOff`'s `why`). */
+export type NotOffered =
+  | "not_covered"
+  | "off"
+  | "continuation"
+  | "ended"
+  | "window_passed"
+  | "used"
+  | "nothing_paid";
+
+/** Whether a subscription may be cooled off, as the host says (stage 44 step 7, ADR 0647). */
+export interface CoolingOffStatus {
+  subscriptionId: string;
+  /** The host says the payer may end it now for a full refund: the only reason to show the button. */
+  offered: boolean;
+  why: NotOffered | null;
+  days: number;
+  /** The last day of the window, `YYYY-MM-DD` in the business's time zone. */
+  until: string | null;
+  endsAt: string | null;
+  /** Paid and not refunded, in minor units. */
+  refund: number;
+  currency: string;
+  coolOff: {
+    state: "asked" | "ended" | "lapsed";
+    asked: "sent" | "pending" | "unknown" | "refused" | null;
+    askedBy: "payer" | "staff";
+    askedAt: string;
+    /** Open until then; if nothing ended by it, it lapses and the ordinary cancel works. */
+    deadline: string;
+    endedAt: string | null;
+    finished: boolean;
+    /** Staff asked to finish a lapsed one, not yet confirmed by the payment provider. */
+    finishing: "asked" | "sent" | "pending" | "unknown" | "stuck" | null;
+    /** A cancel of it waits for a person at the payments gatekeeper: nobody may ask again. */
+    waiting: boolean;
+    lapsedBecause: "deadline" | "action" | "end_time" | "used" | null;
+    /** The host says this caller may ask the provider again now. */
+    askAgain: boolean;
+    /** Under way: the ordinary cancel waits. */
+    open: boolean;
+    /** Admins were told it is stuck. */
+    staffTold: boolean;
+    /** What it owes back (owed, once ended), and what has been refunded of that. */
+    paid: number;
+    refunded: number;
+    refunds: "waiting" | "refunded" | "held" | null;
+  } | null;
+}
+
+/** What subscription.coolOff answers. */
+export interface CooledOff {
+  id: string;
+  /** lapsed: staff asked to finish one, not yet confirmed. */
+  state: "asked" | "ended" | "lapsed";
+  asked: "sent" | "pending" | "unknown" | null;
+  refund: number;
+  currency: string;
 }
 
 /** What subscription.change answers. */
@@ -161,6 +223,18 @@ export type MembershipsOperations = {
     kind: "mutation";
     input: { id: string; planId: string; reason?: string };
     output: RequestedChange;
+  };
+  // Stage 44 step 7 (ADR 0647): whether a payer may end their own in its cooling-off period, and
+  // ending it (web only).
+  "subscription.coolingOff": {
+    kind: "query";
+    input: { ids: string[] };
+    output: { items: CoolingOffStatus[] };
+  };
+  "subscription.coolOff": {
+    kind: "mutation";
+    input: { id: string };
+    output: CooledOff;
   };
   "subscription.pause": {
     kind: "mutation";
@@ -345,6 +419,129 @@ export function changeRefusalWords(details: { rule?: unknown } | undefined): str
   }
 }
 
+/** A price in minor units as the host gave it (`1999` AUD is `$19.99`). Display only. */
+export function formatMinor(amount: number, currency: string): string {
+  try {
+    const digits =
+      new Intl.NumberFormat(undefined, { style: "currency", currency }).resolvedOptions()
+        .maximumFractionDigits ?? 2;
+    return formatPrice(amount / 10 ** digits, currency);
+  } catch {
+    return `${amount} ${currency}`;
+  }
+}
+
+/** A `YYYY-MM-DD` day as a reader sees it (`3 Dec 2026`), never shifted by the reader's zone. */
+export function localDay(date: string | null | undefined): string {
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return "";
+  const at = new Date(`${date}T00:00:00Z`);
+  return Number.isNaN(at.getTime())
+    ? ""
+    : at.toLocaleDateString(undefined, {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        timeZone: "UTC",
+      });
+}
+
+/**
+ * The words beside the cancel button while the host offers cooling off: "You can cancel for a
+ * full refund until 3 Dec 2026". Null when it is not offered. Display only: the window is the
+ * host's (`subscription.coolingOff`), never worked out here.
+ */
+export function coolingOffWords(status: CoolingOffStatus | undefined): string | null {
+  if (!status?.offered) return null;
+  return `You can cancel for a full refund until the end of ${localDay(status.until)}.`;
+}
+
+/**
+ * Why a member who might have expected it cannot cool off, in words: the period has passed, or
+ * they cooled off before. Null otherwise (no cooling off on the plan or for them, or a free trial,
+ * where the ordinary cancel ends it at no charge). Display only, from the host's `why`.
+ */
+export function coolingOffClosedWords(status: CoolingOffStatus | undefined): string | null {
+  if (!status || status.offered || status.coolOff) return null;
+  if (status.why === "window_passed") {
+    return `The cooling-off period ended at the end of ${localDay(status.until)}.`;
+  }
+  if (status.why === "used") {
+    return "Cooling off has been used for this member before: it is once per member.";
+  }
+  return null;
+}
+
+/**
+ * Where a cooling off asked for has got, in words, from the host's record. Null when none was
+ * asked.
+ */
+export function coolOffProgressWords(
+  status: CoolingOffStatus | undefined,
+  /** Name the amounts (the web); the app, which shows no money, leaves them out. */
+  { amounts = true }: { amounts?: boolean } = {},
+): string | null {
+  const c = status?.coolOff;
+  if (!c || !status) return null;
+  const sum = (n: number) => (amounts ? ` of ${formatMinor(n, status.currency)}` : "");
+  const money = sum(c.state === "ended" ? c.paid - c.refunded : status.refund);
+  const told = c.staffTold ? " The business has been told." : "";
+  if (c.state === "lapsed") {
+    return c.lapsedBecause === "used"
+      ? "Cooling off has been used for this member before: this one did not count. Ask the business about any refund."
+      : "Your cooling off did not end the membership in time, so it lapsed: you can cancel it as usual. Ask the business about any refund.";
+  }
+  if (c.state === "asked") {
+    const until = ` If it has not ended by ${day(c.deadline)}, it lapses and you can cancel it as usual.`;
+    if (c.asked === "refused") {
+      return c.askAgain
+        ? `Ending it in the cooling-off period did not go through: ask again.${told}${until}`
+        : `Ending it in the cooling-off period did not go through.${told}${until}`;
+    }
+    if (c.asked === "pending") {
+      return `You asked to end it in the cooling-off period: it waits for the business to confirm.${until}`;
+    }
+    return c.asked === "unknown" || c.asked === null
+      ? `You asked to end it in the cooling-off period. We have not heard back from the payment provider yet.${told}${until}`
+      : "You asked to end it in the cooling-off period. It shows as ended here once the payment provider confirms.";
+  }
+  switch (c.refunds) {
+    case "refunded":
+      return `Ended in the cooling-off period: refunded${amounts ? ` (${formatMinor(c.refunded, status.currency)})` : ""}.`;
+    case "held":
+      return `Ended in the cooling-off period. A refund${money} is owed; the business will contact you about it.`;
+    default:
+      return `Ended in the cooling-off period. A full refund${money} is owed: the business approves it, then it goes back to how you paid.`;
+  }
+}
+
+/** What a payer is told when the host refuses cooling off (its `reason`). Display only. */
+export function coolOffRefusalWords(
+  details: { rule?: unknown; reason?: unknown } | undefined,
+): string {
+  if (details?.rule === "provider_refused") {
+    return "The payment provider did not end your membership, so nothing changed. Try again.";
+  }
+  switch (details?.reason) {
+    case "window_passed":
+      return "The cooling-off period has ended. You can still cancel at the end of the period.";
+    case "used":
+      return "Cooling off has been used for this member before: it is once per member.";
+    case "waiting":
+      return "Ending your membership waits for the business to confirm: there is nothing to ask again until then.";
+    case "nothing_paid":
+      return "Nothing has been paid yet: cancel instead, and it ends with the free time at no charge.";
+    case "continuation":
+      return "Cooling off is for new members: this membership was not started as a new one here.";
+    case "off":
+    case "not_covered":
+      return "This membership has no cooling-off period.";
+    case "ended":
+      return "This membership has ended.";
+    default:
+      return "We could not end your membership just now. Try again.";
+  }
+}
+
 /** Whether a subscription is still the payer's to cancel, resume or pay (not ended). */
 export const isLive = (sub: MembershipSubscription) =>
   sub.state !== "ended" && sub.state !== "expired";
@@ -420,6 +617,10 @@ export const MEMBERSHIPS_HOOKS_CALL = {
   usePauseSubscription: ["subscription.pause"],
   useUnpauseSubscription: ["subscription.unpause"],
   useSubscriptionsOf: ["subscription.list"],
+  // Stage 44 step 7 (ADR 0647): what the host says of cooling off (read anywhere), and ending a
+  // membership in it (web only, like every billing action).
+  useCoolingOff: ["subscription.coolingOff"],
+  useCoolOff: ["subscription.coolOff"],
 } as const;
 
 /**
@@ -528,6 +729,19 @@ function allMembershipsHooks(
     /** Staff (a person): end a pause now, or withdraw one not yet started. */
     useUnpauseSubscription() {
       return useMutation(api.mutation("subscription.unpause"));
+    },
+    /**
+     * Whether each of these subscriptions may be ended in its cooling-off period, and how far one
+     * asked for has got. The host decides; a block shows the button only when `offered`.
+     */
+    useCoolingOff(ids: readonly string[]) {
+      const list = [...ids].slice(0, 20);
+      const query = api.query("subscription.coolingOff", { ids: list });
+      return useQuery({ ...query, enabled: list.length > 0 });
+    },
+    /** End their own membership in its cooling-off period, for a full refund (web only). */
+    useCoolOff() {
+      return useMutation(api.mutation("subscription.coolOff"));
     },
     /** Staff: the membership subscriptions one person holds. */
     useSubscriptionsOf(personId: string) {
