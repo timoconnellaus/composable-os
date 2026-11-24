@@ -745,6 +745,8 @@ const orderMoves: MoveHook = async (outer, move) => {
   const to = move.to.id;
   const paid = to === "paid" || to === "part_paid";
   if (!paid && to !== "expired" && to !== "cancelled") return;
+  // A reversed payment (ADR 0694) leaves a paid order part paid: what it moved stays moved.
+  if (from === "paid") return;
   const lines = await ctx.db
     .selectFrom("core_order_line")
     .select(["object_type", "record_id", "title"])

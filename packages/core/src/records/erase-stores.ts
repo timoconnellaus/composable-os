@@ -1002,7 +1002,10 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
   // order is a financial record); a staff reason, which may say something about them, is blanked,
   // and so is the audit log's copy of it: the input of each order.adjust and order.unadjust on
   // their orders is redacted through the sanctioned path (core_audit_redactions). Their input
-  // names only the order, so the erase's own term match never finds them.
+  // names only the order, so the erase's own term match never finds them. The same holds for
+  // payments taken another way (ADR 0694): a recorded payment's reference (a bank reference
+  // naming the payer, say) and a reversal's reason are blanked, with the audit's copies of
+  // order.recordPayment, order.reversePayment (which names the payment) and order.recordRefund.
   if (orders.length) {
     const orderIds = jsonList(orders.map((row) => row.id));
     ctx.write(
@@ -1035,8 +1038,23 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
               sql<string>`${ctx.user.id}`.as("user_id"),
               sql<string>`${ctx.now}`.as("at"),
             ])
-            .where("a.operation", "in", ["order.adjust", "order.unadjust"])
-            .where(sql<SqlBool>`json_extract(a.input, '$.id') IN ${orderIds}`),
+            .where((eb) =>
+              eb.or([
+                eb.and([
+                  eb("a.operation", "in", [
+                    "order.adjust",
+                    "order.unadjust",
+                    "order.recordPayment",
+                    "order.recordRefund",
+                  ]),
+                  sql<SqlBool>`json_extract(a.input, '$.id') IN ${orderIds}`,
+                ]),
+                eb.and([
+                  eb("a.operation", "=", "order.reversePayment"),
+                  sql<SqlBool>`json_extract(a.input, '$.paymentId') IN (SELECT event_id FROM core_order_payment WHERE provider = 'host' AND order_id IN ${orderIds})`,
+                ]),
+              ]),
+            ),
         ),
     );
   }
@@ -1085,8 +1103,17 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
           updated_at: ctx.now,
         })
         .where("id", "in", part),
-      // Staff's words about a refund may name the person (migration 0422).
-      ctx.db.updateTable("core_order_refund").set({ reason: null }).where("order_id", "in", part),
+      // Staff's words about a refund may name the person (migration 0422), and so may a
+      // reference given with a payment or a refund taken another way (migration 0952).
+      ctx.db
+        .updateTable("core_order_refund")
+        .set({ reason: null, reference: null })
+        .where("order_id", "in", part),
+      ctx.db
+        .updateTable("core_order_payment")
+        .set({ reference: null, reason: null })
+        .where("order_id", "in", part)
+        .where((eb) => eb.or([eb("reference", "is not", null), eb("reason", "is not", null)])),
     );
   }
   return orders.length;

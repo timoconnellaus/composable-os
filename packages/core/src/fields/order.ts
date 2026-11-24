@@ -3,7 +3,7 @@
 //
 // An order's lifecycle is declared here, in code, and held by the transition engine (ADR 0425).
 // `paid`, `part_paid`, `refunded` and `expired` are moves only platform code makes (`host`): a
-// verified payment, the expiry sweep, a confirmed refund. No person, MCP client, extension or
+// verified payment or one the host applied itself (ADR 0694), the expiry sweep, a confirmed refund. No person, MCP client, extension or
 // import can make them, whatever they send.
 //
 // Both objects declare a customer: a signed-in customer reads their own orders and those orders'
@@ -36,10 +36,11 @@ export const ORDER_MACHINE: StatesDefinition = {
   field: "state",
   initial: "pending",
   moves: [
-    // Only a verified payment marks an order paid, in part or in full.
+    // Only a verified payment, or one the host applied (ADR 0694), marks an order paid.
     { from: ["pending", "part_paid", "expired"], to: "paid", by: ["host"] },
-    // A late deposit staff honour (ADR 0429) makes an expired order part paid.
-    { from: ["pending", "expired"], to: "part_paid", by: ["host"] },
+    // A late deposit staff honour (ADR 0429) makes an expired order part paid; a recorded payment
+    // entered in error and reversed (ADR 0694) leaves a paid one part paid, its balance owed.
+    { from: ["pending", "expired", "paid"], to: "part_paid", by: ["host"] },
     // A buyer may give up an order they have paid nothing on. Once money is on it, staff cancel.
     // The host too (ADR 0560): a drop-in booking that leaves its held place another way (its
     // class cancelled) cancels its unpaid order in the same batch.

@@ -238,6 +238,22 @@ export function toOperationError(error: unknown): OperationError {
       { rule: "price_changed" },
     );
   }
+  // A payment or refund row the database's guard refuses (migration 0952, ADR 0694): one the host
+  // makes without what it must name, a voucher or stored value one without its ledger entry, a
+  // reversal that does not undo a recorded payment, a second reversal of one, or any edit.
+  if (message.includes("UNIQUE constraint failed: core_order_payment.reverses")) {
+    return new ConflictError("This payment has already been reversed", {
+      rule: "payment_guard",
+      reason: "reversed",
+    });
+  }
+  const guard = /\b(core_order_(?:payment|refund)_[a-z]+)\b/.exec(message)?.[1];
+  if (guard && !message.includes("UNIQUE constraint failed")) {
+    return new ConflictError("This payment cannot be recorded that way", {
+      rule: "payment_guard",
+      reason: guard,
+    });
+  }
   // A subscription written from an older read of it (migration 0530): as for an order.
   if (message.includes("core_subscription_stale")) {
     return new ConflictError("The subscription changed while this was being applied. Try again.", {

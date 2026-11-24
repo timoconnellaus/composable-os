@@ -114,6 +114,10 @@ export type Role = (typeof ROLES)[number];
  *   (stage 34, ADR 0691). Admins by default, grantable as `orders:refund` is. Within the limit a
  *   human admin sets it applies at once; above it, and always for an AI, it waits for a human
  *   admin's approval.
+ * - `orders:payments` record a payment taken another way (a bank transfer, cash, a cheque, a card
+ *   machine) on an order, and reverse one entered in error (stage 34, ADR 0694). Admins by
+ *   default; grantable and restricted as `notes:clients` is; a person only whatever is granted
+ *   (`actors: ["human"]`): never an AI, an MCP client, an automation or an extension.
  * - `people:cards` issue, revoke and list the check-in cards a business gives its members (stage
  *   51, ADR 0783). Admins and members by default, grantable to any staff account (a fixed-role
  *   one included, ADR 0600). A person only whatever is granted (`actors: ["human"]`).
@@ -152,6 +156,7 @@ export const PERMISSIONS = [
   "journeys:manage",
   "journeys:publish",
   "orders:discount",
+  "orders:payments",
   "people:cards",
   "stock:adjust",
   "finance:read",
@@ -200,6 +205,7 @@ export const GRANTABLE_PERMISSIONS = [
   "journeys:manage",
   "journeys:publish",
   "orders:discount",
+  "orders:payments",
   "people:cards",
   "stock:adjust",
   "finance:read",
@@ -215,6 +221,7 @@ export const RESTRICTED_CORE_PERMISSIONS: readonly Permission[] = [
   "notes:clients",
   "notes:sensitive",
   "notes:manage",
+  "orders:payments",
 ];
 
 /**

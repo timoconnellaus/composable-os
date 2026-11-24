@@ -74,6 +74,24 @@ module (the till): whichever is built first builds it once, to this design.
   at once by such People. A trial page goes back only to its caller for the same holder. A pass
   given by hand stays per Person (a person's override). Left for later steps: per-person codes and the new-customer check (step 4) and
   referrals (step 9) read `samePeople`; migrations 0956 and 0957 of this step's range are unused.
+- **Step 3, an order paid another way** (the shared step; branch `feat/stage-34-other-payment`,
+  migration 0952, ADR 0694, amending 0427, 0429 and 0479): `method` on `core_order_payment`
+  (`provider`, `recorded` with `recorded_kind`, `recorded_by`, `received_on`, `reference`;
+  `voucher` and `stored_value` columns for steps 7 and 8) and on `core_order_refund`;
+  `applyOtherPayment` and `reverseOtherPayment` in `orders/payments.ts`, sharing one settle path
+  with `applyVerifiedPayment`; `order.recordPayment` and `order.reversePayment` (the new restricted,
+  grantable core permission `orders:payments`, human only), admins told over a human admin's
+  `recordedPaymentNotice` (0 until set: every one); the order machine's host move `paid →
+  part_paid` for a reversal (what was granted stays); refunds by method: `order.refund` sends only
+  the provider's payments, `order.recordRefund` (`orders:refund`, human only) records money paid
+  back on a recorded payment; the guard triggers (a `voucher` or `stored_value` row is refused
+  outright until its ledger exists; steps 7 and 8 replace that trigger); `rec_order_payment`;
+  erase blanks references and reasons and redacts the audit's copies. Deviations: a recorded
+  payment's refund is its own human-only operation, `order.recordRefund`, not an `order.refund`
+  that waits in Approvals (nothing is sent, so the person with `orders:refund` who paid it back
+  records it); a reversal leaves an order part paid even with nothing left paid, rather than
+  pending; voucher and stored value refunds, and decision 13's split, are steps 7 and 8. Left for
+  later: "Record a payment" on the order's staff screen (step 10).
 
 ## Goal
 
