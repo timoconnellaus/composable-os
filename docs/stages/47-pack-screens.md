@@ -308,7 +308,7 @@ One build session may take all four; step 4 must not land without 1 to 3.
   (`virtual:cos-screens-built`, `setBuiltScreens`); `screens.mine` lists a pack's screens only when
   the installed manifest matches, so a row with a pack's id and another manifest lists nothing. An
   org extension may not take the id of any pack the release carries (`shipped-list.ts`), except in
-  local development (`COS_DEV_ORG_PACKS`).
+  local development (`COS_DEV_ORG_PACKS`, ignored outside a Vite development build).
 - **Pack roles and the other server routes**: one decision (`identity.ts`), applied to routes in `authorize` and to server functions in the
   function middleware every server function runs (`start.ts`), refuses a pack-role account
   every server function and `/api/*` route but its session, operations, sign-in and sign-out and
@@ -321,3 +321,22 @@ One build session may take all four; step 4 must not land without 1 to 3.
   fetch, no block code in the server's build), and fails if not.
 - **The cached list**: keyed by the signed-in account, and asked again at once when a screen's call
   is refused as forbidden.
+
+### Changed after the second security review of PR #303 (2026-11-24)
+- **The staff cookie rule on every reader**: `/api/v1/auth/token` exchanged a staff cookie from an
+  allowed origin (a `text/plain` POST, no preflight) for a staff device session. One function
+  (`staffCookieAllowed`, `apps/app/src/server/staff-origin.ts`) is now applied wherever a staff
+  cookie is read: the HTTP adapter's `staffSession` (the surface, the token exchange, media, the
+  agreement PDFs), `authorize` (pages, server functions, `/api/*` routes, the assistant's socket,
+  the native sign-in page) and the MCP consent page. It refuses an `Origin` that is not the host's,
+  an `Origin` of `null` without `Sec-Fetch-Site: same-origin`, and no `Origin` with a
+  `Sec-Fetch-Site` other than `same-origin`, except a top-level GET navigation (a link into the
+  admin). The token exchange takes only `application/json`. Tests: the exploit and the same
+  attempt on each reader (`apps/app/test/staff-cross-origin.test.ts`).
+- **The pack-role guard end to end**: a coach's browser sends the admin's own `getSystemHealth`
+  and `startHelloWorkflow` requests through TanStack Start and both are refused by the function
+  middleware; the same health request from an account with no pack role is answered
+  (`bookings.spec.ts`).
+- **`COS_DEV_ORG_PACKS` fails closed**: ignored outside a Vite development build (`devOrgPacks`).
+- **MCP**: a pack-role account is not refused there; it is held to its role (ADR 0436).
+- **Refusals ask for `screens.mine` again** at once, then at most every five seconds.

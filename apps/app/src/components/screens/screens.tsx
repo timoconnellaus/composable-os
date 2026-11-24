@@ -51,6 +51,10 @@ export function useMyScreens() {
 /** Every account's `screens.mine` (the key's prefix). */
 export const MY_SCREENS_KEY = ["op", "screens.mine"] as const;
 
+/** How often a screen's refusals may ask for the list again (the first asks at once). */
+const REFUSAL_ASK_MS = 5_000;
+let lastRefusalAsk = 0;
+
 /** One screen's failure, kept to the screen: the shell and the navigation stay. */
 class ScreenBoundary extends Component<
   { label: string; children: ReactNode },
@@ -141,6 +145,10 @@ export function ScreenView({
             staffClient(loaded.calls as Record<string, readonly string[]>, scope, () => {
               // A refusal can mean a right was taken away: ask the host again at once, so a
               // screen that is no longer theirs goes now, not when the cached list goes stale.
+              // Refusals that keep coming (retries, polling) ask at most once in a while.
+              const now = Date.now();
+              if (now - lastRefusalAsk < REFUSAL_ASK_MS) return;
+              lastRefusalAsk = now;
               void queryClient.invalidateQueries({ queryKey: MY_SCREENS_KEY });
             }),
           )

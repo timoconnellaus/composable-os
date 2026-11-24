@@ -994,7 +994,10 @@ As built (stage 23; ADRs [0415](adr/0415-the-http-surface-as-built.md),
   (the pipeline's `inBatch` hook), a claim makes a second call with the same key wait for the
   first, and the daily cron purges keys after 24 hours.
   Erasing a person deletes the stored replies that name them. A key costs a write one round trip.
-- Cross-origin calls only from `API_ALLOWED_ORIGINS`; customers are limited per account and
+- Cross-origin calls only from `API_ALLOWED_ORIGINS`, and only for customers and the public: a
+  staff cookie (Better Auth's, Access's, hosted support's) is used only from the host's own pages,
+  on every route that reads one (`staffCookieAllowed`, `apps/app/src/server/staff-origin.ts`,
+  ADR 0660); customers are limited per account and
   operation by `CUSTOMER_RATE_LIMIT`. Public calls need a Cloudflare rate limiting rule at the
   edge (`docs/deploying.md`).
 - **The contract** (`packages/core/src/http/contract.ts`) is the manifest per audience, committed
@@ -1849,7 +1852,9 @@ core read every pack role reaches). The admin's navigation, `/s/<pack>/<screen>`
 "not found" when not listed) and the record tabs render that answer; each screen sits in an error
 boundary, with its pack's hooks over the staff client on the app's own origin
 (`src/lib/staff-client.ts`), and its data is forgotten when it closes. An account with a pack role
-gets a small shell (its screens, its account, sign out) that makes no call its role is refused.
+gets a small shell (its screens, its account, sign out) that makes no call its role is refused;
+every other server function and `/api/*` route refuses it, and MCP holds it to its role
+(ADR 0436).
 
 | Pack | Built from | Status |
 | --- | --- | --- |

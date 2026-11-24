@@ -90,3 +90,10 @@ customer's session and the public only. A staff cookie session (Better Auth's, C
 hosted support's) on a request whose `Origin` is not the host's own is refused (`403`,
 `staff_cross_origin`), so no script on that site can act as the staff browser it runs in. A native
 app's bearer token is unchanged. See [ADR 0660](0660-pack-screens-in-the-admin.md).
+
+Amended again 2026-11-24 (second security review of PR #303, ADR 0660): the refusal is not the
+surface's alone. Every route that reads a staff cookie applies one rule (`staffCookieAllowed`):
+an `Origin` naming another site, an `Origin` of `null` without `Sec-Fetch-Site: same-origin`, or
+no `Origin` and a `Sec-Fetch-Site` other than `same-origin` (except a top-level GET navigation)
+refuses the staff session. That covers the adapter's own `/auth/token`, which now also takes only
+`application/json`, and media and the agreement PDFs beside the surface.
