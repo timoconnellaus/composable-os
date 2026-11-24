@@ -52,3 +52,9 @@ A month's close writes **book entries** (`core_finance_entry`) with their **line
 fractional amounts refused; fingerprints independent of order and changed by one minor unit; a
 version 2 whose unchanged entry keeps its fingerprint and whose changed entry does not, version 1
 unchanged.
+
+## Amended 2026-11-24 (review of PR #337)
+Balance, headings and keys are checked by the host (`checkEntry`, in `closePlan`), not by the
+database, which checks only a line's side and positive amount and a late entry's month: the only
+writer of a `closing` version is the close's own batch, and a version is never changed once
+closed. A balance is summed exactly (BigInt).

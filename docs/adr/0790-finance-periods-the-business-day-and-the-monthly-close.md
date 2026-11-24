@@ -98,6 +98,40 @@ first) reads the versions once, not once per month.
   counted later as late for it, once, so no figure is lost, but such a month should not be closed
   on a live host before step 3 (no screen offers it before step 7).
 - The erase's statement for closed rows lands with the first report that keeps a name (step 3);
-  the trigger already allows it.
+  the trigger already allows it. *Amended below: it is written now, with a reopen's reason.*
 - How long closed versions are kept is the business's to confirm with its accountant; deleting a
   version is not built.
+
+## Amended 2026-11-24 (review of PR #337, before merge)
+Migration 1150 was edited in place (unmerged); a local or preview database that applied the
+earlier version must be rebuilt.
+- **In order, for every writer.** Closing in order and reopening only while no later month is
+  closed were the handlers' reads alone, so a close and a reopen racing each other could leave a
+  later month closed over a reopened one. Now `core_finance_period`'s triggers refuse
+  (`core_finance_period_order`, answered `finance_order`, or with the handler's own rule when it
+  reads again): a version of a month while a later month is closed; a version of a month whose
+  month before is not closed, unless it is the first month; and a reopen while a later month is
+  closed.
+- **The first month is fixed by the first close**: once any month has a version, the first month
+  is the earliest month with one (`financeClock`, and the trigger: no month before it ever gets a
+  version), whatever the organisation's zone or the settings say since. Before, a change of zone
+  moved the install month read in it, so a reopened month could become unclosable or a month
+  before a closed one closable. A change of the first month in the settings carries a guard that
+  nothing is closed (`finance_started` when a close landed between its read and its batch).
+  A first month before 2000-01 is refused; months keep four-digit years.
+- **Two reopens at once**: the reopen's batch guards that the version is still closed; the second
+  is answered `finance_period_not_closed`.
+- **A reopen's reason is erased** with the person it names (ADR 0320): the one change a reopened
+  version takes is its reason to `[erased]` (`finance/erase.ts`, from `records/erase.ts`, names
+  matched as whole words as the assistant's text is). The same erase replaces a closed row's person
+  with "Erased person" (no rows carry one until step 3).
+- **What one close holds**, beyond 100,000 lines, rows and sources: 100,000 entries, 50 guards, a
+  report row's figures at most 100 KB, rows chunked at 500 or 1 MB a statement (D1 caps a value at
+  2 MB), and the batch refused past 900 statements (the backstop for rows heavy in bytes; the
+  count-bounded parts make at most about 850). Entries' sums are exact (BigInt).
+- Proof: `packages/core/test/finance-order.test.ts` (both orders of a close and a reopen racing,
+  fired at once and in a fixed order; two reopens; the reason erased),
+  `finance-first-month.test.ts` (a zone change after a close, either way; the year bound),
+  `finance-settings-race.test.ts` and `finance-settings-guard.test.ts` (the first month set while
+  the first close is in flight, either way), `finance-close-batch.test.ts` (the batch's triggers,
+  moved from `finance-periods.test.ts`, and the size limits).

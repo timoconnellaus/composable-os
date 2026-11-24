@@ -1,12 +1,10 @@
 // Stage 52 step 1 (ADRs 0790, 0791 and 0794): the business's day, the months the business
-// closes, closing and reopening them in order, versions, the triggers that keep a closed version
-// as it was for every writer (raw SQL: UPDATE, DELETE, REPLACE, upsert and UPDATE OR REPLACE), the
-// close's guard, book entries (balance, headings, keys, fingerprints), the finance permissions and
-// what an AI may do. Every clock is injected.
+// closes, closing and reopening them in order, versions, book entries (balance, headings, keys,
+// fingerprints), the finance permissions and what an AI may do. The close's batch and its
+// triggers are in finance-close-batch.test.ts. Every clock is injected.
 import { env } from "cloudflare:workers";
 import { beforeAll, describe, expect, it } from "vitest";
 import { csvText } from "../src/csv.ts";
-import { closePlan, MAX_CLOSE_LINES, type PeriodBook, readGuards } from "../src/finance/close.ts";
 import {
   addMonths,
   dayRange,
@@ -16,14 +14,8 @@ import {
   monthRange,
 } from "../src/finance/day.ts";
 import { type BookEntry, checkEntry, lineFingerprint } from "../src/finance/entries.ts";
-import {
-  type ActingUser,
-  type Actor,
-  invokeByName,
-  newId,
-  toOperationError,
-} from "../src/index.ts";
-import { context, createUser, db } from "./helpers.ts";
+import { type ActingUser, type Actor, invokeByName } from "../src/index.ts";
+import { context, createUser } from "./helpers.ts";
 
 const at = (iso: string) => () => new Date(iso);
 

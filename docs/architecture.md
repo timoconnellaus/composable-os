@@ -1739,7 +1739,8 @@ took theirs and when they are charged from.
 Core, not a pack: the figures for the books are read from orders, payments, refunds, payouts and
 stored value. Every date is a business day, local in the organisation's zone (`finance/day.ts`). The
 business closes each calendar month (`finance.close`, a person with `finance:close`) once it has
-ended and the month before is closed: one batch, guarded by what it read (`core_finance_guard`,
+ended and the month before is closed (held by `core_finance_period`'s triggers for every writer,
+the first month fixed by the first close): one batch, guarded by what it read (`core_finance_guard`,
 `finance_changed`), writes a version of the month (`core_finance_period`) with its book entries and
 lines (`core_finance_entry`, `core_finance_entry_line`: one per business day, payout, held balance
 or late arrival; balanced, keyed the same in every version, fingerprinted), its report rows

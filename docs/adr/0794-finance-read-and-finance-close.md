@@ -41,3 +41,8 @@ admin and are refused close, reopen and the settings.
 - An MCP connection's scopes (ADR 0021) carry `finance:read` only at the `admin` scope today; the
   `read` and `write` scopes do not, and a connection's permissions are its role's, not its grants'.
   Whether a bookkeeper's MCP client reads figures is for step 3 (the reports) to settle.
+
+## Amended 2026-11-24 (review of PR #337)
+The read operations take every actor, an automation acting for an account with `finance:read`
+included (an extension's code is refused, holding no core grant). Step 1 reads states and versions
+only; whether automations may read figures is for step 3 to decide with the report reads.
