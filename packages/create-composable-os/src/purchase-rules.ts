@@ -48,7 +48,8 @@ export const PURCHASE_OPERATION =
   /^(?:order\.(?:start|checkout|cancel)|subscription\.(?:start|cancel|resume|portal|change|pause|coolOff)|x\.[a-z0-9]+\.(?:buy|orderStart|checkout|subscribe))$/;
 
 /** A subscription's billing operations: never in a native block (stage 32a, ADR 0490). */
-export const BILLING_OPERATION = /^subscription\.(?:start|cancel|resume|portal|change|pause|coolOff)$/;
+export const BILLING_OPERATION =
+  /^subscription\.(?:start|cancel|resume|portal|change|pause|coolOff)$/;
 
 /** The hooks that change a subscription's billing (the client's and the packs'). */
 export const BILLING_HOOK =
