@@ -1037,7 +1037,10 @@ _Avoid_: customer portal, dashboard
 
 **Erase request**
 What deleting a customer account leaves for staff: the Person, when it was asked and when it is
-due. Staff erase the person or decline with a reason; either closes it (stage 22).
+due. Staff erase the person or decline with a reason; either closes it (stage 22). Deleting first
+shows the member what will happen (the subscriptions they pay end at the period's end, their
+unpaid orders are cancelled, the rest stays for staff), and the request's notice tells admins what
+was left (ADR 0713).
 
 **Host-internal operation**
 A core operation open to customers or the public whose handler keeps the raw database, for

@@ -212,6 +212,9 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "subscriptions/periods.ts": [1, WHY.host],
   // Whether a paid invoice is the first period after a pause the host asked for (stage 32b, ADR 0531).
   "subscriptions/changes.ts": [1, WHY.host],
+  // Deleting an account (stage 48 step 6, ADR 0713): the caller's own open orders, by the Person
+  // the principal names, and their lines' titles, which the host then cancels as their order.cancel.
+  "customers/account-delete.ts": [2, WHY.host],
   // `hasBought` (ADR 0458, #221): whose address it is, before anyone has signed in (no caller).
   "customers/accounts.ts": [2, WHY.org],
   // The subscription access source's `covers: "all"`: only live ids (stage 32a review, ADR 0488).

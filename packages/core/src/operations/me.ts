@@ -10,15 +10,22 @@
 // The session operations and me.deleteAccount are account bookkeeping, not records, so they are
 // `hostInternal`: they keep `ctx.db` and touch only the caller's own account (taken from the
 // principal, never from input), its sessions and its erase request. A session token never leaves
-// them.
+// them. me.deleteAccount also ends the subscriptions the caller pays at their period's end and
+// cancels their unpaid orders, with the code their own subscription.cancel and order.cancel run
+// (customers/account-delete.ts, ADR 0713).
 import { z } from "zod";
+import {
+  applyDeletePreview,
+  deletePreview,
+  leftForStaffSentences,
+} from "../customers/account-delete.ts";
 import {
   createEraseRequestStatements,
   eraseRequestDueAt,
   openEraseRequest,
 } from "../customers/erase-requests.ts";
 import { loadEraseDueDays } from "../customers/settings.ts";
-import { NotFoundError, OperationError } from "../errors.ts";
+import { ConflictError, NotFoundError, OperationError, ValidationError } from "../errors.ts";
 import { personObject } from "../fields/person.ts";
 import { endCustomerDeviceSessions } from "../http/tokens.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
@@ -283,24 +290,90 @@ export const meSignOut = defineOperation({
 
 // --- Deleting the account ----------------------------------------------------------------------
 
+const money = { amount: z.number().int(), currency: z.string() };
+
+/** What deleting the account will do (ADR 0713): the preview, and what a confirm must echo. */
+const deletePreviewSchema = z.object({
+  subscriptions: z
+    .array(
+      z.object({
+        id: z.string(),
+        title: z.string(),
+        ...money,
+        interval: z.string(),
+        endsAt: z.string().nullable().describe("When it stops: the end of the period paid for"),
+        alreadyEnding: z.boolean().describe("You already set it to end; nothing more is asked"),
+      }),
+    )
+    .describe(
+      "Subscriptions you pay that will end when the period already paid for ends. Nothing is " +
+        "refunded and nothing more is charged",
+    ),
+  orders: z
+    .array(
+      z.object({
+        id: z.string(),
+        total: z.number().int(),
+        currency: z.string(),
+        createdAt: z.string(),
+        lines: z.array(z.string()),
+      }),
+    )
+    .describe("Your unpaid orders, which will be cancelled"),
+  leftForStaff: z
+    .object({
+      records: z.array(z.object({ object: z.string(), label: z.string(), count: z.number() })),
+      partPaidOrders: z.number(),
+      moreUnpaidOrders: z.number(),
+      otherSubscriptions: z.number(),
+      dependantsWithoutGuardian: z.number(),
+    })
+    .describe(
+      "What stays for staff to decide when they erase your data: your bookings, tickets and " +
+        "other open records by kind, part-paid orders, and children with no other guardian",
+    ),
+  eraseDueAt: z.string().describe("When staff must have erased your data or said why not"),
+  expect: z.string().describe("Pass back with confirm: true to do exactly this"),
+});
+
 export const meDeleteAccount = defineOperation({
   name: "me.deleteAccount",
   description:
-    "Delete your customer account and ask for your personal data to be erased. You are signed " +
-    "out everywhere at once and can no longer sign in. Staff then erase your data, or tell you " +
-    "by email why some of it must be kept, by the due date returned. Asking again changes nothing.",
-  input: z.object({}).strict(),
-  output: z.object({
-    disabled: z.literal(true),
-    sessionsEnded: z.number(),
-    eraseRequest: z.object({ requestedAt: z.string(), dueAt: z.string() }),
-  }),
+    "Delete your customer account and ask for your personal data to be erased. Without " +
+    "`confirm` it changes nothing and says what will happen: each subscription you pay ends when " +
+    "the period already paid for ends (nothing refunded, nothing more charged), your unpaid " +
+    "orders are cancelled, and your bookings, tickets and other records stay for staff to " +
+    "decide when they erase your data. With `confirm: true` and the preview's `expect` it does " +
+    "that: you are signed out everywhere at once and can no longer sign in, and staff erase " +
+    "your data, or tell you by email why some of it must be kept, by the due date returned. A " +
+    "preview that changed meanwhile is a conflict: ask for it again.",
+  input: z
+    .object({
+      confirm: z.boolean().default(false).describe("Delete now, as the preview said"),
+      expect: z
+        .string()
+        .max(64)
+        .optional()
+        .describe("The preview's `expect`; required with confirm: true"),
+    })
+    .strict(),
+  output: z.discriminatedUnion("deleted", [
+    deletePreviewSchema.extend({ deleted: z.literal(false) }),
+    z.object({
+      deleted: z.literal(true),
+      disabled: z.literal(true),
+      sessionsEnded: z.number(),
+      subscriptionsEnding: z.number(),
+      ordersCancelled: z.number(),
+      eraseRequest: z.object({ requestedAt: z.string(), dueAt: z.string() }),
+    }),
+  ]),
   permission: "records:write",
   risk: "write",
   audiences: ["customer"],
   hostInternal: true,
   mcp: { expose: false },
-  async handler(_input, ctx) {
+  async handler(input, ctx) {
     const { customerId, personId } = customerOf(ctx);
     // Only the caller's own account, and only while it is linked to the caller's Person.
     const account = await ctx.db
@@ -310,13 +383,27 @@ export const meDeleteAccount = defineOperation({
       .where("person_id", "=", personId)
       .executeTakeFirst();
     if (!account) throw new NotFoundError("customer account", customerId);
+    const preview = await deletePreview(ctx, personId);
+    const open = await openEraseRequest(ctx.db, personId);
+    const dueAt = open?.dueAt ?? eraseRequestDueAt(ctx.now, await loadEraseDueDays(ctx.db));
+    if (!input.confirm) return { deleted: false as const, ...preview, eraseDueAt: dueAt };
+    if (input.expect === undefined) {
+      throw new ValidationError("Confirm with the preview's expect", { field: "expect" });
+    }
+    if (input.expect !== preview.expect) {
+      throw new ConflictError("What deleting your account will do has changed: look again", {
+        rule: "preview_changed",
+      });
+    }
     const sessions = await ctx.db
       .selectFrom("core_customer_session")
       .select((eb) => eb.fn.countAll<number>().as("n"))
       .where("customer_id", "=", customerId)
       .executeTakeFirst();
 
-    // One batch (with the audit row): disabled, signed out everywhere, and the request made.
+    // The provider is asked first: a refusal there leaves the account as it was. Then one batch
+    // (with the audit row): the orders cancelled, disabled, signed out everywhere, the request.
+    await applyDeletePreview(ctx, preview);
     ctx.write(
       ctx.db
         .updateTable("core_customer")
@@ -325,20 +412,24 @@ export const meDeleteAccount = defineOperation({
       ctx.db.deleteFrom("core_customer_session").where("customer_id", "=", customerId),
       ...endCustomerDeviceSessions(ctx.db, [customerId]),
     );
-    let request = await openEraseRequest(ctx.db, personId);
+    let request = open;
     if (!request) {
       const created = await createEraseRequestStatements(ctx.db, {
         personId,
         customerId,
         requestedAt: ctx.now,
-        dueAt: eraseRequestDueAt(ctx.now, await loadEraseDueDays(ctx.db)),
+        dueAt,
+        left: leftForStaffSentences(preview),
       });
       ctx.write(...created.statements);
       request = created.request;
     }
     return {
+      deleted: true as const,
       disabled: true as const,
       sessionsEnded: Number(sessions?.n ?? 0),
+      subscriptionsEnding: preview.subscriptions.length,
+      ordersCancelled: preview.orders.length,
       eraseRequest: { requestedAt: request.requestedAt, dueAt: request.dueAt },
     };
   },

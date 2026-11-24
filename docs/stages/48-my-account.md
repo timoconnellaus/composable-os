@@ -33,6 +33,13 @@ question for the owner is open. Step 1, the base headless entry and blocks over 
 operations, built on `feat/stage-48-account-blocks`, ADR 0714 (written with step 1, where the
 native link to the website is built).
 
+- Step 6, the delete preview and its consequences, built on `feat/stage-48-delete-account`, ADR
+  0713 (amends 0402; no migration): `me.deleteAccount` without `confirm` says what will happen,
+  with `confirm` and `expect` it ends the subscriptions the member pays at period end, cancels
+  their unpaid orders, then disables, signs out and opens the erase request, and the admins'
+  notice says what was left (`customers/account-delete.ts`). The recent sign-in before deleting
+  is step 2's.
+
 Vocabulary: "My account" is the customer's own area on the business's website and in its app.
 The draft called it the customer portal; "portal" stays only as the name of the manifest key and
 the operation (`portal`, `me.portal`). The payment provider's own page for a card is "the

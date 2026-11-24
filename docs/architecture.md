@@ -963,8 +963,13 @@ As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
 - **A pack's tool called by a customer runs as that customer.** Its operation calls take the same
   outside path with the same principal. It may set an object's writable fields and the fields
   the tool lists in its manifest. A runtime extension can open nothing.
-- **Deleting an account** disables it, ends its sessions and creates an erase request with a due
-  date for staff, who erase the person or decline with a reason.
+- **Deleting an account** first says what it will do (`me.deleteAccount` without `confirm`,
+  ADR 0713): subscriptions the member pays end at their period's end, nothing refunded; unpaid
+  orders are cancelled; open records of objects that declare a customer, part-paid orders and a
+  child left without a guardian stay for staff. Confirmed with the preview's `expect`, it asks the
+  provider first, then in one batch cancels the orders, disables the account, ends its sessions
+  and creates an erase request with a due date for staff, who erase the person or decline with a
+  reason; admins are told what was left (`customers/account-delete.ts`).
   (`core_erase_request`, migration 0402; due after `customer.settings` `eraseDueDays`, default
   30; `eraseRequest.list` / `eraseRequest.decline`, shown under Settings → Storage; the daily
   maintenance cron reminds admins once a day about an overdue one.)

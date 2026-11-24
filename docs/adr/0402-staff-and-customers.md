@@ -101,3 +101,10 @@ buyer's address of an order a verified payment was applied to. `invite_only` sta
 dependant's records ([ADR 0540](0540-the-family-link.md)). The link is a core record made only by a
 person on the staff with `people:link`; the seam alone decides what it gives, per object that opts
 in (`customer.guardians`), and nothing else a customer reads or writes changed.
+
+## Note, 2026-11-24 (ADR 0713)
+Deleting an account now says first what it will do: `me.deleteAccount` without `confirm` is a
+preview, and with `confirm: true` and the preview's `expect` it also sets each subscription the
+member pays to end at its period's end (nothing refunded) and cancels their unpaid orders before
+disabling the account and opening the request. Admins' notice says what was left for staff
+([ADR 0713](0713-deleting-an-account-the-preview-and-its-consequences.md)).

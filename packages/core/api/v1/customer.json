@@ -1470,41 +1470,219 @@
     },
     {
       "name": "me.deleteAccount",
-      "description": "Delete your customer account and ask for your personal data to be erased. You are signed out everywhere at once and can no longer sign in. Staff then erase your data, or tell you by email why some of it must be kept, by the due date returned. Asking again changes nothing.",
+      "description": "Delete your customer account and ask for your personal data to be erased. Without `confirm` it changes nothing and says what will happen: each subscription you pay ends when the period already paid for ends (nothing refunded, nothing more charged), your unpaid orders are cancelled, and your bookings, tickets and other records stay for staff to decide when they erase your data. With `confirm: true` and the preview's `expect` it does that: you are signed out everywhere at once and can no longer sign in, and staff erase your data, or tell you by email why some of it must be kept, by the due date returned. A preview that changed meanwhile is a conflict: ask for it again.",
       "risk": "write",
       "audiences": ["customer"],
       "kind": "mutation",
       "input": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "confirm": {
+            "default": false,
+            "description": "Delete now, as the preview said",
+            "type": "boolean"
+          },
+          "expect": {
+            "description": "The preview's `expect`; required with confirm: true",
+            "type": "string",
+            "maxLength": 64
+          }
+        },
         "additionalProperties": false
       },
       "output": {
-        "type": "object",
-        "properties": {
-          "disabled": {
-            "type": "boolean",
-            "const": true
-          },
-          "sessionsEnded": {
-            "type": "number"
-          },
-          "eraseRequest": {
+        "oneOf": [
+          {
             "type": "object",
             "properties": {
-              "requestedAt": {
-                "type": "string"
+              "subscriptions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "amount": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "currency": {
+                      "type": "string"
+                    },
+                    "interval": {
+                      "type": "string"
+                    },
+                    "endsAt": {
+                      "description": "When it stops: the end of the period paid for",
+                      "type": ["string", "null"]
+                    },
+                    "alreadyEnding": {
+                      "type": "boolean",
+                      "description": "You already set it to end; nothing more is asked"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "title",
+                    "amount",
+                    "currency",
+                    "interval",
+                    "endsAt",
+                    "alreadyEnding"
+                  ],
+                  "additionalProperties": false
+                },
+                "description": "Subscriptions you pay that will end when the period already paid for ends. Nothing is refunded and nothing more is charged"
               },
-              "dueAt": {
-                "type": "string"
+              "orders": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "total": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "currency": {
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "lines": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": ["id", "total", "currency", "createdAt", "lines"],
+                  "additionalProperties": false
+                },
+                "description": "Your unpaid orders, which will be cancelled"
+              },
+              "leftForStaff": {
+                "type": "object",
+                "properties": {
+                  "records": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "object": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "count": {
+                          "type": "number"
+                        }
+                      },
+                      "required": ["object", "label", "count"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "partPaidOrders": {
+                    "type": "number"
+                  },
+                  "moreUnpaidOrders": {
+                    "type": "number"
+                  },
+                  "otherSubscriptions": {
+                    "type": "number"
+                  },
+                  "dependantsWithoutGuardian": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "records",
+                  "partPaidOrders",
+                  "moreUnpaidOrders",
+                  "otherSubscriptions",
+                  "dependantsWithoutGuardian"
+                ],
+                "additionalProperties": false,
+                "description": "What stays for staff to decide when they erase your data: your bookings, tickets and other open records by kind, part-paid orders, and children with no other guardian"
+              },
+              "eraseDueAt": {
+                "type": "string",
+                "description": "When staff must have erased your data or said why not"
+              },
+              "expect": {
+                "type": "string",
+                "description": "Pass back with confirm: true to do exactly this"
+              },
+              "deleted": {
+                "type": "boolean",
+                "const": false
               }
             },
-            "required": ["requestedAt", "dueAt"],
+            "required": [
+              "subscriptions",
+              "orders",
+              "leftForStaff",
+              "eraseDueAt",
+              "expect",
+              "deleted"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "deleted": {
+                "type": "boolean",
+                "const": true
+              },
+              "disabled": {
+                "type": "boolean",
+                "const": true
+              },
+              "sessionsEnded": {
+                "type": "number"
+              },
+              "subscriptionsEnding": {
+                "type": "number"
+              },
+              "ordersCancelled": {
+                "type": "number"
+              },
+              "eraseRequest": {
+                "type": "object",
+                "properties": {
+                  "requestedAt": {
+                    "type": "string"
+                  },
+                  "dueAt": {
+                    "type": "string"
+                  }
+                },
+                "required": ["requestedAt", "dueAt"],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "deleted",
+              "disabled",
+              "sessionsEnded",
+              "subscriptionsEnding",
+              "ordersCancelled",
+              "eraseRequest"
+            ],
             "additionalProperties": false
           }
-        },
-        "required": ["disabled", "sessionsEnded", "eraseRequest"],
-        "additionalProperties": false
+        ]
       },
       "invalidates": [
         "me.agreements.due",
