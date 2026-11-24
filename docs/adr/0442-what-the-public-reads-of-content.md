@@ -116,3 +116,9 @@ Restoring a record from the Trash whose slug another live record took meanwhile 
 `conflict` naming the slug and the record holding it, checked before the write; the internal
 error this ADR listed under its consequences is gone. A picture in a published version is served
 to the public by `media.serve` (ADR 0444).
+
+## Amendment, 2026-11-24 (stage 38 step 1, ADR 0700)
+A fourth public read: `content.search { object, q, cursor? }`, over the published-text index of
+the current versions, the content fields the public reads only, read through the same public seam,
+with the same one not-found and the same cache. See
+[ADR 0700](0700-the-published-text-index-and-content-search.md).

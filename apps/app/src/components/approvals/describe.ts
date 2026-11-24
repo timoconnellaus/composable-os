@@ -57,6 +57,8 @@ export function diffLines(entry: PreviewEntry): DiffLine[] {
     if (field === "id" || field === "updatedAt" || field === "createdAt") continue;
     // A publish request's working-copy fingerprint (ADR 0480): checked on approval, not read.
     if (field === "draftFingerprint") continue;
+    // Its read-again suggestion (ADR 0702) is the approver's choice, shown as its own control.
+    if (field === "readAgain") continue;
     if (Array.isArray(before) || Array.isArray(after)) {
       const was = asList(before);
       const now = asList(after);
@@ -202,4 +204,16 @@ export function summariseDecision(
   if (count("failed")) parts.push(`${count("failed")} failed`);
   if (count("skipped")) parts.push(`${count("skipped")} skipped`);
   return { headline: `${parts.join(", ")}.`, cascaded: 0, problems };
+}
+
+/**
+ * A publish request's read-again suggestion (ADR 0702): true asks everyone who must read it to
+ * confirm again, false is a small fix; null when the publish asks nobody.
+ */
+export function readAgainSuggestion(preview: readonly PreviewEntry[]): boolean | null {
+  for (const entry of preview) {
+    const after = entry.diff.readAgain?.after;
+    if (typeof after === "boolean") return after;
+  }
+  return null;
 }
