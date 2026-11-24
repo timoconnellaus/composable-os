@@ -12,10 +12,22 @@
 import { env } from "cloudflare:workers";
 import { validateManifest } from "@composable-os/sdk";
 import { beforeAll, describe, expect, it } from "vitest";
-import { type ActingUser, checkManifest, getObject, invoke, objectTableOf } from "../src/index.ts";
+import {
+  type ActingUser,
+  checkManifest,
+  getObject,
+  invoke,
+  objectTableOf,
+  runRecurringDue,
+} from "../src/index.ts";
 import { feedShifts } from "../src/staffing/feed.ts";
 import { extId, manifest, plan, reconcile } from "./extension-helpers.ts";
 import { context, createUser, db } from "./helpers.ts";
+
+const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((value) => ({
+  value,
+  label: value,
+}));
 
 const SESSION_STATES = [
   { value: "booked", label: "Booked" },
@@ -84,12 +96,43 @@ const fixture = (id: string, options: { margins?: boolean } = {}) =>
           live: ["scheduled"],
         },
       },
+      standing: {
+        label: "Standing session",
+        plural: "Standing sessions",
+        titleField: "client",
+        fields: {
+          client: { type: "text", label: "Client", required: true },
+          weekdays: { type: "multiSelect", label: "Weekdays", options: WEEKDAYS },
+          time: { type: "text", label: "Time" },
+          length: { type: "number", label: "Length" },
+          firstDate: { type: "date", label: "First date" },
+          timezone: { type: "timezone", label: "Time zone" },
+          coach: { type: "relation", label: "Coach", to: `${id}.coach` },
+          service: { type: "relation", label: "Service", to: `${id}.service` },
+        },
+        recurring: {
+          generates: "session",
+          link: "series",
+          rule: {
+            weekdays: "weekdays",
+            time: "time",
+            length: "length",
+            from: "firstDate",
+            zone: "timezone",
+          },
+          into: { starts: "startsAt", ends: "endsAt" },
+          copy: { coach: "coach", service: "service", client: "client" },
+          cancel: "cancelled",
+          horizonDays: 14,
+        },
+      },
       session: {
         label: "Session",
         plural: "Sessions",
         titleField: "client",
         fields: {
           client: { type: "text", label: "Client" },
+          series: { type: "relation", label: "Series", to: `${id}.standing`, readOnly: true },
           service: { type: "relation", label: "Service", to: `${id}.service` },
           coach: { type: "relation", label: "Coach", to: `${id}.coach` },
           startsAt: { type: "datetime", label: "Starts at" },
@@ -100,7 +143,7 @@ const fixture = (id: string, options: { margins?: boolean } = {}) =>
           field: "state",
           initial: "booked",
           moves: [
-            { from: "booked", to: "cancelled", by: ["staff"] },
+            { from: "booked", to: "cancelled", by: ["staff", "host"] },
             { from: "booked", to: "attended", by: ["staff"] },
           ],
         },
@@ -137,7 +180,7 @@ const s = (iso: string) => Date.parse(iso) / 1000;
 let admin: ActingUser;
 let extUser: ActingUser;
 const as = (user: ActingUser, now = NOW) => context(user, { clock: () => new Date(now) });
-const STAFFING = ["staffing.week", "staffing.offer"];
+const STAFFING = ["staffing.week", "staffing.offer", "staffing.candidates"];
 /** A shipped pack's tool run for `user` (ADR 0625), as staffing-offers.test.ts makes it. */
 const tool = (user: ActingUser) =>
   context(extUser, {
@@ -454,6 +497,129 @@ describe("claim margins (a service's buffer)", () => {
     expect(planned.issues).toEqual([
       expect.objectContaining({ code: "staffed_conflict", path: "objects.session.staffed" }),
     ]);
+  });
+});
+
+describe("margins only while they lie ahead (the review of PR #360)", () => {
+  it("a session that has ended is edited after its service's buffer grew", async () => {
+    const { profile } = await coach();
+    const pt = await service("PT ended edit", 0, 0);
+    const a = await session(profile, pt, past("02", "10:00"), past("02", "11:00"));
+    const b = await session(profile, pt, past("02", "11:00"), past("02", "12:00"));
+    await update(SERVICE, pt, { bufferAfter: 30 });
+    // Marking who came, through the record operations and by a raw statement.
+    await update(SESSION, a.id, { state: "attended" });
+    await env.DB.prepare(
+      `UPDATE ${table(SESSION)} SET ${column(SESSION, "state")} = 'attended' WHERE id = ?`,
+    )
+      .bind(b.id)
+      .run();
+    expect(await claimOf(a.id)).toMatchObject({ margin_after: 0 });
+    expect(await claimOf(b.id)).toMatchObject({ margin_after: 0 });
+  });
+
+  it("a reconcile keeps every past claim, without margins", async () => {
+    const { user, profile } = await coach();
+    const pt = await service("PT ended resync", 0, 0);
+    const a = await session(profile, pt, past("03", "10:00"), past("03", "11:00"));
+    const b = await session(profile, pt, past("03", "11:00"), past("03", "12:00"));
+    await update(SERVICE, pt, { bufferAfter: 30, bufferBefore: 30 });
+    const planned = await reconcile(fixture(ext), NOW);
+    expect(planned.changes.filter((c) => c.kind === "skip_claims")).toEqual([]);
+    expect(await claimOf(a.id)).toMatchObject({ margin_before: 0, margin_after: 0 });
+    expect(await claimOf(b.id)).toMatchObject({ margin_before: 0, margin_after: 0 });
+    expect(await claims(user.id)).toHaveLength(2);
+  });
+
+  it("a buffer before grows while a session is under way just after one that ended", async () => {
+    const { user, profile } = await coach();
+    const pt = await service("PT under way", 0, 0);
+    // By the real clock: one ended an hour ago, the next started then and runs on.
+    const hour = 3_600_000;
+    const base = Math.floor(Date.now() / 60_000) * 60_000;
+    const iso = (ms: number) => new Date(ms).toISOString();
+    const now = iso(base);
+    await invoke(
+      "record.create",
+      {
+        object: SESSION,
+        values: {
+          client: "A",
+          service: pt,
+          coach: profile,
+          startsAt: iso(base - 2 * hour),
+          endsAt: iso(base - hour),
+        },
+      },
+      as(admin, now),
+    );
+    const running = await invoke(
+      "record.create",
+      {
+        object: SESSION,
+        values: {
+          client: "B",
+          service: pt,
+          coach: profile,
+          startsAt: iso(base - hour),
+          endsAt: iso(base + hour),
+        },
+      },
+      as(admin, now),
+    );
+    await env.DB.prepare(
+      `UPDATE ${table(SERVICE)} SET ${column(SERVICE, "bufferBefore")} = 15, ${column(SERVICE, "bufferAfter")} = 15 WHERE id = ?`,
+    )
+      .bind(pt)
+      .run();
+    // Started: its buffer before is behind it; its buffer after still lies ahead.
+    expect(await claimOf(running.id as string)).toMatchObject({
+      margin_before: 0,
+      margin_after: 900,
+    });
+    expect(await claims(user.id)).toHaveLength(2);
+  });
+
+  it("staffing.candidates gives the other shift's own times", async () => {
+    const { user, profile } = await coach();
+    const pt = await service("PT candidates", 0, 15);
+    await session(profile, pt, at("17", "10:00"), at("17", "11:00"));
+    const other = await klass(null, at("17", "11:00"), at("17", "12:00"));
+    const answer = (await invoke(
+      "staffing.candidates",
+      { object: KLASS, id: other.id },
+      tool(admin),
+    )) as { people: { account: string; clash: { startsAt: string; endsAt: string } | null }[] };
+    expect(answer.people.find((p) => p.account === user.id)?.clash).toMatchObject({
+      startsAt: at("17", "10:00"),
+      endsAt: at("17", "11:00"),
+    });
+  });
+
+  it("a weekly series naming a profile with no account makes its dates uncovered, failing nothing", async () => {
+    const visiting = (await create(COACH, { name: "No account" })).id as string;
+    const pt = await service("PT standing", 0, 0);
+    const series = await create(`${ext}.standing`, {
+      client: "A client",
+      weekdays: ["mon"],
+      time: "06:00",
+      length: 60,
+      firstDate: "2031-06-02",
+      timezone: "UTC",
+      coach: visiting,
+      service: pt,
+    });
+    for (let i = 0; i < 20; i += 1) {
+      const result = await runRecurringDue(db, { clock: () => new Date(NOW) });
+      if (result.series === 0) break;
+    }
+    const page = await invoke(
+      "record.list",
+      { object: SESSION, filter: { field: "series", op: "eq", value: series.id }, limit: 10 },
+      as(admin),
+    );
+    expect(page.items.length).toBeGreaterThan(0);
+    expect(page.items.map((r) => r.values.coach)).toEqual(page.items.map(() => null));
   });
 });
 

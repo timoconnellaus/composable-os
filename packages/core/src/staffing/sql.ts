@@ -68,6 +68,20 @@ const notEnded = (t: Pick<StaffedTables, "ends">) =>
 export const marginSeconds = (column: string | undefined) =>
   column ? `(MAX(0, MIN(1440, CAST(COALESCE(m.${ident(column)}, 0) AS INTEGER))) * 60)` : "0";
 
+/**
+ * The margins a shift's claim takes, by the database's clock (the review of PR #360): only while
+ * they lie ahead. The buffer before counts until the shift starts, the buffer after until it has
+ * passed; behind them the claim is the shift's own time. So deriving the claim again never widens
+ * history: marking a session that has ended, a reconcile after a buffer grew, or a buffer before
+ * grown while a session is under way just after one that ended.
+ */
+const aheadBefore = (t: Pick<StaffedTables, "starts">, margin: string) =>
+  margin === "0" ? "0" : `(CASE WHEN ${seconds(t.starts)} > ${NOW} THEN ${margin} ELSE 0 END)`;
+const aheadAfter = (t: Pick<StaffedTables, "ends">, margin: string) =>
+  margin === "0"
+    ? "0"
+    : `(CASE WHEN ${seconds(t.ends)} + ${margin} > ${NOW} THEN ${margin} ELSE 0 END)`;
+
 /** The columns a claim is written with, in this order. */
 const CLAIM_COLUMNS =
   "object_type, record_id, account_id, starts, ends, margin_before, margin_after";
@@ -92,8 +106,8 @@ export function selectClaims(t: StaffedTables, where: string, account = accountE
   const margins = t.margins
     ? ` LEFT JOIN ${ident(t.margins.table)} m ON m.id = r.${ident(t.margins.kind)}`
     : "";
-  const before = marginSeconds(t.margins?.before);
-  const after = marginSeconds(t.margins?.after);
+  const before = aheadBefore(t, marginSeconds(t.margins?.before));
+  const after = aheadAfter(t, marginSeconds(t.margins?.after));
   return (
     `SELECT ${literal(t.object)} AS object_type, r.id AS record_id, ${account} AS account_id, ` +
     `${seconds(t.starts)} - ${before} AS starts, ${seconds(t.ends)} + ${after} AS ends, ` +
