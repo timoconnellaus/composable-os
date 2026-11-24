@@ -6,7 +6,6 @@ editUrl: false
 
 Stages that have a spec and no pack or capability pages on this site yet, from [docs/roadmap.md](https://github.com/timoconnellaus/composable-os/blob/main/docs/roadmap.md). Pieces of them that are already in the code appear in the reference (operations, behaviours, blocks).
 
-- **Forms** (stage 29): Public writes as a primitive; a Forms pack: enquiry forms, sign-ups, surveys, reviews and feedback (waivers with a signature moved to stage 44, Agreements). [Its spec](https://github.com/timoconnellaus/composable-os/blob/main/docs/stages/29-forms.md).
 - **Notifications** (stage 30): Email, SMS and push as one primitive: templates, a person's preferences, an SMS gatekeeper, push to client apps. [Its spec](https://github.com/timoconnellaus/composable-os/blob/main/docs/stages/30-notifications.md).
 - **Price adjustments and Offers** (stage 34): Adjustments on orders as a primitive; an Offers pack: promo codes, members' prices, staff discounts up to a limit, gift vouchers and gift cards, referrals, loyalty later; and the shared platform step "an order paid another way" (with stage 35 and the till). [Its spec](https://github.com/timoconnellaus/composable-os/blob/main/docs/stages/34-offers.md).
 - **Invoices and quotes** (stage 35): Quote, accept, invoice, pay, chase; PDF output; built on orders. [Its spec](https://github.com/timoconnellaus/composable-os/blob/main/docs/stages/35-invoices-quotes.md).

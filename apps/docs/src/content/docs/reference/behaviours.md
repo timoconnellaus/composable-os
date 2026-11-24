@@ -52,7 +52,7 @@ Declared as `healthNotes: HealthNotesSpec` on an object. Declared by: [`bookings
 
 A fixed state machine (see StatesSpec, ADR 0425). An object has stages or states, not both.
 
-Declared as `states: StatesSpec` on an object. Declared by: [`bookings.series`](/packs/bookings/data-model/), [`bookings.class`](/packs/bookings/data-model/), [`bookings.booking`](/packs/bookings/data-model/), [`courses.enrolment`](/packs/courses/data-model/), [`memberships.membership`](/packs/memberships/data-model/), [`memberships.pass`](/packs/memberships/data-model/), [`programs.assignment`](/packs/programs/data-model/), [`programs.session`](/packs/programs/data-model/), [`rostering.dutyseries`](/packs/rostering/data-model/), [`rostering.shift`](/packs/rostering/data-model/), [`ticketing.event`](/packs/ticketing/data-model/), [`ticketing.ticket`](/packs/ticketing/data-model/).
+Declared as `states: StatesSpec` on an object. Declared by: [`bookings.series`](/packs/bookings/data-model/), [`bookings.class`](/packs/bookings/data-model/), [`bookings.booking`](/packs/bookings/data-model/), [`courses.enrolment`](/packs/courses/data-model/), [`forms.form`](/packs/forms/data-model/), [`forms.submission`](/packs/forms/data-model/), [`memberships.membership`](/packs/memberships/data-model/), [`memberships.pass`](/packs/memberships/data-model/), [`programs.assignment`](/packs/programs/data-model/), [`programs.session`](/packs/programs/data-model/), [`rostering.dutyseries`](/packs/rostering/data-model/), [`rostering.shift`](/packs/rostering/data-model/), [`ticketing.event`](/packs/ticketing/data-model/), [`ticketing.ticket`](/packs/ticketing/data-model/).
 
 ## claims
 
@@ -100,7 +100,7 @@ Declared as `occupies: OccupiesSpec` on an object. Declared by: [`bookings.class
 
 The public-write door (see IntakeSpec, ADR 0720): a form the public answers, the submission the host makes from the answers, or another pack's record a form may also make. Only the host's `intake.submit` creates a submission; nothing else opens a write to the public.
 
-Declared as `intake: IntakeSpec` on an object. Declared by: no shipped pack.
+Declared as `intake: IntakeSpec` on an object. Declared by: [`forms.form`](/packs/forms/data-model/), [`forms.submission`](/packs/forms/data-model/).
 
 ## checklists
 
@@ -142,4 +142,4 @@ Declared as `access: AccessSpec` on an object. Declared by: [`courses.course`](/
 
 A working copy staff edit and published versions (ADR 0446): `content` names the fields a version keeps. `record.publish` snapshots them as the next version (a person with the publish permission, never an AI actor); `record.versions` and `record.version` read them; `record.restoreVersion` copies one back into the working copy. Editing the working copy never changes a version. Records get read-only `publishedVersion` and `publishedAt`. With an author (ADR 0810): a publishable object may declare a `customer`, the record's author (a review's writer). The author reads and writes their working copy through `customer`; the public reads only the published version through `public` (which may then be declared too), listed by `content.list` and never by an address (no `slug`). The fields in `customer.write` are the author's alone: staff, the assistant, MCP clients, automations and the extension's own code are refused them on every path, so a published version is always the author's words. Staff still publish, unpublish and move the record's states.
 
-Declared as `publishable: PublishableSpec` on an object. Declared by: [`content.post`](/packs/content/data-model/), [`courses.course`](/packs/courses/data-model/), [`courses.bundle`](/packs/courses/data-model/), [`programs.program`](/packs/programs/data-model/).
+Declared as `publishable: PublishableSpec` on an object. Declared by: [`content.post`](/packs/content/data-model/), [`courses.course`](/packs/courses/data-model/), [`courses.bundle`](/packs/courses/data-model/), [`forms.form`](/packs/forms/data-model/), [`programs.program`](/packs/programs/data-model/).
