@@ -35,6 +35,25 @@ checkout), [0646](../adr/0646-erase-merge-and-retention-for-agreements.md) (eras
 Status: **spec agreed** (owner interviewed 2026-11-24: decisions 1 to 13). Build may start. The
 questions at the end refine later steps and block none of the first ones.
 
+## Status
+
+- **Step 1, the `stock` behaviour** (`feat/stage-37-shop-step-1`; migration 0930, ADR 0680, which
+  amends ADRs 0431 and 0433): the SDK declaration `stock: { reorderAt?, reorderQty?, show?, lowAt? }`
+  and its checks (not beside a capacity; no `sellable.deposit`, `recurring` or `moves`; refused in a
+  runtime extension); the ledger `core_stock_movement` with a place on every row (`default`),
+  append-only by triggers, one opening per record, and `rec_stock_movement`; the count on
+  capacity's counter (a counter for every record, on hand `places − taken`, read-only `onHand`,
+  `held`, `available`); `stock.opening` and `stock.adjust` (a new core permission, `stock:adjust`,
+  grantable; an AI's call waits for a person who holds it), `stock.get` (staff numbers, reorder
+  level; outsiders by `show`, opened to customers and the public) and `stock.movements`; an order's
+  stock lines held on start, `sold` movements written in the paid batch (one statement), given back
+  on cancel or expiry, never on a refund. Deviations: the reads use `records:read` and the writes
+  `stock:adjust` instead of `shop:read` and `shop:stock` (a core operation cannot name a pack's
+  permission, and a pack role never holds a core one: the stockroom role moves stock through the
+  pack's records, by step 2's `stockMoves`; a direct correction is for admins and accounts granted
+  `stock:adjust`); "sellable with `goods` or
+  used by `stockMoves`" is checked when steps 2 and 3 add those. Left: steps 2 to 14.
+
 Vocabulary: "product" is the platform's word for a composition (ADR 0400) and is avoided for what
 a business sells. This spec says **item** (a thing in the shop: "Club hoodie") and **variant** (one
 version of it that is bought and counted: "Club hoodie, large, black").

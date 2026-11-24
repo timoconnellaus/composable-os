@@ -90,6 +90,9 @@ export type Role = (typeof ROLES)[number];
  *   Admins by default, grantable as `orders:refund` is. An AI acting for an account that holds it
  *   may draft one; its write always waits for a person who holds it too, so a checklist staff are
  *   asked to follow is always one a person approved.
+ * - `stock:adjust` record a record's opening stock and correct it (stage 37, ADR 0680). Admins by
+ *   default, grantable as `orders:refund` is. An AI acting for an account that holds it may ask,
+ *   never make one: its call always waits for a person who holds it too.
  */
 export const PERMISSIONS = [
   "records:read",
@@ -109,6 +112,7 @@ export const PERMISSIONS = [
   "agreements:paper",
   "agreements:health",
   "checklists:write",
+  "stock:adjust",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -146,6 +150,7 @@ export const GRANTABLE_PERMISSIONS = [
   "agreements:paper",
   "agreements:health",
   "checklists:write",
+  "stock:adjust",
 ] as const;
 
 /**

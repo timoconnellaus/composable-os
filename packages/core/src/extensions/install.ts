@@ -376,6 +376,16 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
         message: `A runtime extension cannot make ${name} something customers and the public can buy. ${why}`,
       });
     }
+    // Stock is sold to customers and the public from a ledger the host keeps (ADR 0680): a
+    // reviewed change, as sellable is.
+    if (object.stock) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.stock`,
+        message: `A runtime extension cannot give ${name} stock the host sells from. ${why}`,
+      });
+    }
     // Who works when feeds pay, and claims staff accounts' time (ADR 0621): a reviewed change.
     if (object.staffed) {
       issues.push({

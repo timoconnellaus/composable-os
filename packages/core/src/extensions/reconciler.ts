@@ -36,6 +36,7 @@ import {
   resyncClaims,
   type StaffedTables,
 } from "../staffing/sql.ts";
+import { backfillStockCounters } from "../stock/index.ts";
 import { orgReader, visibleSource } from "../visibility/index.ts";
 import {
   columnName,
@@ -399,6 +400,7 @@ export function planFromState(
       ...(object.stages ? { stages: object.stages } : {}),
       ...(object.capacity ? { capacity: object.capacity } : {}),
       ...(object.sellable ? { sellable: object.sellable } : {}),
+      ...(object.stock ? { stock: object.stock } : {}),
       ...(object.allowance ? { allowance: object.allowance } : {}),
       ...(object.agreements ? { agreements: object.agreements } : {}),
       ...(object.healthNotes ? { healthNotes: object.healthNotes } : {}),
@@ -969,8 +971,9 @@ export async function planDropHidden(
     }
   }
   // Counters and claims of a dropped object go with its table (ADR 0431).
+  // A stock object's counters and claims too (ADR 0680); its ledger stays, append-only.
   const capacityDrops = droppedObjects
-    .filter((o) => o.definition.capacity)
+    .filter((o) => o.definition.capacity || o.definition.stock)
     .flatMap((o) => dropCapacityStatements(o.name));
   // A dropped claimant gives back the places its records held and took (ADR 0501), and a
   // dropped series or generated object takes its recurring bookkeeping with it (ADR 0500).
@@ -1045,6 +1048,10 @@ function exceptionCleanup(state: SchemaState, ext: string): CompiledQuery[] {
 }
 
 function capacityBackfill(state: SchemaState, ext: string, now: string): CompiledQuery[] {
+  // Stock objects' records each get a counter with nothing on hand (ADR 0680).
+  const stocked = state.objects
+    .filter((o) => o.extensionId === ext && o.status === "active" && o.definition.stock)
+    .map((o) => backfillStockCounters({ object: o.name, table: ident(o.tableName), now }));
   const objects = state.objects.filter(
     (o) => o.extensionId === ext && o.status === "active" && o.definition.capacity,
   );
@@ -1052,7 +1059,7 @@ function capacityBackfill(state: SchemaState, ext: string, now: string): Compile
     ...objects.filter((o) => !o.definition.capacity?.pool),
     ...objects.filter((o) => o.definition.capacity?.pool),
   ];
-  const statements: CompiledQuery[] = [];
+  const statements: CompiledQuery[] = [...stocked];
   for (const object of ordered) {
     const capacity = object.definition.capacity;
     if (!capacity) continue;

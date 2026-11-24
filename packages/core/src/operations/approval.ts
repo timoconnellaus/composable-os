@@ -1009,6 +1009,28 @@ async function approveActions(
       );
     }
   }
+  // An AI's opening stock or correction (stage 37, ADR 0680): approved only by a person who may
+  // change stock themselves, so stock is never changed by an AI alone.
+  const stock = targets.find(
+    (t) => t.operation === "stock.adjust" || t.operation === "stock.opening",
+  );
+  if (stock) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError("A stock change is approved by a person, never by an AI actor", {
+        actionId: stock.id,
+        actor: ctx.actor,
+      });
+    }
+    if (!holdsPermission(ctx.user, ctx.permissionGrants, "stock:adjust")) {
+      throw new ForbiddenError(
+        "Approving a stock change needs the stock permission (stock:adjust)",
+        {
+          actionId: stock.id,
+          permission: "stock:adjust",
+        },
+      );
+    }
+  }
   const targetIds = new Set(targets.map((t) => t.id));
   // Out-of-order approval is refused: dependencies must be applied or approved together.
   const depIds = [...new Set(targets.flatMap((t) => parse<string[]>(t.depends_on, [])))];

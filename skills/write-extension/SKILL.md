@@ -132,6 +132,14 @@ extension declares it; it never implements it. Each behaviour the platform has i
   `on` cannot change (a move to another class is a new record) and it cannot go to Trash. Never
   count places or claim them in a tool. See `ClaimsSpec` in `packages/sdk/src/capacity.ts` and
   ADR 0501.
+- **`stock`** on a sellable object: its records are things counted on a shelf (a variant of an
+  item), and the host keeps how many there are from a ledger nobody edits. Declare
+  `stock: { reorderAt?: "<number field>", reorderQty?: "<number field>", show?, lowAt? }`; not
+  beside a `capacity`, and with no `sellable.deposit`, `recurring` or `moves`. Records get
+  read-only `onHand`, `held` and `available`, so don't declare fields with those names, and never
+  write a count field of your own: an order's line holds and sells in its batch, and staff record
+  opening stock and corrections with `stock.opening` and `stock.adjust`. A shipped pack only. See
+  `StockSpec` in `packages/sdk/src/stock.ts` and ADR 0680.
 - **`unique`** on an object: `unique: [{ fields: [<up to 4 fields>], states?: [<states>] }]`, no
   two live records in those states share the fields (one active booking per Person per class).
   The database refuses the second, however many write at once (`conflict`, `rule: "unique"`).

@@ -3071,6 +3071,77 @@
       "invalidates": []
     },
     {
+      "name": "stock.get",
+      "description": "How many of a thing in stock there are (a variant of an item in a shop). Staff get on hand (sold ones gone), held (by orders being paid for), available (on hand less held) and the reorder level. Customers and the public get only what the object shows: in stock or sold out, a low-stock warning, or the number available. Read-only; holds nothing.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "An extension object that declares stock"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["object", "id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["in_stock", "low", "sold_out"],
+            "description": "`low` only when the object shows a low-stock warning and few are left"
+          },
+          "available": {
+            "description": "How many can be bought now. Shown to outsiders only when `show` allows",
+            "type": "number"
+          },
+          "onHand": {
+            "description": "Staff only: how many there are, sold ones gone",
+            "type": "number"
+          },
+          "held": {
+            "description": "Staff only: how many unpaid orders hold",
+            "type": "number"
+          },
+          "reorderAt": {
+            "type": ["number", "null"]
+          },
+          "reorderQty": {
+            "type": ["number", "null"]
+          },
+          "atReorderLevel": {
+            "type": "boolean"
+          },
+          "show": {
+            "type": "string",
+            "enum": ["exact", "low", "availability"]
+          },
+          "lowAt": {
+            "type": ["number", "null"]
+          }
+        },
+        "required": ["object", "id", "status"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "subscription.cancel",
       "description": "End a subscription when its current paid period (or trial) ends: nothing more is charged, and what it gives lasts until then. A signed-in customer cancels their own; staff any, with the subscriptions:manage permission. Nothing is refunded (a period's refund is order.refund). It can be undone until the period ends (subscription.resume). Asked of the payment provider: the subscription shows it once the provider confirms. Staff can instead end it at once (`now: true`): nothing more is charged, nothing is refunded and what it gives stops when the provider confirms; a customer cannot. A person decides, not an AI assistant.",
       "risk": "write",

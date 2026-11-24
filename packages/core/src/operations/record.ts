@@ -41,6 +41,7 @@ import {
   fieldStorage,
   objectTableOf,
   PUBLISHED_FIELDS,
+  STOCK_FIELDS,
 } from "../extensions/schema.ts";
 import { FIELD_TYPE_REGISTRY, formulaFromStorage } from "../fields/field-types.ts";
 import { getObject, isCoreObject, listObjects } from "../fields/index.ts";
@@ -87,6 +88,7 @@ import {
   staffedWritten,
   warningsOf,
 } from "../staffing/index.ts";
+import { stockCounterInsert } from "../stock/index.ts";
 import { type Reader, visibleSource, visibleTable } from "../visibility/index.ts";
 import { setRecordWriter } from "../visibility/writes.ts";
 
@@ -201,6 +203,13 @@ export function fromRow(object: ObjectDefinition, row: Record<string, unknown>):
   // The capacity behaviour's read-only values (ADR 0431): held, taken, available.
   if (object.capacity) {
     for (const field of CAPACITY_FIELDS) {
+      const raw = field.column ? row[field.column] : null;
+      values[field.name] = raw === undefined || raw === null ? null : Number(raw);
+    }
+  }
+  // The stock behaviour's read-only values (ADR 0680): on hand, held, available.
+  if (object.stock) {
+    for (const field of STOCK_FIELDS) {
       const raw = field.column ? row[field.column] : null;
       values[field.name] = raw === undefined || raw === null ? null : Number(raw);
     }
@@ -750,6 +759,8 @@ export async function createRecord(
   // The record's capacity counter (ADR 0431), after the record it belongs to.
   const counter = await counterWrite(ctx, object, id, valuesOf(prepared), "create");
   if (counter) ctx.write(counter);
+  // A stock record's counter, with nothing on hand: stock comes only by movements (ADR 0680).
+  if (object.stock) ctx.write(stockCounterInsert(object.name, id, ctx.now));
   // A holder's terms, and a spender's use (ADR 0493).
   ctx.write(...(await holderWrite(ctx, object, id, null, valuesOf(prepared))));
   ctx.write(...spent.statements);

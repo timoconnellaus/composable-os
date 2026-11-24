@@ -1034,7 +1034,7 @@ The rules products share, declared in a manifest and enforced by the host in the
 `stages`, `states`, `capacity`, `sellable` and `publishable` exist (the last with its public
 half, and the media library beside it, since stage 28). `allowance` exists since stage 32b;
 `recurring`, capacity claimants and declared uniqueness since stage 31 (below); `staffed` since
-stage 45 (below). Behaviours stack:
+stage 45 (below); `stock` since stage 37 (below). Behaviours stack:
 an event is publishable, sellable and has a capacity.
 
 `stages` and `states` are two declarations on one **transition engine**
@@ -1744,6 +1744,18 @@ counter that refused. Confirm and release are three statements each, idempotent,
 owner (an order, from stage 25) calls them. Records carry read-only `held`, `taken` and `available`;
 `capacity.get` gives staff the numbers and outsiders only what `show` allows;
 `rec_capacity` and `rec_capacity_claim` are queryable.
+
+**`stock`** (stage 37, [ADR 0680](adr/0680-the-stock-behaviour.md), `packages/sdk/src/stock.ts`,
+`packages/core/src/stock/`). Things counted on a shelf. The count is capacity's counter: a record of
+a stock object gets a `core_capacity` row with nothing on hand, and `places` moves only with a
+movement in the append-only ledger `core_stock_movement` (migration 0930: a place on every row,
+triggers refusing update, delete and replace, one `opening` per record), written in the same batch
+with no read first. On hand is `places − taken`, available is on hand less `held`; records carry
+read-only `onHand`, `held` and `available`. An order's stock line claims as a capacity line does;
+the paid batch writes one `sold` movement per line (one statement) before the confirm, and nothing
+gives confirmed stock back but a return. `stock.opening` and `stock.adjust` need the core
+`stock:adjust` permission and an AI's call waits for a person; `stock.get` tells outsiders only
+what `show` allows; `stock.movements` and `rec_stock_movement` read the ledger.
 
 **`allowance`** (stage 32b, ADRs [0493](adr/0493-the-allowance-behaviour.md) and
 [0494](adr/0494-which-holder-pays-and-what-happens-to-uses.md), `packages/sdk/src/allowance.ts`,

@@ -56400,6 +56400,380 @@
       "invalidates": []
     },
     {
+      "name": "stock.adjust",
+      "description": "Corrects how many of a record there are, by a signed quantity with a reason (found two more, one broken in the stockroom). Written in the ledger as `adjusted` at the default place. Refused when it would leave fewer on hand than unpaid orders hold, with the numbers. Not for deliveries, counts or write-offs, which are records of their own. Needs stock:adjust. An assistant's or MCP client's call always waits for a person who holds it too.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "An extension object that declares stock"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": -1000000,
+            "maximum": 1000000,
+            "description": "Signed: positive adds, negative removes"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "Why: kept in the ledger"
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "quantity",
+          "reason"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "movementId": {
+            "type": "string"
+          },
+          "onHand": {
+            "type": "number",
+            "description": "On hand once the movement is written"
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "movementId",
+          "onHand"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "stock.get",
+        "stock.movements"
+      ]
+    },
+    {
+      "name": "stock.get",
+      "description": "How many of a thing in stock there are (a variant of an item in a shop). Staff get on hand (sold ones gone), held (by orders being paid for), available (on hand less held) and the reorder level. Customers and the public get only what the object shows: in stock or sold out, a low-stock warning, or the number available. Read-only; holds nothing.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "An extension object that declares stock"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "object",
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "in_stock",
+              "low",
+              "sold_out"
+            ],
+            "description": "`low` only when the object shows a low-stock warning and few are left"
+          },
+          "available": {
+            "description": "How many can be bought now. Shown to outsiders only when `show` allows",
+            "type": "number"
+          },
+          "onHand": {
+            "description": "Staff only: how many there are, sold ones gone",
+            "type": "number"
+          },
+          "held": {
+            "description": "Staff only: how many unpaid orders hold",
+            "type": "number"
+          },
+          "reorderAt": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "reorderQty": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "atReorderLevel": {
+            "type": "boolean"
+          },
+          "show": {
+            "type": "string",
+            "enum": [
+              "exact",
+              "low",
+              "availability"
+            ]
+          },
+          "lowAt": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "stock.movements",
+      "description": "The stock ledger of one record, newest first: every movement with its kind (opening, received, sold, returned, written_off, counted, adjusted, used), signed quantity, place, what made it (an order line, a record or a person), who and when. Movements are never changed or deleted. Staff only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "An extension object that declares stock"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "before": {
+            "description": "A movement id from the last page: the movements older than it",
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "object",
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "place": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number",
+                  "description": "Signed: in is positive, out negative"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "opening",
+                    "received",
+                    "sold",
+                    "returned",
+                    "written_off",
+                    "counted",
+                    "adjusted",
+                    "used"
+                  ]
+                },
+                "sourceType": {
+                  "type": "string"
+                },
+                "sourceId": {
+                  "type": "string"
+                },
+                "by": {
+                  "description": "The staff account; null when the host made it",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "at": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "unitCost": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "place",
+                "quantity",
+                "kind",
+                "sourceType",
+                "sourceId",
+                "by",
+                "at",
+                "note",
+                "unitCost"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "items",
+          "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "stock.opening",
+      "description": "Records a record's opening stock: how many there are when it is first counted (also by an import). Once per record; a later change is stock.adjust, a delivery a receipt. Written in the ledger as `opening` at the default place. Needs stock:adjust. An assistant's or MCP client's call always waits for a person who holds it too.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "An extension object that declares stock"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "quantity"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "movementId": {
+            "type": "string"
+          },
+          "onHand": {
+            "type": "number",
+            "description": "On hand once the movement is written"
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "movementId",
+          "onHand"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "stock.get",
+        "stock.movements"
+      ]
+    },
+    {
       "name": "storage.refresh",
       "description": "Measure the database again now (size and row counts of the largest tables) instead of waiting for the daily measurement. Counting reads every row of those tables, so a refresh within 10 minutes of the last returns that one. Admins only.",
       "risk": "write",

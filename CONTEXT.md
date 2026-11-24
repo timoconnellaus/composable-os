@@ -1145,6 +1145,19 @@ A record whose own states hold, take and give back one place on the record its r
 the batch of each move, refused by the database past the places, as an order's line is (stage 31,
 ADR 0501). A claimant may declare a **waitlist** (`claims.waitlist`, below, ADR 0520).
 
+**Stock**
+How many of a thing there are (a variant of an item in a shop), declared `stock` by its object.
+Nobody types it: the host keeps it from the **stock ledger**, on capacity's counter, so an order's
+line holds while unpaid and sells when paid, refused by the database past what is available. On
+hand is what came in less what went out; available is on hand less what unpaid orders hold. A
+refund changes nothing in stock; a return does. What customers and the public are told is the
+object's `show` (stage 37, ADR 0680).
+
+**Stock movement**
+One row of the stock ledger: a record, a place (one default place until stock is kept in several),
+a signed quantity, a kind (opening, received, sold, returned, written off, counted, adjusted, used),
+what made it (an order line, a record or a person), who and when. Never changed or deleted.
+
 **Series** (of a recurring schedule)
 A record that declares `recurring`: a weekly rule in local wall-clock time (weekdays, a time, a
 length, from and until dates, a zone) that makes dated records of another object ahead, up to its

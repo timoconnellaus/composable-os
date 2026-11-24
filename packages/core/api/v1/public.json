@@ -1173,6 +1173,77 @@
       "invalidates": []
     },
     {
+      "name": "stock.get",
+      "description": "How many of a thing in stock there are (a variant of an item in a shop). Staff get on hand (sold ones gone), held (by orders being paid for), available (on hand less held) and the reorder level. Customers and the public get only what the object shows: in stock or sold out, a low-stock warning, or the number available. Read-only; holds nothing.",
+      "risk": "read",
+      "audiences": ["public"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "An extension object that declares stock"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["object", "id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["in_stock", "low", "sold_out"],
+            "description": "`low` only when the object shows a low-stock warning and few are left"
+          },
+          "available": {
+            "description": "How many can be bought now. Shown to outsiders only when `show` allows",
+            "type": "number"
+          },
+          "onHand": {
+            "description": "Staff only: how many there are, sold ones gone",
+            "type": "number"
+          },
+          "held": {
+            "description": "Staff only: how many unpaid orders hold",
+            "type": "number"
+          },
+          "reorderAt": {
+            "type": ["number", "null"]
+          },
+          "reorderQty": {
+            "type": ["number", "null"]
+          },
+          "atReorderLevel": {
+            "type": "boolean"
+          },
+          "show": {
+            "type": "string",
+            "enum": ["exact", "low", "availability"]
+          },
+          "lowAt": {
+            "type": ["number", "null"]
+          }
+        },
+        "required": ["object", "id", "status"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "subscription.start",
       "description": "Start a subscription to a plan (a record of an object sold every week, month or year), as a signed-in customer, a guest (with an email address) or staff for someone. Opens the payment provider's own page, which takes the card; the provider charges each period on its own schedule, after the plan's free trial when it has one. A trial is one per person per plan, and only for a signed-in customer (or staff with subscriptions:manage starting it for a person): a guest is charged from the start, and `noTrial` says why no trial was given. Starting again while the page you opened with a trial is still open gives that page. A signed-in customer with a continuation offer (moving their subscription from another platform) takes it with `offerId`: free until their paid-up date, then charged, with no trial on top; with under 48 hours left it is charged at once. Nobody starts one without the agreements the business needs for the plan (its terms, a waiver): refused with rule agreements_due and the documents while any is due, a continuation offer included (a guest passes their acceptances in `agreements`; a signed-in customer agrees first; staff send a link or record paper). The host prices it from the plan: no price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the provider confirms it. Returns the page's address and what will be charged, in minor units.",
       "risk": "write",

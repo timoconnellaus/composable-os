@@ -115,6 +115,8 @@ export interface ObjectDefinition {
   capacity?: CapacityDefinition;
   /** Extension objects: something that can be bought (stage 27, ADR 0435). */
   sellable?: SellableDefinition;
+  /** Extension objects: things counted on a shelf, kept from a ledger (stage 37, ADR 0680). */
+  stock?: StockDefinition;
   /** Extension objects: uses held (a pass) or spent (a booking) (stage 32b, ADR 0493). */
   allowance?: AllowanceDefinition;
   /**
@@ -326,6 +328,16 @@ export interface CapacityDefinition {
   /** `low`'s threshold. */
   lowAt?: number | undefined;
   releaseOnRefund: boolean;
+}
+
+/** The stock behaviour as the host enforces it (the SDK's StockSpec, validated), registry names. */
+export interface StockDefinition {
+  /** The number field holding the reorder level, and the one holding how many to order then. */
+  reorderAt?: string | undefined;
+  reorderQty?: string | undefined;
+  show: "exact" | "low" | "availability";
+  /** `low`'s threshold. */
+  lowAt?: number | undefined;
 }
 
 /**

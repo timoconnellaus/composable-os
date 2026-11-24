@@ -204,6 +204,19 @@ export function toOperationError(error: unknown): OperationError {
   const allowance = allowanceRefusal(error);
   if (allowance) return allowance;
   const message = error instanceof Error ? error.message : String(error);
+  // The stock ledger (migration 0930): a second opening, or any change to a movement.
+  if (message.includes("core_stock_opening_exists")) {
+    return new ConflictError(
+      "This record already has its opening stock; correct it with stock.adjust",
+      { rule: "stock", reason: "opening_exists" },
+    );
+  }
+  if (message.includes("core_stock_movement_immutable")) {
+    return new ConflictError("A stock movement is never changed or removed", {
+      rule: "stock",
+      reason: "movement_immutable",
+    });
+  }
   // An order written from a read that is no longer current (migration 0421): nothing was
   // applied, and the same call made again reads the order as it now is.
   if (message.includes("core_order_stale")) {
@@ -683,6 +696,42 @@ interface CapacityRefusalPayload {
 
 const CAPACITY_REFUSED = /core_capacity_refused (\{[^{}]*\})/;
 
+/** Whether an object has stock (ADR 0680), set by stock/index.ts so this module imports nothing. */
+let hasStock: (object: string) => boolean = () => false;
+export function setStockLookup(lookup: (object: string) => boolean): void {
+  hasStock = lookup;
+}
+
+/**
+ * A stock record's counter refused (ADR 0680): a sale past what is available, or a movement that
+ * would leave fewer on hand than unpaid orders hold. Its counter's places less taken is on hand.
+ */
+function stockRefusal(payload: CapacityRefusalPayload): ValidationError {
+  const onHand = Number(payload.places ?? 0) - Number(payload.taken ?? 0);
+  if (payload.asked > 0) {
+    return new ValidationError(
+      `Not enough in stock: asked for ${payload.asked}, ${payload.available} available`,
+      {
+        rule: "stock",
+        object: payload.object,
+        record: payload.record,
+        asked: payload.asked,
+        available: payload.available,
+      },
+    );
+  }
+  return new ValidationError(
+    `Stock cannot go below what unpaid orders hold: ${payload.held} held. Count again in a few minutes.`,
+    {
+      rule: "stock",
+      object: payload.object,
+      record: payload.record,
+      onHand,
+      held: payload.held,
+    },
+  );
+}
+
 /** The error for a batch the capacity rule refused, or null when it failed for another reason. */
 export function capacityRefusal(error: unknown): ValidationError | null {
   const message = error instanceof Error ? error.message : String(error);
@@ -694,6 +743,7 @@ export function capacityRefusal(error: unknown): ValidationError | null {
     } catch {
       return new ValidationError("Not enough places", { rule: "capacity" });
     }
+    if (hasStock(payload.object)) return stockRefusal(payload);
     if (payload.asked > 0) {
       const details: CapacityRefusalDetails = {
         rule: "capacity",
