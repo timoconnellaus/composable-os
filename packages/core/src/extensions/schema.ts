@@ -23,6 +23,7 @@ import {
   type StaffedManifest,
   type StagesManifest,
   type StatesManifest,
+  sellableFinance,
   spendsOnList,
   type UniqueManifest,
   type WorkedOnManifest,
@@ -984,6 +985,7 @@ function sellableDefinition(object: ObjectState, own: FieldState[]): ObjectDefin
   const currency = declared.currency ?? priceField?.definition.currency;
   const { amount, balanceDue } = declared.deposit ?? {};
   const grants = declared.grants;
+  const finance = sellableFinance(declared.finance);
   return {
     price: nameOf(declared.price),
     ...(currency ? { currency } : {}),
@@ -1012,6 +1014,8 @@ function sellableDefinition(object: ObjectState, own: FieldState[]): ObjectDefin
         }
       : {}),
     ...(declared.onePerPerson ? { onePerPerson: nameOf(declared.onePerPerson) } : {}),
+    // Paths (`event.startsAt`) stay as declared, as moves' do; a field of the object is named.
+    finance: finance.at?.includes(".") === false ? { ...finance, at: nameOf(finance.at) } : finance,
     // Paths (`class.classType.dropInPrice`) stay as declared: the host's path reader names each
     // part as the declaring extension's (ADR 0505); a field of the object is named here.
     ...(declared.moves

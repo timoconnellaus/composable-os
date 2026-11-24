@@ -221,7 +221,10 @@ extension declares it; it never implements it. Each behaviour the platform has i
   declares `onePerPerson: "<boolean field>"`: while true on a record, one per Person across the
   object's records with it on, bought signed in, held from the order's start (ADR 0512). A line
   that grants holds at most the record's `maxPerOrder` (10 when unset) and an order at most 100
-  grants. Only a pack or
+  grants. Say what kind of sale it is in the finance reports with `finance: { category: { key,
+  label }, earned }` (ADR 0792): `earned` is `at_sale` (the default), `over_period` (a plan's
+  paid period, only with `recurring`), `per_use` (a grant that holds uses, a pass) or `at_date`
+  with `at: "<date field or relation.field>"` (an event's start). One key, one label. Only a pack or
   the org's own extension (its client repo) may declare `sellable`: one written in the workspace
   is refused, since selling to the public is a reviewed change. Never create tickets or check a
   sale window in a tool or an automation. See `SellableSpec` in `packages/sdk/src/sellable.ts`

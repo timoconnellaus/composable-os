@@ -232,6 +232,8 @@ export default defineExtension({
         // a human admin turns tax on (ADR 0479). Whether the provider needs the gym's address as
         // the place is an open check of the test-mode runbook.
         tax: { code: "txcd_50021001" },
+        // In the finance reports (ADR 0792): a paid period is earned day by day over it.
+        finance: { category: { key: "memberships", label: "Memberships" }, earned: "over_period" },
         recurring: {
           interval: "month",
           trialDays: "trialDays",
@@ -451,6 +453,9 @@ export default defineExtension({
           valid: { from: "from", until: "until", days: "item.validDays" },
         },
         onePerPerson: "onePerPerson",
+        // In the finance reports (ADR 0792, decision 4): earned class by class as the pass is
+        // used, the rest when it expires.
+        finance: { category: { key: "passes", label: "Class passes" }, earned: "per_use" },
       },
       // Where agreement may be needed (stage 44, ADR 0641): the business attaches its documents
       // (its terms, a waiver) to "membership"; nothing is needed until it does. The host asks

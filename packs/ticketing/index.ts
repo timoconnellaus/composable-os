@@ -208,6 +208,12 @@ export default defineExtension({
             line1: "taxAddress",
           },
         },
+        // In the finance reports (ADR 0792): earned when the event starts.
+        finance: {
+          category: { key: "tickets", label: "Tickets" },
+          earned: "at_date",
+          at: "event.startsAt",
+        },
       },
       // A ticket type is public while its event is on sale; its places are capacity.get's.
       public: {

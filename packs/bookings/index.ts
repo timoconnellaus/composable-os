@@ -885,6 +885,12 @@ export default defineExtension({
           // How much of a class unpaid guest holds may take at once.
           holdCap: { setting: "dropInHoldPercent" },
         },
+        // In the finance reports (ADR 0792): earned when the class starts.
+        finance: {
+          category: { key: "drop_ins", label: "Drop-ins" },
+          earned: "at_date",
+          at: "class.startsAt",
+        },
       },
       // A spender of the Memberships pack's holders (stage 32b's ids, spec 32): booked spends,
       // an in-time cancel, a class the gym cancels and a move give back; a late cancel and a
