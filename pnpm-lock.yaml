@@ -728,6 +728,9 @@ importers:
       '@composable-os/db':
         specifier: workspace:*
         version: link:../db
+      '@composable-os/gatekeeper-booking-system':
+        specifier: workspace:*
+        version: link:../gatekeeper-booking-system
       '@composable-os/pdf':
         specifier: workspace:*
         version: link:../pdf

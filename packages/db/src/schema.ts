@@ -1179,6 +1179,144 @@ export interface CoreJourneyStepLogTable {
   detail: Defaulted<string | null>;
 }
 
+/** Migration 1410 (stage 65 step 3, ADR 0922): the booking-system copy's one row of settings. */
+export interface CoreOutsideSettingsTable {
+  id: number;
+  source: Defaulted<"file">;
+  enabled: Defaulted<number>;
+  /** JSON array of outside type refs; null: every type of kind `membership`. */
+  member_types: Defaulted<string | null>;
+  manage_url: Defaulted<string | null>;
+  book_url: Defaulted<string | null>;
+  largest_age_days: Defaulted<number>;
+  mappings: Defaulted<string>;
+  updated_by: Defaulted<string | null>;
+  updated_at: Defaulted<string | null>;
+}
+
+/** Migration 1410: one loaded list (counts only). */
+export interface CoreOutsideListTable {
+  id: string;
+  kind: "members" | "timetable";
+  source: "file";
+  exported_on: string;
+  loaded_by: string;
+  loaded_at: string;
+  row_count: Defaulted<number>;
+  refused_count: Defaulted<number>;
+  kept_count: Defaulted<number>;
+  mapping: Defaulted<string>;
+  state: Defaulted<"current" | "replaced" | "removed">;
+  ended_at: Defaulted<string | null>;
+}
+
+/** Migration 1410: an outside person kept from the current members list, and their link. */
+export interface CoreOutsidePersonTable {
+  ref: string;
+  list_id: string;
+  address: string | null;
+  address_folded: string | null;
+  given_name: string | null;
+  family_name: string | null;
+  member_status: "member" | "not_member" | "suspended" | "expired" | "ended" | "declined";
+  active: number;
+  why_kept: "member" | "pass" | "booked" | "staff";
+  person_id: string | null;
+  link_how: "address" | "staff" | null;
+  link_by: string | null;
+  link_why: string | null;
+  linked_at: string | null;
+}
+
+/** Migration 1410. */
+export interface CoreOutsideMembershipTypeTable {
+  ref: string;
+  list_id: string;
+  name: string;
+  kind: "membership" | "pass";
+  active: number;
+}
+
+/** Migration 1410. */
+export interface CoreOutsideMembershipTable {
+  ref: string;
+  list_id: string;
+  person_ref: string;
+  type_ref: string;
+  name: string;
+  kind: "membership" | "pass";
+  status: "live" | "paused" | "ended" | "cancelled";
+  from_date: string | null;
+  until_date: string | null;
+  uses_total: number | null;
+  uses_left: number | null;
+  renews: number;
+}
+
+/** Migration 1410. */
+export interface CoreOutsideClassTypeTable {
+  ref: string;
+  list_id: string;
+  name: string;
+  description: string | null;
+  active: number;
+}
+
+/** Migration 1410. */
+export interface CoreOutsideClassTable {
+  ref: string;
+  list_id: string;
+  class_type_ref: string;
+  title: string;
+  starts_at: string;
+  ends_at: string;
+  location_name: string | null;
+  staff_ref: string | null;
+  places: number | null;
+  booked: number;
+  waiting: number;
+  cancelled: number;
+}
+
+/** Migration 1410. */
+export interface CoreOutsideBookingTable {
+  ref: string;
+  list_id: string;
+  class_ref: string;
+  person_ref: string;
+  state: "booked" | "waiting" | "attended" | "late_cancelled" | "no_show" | "cancelled";
+}
+
+/** Migration 1410: a coach as the booking system names them, and their link to a staff account. */
+export interface CoreOutsideStaffTable {
+  ref: string;
+  list_id: string;
+  display_name: string;
+  address: string | null;
+  active: number;
+  user_id: string | null;
+  link_how: "address" | "staff" | null;
+  link_by: string | null;
+  link_why: string | null;
+  linked_at: string | null;
+}
+
+/** Migration 1410: an outside person or coach waiting for a person to link them. */
+export interface CoreOutsideMatchTable {
+  kind: "person" | "staff";
+  ref: string;
+  why: "several_people" | "shared_address" | "no_address";
+  candidates: Defaulted<string>;
+  created_at: string;
+}
+
+/** Migration 1410: an erased Person's outside ref and address, by hash. */
+export interface CoreOutsideSuppressedTable {
+  hash: string;
+  kind: "ref" | "address";
+  created_at: string;
+}
+
 /** Migration 0850 (stage 44, ADR 0640): an agreement document and its working copy. */
 export interface CoreAgreementDocumentTable {
   id: string;
@@ -3727,6 +3865,17 @@ export interface CoreDatabase {
   core_journey_version: CoreJourneyVersionTable;
   core_journey_entry: CoreJourneyEntryTable;
   core_journey_step_log: CoreJourneyStepLogTable;
+  core_outside_settings: CoreOutsideSettingsTable;
+  core_outside_list: CoreOutsideListTable;
+  core_outside_person: CoreOutsidePersonTable;
+  core_outside_membership_type: CoreOutsideMembershipTypeTable;
+  core_outside_membership: CoreOutsideMembershipTable;
+  core_outside_class_type: CoreOutsideClassTypeTable;
+  core_outside_class: CoreOutsideClassTable;
+  core_outside_booking: CoreOutsideBookingTable;
+  core_outside_staff: CoreOutsideStaffTable;
+  core_outside_match: CoreOutsideMatchTable;
+  core_outside_suppressed: CoreOutsideSuppressedTable;
   rec_media: RecMediaView;
   rec_publish_version: RecPublishVersionView;
   rec_stage_history: CrmStageHistoryView;

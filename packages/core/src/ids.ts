@@ -139,6 +139,8 @@ export const ID_PREFIXES = {
   journeyStepLog: "jnl",
   /** One closed version of a finance month (stage 52, ADR 0790). */
   financePeriod: "fip",
+  /** One list loaded from a business's booking system (stage 65, ADR 0922). */
+  outsideList: "osl",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

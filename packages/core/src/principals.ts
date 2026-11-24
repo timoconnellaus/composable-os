@@ -125,6 +125,11 @@ export type Role = (typeof ROLES)[number];
  *   acting for an account that holds it may read figures; downloading a file is a person's only.
  * - `finance:close` close and reopen a month's figures (stage 52, ADR 0794). Admins by default,
  *   grantable; a person only whatever is granted (the operations are `actors: ["human"]`).
+ * - `bookingSystem:manage` the copy of the business's booking system (stage 65, ADR 0922): read
+ *   its lists, their ages and who waits to be matched, and (a person only, whatever is granted)
+ *   load and remove a list and link or unlink an outside person or coach. Admins by default,
+ *   grantable one by one (ADR 0449), never to an account with a pack's fixed role. Its settings
+ *   stay a human admin's (`settings:manage`).
  */
 export const PERMISSIONS = [
   "records:read",
@@ -156,6 +161,7 @@ export const PERMISSIONS = [
   "stock:adjust",
   "finance:read",
   "finance:close",
+  "bookingSystem:manage",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -204,6 +210,7 @@ export const GRANTABLE_PERMISSIONS = [
   "stock:adjust",
   "finance:read",
   "finance:close",
+  "bookingSystem:manage",
 ] as const;
 
 /**

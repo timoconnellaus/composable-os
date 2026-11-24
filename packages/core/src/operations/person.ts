@@ -26,6 +26,7 @@ import { queueMergeSignals } from "../journeys/signals.ts";
 import { listInputSchema, pageSchema, runListQuery, selectFields } from "../list.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { queueMergeOrders } from "../orders/merge.ts";
+import { matchPersonAddresses } from "../outside/match.ts";
 import { queueMergePersonCodes } from "../people-codes/people.ts";
 import { holdsPermission } from "../principals.ts";
 import { bulkTagListSchema, queueBulkTags } from "../records/bulk-tags.ts";
@@ -463,6 +464,13 @@ export const personCreate = defineOperation({
     if (assignment?.ownerId) row.owner_id = assignment.ownerId;
     ctx.write(ctx.db.insertInto("core_person").values(row));
     queueEmails(ctx, id, emails);
+    // An unlinked outside person with one of these addresses is linked now (stage 65, ADR 0922).
+    if (emails.length)
+      await matchPersonAddresses(
+        ctx,
+        id,
+        emails.map((e) => e.email),
+      );
     queuePhones(ctx, id, phones);
     const tags = await queueSetTags(ctx, "person", id, input.tags ?? []);
 
@@ -625,6 +633,11 @@ export async function updatePerson(
       id,
     );
     queueEmails(ctx, id, after.emails);
+    await matchPersonAddresses(
+      ctx,
+      id,
+      after.emails.map((e) => e.email),
+    );
   }
   if (input.phones !== undefined) {
     after.phones = normalisePhones(input.phones);

@@ -398,6 +398,18 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   (people with their memberships and passes; optionally the timetable), with column mapping and a
   dry run, and `match.ts` holds the matching-by-address rules. No named connector is planned (the
   owner's decision of 2026-11-24, ADR 0920).
+  The host's **copy** of a business's booking system is core's (`packages/core/src/outside/`,
+  migration 1410, ADR 0922), never a pack's: settings (one row, a human admin's), each loaded
+  `members` or `timetable` list with its export date and counts, and the outside people (kept only
+  while a member, holding a live pass, booked, or staff-linked), memberships, classes, bookings and
+  coaches, in no `rec_*` view. `outside/ingest.ts` reads any `BookingSystemSession` and plans one
+  set-based batch that replaces the copy of a kind (about 34 statements for a members list of
+  3,000 rows, 69 for 28 days of 15 classes); `outside/match.ts` links an outside person to exactly
+  one live Person by folded address, never merged and changing nothing on the Person, sends
+  ambiguous ones to To match, keeps nothing of an erased address or suppressed ref, and links
+  people later from `person.create` and `person.update`. `outside.status`, `outside.matches` and
+  `outside.settings.get` read it with `bookingSystem:manage`; `outside.link` and `outside.unlink`
+  are a person's with it, and `outside.settings.update` a human admin's.
   Inbound webhooks and sync events land in `core_integration_event`; cos-runner's cron turns them
   into `webhook` and `syncEvent` automation triggers (ADR 0173), dropping private activities.
 - **Notification delivery** ([ADR 0172](adr/0172-notification-delivery.md)): cos-runner's minute
