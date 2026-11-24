@@ -63,7 +63,8 @@ export type RunOutcomeInput = Pick<RunItem, "status" | "statusReason" | "outcome
   steps: readonly unknown[];
 };
 
-function stepsOf(run: { steps: readonly unknown[] }): RunStepRecord[] {
+/** A run's steps, leaving out anything that is not a step record. */
+export function stepsOf(run: { steps: readonly unknown[] }): RunStepRecord[] {
   return run.steps.filter(
     (s): s is RunStepRecord =>
       Boolean(s) && typeof s === "object" && typeof (s as RunStepRecord).name === "string",

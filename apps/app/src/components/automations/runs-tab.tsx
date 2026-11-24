@@ -25,7 +25,7 @@ import { formatDateTime } from "#/lib/format";
 import { errorMessage } from "#/lib/query";
 import { recordHref } from "#/lib/schema";
 import { type RunData, useRun, useRuns } from "./hooks.ts";
-import { compactRelative, formatMs, RUN_STATUS_LABELS, runLabel } from "./model.ts";
+import { compactRelative, formatMs, RUN_STATUS_LABELS, runLabel, stepsOf } from "./model.ts";
 import { RunOutcome } from "./parts.tsx";
 
 const ALL = "all";
@@ -135,12 +135,6 @@ function RunRow({ run, onOpen }: { run: RunData; onOpen: () => void }) {
         {compactRelative(run.startedAt)}
       </span>
     </button>
-  );
-}
-
-function stepsOf(run: RunData): RunStepRecord[] {
-  return run.steps.filter(
-    (s): s is RunStepRecord => Boolean(s) && typeof s === "object" && "name" in (s as object),
   );
 }
 
