@@ -483,6 +483,36 @@ export const permissionsManifestSchema = z.object({
 });
 export type PermissionsManifest = z.infer<typeof permissionsManifestSchema>;
 
+/** A shipped pack's staff screen (stage 47, ADR 0660): see `ScreenSpec`. */
+export const screenManifestSchema = z
+  .object({
+    label: z.string().min(1).max(60),
+    block: z.string().min(1).max(80),
+    export: z.string().min(1).max(60),
+    nav: z
+      .object({
+        group: z.string().min(1).max(40),
+        order: z.number().int().min(0).max(1000).optional(),
+      })
+      .strict()
+      .optional(),
+    opens: z.array(z.string().max(80)).max(10).default([]),
+    writes: z.array(z.string().max(81)).max(10).optional(),
+    record: z
+      .object({ object: z.string().min(1).max(81), as: z.string().min(1).max(40) })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type ScreenManifest = z.infer<typeof screenManifestSchema>;
+
+/** A screen's key, as a tool's: `desk`, `classList`. */
+export const SCREEN_NAME_RE = /^[a-z][a-zA-Z0-9]{0,39}$/;
+/** A block's name: lowercase words joined by hyphens (`bookings-desk`). */
+const BLOCK_NAME_RE = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$/;
+/** A component a block exports: `Desk`, `RosterWeek`. */
+const COMPONENT_NAME_RE = /^[A-Z][A-Za-z0-9]{0,59}$/;
+
 export const manifestSchema = z.object({
   id: z.string(),
   version: z.string(),
@@ -536,6 +566,8 @@ export const manifestSchema = z.object({
     })
     .strict()
     .optional(),
+  /** A shipped pack's staff screens in the product's admin (stage 47, ADR 0660). */
+  screens: z.record(z.string(), screenManifestSchema).optional(),
 });
 export type ExtensionManifest = z.infer<typeof manifestSchema>;
 
@@ -767,6 +799,33 @@ export function toManifest(extension: Extension): ExtensionManifest {
           },
         }
       : {}),
+    ...(extension.screens && Object.keys(extension.screens).length
+      ? {
+          screens: Object.fromEntries(
+            Object.entries(extension.screens).map(([name, screen]) => [
+              name,
+              {
+                label: screen.label,
+                block: screen.block,
+                export: screen.export,
+                ...(screen.nav
+                  ? {
+                      nav: {
+                        group: screen.nav.group,
+                        ...(screen.nav.order !== undefined ? { order: screen.nav.order } : {}),
+                      },
+                    }
+                  : {}),
+                opens: [...(screen.opens ?? [])],
+                ...(screen.writes?.length ? { writes: [...screen.writes] } : {}),
+                ...(screen.record
+                  ? { record: { object: screen.record.object, as: screen.record.as } }
+                  : {}),
+              },
+            ]),
+          ),
+        }
+      : {}),
     ...(extension.requires?.length ? { requires: [...extension.requires] } : {}),
     ...(extension.routineMail && Object.keys(extension.routineMail).length
       ? { routineMail: extension.routineMail }
@@ -897,6 +956,87 @@ export function formulaFields(
     if (type) env[name] = { type, sql: `"${name}"` };
   }
   return env;
+}
+
+/**
+ * A shipped pack's screens (stage 47, ADR 0660), against its own manifest: each names a web block
+ * of this pack and a component it exports (that both exist is the admin's build's check, which
+ * fails on a missing one), and is gated by this pack's own tools, at least one of them for staff
+ * only. A record screen is on one of this pack's objects or a base one. That only a shipped pack
+ * declares screens is the host's check (`cos ext check` and install refuse a runtime one).
+ */
+export function screenIssues(m: ExtensionManifest): { path: string; message: string }[] {
+  const issues: { path: string; message: string }[] = [];
+  const add = (path: string, message: string) => issues.push({ path, message });
+  for (const [name, screen] of Object.entries(m.screens ?? {})) {
+    const path = `screens.${name}`;
+    if (!SCREEN_NAME_RE.test(name)) add(path, `Screen name "${name}" must be camelCase`);
+    if (
+      !BLOCK_NAME_RE.test(screen.block) ||
+      !screen.block.startsWith(`${m.id}-`) ||
+      screen.block.includes("-native-")
+    ) {
+      add(
+        `${path}.block`,
+        `"${screen.block}" must be a web block of this pack (${m.id}-<name>, never a native one or another pack's)`,
+      );
+    }
+    if (!COMPONENT_NAME_RE.test(screen.export)) {
+      add(`${path}.export`, `"${screen.export}" must be the name of a component (PascalCase)`);
+    }
+    const seen = new Set<string>();
+    let staffOnly = false;
+    screen.opens.forEach((tool, i) => {
+      const at = `${path}.opens.${i}`;
+      if (seen.has(tool)) add(at, `"${tool}" is named twice`);
+      seen.add(tool);
+      const spec = Object.hasOwn(m.tools, tool) ? m.tools[tool] : undefined;
+      if (!spec) {
+        add(at, `"${tool}" is not a tool of this pack: a screen is gated by its own pack's tools`);
+        return;
+      }
+      const audiences = spec.audiences ?? ["staff"];
+      if (!audiences.includes("staff")) {
+        add(at, `"${tool}" is not for staff, so no member of staff could open this screen`);
+      }
+      if (audiences.every((a) => a === "staff")) staffOnly = true;
+    });
+    const writes = screen.writes ?? [];
+    writes.forEach((object, i) => {
+      const local = object.startsWith(`${m.id}.`) ? object.slice(m.id.length + 1) : null;
+      if (local === null || !Object.hasOwn(m.objects, local)) {
+        add(`${path}.writes.${i}`, `"${object}" must be an object of this pack (${m.id}.<object>)`);
+      }
+    });
+    if (!screen.opens.length && !writes.length) {
+      add(
+        `${path}.opens`,
+        "A screen names at least one tool (opens) or object (writes) that gates it",
+      );
+    }
+    // A record screen is a tab on a staff record page, about that one record: a gate of tools staff
+    // share with customers (a coach logging a client's sets) is staff's there. Any other screen
+    // names a tool for staff only, or writes an object, so no customer's screen becomes a staff one.
+    if (screen.opens.length && !staffOnly && !writes.length && !screen.record) {
+      add(
+        `${path}.opens`,
+        "A screen's gate names at least one tool for staff only: a tool open to customers or the public is never the only gate",
+      );
+    }
+    if (screen.record) {
+      const { object, as } = screen.record;
+      const local = object.startsWith(`${m.id}.`) ? object.slice(m.id.length + 1) : null;
+      const own = local !== null && Object.hasOwn(m.objects, local);
+      if (!own && object !== "person" && object !== "organisation") {
+        add(
+          `${path}.record.object`,
+          `"${object}" must be an object of this pack (${m.id}.<object>), person or organisation`,
+        );
+      }
+      if (!FIELD_NAME_RE.test(as)) add(`${path}.record.as`, `"${as}" must be a camelCase prop`);
+    }
+  }
+  return issues;
 }
 
 /**
@@ -1917,6 +2057,8 @@ export function validateManifest(
       }
     }
   }
+
+  for (const issue of screenIssues(m)) contract(issue.path, issue.message);
 
   for (const [name, view] of Object.entries(m.views)) {
     if (!FIELD_NAME_RE.test(name)) contract(`views.${name}`, "View names must be camelCase");

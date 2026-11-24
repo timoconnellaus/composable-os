@@ -96,6 +96,12 @@ buttons, fields, lists, sheets, or a pack's screens. Blocks ship inside the plat
    to the version the repo is on (in `blocks.lock.json`), so the next `cos diff` shows only what
    changes after it. It refuses `--version` of another release: upgrade first. Commit the lock.
 
+**Staff screens are not added to a client app.** A company's web app never serves staff (ADR
+0421). A pack's staff blocks (the front desk, a class's list, the roster, pay) are shown in the
+product's admin on the host's address, for whoever may open them, because the pack declares them as
+screens (`screens` in its manifest, ADR 0660; see `write-extension`, "Staff screens"). To give
+staff a new screen, declare it in the shipped pack: never copy a staff block into the client app.
+
 ## The rules
 
 - Copy blocks, do not import them from a package.
