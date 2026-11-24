@@ -374,6 +374,18 @@ export function lintBlocks(folders, root) {
   for (const dir of folders) {
     const spec = JSON.parse(readFileSync(join(dir, "block.json"), "utf8"));
     const noPurchase = spec.noPurchase === true;
+    // The screens a push may open (ADR 0670): a native block's, each a name a kind's `open` uses.
+    if (spec.screens !== undefined) {
+      const ok =
+        spec.skin === "native" &&
+        Array.isArray(spec.screens) &&
+        spec.screens.every((s) => typeof s === "string" && /^[a-z][a-zA-Z0-9]{0,39}$/.test(s));
+      if (!ok) {
+        out.push(
+          `${relative(root, join(dir, "block.json"))}: screens: only a native block declares screens, each a camelCase name`,
+        );
+      }
+    }
     if (spec.skin === "native" && !noPurchase) {
       for (const op of spec.operations ?? []) {
         if (BILLING_OPERATION.test(op)) {

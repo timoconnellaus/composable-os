@@ -40,8 +40,14 @@ import {
 const ACTIVE = { states: ["active"], until: "until" };
 // Where agreement may be needed to buy a course, a bundle or a plan (stage 44, ADR 0641): nothing
 // is attached by default, so each sells as before until the business attaches a document (its
-// terms) to "course".
-const BUYING: AgreementsSpec = { point: "course", label: "Buying a course", suggests: ["terms"] };
+// terms) to "course". The course page and subscribe blocks show what is due and let the buyer
+// agree on the way (issue #292).
+const BUYING: AgreementsSpec = {
+  point: "course",
+  label: "Buying a course",
+  suggests: ["terms"],
+  inlineStep: true,
+};
 
 export default defineExtension({
   id: "courses",
@@ -330,6 +336,20 @@ export default defineExtension({
           // A full refund of its order (the host, ADR 0435); never a customer.
           { from: ["active", "ended"], to: "void", by: ["host"], final: true },
         ],
+      },
+      // An enrolment staff give (`enrol`, or a record made by hand) starts access as buying one
+      // does: the same point, asked by the engine when a caller makes one active or makes an ended
+      // one active again (stage 44, issue #281). One a paid order grants is the host's, asked when
+      // the order started; one the courses import writes is a student moving over, not asked.
+      agreements: {
+        point: "course",
+        label: "Buying a course",
+        suggests: ["terms"],
+        enter: ["active"],
+        person: "holder",
+        importMovesOver: true,
+        // The same point as buying one, so the course page's step answers it too (issue #292).
+        inlineStep: true,
       },
       customer: {
         field: "holder",

@@ -58,8 +58,9 @@ export type QueueCaller =
         /** The pack's routine email not turned on yet: an ordinary send (D1). */
         ordinary: boolean;
         heldReason: string | null;
-        automationId: string;
-        runId: string;
+        /** Null for a host kind's row (ADR 0670): host code asked for it, not an automation. */
+        automationId: string | null;
+        runId: string | null;
         extensionId: string;
         siteOrigin: string | null;
       };
@@ -291,16 +292,23 @@ export class HostQueue extends RpcTarget {
         : routine
           ? {
               // A routine email is its automation run's: a held one waits in the run's change set.
+              // A host kind's (ADR 0670) has no run: it waits in the host's own set for the kind.
               actor: "automation" as const,
               userId: this.#caller.user.id,
               userName: this.#caller.user.name,
               role: this.#caller.user.role,
-              origin: {
-                surface: "automation" as const,
-                automationId: routine.automationId,
-                runId: routine.runId,
-                extensionId: routine.extensionId,
-              },
+              origin:
+                routine.automationId && routine.runId
+                  ? {
+                      surface: "automation" as const,
+                      automationId: routine.automationId,
+                      runId: routine.runId,
+                      extensionId: routine.extensionId,
+                    }
+                  : {
+                      surface: "automation" as const,
+                      automationId: `routine-message:${routine.kind}`,
+                    },
               reason: routine.routine
                 ? `Routine email ${routine.kind} (${routine.id})`
                 : routine.ordinary

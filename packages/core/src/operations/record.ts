@@ -725,6 +725,8 @@ export async function createRecord(
     copied?: Record<string, MarkSource[]>;
     /** Fields the host generates itself, not anyone's words (a ticket's code): `default`. */
     generated?: readonly string[];
+    /** The record import writes it (`record.import`): someone moving over (issue #281). */
+    imported?: boolean;
   } = {},
 ): Promise<string> {
   // Only the door makes a submission (ADR 0720), whoever asks and by whatever path.
@@ -772,6 +774,7 @@ export async function createRecord(
   const outcome = await applyTransition(ctx, object, id, null, valuesOf(prepared), {
     by,
     cache: options.cache,
+    imported: options.imported,
   });
   // A spender entering a spend state spends a use (ADR 0493): the host's values on it (the
   // holder spent from, what it copies) go in this insert, the use after it.
@@ -1133,6 +1136,8 @@ export async function updateRecord(
     checkReferences?: boolean;
     /** Fields the host copies from other records (ADR 0590): their marks are the sources'. */
     copied?: Record<string, MarkSource[]>;
+    /** The record import writes it (`record.import`): someone moving over (issue #281). */
+    imported?: boolean;
   } = {},
 ): Promise<boolean> {
   const before = await loadRecord(ctx, object, id);
@@ -1159,6 +1164,7 @@ export async function updateRecord(
   });
   const outcome = await applyTransition(ctx, object, id, before.values, valuesOf(prepared), {
     by,
+    imported: options.imported,
   });
   const spent = await spenderWrite(
     ctx,

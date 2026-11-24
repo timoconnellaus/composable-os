@@ -195,8 +195,13 @@ the instance and marks the run `cancelled`.
   calls the operation only when it has: `order.expireDue`, `record.publishDue`,
   `content.reindex` and `agreement.takeEffect` now do, as `staffing.due` and `checklist.due`
   already did. A call that happens is gated and audited as before; a minute with nothing due
-  leaves no audit row (it left four, 5,760 a day). Reads in the tick use their indexes, written
-  out where the index is partial (SQLite uses a partial index only for its own predicate, stated
-  literally), and a sweep that looks for a one-day window and has no index to read by (the
-  subscription sweep) runs once an hour. `apps/runner/test/idle-minute-cost.test.ts` holds the
-  tick to no write, a bounded number of statements and rows read, and no full table scan.
+  leaves no audit row (it left four, 5,760 a day). A read the tick makes every minute uses an
+  index that holds only what is due, written out where the index is partial (SQLite uses a
+  partial index only for its own predicate, stated literally, and may still prefer another
+  index: the checklist read keeps it off the type key with `+object_type`). A read no index
+  holds runs in an hour's first minute only, when what it looks for waits long enough: the
+  subscription sweep's events not arriving and offers whose plan has gone (paging through their
+  window, so a burst is not cut at the first page), and the guest acceptance cleanup's check.
+  Those hourly reads still grow with their tables until each has an index (the doc's "left").
+  `apps/runner/test/idle-minute-cost.test.ts` holds the tick to no write; and, off the hour, to no
+  full table scan and a few rows a statement with rows on file that are not due.

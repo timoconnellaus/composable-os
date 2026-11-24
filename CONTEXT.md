@@ -1144,14 +1144,37 @@ fixed code template. A human admin lets it apply without review; until then sign
 set up (ADR 0456).
 _Avoid_: system email, transactional email
 
-**Routine mail**
-A shipped pack's own fixed email to the person a record belongs to (a booking's confirmation, a
-class change or cancellation, a reminder), declared in its manifest and sent by the host without a
-person's approval: the host chooses the recipient from the record, fills the words from it, and
-holds for a person anything that is not routine, anything an AI wrote or changed about it that no
-person approved included. Off for each pack until a human admin turns it on (until then each email
-waits for approval as before); each kind an admin can turn off (ADR 0590). Not a newsletter.
+**Routine message**
+A declared message to the person a record belongs to (a booking's confirmation, a class change or
+cancellation, a reminder), on email, text or push, sent by the host without a person's approval: a
+shipped pack's kind its automation asks for, or a **host kind** host code asks for. The host chooses
+the recipient from the record, fills the declaration's words from it, and holds for a person
+anything that is not routine, anything an AI wrote or changed about what its words show included.
+One row per recipient and channel. Off for each pack until a human admin turns it on (until then
+each email waits for approval as before); each kind an admin can turn off, and its text and push
+are off until an admin switches them on (ADRs 0590, 0670). Not a newsletter. Its former name,
+**Routine mail**, stays in the code (`routineMail`, `core_routine_mail`).
 _Avoid_: transactional email, notification, automated email
+
+**Host kind**
+A routine message kind the host declares itself in core code (`core.<name>`, such as a membership
+payment that failed), asked for by host code with an occasion, never by an automation, a tool or
+an AI; off until a human admin turns it on (ADR 0670).
+
+**Essential / optional**
+Whether a person can turn a routine message kind's email off: an essential one's always goes
+(confirmations, a class cancelled, a payment failed); an optional one's (reminders, waiting list
+news) they may stop. Text and push of any kind can be turned off (ADR 0670).
+
+**Urgent**
+A routine message kind whose texts and pushes may go during quiet hours, only when waiting would
+make them late: its moment (`until`) comes before quiet hours end (ADR 0676).
+
+**Quiet hours**
+When texts and pushes wait: one business-wide window (9pm to 7am unless an admin chose), in the
+time zone a human admin set for it; emails always go at once. A waiting one whose moment passed when they end is
+dropped, `expired` (ADR 0676).
+_Avoid_: do not disturb
 
 **Value mark**
 Who stands behind one value of a record (`core_value_mark`: a person, a customer, the public, a
@@ -1160,8 +1183,9 @@ it; a copy carries its source's mark. Routine mail reads marks only (ADR 0590).
 _Avoid_: provenance, taint
 
 **Routine mail kind**
-One declared email of a pack (`bookings.reminder`), with its messages: what an admin turns on or
-off in Settings → Routine email.
+One declared kind of routine message (`bookings.reminder`, or a host kind `core.<name>`), with its
+messages and the channels it may go on: what an admin turns on or off, and whose text and push they
+switch on, in Settings → Routine email.
 
 **Journey**
 A named set of steps the host takes for one Person at a time, because of what they did or stopped
@@ -1410,7 +1434,9 @@ documents to points; nothing is needed anywhere by default (ADR 0641). The host 
 subscription starts and when a record enters a declared state, and the write's batch carries a guard
 that fails if any document changed since. The host's own moves (a promotion, a paid drop-in booked)
 are never checked. Shipped points: `membership` (a plan, a pass type, a pass given by hand),
-`booking`, `event` (a ticket type) and `course` (a course, a bundle, a course plan).
+`booking`, `event` (a ticket type, a ticket made by hand) and `course` (a course, a bundle, a
+course plan, an enrolment staff give; the courses import's students are moving over and are not
+asked).
 _Avoid_: requirement (alone), gate (the approval gate)
 
 **Acceptance** (stage 44: by a customer, a guardian and from paper built in step 2; a guest's
@@ -1469,8 +1495,8 @@ a yes.
 
 **Agreement step** and **Before you go on** (stage 44, built in step 5)
 The **agreement step** is what a block that buys or books shows when the host refuses the call with
-`agreements_due`: each document it named, in turn, before "Pay", "Book", "Buy" or "Join" is tried
-again. A member's are recorded as they agree (for a child, by their parent); a visitor's are kept
+`agreements_due`: each document it named, in turn, before "Pay", "Book", "Buy", "Join" or
+"Subscribe" is tried again (in Bookings, Memberships, Ticketing and Courses). A member's are recorded as they agree (for a child, by their parent); a visitor's are kept
 in the screen's memory only until the buying call, which carries them. **Before you go on** is the
 screen after sign-in that walks through everything due for the member and each child; "Not now"
 goes on. Neither decides anything: what is due, for whom, and whether the purchase may go ahead are
@@ -1674,6 +1700,19 @@ day, ticked by anyone who may do it; whoever ticks the last step **finishes** it
 the end of the day, it is missed. Those who **manage checklists** (`checklists:write`) see how each
 day went and may tick for someone. Its screens are the Daily checklists pack's.
 _Avoid_: task list, to-do (a task is something else), inspection, daily task
+
+**Finance period**, **Close** and **Book entry** (stage 52, step 1 built: ADRs 0790 and 0791)
+A **finance period** is a calendar month of the business's days (local, in the organisation's
+zone: a day across a clock change is 23 or 25 hours). The business **closes** each month once it has
+ended and the month before is closed: its **book entries** and report rows are kept exactly as they
+were (a **version**), and **reopening** it (a person, with why) keeps that version; closing again
+writes the next. A book entry is one business day's summary, one payout, what is held for customers
+at the month's end, or what arrived **late** for a closed month (counted in the first open month,
+marked as belonging to the closed one): lines with headings in the host's words, debits equal to
+credits, a key the same in every version and a fingerprint of its lines. Money is counted on the
+day the host recorded it. Seen with `finance:read`, closed and reopened with `finance:close`
+(admins, and by grant); closing and reopening are a person's, never an AI's.
+_Avoid_: ledger, journal, accounting period (accounting is stage 61's), lock (the pay period's word)
 
 **Follows** (a state cascade)
 An object whose records move when the record a relation points to moves (`states.follows`): a
@@ -1975,7 +2014,8 @@ _Avoid_: scanner role, coach role
 
 **Permission grant**
 A named permission a human admin grants one staff account on top of its role (ADR 0449):
-`records:publish` (a coach who is a member publishes programs), `orders:refund`, or a pack tool's
+`records:publish` (a coach who is a member publishes programs), `orders:refund`, `finance:read`
+(a bookkeeper), or a pack tool's
 permission the pack declares grantable. Read from the account on every call; it adds up with the
 account's role, and with a pack role too when it is a pack's permission (a core one is refused to a
 fixed role's account, ADR 0600); it never lets an AI actor do what only a person may.
