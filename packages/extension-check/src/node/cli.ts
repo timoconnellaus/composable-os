@@ -224,6 +224,7 @@ interface OpensOutside {
         read: string[];
         write: string[];
         guardians?: { write?: boolean; madeBy?: string };
+        delete?: boolean;
       };
       public?: { read: string[]; when?: { via?: string; field: string; in: string[] } };
       signedIn?: { read: string[]; when?: { via?: string; field: string; in: string[] } };
@@ -307,7 +308,9 @@ export function outsideSummary(manifest: OpensOutside | null | undefined): strin
       : "is them";
     lines.push(
       `  customers see ${manifest.id}.${name} where ${c.field} ${whose}: ` +
-        `read ${c.read.join(", ") || "nothing"}; write ${c.write.join(", ") || "nothing"}`,
+        `read ${c.read.join(", ") || "nothing"}; write ${c.write.join(", ") || "nothing"}` +
+        // A customer's own records they may put in the Trash (ADR 0414, amended).
+        (c.delete ? "; may put their own in the Trash (my.delete)" : ""),
     );
   }
   for (const [name, tool] of Object.entries(manifest.tools)) {

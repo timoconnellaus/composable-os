@@ -16,7 +16,6 @@ import {
   type ActingUser,
   type ExtensionHost,
   type InvocationContext,
-  invokeByName,
   newId,
   refreshSchemaRegistry,
   runChecklistDue,
@@ -24,29 +23,12 @@ import {
 import { beforeAll, describe, expect, it } from "vitest";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, unique } from "./helpers.ts";
+import { createAdmin, db, host, queriesOf, refusal, run, unique } from "./helpers.ts";
+import { packFiles } from "./pack-files.ts";
 
-const packFiles = (glob: Record<string, string>) =>
-  Object.fromEntries(
-    Object.entries(glob)
-      .map(([path, text]) => [path.split("/").pop() as string, text] as const)
-      .filter(([name]) => name !== "vitest.config.ts"),
-  );
 const files: Record<string, Record<string, string>> = {
-  dailychecks: packFiles(
-    import.meta.glob<string>("../../../packs/dailychecks/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-  rostering: packFiles(
-    import.meta.glob<string>("../../../packs/rostering/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
+  dailychecks: packFiles("dailychecks"),
+  rostering: packFiles("rostering"),
 };
 const OURS = new Set(Object.keys(files));
 
@@ -89,16 +71,6 @@ const asUser = (user: ActingUser, extra: Partial<InvocationContext> = {}) =>
   staff({ user, ...extra });
 const asAi = (user: ActingUser) =>
   asUser(user, { actor: "assistant", origin: { surface: "assistant" } });
-const run = <T = Record<string, unknown>>(name: string, input: unknown, ctx: InvocationContext) =>
-  invokeByName(name, input, ctx) as Promise<T>;
-async function refusal(promise: Promise<unknown>) {
-  const error = await promise.then(
-    () => null,
-    (e: unknown) => e,
-  );
-  expect(error).toBeTruthy();
-  return error as { code: string; message?: string; details?: Record<string, unknown> };
-}
 const rule = async (promise: Promise<unknown>) => {
   const e = await refusal(promise);
   const details = (e.details ?? {}) as Record<string, unknown>;
@@ -726,28 +698,6 @@ describe("with Rostering installed", () => {
 });
 
 // --- What one call reads -----------------------------------------------------------------------------
-
-/** How many statements `call` prepares against D1 (each query is one). */
-async function queriesOf(
-  call: () => Promise<unknown>,
-): Promise<{ queries: number; outcome: string }> {
-  const d1 = env.DB as unknown as { prepare: (...a: unknown[]) => unknown };
-  const prepare = d1.prepare.bind(d1);
-  let queries = 0;
-  d1.prepare = (...a: unknown[]) => {
-    queries++;
-    return prepare(...a);
-  };
-  try {
-    const outcome = await call().then(
-      () => "ok",
-      (e: { code?: string }) => String(e.code),
-    );
-    return { queries, outcome };
-  } finally {
-    d1.prepare = prepare;
-  }
-}
 
 /** Well under D1's 1,000 a call, for the largest input each takes. */
 const CEILING = 250;

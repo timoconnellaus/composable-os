@@ -19,9 +19,10 @@ import {
   type OutsideInvocationContext,
   staffAuthority,
 } from "../src/index.ts";
+import { publishAgreement } from "./agreement-fixtures.ts";
 import { outside } from "./customer-fixtures.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
-import { context, createUser, db, unique } from "./helpers.ts";
+import { context, createUser, db, refusal, unique } from "./helpers.ts";
 
 const SECRET = "fixture-desk-secret-fixture-desk-secret";
 const ORIGIN = "https://desk.crm.example.test";
@@ -36,42 +37,16 @@ let member: ActingUser;
 const staff = (user: ActingUser, extra: Parameters<typeof context>[1] = {}) =>
   context(user, { desk: DESK, ...extra });
 
-async function refusal(promise: Promise<unknown>) {
-  try {
-    await promise;
-  } catch (error) {
-    return error as { code: string; message: string; details?: Record<string, unknown> };
-  }
-  throw new Error("expected a refusal");
-}
-
-const body = (text: string) => ({
-  blocks: [{ type: "paragraph", content: [{ type: "text", text }] }],
-});
-
 /** A published document attached to the fixture point. */
 async function liveDocument(
   kind: "waiver" | "terms" | "guardian" = "waiver",
   forWhom?: "everyone" | "dependants",
 ) {
-  const { id } = await invoke("agreement.create", { title: unique("Doc"), kind }, context(admin));
-  const saved = await invoke(
-    "agreement.draft.save",
-    {
-      id,
-      body: body("Fixture text: not a real document."),
-      tickLabel: "I have read this fixture",
-      ...(forWhom ? { forWhom } : {}),
-    },
-    context(admin),
-  );
-  const { version } = await invoke(
-    "agreement.publish",
-    { documentId: id, draftHash: saved.hash, draftRev: saved.rev, number: 1, change: "small" },
-    context(admin),
-  );
-  await invoke("agreement.attach", { documentId: id, points: [POINT] }, context(admin));
-  return { id: id as string, versionId: version.id as string };
+  return publishAgreement((name, input) => invokeByName(name, input, context(admin)), kind, {
+    title: unique("Doc"),
+    points: [POINT],
+    ...(forWhom ? { forWhom } : {}),
+  });
 }
 
 async function person(options: { email?: string | null; given?: string } = {}) {

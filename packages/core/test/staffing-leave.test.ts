@@ -13,7 +13,7 @@ import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
 import { type ActingUser, invoke, invokeByName } from "../src/index.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
-import { context, createUser } from "./helpers.ts";
+import { context, createUser, refusal } from "./helpers.ts";
 
 /**
  * A database whose first batch waits until released: a call made through it reads, plans its
@@ -217,14 +217,6 @@ const call = <T = Record<string, unknown>>(
   user: ActingUser,
   now = NOW,
 ) => invokeByName(name, input, tool(user, { humanOnly: true }, now)) as Promise<T>;
-async function refusal(promise: Promise<unknown>) {
-  const error = await promise.then(
-    () => null,
-    (e: unknown) => e,
-  );
-  expect(error).toBeTruthy();
-  return error as { code: string; message: string; details?: Record<string, unknown> };
-}
 const as = (user: ActingUser, now = NOW) => context(user, { clock: () => new Date(now) });
 async function create(object: string, values: Record<string, unknown>) {
   return ((await invoke("record.create", { object, values }, as(admin))) as { id: string }).id;

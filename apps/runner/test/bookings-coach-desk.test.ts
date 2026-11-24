@@ -8,7 +8,9 @@
 // is not held to the role's today, a run started through the role is, nested tools included;
 // only a human admin grants it, it is audited, and taking it away counts from the next call.
 //
-// Clocks: a tool's own calls read the real clock, so classes are placed from now.
+// Clocks: a tool's own calls read the real clock, so classes are placed from now. The coach's work
+// on a class minutes away runs at its start, so its day is the coach's today even when the run
+// crosses local midnight (#290).
 import { env } from "cloudflare:workers";
 import {
   type ActingUser,
@@ -220,6 +222,11 @@ async function klass(inMs: number, places = 10): Promise<string> {
 }
 const localDate = (inMs: number) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: ZONE }).format(new Date(Date.now() + inMs));
+/** A clock stopped at a class's start: the class is on that clock's today in any zone. */
+const startOf = async (classId: string) => {
+  const at = new Date(String((await get(CLASS, classId)).startsAt));
+  return () => at;
+};
 
 type Out = Record<string, unknown> & { result: string; bookingId?: string };
 async function booked(who: CustomerPrincipal, classId: string): Promise<string> {
@@ -286,9 +293,11 @@ async function deskWork(who: InvocationContext, label: string) {
   return { ahead, walkIn: walkIn.bookingId as string };
 }
 
-/** The coach's work, today, as `who`: the day, the list, a tick, an untick, a no-show, mark all. */
-async function coachWork(who: InvocationContext, label: string) {
+/** The coach's work, today, as `signedIn`: the day, the list, a tick, an untick, a no-show, mark all. */
+async function coachWork(signedIn: InvocationContext, label: string) {
   const today = await klass(2 * MINUTE);
+  const clock = await startOf(today);
+  const who: InvocationContext = { ...signedIn, clock };
   const people = await Promise.all(["a", "b", "c"].map((l) => member(`${label}${l}`)));
   await Promise.all(people.map((p) => givePass(p)));
   const [a, b, c] = (await Promise.all(people.map((p) => booked(p, today)))) as [
@@ -298,7 +307,7 @@ async function coachWork(who: InvocationContext, label: string) {
   ];
   const day = await run<{ classes: { id: string }[] }>(
     "x.bookings.day",
-    { date: localDate(2 * MINUTE), timeZone: ZONE },
+    { date: new Intl.DateTimeFormat("en-CA", { timeZone: ZONE }).format(clock()), timeZone: ZONE },
     who,
   );
   expect(day.classes.map((k) => k.id)).toContain(today);

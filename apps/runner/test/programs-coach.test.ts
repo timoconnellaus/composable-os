@@ -260,6 +260,19 @@ describe("the coach role (ADR 0889)", () => {
     );
     expect(progress.assignments).toEqual([expect.objectContaining({ id: adaAssignment, done: 1 })]);
 
+    // A set ticked by mistake is taken back (to the Trash; the approval policy may hold it).
+    await run(
+      "x.programs.logAdd",
+      { sessionId: mon?.id, item: "A1", setNumber: 2, actual: { reps: 8 } },
+      staff(kim),
+    );
+    const taken = await run<{ removed: number; waiting: number }>(
+      "x.programs.logRemove",
+      { sessionId: mon?.id, item: "A1", exerciseId: bank.row, setNumber: 2 },
+      staff(kim),
+    );
+    expect(taken.removed + taken.waiting).toBe(1);
+
     // Ben's: his set (logged by the desk) and his sessions are out of reach, whatever the tool.
     const bens = await run<{ id: string }>(
       "x.programs.logAdd",
@@ -271,6 +284,10 @@ describe("the coach role (ADR 0889)", () => {
       ["x.programs.logAdd", { sessionId: benMon?.id, item: "A1", setNumber: 2, actual: {} }],
       ["x.programs.sessionComplete", { sessionId: benMon?.id }],
       ["x.programs.logUpdate", { logId: bens.id, rpe: 9 }],
+      [
+        "x.programs.logRemove",
+        { sessionId: benMon?.id, item: "A1", exerciseId: bank.row, setNumber: 1 },
+      ],
       // A class session is about no one: not Kim's, even for her own client.
       ["x.programs.sessionGet", { sessionId: classMon?.id, personId: ada.personId }],
       [
@@ -331,6 +348,7 @@ describe("the coach role (ADR 0889)", () => {
         "x.dailychecks.today",
         "x.programs.history",
         "x.programs.logAdd",
+        "x.programs.logRemove",
         "x.programs.logUpdate",
         "x.programs.progress",
         "x.programs.sessionComplete",
@@ -440,13 +458,24 @@ describe("the coach role (ADR 0889)", () => {
     for (const [name, input] of [
       ["record.count", { object: SESSION }],
       ["record.createMany", { object: LOG, records: [{}] }],
-      ["record.delete", { object: LOG, id: "rec_x" }],
     ] as const) {
       expect([
         name,
         (await refusal(run(name, input, staff(plain, { roleLooksAfter: limit })))).code,
       ]).toEqual([name, "forbidden"]);
     }
+    // A delete is held as an update is: a set about someone else is not found.
+    expect(
+      (
+        await refusal(
+          run(
+            "record.delete",
+            { object: LOG, id: "rec_x" },
+            staff(plain, { roleLooksAfter: limit }),
+          ),
+        )
+      ).code,
+    ).toBe("not_found");
     // A new set must be about one of the People; an update may not point a record at another.
     const values = {
       label: "A1 set 9",

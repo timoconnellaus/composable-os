@@ -30,7 +30,7 @@ import {
 } from "../src/index.ts";
 import { call, declareCustomers, outside } from "./customer-fixtures.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
-import { context, createUser, db, unique } from "./helpers.ts";
+import { context, createUser, db, refusal as refused, unique } from "./helpers.ts";
 
 const ext = extId("clm");
 const KLASS = `${ext}.klass`;
@@ -216,15 +216,6 @@ async function counter(id: string) {
 async function state(id: string) {
   const record = await invoke("record.get", { object: BOOKING, id }, context(admin));
   return (record.values as Record<string, unknown>).state;
-}
-
-async function refused(promise: Promise<unknown>) {
-  const error = await promise.then(
-    () => null,
-    (e: unknown) => e,
-  );
-  expect(error).not.toBeNull();
-  return error as { code: string; details: Record<string, unknown>; message: string };
 }
 
 // Host writes are platform code's: fixture operations stand in for a paid order or an expiry

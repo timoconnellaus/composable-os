@@ -10,6 +10,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { AiSetupSummaryView, describeAiSetup } from "../src/components/setup/ai-summary.tsx";
 import { runOperation } from "../src/server/operations.ts";
+import { ensureAdmin } from "./helpers.ts";
 
 const admin: Principal = {
   userId: "usr_01JC00000000000000000000S1",
@@ -18,18 +19,8 @@ const admin: Principal = {
   roles: [],
 };
 
-async function ensureAdmin() {
-  const now = new Date().toISOString();
-  await env.DB.prepare(
-    "INSERT OR IGNORE INTO core_user (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
-  )
-    .bind(admin.userId, admin.name, admin.email, now, now)
-    .run();
-  await env.DB.prepare("UPDATE core_user SET role = 'admin' WHERE id = ?").bind(admin.userId).run();
-}
-
 async function aiSettings(e: typeof env): Promise<CoreOutput<"ai.settings">> {
-  await ensureAdmin();
+  await ensureAdmin(admin);
   const result = await runOperation(e, admin, { name: "ai.settings", input: {} });
   if (!result.ok) throw new Error(JSON.stringify(result.error));
   return result.data as CoreOutput<"ai.settings">;
