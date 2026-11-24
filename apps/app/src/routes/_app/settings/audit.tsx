@@ -27,6 +27,7 @@ import { diffValue } from "#/components/record/history";
 import { formatDateTime } from "#/lib/format";
 import { callOp } from "#/lib/operations";
 import { opKey } from "#/lib/query";
+import { useDebounced } from "#/lib/use-debounced";
 import { useUsers } from "#/lib/users-adapter";
 
 export const Route = createFileRoute("/_app/settings/audit")({
@@ -82,15 +83,6 @@ function dayStart(date: string, addDays = 0): string | undefined {
   if (Number.isNaN(d.getTime())) return undefined;
   d.setDate(d.getDate() + addDays);
   return d.toISOString();
-}
-
-function useDebounced<T>(value: T, ms: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(value), ms);
-    return () => clearTimeout(timer);
-  }, [value, ms]);
-  return debounced;
 }
 
 function AuditPage() {
