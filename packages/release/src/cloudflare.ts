@@ -23,6 +23,16 @@ export class CloudflareApiError extends Error {
   }
 }
 
+/** The call's result, or null when Cloudflare answers 404. */
+async function unless404<T>(call: Promise<T>): Promise<T | null> {
+  try {
+    return await call;
+  } catch (error) {
+    if (error instanceof CloudflareApiError && error.status === 404) return null;
+    throw error;
+  }
+}
+
 interface Envelope<T> {
   success: boolean;
   errors?: { code: number; message: string }[];
@@ -237,14 +247,10 @@ export class CloudflareClient {
   }
 
   async workersSubdomain(accountId: string): Promise<string | null> {
-    try {
-      return (
-        await this.request<{ subdomain: string }>("GET", `/accounts/${accountId}/workers/subdomain`)
-      ).result.subdomain;
-    } catch (error) {
-      if (error instanceof CloudflareApiError && error.status === 404) return null;
-      throw error;
-    }
+    const found = await unless404(
+      this.request<{ subdomain: string }>("GET", `/accounts/${accountId}/workers/subdomain`),
+    );
+    return found ? found.result.subdomain : null;
   }
 
   async createWorkersSubdomain(accountId: string, subdomain: string) {
@@ -303,13 +309,12 @@ export class CloudflareClient {
     ).result;
   }
 
-  /** The current D1 Time Travel bookmark (or the one at `timestamp`). */
-  async d1Bookmark(accountId: string, databaseId: string, timestamp?: string): Promise<string> {
-    const query = timestamp ? `?timestamp=${encodeURIComponent(timestamp)}` : "";
+  /** The current D1 Time Travel bookmark. */
+  async d1Bookmark(accountId: string, databaseId: string): Promise<string> {
     return (
       await this.request<{ bookmark: string }>(
         "GET",
-        `/accounts/${accountId}/d1/database/${databaseId}/time_travel/bookmark${query}`,
+        `/accounts/${accountId}/d1/database/${databaseId}/time_travel/bookmark`,
       )
     ).result.bookmark;
   }
@@ -525,16 +530,6 @@ export class CloudflareClient {
     });
   }
 
-  /** The version currently taking all traffic, or null. */
-  async currentVersion(accountId: string, name: string): Promise<string | null> {
-    this.accountOnly("Worker deployments");
-    const { result } = await this.request<{
-      deployments: { versions: { version_id: string; percentage: number }[] }[];
-    }>("GET", `${this.scripts(accountId)}/${name}/deployments`);
-    const latest = result.deployments[0];
-    return latest?.versions.find((v) => v.percentage === 100)?.version_id ?? null;
-  }
-
   async deleteScript(accountId: string, name: string) {
     await this.request("DELETE", `${this.scripts(accountId)}/${name}?force=true`);
   }
@@ -542,19 +537,13 @@ export class CloudflareClient {
   // ---- Workers for Platforms (ADR 0210) -------------------------------------------------------
 
   async getDispatchNamespace(accountId: string, name: string): Promise<{ name: string } | null> {
-    try {
-      return (
-        await this.request<{ namespace_name: string }>(
-          "GET",
-          `/accounts/${accountId}/workers/dispatch/namespaces/${encodeURIComponent(name)}`,
-        )
-      ).result
-        ? { name }
-        : null;
-    } catch (error) {
-      if (error instanceof CloudflareApiError && error.status === 404) return null;
-      throw error;
-    }
+    const found = await unless404(
+      this.request<{ namespace_name: string }>(
+        "GET",
+        `/accounts/${accountId}/workers/dispatch/namespaces/${encodeURIComponent(name)}`,
+      ),
+    );
+    return found?.result ? { name } : null;
   }
 
   async createDispatchNamespace(accountId: string, name: string) {
@@ -646,15 +635,12 @@ export class CloudflareClient {
 
   /** Removes a secret from a Worker (a user Worker with `forNamespace`). Missing is not an error. */
   async deleteSecret(accountId: string, name: string, secret: string) {
-    try {
-      await this.request(
+    await unless404(
+      this.request(
         "DELETE",
         `${this.scripts(accountId)}/${name}/secrets/${encodeURIComponent(secret)}`,
-      );
-    } catch (error) {
-      if (error instanceof CloudflareApiError && error.status === 404) return;
-      throw error;
-    }
+      ),
+    );
   }
 
   async putSchedules(accountId: string, name: string, crons: string[]) {
@@ -687,14 +673,10 @@ export class CloudflareClient {
 
   /** A gateway by id, or null when there is none. Needs AI Gateway Read or Edit. */
   async getAiGateway(accountId: string, id: string): Promise<AiGateway | null> {
-    try {
-      return (
-        await this.request<AiGateway>("GET", `/accounts/${accountId}/ai-gateway/gateways/${id}`)
-      ).result;
-    } catch (error) {
-      if (error instanceof CloudflareApiError && error.status === 404) return null;
-      throw error;
-    }
+    const found = await unless404(
+      this.request<AiGateway>("GET", `/accounts/${accountId}/ai-gateway/gateways/${id}`),
+    );
+    return found ? found.result : null;
   }
 
   async createAiGateway(accountId: string, settings: Record<string, unknown> & { id: string }) {
@@ -875,9 +857,9 @@ export class CloudflareClient {
    * A full SQL dump of a D1 database (the export API, polled until done). Returns the
    * Cloudflare-hosted, time-limited download URL: the dump never passes through the caller.
    */
-  async exportD1(accountId: string, databaseId: string, attempts = 30): Promise<string> {
+  async exportD1(accountId: string, databaseId: string): Promise<string> {
     let bookmark: string | undefined;
-    for (let i = 0; i < attempts; i++) {
+    for (let i = 0; i < 30; i++) {
       const { result } = await this.request<{
         at_bookmark?: string;
         status?: string;
