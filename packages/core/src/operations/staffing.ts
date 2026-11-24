@@ -629,15 +629,22 @@ export const staffingAway = defineOperation({
       );
     }
     // Their shifts from now on that it covers, from their claims (indexed by account and end).
+    // A claim is widened by its margins (ADR 0760): read as a wider range, then kept by the
+    // shift's own time.
     let claims = ctx.db
       .selectFrom("core_staff_time")
-      .select(["object_type", "record_id", "starts", "ends"])
+      .select(["object_type", "record_id", "starts", "ends", "margin_before", "margin_after"])
       .where("account_id", "=", account)
       .where("ends", ">", range ? Math.max(now, range.starts) : now);
     if (range) claims = claims.where("starts", "<", range.ends);
-    const rows = (await claims.orderBy("starts").limit(1000).execute()).filter(
-      (c) => !rule || regularOverlaps(rule, c.starts, c.ends),
-    );
+    const rows = (await claims.orderBy("starts").limit(1000).execute())
+      .map((c) => ({ ...c, starts: c.starts + c.margin_before, ends: c.ends - c.margin_after }))
+      .filter(
+        (c) =>
+          c.ends > (range ? Math.max(now, range.starts) : now) &&
+          (!range || c.starts < range.ends) &&
+          (!rule || regularOverlaps(rule, c.starts, c.ends)),
+      );
     const shifts: ShiftSummary[] = [];
     for (const c of rows.slice(0, 100)) {
       const s = await loadShift(ctx, c.object_type, c.record_id);
@@ -802,6 +809,14 @@ export const staffingOffer = defineOperation({
     await assertShippedToolRun(ctx, "staffing.offer");
     assertPersonsOwnAct(ctx, "Offering a shift");
     const s = await requireLiveShift(ctx, input.object, input.id);
+    // A shift whose title may name a client (an appointment, ADR 0761) is never offered: the
+    // offer would show it to others, and a client chose their provider. A rosterer reassigns it.
+    if (s.object.staffed?.private) {
+      throw new ConflictError(
+        `A ${s.object.label.toLowerCase()} is not offered to others. Whoever rosters gives it to someone else.`,
+        { rule: "offer_private" },
+      );
+    }
     assertLive(s);
     await assertBeforeCutoff(ctx, s);
     const mine = s.shift.account !== null && s.shift.account === actingAccount(ctx);
@@ -1208,7 +1223,9 @@ export const staffingWeek = defineOperation({
     "(and whether it is you), whether it has nobody on it, and its open offer (`truncated` when " +
     "more than 1,000 of one kind fall in the range). `mine` keeps " +
     "your own shifts, `account` one person's. Someone who rosters also gets each shift's " +
-    "warnings. Never a class's bookings, places or list, nor any member. Read-only.",
+    "warnings. A shift whose title may name a client (an appointment) shows its kind as its " +
+    "title, except to its own person and those who roster. Never a class's bookings, places or " +
+    "list, nor any member. Read-only.",
   input: z.object({
     from: localDate,
     to: localDate,
@@ -1257,6 +1274,8 @@ export const staffingWeek = defineOperation({
       actingAccount(ctx),
       {
         warnings: rosterer,
+        // A private shift's client (ADR 0761): its own person and those who roster only.
+        clients: rosterer,
         uncoveredDays: (await rosterNumbers(ctx.db)).uncoveredDays,
         // How a checklist is going is a person's to read at the screen (ADR 0650): a rosterer's
         // every shift's, anyone else their own; never an AI's.
@@ -1367,12 +1386,14 @@ export const staffingDueOperation = defineOperation({
   description:
     "Platform use only (the minute cron, as the host): open offers past their cut-off lapse and " +
     "their offerers and the rosterers are told; once a day the rosterers hear of every shift " +
-    "with nobody on it in the uncovered window. Returns what it did.",
+    "with nobody on it in the uncovered window; a time entry left open past its finish is " +
+    "marked finish missing and its person told. Returns what it did.",
   input: z.object({}),
   output: z.object({
     lapsed: z.number().int(),
     cancelled: z.number().int(),
     uncovered: z.number().int(),
+    finishMissing: z.number().int(),
   }),
   permission: "records:write",
   risk: "write",
@@ -1391,9 +1412,11 @@ export const staffingDueOperation = defineOperation({
 export async function runStaffingDue(
   db: CrmDb,
   { floor, clock }: { floor?: GateFloor; clock?: () => Date } = {},
-): Promise<{ lapsed: number; cancelled: number; uncovered: number }> {
+): Promise<{ lapsed: number; cancelled: number; uncovered: number; finishMissing: number }> {
   const now = (clock?.() ?? new Date()).toISOString();
-  if (!(await staffingWorkDue(db.query, now))) return { lapsed: 0, cancelled: 0, uncovered: 0 };
+  if (!(await staffingWorkDue(db.query, now))) {
+    return { lapsed: 0, cancelled: 0, uncovered: 0, finishMissing: 0 };
+  }
   return (await invoke(
     "staffing.due",
     {},
@@ -1405,7 +1428,7 @@ export async function runStaffingDue(
       ...(floor ? { floor } : {}),
       ...(clock ? { clock } : {}),
     },
-  )) as { lapsed: number; cancelled: number; uncovered: number };
+  )) as { lapsed: number; cancelled: number; uncovered: number; finishMissing: number };
 }
 
 export const staffingOperations = [

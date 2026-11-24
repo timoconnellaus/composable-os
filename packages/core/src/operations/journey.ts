@@ -23,7 +23,7 @@ import { sql } from "kysely";
 import { z } from "zod";
 import { ADJUDICATOR_PRINCIPAL } from "../adjudicator/review.ts";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
-import { getObject } from "../fields/index.ts";
+import { getObject, listObjects } from "../fields/index.ts";
 import { newId } from "../ids.ts";
 import {
   allowedReplyTo,
@@ -48,6 +48,7 @@ import {
   parseDefinition,
   renderJourney,
   type SampleValues,
+  signalsNamed,
 } from "../journeys/index.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { holdsPermission } from "../principals.ts";
@@ -920,6 +921,16 @@ async function refuseNotRunnable(ctx: HandlerContext, row: JourneyRow): Promise<
       rule: "journey_not_intact",
     });
   }
+  // Every signal it names is one an installed shipped pack declares (stage 53 step 2, ADR 0802):
+  // a journey listening for a signal nothing records would wait for ever.
+  const declared = new Set(listObjects().flatMap((o) => (o.signals ?? []).map((s) => s.id)));
+  const missing = signalsNamed(definition).filter((signal) => !declared.has(signal));
+  if (missing.length) {
+    throw new ConflictError(
+      `No installed pack declares ${missing.join(", ")}: install it, or publish the journey without it`,
+      { rule: "journey_signal", missing },
+    );
+  }
   const allowed = await allowedReplyTo(ctx.db);
   if (!definition.replyTo || !allowed.includes(definition.replyTo.toLowerCase())) {
     throw new ConflictError(
@@ -939,8 +950,9 @@ export const journeyGoLive = defineOperation({
   name: "journey.goLive",
   description:
     "Set a published journey live: from now on, people who meet its entry rule enter it (nobody " +
-    "who already qualified before is added; add them with journey.enter if you choose). A person " +
-    "only: an AI may never set a journey live. Needs journeys:manage. Audited.",
+    "who already qualified before is added; add them with journey.enter if you choose). Every " +
+    "signal it names must be one an installed pack declares. A person only: an AI may never set " +
+    "a journey live. Needs journeys:manage. Audited.",
   input: z.object({ id: journeyId }),
   output: statusOutput,
   permission: "journeys:manage",

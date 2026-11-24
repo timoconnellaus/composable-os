@@ -20,6 +20,7 @@ import {
 } from "../src/index.ts";
 import { journeyProblems, parseDefinition } from "../src/journeys/index.ts";
 import { erasedAddressHash } from "../src/records/erase-subject.ts";
+import { extId, manifest, reconcile } from "./extension-helpers.ts";
 import { context, createUser, db, setPreset, unique } from "./helpers.ts";
 
 let admin: ActingUser;
@@ -52,10 +53,14 @@ const assistant = (user: ActingUser = admin, extra: Partial<InvocationContext> =
     ...extra,
   });
 
+/** A fixture pack declaring the signals the journeys here listen for (stage 53 step 2). */
+const SIG = extId("jsig");
+const STARTED = `${SIG}.started`;
+
 const welcome = (replyTo: string | null, overrides: Record<string, unknown> = {}) =>
   ({
-    entry: { type: "signal", signal: "memberships.started" },
-    exits: ["memberships.ended"],
+    entry: { type: "signal", signal: STARTED },
+    exits: [`${SIG}.ended`],
     reentry: { rule: "once" },
     replyTo,
     steps: [
@@ -132,6 +137,25 @@ async function liveJourney(kind: "service" | "promotional" = "service", override
 }
 
 beforeAll(async () => {
+  await reconcile(
+    manifest(SIG, {
+      objects: {
+        member: {
+          label: "Member",
+          plural: "Members",
+          titleField: "title",
+          fields: {
+            title: { type: "text", label: "Title" },
+            person: { type: "relation", label: "Person", to: "person" },
+          },
+        },
+      },
+      journeySignals: {
+        started: { label: "Started", object: "member", person: "person" },
+        ended: { label: "Ended", object: "member", person: "person" },
+      },
+    } as never),
+  );
   admin = await createUser("admin");
   member = await createUser("member");
   viewer = await createUser("viewer");
@@ -312,7 +336,7 @@ describe("publishing (criterion 6)", () => {
       draftedBy: "person",
       intact: true,
     });
-    expect(out.version.summary).toMatch(/Starts when a Person gets memberships.started/);
+    expect(out.version.summary).toContain(`Starts when a Person gets ${STARTED}`);
     for (const statement of [
       "UPDATE core_journey_version SET summary = 'x' WHERE id = ?",
       "DELETE FROM core_journey_version WHERE id = ?",
@@ -461,6 +485,14 @@ describe("preview", () => {
 });
 
 describe("going live, pausing and resuming", () => {
+  it("refuses a journey that names a signal no installed pack declares", async () => {
+    const id = await draftJourney("service", { exits: ["nopack.nothing"] });
+    await publish(id);
+    expect((await refusal(invoke("journey.goLive", { id }, context(admin)))).details).toMatchObject(
+      { rule: "journey_signal", missing: ["nopack.nothing"] },
+    );
+  });
+
   it("a person sets it live and resumes it; an AI may pause, never set live or resume", async () => {
     const id = await draftJourney();
     await publish(id);
@@ -700,7 +732,7 @@ describe("the review of PR #378", () => {
     const diff = shown.find((p) => p.object === "journey")?.diff ?? {};
     expect(diff.version?.after).toBe(1);
     expect(diff.draftedBy?.after).toBe("assistant");
-    expect(String(diff.summary?.after)).toMatch(/Starts when a Person gets memberships.started/);
+    expect(String(diff.summary?.after)).toContain(`Starts when a Person gets ${STARTED}`);
     expect(String(diff["message 1 (day0)"]?.after)).toContain("Subject: Welcome to {business}");
     expect(String(diff["message 3 (day10)"]?.after)).toContain("keep going");
   });

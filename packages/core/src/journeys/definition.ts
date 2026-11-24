@@ -167,6 +167,20 @@ export const definitionSchema = z.object({
 });
 export type JourneyDefinition = z.infer<typeof definitionSchema>;
 
+/** Every signal a definition names: its entry rule's, its exits, and its conditions' and branches'. */
+export function signalsNamed(definition: JourneyDefinition): string[] {
+  const out = new Set<string>(definition.exits);
+  if (definition.entry.type === "signal" || definition.entry.type === "quiet") {
+    out.add(definition.entry.signal);
+  }
+  const conditions = [
+    ...definition.conditions,
+    ...definition.steps.flatMap((s) => (s.type === "branch" ? [s.condition] : [])),
+  ];
+  for (const c of conditions) if (c.test === "signalSinceEntry") out.add(c.signal);
+  return [...out].sort();
+}
+
 /** Parses a stored working copy or version. A row that does not parse is never run. */
 export function parseDefinition(json: string): JourneyDefinition | null {
   try {

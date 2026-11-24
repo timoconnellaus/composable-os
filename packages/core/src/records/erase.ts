@@ -14,7 +14,9 @@ import { queueEraseMemory } from "../assistant/memory.ts";
 import { queueEraseRoutines } from "../assistant/routines.ts";
 import { emailRef } from "../assistant/scrub.ts";
 import { eraseJourneyStatements } from "../journeys/entries.ts";
+import { queueEraseSignals } from "../journeys/signals.ts";
 import type { HandlerContext } from "../operation.ts";
+import { queueErasePersonCodes } from "../people-codes/people.ts";
 import { chunk, jsonList } from "./common.ts";
 import { drainAllBlobDeletions, writeEraseLog } from "./erase-log.ts";
 import {
@@ -385,6 +387,10 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
     const journeys = eraseJourneyStatements(ctx.db, [...recordIds]);
     if (journeys.length) ctx.write(...journeys);
   }
+  // Their journey signals: when they last did each thing (stage 53, ADR 0802).
+  if (subject.object === "person") queueEraseSignals(ctx, [...recordIds]);
+  // Their check-in codes, cards and PIN, and the dependants' codes on their app (stage 51, ADR 0783).
+  if (subject.object === "person") queueErasePersonCodes(ctx, [...recordIds]);
 
   // 3f. The erase log outside D1 (R2), so an erasure can be re-applied after a restore. Written
   // before the commit: if it cannot be written the erase fails and can be retried.

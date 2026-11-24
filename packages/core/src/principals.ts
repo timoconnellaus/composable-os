@@ -98,6 +98,9 @@ export type Role = (typeof ROLES)[number];
  * - `journeys:publish` publish a journey's version: the approval of its wording (decision 3).
  *   Admins by default, grantable. An AI acting for an account that holds it may ask; its request
  *   always waits for a person who holds it too (ADR 0480), never the adjudicator.
+ * - `people:cards` issue, revoke and list the check-in cards a business gives its members (stage
+ *   51, ADR 0783). Admins and members by default, grantable to any staff account (a fixed-role
+ *   one included, ADR 0600). A person only whatever is granted (`actors: ["human"]`).
  */
 export const PERMISSIONS = [
   "records:read",
@@ -120,6 +123,7 @@ export const PERMISSIONS = [
   "journeys:read",
   "journeys:manage",
   "journeys:publish",
+  "people:cards",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -134,7 +138,7 @@ export const CORE_PERMISSION_NAMESPACES: readonly string[] = [
 
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   viewer: ["records:read"],
-  member: ["records:read", "records:write", "journeys:read"],
+  member: ["records:read", "records:write", "journeys:read", "people:cards"],
   admin: PERMISSIONS,
 };
 
@@ -159,7 +163,16 @@ export const GRANTABLE_PERMISSIONS = [
   "checklists:write",
   "journeys:manage",
   "journeys:publish",
+  "people:cards",
 ] as const;
+
+/**
+ * The core permissions a human admin may also grant to an account holding a pack's fixed role
+ * (ADR 0600, amended by ADR 0783): each opens a few person-scoped core operations a desk or door
+ * account needs, never a record read, list or search. Every other core permission counts for
+ * nothing beside a pack role.
+ */
+export const FIXED_ROLE_CORE_GRANTS: readonly Permission[] = ["people:cards"];
 
 /**
  * The account's role, or a permission granted to it (ADR 0449), allows `permission`. A pack role

@@ -87,9 +87,10 @@ so none can be published until a person edits it, and none goes live until a per
 
 - Nothing here sends. The minute tick, the daily scan, exits and the send decision are step 4,
   through stage 30's routine messages as a new source.
-- Signals are named as `<pack>.<name>` and checked only for their form until step 2's
-  `journeySignals` declarations land; going live will then refuse a signal no installed pack
-  declares.
+- Signals are named as `<pack>.<name>`; going live and resuming refuse a journey that names one no
+  installed shipped pack declares (`journeySignals`, ADR
+  [0802](0802-journey-signals-declared-by-shipped-packs-recorded-in-the-write.md)). The win-back
+  and trial starters also stop on `memberships.passStarted`, step 2's pass signal.
 - An organisation reply-to address confirmed by a code needs the host to send the code: it comes
   with step 4. Until then only staff accounts' own addresses can be allowed.
 - A plan's or class type's name as a slot comes with step 2's declarations (which relation names

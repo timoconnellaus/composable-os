@@ -289,7 +289,7 @@ END;
 
 -- The four starter journeys (decision 9), seeded as drafts: never live, and with no reply-to, so
 -- none can be published until a person edits it, publishes it and sets it live. Their signals are
--- the ones Memberships and Bookings declare (stage 53 step 2).
+-- the ones Memberships and Bookings declare (stage 53 step 2, ADR 0802).
 INSERT INTO core_journey (id, name, kind, draft, draft_updated_at, draft_updated_by,
   draft_updated_via, starter, created_at, created_by) VALUES
 (
@@ -304,12 +304,12 @@ INSERT INTO core_journey (id, name, kind, draft, draft_updated_at, draft_updated
 ),
 (
   'jny_starter_win_back', 'Win-back after a membership ends', 'promotional',
-  '{"entry":{"type":"signal","signal":"memberships.ended"},"conditions":[],"exits":["memberships.started"],"reentry":{"rule":"after","days":180},"includeBulk":false,"replyTo":null,"steps":[{"id":"wait_14","type":"wait","days":14,"hours":0,"weekdaysOnly":false},{"id":"miss_you","type":"send","channel":"email","subject":"We miss you at {business}","body":"Hi {firstName},\n\nIt has been a couple of weeks since your membership ended. If you would like to come back, we would be glad to have you.\n\n{unsubscribe}"},{"id":"wait_21","type":"wait","days":21,"hours":0,"weekdaysOnly":false},{"id":"last","type":"send","channel":"email","subject":"Still thinking about it?","body":"Hi {firstName},\n\nJust checking in one last time. Reply to this email if there is anything we could do better.\n\n{unsubscribe}"},{"id":"end","type":"end"}]}',
+  '{"entry":{"type":"signal","signal":"memberships.ended"},"conditions":[],"exits":["memberships.started","memberships.passStarted"],"reentry":{"rule":"after","days":180},"includeBulk":false,"replyTo":null,"steps":[{"id":"wait_14","type":"wait","days":14,"hours":0,"weekdaysOnly":false},{"id":"miss_you","type":"send","channel":"email","subject":"We miss you at {business}","body":"Hi {firstName},\n\nIt has been a couple of weeks since your membership ended. If you would like to come back, we would be glad to have you.\n\n{unsubscribe}"},{"id":"wait_21","type":"wait","days":21,"hours":0,"weekdaysOnly":false},{"id":"last","type":"send","channel":"email","subject":"Still thinking about it?","body":"Hi {firstName},\n\nJust checking in one last time. Reply to this email if there is anything we could do better.\n\n{unsubscribe}"},{"id":"end","type":"end"}]}',
   '2026-11-24T00:00:00.000Z', 'host', 'host', 'win_back', '2026-11-24T00:00:00.000Z', 'host'
 ),
 (
   'jny_starter_trial_ended', 'Trial ended without joining', 'promotional',
-  '{"entry":{"type":"signal","signal":"memberships.trialEnded"},"conditions":[{"test":"liveMembership","not":true}],"exits":["memberships.started"],"reentry":{"rule":"once"},"includeBulk":false,"replyTo":null,"steps":[{"id":"wait_1","type":"wait","days":1,"hours":0,"weekdaysOnly":false},{"id":"thanks","type":"send","channel":"email","subject":"Thanks for trying {business}","body":"Hi {firstName},\n\nThank you for trying {business}. We hope you enjoyed it. If you would like to keep going, we would love to have you as a member.\n\n{unsubscribe}"},{"id":"wait_5","type":"wait","days":5,"hours":0,"weekdaysOnly":false},{"id":"question","type":"send","channel":"email","subject":"Any questions about joining?","body":"Hi {firstName},\n\nIf anything is stopping you from joining, reply and let us know. We are happy to help.\n\n{unsubscribe}"},{"id":"end","type":"end"}]}',
+  '{"entry":{"type":"signal","signal":"memberships.trialEnded"},"conditions":[{"test":"liveMembership","not":true}],"exits":["memberships.started","memberships.passStarted"],"reentry":{"rule":"once"},"includeBulk":false,"replyTo":null,"steps":[{"id":"wait_1","type":"wait","days":1,"hours":0,"weekdaysOnly":false},{"id":"thanks","type":"send","channel":"email","subject":"Thanks for trying {business}","body":"Hi {firstName},\n\nThank you for trying {business}. We hope you enjoyed it. If you would like to keep going, we would love to have you as a member.\n\n{unsubscribe}"},{"id":"wait_5","type":"wait","days":5,"hours":0,"weekdaysOnly":false},{"id":"question","type":"send","channel":"email","subject":"Any questions about joining?","body":"Hi {firstName},\n\nIf anything is stopping you from joining, reply and let us know. We are happy to help.\n\n{unsubscribe}"},{"id":"end","type":"end"}]}',
   '2026-11-24T00:00:00.000Z', 'host', 'host', 'trial_ended', '2026-11-24T00:00:00.000Z', 'host'
 );
 

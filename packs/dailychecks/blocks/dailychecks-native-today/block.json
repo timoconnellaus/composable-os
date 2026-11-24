@@ -1,0 +1,12 @@
+{
+  "name": "dailychecks-native-today",
+  "pack": "dailychecks",
+  "skin": "native",
+  "operations": ["x.dailychecks.today", "x.dailychecks.tick", "x.dailychecks.done"],
+  "files": ["today-screen.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/pack-dailychecks": "*"
+  },
+  "noPurchase": true
+}

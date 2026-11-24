@@ -23,8 +23,20 @@ decided, not asked; the owner may override any of them). A new stage, 53, in the
 Steps 1 to 3 may start now. The sending step (step 4) waits for stage 30's routine messages,
 preferences, one-tap stop and promotional consent (below, "What this stage needs from stage 30").
 
-Built:
+Built so far:
 
+- **Step 2, journey signals** (2026-11-24, [ADR 0802](../adr/0802-journey-signals-declared-by-shipped-packs-recorded-in-the-write.md),
+  migration 1175; the spec's list below numbered this ADR 0801). `journeySignals` in the manifest
+  (`packages/sdk/src/journey-signals.ts`: `JourneySignalSpec`, the check, `journeySignalFires`),
+  refused for a runtime extension at check and install; `cos ext check` lists a pack's signals.
+  `core_person_signal` (one row per Person and signal, with the record, the write's standing and a
+  bulk flag), written by the pipeline beside the value marks in every write's batch, one statement
+  however many records (`packages/core/src/journeys/signals.ts`); erase, the purge and merge
+  handle it. Memberships declares `started`, `ended`, `trialEnded` and `passStarted` (the pass
+  signal is an addition: "stop when they buy a pass" needs it); Bookings `booked` and `attended`;
+  Ticketing `ticketBought` and `checkedIn`. Recorded in the pipeline rather than the transition
+  engine and record create (the same writes, with the standing and bulk flag they lack). Nothing
+  reads the rows yet: entries and the scan are steps 3 and 4.
 - **Step 3** (`feat/stage-53-journeys-core`, ADR 0800, migration 1170): journeys, versions, entries
   and the step log (`core_journey*`, with triggers that refuse any change of a version and any
   version not made from the reviewed working copy); `packages/core/src/journeys/` (the working
@@ -38,8 +50,8 @@ Built:
   words; archiving and changing the owner are a person's; an AI's entry is approved only with
   `journeys:manage`; the Trash's purge erases entries; entry and log rows are fixed for every
   statement shape; settings saves change only what they name; a manual entry leaves out an erased
-  address; `journey.list` pages. Not in this step: signals are checked for their form only (step 2
-  declares them); going live does not yet count who already qualifies (the scan, step 4); an
+  address; `journey.list` pages. Going live refuses a signal no installed pack declares (step 2's
+  declarations). Not in this step: going live does not yet count who already qualifies (the scan, step 4); an
   organisation reply-to address confirmed by a code (it needs a send, step 4); merge moving entries
   (step 4's exits, with step 7's merge rules); a plan's or class type's name as a slot (with step
   2's declarations).

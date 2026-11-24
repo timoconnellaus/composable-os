@@ -141,6 +141,25 @@ describe("the staff roles an extension declares (stage 27, ADR 0436)", () => {
     ]);
   });
 
+  it("says which objects a role reaches only for the people its holder looks after (ADR 0881)", () => {
+    expect(
+      rolesSummary({
+        id: "programs",
+        roles: {
+          coach: {
+            label: "Coach",
+            permissions: ["programs:coach"],
+            read: ["programs.session"],
+            looksAfter: { "programs.session": "person", "programs.log": "person" },
+          },
+        },
+      }),
+    ).toEqual([
+      "This extension declares staff roles. An account given one may do this and nothing else:",
+      "  role programs.coach (Coach): tools with programs:coach; reads programs.session; only the people its holder looks after on programs.session, programs.log",
+    ]);
+  });
+
   it("names what each grantable permission opens, which adds up with a role (ADR 0600)", () => {
     expect(
       rolesSummary({
