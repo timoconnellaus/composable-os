@@ -13,7 +13,6 @@ import {
   normaliseMessageId,
   parseMessageIds,
   type SyncItem,
-  sha256Hex,
   snippetOf,
   threadKeyFor,
 } from "@composable-os/core";
@@ -444,7 +443,11 @@ export const googleCalendarAdapter: SyncAdapter = {
 // --- Microsoft 365: Outlook mail and calendar (gatekeeper-microsoft outlook/calendar-types) ---
 
 async function shortHash(text: string): Promise<string> {
-  return (await sha256Hex(text)).slice(0, 24);
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)]
+    .slice(0, 12)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 async function drain<T>(cursor: { next(): Promise<T[] | null> }, max: number): Promise<T[]> {

@@ -54,7 +54,6 @@ import { updateRecordAsHost } from "../operations/record.ts";
 import { callSubscriptionGatekeeper, paymentsTarget, sendHostEmail } from "../orders/gateway.ts";
 import { formatMoney } from "../orders/orders.ts";
 import { viewColumnOf } from "../records/columns.ts";
-import { chunk } from "../records/common.ts";
 import { extensionSettingValues } from "../records/windows.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import { addLocalDays, localParts, wallClockToIso } from "../time/local.ts";
@@ -273,7 +272,7 @@ interface CoolOffAction {
 /** Every cancel the cooling offs of `ids` ever waited on, with its approval (chunked). */
 async function actionsOf(db: Db, ids: readonly string[]): Promise<CoolOffAction[]> {
   const out: CoolOffAction[] = [];
-  for (const part of chunk(ids, CHUNK)) {
+  for (const part of chunks(ids)) {
     out.push(
       ...(await db
         .selectFrom("core_subscription_cool_off_action as a")
@@ -1248,6 +1247,12 @@ function spenderColumns(object: ObjectDefinition) {
   };
 }
 
+const chunks = <T>(items: readonly T[]) => {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += CHUNK) out.push(items.slice(i, i + CHUNK));
+  return out;
+};
+
 /**
  * The bookings ahead a cooled-off membership paid for (the owner's decision 1), at most `limit`
  * in this batch, ordered by when they are: each record that spent a use of the subscription's
@@ -1282,7 +1287,7 @@ export async function releaseBookingsAhead(
       const object = getObject(type);
       const cols = object ? spenderColumns(object) : null;
       if (!object || !cols) continue;
-      for (const part of chunk(ids, CHUNK)) {
+      for (const part of chunks(ids)) {
         const got = (await db
           .selectFrom(visibleSource(orgReader(ctx.db), object))
           .select(["id", `${cols.state} as state`])
@@ -1373,7 +1378,7 @@ export async function releaseBookingsAhead(
       );
       const relIds = [...new Set(payable.map((w) => w.rel).filter((r): r is string => !!r))];
       const times = new Map<string, string | null>();
-      for (const part of chunk(relIds, CHUNK)) {
+      for (const part of chunks(relIds)) {
         const got = (await db
           .selectFrom(visibleSource(orgReader(ctx.db), target))
           .select(["id", `${timeCol} as time`])
