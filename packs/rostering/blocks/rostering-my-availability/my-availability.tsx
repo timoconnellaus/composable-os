@@ -17,23 +17,13 @@ import {
   type RosterRefusal,
   rosterRefusal,
   shiftTime,
+  WEEKDAYS,
+  type Weekday,
 } from "@composable-os/pack-rostering/client";
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { Button } from "../ui-button/button.tsx";
 
 type Hooks = Pick<RosteringHooks, "useMe" | "useMyAway" | "useAway" | "useBack" | "useOffer">;
-
-const WEEKDAYS = [
-  ["mon", "Monday"],
-  ["tue", "Tuesday"],
-  ["wed", "Wednesday"],
-  ["thu", "Thursday"],
-  ["fri", "Friday"],
-  ["sat", "Saturday"],
-  ["sun", "Sunday"],
-] as const;
-
-type Weekday = (typeof WEEKDAYS)[number][0];
 
 interface AwayForm {
   kind: "leave" | "other" | "regular";

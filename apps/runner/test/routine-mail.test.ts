@@ -13,163 +13,39 @@
 //   - the kind switched off: nothing sent, nothing queued;
 //   - the Cautious preset, and over the daily cap per recipient: held.
 // The deploy floor's review and deny are tested in packages/core/test/routine-mail.test.ts.
-import { introspectWorkflow } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import {
-  type ActingUser,
-  type CustomerPrincipal,
-  type ExtensionHost,
-  type InvocationContext,
-  invokeByName,
-  type OutsideInvocationContext,
-  prepareRoutineMail,
-  queueEventSink,
-  refreshSchemaRegistry,
-} from "@composable-os/core";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { type InvocationContext, prepareRoutineMail } from "@composable-os/core";
+import { describe, expect, it, vi } from "vitest";
 import { automationHost } from "../src/automations/host.ts";
 import { runMomentDateRelative } from "../src/automations/schedule.ts";
 import { RunHost } from "../src/executor/host.ts";
 import { routineMailConnection } from "../src/integrations/code.ts";
-import { hostFor, integrationRuntime } from "../src/integrations/runtime.ts";
+import { hostFor } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, unique } from "./helpers.ts";
-
-const packFiles = (glob: Record<string, string>) =>
-  Object.fromEntries(
-    Object.entries(glob)
-      .map(([path, text]) => [path.split("/").pop() as string, text] as const)
-      .filter(([name]) => name !== "vitest.config.ts"),
-  );
-const files: Record<string, Record<string, string>> = {
-  programs: packFiles(
-    import.meta.glob<string>("../../../packs/programs/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-  bookings: packFiles(
-    import.meta.glob<string>("../../../packs/bookings/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-  memberships: packFiles(
-    import.meta.glob<string>("../../../packs/memberships/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-};
-const OURS = new Set(Object.keys(files));
-const shippedHost: ExtensionHost = {
-  ...host,
-  shipped: async () => [
-    ...(await host.shipped()).filter((s) => !OURS.has(s.id)),
-    { id: "bookings", version: "0.1.0" },
-    { id: "memberships", version: "0.1.0" },
-    { id: "programs", version: "0.1.0" },
-  ],
-  commitShipped: (id) =>
-    files[id]
-      ? host.commit({
-          id,
-          files: files[id] as Record<string, string>,
-          message: `Shipped ${id} 0.1.0`,
-          author: { name: "Composable OS", email: "release@composableos.dev" },
-        })
-      : host.commitShipped(id),
-};
-
-const integrations = integrationRuntime(env);
-const HOUR = 3_600_000;
-const DAY = 24 * HOUR;
-const CLASS = "bookings.class";
-const SITE = "https://gym.example";
-const MAILING = [
-  "bookingConfirmed",
-  "waitlistPassedOver",
-  "placeFree",
-  "classChanged",
-  "classCancelled",
-  "classReminder",
-  "dropInOrder",
-];
-
-let introspector: Awaited<ReturnType<typeof introspectWorkflow>>;
-let admin: ActingUser;
-let mailConnection: string;
-const sink = queueEventSink(env.AUTOMATION_EVENTS);
-const staff = (extra: Partial<InvocationContext> = {}): InvocationContext => ({
-  actor: "human",
-  user: admin,
-  origin: { surface: "ui" },
-  db,
-  integrations,
-  extensionHost: shippedHost,
-  events: sink,
-  ...extra,
-});
-const as = (principal: CustomerPrincipal): OutsideInvocationContext => ({
-  principal,
-  db,
-  integrations,
-  extensionHost: shippedHost,
-  events: sink,
-});
-const run = <T = Record<string, unknown>>(
-  name: string,
-  input: unknown,
-  ctx: InvocationContext | OutsideInvocationContext,
-) => invokeByName(name, input, ctx) as Promise<T>;
-const create = async (object: string, values: Record<string, unknown>) =>
-  (await run<{ id: string }>("record.create", { object, values }, staff())).id;
-
-interface Sent {
-  to: string[];
-  subject: string;
-  text?: string;
-}
-async function mailTo(address: string): Promise<Sent[]> {
-  const all = (await env.TEST_EMAIL_OUTBOX.list()) as Sent[];
-  return all.filter((m) => m.to.includes(address.toLowerCase()));
-}
-
-interface Row {
-  id: string;
-  kind: string;
-  status: string;
-  routine: number;
-  held_reason: string | null;
-  recipient: string;
-  recipient_rule: string;
-  pending_action_id: string | null;
-  run_id: string;
-  trigger_type: string;
-}
-/** The routine mail rows about a record, once there are `count` decided ones. */
-async function rowsFor(recordId: string, count = 1): Promise<Row[]> {
-  let rows: Row[] = [];
-  await vi.waitFor(
-    async () => {
-      rows = (
-        await env.DB.prepare(
-          "SELECT * FROM core_routine_mail WHERE record_id = ? ORDER BY created_at, id",
-        )
-          .bind(recordId)
-          .all<Row>()
-      ).results;
-      expect(rows.filter((r) => r.status !== "ready" && r.status !== "sending")).toHaveLength(
-        count,
-      );
-    },
-    { timeout: 30_000, interval: 200 },
-  );
-  return rows;
-}
+import { db, run, unique } from "./helpers.ts";
+import {
+  admin,
+  book,
+  booked,
+  CLASS,
+  classType,
+  create,
+  DAY,
+  get,
+  givePass,
+  HOUR,
+  klass,
+  mailConnection,
+  mailTo,
+  mcp,
+  member,
+  moveClass,
+  type Out,
+  rowsFor,
+  SITE,
+  staff,
+  useRoutineMail,
+} from "./routine-mail-fixture.ts";
 
 async function pendingOf(actionId: string) {
   return env.DB.prepare(
@@ -179,120 +55,7 @@ async function pendingOf(actionId: string) {
     .first<{ operation: string; action_kind: string; status: string; input: string }>();
 }
 
-async function member(
-  label: string,
-  name?: string,
-): Promise<CustomerPrincipal & { email: string }> {
-  const tag = unique(label).toLowerCase();
-  const email = `${tag}@members.test`;
-  const person = await run<{ id: string }>(
-    "person.create",
-    { givenName: name ?? `Given-${tag}`, emails: [{ email }] },
-    staff(),
-  );
-  const customerId = `cus_${tag}`;
-  const now = new Date().toISOString();
-  await env.DB.prepare(
-    "INSERT INTO core_customer (id, person_id, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
-  )
-    .bind(customerId, person.id, email, now, now)
-    .run();
-  return { kind: "customer", customerId, personId: person.id, email };
-}
-
-async function givePass(personId: string): Promise<void> {
-  const type = await create("memberships.passtype", {
-    title: unique("Pack "),
-    price: 50,
-    uses: 10,
-    validDays: 60,
-    status: "on_sale",
-  });
-  await run(
-    "x.memberships.givePass",
-    { personId, passTypeId: type, reason: "Integration test" },
-    staff(),
-  );
-}
-
-let type: string;
-async function klass(extra: Record<string, unknown> = {}): Promise<string> {
-  const startsAt = new Date(Date.now() + 2 * DAY).toISOString();
-  return create(CLASS, {
-    classType: type,
-    startsAt,
-    endsAt: new Date(Date.parse(startsAt) + HOUR).toISOString(),
-    timezone: "Australia/Sydney",
-    places: 10,
-    ...extra,
-  });
-}
-
-type Out = Record<string, unknown> & { result: string; bookingId?: string };
-const book = (who: CustomerPrincipal, classId: string, extra: Record<string, unknown> = {}) =>
-  run<Out>("x.bookings.book", { classId, ...extra }, as(who));
-
-/** A booked member, their booking's confirmation decided. */
-async function booked(label: string, classId?: string) {
-  const who = await member(label);
-  await givePass(who.personId);
-  const k = classId ?? (await klass());
-  const out = await book(who, k);
-  expect(out.result).toBe("booked");
-  const [row] = await rowsFor(out.bookingId as string);
-  return { who, classId: k, bookingId: out.bookingId as string, row: row as Row };
-}
-
-beforeAll(async () => {
-  introspector = await introspectWorkflow(env.AUTOMATION_WORKFLOW);
-  await introspector.modifyAll(async (m) => {
-    await m.disableSleeps();
-    await m.disableRetryDelays();
-  });
-  admin = await createAdmin();
-  await setPreset("balanced");
-  await refreshSchemaRegistry(db.query);
-  for (const id of ["programs", "bookings", "memberships"]) {
-    await run("extension.install", { id, shipped: true }, staff());
-  }
-  await refreshSchemaRegistry(db.query);
-  await run("integration.setVendor", { vendor: "email-send", enabled: true }, staff());
-  const mail = await run<{ connection: { id: string } }>(
-    "connection.create",
-    { vendor: "email-send", scope: "org" },
-    staff(),
-  );
-  mailConnection = mail.connection.id;
-  await run(
-    "connection.bindResource",
-    { id: mailConnection, url: `email-send://sender/${encodeURIComponent("gym@example.com")}` },
-    staff(),
-  );
-  for (const name of MAILING) {
-    await run(
-      "automation.bindConnection",
-      { id: `bookings.${name}`, slot: "mail", connectionId: mailConnection },
-      staff(),
-    );
-  }
-  // Off until a human admin turns it on (D1): this file is about routine email turned on.
-  await run(
-    "routineMail.settings.update",
-    { siteOrigin: SITE, packs: { bookings: true } },
-    staff(),
-  );
-  await run(
-    "extensionSettings.update",
-    { extension: "bookings", values: { bookingsUrl: `${SITE}/bookings` } },
-    staff(),
-  );
-  type = await create("programs.classtype", { name: unique("Strength") });
-}, 120_000);
-
-afterAll(async () => {
-  await setPreset("balanced");
-  await introspector[Symbol.asyncDispose]();
-});
+useRoutineMail();
 
 describe("a member's routine email under Balanced", { timeout: 60_000 }, () => {
   it("goes on its own, to the booking's person, linking only to the gym's site; the log says so", async () => {
@@ -688,23 +451,6 @@ describe("the policy and the rails", { timeout: 60_000 }, () => {
 
 // --- The review of PR #267 ---------------------------------------------------------------------
 
-const mcp = () =>
-  staff({ actor: "mcp", origin: { surface: "mcp", sessionId: unique("cap"), clientName: "Bot" } });
-const get = async (object: string, id: string) =>
-  (await run<{ values: Record<string, unknown> }>("record.get", { object, id }, staff())).values;
-const moveClass = (classId: string, hours: number, ctx = staff()) => {
-  const later = new Date(Date.now() + 2 * DAY + hours * HOUR).toISOString();
-  return run(
-    "record.update",
-    {
-      object: CLASS,
-      id: classId,
-      values: { startsAt: later, endsAt: new Date(Date.parse(later) + HOUR).toISOString() },
-    },
-    ctx,
-  );
-};
-
 describe("never on an AI's say-so, for the record's life (B1)", { timeout: 60_000 }, () => {
   it("a booking an MCP client made: its later reminder, a clock run, is held too", async () => {
     const who = await member("ai-later");
@@ -911,7 +657,7 @@ async function seriesClass(ctx: InvocationContext, title?: string): Promise<stri
     {
       object: "bookings.series",
       values: {
-        classType: type,
+        classType,
         ...(title ? { title } : {}),
         weekdays: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
         time: "06:00",

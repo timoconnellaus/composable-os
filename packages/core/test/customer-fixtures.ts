@@ -67,8 +67,6 @@ export const POST = `${SHOP}.post`;
 export const VISIT = `${SHOP}.visit`;
 export const HOLDING = `${SHOP}.holding`;
 export const DAY = `${SHOP}.day`;
-/** The shapes of programs.* the isolation suite aims at. */
-export const PROGRAM_OBJECTS = [ASSIGNMENT, SESSION, LOG] as const;
 
 const PLAN_SCHEMA = {
   root: {

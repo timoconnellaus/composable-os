@@ -12,19 +12,10 @@ import {
   resolveActingUser,
   staffCodeEmail,
 } from "../src/index.ts";
-import { auditChanges, context, createUser, db, unique } from "./helpers.ts";
+import { auditChanges, context, createUser, db, refusal, unique } from "./helpers.ts";
 
 let admin: ActingUser;
 let member: ActingUser;
-
-async function refusal(promise: Promise<unknown>) {
-  try {
-    await promise;
-  } catch (error) {
-    return error as { code: string; message: string; details?: Record<string, unknown> };
-  }
-  throw new Error("expected a refusal");
-}
 
 const INVITE_OPS = ["user.invite", "user.invites", "user.updateInvite", "user.revokeInvite"];
 
