@@ -505,7 +505,7 @@ async function signals(ing: Ingest, items: EmailItem[]) {
       .innerJoin("core_person_emails as e", "e.person_id", "p.id")
       .select(["p.id", "p.display_name", "e.email"])
       .where(
-        sql<boolean>`lower(p.display_name) IN (SELECT value FROM json_each(${JSON.stringify(names)}))`,
+        sql<boolean>`lower(p.display_name) IN ${jsonList(names)}`,
       )
       .where("p.deleted_at", "is", null)
       .limit(200)

@@ -148,7 +148,8 @@ function list(field: FieldDefinition, value: unknown, path: string): SqlValue[] 
   return value.map((item, i) => scalar(field, item, `${path}[${i}]`));
 }
 
-function escapeLike(value: string): string {
+/** `value` with LIKE's wildcards and its escape character escaped, for `LIKE ? ESCAPE '\\'`. */
+export function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 

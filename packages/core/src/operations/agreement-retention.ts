@@ -29,8 +29,10 @@ import {
   purgeCutoff,
 } from "../agreements/retention.ts";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
+import { escapeLike } from "../filter.ts";
 import { defineOperation } from "../operation.ts";
 import { holdsPermission } from "../principals.ts";
+import { jsonList } from "../records/common.ts";
 import { withMergedRecords } from "../records/erase.ts";
 import { customerAddresses } from "../records/erase-stores.ts";
 import { personSubject } from "../records/erase-subject.ts";
@@ -203,7 +205,7 @@ export const agreementKeptFind = defineOperation({
       .where("a.erased_at", "is not", null);
     if (input.email) query = query.where(sql<boolean>`lower(a.email) = ${input.email}`);
     if (input.name) {
-      const pattern = `%${input.name.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+      const pattern = `%${escapeLike(input.name.toLowerCase())}%`;
       query = query.where(sql<boolean>`lower(a.typed_name) LIKE ${pattern} ESCAPE '\\'`);
     }
     const rows = await query.orderBy("a.erased_at", "desc").limit(input.limit).execute();
@@ -315,7 +317,7 @@ export const agreementPurgeKept = defineOperation({
       d.unscrubbed ? [{ acceptanceId: d.id, gatekeepers: d.unscrubbed }] : [],
     );
     if (ids.length) {
-      const list = sql`(SELECT value FROM json_each(${JSON.stringify(ids)}))`;
+      const list = jsonList(ids);
       // What sits beside each one first: the acceptance's own trigger refuses while any is left.
       ctx.write(
         sql`DELETE FROM core_agreement_copy WHERE acceptance_id IN ${list}`.compile(ctx.db),
@@ -403,7 +405,7 @@ export const agreementErasePreview = defineOperation({
       ...(await customerAddresses(ctx, ids)),
       ...(await agreementAddresses(ctx, ids)),
     ];
-    const people = sql`(SELECT value FROM json_each(${JSON.stringify(ids)}))`;
+    const people = jsonList(ids);
     const { rows } = await sql<{ kept: number; answers: number }>`SELECT
         (SELECT count(*) FROM core_agreement_acceptance WHERE erased_at IS NULL
           AND (person_id IN ${people} OR agent_person_id IN ${people})) AS kept,
