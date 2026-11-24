@@ -64,6 +64,7 @@ commit**, by editing this table. Use the next free block. Unused numbers in a bl
 | BC | 0930–0949 | 0680–0689 | Stage 37, Shop (spec `docs/stages/37-shop.md`): the `stock` behaviour, `stockMoves`, goods and delivery on orders, `order.quote`, returns, the Shop pack; ADRs 0680 to 0688 named in the spec | specced |
 | BD | 0950–0969 | 0690–0699 | Stage 34, Price adjustments and Offers (spec `docs/stages/34-offers.md`). ADR 0694, an order paid another way, is shared with stage 35 and the till: if one of them builds that step first it writes the ADR in its own block and 0694 stays free | specced |
 | BE | 0970–0989 | 0700–0709 | Stage 38, Knowledge base (spec `docs/stages/38-knowledge-base.md`): ADRs 0700 to 0707 named by the spec; migrations for the published-text index, `core_publish_ack` and the checklist's "how to" expected | specced |
+| BF | 0990–1009 | 0710–0719 | Stage 48, My account (spec `docs/stages/48-my-account.md`): `core_customer_email_change` (migration 0990), `me.portal`, `me.attention`, changing the sign-in address, deleting an account's consequences; ADRs 0710 to 0714 named in the spec | specced |
 
 **`core_write_guard` remakes come in order.** Each kind added drops and recreates the table and its
 trigger, carrying every earlier kind. Stage 44 step 2's remake (migration 0851, kind `agreements`)

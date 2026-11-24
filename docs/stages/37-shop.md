@@ -583,6 +583,17 @@ table is touched. ADRs the build writes:
 | 13 | Later: the shipping gatekeeper, a fake carrier, live rates in `order.quote`, labels, tracking; customs details | a new `packages/gatekeeper-shipping`, `orders/`, `packs/shop` | Beside pack work; **collides** with `orders/` |
 | 14 | Later, when a trades client needs it: stock in several places | `stock/`, `capacity/`, a migration, `packs/shop` | **Collides** with `stock/`, `capacity/` and several-locations work |
 
+**Note (2026-11-24): "my orders" moves to My account (stage 48).** Stage 48's spec
+([`48-my-account.md`](48-my-account.md)) makes the base Orders section of My account the one list
+of a customer's orders, read through `my.list` and `order.get` as above. Shop ships no customer
+"my orders" block (web or native). Instead it declares a **Deliveries** section in its manifest's
+`portal` key (`has: ["shop.shipment"]`): the buyer's shipments, with each one's state and the order
+it belongs to, read with `my.list` on `shop.shipment`. Build step 8 changes to match: its customer
+blocks are shop, At the gym, item, basket, checkout and the Deliveries section (web and native).
+The `portal` declaration is stage 48's (build step 5). If Shop's step 8 lands first, it ships the
+Deliveries blocks and adds the declaration once stage 48's step 5 is merged. Where "my orders"
+appears above (Platform work, Screens, step 8), read this note.
+
 ## Size
 
 **Large.** Three platform pieces (a new behaviour with a ledger, a new declaration on the
