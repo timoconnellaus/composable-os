@@ -30,7 +30,8 @@ another Person has since taken (#302): erasing the first deleted the second's ac
   `me.email.change`, `me.email.confirm` and `me.deleteAccount`. Otherwise the call is refused with the new error code
   `sign_in_again` (HTTP 403, not 401: the session is good for everything else and a client must
   not drop it; `details.withinMinutes`). The blocks send the member through the code sign-in and
-  back.
+  back. For `me.deleteAccount` it holds for the preview too (ADR 0713's call without `confirm`):
+  the spec puts it on the operation, and the preview is the first step of deleting.
 - **"Signed in at" is the session's own row,** the one the adapter says the call came with
   (`origin.sessionId`), and only while it is the caller's own account's: a browser session's
   `core_customer_session.created_at` (written once, at the code sign-in), or a native app's
