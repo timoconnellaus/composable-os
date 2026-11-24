@@ -120,10 +120,11 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "agreements/people.ts": [2, WHY.agreements],
   // Stage 44 step 6 (ADR 0649): a desk acceptance's marks read the creation time of the Person it
   // is for (a walk-in), on the Acceptances list staff already read. The desk operations read a
-  // Person's names (the tablet's given name, people found by name and the one prepared for staff
-  // with agreements:desk), and the live dependants of the Person a session is for.
+  // Person's names (the tablet's given name, a Person found by their exact full name or email
+  // address and the one prepared for staff with agreements:desk), and the live dependants of the
+  // Person a session is for.
   "agreements/desk-marks.ts": [1, WHY.agreements],
-  "operations/agreement-desk.ts": [4, WHY.agreements],
+  "operations/agreement-desk.ts": [6, WHY.agreements],
   // Stage 44 step 8 (ADR 0646): the erase preview finds the Person to be erased, a Person in the
   // Trash included (as person.erase does); an admin and a person only, counts only.
   "operations/agreement-retention.ts": [1, WHY.agreements],
