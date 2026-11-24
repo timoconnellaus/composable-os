@@ -30,6 +30,7 @@ import {
   stripTrailingSlashes,
   workerVersionTag,
 } from "@composable-os/gatekeeper-interface/gatekeeper";
+import { generateNonce } from "@composable-os/gatekeeper-kit/connect-nonce";
 import type { EndpointConfiguratorRpc } from "./configurator/endpoint-configurator-types.js";
 import { type EndpointStatus, type StoredInitiator, WebhookEndpoint } from "./endpoint.js";
 import type {
@@ -95,13 +96,13 @@ type EndpointProps = { endpointId: string };
 type WebhookHookTarget = RpcTarget & WebhookEventHook;
 
 /** The public base deliveries are posted under, without a trailing slash. */
-export function baseUrl(env: Env): string {
+function baseUrl(env: Env): string {
   const configured: string = env.BASE_URL;
   return stripTrailingSlashes(configured || "http://localhost:5173/gatekeeper/webhook");
 }
 
 /** The public URL external systems POST to for `endpointId`. */
-export function deliveryUrl(env: Env, endpointId: string): string {
+function deliveryUrl(env: Env, endpointId: string): string {
   return `${baseUrl(env)}/in/${endpointId}`;
 }
 
@@ -373,7 +374,7 @@ export class EndpointConfiguratorUi extends RpcTarget implements EndpointConfigu
     input: unknown,
   ): Promise<{ endpointId: string; scheme: WebhookScheme; secret: string; url: string }> {
     const { endpointId, scheme, secret: given } = parseConfigureInput(input);
-    const secret = given ?? generateSecret();
+    const secret = given ?? generateNonce();
     await endpointStub(this.#env, endpointId).configure(endpointId, scheme, secret);
     return { endpointId, scheme, secret, url: deliveryUrl(this.#env, endpointId) };
   }
@@ -384,12 +385,6 @@ export class EndpointConfiguratorUi extends RpcTarget implements EndpointConfigu
     const status = await endpointStub(this.#env, id).status(id);
     return { ...status, url: deliveryUrl(this.#env, id) };
   }
-}
-
-function generateSecret(): string {
-  return [...crypto.getRandomValues(new Uint8Array(32))]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
 }
 
 // =======================================================================================

@@ -24,7 +24,7 @@ import {
   errorForLog,
   type IntegrationCaller,
   type IntegrationCallResult,
-  invokeByName,
+  invoke,
   loadRoutineMailSettings,
   ROLES,
   type Role,
@@ -35,6 +35,7 @@ import {
   SYNC_BATCH_MAX,
   SYSTEM_USER,
   type SyncConfig,
+  type SyncItem,
   settleRoutineMail,
   siteOriginOf,
   syncedInWindow,
@@ -173,6 +174,11 @@ async function toJson(value: unknown, depth = 0): Promise<unknown> {
     return out;
   }
   return value;
+}
+
+/** A method name a caller may name on a session or a configurator (never `constructor`). */
+function isCallableName(method: string): boolean {
+  return /^[a-zA-Z][a-zA-Z0-9]{0,60}$/.test(method) && method !== "constructor";
 }
 
 async function loadUser(env: Env, id: string): Promise<ActingUser> {
@@ -558,16 +564,9 @@ export class IntegrationHost extends DurableObject<Env> {
   }
 
   async disconnect(): Promise<void> {
-    const sync = await this.ctx.storage.get<SyncState>("sync");
-    if (sync) await this.ctx.storage.delete("sync");
-    for (const [key, hook] of await this.ctx.storage.list<HookRecord>({ prefix: "hook:" })) {
-      const controller = await this.ctx.storage.get<Stub>(`controller:${hook.id}`);
-      if (hook.enabled && controller) {
-        try {
-          await controller.disable();
-        } catch {}
-      }
-      await this.ctx.storage.delete([key, `controller:${hook.id}`]);
+    await this.ctx.storage.delete("sync");
+    for (const hook of (await this.ctx.storage.list<HookRecord>({ prefix: "hook:" })).values()) {
+      await this.#dropHook(hook);
     }
     for (const key of [
       "account",
@@ -582,12 +581,8 @@ export class IntegrationHost extends DurableObject<Env> {
         }
       }
     }
-    for (const [key, record] of await this.ctx.storage.list<FacetRecord>({ prefix: "facet:" })) {
-      try {
-        this.ctx.facets.delete(`f-${record.key}`);
-      } catch {}
-      await this.ctx.storage.delete([key, `class:${record.key}`]);
-    }
+    const facets = await this.ctx.storage.list<FacetRecord>({ prefix: "facet:" });
+    for (const record of facets.values()) await this.#dropFacet(record.key);
     await this.#dropStaged();
     await this.ctx.storage.delete(["account", "meta"]);
     await this.ctx.storage.deleteAlarm();
@@ -670,20 +665,10 @@ export class IntegrationHost extends DurableObject<Env> {
   }
 
   async unbindResource(key: string): Promise<void> {
-    for (const [hookKey, hook] of await this.ctx.storage.list<HookRecord>({ prefix: "hook:" })) {
-      if (hook.facetKey !== key) continue;
-      const controller = await this.ctx.storage.get<Stub>(`controller:${hook.id}`);
-      if (hook.enabled && controller) {
-        try {
-          await controller.disable();
-        } catch {}
-      }
-      await this.ctx.storage.delete([hookKey, `controller:${hook.id}`]);
+    for (const hook of (await this.ctx.storage.list<HookRecord>({ prefix: "hook:" })).values()) {
+      if (hook.facetKey === key) await this.#dropHook(hook);
     }
-    try {
-      this.ctx.facets.delete(`f-${key}`);
-    } catch {}
-    await this.ctx.storage.delete([`facet:${key}`, `class:${key}`]);
+    await this.#dropFacet(key);
     const sync = await this.ctx.storage.get<SyncState>("sync");
     if (sync && (sync.config.mail === key || sync.config.calendar === key)) {
       await this.setSync({
@@ -694,10 +679,12 @@ export class IntegrationHost extends DurableObject<Env> {
     }
   }
 
-  async resources(): Promise<BoundResource[]> {
-    return [...(await this.ctx.storage.list<FacetRecord>({ prefix: "facet:" })).values()].map((r) =>
-      this.#bound(r),
-    );
+  /** Stops a facet and forgets it and its class. */
+  async #dropFacet(key: string): Promise<void> {
+    try {
+      this.ctx.facets.delete(`f-${key}`);
+    } catch {}
+    await this.ctx.storage.delete([`facet:${key}`, `class:${key}`]);
   }
 
   async supportedResources(): Promise<
@@ -742,7 +729,7 @@ export class IntegrationHost extends DurableObject<Env> {
       ui = frame.ui;
       this.#configurators.set(pattern, ui);
     }
-    if (!/^[a-zA-Z][a-zA-Z0-9]{0,60}$/.test(method) || method === "constructor") {
+    if (!isCallableName(method)) {
       throw new Error("Not a configurator method");
     }
     return toJson(await ui[method](...args));
@@ -817,7 +804,7 @@ export class IntegrationHost extends DurableObject<Env> {
     if (meta.scope === "personal" && input.caller.userId !== meta.ownerUserId) {
       throw new Error("A personal connection is used only by its owner's actors");
     }
-    if (!/^[a-zA-Z][a-zA-Z0-9]{0,60}$/.test(input.method) || input.method === "constructor") {
+    if (!isCallableName(input.method)) {
       throw new Error("Not a session method");
     }
     const user = await loadUser(this.env, input.caller.userId);
@@ -850,7 +837,7 @@ export class IntegrationHost extends DurableObject<Env> {
     ) {
       throw new Error("Not a purpose the host calls for");
     }
-    if (!/^[a-zA-Z][a-zA-Z0-9]{0,60}$/.test(input.method) || input.method === "constructor") {
+    if (!isCallableName(input.method)) {
       throw new Error("Not a session method");
     }
     let caller: QueueCaller;
@@ -1037,8 +1024,15 @@ export class IntegrationHost extends DurableObject<Env> {
     return { callback, approvalQueue: queue };
   }
 
-  async hooks(): Promise<HookRecord[]> {
-    return [...(await this.ctx.storage.list<HookRecord>({ prefix: "hook:" })).values()];
+  /** Disables an enabled hook (best effort) and forgets it and its controller. */
+  async #dropHook(hook: HookRecord): Promise<void> {
+    const controller = await this.ctx.storage.get<Stub>(`controller:${hook.id}`);
+    if (hook.enabled && controller) {
+      try {
+        await controller.disable();
+      } catch {}
+    }
+    await this.ctx.storage.delete([`hook:${hook.id}`, `controller:${hook.id}`]);
   }
 
   // --- Sync -----------------------------------------------------------------------------------
@@ -1099,10 +1093,6 @@ export class IntegrationHost extends DurableObject<Env> {
     await this.#syncPass();
   }
 
-  async syncState(): Promise<SyncState | null> {
-    return (await this.ctx.storage.get<SyncState>("sync")) ?? null;
-  }
-
   async #scheduleAlarm(at: number, onlyIfEarlier = true): Promise<void> {
     const current = await this.ctx.storage.getAlarm();
     if (current === null || !onlyIfEarlier || at < current) await this.ctx.storage.setAlarm(at);
@@ -1129,12 +1119,18 @@ export class IntegrationHost extends DurableObject<Env> {
       .bind(meta.connectionId)
       .first<{ sharing_level: string; status: string }>();
     if (!row || row.status === "disconnected") return;
+    // The owner is read once per pass, for every kind (a failure is each kind's error).
+    let owner: Promise<ActingUser> | undefined;
+    const user = () => {
+      owner ??= loadUser(this.env, meta.ownerUserId);
+      return owner;
+    };
     let more = false;
     for (const kind of ["mail", "calendar"] as const) {
       const kindState = state[kind];
       if (!kindState) continue;
       try {
-        more = (await this.#pullKind(meta, kind, kindState, row.sharing_level)) || more;
+        more = (await this.#pullKind(meta, kind, kindState, row.sharing_level, user)) || more;
         kindState.lastError = null;
       } catch (error) {
         kindState.lastError = syncErrorText(error);
@@ -1146,10 +1142,16 @@ export class IntegrationHost extends DurableObject<Env> {
     await this.ctx.storage.setAlarm(Date.now() + (more ? BACKFILL_STEP_MS : CATCH_UP_MS));
   }
 
-  async #pullKind(meta: Meta, kind: SyncKind, state: KindState, sharing: string): Promise<boolean> {
+  async #pullKind(
+    meta: Meta,
+    kind: SyncKind,
+    state: KindState,
+    sharing: string,
+    owner: () => Promise<ActingUser>,
+  ): Promise<boolean> {
     const adapter = adapterFor(meta.vendor, kind);
     if (!adapter) return false;
-    const user = await loadUser(this.env, meta.ownerUserId);
+    const user = await owner();
     const { value: result } = await this.#withSession(
       state.resource,
       { kind: "system", purpose: "sync", user },
@@ -1168,28 +1170,11 @@ export class IntegrationHost extends DurableObject<Env> {
       // sync.jobChange (ADR 0236): a changed signature of a known person may ask the judge.
       const judge = runnerJudge(this.env);
       for (let i = 0; i < result.items.length; i += SYNC_BATCH_MAX) {
-        const out = (await invokeByName(
-          "sync.ingest",
-          { connectionId: meta.connectionId, items: result.items.slice(i, i + SYNC_BATCH_MAX) },
-          {
-            actor: "automation",
-            user,
-            origin: { surface: "automation", automationId: `sync:${meta.connectionId}` },
-            db,
-            judge,
-          },
-        )) as {
-          created: number;
-          bodies: { externalKey: string; key: string }[];
-          removedBodies: string[];
-        };
+        const out = await this.#ingest(meta, user, db, result.items.slice(i, i + SYNC_BATCH_MAX), {
+          judge,
+          bodies: result.bodies,
+        });
         state.created = (state.created ?? 0) + out.created;
-        for (const body of out.bodies) {
-          const text = result.bodies.get(body.externalKey);
-          if (text && this.env.BLOBS) await this.env.BLOBS.put(body.key, text);
-        }
-        if (out.removedBodies.length && this.env.BLOBS)
-          await this.env.BLOBS.delete(out.removedBodies);
       }
     }
     state.cursor = result.cursor;
@@ -1227,35 +1212,58 @@ export class IntegrationHost extends DurableObject<Env> {
     if (!listed.complete) return;
     const present = new Set(listed.ids);
     const db = createCrmDb(this.env.DB);
+    const itemKind = kind === "mail" ? "email" : "meeting";
     const synced = await syncedInWindow(db.query, {
       connectionId: meta.connectionId,
-      kind: kind === "mail" ? "email" : "meeting",
+      kind: itemKind,
       from: from.toISOString(),
       to: to.toISOString(),
     });
     const gone = synced.filter((id) => !present.has(id));
     for (let i = 0; i < gone.length; i += SYNC_BATCH_MAX) {
-      const out = (await invokeByName(
-        "sync.ingest",
-        {
-          connectionId: meta.connectionId,
-          items: gone.slice(i, i + SYNC_BATCH_MAX).map((providerId) => ({
-            kind: kind === "mail" ? "email" : "meeting",
-            op: "delete",
-            providerId,
-          })),
-        },
-        {
-          actor: "automation",
-          user,
-          origin: { surface: "automation", automationId: `sync:${meta.connectionId}` },
-          db,
-        },
-      )) as { deleted: number; removedBodies: string[] };
+      const out = await this.#ingest(
+        meta,
+        user,
+        db,
+        gone
+          .slice(i, i + SYNC_BATCH_MAX)
+          .map((providerId) => ({ kind: itemKind, op: "delete", providerId })),
+      );
       state.deleted = (state.deleted ?? 0) + out.deleted;
-      if (out.removedBodies.length && this.env.BLOBS)
-        await this.env.BLOBS.delete(out.removedBodies);
     }
+  }
+
+  /**
+   * One sync.ingest batch as the connection's owner: the bodies it stored go to R2 (from `bodies`,
+   * by external key), then the bodies it sent to Trash leave it.
+   */
+  async #ingest(
+    meta: Meta,
+    user: ActingUser,
+    db: ReturnType<typeof createCrmDb>,
+    items: SyncItem[],
+    {
+      judge,
+      bodies,
+    }: { judge?: ReturnType<typeof runnerJudge>; bodies?: Map<string, string> } = {},
+  ) {
+    const out = await invoke(
+      "sync.ingest",
+      { connectionId: meta.connectionId, items },
+      {
+        actor: "automation",
+        user,
+        origin: { surface: "automation", automationId: `sync:${meta.connectionId}` },
+        db,
+        ...(judge ? { judge } : {}),
+      },
+    );
+    for (const body of out.bodies) {
+      const text = bodies?.get(body.externalKey);
+      if (text && this.env.BLOBS) await this.env.BLOBS.put(body.key, text);
+    }
+    if (out.removedBodies.length && this.env.BLOBS) await this.env.BLOBS.delete(out.removedBodies);
+    return out;
   }
 
   async #mirrorSync(state: SyncState): Promise<void> {

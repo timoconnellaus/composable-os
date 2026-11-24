@@ -67,11 +67,6 @@ async function loadDefinition(
 const TRIGGER_OBJECT_TYPES = new Set(["record", "fieldChanged", "dateRelative", "manual"]);
 
 /**
- * Test mode (ADR 0133): one executor call in `test` mode with an in-memory simulation. Every
- * operation the run calls goes through the pipeline simulated: nothing is written and no events
- * are sent. The report, and a test run row for the automation page, are the only writes.
- */
-/**
  * A proposed automation (ADR 0133, stage 7b): evaluates the extension at the proposed commit (the
  * evaluation extension.check and install use, cached by source hash) and takes entry `key`.
  */
@@ -154,6 +149,11 @@ async function ensurePrincipal(
     .execute();
 }
 
+/**
+ * Test mode (ADR 0133): one executor call in `test` mode with an in-memory simulation. Every
+ * operation the run calls goes through the pipeline simulated: nothing is written and no events
+ * are sent. The report, and a test run row for the automation page, are the only writes.
+ */
 export async function testAutomation(
   env: AutomationHostEnv,
   input: AutomationTestInput,
@@ -331,6 +331,7 @@ export async function testAutomation(
       : (((!response.ok ? (response.error.details as { steps?: unknown } | undefined) : null)
           ?.steps ?? []) as AutomationTestStep[]);
   const operations = exec?.operations ?? [];
+  const logs = (exec?.logs ?? []).map((l) => `${l.level}: ${l.message}`);
   const steps = ranSteps.map((s) => {
     const ops: RunOperationRecord[] = stepOperations(
       operations.filter((o) => o.step === s.name),
@@ -342,7 +343,6 @@ export async function testAutomation(
       );
       return gate && op.pendingActionId ? { ...op, gate: gate.gate } : op;
     });
-    const logs = (exec?.logs ?? []).map((l) => `${l.level}: ${l.message}`);
     return { ...s, operations: ops, logs: s.kind === "do" ? logs : [] };
   });
   const assignees = new Set<string>();
@@ -493,7 +493,7 @@ async function loadRun(env: { DB: D1Database }, runId: string): Promise<RunRow> 
     .where("id", "=", runId)
     .executeTakeFirst();
   if (!row) throw new Error(`No automation run ${runId}`);
-  return row as RunRow;
+  return row;
 }
 
 /** A new run with an earlier run's trigger: a retry (with its journal) or a replay. */
