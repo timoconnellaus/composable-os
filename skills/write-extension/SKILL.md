@@ -156,7 +156,9 @@ extension declares it; it never implements it. Each behaviour the platform has i
   creates in any other). `states.create.closed: "<boolean path>"` closes creates to everyone but
   the host (a class that is cancelled). `states.follows: { relation, when: { <parent state>:
   <state> }, from }` moves your live records when the record they point to moves (a class
-  cancelled cancels its bookings, in its batch; ADR 0507). A request is resolved by the clock for
+  cancelled cancels its bookings, in its batch; ADR 0507). The parent may be an object of an
+  extension you `requires`, named in full; an object drawing places from a pool cannot follow it,
+  and one call moves at most 80 records (ADR 0841). A request is resolved by the clock for
   every caller but a person. Never decide "late" or
   "too early" in a tool. See `StateMove` and `StatesSpec` in `packages/sdk/src/states.ts`, ADRs
   0503 and 0505, and Bookings: `packs/bookings/index.ts`.

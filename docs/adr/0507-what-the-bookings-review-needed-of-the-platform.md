@@ -112,3 +112,12 @@ type, places required); the pack's own tests (17).
 ## Note, 2026-11-23 (ADR 0600)
 `returnUse`'s permission is now `bookings:desk`, the front desk's (it was `bookings:returns`, which
 no role held and nobody could be granted). It stays `humanOnly`, the one person-only mechanism.
+
+## Amended 2026-11-24 (stage 57 step 2, ADR 0841)
+- A follower may name a parent in an extension its own `requires` (`ticketing.event`); the host
+  checks the parent's states at install and on every upgrade of either extension.
+- The limit is 80 records a call, across every following object, every parent the call moves and
+  the followers' own cascades (it was 500 an object), sized from the queries a follower's move
+  reads; a tick of timed moves shares one.
+- A follower made between the cascade's read and its commit fails the move whole, whatever it
+  claims ([ADR 0841](0841-cascades-widened.md)).

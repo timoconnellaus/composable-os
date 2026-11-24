@@ -1589,6 +1589,8 @@ _Avoid_: task list, to-do (a task is something else), inspection, daily task
 **Follows** (a state cascade)
 An object whose records move when the record a relation points to moves (`states.follows`): a
 class cancelled moves its bookings to `cancelled_by_us`, as the host, in the same batch (ADR 0507).
+The parent is in the follower's extension or one it requires (an event's crew shifts and room uses);
+a child that draws places from a pool never follows it (ADR 0841).
 
 **Approved by a person** (a `personApproves` field or setting)
 A field or extension setting only a person changes: the assistant's, an MCP client's, an
