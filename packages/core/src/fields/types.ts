@@ -148,6 +148,8 @@ export interface ObjectDefinition {
   recurring?: RecurringDefinition;
   /** Extension objects: a shift, who works it, when and on what (stage 45, ADR 0621). */
   staffed?: StaffedDefinition;
+  /** Extension objects: time can be recorded against the record (stage 58, ADR 0850). */
+  workedOn?: WorkedOnDefinition;
   /** Extension objects: a claim on a thing (a room) for the record's time (stage 49, ADR 0765). */
   occupies?: OccupiesDefinition;
   /** A checklist its person ticks off (stage 45 step 4b, ADR 0650), with registry names. */
@@ -608,6 +610,20 @@ export interface ChecklistsDefinition {
   opens: string;
   closes: string;
   live: readonly string[];
+}
+
+/**
+ * The SDK's WorkedOnSpec (ADR 0850): field names are local (as `staffed`'s are); `partOfObject` is
+ * the registry name of the record a staffed visit's time also counts to, when declared.
+ */
+export interface WorkedOnDefinition {
+  live: readonly string[];
+  title: string;
+  kind?: string | undefined;
+  place?: string | undefined;
+  readers: string;
+  partOf?: string | undefined;
+  partOfObject?: string | undefined;
 }
 
 /** The SDK's RecurringScheduleSpec with the objects' registry names (ADR 0500). */

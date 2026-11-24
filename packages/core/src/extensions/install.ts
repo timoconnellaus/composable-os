@@ -385,6 +385,15 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
         message: `A runtime extension cannot declare ${name} a shift staff work. ${why}`,
       });
     }
+    // Time recorded against a record feeds pay and is a staff record (ADR 0850): a reviewed change.
+    if (object.workedOn) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.workedOn`,
+        message: `A runtime extension cannot declare ${name} something staff record their time against. ${why}`,
+      });
+    }
     // Who ticks what is a staff record, read by the person and rosterers only (ADR 0650).
     if (object.checklists) {
       issues.push({

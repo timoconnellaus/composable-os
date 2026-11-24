@@ -1237,6 +1237,20 @@ Set, changed and removed by the person or a rosterer through the tool-only `staf
 `.clear` and `.list`; an AI's change waits for a person; at most 50 entries a person;
 `user.deactivate` removes a leaver's. Free times (step 4) subtract time off, claims and rooms.
 
+**Time entries** (stage 58 step 1, [ADR 0850](adr/0850-time-entries-the-hosts-clock-overlaps-refused-and-worked-on.md),
+`packages/core/src/staffing/time.ts`, `operations/staffing-time.ts`, migration 1270): the one
+record of time worked, `core_time_entry`, in no `rec_*` view: an account, a start and a finish in
+unix seconds (null while open), break minutes, its local date, and what it was against: one of the
+person's own live shifts (read from its time claim), a live record of an object that declares
+`workedOn` (SDK, `packages/sdk/src/worked-on.ts`, shipped packs and the org's own extensions
+only), or nothing. Triggers refuse two overlapping entries of one account for every statement
+shape (as the claim's do), and a partial unique index one open entry per person. The tool-only
+`staffing.time.clockIn`, `clockOut` (the host's clock), `enter`, `edit`, `withdraw` and `mine` are
+a person's own act on their own entries (`humanOnly`, a person, never an AI), working once the
+pack's `staffing.settings.recordsTime` is on. The minute cron (`staffing.due`) marks an entry left
+open past its shift's end and `finishMissingHours` (14 hours with no shift) finish missing and
+tells its person. Approval (step 2) and pay from approved entries (step 3) build on it.
+
 **Pay periods** (stage 45 step 6, [ADR 0627](adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md),
 `packages/core/src/staffing/pay.ts`, `operations/staffing-pay.ts`, migration 0813): who is counted
 (`core_staff_pay_basis`, by time or by class from a date), the not-worked mark

@@ -47,6 +47,7 @@ import { checkObjectSellable, sellableManifestSchema } from "./sellable.ts";
 import { checkObjectStaffed, staffedManifestSchema } from "./staffed.ts";
 import { checkObjectStates, resolveFieldPath, statesManifestSchema } from "./states.ts";
 import { checkObjectUnique, uniqueManifestSchema } from "./unique.ts";
+import { checkObjectWorkedOn, workedOnManifestSchema } from "./worked-on.ts";
 
 export const EXTENSION_ID_RE = /^[a-z][a-z0-9]{1,29}$/;
 export const OBJECT_NAME_RE = /^[a-z][a-z0-9]{0,29}$/;
@@ -220,6 +221,7 @@ export const objectManifestSchema = z.object({
   unique: uniqueManifestSchema.optional(),
   recurring: recurringManifestSchema.optional(),
   staffed: staffedManifestSchema.optional(),
+  workedOn: workedOnManifestSchema.optional(),
   occupies: occupiesManifestSchema.optional(),
   checklists: checklistsManifestSchema.optional(),
   owner: z.string().max(40).optional(),
@@ -565,6 +567,12 @@ export const manifestSchema = z.object({
           payPeriod: z.string().max(64).optional(),
           payPeriodStart: z.string().max(64).optional(),
           payPeriodDay: z.string().max(64).optional(),
+          /** Staff record their time (stage 58, ADR 0850): a boolean setting, off by default. */
+          recordsTime: z.string().max(64).optional(),
+          /** How many days back time may be entered. */
+          enterDays: z.string().max(64).optional(),
+          /** Hours after a shift's end an open entry is marked finish missing. */
+          finishMissingHours: z.string().max(64).optional(),
         })
         .strict()
         .optional(),
@@ -1255,6 +1263,7 @@ export function validateManifest(
     checkObjectUnique(m, name, object, contract);
     checkObjectRecurring(m, name, object, contract);
     checkObjectStaffed(m, name, object, contract);
+    checkObjectWorkedOn(m, name, object, contract);
     checkObjectOccupies(m, name, object, contract);
     checkObjectChecklists(m, name, object, contract);
     object.requireOneOf?.forEach((group, i) => {
@@ -1994,7 +2003,8 @@ export function validateManifest(
     // The pay period (ADR 0627): a select of weekly, fortnightly and monthly; the date one period
     // starts (text, YYYY-MM-DD); the day of the month (a number). The roster's numbers are numbers.
     const PERIODS = new Set(["weekly", "fortnightly", "monthly"]);
-    const types: Record<string, "number" | "select" | "text"> = {
+    const types: Record<string, "boolean" | "number" | "select" | "text"> = {
+      recordsTime: "boolean",
       offerCutoffMinutes: "number",
       uncoveredDays: "number",
       payPeriod: "select",

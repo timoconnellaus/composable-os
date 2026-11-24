@@ -1424,6 +1424,38 @@ export interface CoreStaffHoursTable {
 }
 
 /**
+ * Migration 1270 (stage 58 step 1, ADR 0850): one stretch of time a staff member worked, the one
+ * record of time worked. Times are unix seconds; `ends` is null while open. The database refuses
+ * two overlapping entries of one account and a second open one.
+ */
+export interface CoreTimeEntryTable {
+  id: string;
+  account_id: string;
+  starts: number;
+  ends: number | null;
+  break_minutes: Generated<number>;
+  zone: string;
+  local_date: string;
+  against_object: string | null;
+  against_record: string | null;
+  how: "clocked" | "entered" | "by_approver";
+  how_why: string | null;
+  state: "open" | "waiting" | "approved" | "rejected";
+  finish_missing: Generated<number>;
+  recorded_starts: number | null;
+  recorded_ends: number | null;
+  recorded_break_minutes: number | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  rejected_why: string | null;
+  note: string | null;
+  start_key: string | null;
+  made_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
  * Migration 0812 (stage 45, ADR 0623): a shift offered for someone else to take. It leaves `open`
  * once; the database refuses every later move, so exactly one take wins.
  */
@@ -3136,6 +3168,7 @@ export interface CoreDatabase {
   core_staff_qualification: CoreStaffQualificationTable;
   core_staff_away: CoreStaffAwayTable;
   core_staff_hours: CoreStaffHoursTable;
+  core_time_entry: CoreTimeEntryTable;
   core_staff_feed: CoreStaffFeedTable;
   core_checklist: CoreChecklistTable;
   core_checklist_step: CoreChecklistStepTable;

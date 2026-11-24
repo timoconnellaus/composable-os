@@ -326,6 +326,18 @@ export function toOperationError(error: unknown): OperationError {
       { rule: "double_booked" },
     );
   }
+  // Two time entries of one staff account that overlap (migration 1270, ADR 0850), or a second
+  // open one: refused by the database for every writer. A write the host read as free names the
+  // other entry itself; this is a race it could not see (twenty starts at once).
+  if (
+    message.includes("core_time_overlap") ||
+    message.includes("UNIQUE constraint failed: core_time_entry.account_id")
+  ) {
+    return new ConflictError(
+      "This overlaps another of this person's time entries (or one is already open), so nothing was changed.",
+      { rule: "time_overlap" },
+    );
+  }
   // Two live records in one thing at once (a room marked "one booking at a time", migration
   // 1095, ADR 0765): refused by the database for every writer, naming no other record (who else
   // is in the room is not the writer's to know).

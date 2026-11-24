@@ -1508,7 +1508,20 @@ why); locking again makes a new version. It is exported as CSV for payroll. No r
 Read only with `rostering:pay` (admins and by grant), by a person, never an assistant. Each staff
 member also sees **their own** totals and lines for a period (Rostering's `myPay`, the owner's
 decision of 2026-11-24): the same figures, nothing about anyone else, never through an assistant.
-_Avoid_: timesheet, payroll, wages
+_Avoid_: payroll, wages; timesheet (a person's time entries in a period, below, not the period)
+
+**Time entry**, **Timesheet** and **Worked on** (stage 58, built in step 1: ADR 0850)
+A **time entry** is one stretch of time a staff member worked: a start and a finish, unpaid break
+minutes they entered, against one of their own shifts, a job (a record whose object declares
+**`workedOn`**: time can be recorded against it) or nothing (**other work**). **Clocked** when they
+start and finish it (the host's clock, never the phone's); **entered** when typed afterwards (up to
+14 days back, never in a locked pay period). It is **open** while clocked in, then **waiting** for
+an approver (approval is step 2), **approved** or **rejected**. Left open long after its shift
+ends, it is marked **finish missing** and its person told; no finish is invented. Two entries of
+one person never overlap, refused by the database. A person's **timesheet** for a pay period is
+their time entries in it: a view, not a record. A job keeps no hours of its own: its time is the
+entries against it. Personal: in no `rec_*` view, read and changed by the person, never an AI.
+_Avoid_: shift (the plan, not what was worked), clock-in record, time spent
 
 **Checklist** (stage 45, built in step 4b: ADR 0650)
 A list of steps a business writes once (a close-down clean, opening up): a **template**, in
