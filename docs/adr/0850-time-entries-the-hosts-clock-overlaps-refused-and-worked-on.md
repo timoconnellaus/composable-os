@@ -91,6 +91,11 @@ races, as the shift claim does.
   period, whoever handles pay reopens it first (step 3 refuses a lock while an entry is open). At most 50 a tick; a quiet minute reads one indexed row and writes nothing.
 - **Until step 2, every finished or entered entry waits.** Approval on a match with the roster and
   the approver's acts are step 2's; the columns are in place so it needs no migration.
+  _Amended 2026-11-24 (stage 58 step 2, [ADR 0851](0851-differences-from-the-roster-and-approval-of-time.md)):_
+  a finished, entered or corrected entry that matches the person's own live shift within the
+  tolerance is now approved by the host; the rest wait. A start's proposal and the match read the
+  shift's own time (its claim less its margins). Step 2 added one column, `reopened_why`
+  (migration 1273).
 
 ## Consequences
 - Rostering's tools, its settings (`recordsTime` and the numbers), labels and the screens are

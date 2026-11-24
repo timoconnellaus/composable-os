@@ -18,10 +18,13 @@ import { getObject } from "../fields/index.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
 import { jsonList } from "../records/common.ts";
+import { loadGeneralSettings } from "../settings.ts";
 import { shiftTitle } from "./changes.ts";
 import { loadShift } from "./index.ts";
 import { whenOf } from "./offers.ts";
-import { queueNotice } from "./rosterers.ts";
+import { basisOn, localDateOf, periodRange } from "./pay.ts";
+import { queueNotice, timeSettings } from "./rosterers.ts";
+import { claimsOf, namesOf, notWorkedOf, SET_ROWS_MAX, timeBasesOf } from "./sets.ts";
 
 /** A start proposes the person's own live shift that starts within this many minutes. */
 export const PROPOSE_MINUTES = 60;
@@ -31,6 +34,10 @@ export const NO_SHIFT_MISSING_HOURS = 14;
 export const ENTRY_MAX_HOURS = 24;
 /** The most days one read of entries covers. */
 export const RANGE_MAX_DAYS = 62;
+/** `approved_by` of an entry the host approved: it matched its shift within the tolerance. */
+export const HOST = "host";
+/** An entry longer than this many hours is flagged among the differences. */
+export const LONG_HOURS = 12;
 /** The most open entries one cron tick marks. */
 const MISSING_PER_TICK = 50;
 
@@ -66,17 +73,45 @@ export const addDays = (date: string, days: number) =>
 /** An instant in unix seconds as ISO. */
 export const isoOf = (seconds: number) => new Date(seconds * 1000).toISOString();
 
-/** The time claim of one of `account`'s shifts (a live, covered shift of theirs), or null. */
+/**
+ * The time claim of a shift (a live, covered shift), with the shift's own time (the claim less
+ * its margins, ADR 0760), or undefined.
+ */
 async function claimOf(
   db: Kysely<CoreDatabase>,
   ref: AgainstRef,
 ): Promise<{ account_id: string; starts: number; ends: number } | undefined> {
-  return db
-    .selectFrom("core_staff_time")
-    .select(["account_id", "starts", "ends"])
-    .where("object_type", "=", ref.object)
-    .where("record_id", "=", ref.id)
-    .executeTakeFirst();
+  return (await shiftTimesOf(db, [ref])).get(`${ref.object}\u0000${ref.id}`);
+}
+
+/**
+ * Each shift's claim, by `object\u0000id`: whose it is and the shift's own time (the claim less
+ * its margins), one read per object whatever the number of shifts. A cancelled shift, one in the
+ * Trash or with nobody on it has no claim, and is left out.
+ */
+export async function shiftTimesOf(
+  db: Kysely<CoreDatabase>,
+  refs: readonly AgainstRef[],
+): Promise<Map<string, { account_id: string; starts: number; ends: number }>> {
+  const out = new Map<string, { account_id: string; starts: number; ends: number }>();
+  const byObject = new Map<string, Set<string>>();
+  for (const r of refs) byObject.set(r.object, (byObject.get(r.object) ?? new Set()).add(r.id));
+  for (const [object, ids] of byObject) {
+    const rows = await db
+      .selectFrom("core_staff_time")
+      .select(["record_id", "account_id", "starts", "ends", "margin_before", "margin_after"])
+      .where("object_type", "=", object)
+      .where("record_id", "in", jsonList([...ids]))
+      .execute();
+    for (const r of rows) {
+      out.set(`${object}\u0000${r.record_id}`, {
+        account_id: r.account_id,
+        starts: r.starts + r.margin_before,
+        ends: r.ends - r.margin_after,
+      });
+    }
+  }
+  return out;
 }
 
 /**
@@ -253,6 +288,12 @@ export interface TimeEntryItem {
   finishMissing: boolean;
   note: string | null;
   rejectedWhy: string | null;
+  /** Approved by the host (it matched its shift within the tolerance) or by an approver. */
+  approval: { by: "host" | "approver"; at: string } | null;
+  /** The times as recorded, kept beside when an approver approved it changed. */
+  recorded: { startsAt: string; endsAt: string; breakMinutes: number } | null;
+  /** Why an approver reopened it (it waits again). */
+  reopenedWhy: string | null;
 }
 
 /** Minutes an entry counts: whole minutes from start to finish, less its break. */
@@ -330,6 +371,22 @@ export async function itemsOf(
       finishMissing: r.finish_missing === 1,
       note: r.note,
       rejectedWhy: r.rejected_why,
+      approval:
+        r.approved_by && r.approved_at
+          ? {
+              by: r.approved_by === HOST ? ("host" as const) : ("approver" as const),
+              at: r.approved_at,
+            }
+          : null,
+      recorded:
+        r.recorded_starts !== null && r.recorded_ends !== null
+          ? {
+              startsAt: isoOf(r.recorded_starts),
+              endsAt: isoOf(r.recorded_ends),
+              breakMinutes: r.recorded_break_minutes ?? 0,
+            }
+          : null,
+      reopenedWhy: r.reopened_why,
     };
   });
 }
@@ -395,4 +452,237 @@ export async function finishMissing(ctx: HandlerContext, hours: number): Promise
     });
   }
   return due.length;
+}
+
+// --- Differences from the roster, and approval on a match (stage 58 step 2, ADR 0851) ----------
+
+/**
+ * Minutes from `planned` to `actual`, positive later: any part of a minute counts as a minute
+ * (rounded away from zero), so what shows and what matches agree and nothing past the tolerance
+ * matches (5 minutes and 1 second late shows as 6).
+ */
+export const minutesFrom = (planned: number, actual: number) => {
+  const seconds = actual - planned;
+  return seconds === 0 ? 0 : Math.sign(seconds) * Math.ceil(Math.abs(seconds) / 60);
+};
+
+/**
+ * Whether an entry matches its shift: it starts and finishes within `tolerance` minutes of the
+ * shift's own start and end (early or late), to the second. Exact seconds are kept on the entry;
+ * the tolerance decides only what shows as a difference and what the host approves.
+ */
+export function matchesShift(
+  entry: { starts: number; ends: number },
+  shift: { starts: number; ends: number },
+  tolerance: number,
+): boolean {
+  return (
+    Math.abs(minutesFrom(shift.starts, entry.starts)) <= tolerance &&
+    Math.abs(minutesFrom(shift.ends, entry.ends)) <= tolerance
+  );
+}
+
+/**
+ * Whether the host approves a finished entry as it is recorded (decision 5): not held for a
+ * person (`held`: an approver's entry for someone, a missing finish entered afterwards, one an
+ * approver sent back or reopened), and against one of the person's own live shifts, starting and
+ * finishing within the tolerance of it. Time with no shift (a job, other work) always waits for a
+ * person. Answers the statement for the write's batch that fails it whole (`core_staff_changed`)
+ * unless the shift's claim is still the one matched, or null when the host does not approve.
+ */
+export async function hostApproves(
+  db: Kysely<CoreDatabase>,
+  entry: Pick<
+    StoredEntry,
+    "account_id" | "starts" | "ends" | "how" | "against_object" | "against_record" | "held"
+  >,
+  tolerance: number,
+): Promise<CompiledQuery | null> {
+  if (entry.ends === null || entry.how === "by_approver" || entry.held) return null;
+  if (!entry.against_object || !entry.against_record) return null;
+  if (!getObject(entry.against_object)?.staffed) return null;
+  const claim = await claimOf(db, { object: entry.against_object, id: entry.against_record });
+  if (!claim || claim.account_id !== entry.account_id) return null;
+  if (!matchesShift({ starts: entry.starts, ends: entry.ends }, claim, tolerance)) return null;
+  // A shift moved or given to someone else after this read fails the write whole.
+  return CompiledQuery.raw(
+    "INSERT INTO core_staff_guard (expected, actual) SELECT 1, count(*) FROM core_staff_time WHERE object_type = ? AND record_id = ? AND account_id = ? AND starts + margin_before = ? AND ends - margin_after = ?",
+    [entry.against_object, entry.against_record, entry.account_id, claim.starts, claim.ends],
+  );
+}
+
+/** One line of the differences: an entry beside its shift, or a shift with nothing recorded. */
+export interface Difference {
+  account: string;
+  name: string;
+  /** The entry (null for a shift with nothing recorded). */
+  entry: TimeEntryItem | null;
+  /** The shift as rostered (its own time), or null for time with no live shift of theirs. */
+  shift: { object: string; id: string; title: string; startsAt: string; endsAt: string } | null;
+  /** Whole minutes the entry started after the shift (negative: before), or null. */
+  startMinutes: number | null;
+  /** Whole minutes the entry finished after the shift (negative: before), or null. */
+  finishMinutes: number | null;
+  /** Against its shift and within the tolerance at both ends. */
+  matches: boolean;
+  /** A past shift of someone counted by time with no entry approved, waiting or open on it. */
+  notRecorded: boolean;
+  /** An entry against no live shift of theirs: a job, other work, or a shift gone since. */
+  unrostered: boolean;
+  /** An entry longer than LONG_HOURS. */
+  long: boolean;
+}
+
+/**
+ * The roster beside what was recorded for the local dates `from` to `to` (the organisation's
+ * zone): each entry dated in it (of `account` only, when given; of the `states` given, when
+ * given), with its difference from its shift, and, unless `notRecorded` is false, each past live
+ * covered shift of someone counted by time on its date with no entry approved, waiting or open
+ * against it and not marked not worked. Read set-based: a fixed number of reads per hundred
+ * people and per object, never per person, date or entry.
+ */
+export async function differencesOf(
+  ctx: HandlerContext,
+  options: {
+    from: string;
+    to: string;
+    account?: string;
+    states?: readonly StoredEntry["state"][];
+    notRecorded?: boolean;
+  },
+): Promise<{ tolerance: number; zone: string; items: Difference[] }> {
+  const { from, to, account } = options;
+  const tolerance = (await timeSettings(ctx.db)).matchMinutes;
+  const zone = (await loadGeneralSettings(ctx.db)).timezone;
+  const range = periodRange(from, to, zone);
+  const now = secondsOf(ctx.now);
+
+  let query = ctx.db
+    .selectFrom("core_time_entry")
+    .selectAll()
+    .where("local_date", ">=", from)
+    .where("local_date", "<=", to);
+  if (account) query = query.where("account_id", "=", account);
+  if (options.states) query = query.where("state", "in", [...options.states]);
+  const rows = await query
+    .orderBy("starts")
+    .limit(SET_ROWS_MAX + 1)
+    .execute();
+  if (rows.length > SET_ROWS_MAX) {
+    throw new ValidationError("There is too much recorded in this range: ask for fewer dates.", {
+      rule: "too_large",
+    });
+  }
+  const entries = await itemsOf(ctx.db, rows);
+  const shiftRefs = rows.flatMap((r) =>
+    r.against_object && r.against_record && getObject(r.against_object)?.staffed
+      ? [{ object: r.against_object, id: r.against_record }]
+      : [],
+  );
+  const shifts = await shiftTimesOf(ctx.db, shiftRefs);
+
+  const items: Difference[] = rows.map((r, i) => {
+    const entry = entries[i] as TimeEntryItem;
+    const claim =
+      r.against_object && r.against_record
+        ? shifts.get(`${r.against_object}\u0000${r.against_record}`)
+        : undefined;
+    const own = claim && claim.account_id === r.account_id ? claim : undefined;
+    const startMinutes = own ? minutesFrom(own.starts, r.starts) : null;
+    const finishMinutes = own && r.ends !== null ? minutesFrom(own.ends, r.ends) : null;
+    return {
+      account: r.account_id,
+      name: "",
+      entry,
+      shift:
+        own && r.against_object && r.against_record
+          ? {
+              object: r.against_object,
+              id: r.against_record,
+              title: entry.against?.title ?? r.against_object,
+              startsAt: isoOf(own.starts),
+              endsAt: isoOf(own.ends),
+            }
+          : null,
+      startMinutes,
+      finishMinutes,
+      matches:
+        own !== undefined &&
+        r.ends !== null &&
+        matchesShift({ starts: r.starts, ends: r.ends }, own, tolerance),
+      notRecorded: false,
+      unrostered: !own,
+      long: r.ends !== null && r.ends - r.starts > LONG_HOURS * 3600,
+    };
+  });
+
+  if (options.notRecorded !== false) {
+    const bases = await timeBasesOf(ctx, to, account);
+    const held = await claimsOf(ctx, [...bases.keys()], range.starts, range.ends);
+    const candidates: {
+      account: string;
+      object: string;
+      id: string;
+      starts: number;
+      ends: number;
+    }[] = [];
+    for (const [who, claims] of held) {
+      for (const c of claims) {
+        if (c.own.ends > now || c.own.starts < range.starts || c.own.starts >= range.ends) continue;
+        if (basisOn(bases.get(who), localDateOf(c.own.starts, zone)) !== "by_time") continue;
+        candidates.push({ account: who, object: c.object, id: c.id, ...c.own });
+      }
+    }
+    // What is recorded against them, whatever its date (an entry may start the evening before).
+    const recorded = new Set<string>();
+    const byObject = new Map<string, string[]>();
+    for (const c of candidates) byObject.set(c.object, [...(byObject.get(c.object) ?? []), c.id]);
+    for (const [object, ids] of byObject) {
+      const found = await ctx.db
+        .selectFrom("core_time_entry")
+        .select(["against_record", "account_id"])
+        .where("against_object", "=", object)
+        .where("against_record", "in", jsonList(ids))
+        .where("state", "in", ["approved", "waiting", "open"])
+        .execute();
+      for (const f of found)
+        recorded.add(`${f.account_id}\u0000${object}\u0000${f.against_record}`);
+    }
+    const notWorked = await notWorkedOf(ctx, candidates);
+    const missing = candidates.filter(
+      (c) =>
+        !recorded.has(`${c.account}\u0000${c.object}\u0000${c.id}`) &&
+        !notWorked.has(`${c.object}\u0000${c.id}`),
+    );
+    const titles = await againstTitles(ctx.db, missing);
+    for (const c of missing) {
+      items.push({
+        account: c.account,
+        name: "",
+        entry: null,
+        shift: {
+          object: c.object,
+          id: c.id,
+          title: titles.get(`${c.object}\u0000${c.id}`)?.title ?? c.object,
+          startsAt: isoOf(c.starts),
+          endsAt: isoOf(c.ends),
+        },
+        startMinutes: null,
+        finishMinutes: null,
+        matches: false,
+        notRecorded: true,
+        unrostered: false,
+        long: false,
+      });
+    }
+  }
+
+  const names = await namesOf(
+    ctx,
+    items.map((d) => d.account),
+  );
+  for (const d of items) d.name = names.get(d.account) ?? "Someone";
+  const at = (d: Difference) => d.entry?.startsAt ?? d.shift?.startsAt ?? "";
+  items.sort((a, b) => at(a).localeCompare(at(b)) || a.account.localeCompare(b.account));
+  return { tolerance, zone, items };
 }

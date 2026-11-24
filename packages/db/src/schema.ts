@@ -1822,6 +1822,14 @@ export interface CoreTimeEntryTable {
   approved_by: string | null;
   approved_at: string | null;
   rejected_why: string | null;
+  /**
+   * Migration 1273 (stage 58 step 2, ADR 0851): the host never approves it on a match ('person':
+   * an approver's entry, a missing finish entered; 'approver': sent back or reopened, and never
+   * withdrawn by its person).
+   */
+  held: "person" | "approver" | null;
+  /** Migration 1273 (stage 58 step 2, ADR 0851): why an approver reopened it, while it waits. */
+  reopened_why: string | null;
   note: string | null;
   start_key: string | null;
   made_by: string;
