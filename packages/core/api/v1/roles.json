@@ -8,6 +8,8 @@
       "description": "Sees the day's classes and each class's list, and ticks who came (or marks who did not). Nothing else: no money, no other people, no booking or cancelling, no settings.",
       "read": ["bookings.class"],
       "operations": [
+        "ack.confirm",
+        "ack.mine",
         "record.get",
         "record.list",
         "screens.mine",
@@ -30,6 +32,8 @@
       "description": "Sees the roster and their own shifts, offers and takes shifts, says when they are away, has their own calendar feed and sees their own hours for each pay period. Nothing else: no records, no people, no settings.",
       "read": [],
       "operations": [
+        "ack.confirm",
+        "ack.mine",
         "screens.mine",
         "x.dailychecks.day",
         "x.dailychecks.done",
@@ -62,6 +66,8 @@
       "description": "Checks tickets in at the door and sees events, ticket types and tickets. Nothing else: no people, orders, leads or settings.",
       "read": ["ticketing.event", "ticketing.ticket", "ticketing.tickettype"],
       "operations": [
+        "ack.confirm",
+        "ack.mine",
         "record.get",
         "record.list",
         "screens.mine",

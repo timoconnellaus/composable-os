@@ -9,6 +9,7 @@ import type { CapacitySpec, ClaimsSpec } from "./capacity.ts";
 import type { ChecklistsSpec } from "./checklists.ts";
 import type { DocumentPathSpec, DocumentSchema } from "./document.ts";
 import type { FieldTypeName } from "./field-types.ts";
+import type { OccupiesSpec } from "./occupies.ts";
 import type { RecurringScheduleSpec } from "./recurring.ts";
 import type { RoutineMailModule, RoutineMailSpec } from "./routine-mail.ts";
 import type { SellableSpec } from "./sellable.ts";
@@ -304,6 +305,12 @@ export interface ObjectSpec {
    * write with its warnings (away, not qualified, no one on it).
    */
   staffed?: StaffedSpec;
+  /**
+   * A claim on a thing (see OccupiesSpec, ADR 0765): while live, the record takes the room (or
+   * chair, or hall) it names for its time. The host refuses, in the database, a second live
+   * record on the same thing at an overlapping time, whatever object it is.
+   */
+  occupies?: OccupiesSpec;
   /**
    * A checklist the record's person ticks off (see ChecklistsSpec, ADR 0650): a run of the
    * template its `template` field names, made by the host, ticked by the person (or by someone who
@@ -844,6 +851,16 @@ export interface PublishableSpec {
    * Set, it is kept: an imported post keeps its date.
    */
   date?: string;
+  /**
+   * Read and understood (stage 38, ADR 0702): the staff who must read a record confirm its
+   * current version with one tap, and a person publishing a later version says whether it asks
+   * them again (`readAgain`) or is a small fix. `who` names a `document` field of the object's
+   * own, outside `content`, with the schema `MUST_READ_SCHEMA`. `manage` names a permission of
+   * this extension's tools that is restricted and grantable: who holds it, and admins, read who
+   * has confirmed and change who must read a published record. Not on an object the public or a
+   * customer reads.
+   */
+  acknowledge?: { who: string; manage: string };
 }
 
 /** An object's customer: see `ObjectSpec.customer`. */

@@ -1272,6 +1272,16 @@ a shift), so it gets the most careful review.
   only. Each person sees their own totals through `myPay` (the owner's decision of 2026-11-24).
 - **A cancelled shift counts for nothing**, whoever cancelled it and however late.
 
+## Follow-on
+
+- **2026-11-24: checklists must be usable on their own, without a roster.** Stage 65 (Booking
+  system connection, [spec](65-booking-system-connection.md)), decision 1: while a business stays
+  on its booking system, staff checklists are among the first things it uses on the new system,
+  before the roster and hours. Today a run is made only from a shift that declares `checklists`
+  (step 4b), so a business with no roster has no runs. "A checklist with no shift" (a daily opening
+  check on its own), listed above as a follow-on, is therefore needed first. Another session builds
+  it; this note records the need, not the design.
+
 ## Questions for the owner
 None open. The eight questions of the proposal were answered on 2026-11-23: decisions 14 to 21
 (question 1 is decision 14, question 8 is decision 21); the checklist design's four points the

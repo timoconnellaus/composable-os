@@ -28,6 +28,7 @@ import { subscriptionSetup } from "../orders/subscription-setup.ts";
 import { taxCodeOf } from "../orders/tax.ts";
 import { holdsPermission } from "../principals.ts";
 import { callerOf } from "../records/transitions.ts";
+import { coolingOffDaysNow } from "./cooling-off.ts";
 import { loadSubscriptionRow, type SubscriptionRow } from "./events.ts";
 import { holdOfferStatements, prepareOfferTake } from "./offers.ts";
 import {
@@ -248,6 +249,9 @@ export async function startSubscription(
     };
   }
   const trialDays = decision.give ? plan.recurring.trialDays : null;
+  // The cooling-off days in force now (stage 44 step 7, ADR 0647), kept with the checkout: a
+  // setting shortened later never shortens this member's window. Null: the plan has none.
+  const coolingOffDays = await coolingOffDaysNow(ctx, plan.object);
   const trialEnd = offer && "offerId" in offer ? offer.trialEnd : null;
   const request: SubscriptionCheckoutRequest = {
     subscriptionId: id,
@@ -300,6 +304,7 @@ export async function startSubscription(
       trial_end: trialEnd,
       tax_code: taxCode,
       offer_id: offer && "offerId" in offer ? offer.offerId : null,
+      cooling_off_days: coolingOffDays,
       created_at: ctx.now,
     }),
     // After the row: a guest's acceptance names a checkout that must exist (migration 0851).

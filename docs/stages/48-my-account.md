@@ -29,7 +29,9 @@ beyond the provider's receipt), [#293](https://github.com/timoconnellaus/composa
 and `templates/client/apps/mobile/App.tsx`.
 
 Status: **spec agreed** (owner interviewed 2026-11-24: decisions 1 to 9). Build may start. No
-question for the owner is open.
+question for the owner is open. Step 1, the base headless entry and blocks over the existing
+operations, built on `feat/stage-48-account-blocks`, ADR 0714 (written with step 1, where the
+native link to the website is built).
 
 Vocabulary: "My account" is the customer's own area on the business's website and in its app.
 The draft called it the customer portal; "portal" stays only as the name of the manifest key and
