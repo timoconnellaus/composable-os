@@ -101,6 +101,15 @@ BEGIN
   SELECT RAISE(ABORT, 'core_order_payment_fixed');
 END;
 
+-- Nor deleted: a reversal deleted would make the payment it undid refundable again while the
+-- order's paid stays as it is (review of PR #426).
+CREATE TRIGGER core_order_payment_host_kept
+BEFORE DELETE ON core_order_payment
+WHEN OLD.provider = 'host'
+BEGIN
+  SELECT RAISE(ABORT, 'core_order_payment_kept');
+END;
+
 -- Refunds by method (amends ADR 0429): what went back the way it came. A recorded payment's money
 -- is paid back by a person, who records how; nothing is sent by the host.
 ALTER TABLE core_order_refund ADD COLUMN method TEXT NOT NULL DEFAULT 'provider'
@@ -130,6 +139,28 @@ BEGIN
   SELECT RAISE(ABORT, 'core_order_refund_recorded');
 END;
 
+-- Paid back by a person is a fact recorded once: kept as written, never deleted.
+CREATE TRIGGER core_order_refund_recorded_fixed
+BEFORE UPDATE ON core_order_refund
+WHEN OLD.method <> 'provider'
+  AND (NEW.id IS NOT OLD.id OR NEW.order_id IS NOT OLD.order_id OR NEW.provider IS NOT OLD.provider
+    OR NEW.payment_ref IS NOT OLD.payment_ref OR NEW.amount IS NOT OLD.amount
+    OR NEW.currency IS NOT OLD.currency OR NEW.status IS NOT OLD.status
+    OR NEW.method IS NOT OLD.method OR NEW.recorded_kind IS NOT OLD.recorded_kind
+    OR NEW.requested_by IS NOT OLD.requested_by OR NEW.confirmed_at IS NOT OLD.confirmed_at
+    OR (NEW.reason IS NOT OLD.reason AND NEW.reason IS NOT NULL)
+    OR (NEW.reference IS NOT OLD.reference AND NEW.reference IS NOT NULL))
+BEGIN
+  SELECT RAISE(ABORT, 'core_order_refund_fixed');
+END;
+
+CREATE TRIGGER core_order_refund_recorded_kept
+BEFORE DELETE ON core_order_refund
+WHEN OLD.method <> 'provider'
+BEGIN
+  SELECT RAISE(ABORT, 'core_order_refund_kept');
+END;
+
 -- Value given back onto a voucher or stored value comes with those ledgers (steps 7 and 8).
 CREATE TRIGGER core_order_refund_ledger
 BEFORE INSERT ON core_order_refund
@@ -148,6 +179,15 @@ SELECT
   p.tax_amount, p.received_at, o.state AS order_state
 FROM core_order_payment p
 JOIN core_order o ON o.id = p.order_id;
+
+-- Refunds by method, for reports (review of PR #426): what went back, on which payment, and how.
+CREATE VIEW rec_order_refund AS
+SELECT
+  r.id, r.order_id, o.person_id, r.provider, r.payment_ref, r.method, r.recorded_kind,
+  r.reference, r.reason, r.amount, r.currency, r.status, r.requested_by, r.requested_at,
+  r.confirmed_at, r.tax_amount, r.created_at, o.state AS order_state
+FROM core_order_refund r
+JOIN core_order o ON o.id = r.order_id;
 
 -- Guarded: migrations land out of order (docs/parallel-work.md).
 UPDATE core_meta SET value = '952'

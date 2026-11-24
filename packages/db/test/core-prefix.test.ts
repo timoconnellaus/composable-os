@@ -58,6 +58,7 @@ it("after migrations every read view is rec_<object>, and none keeps the old pre
     "rec_order_line",
     // Stage 34 (migration 0952): payments by method, for reports.
     "rec_order_payment",
+    "rec_order_refund",
     "rec_organisation",
     "rec_person",
     "rec_publish_version",

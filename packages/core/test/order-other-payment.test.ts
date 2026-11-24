@@ -16,7 +16,7 @@ import {
   memoryEventSink,
   PendingApprovalError,
 } from "../src/index.ts";
-import { extId, reconcile } from "./extension-helpers.ts";
+import { extId, manifest, reconcile } from "./extension-helpers.ts";
 import { context, createUser, db, setPreset, unique } from "./helpers.ts";
 import { CURRENCY, historyOf, outside, PUBLIC, refusal, run } from "./order-fixtures.ts";
 import { paymentsDouble } from "./payments-double.ts";
@@ -27,6 +27,74 @@ const EVENT = `${BOX}.event`;
 const TICKET_TYPE = `${BOX}.tickettype`;
 const RETURN = "https://shop.example.com/thanks";
 const NEXT_YEAR = `${new Date().getUTCFullYear() + 1}-06-30`;
+/** A gym's drop-in: a booking its order moves (`sellable.moves`, ADR 0560). */
+const GYM = extId("paidgym");
+const KLASS = `${GYM}.class`;
+const BOOKING = `${GYM}.booking`;
+
+const gym = () =>
+  manifest(GYM, {
+    permissions: { operations: ["order.startHeld"] },
+    settings: { price: { type: "number", label: "Price" } },
+    objects: {
+      class: {
+        label: "Class",
+        plural: "Classes",
+        titleField: "name",
+        fields: {
+          name: { type: "text", label: "Name", required: true },
+          price: { type: "number", label: "Price" },
+          places: { type: "number", label: "Places", required: true },
+        },
+        capacity: { places: "places" },
+        public: { read: ["name"] },
+      },
+      booking: {
+        label: "Booking",
+        plural: "Bookings",
+        titleField: "title",
+        fields: {
+          title: { type: "text", label: "Title" },
+          class: { type: "relation", label: "Class", to: KLASS, required: true },
+          person: { type: "relation", label: "Person", to: "person" },
+          state: {
+            type: "select",
+            label: "State",
+            options: ["booked", "pending", "expired", "cancelled"].map((value) => ({
+              value,
+              label: value,
+            })),
+          },
+          paid: { type: "number", label: "Paid", readOnly: true },
+          order: { type: "text", label: "Order", readOnly: true },
+        },
+        states: {
+          field: "state",
+          initial: "booked",
+          create: { in: { pending: ["host"] } },
+          moves: [
+            { from: "pending", to: "booked", by: ["host"] },
+            { from: "pending", to: "expired", by: ["host"], final: true },
+            { from: "booked", to: "cancelled", by: ["customer", "staff"], final: true },
+          ],
+        },
+        claims: { on: "class", held: ["pending"], confirmed: ["booked"] },
+        customer: { field: "person", read: ["class", "state"], write: ["class"] },
+        sellable: {
+          price: "paid",
+          moves: {
+            held: "pending",
+            paid: "booked",
+            expired: "expired",
+            refund: ["cancelled"],
+            price: { field: "class.price", setting: "price" },
+            title: "class.name",
+            order: "order",
+          },
+        },
+      },
+    },
+  } as never);
 const TODAY = new Date().toISOString().slice(0, 10);
 
 let events: ReturnType<typeof memoryEventSink>;
@@ -130,6 +198,7 @@ beforeAll(async () => {
   desk = await createUser("member");
   member = await createUser("member");
   await reconcile(boxOfficeManifest(BOX));
+  await reconcile(gym());
   await run(
     "order.settings.update",
     { currency: CURRENCY, returnOrigins: ["https://shop.example.com"], minPartPayment: 1000 },
@@ -581,5 +650,148 @@ describe("erase", () => {
       .first<{ input: string; redacted: number }>();
     expect(audit?.redacted).toBe(1);
     expect(audit?.input).not.toContain("7731");
+  });
+});
+
+// --- Review of PR #426 ---------------------------------------------------------------------------
+
+/** A drop-in of a $20.00 class, started by the gym's tool for a visitor. */
+async function dropIn() {
+  const klass = await create(KLASS, { name: unique("Yoga"), price: 20, places: 10 });
+  return run<{ id: string; recordId: string; total: number }>(
+    "order.startHeld",
+    { object: BOOKING, values: { class: klass }, email: `${unique("v")}@buyers.example` },
+    context(admin, {
+      actor: "extension",
+      origin: { surface: "extension", extensionId: GYM },
+      extension: {
+        id: GYM,
+        permissions: gym().permissions,
+        tool: { name: "book", humanOnly: false, permission: null },
+      },
+    } as never),
+  );
+}
+
+async function bookingState(id: string) {
+  return (await run<{ values: { state: string } }>("record.get", { object: BOOKING, id }, staff()))
+    .values.state;
+}
+
+async function refundsDue(orderId: string) {
+  const { results } = await env.DB.prepare(
+    "SELECT entered, reason FROM core_sellable_refund_due WHERE order_id = ?",
+  )
+    .bind(orderId)
+    .all();
+  return results;
+}
+
+describe("a drop-in paid another way (review of PR #426)", () => {
+  it("is paid in full or not at all: a part payment is refused, the whole books it", async () => {
+    const order = await dropIn();
+    expect(order.total).toBe(2_000);
+    expect(await refusal(record({ id: order.id, amount: 1_000, kind: "cash" }))).toMatchObject({
+      details: { rule: "paid_in_full", owed: 2_000 },
+    });
+    expect(await bookingState(order.recordId)).toBe("pending");
+    const paid = await record({ id: order.id, amount: 2_000, kind: "cash" });
+    expect(paid.order.state).toBe("paid");
+    expect(await bookingState(order.recordId)).toBe("booked");
+    expect(await refundsDue(order.id)).toEqual([]);
+  });
+
+  it("a reversal waits for the booking to be cancelled, and paying again owes nothing for a booked place", async () => {
+    const order = await dropIn();
+    const paid = await record({ id: order.id, amount: 2_000, kind: "cash" });
+    // Booked: the order cannot move it back, so the reversal is refused (it would leave the
+    // place booked with nothing paid, and a later payment told "paid after it was released").
+    expect(
+      await refusal(
+        run("order.reversePayment", { paymentId: paid.paymentId, reason: "Wrong" }, staff(desk)),
+      ),
+    ).toMatchObject({ details: { rule: "reverse_booked" } });
+    expect(await refundsDue(order.id)).toEqual([]);
+    // Staff cancel the booking, then reverse, then cancel the order: no place is left booked.
+    await run(
+      "record.update",
+      { object: BOOKING, id: order.recordId, values: { state: "cancelled" } },
+      staff(),
+    );
+    const reversed = await run<Paid>(
+      "order.reversePayment",
+      { paymentId: paid.paymentId, reason: "Wrong order" },
+      staff(desk),
+    );
+    expect(reversed.order).toMatchObject({ state: "part_paid", paid: 0 });
+    const cancelled = await run<OrderOut>("order.cancel", { id: order.id }, staff());
+    expect(cancelled.state).toBe("cancelled");
+    expect(await bookingState(order.recordId)).toBe("cancelled");
+  });
+
+  it("tells admins when the buyer had opened a payment page, whatever the threshold", async () => {
+    await run("order.settings.update", { recordedPaymentNotice: 100_000 }, context(admin));
+    try {
+      const order = await buy(await ticketType());
+      await run("order.checkout", { id: order.id, token: order.token, returnUrl: RETURN }, guest());
+      const paid = await record({ id: order.id, amount: 5_000 });
+      const notice = await env.DB.prepare(
+        "SELECT body FROM core_notifications WHERE dedupe_key = ?",
+      )
+        .bind(`order.payment_recorded:${paid.paymentId}`)
+        .first<{ body: string }>();
+      expect(notice?.body).toContain("opened a payment page");
+      // Without a page and under the threshold, nobody is told.
+      const quiet = await record({ id: (await buy(await ticketType())).id, amount: 5_000 });
+      expect(await told(`order.payment_recorded:${quiet.paymentId}`)).toBe(0);
+    } finally {
+      await run("order.settings.update", { recordedPaymentNotice: 0 }, context(admin));
+    }
+  });
+
+  it("refuses a day that does not exist, one in the future and one long past", async () => {
+    const order = await buy(await ticketType());
+    const yearAgo = new Date(Date.now() - 400 * 86_400_000).toISOString().slice(0, 10);
+    for (const receivedOn of ["2026-02-31", "0001-01-01", NEXT_YEAR, yearAgo]) {
+      expect(
+        await refusal(record({ id: order.id, amount: 5_000, receivedOn })),
+        receivedOn,
+      ).toMatchObject({ details: { rule: "received_on" } });
+    }
+    expect(await hostRows(order.id)).toEqual([]);
+  });
+
+  it("the host's payment rows and recorded refunds are never deleted, and refunds are reported by method", async () => {
+    const order = await buy(await ticketType());
+    const paid = await record({ id: order.id, amount: 5_000 });
+    await expect(
+      env.DB.prepare("DELETE FROM core_order_payment WHERE event_id = ?")
+        .bind(paid.paymentId)
+        .run(),
+    ).rejects.toThrow(/core_order_payment_kept/);
+    const back = await run<{ refundId: string }>(
+      "order.recordRefund",
+      { id: order.id, paymentId: paid.paymentId, kind: "cash", reason: "Changed plans" },
+      staff(desk),
+    );
+    await expect(
+      env.DB.prepare("DELETE FROM core_order_refund WHERE id = ?").bind(back.refundId).run(),
+    ).rejects.toThrow(/core_order_refund_kept/);
+    await expect(
+      env.DB.prepare("UPDATE core_order_refund SET amount = 1 WHERE id = ?")
+        .bind(back.refundId)
+        .run(),
+    ).rejects.toThrow(/core_order_refund_fixed/);
+    const view = await env.DB.prepare(
+      "SELECT method, recorded_kind, amount, status FROM rec_order_refund WHERE order_id = ?",
+    )
+      .bind(order.id)
+      .first();
+    expect(view).toEqual({
+      method: "recorded",
+      recorded_kind: "cash",
+      amount: 5_000,
+      status: "confirmed",
+    });
   });
 });

@@ -338,8 +338,9 @@ async function tellAdmins(
  * - The order must be owed money (pending or part paid), have a Person or an address (an erased
  *   one is nobody's), and no person's discount waiting for approval (its price is not settled).
  * - Any amount up to what is owed: more is refused. The currency is the order's.
- * - A recorded payment over the threshold a human admin set tells the admins; every one is on the
- *   Person's timeline.
+ * - A recorded payment over the threshold a human admin set, or on an order whose buyer opened a
+ *   payment page, tells the admins; every one is on the Person's timeline.
+ * - A drop-in (an order that moves a record) is paid in full or not at all.
  */
 export async function applyOtherPayment(
   ctx: HandlerContext,
@@ -370,6 +371,15 @@ export async function applyOtherPayment(
     );
   }
   const owed = row.total - row.paid;
+  // A drop-in (a record its order moves, ADR 0560) is paid in full or not at all: its booking
+  // moves at the first payment and cannot move back (review of PR #426).
+  const { movedRecords } = await import("./moves.ts");
+  if (amount < owed && (await movedRecords(ctx, row.id)).length) {
+    throw new ValidationError(
+      `This order books a place when it is paid, so it is paid in full: ${formatMoney(owed, row.currency)}`,
+      { field: "amount", rule: "paid_in_full", owed },
+    );
+  }
   if (amount > owed) {
     throw new ValidationError(`At most ${formatMoney(owed, row.currency)} is owed on this order`, {
       field: "amount",
@@ -413,13 +423,24 @@ export async function applyOtherPayment(
       links: [{ object: "person", id: row.person_id }],
     });
   }
-  if (amount > (await loadRecordedPaymentNotice(ctx.db))) {
+  // A payment page the buyer opened stays open at the provider (review of PR #426): a payment
+  // made there now arrives as not matching or late, and staff refund it. Admins are told so.
+  const pageOpen = await ctx.db
+    .selectFrom("core_order_checkout")
+    .select("ref")
+    .where("order_id", "=", row.id)
+    .executeTakeFirst();
+  if (pageOpen || amount > (await loadRecordedPaymentNotice(ctx.db))) {
     await tellAdmins(
       ctx,
       row.id,
       "A payment was recorded on an order",
       `${what} was recorded on order ${row.id} as received on ${payment.receivedOn}. It is ` +
-        `now ${order.state}.`,
+        `now ${order.state}.` +
+        (pageOpen
+          ? " The buyer had opened a payment page for it: a payment made there now is not " +
+            "taken as paid (it shows as late or not matching), and is refunded."
+          : ""),
       `order.payment_recorded:${paymentId}`,
     );
   }
@@ -495,6 +516,16 @@ export async function reverseOtherPayment(
       order: row.id,
       state: row.state,
     });
+  }
+  // What a drop-in's payment booked cannot be moved back by its order (review of PR #426): staff
+  // cancel the booking first (as any cancel of a paid booking, the refund owed for it is not sent
+  // for money taken another way), then reverse the payment, then cancel the order.
+  const { movedRecords } = await import("./moves.ts");
+  if ((await movedRecords(ctx, row.id)).some((r) => r.paid)) {
+    throw new ConflictError(
+      "This payment booked a place that is still booked: cancel the booking first, then reverse the payment",
+      { rule: "reverse_booked", order: row.id },
+    );
   }
   const reversalId = newId("orderPayment");
   ctx.write(

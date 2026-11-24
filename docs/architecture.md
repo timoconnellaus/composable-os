@@ -2021,10 +2021,11 @@ not undo exactly one recorded payment, and any edit of a host row). Today one op
 `order.recordPayment` (the restricted core permission `orders:payments`, human only), any amount up
 to what is owed, on the Person's timeline, admins told over `recordedPaymentNotice`.
 `order.reversePayment` undoes one entered in error with a second, negative row and moves a paid
-order back to `part_paid` (what it granted stays). Refunds go back the way the money came:
+order back to `part_paid` (what it granted stays). A drop-in (`sellable.moves`) is paid in full or
+not at all, and its payment is reversed only once its booking is cancelled. Refunds go back the way the money came:
 `order.refund` sends only the provider's payments; a recorded one is paid back by a person and
 recorded with `order.recordRefund` (`orders:refund`, human only, nothing sent). `rec_order_payment`
-reports payments by method. Stage 35's invoices and the till's cash call the same function from
+and `rec_order_refund` report payments and refunds by method. Stage 35's invoices and the till's cash call the same function from
 their own operations.
 
 **Subscriptions** (stage 32a, ADRs [0485](adr/0485-recurring-billing-the-provider-runs-the-schedule.md)

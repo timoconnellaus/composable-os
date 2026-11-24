@@ -3082,6 +3082,28 @@ export interface CrmOrderPaymentView {
   order_state: OrderState;
 }
 
+/** Migration 0952: an order's refunds by method, for reports. */
+export interface CrmOrderRefundView {
+  id: string;
+  order_id: string;
+  person_id: string | null;
+  provider: string;
+  payment_ref: string | null;
+  method: PaymentMethod;
+  recorded_kind: RecordedKind | null;
+  reference: string | null;
+  reason: string | null;
+  amount: number;
+  currency: string;
+  status: "requested" | "confirmed";
+  requested_by: string | null;
+  requested_at: Timestamp | null;
+  confirmed_at: Timestamp | null;
+  tax_amount: number | null;
+  created_at: Timestamp;
+  order_state: OrderState;
+}
+
 export interface CrmStageHistoryView {
   id: string;
   object_type: string;
@@ -3791,6 +3813,7 @@ export interface CoreDatabase {
   rec_order_line: CrmOrderLineView;
   rec_order_adjustment: CrmOrderAdjustmentView;
   rec_order_payment: CrmOrderPaymentView;
+  rec_order_refund: CrmOrderRefundView;
   rec_task_link: CrmTaskLinksView;
   rec_record_tag: CrmRecordTagsView;
 }

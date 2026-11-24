@@ -43,7 +43,7 @@ when; a `voucher` or `stored_value` row at all, because their ledgers do not exi
 and 8 replace that trigger with one that looks for the ledger entry in the same batch); a host
 row with a negative amount that is not a reversal; a reversal that does not undo exactly one
 applied recorded payment of the same order with a reason; a second reversal of one; and any edit
-of a host row except an erase blanking its reference and reason.
+of a host row except an erase blanking its reference and reason, and any delete of one.
 
 **Recorded payments: `order.recordPayment`**, `{ id, amount, kind, receivedOn, reference? }`,
 staff only, permission **`orders:payments`**, `actors: ["human"]` (never an assistant, an MCP
@@ -61,7 +61,13 @@ recorded payment entered in error. A second row of the amount negated naming the
 edited or deleted); the order's paid goes down and a paid order moves back to `part_paid` as the
 host (a new host move, `paid → part_paid`), its balance due now. **What the payment granted
 stays**: tickets, places and moves are not undone by a reversal; staff take the right payment or
-cancel the order (which voids grants and gives places back as any cancel does). A reversal leaves
+cancel the order (which voids grants and gives places back as any cancel does). A **drop-in** (an
+order that moves a record, `sellable.moves`, ADR 0560) is different, because its booking moves
+once, at the first payment, and has no move back from booked: a recorded payment on one is the
+whole amount owed or nothing (`rule: "paid_in_full"`), and a reversal is refused while its booking
+is still booked (`rule: "reverse_booked"`). Staff cancel the booking, reverse the payment, then
+cancel the order. (Review of PR #426: a part-paid drop-in was told "paid after it was released"
+at its second payment, and cancelling one left its place booked.) A reversal leaves
 an order part paid even when nothing remains paid, rather than moving it back to `pending`,
 because `pending` would need every move hook to run backwards and would expire it a minute later.
 Refused for a provider payment (that is a refund), for a voucher or stored value row (a refund back
@@ -87,6 +93,14 @@ way is for it to confirm with its accountant.
 a recorded payment's reference, a reversal's reason and a recorded refund's reference are blanked,
 and the audit log's copies of `order.recordPayment`, `order.reversePayment` and
 `order.recordRefund` on their orders are redacted.
+
+**Added after the review of PR #426.** The day received must be a real calendar day, no later
+than today and at most a year back. The host's payment rows, and refunds paid back by a person,
+are never deleted, and the latter never edited (triggers). Refunds are reported by method in
+`rec_order_refund`. A payment recorded on an order whose buyer had opened the provider's page
+always tells the admins, whatever the threshold: that page stays open at the provider, and a
+payment made there afterwards arrives as late or not matching, for staff to refund (the host does
+not cancel the provider's page; the gatekeeper has no such action yet).
 
 ## Consequences
 - Two doors into paid, both functions, both reaching `changeOrder` only through `settle` with

@@ -91,7 +91,13 @@ module (the till): whichever is built first builds it once, to this design.
   that waits in Approvals (nothing is sent, so the person with `orders:refund` who paid it back
   records it); a reversal leaves an order part paid even with nothing left paid, rather than
   pending; voucher and stored value refunds, and decision 13's split, are steps 7 and 8. Left for
-  later: "Record a payment" on the order's staff screen (step 10).
+  later: "Record a payment" on the order's staff screen (step 10). After the PR's review: a drop-in
+  (an order that moves a record) is paid in full or not at all, and its payment is reversed only
+  once its booking is cancelled; a later payment of a part-paid order leaves a record already moved
+  as it is; admins are always told of a payment recorded while the buyer's payment page is open;
+  the day received is a real day, not after today and at most a year back; host payment rows and
+  recorded refunds are never deleted (and the latter never edited); `rec_order_refund` reports
+  refunds by method.
 
 ## Goal
 

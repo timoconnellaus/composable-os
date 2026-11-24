@@ -1029,10 +1029,18 @@ const recordedKind = z
   .describe("How it was paid: transfer, cash, cheque, card_machine or other");
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "A date is YYYY-MM-DD");
 
-/** A day no later than tomorrow in UTC: today wherever the business is. */
-function notAfterToday(day: string, now: string): boolean {
-  const tomorrow = new Date(Date.parse(now) + 86_400_000).toISOString().slice(0, 10);
-  return !Number.isNaN(Date.parse(day)) && day <= tomorrow;
+/** How far back a recorded payment's day may be. */
+const RECEIVED_DAYS_BACK = 366;
+
+/**
+ * A real calendar day, no later than tomorrow in UTC (today wherever the business is) and at most
+ * a year back: a payment is recorded once received, and soon after (review of PR #426).
+ */
+function receivedDayOk(day: string, now: string): boolean {
+  const at = Date.parse(`${day}T00:00:00Z`);
+  if (Number.isNaN(at) || new Date(at).toISOString().slice(0, 10) !== day) return false;
+  const today = Date.parse(`${now.slice(0, 10)}T00:00:00Z`);
+  return at <= today + 86_400_000 && at >= today - RECEIVED_DAYS_BACK * 86_400_000;
 }
 
 const paidAnotherWay = z.object({
@@ -1045,9 +1053,10 @@ export const orderRecordPayment = defineOperation({
   description:
     "Record a payment taken another way than the payment page (a bank transfer, cash, a " +
     "cheque, a card machine) on an order still owed money: any amount up to what is owed, never " +
-    "more. The order becomes paid (or part paid) as if the provider had been paid, and what it " +
-    "bought is given. The payment names you as the person who received it. Admins are told of " +
-    "one over the amount an admin set. A person only, with the permission to record payments: " +
+    "more (a drop-in that books a place is paid in full). The order becomes paid (or part paid) " +
+    "as if the provider had been paid, and what it bought is given. The payment names you as " +
+    "the person who received it. Admins are told of one over the amount an admin set, or when " +
+    "the buyer had opened a payment page (a payment made there now is refunded). A person only, with the permission to record payments: " +
     "AI assistants, MCP clients, automations and extensions are refused. Returns the payment's " +
     "id and the order.",
   input: z.object({
@@ -1080,11 +1089,11 @@ export const orderRecordPayment = defineOperation({
     kind: input.kind,
   }),
   async handler(input, ctx) {
-    if (!notAfterToday(input.receivedOn, ctx.now)) {
-      throw new ValidationError("A payment is recorded once it has been received", {
-        field: "receivedOn",
-        rule: "received_on",
-      });
+    if (!receivedDayOk(input.receivedOn, ctx.now)) {
+      throw new ValidationError(
+        "The day received is a real day, not after today and at most a year ago",
+        { field: "receivedOn", rule: "received_on" },
+      );
     }
     const paid = await applyOtherPayment(ctx, {
       orderId: input.id,
@@ -1110,7 +1119,8 @@ export const orderReversePayment = defineOperation({
   description:
     "Reverse a payment recorded in error (order.recordPayment): a second entry takes it back " +
     "off, nothing is deleted, and an order it had paid is part paid again with the amount owed. " +
-    "What the order gave stays: take the right payment or cancel the order. Not for the payment " +
+    "What the order gave stays: take the right payment or cancel the order. A drop-in's booking " +
+    "is cancelled first. Not for the payment " +
     "provider's payments (refund those). Admins are told. A person only, with the permission to " +
     "record payments. Get the payment's id from order.payments. Returns the reversal's id and " +
     "the order.",
