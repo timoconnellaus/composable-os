@@ -46,7 +46,7 @@ function Section({
   icon: ReactNode;
   title: string;
   description: string;
-  to?:
+  to:
     | "/settings/agreements"
     | "/settings/devices"
     | "/settings/checklists"
@@ -74,29 +74,22 @@ function Section({
     | "/settings/plan"
     | "/settings/support-access";
 }) {
-  const body = (
-    <Card className="h-full transition-colors hover:bg-accent/50">
-      <CardHeader className="flex flex-row items-start gap-3">
-        <div className="mt-0.5 text-muted-foreground">{icon}</div>
-        <div className="grid flex-1 gap-1">
-          <CardTitle className="text-base">{title}</CardTitle>
-          <CardDescription>{description}</CardDescription>
-        </div>
-        {to && <ChevronRightIcon className="size-4 text-muted-foreground" aria-hidden />}
-      </CardHeader>
-    </Card>
-  );
-  return to ? (
+  return (
     <Link
       to={to}
       className="rounded-xl focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
     >
-      {body}
+      <Card className="h-full transition-colors hover:bg-accent/50">
+        <CardHeader className="flex flex-row items-start gap-3">
+          <div className="mt-0.5 text-muted-foreground">{icon}</div>
+          <div className="grid flex-1 gap-1">
+            <CardTitle className="text-base">{title}</CardTitle>
+            <CardDescription>{description}</CardDescription>
+          </div>
+          <ChevronRightIcon className="size-4 text-muted-foreground" aria-hidden />
+        </CardHeader>
+      </Card>
     </Link>
-  ) : (
-    <div aria-disabled className="opacity-60">
-      {body}
-    </div>
   );
 }
 
