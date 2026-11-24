@@ -6,17 +6,21 @@
 //
 // Money in the app is the website's (ADR 0490, ADR 0714): the app shows orders and subscriptions,
 // and the card, cancelling and changing plan open the business's website account page in the
-// browser (`websiteUrl`). No block here calls a billing operation. A later step adds "Needs your
-// attention" at the top (me.attention) and the host's answer to which pack sections show
-// (me.portal).
+// browser (`websiteUrl`). No block here calls a billing operation.
+//
+// Which sections this customer has, in what order, and whether Payment method shows is the host's
+// answer (me.portal, ADR 0710). `cos add native-account` copies the packs' section blocks and
+// writes `../account-sections.gen.ts`, which names them; the tab passes them through
+// `usePackSections(ACCOUNT_SECTIONS, react, api)`, so it names no pack. A later step adds "Needs
+// your attention" at the top (me.attention).
 import {
   type AccountHooks,
   type AccountSection,
+  type AccountSectionEntry,
   type AgreementsHooks,
-  accountSections,
-  hiddenSections,
+  portalSections,
 } from "@composable-os/client";
-import { type ReactNode, useState } from "react";
+import { type ComponentType, createElement, type ReactNode, useMemo, useState } from "react";
 import { Linking, SafeAreaView, StyleSheet, Text, View } from "react-native";
 import { YourDetails } from "../native-account-details/details.tsx";
 import { SignInAndDevices } from "../native-account-devices/devices.tsx";
@@ -35,6 +39,36 @@ export interface PackSection extends AccountSection {
   render: () => ReactNode;
 }
 
+/** A section `account-sections.gen.ts` lists: a pack's native block's component and its hooks. */
+export type NativeSectionEntry = AccountSectionEntry<ComponentType<never>>;
+
+/**
+ * The packs' sections, from `account-sections.gen.ts`: each pack's hooks made once with the app's
+ * React functions and its generated client, and its screen given them under the pack's id.
+ */
+export function usePackSections(
+  entries: readonly NativeSectionEntry[],
+  react: object,
+  client: object,
+): PackSection[] {
+  return useMemo(
+    () =>
+      entries.map((entry) => {
+        // Each pack's factory takes its own React and client types; the app's satisfy them all.
+        const make = entry.hooks as (react: object, client: object) => unknown;
+        const props = { [entry.pack]: make(react, client) };
+        const component = entry.component as ComponentType<typeof props>;
+        return {
+          key: entry.key,
+          label: entry.label,
+          order: entry.order,
+          render: () => createElement(component, props),
+        };
+      }),
+    [entries, react, client],
+  );
+}
+
 type Hooks = Pick<
   AccountHooks,
   | "useMe"
@@ -44,6 +78,7 @@ type Hooks = Pick<
   | "useFamily"
   | "useOrders"
   | "useSubscriptions"
+  | "usePortal"
 >;
 
 export function AccountScreen({
@@ -57,7 +92,7 @@ export function AccountScreen({
 }: {
   account: Hooks;
   agreements: Pick<AgreementsHooks, "useDue" | "useMine" | "useAcceptance" | "useAccept">;
-  /** The packs' sections. */
+  /** The packs' sections the app has (`usePackSections`); the host says which of them show. */
   sections?: readonly PackSection[];
   /** The business's website account page, where money is managed. */
   websiteUrl: string;
@@ -69,9 +104,9 @@ export function AccountScreen({
   onDownload?: (acceptanceId: string) => void;
 }) {
   const me = account.useMe();
-  const subscriptions = account.useSubscriptions();
+  const portal = account.usePortal();
   const [open, setOpen] = useState<string | null>(null);
-  const shown = accountSections(sections, hiddenSections(subscriptions.data?.items));
+  const shown = portalSections(portal.data, sections);
   const packs = new Map(sections.map((s) => [s.key, s]));
   const manage = () => openUrl(websiteUrl);
 

@@ -2,7 +2,9 @@
 // shifts and the patterns that name them and, confirmed with that count (as `recurring.change`
 // is), in the same batch: clears them from every future shift and pattern (each now uncovered),
 // which releases their time claims (the staffed triggers), cancels their open offers and those
-// named to them, removes their open hours, and tells the rosterers with the list. Past shifts, and shifts already under way,
+// named to them, removes their open hours, cancels their leave still waiting and marks an entry
+// they left open finish missing (stage 58, ADRs 0853 and 0850), and tells the rosterers with the
+// list. Past shifts, and shifts already under way,
 // keep them. Reactivating puts nothing back.
 //
 // Set-based, so a coach with a long future and a longer past is a handful of statements: the
@@ -85,7 +87,8 @@ async function futureShifts(ctx: HandlerContext, account: string): Promise<Futur
     .select(["object_type", "record_id", "starts"])
     .where("account_id", "=", account)
     .where("ends", ">", now)
-    .where("starts", ">", now)
+    // By the shift's own start: a claim is widened by its margins (ADR 0760).
+    .where(sql<number>`starts + margin_before`, ">", now)
     .orderBy("starts")
     .limit(READ_MAX + 1)
     .execute();
@@ -177,6 +180,31 @@ export async function leaveRoster(
   // Their open hours (stage 49, ADR 0762): a leaver takes no more appointments. One statement,
   // in the same batch (a refusal below queues nothing).
   ctx.write(ctx.db.deleteFrom("core_staff_hours").where("account_id", "=", account));
+  // Their leave still waiting is cancelled (stage 58, ADR 0853); approved leave and balances stay
+  // as they are, as payroll records.
+  ctx.write(
+    ctx.db
+      .updateTable("core_leave_request")
+      .set({
+        state: "cancelled",
+        decided_by: actingAccount(ctx),
+        decided_at: ctx.now,
+        why: "deactivated",
+        updated_at: ctx.now,
+      })
+      .where("account_id", "=", account)
+      .where("state", "=", "requested"),
+  );
+  // An entry they left open is marked finish missing (stage 58, ADR 0850): no finish is ever
+  // invented, and it cannot be approved until one is entered.
+  ctx.write(
+    ctx.db
+      .updateTable("core_time_entry")
+      .set({ finish_missing: 1, updated_at: ctx.now })
+      .where("account_id", "=", account)
+      .where("ends", "is", null)
+      .where("finish_missing", "=", 0),
+  );
   if (!listObjects().some((o) => o.staffed)) return { shifts: 0, patterns: 0, offers: 0 };
   const shifts = await futureShifts(ctx, account);
   const patterns = await patternsOf(ctx, account);
@@ -207,7 +235,7 @@ export async function leaveRoster(
   for (const object of new Set(shifts.map((s) => s.object))) {
     ctx.write(
       CompiledQuery.raw(
-        "INSERT INTO core_staff_guard (expected, actual) SELECT ?, count(*) FROM core_staff_time WHERE account_id = ? AND object_type = ? AND ends > ? AND starts > ?",
+        "INSERT INTO core_staff_guard (expected, actual) SELECT ?, count(*) FROM core_staff_time WHERE account_id = ? AND object_type = ? AND ends > ? AND starts + margin_before > ?",
         [shifts.filter((s) => s.object === object).length, account, object, now, now],
       ),
     );

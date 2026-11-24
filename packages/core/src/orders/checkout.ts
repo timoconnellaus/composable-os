@@ -5,11 +5,14 @@
 // the balance. The buyer is sent back to `returnUrl`, which must be on an origin the deployment
 // lists; coming back there tells the host nothing. Only the provider's verified webhook marks a
 // payment (orders/events.ts).
-import { ValidationError } from "../errors.ts";
+
+import { sha256Hex } from "../digest.ts";
+import { ConflictError, ValidationError } from "../errors.ts";
 import type { HandlerContext } from "../operation.ts";
 import { openProviderCheckout, paymentsTarget } from "./gateway.ts";
 import { type Charge, chargeFor, type OrderRow } from "./orders.ts";
 import { isAllowedReturnUrl, loadMinPartPayment, loadReturnOrigins } from "./settings.ts";
+import { discountsWaiting } from "./staff-discounts.ts";
 import { checkoutTax } from "./tax.ts";
 
 export interface OpenedCheckout {
@@ -25,12 +28,9 @@ export interface OpenedCheckout {
 /** A retried press of "Pay" within ten minutes, for the same amount, opens the same page. */
 const IDEMPOTENCY_WINDOW_MS = 10 * 60_000;
 
+/** The first 8 bytes of the SHA-256 of `text`, as 16 hex characters. */
 async function shortHash(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return [...new Uint8Array(digest)]
-    .slice(0, 8)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  return (await sha256Hex(text)).slice(0, 16);
 }
 
 const KIND_WORDS: Record<Charge["kind"], string> = {
@@ -43,7 +43,8 @@ const KIND_WORDS: Record<Charge["kind"], string> = {
 /**
  * Opens the provider's page for what `row` may be charged now, and records the checkout in the
  * calling operation's batch. Refuses a return address off the deployment's list, an amount
- * `chargeFor` refuses, and a deployment with no payment account.
+ * `chargeFor` refuses, a deployment with no payment account, and an order with a staff discount
+ * waiting for approval (ADR 0691): its price is not settled until a person decides.
  */
 export async function openCheckout(
   ctx: HandlerContext,
@@ -58,6 +59,15 @@ export async function openCheckout(
     });
   }
   const charge = chargeFor(row, await loadMinPartPayment(ctx.db), input.amount);
+  if (row.state === "pending" && (await discountsWaiting(ctx.db, row.id, ctx.now)) > 0) {
+    throw new ConflictError(
+      "A discount on this order is waiting for approval: pay once it is decided",
+      {
+        rule: "discount_waiting",
+        order: row.id,
+      },
+    );
+  }
   const target = await paymentsTarget(ctx.db);
   const lines = await ctx.db
     .selectFrom("core_order_line")

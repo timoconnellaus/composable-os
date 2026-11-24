@@ -40,13 +40,7 @@ export function releaseContract(
     // An org extension's tools come from its own source below, never from the release's file.
     if (first === "x" && id && own.has(id)) merged.delete(name);
   }
-  const tools = extensions.flatMap((extension) => {
-    const manifest = toManifest(extension);
-    return Object.entries(manifest.tools).map(([name, tool]) =>
-      toolOperation(manifest, name, tool, "shipped"),
-    );
-  });
-  for (const op of buildContract(tools).operations) merged.set(op.name, op);
+  for (const op of buildContract(extensionTools(extensions)).operations) merged.set(op.name, op);
   const version = perAudience[0]?.version ?? "v1";
   return {
     version,
@@ -55,11 +49,15 @@ export function releaseContract(
 }
 
 export function productContract(extensions: readonly Extension[]): ApiContract {
-  const tools = extensions.flatMap((extension) => {
+  return buildContract([...coreRegistry.list(), ...extensionTools(extensions)]);
+}
+
+/** The operations the extensions' tools are, as a host that ships them serves them. */
+function extensionTools(extensions: readonly Extension[]) {
+  return extensions.flatMap((extension) => {
     const manifest = toManifest(extension);
     return Object.entries(manifest.tools).map(([name, tool]) =>
       toolOperation(manifest, name, tool, "shipped"),
     );
   });
-  return buildContract([...coreRegistry.list(), ...tools]);
 }

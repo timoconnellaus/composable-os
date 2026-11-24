@@ -20,15 +20,9 @@ import { DuplicateWarnings, useDuplicateCheck } from "../duplicates/duplicate-wa
 export interface CreateOrganisationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Open the new record after creating it (default true). */
-  openAfterCreate?: boolean;
 }
 
-export function CreateOrganisationDialog({
-  open,
-  onOpenChange,
-  openAfterCreate = true,
-}: CreateOrganisationDialogProps) {
+export function CreateOrganisationDialog({ open, onOpenChange }: CreateOrganisationDialogProps) {
   const navigate = useNavigate();
   const create = useOpMutation("organisation.create");
   const [error, setError] = useState<string | null>(null);
@@ -67,9 +61,7 @@ export function CreateOrganisationDialog({
       });
       onOpenChange(false);
       toast.success(`Created ${organisation.name}`);
-      if (openAfterCreate) {
-        navigate({ to: "/organisations/$id", params: { id: organisation.id } });
-      }
+      navigate({ to: "/organisations/$id", params: { id: organisation.id } });
     } catch (caught) {
       setError(errorMessage(caught));
     }

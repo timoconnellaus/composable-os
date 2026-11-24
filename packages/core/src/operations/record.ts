@@ -41,20 +41,37 @@ import {
   fieldStorage,
   objectTableOf,
   PUBLISHED_FIELDS,
+  STOCK_FIELDS,
 } from "../extensions/schema.ts";
 import { FIELD_TYPE_REGISTRY, formulaFromStorage } from "../fields/field-types.ts";
 import { getObject, isCoreObject, listObjects } from "../fields/index.ts";
 import { mediaObject } from "../fields/media.ts";
 import type { FieldDefinition, ObjectDefinition } from "../fields/types.ts";
 import { newId } from "../ids.ts";
+import {
+  assertFormQuestions,
+  assertSubmissionByHost,
+  intakeHostFields,
+} from "../intake/declared.ts";
 import { listInputSchema, pageSchema, runListQuery } from "../list.ts";
 import type { RecordRef } from "../operation.ts";
 import { defineOperation, type HandlerContext, personsTool } from "../operation.ts";
+import { looksAfterWhere } from "../pack-role-looks-after.ts";
 import { assertMayChangeMustRead } from "../records/acknowledge.ts";
+import { assertAuthorWrite, authorFields } from "../records/authored.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { jsonList, restorableUntil, TRASH_RETENTION_DAYS } from "../records/common.ts";
-import { FOLLOWERS_MAX, followerIds, followersOf } from "../records/follows.ts";
+import {
+  FOLLOWERS_MAX,
+  type Follower,
+  followerBudget,
+  followerIds,
+  followerLeftGuard,
+  followersOf,
+} from "../records/follows.ts";
+import { assertMayChangeGatedStages, stageFacts } from "../records/host-facts.ts";
 import { applyTransition, callerMover } from "../records/lifecycle.ts";
+import { leavingPublishWrites } from "../records/publish.ts";
 import {
   assertRestorable,
   assertSlugsFree,
@@ -78,16 +95,22 @@ import {
 import { type ChangeMarks, CREATED, type MarkSource } from "../routine-mail/marks.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import {
+  assertFollowerRoom,
   assertHolderTrashable,
   assertRosterRestore,
   assertRosterWrite,
+  followedTimeFields,
+  followersMoved,
   holderWritten,
   type StaffWarning,
   staffedReleased,
   staffedRestored,
   staffedWritten,
+  timesFollowed,
   warningsOf,
 } from "../staffing/index.ts";
+import { stockCounterInsert } from "../stock/index.ts";
+import { assertStockLineRestorable } from "../stock/moves.ts";
 import { type Reader, visibleSource, visibleTable } from "../visibility/index.ts";
 import { setRecordWriter } from "../visibility/writes.ts";
 
@@ -114,7 +137,7 @@ export type RecordOutput = z.infer<typeof recordSchema>;
 
 /** A warning a write of a shift was made with (stage 45, ADR 0622): it was made, not refused. */
 export const staffWarningSchema = z.object({
-  code: z.enum(["unavailable", "not_qualified", "uncovered"]),
+  code: z.enum(["unavailable", "not_qualified", "uncovered", "outside_hours", "client_busy"]),
   object: z.string(),
   id: z.string(),
   account: z.string().nullable(),
@@ -206,6 +229,13 @@ export function fromRow(object: ObjectDefinition, row: Record<string, unknown>):
       values[field.name] = raw === undefined || raw === null ? null : Number(raw);
     }
   }
+  // The stock behaviour's read-only values (ADR 0680): on hand, held, available.
+  if (object.stock) {
+    for (const field of STOCK_FIELDS) {
+      const raw = field.column ? row[field.column] : null;
+      values[field.name] = raw === undefined || raw === null ? null : Number(raw);
+    }
+  }
   // The allowance behaviour's read-only values on a holder (ADR 0493): used and left now.
   if (object.allowance?.kind === "holder") {
     for (const field of ALLOWANCE_FIELDS) {
@@ -278,15 +308,16 @@ async function prepareValues(
     }
     if (!field.extension) {
       throw new ValidationError(
-        `${object.name}.${name} is a core field; change it with ${object.name}.update`,
+        `${object.name}.${name} is a core field; change it with ${field.setWith ?? `${object.name}.update`}`,
         { field: name },
       );
     }
     // Read-only fields are maintained by the host, or by the declaring extension's own code
     // (a tool or automation of that extension, ADR 0246): Leads sets a lead's deal on conversion.
     // A holder's terms (its uses, its dates, whose they are) only through a tool only a person
-    // with a permission may call (ADR 0513): never any other code of the extension.
-    const term = holderTerms(object).has(name);
+    // with a permission may call (ADR 0513): never any other code of the extension. So too a
+    // fact a stage waits on (ADR 0750: a quote's acceptance, a sign-off).
+    const term = holderTerms(object).has(name) || stageFacts(object).has(name);
     const ownCode =
       field.fieldType !== "formula" &&
       field.extension !== undefined &&
@@ -311,11 +342,30 @@ async function prepareValues(
     const hostCode = field.fieldType !== "formula" && (options.by === "host" || seamCode);
     // What a holder's conditions read on a spender is the host's alone, even for the
     // extension's own code (ADR 0493): no actor sets what pays for it.
+    // A submission's evidence is the host's alone (ADR 0720): what was answered, to which
+    // version, and how sure the host is whose it is. No staff write, AI or import changes it.
+    if (!hostCode && intakeHostFields(object).has(name)) {
+      throw new ValidationError(`${object.name}.${name} is set by the host and cannot be written`, {
+        field: name,
+        rule: "intake_host_only",
+      });
+    }
+    // A shift's times that follow a record (ADR 0751: a crew place's visit) are copied from it by
+    // the host alone, whoever writes, the declaring extension's own tools included.
+    if (!hostCode && followedTimeFields(object).has(name)) {
+      throw new ValidationError(
+        `${object.name}.${name} is set by the host and cannot be written: it follows ${object.staffed?.timesFrom}`,
+        { field: name, rule: "times_follow" },
+      );
+    }
     if (!hostCode && hostFilled(object).has(name)) {
       throw new ValidationError(`${object.name}.${name} is set by the host and cannot be written`, {
         field: name,
       });
     }
+    // A publishable record's author's fields (ADR 0810): theirs alone, never staff's or an AI's,
+    // the declaring extension's own code included.
+    assertAuthorWrite(ctx, object, name, hostCode);
     if (field.readOnly && !ownCode && !hostCode) {
       throw new ValidationError(
         field.fieldType === "formula"
@@ -426,6 +476,37 @@ function withHostValues(
 ) {
   const extra = hostValues(object, outcome.values);
   return [...prepared.filter((p) => !Object.hasOwn(outcome.values, p.field.name)), ...extra];
+}
+
+/** A create's defaults less the times a shift takes from its record (ADR 0751: a zone's). */
+function withoutFollowedDefaults(
+  object: ObjectDefinition,
+  given: Record<string, unknown>,
+  values: Record<string, unknown>,
+): Record<string, unknown> {
+  const followed = followedTimeFields(object);
+  if (!followed.size) return values;
+  return Object.fromEntries(
+    Object.entries(values).filter(([name]) => !followed.has(name) || Object.hasOwn(given, name)),
+  );
+}
+
+/**
+ * A shift whose times follow a record (ADR 0751) with that record's start, end, zone and kind in
+ * place of any given, read from the record its values name; other values are left as they are.
+ */
+async function followedValues(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  prepared: PreparedValue[],
+): Promise<PreparedValue[]> {
+  if (!object.staffed?.timesFrom) return prepared;
+  const followed = await timesFollowed(ctx, object, valuesOf(prepared));
+  if (!Object.keys(followed).length) return prepared;
+  return [
+    ...prepared.filter((p) => !Object.hasOwn(followed, p.field.name)),
+    ...hostValues(object, followed),
+  ];
 }
 
 /** A lifecycle outcome with more host values (the allowance's) on top of its own. */
@@ -688,13 +769,19 @@ export async function createRecord(
     copied?: Record<string, MarkSource[]>;
     /** Fields the host generates itself, not anyone's words (a ticket's code): `default`. */
     generated?: readonly string[];
+    /** The record import writes it (`record.import`): someone moving over (issue #281). */
+    imported?: boolean;
   } = {},
 ): Promise<string> {
+  // Only the door makes a submission (ADR 0720), whoever asks and by whatever path.
+  assertSubmissionByHost(object, options.by);
   const requester = options.by ?? (object.states?.requests ? callerMover(ctx) : undefined);
   // A move asked for by name (`cancel`) becomes the state the host picks (ADR 0503).
   const asked = requester
     ? await resolveStateRequest(ctx, object, null, values, requester)
     : values;
+  // The stages a host fact gates are an admin's, in person (ADR 0750).
+  assertMayChangeGatedStages(ctx, object, options.by);
   // Who must read a record staff confirm is a person's choice (ADR 0702).
   if (options.by !== "host") await assertMayChangeMustRead(ctx, object, null, asked, null);
   // What an order line grants, given by a person's tool instead (a pass by hand, ADR 0513): its
@@ -704,10 +791,22 @@ export async function createRecord(
       ? await (await import("../orders/grants.ts")).handGrantValues(ctx, object, asked)
       : asked;
   // A slug left empty is made from the title; one given must be free (ADR 0442).
-  const withDefaults = await slugsForCreate(ctx, object, await applyDefaults(ctx, object, handed));
-  let prepared = await prepareValues(ctx, object, withDefaults, "create", options);
+  const withDefaults = await slugsForCreate(
+    ctx,
+    object,
+    withoutFollowedDefaults(object, handed, await applyDefaults(ctx, object, handed)),
+  );
+  let prepared = await followedValues(
+    ctx,
+    object,
+    await prepareValues(ctx, object, withDefaults, "create", options),
+  );
+  // At most so many shifts follow one record's times (ADR 0751), counted when one is made.
+  await assertFollowerRoom(ctx, object, null, valuesOf(prepared));
   assertOneOf(object, valuesOf(prepared));
   assertRuleValues(object, valuesOf(prepared));
+  // A form's questions, with its anonymous flag and destination (ADR 0720).
+  assertFormQuestions(object, valuesOf(prepared));
   // No owner given: assignment rules choose one, in this same insert (ADR 0246).
   const ownerField = object.ownerField;
   const assignment =
@@ -729,6 +828,7 @@ export async function createRecord(
   const outcome = await applyTransition(ctx, object, id, null, valuesOf(prepared), {
     by,
     cache: options.cache,
+    imported: options.imported,
   });
   // A spender entering a spend state spends a use (ADR 0493): the host's values on it (the
   // holder spent from, what it copies) go in this insert, the use after it.
@@ -753,6 +853,8 @@ export async function createRecord(
   // The record's capacity counter (ADR 0431), after the record it belongs to.
   const counter = await counterWrite(ctx, object, id, valuesOf(prepared), "create");
   if (counter) ctx.write(counter);
+  // A stock record's counter, with nothing on hand: stock comes only by movements (ADR 0680).
+  if (object.stock) ctx.write(stockCounterInsert(object.name, id, ctx.now));
   // A holder's terms, and a spender's use (ADR 0493).
   ctx.write(...(await holderWrite(ctx, object, id, null, valuesOf(prepared))));
   ctx.write(...spent.statements);
@@ -1088,6 +1190,8 @@ export async function updateRecord(
     checkReferences?: boolean;
     /** Fields the host copies from other records (ADR 0590): their marks are the sources'. */
     copied?: Record<string, MarkSource[]>;
+    /** The record import writes it (`record.import`): someone moving over (issue #281). */
+    imported?: boolean;
   } = {},
 ): Promise<boolean> {
   const before = await loadRecord(ctx, object, id);
@@ -1096,11 +1200,19 @@ export async function updateRecord(
   // A move asked for by name (`cancel`) becomes the state the host picks (ADR 0503).
   const asked = await resolveStateRequest(ctx, object, before.values, values, by);
   if (options.from !== undefined) assertMovesFrom(object, before.values, asked, options.from);
+  assertMayChangeGatedStages(ctx, object, by);
   // Who must read a record staff confirm: a person's, and once published a manager's (ADR 0702).
   if (by !== "host") await assertMayChangeMustRead(ctx, object, id, asked, before.values);
   let prepared = await prepareValues(ctx, object, asked, "update", options);
   if (!prepared.length) return false;
+  // Pointed at another record its times follow: they are that record's now (ADR 0751).
+  const timesFrom = object.staffed?.timesFrom;
+  if (timesFrom && prepared.some((p) => p.field.name === timesFrom)) {
+    prepared = await followedValues(ctx, object, prepared);
+    await assertFollowerRoom(ctx, object, id, valuesOf(prepared));
+  }
   assertRuleValues(object, { ...before.values, ...valuesOf(prepared) });
+  assertFormQuestions(object, { ...before.values, ...valuesOf(prepared) });
   await assertSlugsFree(ctx, object, id, valuesOf(prepared));
   assertChoiceRequirements(object, prepared, {
     ...before.values,
@@ -1112,6 +1224,7 @@ export async function updateRecord(
   });
   const outcome = await applyTransition(ctx, object, id, before.values, valuesOf(prepared), {
     by,
+    imported: options.imported,
   });
   const spent = await spenderWrite(
     ctx,
@@ -1174,7 +1287,21 @@ export async function updateRecord(
     by,
   );
   await holderWritten(ctx, object, id, before.values, { ...before.values, ...valuesOf(prepared) });
-  const own = prepared.filter((p) => p.own);
+  // Shifts whose times follow this record move with it (ADR 0751): its own statement copies them,
+  // after the host has read that none would put its person on two shifts at once.
+  // A write that also cancels them (its cascade) writes their new times after the cascade has
+  // moved them, so the copy never claims a time for a shift being cancelled (the review of #419).
+  const afterCascade = await followersMoved(
+    ctx,
+    object,
+    id,
+    before.values,
+    { ...before.values, ...valuesOf(prepared) },
+    by,
+    outcome.moved?.id,
+  );
+  const later = prepared.filter((p) => p.own && afterCascade.has(p.field.name));
+  const own = prepared.filter((p) => p.own && !afterCascade.has(p.field.name));
   if (own.length || !isCoreObject(object.name)) {
     const table = objectTableOf(object.name);
     if (table) {
@@ -1217,6 +1344,14 @@ export async function updateRecord(
   );
   // Records that follow this one's moves move with it, as the host, in this batch (ADR 0507).
   await moveFollowers(ctx, object, id, outcome.moved?.id);
+  if (later.length) {
+    ctx.write(
+      CompiledQuery.raw(
+        `UPDATE ${objectTableOf(object.name)} SET ${later.map((p) => `${p.column} = ?`).join(", ")} WHERE id = ? AND deleted_at IS NULL`,
+        [...later.map((p) => p.stored), id],
+      ),
+    );
+  }
   // A series' future records follow it; a closure cancels what it covers (ADR 0500).
   await seriesChanged(ctx, object, id, before.values, after, {
     confirm: options.recurringConfirm,
@@ -1225,6 +1360,8 @@ export async function updateRecord(
   await closureWritten(ctx, object, before.values, after, options.recurringConfirm);
   // A published record's old address keeps pointing to it (ADR 0442).
   ctx.write(...(await redirectWrites(ctx, object, id, before.values, after)));
+  // Moved out of the states it may be published in: unpublished in this batch (ADR 0810).
+  ctx.write(...leavingPublishWrites(object, id, valuesOf(prepared)));
   const timeline = await timelineFor(ctx, object, id, before.values, after, outcome);
   if (object.titleField && prepared.some((p) => p.field.name === object.titleField)) {
     const title = after[object.titleField];
@@ -1255,7 +1392,8 @@ export async function updateRecord(
  * The state cascade (ADR 0507): when `object`'s record `id` moves into a state an object that
  * follows it names, each of that object's live records pointing at it (in its `from` states)
  * moves to the state given, as the host, in this write's batch, with everything that move does
- * (its place given back, its use returned). More than FOLLOWERS_MAX refuses the move.
+ * (its place given back, its use returned, its time freed). A follower may be in another
+ * extension that requires this one's (ADR 0841). More than the call's budget refuses the move.
  */
 async function moveFollowers(
   ctx: HandlerContext,
@@ -1270,8 +1408,14 @@ async function moveFollowers(
   // read and before the batch commits (a booking of a class being cancelled) would be missed by
   // the cascade, so the batch checks at commit that the record's counter is what this read, less
   // what the cascade gives back, leaves. Read first, so one made between the two reads is moved.
+  // Only when a follower claims places on the record: a pool's counter also counts its members'
+  // claims, which this read does not see, and a follower that draws none is caught below
+  // (ADR 0841).
+  const claiming = following.some(
+    (f) => f.object.claims?.object === object.name && f.object.claims.on === f.relation,
+  );
   const claims =
-    object.capacity && !ctx.simulation
+    object.capacity && claiming && !ctx.simulation
       ? await ctx.db
           .selectFrom("core_capacity_claim")
           .select(["id", "for_type", "for_id", "quantity"])
@@ -1280,16 +1424,34 @@ async function moveFollowers(
           .where("state", "in", ["held", "confirmed"])
           .execute()
       : null;
-  const givenBack = new Set<string>();
+  // Every follower's records first. The limit is on the whole call (ADR 0841): every object
+  // that follows this one, every other parent the call moves, and the cascades the followers' own
+  // moves start draw on one budget (a timed move's, the minute cron's tick).
+  const budget = followerBudget(ctx);
+  const allowed = budget.left;
+  const moves: { follower: Follower; target: string; ids: string[] }[] = [];
+  let total = 0;
   for (const follower of following) {
-    const target = follower.when[to] as string;
-    const ids = await followerIds(ctx, follower, id);
-    if (ids.length > FOLLOWERS_MAX) {
+    const ids = await followerIds(ctx, follower, id, allowed + 1 - total);
+    total += ids.length;
+    if (total > allowed) {
+      const shared = allowed < FOLLOWERS_MAX;
       throw new ConflictError(
-        `${object.label} has more than ${FOLLOWERS_MAX} ${(follower.object.plural ?? "records").toLowerCase()} to move with it`,
-        { rule: "follows_too_many", object: follower.object.name },
+        shared
+          ? `${object.label}'s move, with the rest of this change, has more than ${FOLLOWERS_MAX} records to move with it: make the change in smaller parts`
+          : `${object.label} has more than ${FOLLOWERS_MAX} records to move with it (${(follower.object.plural ?? "records").toLowerCase()} among them)`,
+        {
+          rule: "follows_too_many",
+          object: follower.object.name,
+          ...(shared ? { reason: "budget" } : {}),
+        },
       );
     }
+    moves.push({ follower, target: follower.when[to] as string, ids });
+  }
+  budget.left -= total;
+  const givenBack = new Set<string>();
+  for (const { follower, target, ids } of moves) {
     const fc = follower.object.claims;
     if (claims && fc?.object === object.name && fc.on === follower.relation) {
       const keeps = fc.held.includes(target) || fc.confirmed.includes(target);
@@ -1324,6 +1486,11 @@ async function moveFollowers(
         },
       );
     }
+    // None left behind (ADR 0841): a follower made after the read above and committed before
+    // this batch fails it, whatever it claims or does not, so a cancelled event never keeps a
+    // crew shift open. Asked again, the move reads it and takes it along.
+    const left = ctx.simulation ? null : followerLeftGuard(ctx, follower, id, target);
+    if (left) ctx.write(left);
   }
   if (claims) {
     const expected = claims
@@ -1331,6 +1498,52 @@ async function moveFollowers(
       .reduce((sum, c) => sum + Number(c.quantity), 0);
     ctx.write(guardStatement("claimed", object.name, id, expected));
   }
+}
+
+/**
+ * A follower back from the Trash (ADR 0841): its parent may have moved while it was there, into a
+ * state that moves it (an event cancelled). It never comes back live onto that, so the restore is
+ * refused naming the parent's state; and a parent that moves before the restore commits fails it
+ * (the `unmoved` guard of migration 0670, as a create judged against `create.closed`). A parent's
+ * move committed first, the restore is refused; a restore committed first, the parent's move reads
+ * it, or fails on the guard against a follower left behind.
+ */
+async function assertFollowerRestorable(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  stored: Record<string, unknown> | undefined,
+): Promise<void> {
+  const f = object.states?.follows;
+  if (!f || !object.states || !stored) return;
+  const relColumn = fieldStorage(object.name, f.relation)?.column;
+  const stateColumn = fieldStorage(object.name, object.states.field)?.column;
+  const parentId = relColumn ? stored[relColumn] : undefined;
+  const to = object.fields.find((x) => x.name === f.relation)?.options?.to;
+  const parent = to ? getObject(to) : undefined;
+  if (typeof parentId !== "string" || !parentId || !parent?.states) return;
+  const state = stateColumn ? stored[stateColumn] : undefined;
+  const row = await loadRecord(ctx, parent, parentId);
+  const parentState = row?.values[parent.states.field];
+  if (
+    row &&
+    typeof parentState === "string" &&
+    Object.hasOwn(f.when, parentState) &&
+    typeof state === "string" &&
+    f.from.includes(state) &&
+    f.when[parentState] !== state
+  ) {
+    throw new ConflictError(
+      `Its ${parent.label.toLowerCase()} is ${parentState} now, so this ${object.label.toLowerCase()} cannot come back from the Trash`,
+      { rule: "follows", reason: "parent_moved", object: parent.name, state: parentState },
+    );
+  }
+  const history = await ctx.db
+    .selectFrom("core_transition_history")
+    .select((eb) => eb.fn.countAll<number>().as("n"))
+    .where("object_type", "=", parent.name)
+    .where("record_id", "=", parentId)
+    .executeTakeFirst();
+  ctx.write(guardStatement("unmoved", parent.name, parentId, Number(history?.n ?? 0)));
 }
 
 /**
@@ -1369,7 +1582,7 @@ function assertMovesFrom(
 }
 
 // The seam's write helper (visibility/writes.ts) changes extension records with this code.
-setRecordWriter({ create: createRecord, update: updateRecord });
+setRecordWriter({ create: createRecord, update: updateRecord, delete: trashRecord });
 setAllowanceRecordUpdate(updateRecord);
 
 /** Moves a record to Trash as the host (a series' record no longer in its rule, ADR 0500). */
@@ -1524,6 +1737,56 @@ async function assertHolderTrashRule(
   }
 }
 
+/**
+ * Moves a record of an extension object to Trash, with every rule `record.delete` holds: what
+ * staff call, and what a customer's `my.delete` runs once the seam has found the record theirs.
+ */
+async function trashRecord(ctx: HandlerContext, object: ObjectDefinition, id: string) {
+  const before = await loadRecord(ctx, object, id);
+  if (!before) throw new NotFoundError(object.name, id);
+  assertMayChangeGatedStages(ctx, object, undefined);
+  // Places people have paid for keep their record out of Trash (ADR 0431), and so does a use
+  // a spender holds (ADR 0493).
+  await assertNoConfirmedClaims(ctx, object, id);
+  await assertSpenderDeletable(ctx, object, id);
+  // A holder that can be spent, or that its grant still moves, is voided or ended first.
+  if (object.states) {
+    await assertHolderTrashRule(ctx, object, id, before.values[object.states.field], false);
+  }
+  // A claimant holding a place gives it back by moving out of its state, not by Trash.
+  await assertNoLiveClaim(ctx, object, id);
+  // A series in Trash makes nothing more; its future records go as an ended series' do.
+  await seriesChanged(ctx, object, id, before.values, before.values, { trashed: true });
+  // The read above gives the message; this makes it hold at commit (a claim made meanwhile).
+  if (object.claims) ctx.write(guardStatement("claimant", object.name, id, 0));
+  // A shift in the Trash claims nobody's time (its trigger drops the claim, ADR 0621); a coach
+  // profile on shifts not yet ended is not trashed while it still names their person.
+  await staffedReleased(ctx, object, id);
+  await checklistRecordWritten(ctx, object, id, before.values, null, undefined);
+  await assertChecklistHolderMove(ctx, object, id, "put in the Trash", undefined);
+  await assertHolderTrashable(ctx, object, id);
+  const table = objectTableOf(object.name) as string;
+  ctx.write(
+    CompiledQuery.raw(`UPDATE ${table} SET deleted_at = ?, deleted_by = ? WHERE id = ?`, [
+      ctx.now,
+      ctx.user.id,
+      id,
+    ]),
+    CompiledQuery.raw("DELETE FROM core_search_docs WHERE object_type = ? AND record_id = ?", [
+      object.name,
+      id,
+    ]),
+    // A holder in the Trash cannot be spent: its terms follow the record (ADR 0493).
+    ...(await holderTrash(ctx, object, id)),
+  );
+  ctx.recordChange({
+    object: object.name,
+    id,
+    action: "delete",
+    before: snapshot(before),
+  });
+}
+
 export const recordDelete = defineOperation({
   name: "record.delete",
   description:
@@ -1535,48 +1798,7 @@ export const recordDelete = defineOperation({
   risk: "destructive",
   async handler(input, ctx) {
     const object = requireExtensionObject(input.object);
-    const before = await loadRecord(ctx, object, input.id);
-    if (!before) throw new NotFoundError(input.object, input.id);
-    // Places people have paid for keep their record out of Trash (ADR 0431), and so does a use
-    // a spender holds (ADR 0493).
-    await assertNoConfirmedClaims(ctx, object, input.id);
-    await assertSpenderDeletable(ctx, object, input.id);
-    // A holder that can be spent, or that its grant still moves, is voided or ended first.
-    if (object.states) {
-      await assertHolderTrashRule(ctx, object, input.id, before.values[object.states.field], false);
-    }
-    // A claimant holding a place gives it back by moving out of its state, not by Trash.
-    await assertNoLiveClaim(ctx, object, input.id);
-    // A series in Trash makes nothing more; its future records go as an ended series' do.
-    await seriesChanged(ctx, object, input.id, before.values, before.values, { trashed: true });
-    // The read above gives the message; this makes it hold at commit (a claim made meanwhile).
-    if (object.claims) ctx.write(guardStatement("claimant", object.name, input.id, 0));
-    // A shift in the Trash claims nobody's time (its trigger drops the claim, ADR 0621); a coach
-    // profile on shifts not yet ended is not trashed while it still names their person.
-    await staffedReleased(ctx, object, input.id);
-    await checklistRecordWritten(ctx, object, input.id, before.values, null, undefined);
-    await assertChecklistHolderMove(ctx, object, input.id, "put in the Trash", undefined);
-    await assertHolderTrashable(ctx, object, input.id);
-    const table = objectTableOf(object.name) as string;
-    ctx.write(
-      CompiledQuery.raw(`UPDATE ${table} SET deleted_at = ?, deleted_by = ? WHERE id = ?`, [
-        ctx.now,
-        ctx.user.id,
-        input.id,
-      ]),
-      CompiledQuery.raw("DELETE FROM core_search_docs WHERE object_type = ? AND record_id = ?", [
-        object.name,
-        input.id,
-      ]),
-      // A holder in the Trash cannot be spent: its terms follow the record (ADR 0493).
-      ...(await holderTrash(ctx, object, input.id)),
-    );
-    ctx.recordChange({
-      object: object.name,
-      id: input.id,
-      action: "delete",
-      before: snapshot(before),
-    });
+    await trashRecord(ctx, object, input.id);
     return { id: input.id, restorableUntil: restorableUntil(ctx.now) };
   },
 });
@@ -1599,6 +1821,7 @@ export const recordRestore = defineOperation({
     const deletedAt = row.rows[0]?.deleted_at;
     if (deletedAt === undefined) throw new NotFoundError(input.object, input.id);
     if (deletedAt === null) throw new ValidationError(`${input.id} is not in Trash`);
+    assertMayChangeGatedStages(ctx, object, undefined);
     // Its slug may have been taken while it was in the Trash (stage 28, ADR 0444).
     await assertRestorable(ctx, object, input.id);
     // Back with someone on it (a shift's person, a series' regular person): a rosterer's (ADR 0626).
@@ -1609,6 +1832,8 @@ export const recordRestore = defineOperation({
     // checklist comes back by someone who rosters.
     checklistRecordRestored(ctx, object, input.id);
     await assertChecklistHolderMove(ctx, object, input.id, "restore", undefined);
+    // Never a line back under a record that moved stock meanwhile (ADR 0681).
+    await assertStockLineRestorable(ctx, object, input.id);
     // A granted holder comes back only in a final state (ADR 0513).
     const stateColumn = object.states
       ? fieldStorage(object.name, object.states.field)?.column
@@ -1618,6 +1843,8 @@ export const recordRestore = defineOperation({
         SELECT * FROM ${visibleTable(ctx, object)} WHERE id = ${input.id}
       `.execute(ctx.db);
       await assertHolderTrashRule(ctx, object, input.id, stored.rows[0]?.[stateColumn], true);
+      // Never back live onto a parent that moved it meanwhile (ADR 0841).
+      await assertFollowerRestorable(ctx, object, stored.rows[0]);
     }
     ctx.write(
       CompiledQuery.raw(`UPDATE ${table} SET deleted_at = NULL, deleted_by = NULL WHERE id = ?`, [
@@ -1658,7 +1885,13 @@ export const recordList = defineOperation({
   mcp: { idempotent: true },
   async handler(input, ctx) {
     const object = requireObject(input.object);
-    const page = await runListQuery<{ id: string }>(ctx, object, input);
+    // A pack role limited to the People its holder looks after (ADR 0889): in the list's own query.
+    const page = await runListQuery<{ id: string }>(
+      ctx,
+      object,
+      input,
+      looksAfterWhere(ctx.roleLooksAfter, object.name, object.source),
+    );
     const items = page.rows.map((row) => {
       const record = fromRow(object, row as Record<string, unknown>);
       if (input.fields) {
@@ -1796,7 +2029,9 @@ export function objectInfo(object: ObjectDefinition): ObjectInfo {
       multi: Boolean(f.related),
       filterable: f.filterable,
       sortable: f.sortable,
-      readOnly: Boolean(f.readOnly),
+      // The author's fields of a publishable record (ADR 0810) are read-only to everyone who
+      // reads this: staff, the assistant and MCP clients.
+      readOnly: Boolean(f.readOnly) || authorFields(object).has(f.name),
       required: Boolean(f.required),
       track: f.track === "timeline",
       extension: f.extension ?? null,

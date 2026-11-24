@@ -101,3 +101,29 @@ buyer's address of an order a verified payment was applied to. `invite_only` sta
 dependant's records ([ADR 0540](0540-the-family-link.md)). The link is a core record made only by a
 person on the staff with `people:link`; the seam alone decides what it gives, per object that opts
 in (`customer.guardians`), and nothing else a customer reads or writes changed.
+
+## Note, 2026-11-24 (ADR 0720)
+The public may now create one kind of record besides a purchase: a submission to a published form,
+through the host's one door, `intake.submit` (`toolOnly`, `hostInternal`, reached only from the
+form's own pack's tool). The host writes it as its own change after its checks; nothing else opens
+a write to the public ([ADR 0720](0720-the-intake-door-one-public-write.md)).
+
+## Note, 2026-11-24 (ADR 0713)
+Deleting an account now says first what it will do: `me.deleteAccount` without `confirm` is a
+preview, and with `confirm: true` and the preview's `expect` it also sets each subscription the
+member pays to end at its period's end (nothing refunded) and cancels their unpaid orders before
+disabling the account and opening the request. Admins' notice says what was left for staff
+([ADR 0713](0713-deleting-an-account-the-preview-and-its-consequences.md)).
+
+**Amended 2026-11-24** (stage 44 step 6, [ADR 0649](0649-signing-at-the-desk.md)): an operation open
+to the public may be marked `deskOnly`: it is reached only from the desk origin's own handler,
+which gives it the enrolled device's credential and the desk session's token from the request
+(`ctx.desk.request`), never from an input. Any other caller is told no such operation exists; it is
+left out of the HTTP contract and the manifest, and listed in `open-operations.json` as `deskOnly`.
+It must be `hostInternal`, and a desk request reaches no other operation.
+
+**Amended 2026-11-24** (stage 51 step 2, [ADR 0781](0781-a-device-as-a-caller-the-device-audience-and-device-roles.md)):
+a fourth audience, `device`: an enrolled device holding a device role, on the desk origin only.
+An operation open to it is open to nobody else, is a `read` or a `write`, is listed in
+`open-operations.json`, and is left out of the HTTP contract; the pipeline resolves the device from
+its credential and lets it call only its role's tools and `device.heartbeat`.

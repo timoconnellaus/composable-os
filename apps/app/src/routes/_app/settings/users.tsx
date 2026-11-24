@@ -350,16 +350,7 @@ function PendingInvites() {
   );
 }
 
-type ListedUser = {
-  id: string;
-  name?: string;
-  email?: string;
-  role?: Role;
-  packRole?: string | null;
-  permissions?: string[];
-  image?: string | null;
-  createdAt?: string;
-};
+type ListedUser = CoreOutput<"user.list">["items"][number];
 
 function UserList() {
   const { isAdmin, user: me } = Route.useRouteContext();
@@ -394,9 +385,9 @@ function UserList() {
   return (
     <>
       <ul className="grid divide-y rounded-md border" aria-label="Users">
-        {(users.data.items as ListedUser[]).map((u) => {
+        {users.data.items.map((u) => {
           const name = u.name ?? u.email ?? u.id;
-          const role = (u.role ?? "member") as Role;
+          const role = u.role ?? "member";
           return (
             <li
               key={u.id}
@@ -775,7 +766,7 @@ function SignInMailState({ state }: { state: SignInMail }) {
   );
 }
 
-type CustomerSignup = "invite_only" | "buyers" | "open";
+type CustomerSignup = CoreOutput<"customer.settings.get">["signup"];
 
 const SIGNUP_COPY: Record<CustomerSignup, { label: string; description: string }> = {
   invite_only: {
@@ -803,7 +794,7 @@ function CustomerSignupCard() {
   const save = useOpMutation("customer.settings.update", {
     invalidates: ["customer.settings.get"],
   });
-  const value = (settings.data?.signup ?? "invite_only") as CustomerSignup;
+  const value: CustomerSignup = settings.data?.signup ?? "invite_only";
   return (
     <Card>
       <CardHeader>

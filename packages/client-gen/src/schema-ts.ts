@@ -38,7 +38,7 @@ export function schemaToTs(schema: unknown, ctx: RenderContext = { defs: {}, dep
   if (ctx.depth > MAX_DEPTH) return "unknown";
   const s = schema as Schema;
   const next: RenderContext = { ...ctx, depth: ctx.depth + 1 };
-  const defs = (s.$defs as Record<string, Schema> | undefined) ?? undefined;
+  const defs = s.$defs as Record<string, Schema> | undefined;
   if (defs) next.defs = { ...ctx.defs, ...defs };
 
   if (typeof s.$ref === "string") {

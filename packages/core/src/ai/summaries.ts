@@ -354,11 +354,13 @@ export async function activitySummaryInput(
       "a.private_to",
       "a.disclosure",
       "a.deleted_at",
+      "a.level",
     ])
     .where("a.id", "=", activityId)
     .where(notInPrivateConversation("a"))
     .executeTakeFirst();
-  if (!a || a.deleted_at || a.private_to) return null;
+  // A note kept from the whole staff is never a model's input (stage 56, ADR 0830).
+  if (!a || a.deleted_at || a.private_to || a.level !== "staff") return null;
   if (a.disclosure === "metadata" || a.type === "system") return null;
   let body = a.body ?? "";
   if (a.body_ref && blobs) {

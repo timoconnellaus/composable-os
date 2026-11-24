@@ -725,13 +725,6 @@ export class FakeCloudflare {
       return ok({ id });
     }
     if (rest === "/deployments") {
-      if (method === "GET") {
-        return ok({
-          deployments: script.current
-            ? [{ versions: [{ version_id: script.current, percentage: 100 }] }]
-            : [],
-        });
-      }
       const versions = b.versions as { version_id: string; percentage: number }[];
       const target = versions[0]?.version_id;
       if (!script.versions.some((v) => v.id === target)) return fail(400, 10215, "unknown version");

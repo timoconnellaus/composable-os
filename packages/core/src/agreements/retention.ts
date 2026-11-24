@@ -111,7 +111,7 @@ export async function keptPastPeriod(
   now: string,
   years: number,
 ): Promise<number> {
-  const cutoff = purgeCutoff(now, years) as string;
+  const cutoff = shiftYears(now, -years);
   const { rows } = await sql<{ n: number }>`
     SELECT count(*) AS n FROM core_agreement_acceptance a
     WHERE a.erased_at IS NOT NULL AND a.erased_at < ${cutoff}

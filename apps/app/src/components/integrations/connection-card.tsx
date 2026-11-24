@@ -224,11 +224,11 @@ function SharingLevelField({ connection }: { connection: Connection }) {
   const current = SHARING_LEVELS.find((l) => l.value === connection.sharingLevel);
 
   async function change(value: string) {
+    const level = SHARING_LEVELS.find((l) => l.value === value);
+    if (!level) return;
     try {
-      await update.mutateAsync({ id: connection.id, sharingLevel: value as SharingLevel });
-      toast.success(
-        `Sharing level: ${SHARING_LEVELS.find((l) => l.value === value)?.label ?? value}`,
-      );
+      await update.mutateAsync({ id: connection.id, sharingLevel: level.value });
+      toast.success(`Sharing level: ${level.label}`);
     } catch (error) {
       toast.error(errorMessage(error));
     }

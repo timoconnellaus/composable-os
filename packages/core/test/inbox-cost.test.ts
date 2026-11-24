@@ -164,14 +164,21 @@ describe("the inbox's cost", () => {
   });
 
   it("erases a Person with 1,200 messages in a bounded batch", async () => {
+    // Against a Person with one message: the 1,200 messages add the erase's chunks of bound ids
+    // (at most 100 a statement), never a statement per message; the rest is the same for both.
+    const one = await createPerson(member);
+    await seed(one.id, 1, 1);
+    const small = await cost(() =>
+      invoke("person.erase", { id: one.id }, { ...context(admin), db: meteredDb }),
+    );
     const person = await createPerson(member);
     const ids = await seed(person.id, 12, 100);
     maxBound = 0;
     const erase = await cost(() =>
       invoke("person.erase", { id: person.id }, { ...context(admin), db: meteredDb }),
     );
-    expect(erase.statements).toBeGreaterThan(0);
-    expect(erase.statements).toBeLessThan(200);
+    expect(small.statements).toBeGreaterThan(0);
+    expect(erase.statements - small.statements).toBeLessThan(1_200 / 10);
     expect(maxBound).toBeLessThanOrEqual(100);
     const left = await env.DB.prepare(
       "SELECT count(*) AS n FROM core_activity WHERE conversation_id IN (SELECT value FROM json_each(?))",

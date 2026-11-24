@@ -47,6 +47,13 @@ export const originSchema = z.object({
   extensionId: z.string().optional(),
   /** The agent that made the call (job_…, ADR 0344). Its session is `job:<id>`. */
   jobId: z.string().optional(),
+  /**
+   * A staff call over a device session (ADR 0455), not a browser's: the company's app on a phone
+   * (a role client or the owner's client, on the device's one staff session, ADR 0451) or the
+   * command line's import door. Set by the HTTP surface from the session, never from the request;
+   * recorded in the audit row. A setup change is never made or approved from it (stage 60, ADR 0872).
+   */
+  staffDevice: z.boolean().optional(),
 });
 export type Origin = z.infer<typeof originSchema>;
 
@@ -86,6 +93,11 @@ export type Role = (typeof ROLES)[number];
  * - `agreements:health` read a health form's answers (stage 44, ADR 0643): health information.
  *   Admins by default, grantable; a person only whatever is granted, and every read is audited.
  *   No AI actor reads them, with any grant.
+ * - `agreements:desk` start and end a desk signing session for a named Person on a tablet an
+ *   admin enrolled (stage 44 step 6, ADR 0649): it shows the titles of what that Person has due
+ *   and nothing else of their record, and records no acceptance itself (the member signs).
+ *   Admins by default, grantable, and the one core permission grantable to a fixed-role account
+ *   (a coach at the desk, `FIXED_ROLE_CORE_GRANTS`, ADR 0600 amended). A person only.
  * - `checklists:write` write the business's checklist templates (stage 45 step 4b, ADR 0650).
  *   Admins by default, grantable as `orders:refund` is. An AI acting for an account that holds it
  *   may draft one; its write always waits for a person who holds it too, so a checklist staff are
@@ -96,6 +108,45 @@ export type Role = (typeof ROLES)[number];
  * - `inbox:work` take, assign, close and reopen conversations, write notes and mark one private.
  *   Admins and members.
  * - `inbox:manage` the inbox's settings and shared saved replies. Admins.
+ * - `notes:clients` read notes kept to a client's coaches (level `coaches`) of every client
+ *   (stage 56, ADR 0832): how a business's managers read them. Admins by default; grantable,
+ *   restricted (never to oneself, never to a pack role's account), and nothing for an AI actor.
+ * - `notes:sensitive` read sensitive notes (level `sensitive`), every opening audited. Admins by
+ *   default; grantable and restricted as `notes:clients` is.
+ * - `notes:manage` change and delete others' notes it can read, and lower a note's level (a
+ *   person only). Admins by default; grantable and restricted as `notes:clients` is.
+ * - `journeys:read` read journeys, their versions, previews, entries and step log (stage 53,
+ *   ADR 0800). Admins and members.
+ * - `journeys:manage` write a journey's working copy, archive it, set it live, pause and resume
+ *   it, and add people to it (ADR 0800). Admins by default, grantable. Going live and resuming
+ *   are a person's whatever is granted (`actors: ["human"]`); an AI may draft and pause.
+ * - `journeys:publish` publish a journey's version: the approval of its wording (decision 3).
+ *   Admins by default, grantable. An AI acting for an account that holds it may ask; its request
+ *   always waits for a person who holds it too (ADR 0480), never the adjudicator.
+ * - `orders:discount` give money off a pending order with a reason, and take it off again
+ *   (stage 34, ADR 0691). Admins by default, grantable as `orders:refund` is. Within the limit a
+ *   human admin sets it applies at once; above it, and always for an AI, it waits for a human
+ *   admin's approval.
+ * - `orders:payments` record a payment taken another way (a bank transfer, cash, a cheque, a card
+ *   machine) on an order, and reverse one entered in error (stage 34, ADR 0694). Admins by
+ *   default; grantable and restricted as `notes:clients` is; a person only whatever is granted
+ *   (`actors: ["human"]`): never an AI, an MCP client, an automation or an extension.
+ * - `people:cards` issue, revoke and list the check-in cards a business gives its members (stage
+ *   51, ADR 0783). Admins and members by default, grantable to any staff account (a fixed-role
+ *   one included, ADR 0600). A person only whatever is granted (`actors: ["human"]`).
+ * - `stock:adjust` record a record's opening stock and correct it (stage 37, ADR 0680). Admins by
+ *   default, grantable as `orders:refund` is. An AI acting for an account that holds it may ask,
+ *   never make one: its call always waits for a person who holds it too.
+ * - `finance:read` see the finance reports and their periods, and download their files (stage 52,
+ *   ADR 0794). Admins by default, grantable as `orders:refund` is (a manager, a bookkeeper). An AI
+ *   acting for an account that holds it may read figures; downloading a file is a person's only.
+ * - `finance:close` close and reopen a month's figures (stage 52, ADR 0794). Admins by default,
+ *   grantable; a person only whatever is granted (the operations are `actors: ["human"]`).
+ * - `bookingSystem:manage` the copy of the business's booking system (stage 65, ADR 0922): read
+ *   its lists, their ages and who waits to be matched, and (a person only, whatever is granted)
+ *   load and remove a list and link or unlink an outside person or coach. Admins by default,
+ *   grantable one by one (ADR 0449), never to an account with a pack's fixed role. Its settings
+ *   stay a human admin's (`settings:manage`).
  */
 export const PERMISSIONS = [
   "records:read",
@@ -114,10 +165,24 @@ export const PERMISSIONS = [
   "agreements:manage",
   "agreements:paper",
   "agreements:health",
+  "agreements:desk",
   "checklists:write",
   "inbox:read",
   "inbox:work",
   "inbox:manage",
+  "notes:clients",
+  "notes:sensitive",
+  "notes:manage",
+  "journeys:read",
+  "journeys:manage",
+  "journeys:publish",
+  "orders:discount",
+  "orders:payments",
+  "people:cards",
+  "stock:adjust",
+  "finance:read",
+  "finance:close",
+  "bookingSystem:manage",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -132,7 +197,14 @@ export const CORE_PERMISSION_NAMESPACES: readonly string[] = [
 
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   viewer: ["records:read", "inbox:read"],
-  member: ["records:read", "records:write", "inbox:read", "inbox:work"],
+  member: [
+    "records:read",
+    "records:write",
+    "journeys:read",
+    "people:cards",
+    "inbox:read",
+    "inbox:work",
+  ],
   admin: PERMISSIONS,
 };
 
@@ -154,8 +226,41 @@ export const GRANTABLE_PERMISSIONS = [
   "agreements:manage",
   "agreements:paper",
   "agreements:health",
+  "agreements:desk",
   "checklists:write",
+  "notes:clients",
+  "notes:sensitive",
+  "notes:manage",
+  "journeys:manage",
+  "journeys:publish",
+  "orders:discount",
+  "orders:payments",
+  "people:cards",
+  "stock:adjust",
+  "finance:read",
+  "finance:close",
+  "bookingSystem:manage",
 ] as const;
+
+/**
+ * Core grantable permissions that are restricted (stage 56, ADR 0832, extending ADR 0625 to core
+ * permissions): held by admins and by a human admin's grant only, never granted to oneself, never
+ * to an account with a pack's fixed role, and never anything for an AI actor.
+ */
+export const RESTRICTED_CORE_PERMISSIONS: readonly Permission[] = [
+  "notes:clients",
+  "notes:sensitive",
+  "notes:manage",
+  "orders:payments",
+];
+
+/**
+ * The core permissions a human admin may also grant to an account holding a pack's fixed role
+ * (ADR 0600, amended by ADR 0783): each opens a few person-scoped core operations a desk or door
+ * account needs, never a record read, list or search. Every other core permission counts for
+ * nothing beside a pack role.
+ */
+export const FIXED_ROLE_CORE_GRANTS: readonly Permission[] = ["people:cards", "agreements:desk"];
 
 /**
  * The account's role, or a permission granted to it (ADR 0449), allows `permission`. A pack role
@@ -187,8 +292,20 @@ export const MCP_SCOPES = ["read", "write", "admin"] as const;
 export type McpScope = (typeof MCP_SCOPES)[number];
 
 export const SCOPE_PERMISSIONS: Record<McpScope, readonly Permission[]> = {
-  read: ["records:read", "inbox:read"],
-  write: ["records:read", "records:write", "records:publish", "inbox:read", "inbox:work"],
+  // `finance:read` (stage 52, ADR 0794 amended): reading the figures over MCP, for an account
+  // that holds it (by role or grant: the scope only intersects); never closing or downloading.
+  read: ["records:read", "journeys:read", "finance:read", "inbox:read"],
+  write: [
+    "records:read",
+    "finance:read",
+    "records:write",
+    "records:publish",
+    "journeys:read",
+    "journeys:manage",
+    "journeys:publish",
+    "inbox:read",
+    "inbox:work",
+  ],
   admin: PERMISSIONS,
 };
 
@@ -222,10 +339,11 @@ export interface ActingUser {
 }
 
 /**
- * Who a call is made for (ADR 0402): the three audiences as principals.
+ * Who a call is made for (ADR 0402): the audiences as principals.
  * - `staff`: a user of the org, every `ActingUser`.
  * - `customer`: a Person who signed in to their own account. Never a `core_user`, never a role.
  * - `public`: a caller with no account.
+ * - `device`: an enrolled device holding a device role (ADR 0781, `DevicePrincipal` below).
  * The visibility seam and the audience check read nothing else about the caller.
  */
 export interface StaffPrincipal {
@@ -247,7 +365,38 @@ export interface PublicPrincipal {
 }
 
 export type OutsidePrincipal = CustomerPrincipal | PublicPrincipal;
-export type Principal = StaffPrincipal | OutsidePrincipal;
+
+/**
+ * An enrolled device holding a device role (stage 51, ADR 0781): the business's own tablet, signed
+ * in as nobody. Resolved by the pipeline from the device's credential on the desk origin, never
+ * given by an adapter: the adapter says only `{ kind: "device" }` (`DeviceCaller`). It reads no
+ * record through the seam, and calls only its role's tools and `device.heartbeat`.
+ */
+export interface DevicePrincipal {
+  readonly kind: "device";
+  /** The enrolled device (dev_…). */
+  readonly deviceId: string;
+  /** The name an admin gave it ("Front door tablet"). */
+  readonly name: string;
+  /** The device role it holds (`<pack>.<role>`). */
+  readonly role: string;
+}
+
+/** What the desk origin's handler says of a device call: the pipeline resolves the rest. */
+export interface DeviceCaller {
+  readonly kind: "device";
+}
+
+export type Principal = StaffPrincipal | OutsidePrincipal | DevicePrincipal;
+
+/**
+ * Who placed an order or a checkout (`placed_as`): staff, a customer or the public. An enrolled
+ * device places none (ADR 0781): its role's tools reach no checkout, and this holds if one did.
+ */
+export function placedAs(principal: Principal): "staff" | "customer" | "public" {
+  if (principal.kind === "device") throw new Error("An enrolled device places no order");
+  return principal.kind;
+}
 
 export function staffPrincipal(user: Pick<ActingUser, "id" | "role">): StaffPrincipal {
   return Object.freeze({ kind: "staff", userId: user.id, role: user.role });
@@ -256,9 +405,9 @@ export function staffPrincipal(user: Pick<ActingUser, "id" | "role">): StaffPrin
 /**
  * The actors of calls from outside the org, as the audit log records them. They are not in
  * `ACTORS`: the approval policy, the queue and an operation's `actors` are about staff-side
- * callers, and a customer's or the public's call is never queued.
+ * callers, and a customer's, the public's or an enrolled device's call is never queued.
  */
-export const OUTSIDE_ACTORS = ["customer", "public"] as const;
+export const OUTSIDE_ACTORS = ["customer", "public", "device"] as const;
 export type OutsideActor = (typeof OUTSIDE_ACTORS)[number];
 /** Every actor a handler can be called by and the audit log can hold. */
 export const ALL_ACTORS = [...ACTORS, ...OUTSIDE_ACTORS] as const;

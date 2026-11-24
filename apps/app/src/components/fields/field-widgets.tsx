@@ -15,8 +15,8 @@ import {
 } from "@composable-os/ui/components/select";
 import { Textarea } from "@composable-os/ui/components/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@composable-os/ui/components/tooltip";
-import { Link } from "@tanstack/react-router";
 import { SigmaIcon } from "lucide-react";
+import { HrefLink } from "#/components/href-link";
 import { RecordPicker } from "#/components/record-picker";
 import { formatDate, formatDateTime } from "#/lib/format";
 import { useOp } from "#/lib/query";
@@ -67,23 +67,17 @@ function CurrencyValue({ field, value }: { field: FieldInfo; value: number }) {
   return <>{formatCurrency(value, (field.options?.currency as string | undefined) ?? base)}</>;
 }
 
-function formatNumber(_field: FieldInfo, value: number, kind: string): string {
+function formatNumber(value: number, kind: string): string {
   if (kind === "percent") return `${new Intl.NumberFormat("en").format(value)}%`;
   return new Intl.NumberFormat("en").format(value);
 }
 
 function RecordLink({ object, id }: { object: string; id: string }) {
   const query = useOp("record.get", { object, id }, { staleTime: 60_000, retry: false });
-  const href = recordHref(object, id);
-  const label = query.data?.title ?? id;
-  return href.startsWith("/x/") ? (
-    <Link to="/x/$object/$id" params={{ object, id }} className="hover:underline">
-      {label}
-    </Link>
-  ) : (
-    <a href={href} className="hover:underline">
-      {label}
-    </a>
+  return (
+    <HrefLink href={recordHref(object, id)} className="hover:underline">
+      {query.data?.title ?? id}
+    </HrefLink>
   );
 }
 
@@ -154,7 +148,7 @@ export function FieldDisplay({ field, value }: { field: FieldInfo; value: unknow
       );
     case "number":
     case "percent":
-      return <>{typeof value === "number" ? formatNumber(field, value, kind) : String(value)}</>;
+      return <>{typeof value === "number" ? formatNumber(value, kind) : String(value)}</>;
     case "date":
       return <time dateTime={String(value)}>{formatDate(String(value))}</time>;
     case "datetime":
@@ -255,7 +249,7 @@ function FormulaValue({ field, value }: { field: FieldInfo; value: unknown }) {
   let text: string;
   if (value === null || value === undefined || value === "") text = "—";
   else if (resultType === "number" && typeof value === "number")
-    text = formatNumber(field, value, "number");
+    text = formatNumber(value, "number");
   else if (resultType === "boolean") text = value ? "Yes" : "No";
   else if (resultType === "date") text = formatDate(String(value));
   else if (resultType === "datetime") text = formatDateTime(String(value));

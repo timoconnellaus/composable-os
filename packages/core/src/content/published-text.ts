@@ -4,8 +4,10 @@
 //
 // What is indexed is decided by the object's declaration, never by the caller: a publishable
 // object the public reads, and of it only the content fields the public reads (its title, text
-// and rich text fields). A field the public does not read is never indexed, so no snippet can
-// show it. The index is written in the batch of every publish and unpublish (records/publish.ts),
+// and rich text fields); and an object staff read (`staffRead`, ADR 0701), every text content
+// field. A field nobody's search may match is never indexed, so no snippet can show it; a public
+// search matches only rows of the fields the public reads, so on an object both public and
+// staff-read a staff-only field's rows are never the public's. The index is written in the batch of every publish and unpublish (records/publish.ts),
 // so it is the current version or nothing; a declaration that changes (a field opened to the
 // public, the object made public or private) is caught up by the minute cron (`reindexStep`),
 // which also fills it for what was published before the index existed.
@@ -26,11 +28,21 @@ const INDEX_VERSION = 1;
 /** The field types whose words are indexed. */
 const TEXT_TYPES: ReadonlySet<string> = new Set(["text", "longText", "richText"]);
 
-/** The content fields of `object` the index holds, title first; null when it holds none. */
-export function indexedFields(object: ObjectDefinition): string[] | null {
+/** Who a search is for: the public (what it reads), or staff (on a staff-read object, ADR 0701). */
+export type SearchReader = "public" | "staff";
+
+/**
+ * The content fields of `object` a search by `reader` matches, title first; null when it
+ * matches none. The public: the text content fields `public.read` lists, of a public object.
+ * Staff: on an object that declares `staffRead`, every text content field (staff read the whole
+ * published version); on any other object, what the public reads.
+ */
+export function searchedFields(object: ObjectDefinition, reader: SearchReader): string[] | null {
   const publishable = object.publishable;
-  if (!publishable?.slug || !object.public) return null;
-  const read = new Set(object.public.read);
+  if (!publishable?.slug) return null;
+  const staff = reader === "staff" && publishable.staffRead === true;
+  if (!staff && !object.public) return null;
+  const read = new Set(staff ? publishable.content : (object.public?.read ?? []));
   const fields = publishable.content.filter((name) => {
     const field = object.fields.find((f) => f.name === name);
     return field?.fieldType !== undefined && TEXT_TYPES.has(field.fieldType) && read.has(name);
@@ -38,6 +50,15 @@ export function indexedFields(object: ObjectDefinition): string[] | null {
   if (!fields.length) return null;
   const title = object.titleField;
   return title && fields.includes(title) ? [title, ...fields.filter((f) => f !== title)] : fields;
+}
+
+/**
+ * The content fields of `object` the index holds, title first; null when it holds none: what
+ * any reader's search matches (on a staff-read object, what staff do, which includes what the
+ * public does). A search matches only its reader's fields of these (`searchedFields`).
+ */
+export function indexedFields(object: ObjectDefinition): string[] | null {
+  return searchedFields(object, "staff");
 }
 
 /** One row of the index, as the insert's JSON parameter carries it. */
@@ -132,7 +153,7 @@ type IndexState = Record<string, ObjectState>;
 
 const fingerprint = (fields: string[]) => JSON.stringify({ v: INDEX_VERSION, fields });
 
-async function readState(ctx: HandlerContext): Promise<IndexState> {
+async function readState(ctx: Pick<HandlerContext, "db">): Promise<IndexState> {
   const row = await ctx.db
     .selectFrom("core_settings")
     .select("value")
@@ -143,6 +164,31 @@ async function readState(ctx: HandlerContext): Promise<IndexState> {
   } catch {
     return {};
   }
+}
+
+/** Each indexed object's fingerprint: what its rows should have been made from. */
+function wantedIndex(): Map<string, string> {
+  const wanted = new Map<string, string>();
+  for (const object of listObjects()) {
+    const fields = indexedFields(object);
+    if (fields) wanted.set(object.name, fingerprint(fields));
+  }
+  return wanted;
+}
+
+/**
+ * Whether a round of catching up has anything to do (an object to remake, or one to empty):
+ * one settings read, outside any operation. The registry must be fresh (refreshSchemaRegistry).
+ */
+export async function reindexPending(db: HandlerContext["db"]): Promise<boolean> {
+  const state = await readState({ db });
+  const wanted = wantedIndex();
+  if (Object.keys(state).some((name) => !wanted.has(name))) return true;
+  for (const [name, fp] of wanted) {
+    const was = state[name];
+    if (getObject(name) && !(was && was.fp === fp && was.after === null)) return true;
+  }
+  return false;
 }
 
 /**
@@ -160,11 +206,7 @@ export async function reindexStep(
   let records = 0;
   let more = false;
   let changed = false;
-  const wanted = new Map<string, string>();
-  for (const object of listObjects()) {
-    const fields = indexedFields(object);
-    if (fields) wanted.set(object.name, fingerprint(fields));
-  }
+  const wanted = wantedIndex();
   // An object the index held and no longer holds: its rows go.
   for (const name of Object.keys(state)) {
     if (wanted.has(name)) continue;

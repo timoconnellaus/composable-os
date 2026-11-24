@@ -19,7 +19,7 @@ import {
   SparklesIcon,
   UserIcon,
 } from "lucide-react";
-import type { MouseEvent, ReactNode } from "react";
+import { type MouseEvent, type ReactNode, useRef } from "react";
 import { errorMessage, useOp } from "#/lib/query";
 import { hrefFor } from "#/lib/search-adapter";
 
@@ -56,14 +56,37 @@ export function HitLink({
   );
 }
 
+/** How often the card looks again while its record is not indexed, and for how long. */
+export const SIMILAR_POLL_MS = 5_000;
+export const SIMILAR_POLL_FOR_MS = 60_000;
+
+/**
+ * Embeddings are written just after each save: look again shortly while not indexed, for a
+ * minute from when this card first saw it so. A record that is never indexed (no text, or its
+ * embedding gave up) would otherwise be asked for every 5 seconds for as long as its page is
+ * open (docs/cloudflare-costs.md). The minute starts again when the card is shown again.
+ */
+export function similarPollInterval(status: string | undefined, waitedMs: number): number | false {
+  return status === "not_indexed" && waitedMs < SIMILAR_POLL_FOR_MS ? SIMILAR_POLL_MS : false;
+}
+
 export function SimilarRecordsCard({ object, id }: { object: string; id: string }) {
+  // When this card (this mount) first saw the record not indexed; null while it is indexed.
+  const notIndexedSince = useRef<number | null>(null);
   const similar = useOp(
     "record.similar",
     { object, id, limit: 5 },
     {
       staleTime: 30_000,
-      // Embeddings are written just after each save: look again shortly while not indexed.
-      refetchInterval: (query) => (query.state.data?.status === "not_indexed" ? 5_000 : false),
+      refetchInterval: (query) => {
+        const status = query.state.data?.status;
+        if (status !== "not_indexed") {
+          notIndexedSince.current = null;
+          return false;
+        }
+        notIndexedSince.current ??= Date.now();
+        return similarPollInterval(status, Date.now() - notIndexedSince.current);
+      },
     },
   );
   const data = similar.data;

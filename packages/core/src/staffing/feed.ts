@@ -1,7 +1,9 @@
 // A staff member's private calendar feed (stage 45 step 5, ADR 0628): their own shifts, as a
 // calendar app polls them with no sign-in, at `GET /api/v1/staffing/feed/<token>.ics`.
 //
-// The token is the only secret (a bearer secret in an address):
+// The token is the only secret (a bearer secret in an address). The token, its hash, its lookup and
+// the window are the shared feed module's (../feeds/token.ts, ADR 0890), which the customer's feed
+// uses too; the tokens stay in this feed's own table.
 // - 32 random bytes, written base64url (43 characters), made by `staffing.feed.rotate` for the
 //   person themselves and shown to them once; stored only as its SHA-256 (`core_staff_feed`), so
 //   nothing the host keeps (the database, the audit log, a tool run, a notice) can give it back.
@@ -17,7 +19,9 @@
 // type's name, a duty's), its place, its start and end. Never when its record last changed, which
 // other writes (a member's booking) could move. Nothing else: no title a business typed on a class (which could name
 // a member), no notes, no other person's name, no class list, bookings or places, nothing of
-// unavailability, offers or pay. A cancelled shift, one in the Trash and one now someone else's
+// unavailability, offers or pay. So a shift whose title may name a client (`staffed.private`, an
+// appointment, ADR 0761) needs nothing more here: the feed is a bearer link and carries no client
+// names at all. Its times are the shift's own, never the minutes kept free around it (ADR 0760). A cancelled shift, one in the Trash and one now someone else's
 // hold no time claim, so they drop out.
 //
 // Cost: read from the time claims by account and end (`core_staff_time_account`), so a request
@@ -27,6 +31,16 @@ import type { CoreDatabase } from "@composable-os/db";
 import { type Compilable, CompiledQuery, type Kysely, sql } from "kysely";
 import { objectTableOf, refreshSchemaRegistry } from "../extensions/schema.ts";
 import { resolveExtensionOperation } from "../extensions/tools.ts";
+import {
+  FEED_DAYS_AHEAD as DAYS_AHEAD,
+  FEED_DAYS_BACK as DAYS_BACK,
+  FEED_MAX_EVENTS,
+  feedTokenHash,
+  feedWindow,
+  lookUpFeedToken,
+  newFeedToken,
+  FEED_TOKEN_RE as TOKEN_RE,
+} from "../feeds/token.ts";
 import { getObject } from "../fields/index.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
 import {
@@ -44,45 +58,21 @@ import { titles } from "./week.ts";
 
 /** The feed's address, before the token: the host's HTTP surface's version, outside Access's sign-in. */
 export const FEED_PATH_PREFIX = "/api/v1/staffing/feed/";
-/** A token as written in the address: 32 bytes, base64url, no padding. */
-export const FEED_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
+/** A token as written in the address (the shared feed module's, ADR 0890). */
+export const FEED_TOKEN_RE = TOKEN_RE;
 /** How far back the feed reaches (the spec's 14 days). */
-export const FEED_DAYS_BACK = 14;
-/**
- * How far ahead: the longest horizon a pack's setting may make shifts for (Rostering's duty
- * horizon is at most 120 days; classes are made 56 days ahead), so one-off shifts made further
- * ahead than the weekly pattern show too.
- */
-export const FEED_DAYS_AHEAD = 120;
+export const FEED_DAYS_BACK = DAYS_BACK;
+/** How far ahead (the shared feed module's window, ADR 0890). */
+export const FEED_DAYS_AHEAD = DAYS_AHEAD;
 /** The most shifts one fetch answers, soonest first. */
-export const FEED_MAX_SHIFTS = 500;
+export const FEED_MAX_SHIFTS = FEED_MAX_EVENTS;
 
 /** The feed's address for a token: the path; the screen puts the host's own origin before it. */
 export function feedPath(token: string): string {
   return `${FEED_PATH_PREFIX}${token}.ics`;
 }
 
-/** A new token: 32 random bytes, base64url. */
-export function newFeedToken(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-/** SHA-256 of the token, lowercase hex: all the host keeps of it. */
-export async function feedTokenHash(token: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-/** Two strings of the same length compared in time that does not depend on where they differ. */
-function sameInConstantTime(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
+export { feedTokenHash, newFeedToken };
 
 /** What an account may hold after a change of its role, pack role or grants (or as it is). */
 export interface AccessAfter {
@@ -157,13 +147,8 @@ export async function feedRevocations(
     .executeTakeFirst();
   // A feed made (or rotated by another tool) after this read fails the change whole, so a rotate
   // racing it never leaves a feed the change would have revoked (the review of PR #295).
-  const guard = CompiledQuery.raw(
-    "INSERT INTO core_staff_guard (expected, actual) SELECT ?, count(*) FROM core_staff_feed WHERE account_id = ? AND tool IS ?",
-    [row ? 1 : 0, account, row?.tool ?? null],
-  );
   if (!row) {
-    // No feed now: one made meanwhile is refused by the guard (the tool is null, so count 0 only
-    // while there is none).
+    // No feed now: one made meanwhile is refused by the guard.
     return [
       CompiledQuery.raw(
         "INSERT INTO core_staff_guard (expected, actual) SELECT 0, count(*) FROM core_staff_feed WHERE account_id = ?",
@@ -171,6 +156,10 @@ export async function feedRevocations(
       ),
     ];
   }
+  const guard = CompiledQuery.raw(
+    "INSERT INTO core_staff_guard (expected, actual) SELECT 1, count(*) FROM core_staff_feed WHERE account_id = ? AND tool IS ?",
+    [account, row.tool],
+  );
   if (await mayHoldFeed(db, account, row.tool, after)) return [guard];
   return [guard, revokeFeed(db, account)];
 }
@@ -237,14 +226,15 @@ export async function readStaffFeed(
   token: string,
   now: Date,
 ): Promise<{ account: string; shifts: FeedShift[] } | null> {
-  if (!FEED_TOKEN_RE.test(token)) return null;
-  const hash = await feedTokenHash(token);
-  const row = await db
-    .selectFrom("core_staff_feed")
-    .select(["account_id", "token_hash", "tool"])
-    .where("token_hash", "=", hash)
-    .executeTakeFirst();
-  if (!row || !sameInConstantTime(row.token_hash, hash)) return null;
+  // Only this feed's own table: a customer's token opens nothing here (ADR 0890).
+  const row = await lookUpFeedToken(token, (hash) =>
+    db
+      .selectFrom("core_staff_feed")
+      .select(["account_id", "token_hash", "tool"])
+      .where("token_hash", "=", hash)
+      .executeTakeFirst(),
+  );
+  if (!row) return null;
   if (!(await mayHoldFeed(db, row.account_id, row.tool))) return null;
   // The staffed objects' definitions (classes, duty shifts), as every invocation loads them.
   await refreshSchemaRegistry(db);
@@ -257,13 +247,11 @@ export async function feedShifts(
   account: string,
   now: Date,
 ): Promise<FeedShift[]> {
-  const nowSeconds = Math.floor(now.getTime() / 1000);
-  const from = nowSeconds - FEED_DAYS_BACK * 86_400;
-  const to = nowSeconds + FEED_DAYS_AHEAD * 86_400;
+  const { from, to } = feedWindow(now);
   // The claims: one per live, covered shift of the account (ADR 0621), by account and end.
   const claims = await db
     .selectFrom("core_staff_time")
-    .select(["object_type", "record_id", "starts", "ends"])
+    .select(["object_type", "record_id", "starts", "ends", "margin_before", "margin_after"])
     .where("account_id", "=", account)
     .where("ends", ">", from)
     .where("starts", "<", to)
@@ -324,9 +312,9 @@ export async function feedShifts(
         id: r.id,
         title: (r.kind ? kindNames.get(r.kind) : undefined) || object.label,
         place: placeOf ? (r.place ? (placeNames.get(r.place) ?? null) : null) : text(r.place),
-        // The claim's instants are the shift's own (the claim is written from the row).
-        startsAt: new Date(claim.starts * 1000).toISOString(),
-        endsAt: new Date(claim.ends * 1000).toISOString(),
+        // The shift's own instants: the claim's, less the minutes kept free around it (ADR 0760).
+        startsAt: new Date((claim.starts + claim.margin_before) * 1000).toISOString(),
+        endsAt: new Date((claim.ends - claim.margin_after) * 1000).toISOString(),
       });
     }
   }

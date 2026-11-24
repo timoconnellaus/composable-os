@@ -12,7 +12,7 @@
 // (`activityConversationReadable`), and every read path takes it: the inbox's operations, the
 // timelines and activity reads (operations/activity.ts), summaries and embeddings (which read as
 // nobody and so leave a private conversation out), and the rec_* views and search, which leave
-// private conversations' messages out for everyone (migration 1050), as for a private activity.
+// private conversations' messages out for everyone (migration 1430), as for a private activity.
 import type { CoreDatabase } from "@composable-os/db";
 import { type Compilable, type Kysely, type RawBuilder, type Selectable, sql } from "kysely";
 import { z } from "zod";

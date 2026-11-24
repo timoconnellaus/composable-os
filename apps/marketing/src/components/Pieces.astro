@@ -18,11 +18,13 @@
 // on two shifts at once, warnings, offers and takes, time off) and the pack's duties, weekly
 // patterns and tools (step 4), pay (step 6), the calendar feed (step 5) and the screens on the web
 // and in the app (step 7, not yet tried on phones; the web screens are in the product's admin,
-// stage 47) and checklists on a duty (step 4b) are merged.
+// stage 47), checklists on a duty (step 4b) and checklists on their own (the Daily checklists pack,
+// ADR 0651) are merged.
 // Agreements (stage 44) is being built: documents and versions (step 1), acceptances (step 2),
-// the check before paying, subscribing and booking (step 3), the copy and the signed PDF (step 4)
-// the screens on the web and in the app (step 5) and cooling off (step 7) are merged; signing at
-// the desk (step 6) is not yet.
+// the check before paying, subscribing and booking (step 3), the copy and the signed PDF (step 4),
+// the screens on the web and in the app (step 5, and the ticket and course checkouts, issue
+// #292), cooling off (step 7), erase and retention (step 8) and signing at the desk on the
+// enrolled tablet (step 6, with stage 51's step 1) are merged.
 // The last card is the piece built only for this business.
 import { STATUS } from "../status.ts";
 import Icon from "./Icon.astro";
@@ -69,12 +71,12 @@ const pieces = [
   {
     soon: STATUS.building,
     title: "Rostering",
-    body: "Who works each class and each shift that is not a class, like cleaning. A weekly pattern makes the shifts eight weeks ahead, nobody is ever put on two at once, and staff say when they are away and offer a shift they cannot work for a qualified colleague to take, with the manager told. A duty can carry a checklist the person on the shift ticks off, and the manager is told when one is missed. Hours and classes are totalled per pay period for the staff paid by them and locked, with a file for payroll, and each of them can see their own; no pay rates are kept. Each person's own shifts are published at a private calendar address only they get, from their own calendar screen. Staff use the screens on the web in the product's admin, each person seeing only the ones they may use, and in the app (not yet tried on phones); the web screens are not yet tried on a live host, and the calendar address is not yet tried in phone calendars.",
+    body: "Who works each class and each shift that is not a class, like cleaning. A weekly pattern makes the shifts eight weeks ahead, nobody is ever put on two at once, and staff say when they are away and offer a shift they cannot work for a qualified colleague to take, with the manager told. A duty can carry a checklist the person on the shift ticks off. Checklists also work on their own, with no roster: opening, closing and cleaning, due on set days by a set time, ticked off by whoever may do them (a cleaner or a coach too), and the manager sees how each day went and is told when one is missed. Hours and classes are totalled per pay period for the staff paid by them and locked, with a file for payroll, and each of them can see their own; no pay rates are kept. Each person's own shifts are published at a private calendar address only they get, from their own calendar screen. Staff use the screens on the web in the product's admin, each person seeing only the ones they may use, and in the app (not yet tried on phones); the web screens are not yet tried on a live host, and the calendar address is not yet tried in phone calendars.",
   },
   {
     soon: STATUS.building,
     title: "Agreements",
-    body: "Terms, waivers, health questions and a parent's consent, written by the business and agreed to on the web or in the app, with a typed name or a drawn signature. Visitors agree on the way to paying, parents agree for their children, and nobody books a class or buys a membership or pass without agreeing first. A copy goes by email to whoever agrees online, and the business can download the signed PDF at any time. The app's screens are built but not yet tried on phones. The business can set a cooling-off period: a new member can end their membership on the website inside it, once, and what they paid in that period is refunded once a member of staff approves it (not for members moving over from another system). Still to come: signing on the business's own tablet at the desk.",
+    body: "Terms, waivers, health questions and a parent's consent, written by the business and agreed to on the web or in the app, with a typed name or a drawn signature. Visitors agree on the way to paying, parents agree for their children, and nobody books a class or buys a membership, a pass, a ticket or a course without agreeing first to what the business asks there. A copy goes by email to whoever agrees online, and the business can download the signed PDF at any time. The app's screens are built but not yet tried on phones. The business can set a cooling-off period: a new member can end their membership on the website inside it, once, and what they paid in that period is refunded once a member of staff approves it (not for members moving over from another system). A member can also sign at the desk, on the business's own tablet: someone on the staff starts a session for them, the tablet holds no sign-in, and the copy is emailed to them (not yet tried on a real tablet or a live host).",
   },
 ];
 ---

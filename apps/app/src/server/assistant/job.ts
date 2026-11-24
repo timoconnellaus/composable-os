@@ -25,7 +25,6 @@ import {
 } from "@composable-os/agent-core";
 import {
   type ActingUser,
-  type AgentJobHost,
   type AssistantTool,
   agentInstructions,
   agentProfiles,
@@ -50,16 +49,15 @@ import {
   pendingOf,
   type RateLimitBinding,
   RateLimitedError,
-  ROLES,
-  type Role,
   rateLimit,
   scrubMessage,
   scrubPattern,
   scrubText,
 } from "@composable-os/core";
-import { createCrmDb } from "@composable-os/db";
-import { getAgentByName } from "agents";
+import { type CrmDb, createCrmDb } from "@composable-os/db";
+import { activeUser } from "../acting-user.ts";
 import { aiContextFor } from "../ai.ts";
+import { approvalExpiryDays } from "../approval-expiry.ts";
 import { blobStoreFor, integrationRuntimeFor } from "../integrations.ts";
 import { curatedToolName, type McpCaller } from "../mcp/tools.ts";
 import {
@@ -69,6 +67,7 @@ import {
   type OperationsEnv,
 } from "../operations.ts";
 import type { AssistantAgent } from "./agent.ts";
+import { threadStub } from "./http.ts";
 import { type AssistantMcp, connectAssistantMcp } from "./mcp-client.ts";
 
 export interface AgentJobEnv extends OperationsEnv {
@@ -101,11 +100,6 @@ interface JobSpec {
 }
 
 type Phase = "running" | "reviewing" | "finished";
-
-function int(value: string | undefined, fallback: number): number {
-  const n = Number.parseInt(value ?? "", 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
 
 export class AgentJob extends DurableObject<Cloudflare.Env> {
   #abort: AbortController | null = null;
@@ -280,25 +274,23 @@ export class AgentJob extends DurableObject<Cloudflare.Env> {
   }
 
   async #user(userId: string): Promise<ActingUser> {
-    const db = createCrmDb(this.#env.DB);
-    const row = await db.query
-      .selectFrom("core_user")
-      .select(["id", "email", "name", "role", "deactivated_at"])
-      .where("id", "=", userId)
-      .executeTakeFirst();
-    if (!row || row.deactivated_at) throw new Error("This person's account is closed");
-    return {
-      id: row.id,
-      email: row.email,
-      name: row.name,
-      role: (ROLES as readonly string[]).includes(row.role) ? (row.role as Role) : "viewer",
-    };
+    const user = await activeUser(createCrmDb(this.#env.DB), userId);
+    if (!user) throw new Error("This person's account is closed");
+    return user;
   }
 
-  /** Invocation context for this job: the agent's actor, its session and its guard. */
-  #context(user: ActingUser, spec: JobSpec, guard?: InvocationContext["grantGuard"]) {
+  /**
+   * Invocation context for this job: the agent's actor, its session and its guard. A slice passes
+   * its own db and AI context, so its AI settings are read once.
+   */
+  #context(
+    user: ActingUser,
+    spec: JobSpec,
+    guard?: InvocationContext["grantGuard"],
+    slice?: { db: CrmDb; ai: ReturnType<typeof aiContextFor> },
+  ) {
     const env = this.#env;
-    const db = createCrmDb(env.DB);
+    const db = slice?.db ?? createCrmDb(env.DB);
     const extensionHost = extensionHostFor(env);
     const integrations = integrationRuntimeFor(env);
     const blobs = blobStoreFor(env);
@@ -310,10 +302,10 @@ export class AgentJob extends DurableObject<Cloudflare.Env> {
       origin: { surface: "assistant", sessionId: jobSession(spec.id), jobId: spec.id },
       db,
       floor: parseFloor(env.APPROVAL_FLOOR),
-      approvalExpiryDays: int(env.APPROVAL_EXPIRY_DAYS, 7),
+      approvalExpiryDays: approvalExpiryDays(env.APPROVAL_EXPIRY_DAYS),
       ...(extensionHost ? { extensionHost } : {}),
       ...automationWiring(env),
-      ...aiContextFor(env, db),
+      ...(slice?.ai ?? aiContextFor(env, db)),
       ...(guard ? { grantGuard: guard } : {}),
     };
     return context;
@@ -352,10 +344,7 @@ export class AgentJob extends DurableObject<Cloudflare.Env> {
   async #parent(userId: string): Promise<DurableObjectStub<AssistantAgent> | null> {
     const namespace = this.#env.ASSISTANT;
     if (!namespace) return null;
-    return (await getAgentByName(
-      namespace as never,
-      `user:${userId}`,
-    )) as unknown as DurableObjectStub<AssistantAgent>;
+    return threadStub(namespace, userId);
   }
 
   async #outsideCard(spec: JobSpec, changeSetId: string, actionId: string) {
@@ -403,6 +392,7 @@ export class AgentJob extends DurableObject<Cloudflare.Env> {
   ): Promise<string> {
     const usage = this.#meta<JobUsage>("usage") as JobUsage;
     const env = this.#env;
+    const agentJobs = agentJobsFor(env);
     const out = (await invokeByName(
       "agent.report",
       {
@@ -417,7 +407,7 @@ export class AgentJob extends DurableObject<Cloudflare.Env> {
         user,
         origin: { surface: "system", jobId: spec.id },
         db: createCrmDb(env.DB),
-        ...(agentJobsFor(env) ? { agentJobs: agentJobsFor(env) as AgentJobHost } : {}),
+        ...(agentJobs ? { agentJobs } : {}),
       },
     )) as { state: string };
     return out.state;
@@ -458,7 +448,7 @@ export class AgentJob extends DurableObject<Cloudflare.Env> {
       },
     });
     const caller: McpCaller = {
-      context: this.#context(user, spec, guard),
+      context: this.#context(user, spec, guard, { db, ai }),
       async consumeWrite() {
         const writes = await rateLimit(env.MCP_WRITE_RATE_LIMIT, `job:${spec.id}`);
         if (!writes.ok) {

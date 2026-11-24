@@ -14,12 +14,7 @@ export function ClassToday({
 }: {
   programs: Pick<
     ProgramsHooks,
-    | "useClassToday"
-    | "useClassTypes"
-    | "useLogSet"
-    | "useMarkSession"
-    | "useSession"
-    | "useUpdateSet"
+    "useClassToday" | "useClassTypes" | "useMarkSession" | "useSessionLog"
   >;
   classTypeId?: string;
   date?: string;

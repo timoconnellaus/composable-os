@@ -40,7 +40,13 @@ const STAFF_ACTORS: ReadonlySet<string> = new Set(["human", "assistant", "mcp"])
  * The staff account a call is for: in a pack tool's run, the account the tool was called for (the
  * pipeline's verified caller); otherwise the calling account itself.
  */
-export function actingAccount(ctx: Pick<HandlerContext, "actor" | "extension" | "user">): string {
+export function actingAccount(
+  ctx: Pick<HandlerContext, "actor" | "extension" | "user"> &
+    Partial<Pick<HandlerContext, "onBehalfOf">>,
+): string {
+  // The host writing for a customer or the public (ADR 0426): no staff account acts, and the
+  // context has no actor to read; its user is the caller's stand-in.
+  if (ctx.onBehalfOf && ctx.onBehalfOf.kind !== "staff") return ctx.user.id;
   const tool = ctx.extension?.tool;
   if (ctx.actor === "extension" && tool?.calledBy) return tool.calledBy.account;
   return ctx.user.id;
@@ -67,6 +73,10 @@ interface StaffingDeclaration {
     payPeriod?: string;
     payPeriodStart?: string;
     payPeriodDay?: string;
+    recordsTime?: string;
+    enterDays?: string;
+    finishMissingHours?: string;
+    matchMinutes?: string;
   };
 }
 
@@ -76,6 +86,10 @@ const SETTING_KEYS = [
   "payPeriod",
   "payPeriodStart",
   "payPeriodDay",
+  "recordsTime",
+  "enterDays",
+  "finishMissingHours",
+  "matchMinutes",
 ] as const;
 
 /** The installed, active, shipped packs that declare the roster's rules (ADR 0626). */
@@ -123,12 +137,23 @@ async function declarations(db: Kysely<CoreDatabase>): Promise<StaffingDeclarati
 }
 
 /** The permissions whose grant makes an account a rosterer (still declared grantable). */
+const rosterGrantsOf = (declared: readonly StaffingDeclaration[]) =>
+  declared.filter((d) => d.grantable).map((d) => d.rosters);
+
 async function rosterGrants(db: Kysely<CoreDatabase>): Promise<string[]> {
-  return (await declarations(db)).filter((d) => d.grantable).map((d) => d.rosters);
+  return rosterGrantsOf(await declarations(db));
 }
 
-/** Whether the staff account `account` may roster other people (ADR 0625). */
-export async function isRosterer(db: Kysely<CoreDatabase>, account: string): Promise<boolean> {
+/**
+ * Whether `account` is an active person who is an admin, or who was granted one of the
+ * permissions `grantsOf` picks from the declarations (read only when the account has grants).
+ */
+async function holdsDeclared(
+  db: Kysely<CoreDatabase>,
+  account: string,
+  grantsOf: (declared: readonly StaffingDeclaration[]) => readonly string[],
+  declared?: readonly StaffingDeclaration[],
+): Promise<boolean> {
   const row = await db
     .selectFrom("core_user")
     .select(["role", "kind", "deactivated_at", "granted_permissions"])
@@ -138,7 +163,12 @@ export async function isRosterer(db: Kysely<CoreDatabase>, account: string): Pro
   if (row.role === "admin") return true;
   const grants = parseGrants(row.granted_permissions);
   if (!grants.length) return false;
-  return (await rosterGrants(db)).some((p) => grants.includes(p));
+  return grantsOf(declared ?? (await declarations(db))).some((p) => grants.includes(p));
+}
+
+/** Whether the staff account `account` may roster other people (ADR 0625). */
+export function isRosterer(db: Kysely<CoreDatabase>, account: string): Promise<boolean> {
+  return holdsDeclared(db, account, rosterGrantsOf);
 }
 
 /** Whether the caller (the account the call is for) may roster other people. */
@@ -163,8 +193,9 @@ export async function rosteringDeclared(db: Kysely<CoreDatabase>): Promise<boole
  * own shift away by offering it.
  */
 export async function assertMayRoster(ctx: HandlerContext, what: string): Promise<void> {
-  if (!(await rosteringDeclared(ctx.db))) return;
-  if (await mayRoster(ctx)) return;
+  const declared = await declarations(ctx.db);
+  if (!declared.length) return;
+  if (await holdsDeclared(ctx.db, actingAccount(ctx), rosterGrantsOf, declared)) return;
   throw new ForbiddenError(
     `Only someone who rosters may ${what}. Offer your own shift instead, or ask whoever rosters.`,
     { rule: "rostering" },
@@ -175,17 +206,21 @@ export async function assertMayRoster(ctx: HandlerContext, what: string): Promis
  * Whether the staff account `account` handles pay (ADR 0627): an active person who is an admin,
  * or whom a human admin granted the pay permission a shipped pack declares (`staffing.pays`).
  */
-export async function isPayer(db: Kysely<CoreDatabase>, account: string): Promise<boolean> {
-  const row = await db
-    .selectFrom("core_user")
-    .select(["role", "kind", "deactivated_at", "granted_permissions"])
-    .where("id", "=", account)
-    .executeTakeFirst();
-  if (!row || row.kind !== "human" || row.deactivated_at) return false;
-  if (row.role === "admin") return true;
-  const grants = parseGrants(row.granted_permissions);
-  if (!grants.length) return false;
-  return (await declarations(db)).some((d) => d.pays !== null && grants.includes(d.pays));
+export function isPayer(db: Kysely<CoreDatabase>, account: string): Promise<boolean> {
+  return holdsDeclared(db, account, (declared) =>
+    declared.flatMap((d) => (d.pays === null ? [] : [d.pays])),
+  );
+}
+
+/** The pack that declares the pay period's three settings, with their names, or undefined. */
+async function payPeriodDeclaration(db: Kysely<CoreDatabase>) {
+  for (const d of await declarations(db)) {
+    const { payPeriod, payPeriodStart, payPeriodDay } = d.settings;
+    if (payPeriod && payPeriodStart && payPeriodDay) {
+      return { extension: d.extension, payPeriod, payPeriodStart, payPeriodDay };
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -193,10 +228,7 @@ export async function isPayer(db: Kysely<CoreDatabase>, account: string): Promis
  * them in `staffing.settings`): a person's own totals are read only through its tools.
  */
 export async function declaresPayPeriods(db: Kysely<CoreDatabase>, id: string): Promise<boolean> {
-  const declared = (await declarations(db)).find(
-    (d) => d.settings.payPeriod && d.settings.payPeriodStart && d.settings.payPeriodDay,
-  );
-  return declared?.extension === id;
+  return (await payPeriodDeclaration(db))?.extension === id;
 }
 
 /** The pay period's settings as the pack declaring the roster's rules sets them, or null. */
@@ -205,16 +237,13 @@ export async function payPeriodSettings(db: Kysely<CoreDatabase>): Promise<{
   start: unknown;
   day: unknown;
 } | null> {
-  const declared = (await declarations(db)).find(
-    (d) => d.settings.payPeriod && d.settings.payPeriodStart && d.settings.payPeriodDay,
-  );
+  const declared = await payPeriodDeclaration(db);
   if (!declared) return null;
   const values = await extensionSettingValues(db, declared.extension);
-  const { payPeriod, payPeriodStart, payPeriodDay } = declared.settings;
   return {
-    period: payPeriod ? values[payPeriod] : undefined,
-    start: payPeriodStart ? values[payPeriodStart] : undefined,
-    day: payPeriodDay ? values[payPeriodDay] : undefined,
+    period: values[declared.payPeriod],
+    start: values[declared.payPeriodStart],
+    day: values[declared.payPeriodDay],
   };
 }
 
@@ -284,6 +313,58 @@ export async function rosterNumbers(db: Kysely<CoreDatabase>): Promise<RosterNum
   };
 }
 
+/** How far back time may be entered (days) unless a pack's setting says (stage 58). */
+export const DEFAULT_ENTER_DAYS = 14;
+/** Hours after its shift's end an open entry is marked finish missing unless a setting says. */
+export const DEFAULT_FINISH_MISSING_HOURS = 4;
+/** Minutes an entry may differ from its shift and still match it unless a setting says (ADR 0851). */
+export const DEFAULT_MATCH_MINUTES = 5;
+
+/** Recording time (stage 58, ADR 0850): whether staff record it, and its numbers. */
+export interface TimeSettings {
+  /** Staff record their time: off unless the declaring pack's setting is on. */
+  recordsTime: boolean;
+  enterDays: number;
+  finishMissingHours: number;
+  /** The tolerance: an entry within it at both ends matches its shift (0 to 30 minutes). */
+  matchMinutes: number;
+}
+
+/**
+ * Recording time as the pack declaring the roster's rules sets it (its settings' stored values,
+ * else their defaults). Where no pack declares `recordsTime`, nobody records time: nothing changes
+ * for a business that does not use it.
+ */
+export async function timeSettings(db: Kysely<CoreDatabase>): Promise<TimeSettings> {
+  const declared = (await declarations(db)).find((d) => d.settings.recordsTime);
+  if (!declared) {
+    return {
+      recordsTime: false,
+      enterDays: DEFAULT_ENTER_DAYS,
+      finishMissingHours: DEFAULT_FINISH_MISSING_HOURS,
+      matchMinutes: DEFAULT_MATCH_MINUTES,
+    };
+  }
+  const values = await extensionSettingValues(db, declared.extension);
+  const { recordsTime, enterDays, finishMissingHours, matchMinutes } = declared.settings;
+  return {
+    recordsTime: recordsTime ? values[recordsTime] === true : false,
+    enterDays: bounded(enterDays ? values[enterDays] : undefined, 0, 62, DEFAULT_ENTER_DAYS),
+    finishMissingHours: bounded(
+      finishMissingHours ? values[finishMissingHours] : undefined,
+      1,
+      24,
+      DEFAULT_FINISH_MISSING_HOURS,
+    ),
+    matchMinutes: bounded(
+      matchMinutes ? values[matchMinutes] : undefined,
+      0,
+      30,
+      DEFAULT_MATCH_MINUTES,
+    ),
+  };
+}
+
 /** A staff account's name as notices and answers show it. */
 export async function staffName(db: Kysely<CoreDatabase>, account: string): Promise<string> {
   const row = await db
@@ -330,7 +411,11 @@ export async function queueNotice(ctx: HandlerContext, notice: StaffNotice): Pro
       link: notice.link ?? null,
       ...(notice.dedupeKey ? { dedupeKey: notice.dedupeKey } : {}),
       ...(notice.humanOnly ? { humanOnly: true } : {}),
-      source: { actor: ctx.actor, userId: me },
+      // The host writing for a customer or the public has no actor to read (ADR 0426).
+      source: {
+        actor: ctx.onBehalfOf && ctx.onBehalfOf.kind !== "staff" ? ctx.onBehalfOf.kind : ctx.actor,
+        userId: me,
+      },
     },
     ctx.now,
   );

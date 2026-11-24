@@ -40,7 +40,7 @@
       "stage": "contract",
       "code": "contract",
       "path": "objects.application.stages.requiredByType.lost",
-      "message": "\"lostReason\" must be a writable field of application"
+      "message": "\"lostReason\" must be a field of application other than a formula or the stage field"
     }
   ]
 }

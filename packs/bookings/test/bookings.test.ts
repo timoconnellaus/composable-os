@@ -611,6 +611,12 @@ describe("bookings pack (test host)", () => {
         guest: true,
         holdCap: { setting: "dropInHoldPercent" },
       },
+      // A drop-in in the finance reports (ADR 0792): earned when its class starts.
+      finance: {
+        category: { key: "drop_ins", label: "Drop-ins" },
+        earned: "at_date",
+        at: "class.startsAt",
+      },
     });
     // A guest's hold is nobody's until paid: the booking's Person is not required (ADR 0560).
     expect(m.objects.booking?.fields.person?.required).toBeUndefined();
@@ -969,6 +975,8 @@ describe("bookings pack (test host)", () => {
       ends: "endsAt",
       live: ["scheduled", "done"],
       only: "exclusive",
+      // The room calendar shows it by its title (stage 57, ADR 0844).
+      title: "title",
     });
     // Off by default: a shared floor many classes use at once is never claimed.
     expect(m.objects.room?.fields.exclusive).toMatchObject({ type: "boolean", default: false });

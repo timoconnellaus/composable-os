@@ -7,9 +7,9 @@
 //                              ─► Vectorize upsert / delete ─► core_embedding (hash) ─► dequeue
 //
 // The text is built here, from the live tables, so it is never embedded for a record that is
-// deleted, private (`private_to`, or in a private conversation), or synced with less than full
-// disclosure: ADR 0112's restricted reads are never written at all, and metadata-only and private
-// activities are skipped. A record with nothing to embed has its vector deleted, which is also how an erase
+// deleted, private (`private_to`, or in a private conversation), kept from the whole staff (a
+// note's level, ADR 0830), or synced with less than full disclosure: ADR 0112's restricted reads
+// are never written at all, and metadata-only, private and kept notes are skipped. A record with nothing to embed has its vector deleted, which is also how an erase
 // (ADR 0019) removes vectors.
 //
 // The seam (`EmbeddingProducer`): today the pipeline enqueues and cos-app drains after the commit;
@@ -64,7 +64,7 @@ const TEXT_FIELDS: Record<string, readonly string[]> = {
     "tags",
   ],
   organisation: ["name", "industry", "description", "domains", "primaryDomain", "tags"],
-  activity: ["subject", "body", "type", "private", "privateTo", "disclosure"],
+  activity: ["subject", "body", "type", "private", "privateTo", "disclosure", "level"],
   task: ["title", "notes"],
 };
 
@@ -239,6 +239,7 @@ export async function embeddingTexts(
     }>`
       SELECT a.id, a.type, a.subject, a.body FROM core_activity a
       WHERE a.id IN ${list} AND a.deleted_at IS NULL AND a.private_to IS NULL
+        AND a.level = 'staff'
         AND (a.disclosure IS NULL OR a.disclosure = 'full')
         AND a.type IN ${jsonList(ACTIVITY_TYPES)}
         AND ${notInPrivateConversation("a")}`.execute(db);

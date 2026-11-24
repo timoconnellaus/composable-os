@@ -1,17 +1,13 @@
 // One dashboard: /dashboards/<id>, with its filter values in the URL.
 import { Skeleton } from "@composable-os/ui/components/skeleton";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { DashboardPage, parseFilterValues } from "#/components/dashboards/dashboard-page";
-import type { FilterValues } from "#/components/dashboards/dashboard-view";
+import { DashboardPage, validateFiltersSearch } from "#/components/dashboards/dashboard-page";
 import { ErrorState } from "#/components/empty-state";
 import { PageLayout } from "#/components/layout/page-layout";
 import { useOp } from "#/lib/query";
 
 export const Route = createFileRoute("/_app/dashboards/$id")({
-  validateSearch: (search: Record<string, unknown>): { filters?: FilterValues } => {
-    const filters = parseFilterValues(search.filters);
-    return filters && Object.keys(filters).length ? { filters } : {};
-  },
+  validateSearch: validateFiltersSearch,
   component: DashboardRoute,
 });
 

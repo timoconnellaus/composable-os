@@ -6,7 +6,7 @@ Builds on ADRs [0015](0015-core-data-model.md) (activities linked to records),
 [0132](0132-notifications.md) (typed notices), [0244](0244-visibility-enforced-at-one-seam.md)
 (the visibility seam), [0320](0320-erase-reaches-every-store.md) (erase reaches every store),
 [0402](0402-staff-and-customers.md) (audiences), [0436](0436-pack-roles-and-the-door-role.md) (pack roles) and
-[0449](0449-permissions-granted-one-by-one.md) (grants). Migration 1050.
+[0449](0449-permissions-granted-one-by-one.md) (grants). Migrations 1050 and 1430.
 
 ## Context
 
@@ -38,8 +38,13 @@ opening the same conversation and both pressing "take" commit one take; the othe
 when the caller's read is already old.
 
 **Messages and notes are activities.** `core_activity` gains the type `chat` and the column
-`conversation_id`. SQLite cannot change a `CHECK`, so migration 1050 rebuilds the table with its
-rows. D1 enforces foreign keys, so dropping the table would delete every link by cascade: the
+`conversation_id`. SQLite cannot change a `CHECK`, so migration 1430 rebuilds the table with its
+rows (migration 1050 makes `core_conversation` only). The rebuild carries forward every earlier
+change to the table, the note levels and kinds of stage 56 (migrations 1230 and 1232: their
+columns, triggers, index and the `level = 'staff'` test in the views and search), so it must sort
+after them, outside this stage's block: a fresh database applies migrations in number order, and a
+rebuild numbered below them would have its views and search triggers remade by them without the
+private rule, while a host that already had them would lose their columns. D1 enforces foreign keys, so dropping the table would delete every link by cascade: the
 links are copied aside and put back. A `DROP TABLE` fires no trigger, so no search row is touched
 and no stored body is queued for deletion (tested on D1). The views that read the table are
 dropped and made again; `rec_activity` is made again as its base view, which the schema reconciler
@@ -123,9 +128,10 @@ is a handful of statements.
   `conversation_id IS NULL` test.
 - An admin does not find a private conversation's messages by search or SQL, as an owner does not
   find their private email there; they read it in the inbox and on the timeline.
-- Rebuilding `core_activity` again (for `text` in 36b) follows the same steps; migration 1061 is
-  reserved for it.
-- An extension's fields on activities leave `rec_activity` from migration 1050 until the
+- Rebuilding `core_activity` again (for `text` in 36b), or remaking its views or search
+  triggers, follows the same steps, carries this rebuild forward and sorts after 1430; migration
+  1061 can no longer be used for it.
+- An extension's fields on activities leave `rec_activity` from migration 1430 until the
   reconciler next runs on that host.
 
 ## Left out (later steps of the stage)

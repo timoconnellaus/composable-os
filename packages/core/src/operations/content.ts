@@ -2,13 +2,20 @@
 // object, by its address, and a preview of a working copy for whoever holds a link to it.
 //
 //   content.get          anyone   one published record by slug, or where an old slug now points
-//   content.list         anyone   a page of the published records
-//   content.search       anyone   published records whose words match, best first (ADR 0700)
+//   content.list         anyone   a page of the published records (an object with no slug: only
+//                                 this, ADR 0810)
+//   content.search       anyone   published records whose words match, best first (ADR 0700);
+//                                 staff also on an object that declares `staffRead` (ADR 0701)
+//   content.staffGet     staff    one published record of a `staffRead` object, by id or slug
+//   content.staffList    staff    a page of them (ADR 0701)
 //   content.preview      anyone   one record's working copy, with a preview link's token
 //   content.previewLink  staff    make that link: one record, until it expires
 //
 // The three public reads read as the public whoever calls them, staff included: what they answer
-// is what the public is given, never a working copy (a preview aside). Rows and fields are the
+// is what the public is given, never a working copy (a preview aside). The staff reads (and a
+// staff search of a `staffRead` object) read the published version too, never the working copy,
+// with its content fields and slug: every staff account, pack roles included (pack-roles.ts), so a
+// cleaner reads a procedure as it was published and no draft reaches anyone but its editors. Rows and fields are the
 // seam's decision (visibility/public.ts): only records with a current version, only the fields the
 // object's `public.read` lists, with the version's values. A draft, an unpublished record, a
 // deleted one, an unknown slug and an object that is not public content give one answer, the
@@ -21,7 +28,7 @@ import { SLUG_MAX, SLUG_RE } from "@composable-os/sdk";
 import { CompiledQuery, sql } from "kysely";
 import { z } from "zod";
 import { cachedContent, sha256Hex } from "../content/cache.ts";
-import { indexedFields, reindexStep } from "../content/published-text.ts";
+import { reindexStep, searchedFields } from "../content/published-text.ts";
 import { OperationError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import type { ObjectDefinition, PublishableDefinition } from "../fields/types.ts";
@@ -32,6 +39,13 @@ import type { PublicPrincipal } from "../principals.ts";
 import { jsonList } from "../records/common.ts";
 import { type Reader, visibleSource } from "../visibility/index.ts";
 import { getVisible, listVisible, previewVisible } from "../visibility/records.ts";
+import {
+  getPublished,
+  listPublished,
+  type StaffReadObject,
+  staffReadObject,
+  staffReadSource,
+} from "../visibility/staff-read.ts";
 import { loadRecord } from "./record.ts";
 import {
   ftsQuery,
@@ -54,14 +68,25 @@ const PUBLIC: PublicPrincipal = { kind: "public" };
 /** The public's reader: what every public content read reads with, whoever calls. */
 const publicReader = (ctx: HandlerContext): Reader => ({ db: ctx.db, principal: PUBLIC });
 
-type ContentObject = ObjectDefinition & {
+type ListedObject = ObjectDefinition & { publishable: PublishableDefinition };
+type ContentObject = ListedObject & {
   publishable: PublishableDefinition & { slug: string };
 };
 
-/** A publishable object the public reads, with an address; anything else: null. */
-function contentObject(name: string): ContentObject | null {
+/** A publishable object the public reads, listed or by address; anything else: null. */
+function listedObject(name: string): ListedObject | null {
   const object = getObject(name);
-  if (!object?.publishable?.slug || !object.public) return null;
+  if (!object?.publishable || !object.public) return null;
+  return object as ListedObject;
+}
+
+/**
+ * A publishable object the public reads by its address; anything else: null. One without a slug
+ * (a review, ADR 0810) is listed only: read by address it is not found, as anything else is.
+ */
+function contentObject(name: string): ContentObject | null {
+  const object = listedObject(name);
+  if (!object?.publishable.slug) return null;
   return object as ContentObject;
 }
 
@@ -162,7 +187,7 @@ export const contentList = defineOperation({
   hostInternal: true,
   mcp: { idempotent: true },
   async handler(input, ctx) {
-    const object = contentObject(input.object);
+    const object = listedObject(input.object);
     if (!object) throw contentNotFound(input.object);
     const readable = new Set(object.public?.read ?? []);
     const newest = [object.publishable.date, "publishedAt"].find(
@@ -236,6 +261,8 @@ export const contentSearch = defineOperation({
   description:
     "Search the published records of a content object (help pages, blog posts) by the words " +
     "the public reads in them: their published versions only, never a draft or a working copy. " +
+    "Staff searching an object they read as published (procedures) search all its published " +
+    "words. " +
     "Every word of two letters or more must match the start of a word, so partial input works. " +
     "Best matches first, " +
     "one result per record, each with its slug, title, the section the best match is in (its " +
@@ -254,9 +281,12 @@ export const contentSearch = defineOperation({
   hostInternal: true,
   mcp: { idempotent: true },
   async handler(input, ctx) {
-    const object = contentObject(input.object);
-    const fields = object ? indexedFields(object) : null;
-    if (!object || !fields) throw contentNotFound(input.object);
+    // Staff searching an object they read the published version of (ADR 0701) search all its
+    // published words; anyone else, and staff on any other object, what the public reads.
+    const staffRead = staffSearch(ctx, input.object);
+    const object = staffRead ?? contentObject(input.object);
+    const fields = object ? searchedFields(object, staffRead ? "staff" : "public") : null;
+    if (!object?.publishable.slug || !fields) throw contentNotFound(input.object);
     // Words of at least two characters: a one-letter prefix matches nearly everything. Sorted,
     // so the same words in another order are one cached answer.
     const terms = searchTerms(input.q)
@@ -264,8 +294,12 @@ export const contentSearch = defineOperation({
       .sort();
     if (!terms.length) return { items: [], nextCursor: null };
     const offset = Number(input.cursor ?? 0);
-    return cachedContent(ctx.db, object.name, ["search", terms, offset, input.limit], async () => {
-      const reader = publicReader(ctx);
+    // A staff search is not cached: the generation follows what the public reads only.
+    const cached = staffRead
+      ? <T>(_db: unknown, _object: string, _key: unknown, read: () => Promise<T>) => read()
+      : cachedContent;
+    return cached(ctx.db, object.name, ["search", terms, offset, input.limit], async () => {
+      const reader = staffRead ? staffReader(ctx) : publicReader(ctx);
       const matches = await sql<IndexMatch>`
           SELECT t.record_id, t.version, t.field, t.anchor, t.heading, t.body,
             snippet(core_published_text_fts, 1, ${SNIPPET_OPEN}, ${SNIPPET_CLOSE}, '…', ${SNIPPET_WORDS}) AS snip
@@ -280,17 +314,21 @@ export const contentSearch = defineOperation({
       const best = new Map<string, IndexMatch>();
       for (const m of matches.rows) if (!best.has(m.record_id)) best.set(m.record_id, m);
       if (!best.size) return { items: [], nextCursor: null };
-      // Only what the public reads now: the seam's source (published, live, `when`).
-      const readable = new Set(object.public?.read ?? []);
+      // Only what the reader reads now: the seam's source (published, live, and for the public
+      // `when`).
+      const readable = new Set(
+        staffRead ? staffRead.publishable.content : (object.public?.read ?? []),
+      );
       const column = (name: string) => object.fields.find((f) => f.name === name)?.column;
-      const slugColumn = column(object.publishable.slug);
+      const slugColumn = column(object.publishable.slug as string);
       const titleColumn =
         object.titleField && readable.has(object.titleField) ? column(object.titleField) : null;
       if (!slugColumn) throw contentNotFound(input.object);
+      const source = staffRead ? staffReadSource(reader, staffRead) : visibleSource(reader, object);
       const visible = await sql<{ id: string; slug: string | null; title: string | null }>`
           SELECT id, ${sql.ref(slugColumn)} AS slug,
             ${titleColumn ? sql.ref(titleColumn) : sql`NULL`} AS title
-          FROM ${visibleSource(reader, object)}
+          FROM ${source}
           WHERE id IN ${jsonList([...best.keys()])}
         `.execute(ctx.db);
       const shown = new Map(visible.rows.map((r) => [r.id, r]));
@@ -333,6 +371,122 @@ export const contentSearch = defineOperation({
             : null,
       };
     });
+  },
+});
+
+/** Whoever the call is for: a tool run's host writes carry it in `onBehalfOf`. */
+const callerOf = (ctx: HandlerContext) => ctx.onBehalfOf ?? ctx.principal;
+
+/** A staff caller's reader: the staff read source checks it is staff. */
+const staffReader = (ctx: HandlerContext): Reader => ({ db: ctx.db, principal: callerOf(ctx) });
+
+/** The staff-read object a staff caller searches (ADR 0701); null for anyone else or any other. */
+function staffSearch(ctx: HandlerContext, name: string): StaffReadObject | null {
+  return callerOf(ctx).kind === "staff" ? staffReadObject(name) : null;
+}
+
+/**
+ * The one answer for what a staff reader cannot read: the same for a draft, an unpublished or
+ * deleted record, an unknown id or slug, and an object that does not declare staff read.
+ */
+function staffNotFound(object: string): OperationError {
+  return new OperationError("not_found", "Not found: nothing published here", { object });
+}
+
+const staffObjectName = z
+  .string()
+  .min(1)
+  .max(80)
+  .describe("A publishable object staff read the published version of, e.g. `knowledge.procedure`");
+
+const publishedOut = recordOut.extend({
+  /** The content fields and the slug of the current published version, by field name. */
+  values: z.record(z.string(), z.unknown()),
+  version: z.number().int().describe("The published version these values are"),
+  publishedAt: z.string().describe("When that version was published"),
+});
+
+export const contentStaffGet = defineOperation({
+  name: "content.staffGet",
+  description:
+    "Read one published record (a procedure) of an object staff read as published, by id or by " +
+    "slug: its current published version, never the working copy being edited, with its content " +
+    "fields, its slug, the version number and when it was published. A draft, an unpublished " +
+    "record and an unknown id or slug are all not found. Every staff account may read it, " +
+    "pack roles included. Read-only.",
+  input: z
+    .object({
+      object: staffObjectName,
+      id: z.string().min(1).max(64).optional().describe("Record id"),
+      slug: slug.optional(),
+    })
+    .refine((v) => (v.id === undefined) !== (v.slug === undefined), {
+      message: "Give id or slug, not both",
+    }),
+  output: publishedOut.extend({
+    redirect: z
+      .string()
+      .nullable()
+      .describe("Read by an old slug: the slug the record has now; else null"),
+  }),
+  permission: "records:read",
+  risk: "read",
+  audiences: ["staff"],
+  mcp: { idempotent: true },
+  async handler(input, ctx) {
+    const object = staffReadObject(input.object);
+    if (!object) throw staffNotFound(input.object);
+    const reader = staffReader(ctx);
+    if (input.id !== undefined) {
+      const found = await getPublished(reader, object, { id: input.id });
+      if (!found) throw staffNotFound(input.object);
+      return { ...found, redirect: null };
+    }
+    const value = input.slug ?? "";
+    if (!object.publishable.slug || value.length > SLUG_MAX || !SLUG_RE.test(value)) {
+      throw staffNotFound(input.object);
+    }
+    const found = await getPublished(reader, object, { slug: value });
+    if (found) return { ...found, redirect: null };
+    // An old address: the record it points to, while it is published.
+    const old = await ctx.db
+      .selectFrom("core_slug_redirect")
+      .select("record_id")
+      .where("object_type", "=", object.name)
+      .where("slug", "=", value)
+      .executeTakeFirst();
+    const target = old ? await getPublished(reader, object, { id: old.record_id }) : null;
+    const now = target?.values[object.publishable.slug];
+    if (!target || typeof now !== "string" || now === value) throw staffNotFound(input.object);
+    return { ...target, redirect: now };
+  },
+});
+
+export const contentStaffList = defineOperation({
+  name: "content.staffList",
+  description:
+    "A page of the published records (procedures) of an object staff read as published: current " +
+    "published versions only, never a working copy, each with its content fields, its slug, its " +
+    "version number and when it was published. Filter and sort on those fields (and " +
+    "publishedVersion, publishedAt); pass nextCursor back as cursor. Every staff account may " +
+    "read it, pack roles included. Read-only.",
+  input: z.object({
+    object: staffObjectName,
+    filter: filterSchema.optional(),
+    sort: sortSchema.optional(),
+    cursor: z.string().max(1000).optional(),
+    limit: z.number().int().min(1).max(LIST_MAX_LIMIT).default(50),
+  }),
+  output: z.object({ items: z.array(publishedOut), nextCursor: z.string().nullable() }),
+  permission: "records:read",
+  risk: "read",
+  audiences: ["staff"],
+  mcp: { idempotent: true },
+  async handler(input, ctx) {
+    const object = staffReadObject(input.object);
+    if (!object) throw staffNotFound(input.object);
+    const { object: _object, ...page } = input;
+    return listPublished(staffReader(ctx), object, page);
   },
 });
 
@@ -551,6 +705,8 @@ export const contentOperations = [
   contentGet,
   contentList,
   contentSearch,
+  contentStaffGet,
+  contentStaffList,
   contentReindex,
   contentPreview,
   contentPreviewLink,

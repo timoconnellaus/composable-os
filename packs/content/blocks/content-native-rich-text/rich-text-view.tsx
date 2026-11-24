@@ -14,7 +14,8 @@ import {
   type RichText as RichTextValue,
 } from "@composable-os/pack-content/client";
 import type { ReactNode } from "react";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, StyleSheet, View } from "react-native";
+import { Text } from "../native-base/text.tsx";
 import { theme } from "../native-base/theme.ts";
 
 export type NativeBlockRenderer<T extends Block["type"]> = (props: {
@@ -117,10 +118,10 @@ function ListView({
 }
 
 const TONE_COLOR = {
-  info: "#0ea5e9",
+  info: theme.color.info,
   note: theme.color.muted,
-  success: "#10b981",
-  warning: "#f59e0b",
+  success: theme.color.success,
+  warning: theme.color.warning,
 } as const;
 
 function DefaultBlock({

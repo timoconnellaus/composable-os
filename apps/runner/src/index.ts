@@ -21,6 +21,7 @@ import {
   queueEventSink,
   type RunToolInput,
   type RunToolResult,
+  releaseWaitingRoutineMessages,
   retryOutbox,
   runAgreementsDue,
   runChecklistDue,
@@ -35,6 +36,7 @@ import {
   type ShippedInstallResult,
   type StartRunInput,
   sendAgreementCopies,
+  sendReadyTexts,
   vendorBinding,
   type WorkingCopy,
   type WorkingCopyOptions,
@@ -319,6 +321,7 @@ export async function minuteTick(env: Env, at: Date) {
       agreementCopies: null,
       customerSignup: null,
       deferredRuns: null,
+      routineMessages: null,
     };
   }
   const schedules = await minuteStep("schedules", () => runAutomationCron(env, at));
@@ -423,6 +426,20 @@ export async function minuteTick(env: Env, at: Date) {
     const { opened } = await watchSubscriberSignup(createCrmDb(env.DB), at);
     return { opened };
   });
+  // Quiet hours (stage 30, ADR 0676): texts and pushes that waited for them to end are ready to
+  // go, or expired when their moment passed. Then every text ready to go (released now, back
+  // after a full pending pool, or held and not yet put to a person) is handed to the text
+  // connection (ADR 0672); pushes are their gatekeeper's (a later step). A quiet minute is two
+  // indexed reads.
+  const routineMessages = await minuteStep("routine messages", async () => {
+    const db = createCrmDb(env.DB).query;
+    const released = await releaseWaitingRoutineMessages(db, at.toISOString());
+    const texts = await sendReadyTexts(
+      { db, integrations: integrationRuntime(env) },
+      { now: at.toISOString() },
+    );
+    return { ready: released.ready.length, expired: released.expired, texts };
+  });
   return {
     paused: false,
     schedules,
@@ -443,6 +460,7 @@ export async function minuteTick(env: Env, at: Date) {
     customerSignup,
 
     deferredRuns,
+    routineMessages,
   };
 }
 

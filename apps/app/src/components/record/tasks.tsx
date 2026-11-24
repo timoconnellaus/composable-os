@@ -14,30 +14,21 @@ import { cn } from "@composable-os/ui/lib/utils";
 import { CheckSquareIcon, PlusIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { toast } from "sonner";
-import { formatDate, formatDateTime } from "#/lib/format";
+import { formatDate, formatDateTime, localDay } from "#/lib/format";
 import { errorMessage } from "#/lib/query";
 import { EmptyState, ErrorState } from "../empty-state.tsx";
 import type { TaskItem } from "./adapters.ts";
 import { RecordLink } from "./timeline.tsx";
 
-/** The local calendar date today, `YYYY-MM-DD`. */
-export function localToday(): string {
-  const now = new Date();
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-}
-
 export function isOverdue(task: Pick<TaskItem, "status" | "dueAt">): boolean {
   if (task.status === "done" || !task.dueAt) return false;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(task.dueAt)) return task.dueAt < localToday();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(task.dueAt)) return task.dueAt < localDay();
   return Date.parse(task.dueAt) < Date.now();
 }
 
 /** "Due 4 Nov 2026" for dates, with the time for due times. */
 export function formatDue(dueAt: string): string {
-  return /^\d{4}-\d{2}-\d{2}$/.test(dueAt)
-    ? formatDate(`${dueAt}T00:00:00`)
-    : formatDateTime(dueAt);
+  return /^\d{4}-\d{2}-\d{2}$/.test(dueAt) ? formatDate(dueAt) : formatDateTime(dueAt);
 }
 
 export interface TaskListProps {

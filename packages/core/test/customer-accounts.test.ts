@@ -67,6 +67,8 @@ describe("the sign-up setting", () => {
       // Nobody new signs in by starting a subscription unless an admin says so (ADR 0459).
       startingSubscription: false,
       eraseDueDays: 30,
+      // Stage 48 (ADR 0711): Needs your attention looks 7 days ahead.
+      attentionDays: 7,
       emailConnectionId: null,
       // Nothing to send sign-in codes through yet (ADR 0456).
       signInMail: { kind: null, autoApproved: false, ready: false, problem: expect.any(String) },
@@ -85,11 +87,13 @@ describe("the sign-up setting", () => {
       signup: "open",
       startingSubscription: false,
       eraseDueDays: 30,
+      attentionDays: 7,
       emailConnectionId: null,
       previous: {
         signup: "invite_only",
         startingSubscription: false,
         eraseDueDays: 30,
+        attentionDays: 7,
         emailConnectionId: null,
       },
     });

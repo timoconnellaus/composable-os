@@ -51,13 +51,21 @@ export async function openEraseRequest(
 /**
  * The statements that create an erase request for `personId` and tell every admin, for the
  * caller's batch. A second open request for the same Person is ignored by the unique index, so
- * two calls racing still leave one.
+ * two calls racing still leave one. `left` is what the deletion left for staff (ADR 0713), said
+ * in the notice; it names no one.
  */
 export async function createEraseRequestStatements(
   db: Kysely<CoreDatabase>,
-  input: { personId: string; customerId: string; requestedAt: string; dueAt: string },
+  input: {
+    personId: string;
+    customerId: string;
+    requestedAt: string;
+    dueAt: string;
+    left?: readonly string[];
+  },
 ): Promise<{ request: OpenEraseRequest; statements: Compilable[] }> {
-  const request: OpenEraseRequest = { id: newId("eraseRequest"), ...input };
+  const { left = [], ...made } = input;
+  const request: OpenEraseRequest = { id: newId("eraseRequest"), ...made };
   const plan = await notifyStatements(
     db,
     {
@@ -67,7 +75,8 @@ export async function createEraseRequestStatements(
       body:
         "A customer deleted their account and asked for their personal data to be erased. " +
         `Erase them, or decline with a reason, by ${input.dueAt.slice(0, 10)} ` +
-        "(Settings → Storage → Erase requests).",
+        "(Settings → Storage → Erase requests)." +
+        left.map((sentence) => ` ${sentence}`).join(""),
       link: { kind: "record", object: "person", id: input.personId },
       dedupeKey: `erase_request:${request.id}`,
       source: { actor: "system" },

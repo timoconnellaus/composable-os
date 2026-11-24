@@ -72,6 +72,12 @@ export function integrationRuntime(env: Env): IntegrationRuntime {
         purpose: i.purpose,
         ...(i.origin ? { origin: i.origin } : {}),
       }),
+    // A host kind's routine message (ADR 0670): the row's own words, as a pack's routine email.
+    sendRoutineMessage: (i) =>
+      hostFor(env, i.connectionId).sendRoutineMail({ id: i.id, resource: i.resource }),
+    // A routine text (ADR 0672): claimed and sent by the text connection's host, the row's own words.
+    sendRoutineText: (i) =>
+      hostFor(env, i.connectionId).sendRoutineText({ id: i.id, resource: i.resource }),
     types: (i) => hostFor(env, i.connectionId).types(i.resource),
     applyOutbound: (i) => hostFor(env, i.connectionId).applyOutbound(i.facetKey, i.action),
     rejectOutbound: (i) => hostFor(env, i.connectionId).rejectOutbound(i.facetKey, i.action),

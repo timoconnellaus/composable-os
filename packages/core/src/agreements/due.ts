@@ -15,7 +15,8 @@
 import type { CoreDatabase } from "@composable-os/db";
 import { CompiledQuery, type Kysely, sql } from "kysely";
 import { ValidationError } from "../errors.ts";
-import { GUARDIAN_LINK } from "../visibility/guardians.ts";
+import { jsonList } from "../records/common.ts";
+import { dependantsSql, GUARDIAN_LINK } from "../visibility/guardians.ts";
 import { readRev } from "./documents.ts";
 
 type Db = Kysely<CoreDatabase>;
@@ -83,7 +84,7 @@ export async function attachedDocuments(db: Db, point: string | null): Promise<A
       "ask_again_months",
       "effective_from",
     ])
-    .where("document_id", "in", ids)
+    .where("document_id", "in", jsonList(ids))
     .orderBy("number")
     .execute();
   const out = new Map<string, Attached>();
@@ -131,25 +132,44 @@ export interface PersonFacts {
 export const isMinor = (facts: PersonFacts) => facts.marked || facts.dependant;
 
 export async function personFacts(db: Db, personId: string): Promise<PersonFacts> {
+  return (await peopleFacts(db, [personId])).get(personId) ?? NO_PERSON;
+}
+
+export const NO_PERSON: PersonFacts = {
+  exists: false,
+  inTrash: false,
+  marked: false,
+  dependant: false,
+};
+
+/** `personFacts` for many People in one statement, their ids bound as one parameter. */
+export async function peopleFacts(
+  db: Db,
+  personIds: readonly string[],
+): Promise<Map<string, PersonFacts>> {
+  if (!personIds.length) return new Map();
   const { rows } = await sql<{
+    id: string;
     deleted_at: string | null;
     marked: number;
     dependant: number;
-  }>`SELECT p.deleted_at,
+  }>`SELECT p.id, p.deleted_at,
       EXISTS (SELECT 1 FROM core_agreement_minor m WHERE m.person_id = p.id) AS marked,
       EXISTS (SELECT 1 FROM core_person_link l
         JOIN core_person g ON g.id = l.guardian_id AND g.deleted_at IS NULL
         WHERE l.dependant_id = p.id AND l.kind = ${GUARDIAN_LINK} AND l.ended_at IS NULL
           AND p.deleted_at IS NULL) AS dependant
-    FROM core_person p WHERE p.id = ${personId}`.execute(db);
-  const row = rows[0];
-  if (!row) return { exists: false, inTrash: false, marked: false, dependant: false };
-  return {
-    exists: true,
-    inTrash: row.deleted_at !== null,
-    marked: Boolean(row.marked),
-    dependant: Boolean(row.dependant),
-  };
+    FROM core_person p WHERE p.id IN ${jsonList(personIds)}`.execute(db);
+  const out = new Map<string, PersonFacts>();
+  for (const row of rows) {
+    out.set(row.id, {
+      exists: true,
+      inTrash: row.deleted_at !== null,
+      marked: Boolean(row.marked),
+      dependant: Boolean(row.dependant),
+    });
+  }
+  return out;
 }
 
 /** An acceptance as the question reads it: no name typed, no signature, no answers. */
@@ -238,32 +258,33 @@ export const appliesTo = (
 ) =>
   (doc.forWhom === "everyone" || isMinor(participant)) && (doc.who !== "payer" || !isMinor(person));
 
-/** A Person's acceptances of these documents, without anything they typed or drew. */
-export async function acceptancesOf(
-  db: Db,
-  personIds: readonly string[],
-  documentIds: readonly string[],
-): Promise<Map<string, AcceptanceFact[]>> {
+const ACCEPTANCE_COLUMNS = [
+  "id",
+  "person_id",
+  "document_id",
+  "version_id",
+  "by",
+  "accepted_at",
+  "signed_on",
+  "order_id",
+  "subscription_checkout",
+] as const;
+
+type AcceptanceRow = {
+  id: string;
+  person_id: string;
+  document_id: string;
+  version_id: string;
+  by: AcceptanceFact["by"];
+  accepted_at: string;
+  signed_on: string | null;
+  order_id: string | null;
+  subscription_checkout: string | null;
+};
+
+/** Acceptance rows keyed by Person and document, as the question reads them. */
+function byPersonAndDocument(rows: readonly AcceptanceRow[]): Map<string, AcceptanceFact[]> {
   const out = new Map<string, AcceptanceFact[]>();
-  if (!personIds.length || !documentIds.length) return out;
-  const rows = await db
-    .selectFrom("core_agreement_acceptance")
-    .select([
-      "id",
-      "person_id",
-      "document_id",
-      "version_id",
-      "by",
-      "accepted_at",
-      "signed_on",
-      "order_id",
-      "subscription_checkout",
-    ])
-    .where("person_id", "in", [...personIds])
-    // An erased acceptance (its Person's, or the guardian's who made it) no longer counts.
-    .where("erased_at", "is", null)
-    .where("document_id", "in", [...documentIds])
-    .execute();
   for (const row of rows) {
     const key = `${row.person_id}\u0000${row.document_id}`;
     const list = out.get(key) ?? [];
@@ -280,6 +301,47 @@ export async function acceptancesOf(
     out.set(key, list);
   }
   return out;
+}
+
+/** A Person's acceptances of these documents, without anything they typed or drew. */
+export async function acceptancesOf(
+  db: Db,
+  personIds: readonly string[],
+  documentIds: readonly string[],
+): Promise<Map<string, AcceptanceFact[]>> {
+  if (!personIds.length || !documentIds.length) return new Map();
+  const rows = await db
+    .selectFrom("core_agreement_acceptance")
+    .select([...ACCEPTANCE_COLUMNS])
+    .where("person_id", "in", jsonList(personIds))
+    // An erased acceptance (its Person's, or the guardian's who made it) no longer counts.
+    .where("erased_at", "is", null)
+    .where("document_id", "in", jsonList(documentIds))
+    .execute();
+  return byPersonAndDocument(rows as AcceptanceRow[]);
+}
+
+/**
+ * The acceptances of a guardian and of their live dependants (ADR 0540), of every document, in
+ * one statement whose bound variables do not grow with the family or the documents (stage 48,
+ * ADR 0711: me.attention). Callers keep only the documents they ask about.
+ */
+export async function familyAcceptances(
+  db: Db,
+  guardianId: string,
+): Promise<Map<string, AcceptanceFact[]>> {
+  const rows = await db
+    .selectFrom("core_agreement_acceptance")
+    .select([...ACCEPTANCE_COLUMNS])
+    .where((eb) =>
+      eb.or([
+        eb("person_id", "=", guardianId),
+        eb("person_id", "in", sql<string>`(${dependantsSql(guardianId)})`),
+      ]),
+    )
+    .where("erased_at", "is", null)
+    .execute();
+  return byPersonAndDocument(rows as AcceptanceRow[]);
 }
 
 export const acceptanceKey = (personId: string, documentId: string) =>

@@ -83,6 +83,11 @@ describe("every route of cos-app is accounted for behind Access", () => {
       // Stage 45 step 5 (ADR 0628): a staff member's calendar feed, which a calendar app polls
       // with no sign-in: bypassed, authenticated by the token in its address.
       isStaffFeedPath: "/api/v1/staffing/feed/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA.ics",
+      // Stage 62 step 1 (ADR 0890): a customer's calendar feed, the same way.
+      isCustomerFeedPath: "/api/v1/me/feed/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA.ics",
+      // Stage 44 step 6 (ADR 0649): the desk's paths, not found on the staff hostname; the desk
+      // origin is a hostname of its own, outside this Access application.
+      isDeskPath: "/desk",
     };
 
     expect([...dispatched].sort()).toEqual(Object.keys(known).sort());
@@ -95,12 +100,16 @@ describe("every route of cos-app is accounted for behind Access", () => {
       isMediaPath: "staff",
       isAgreementPdfPath: "staff",
       isStaffFeedPath: "bypass",
+      isCustomerFeedPath: "bypass",
+      isDeskPath: "staff",
     });
     // The feed's bypass is its own entry (it says how the feed authenticates), and nothing of the
     // staff app is under it.
     expect(bypassFor("/api/v1/staffing/feed/x.ics")?.path).toBe("/api/v1/staffing/feed/*");
     expect(bypassFor("/api/v1/staffing/feed")?.path).toBe("/api/v1/staffing/feed/*");
     expect(bypassFor("/api/v1/staffing/feeds")?.path).toBe("/api/v1/*");
+    expect(bypassFor("/api/v1/me/feed/x.ics")?.path).toBe("/api/v1/me/feed/*");
+    expect(bypassFor("/api/v1/me/feed")?.path).toBe("/api/v1/me/feed/*");
     // Every version of the surface, and every native sign-in route, is the bypassed surface.
     for (const path of [
       "/api/v1/manifest",

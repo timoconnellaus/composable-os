@@ -20,9 +20,10 @@ import {
   tickLabel,
 } from "@composable-os/pack-rostering/client";
 import { useEffect, useState } from "react";
-import { AppState, Text, View } from "react-native";
+import { AppState, View } from "react-native";
 import { Button } from "../native-base/button.tsx";
 import { Field } from "../native-base/field.tsx";
+import { Text } from "../native-base/text.tsx";
 
 export type ChecklistHooks = Pick<RosteringHooks, "useChecklist" | "useTick" | "useChecklistDone">;
 
@@ -148,7 +149,9 @@ export function ShiftChecklistNative({
       {open ? (
         <View>
           {answer.isPending || hidden ? (
-            <Text accessibilityRole="progressbar">Loading the checklist…</Text>
+            <Text tone="muted" accessibilityRole="progressbar">
+              Loading the checklist…
+            </Text>
           ) : null}
           {answer.error ? alert(rosterRefusal(answer.error)) : null}
           {data?.tickUntil && editable ? (
@@ -190,7 +193,7 @@ export function ShiftChecklistNative({
                 {step.tick?.note ? <Text>Note: {step.tick.note}</Text> : null}
                 {step.history.map((h) => (
                   <Text key={h.id}>
-                    Earlier: {h.state === "cleared" ? h.label : tickLabel(h)}
+                    Earlier: {tickLabel(h)}
                     {h.why ? ` · Why: ${h.why}` : ""}
                     {h.note ? ` · Note: ${h.note}` : ""}
                   </Text>

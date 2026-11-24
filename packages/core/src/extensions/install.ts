@@ -8,12 +8,16 @@ import { type ExtensionManifest, type ManifestIssue, validateManifest } from "@c
 import type { Kysely } from "kysely";
 import { allowanceHostIssues } from "../allowance/check.ts";
 import { automationSyncStatements } from "../automations/registry.ts";
+import { calendarEntryHostIssues } from "../customers/calendar-entry-check.ts";
 import { dashboardSpecSchema } from "../dashboards/spec.ts";
 import { ConfigError, ValidationError } from "../errors.ts";
 import { listObjects } from "../fields/index.ts";
 import type { HandlerContext } from "../operation.ts";
+import { schemaObjectNames } from "../operations/query.ts";
 import { CORE_PERMISSION_NAMESPACES } from "../principals.ts";
+import { followsHostIssues } from "../records/follows.ts";
 import { routineMailAvailableNotice } from "../routine-mail/index.ts";
+import { todayItemSqlIssues } from "../today/declaration.ts";
 import { hasAccessSourceKind } from "../visibility/access.ts";
 // The host's own kinds of access source register themselves when loaded: loaded here too, so the
 // install check (and `cos ext check`, which bundles it alone) knows them (ADR 0488).
@@ -118,6 +122,13 @@ export async function checkManifest(
       }
     }
   }
+  // A Today item's SQL follows the widget rules (stage 60, ADR 0870): checked here, where the SQL
+  // guards are, against what is installed and the views this install creates.
+  if (manifest?.todayItems && Object.keys(manifest.todayItems).length) {
+    for (const issue of todayItemSqlIssues(manifest, await schemaObjectNames(db))) {
+      all.push({ stage: "contract", code: "contract", path: issue.path, message: issue.message });
+    }
+  }
   // Who an extension opens the host to is never AI-configurable (ADR 0402): a runtime extension,
   // written in the workspace, may not open a tool or show an object to anyone but staff.
   if (manifest && options.source === "runtime") all.push(...outsideDeclarations(manifest));
@@ -155,6 +166,20 @@ export async function checkManifest(
   // must let this holder pay, and fields one relation away must exist with the right type.
   if (manifest) {
     for (const issue of allowanceHostIssues(manifest)) {
+      all.push({ stage: "contract", code: "contract", path: issue.path, message: issue.message });
+    }
+  }
+  // A calendar entry's paths into another extension's objects (ADR 0891): each field on the way
+  // one the customer reads.
+  if (manifest) {
+    for (const issue of calendarEntryHostIssues(manifest)) {
+      all.push({ stage: "contract", code: "contract", path: issue.path, message: issue.message });
+    }
+  }
+  // A cascade across extensions against what is installed (ADR 0841): the parent's states, and
+  // on an upgrade of the parent's extension, what the installed followers follow.
+  if (manifest) {
+    for (const issue of followsHostIssues(manifest)) {
       all.push({ stage: "contract", code: "contract", path: issue.path, message: issue.message });
     }
   }
@@ -225,6 +250,15 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
         message: `A runtime extension cannot read or work the shared inbox (${operation}). ${why}`,
       });
     }
+    // A restricted value is read by reviewed pack code only (stage 54, ADR 0811).
+    if (operation === "record.readRestricted") {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `permissions.operations.${i}`,
+        message: `A runtime extension cannot read restricted fields (${operation}). ${why}`,
+      });
+    }
     // A health mark is health information (stage 44, ADR 0643): only reviewed pack code asks.
     if (operation === "agreement.listHealthNotes") {
       issues.push({
@@ -246,6 +280,20 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
       });
     }
   }
+  // Following another extension's record puts this extension's moves in that extension's batch,
+  // where a refusal fails its move (ADR 0841): a reviewed change, like calling its tools.
+  for (const [name, object] of Object.entries(manifest.objects)) {
+    const f = object.states?.follows;
+    const to = f ? object.fields[f.relation]?.to : undefined;
+    if (to?.includes(".") && !to.startsWith(`${manifest.id}.`)) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.states.follows`,
+        message: `A runtime extension cannot follow another extension's ${to}. ${why}`,
+      });
+    }
+  }
   // A role changes what a staff account may do, and a tool's permission is what a role holds
   // (ADR 0436): identity and access are not something code written in the app may declare.
   for (const [name, tool] of Object.entries(manifest.tools)) {
@@ -255,6 +303,18 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
         code: "outside_audience",
         path: `tools.${name}.permission`,
         message: `A runtime extension cannot declare a permission for a staff role. ${why}`,
+      });
+    }
+  }
+  // Who may call a tool beyond its role and grants (ADR 0652) is access too: a tool open to every
+  // staff account, pack roles included, or one held to a core permission.
+  for (const [name, tool] of Object.entries(manifest.tools)) {
+    if (tool.anyStaff || tool.corePermission !== undefined) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `tools.${name}.${tool.anyStaff ? "anyStaff" : "corePermission"}`,
+        message: `A runtime extension cannot open a tool to every staff account or hold it to a core permission. ${why}`,
       });
     }
   }
@@ -306,6 +366,26 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
       message: `A runtime extension cannot declare screens: only a shipped pack's blocks are built into the admin. ${why}`,
     });
   }
+  // Today's items are shown to the business's owner and staff as the host's numbers (stage 60, ADR
+  // 0870): only a shipped pack's, reviewed in the repository, are.
+  if (manifest.todayItems && Object.keys(manifest.todayItems).length) {
+    issues.push({
+      stage: "contract",
+      code: "outside_audience",
+      path: "todayItems",
+      message: `A runtime extension cannot declare Today items: only a shipped pack's numbers are on Today. ${why}`,
+    });
+  }
+  // A section of My account is a shipped pack's blocks in the client's app and a host read over
+  // its customers' records (stage 48, ADR 0710): reviewed in the repository, never app-written.
+  if (manifest.portal && Object.keys(manifest.portal).length) {
+    issues.push({
+      stage: "contract",
+      code: "outside_audience",
+      path: "portal",
+      message: `A runtime extension cannot declare sections of My account: only a shipped pack's blocks are. ${why}`,
+    });
+  }
   // Routine mail goes to members without a person's approval (ADR 0590): only a shipped
   // extension's declaration may say what it says, so code written in the app declares none and
   // gets no module to send it.
@@ -315,6 +395,16 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
       code: "outside_audience",
       path: `routineMail.${name}`,
       message: `A runtime extension cannot declare routine mail. ${why}`,
+    });
+  }
+  // A journey signal is recorded by the host in every write's batch and starts journeys that mail
+  // members (stage 53, ADR 0802): only a shipped extension's reviewed declaration says what is one.
+  for (const name of Object.keys(manifest.journeySignals ?? {})) {
+    issues.push({
+      stage: "contract",
+      code: "outside_audience",
+      path: `journeySignals.${name}`,
+      message: `A runtime extension cannot declare journey signals. ${why}`,
     });
   }
   manifest.permissions.modules.forEach((module, i) => {
@@ -333,6 +423,16 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
       code: "outside_audience",
       path: `roles.${name}`,
       message: `A runtime extension cannot declare a staff role. ${why}`,
+    });
+  }
+  // A device role is standing authority on the business's own device (ADR 0781): identity and
+  // access, so only a shipped pack's reviewed declaration says what one may do.
+  for (const name of Object.keys(manifest.deviceRoles ?? {})) {
+    issues.push({
+      stage: "contract",
+      code: "outside_audience",
+      path: `deviceRoles.${name}`,
+      message: `A runtime extension cannot declare a device role. ${why}`,
     });
   }
   for (const [name, object] of Object.entries(manifest.objects)) {
@@ -389,6 +489,35 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
         message: `A runtime extension cannot make ${name} something customers and the public can buy. ${why}`,
       });
     }
+    // Stock is sold to customers and the public from a ledger the host keeps (ADR 0680): a
+    // reviewed change, as sellable is.
+    if (object.stock) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.stock`,
+        message: `A runtime extension cannot give ${name} stock the host sells from. ${why}`,
+      });
+    }
+    // A state moving stock writes the host's ledger (ADR 0681): a reviewed change, as stock is.
+    if (object.stockMoves) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.stockMoves`,
+        message: `A runtime extension cannot make ${name}'s states move stock. ${why}`,
+      });
+    }
+    // What a customer's private calendar feed shows (ADR 0891): a reviewed change, as what a
+    // customer reads is.
+    if (object.calendarEntry) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.calendarEntry`,
+        message: `A runtime extension cannot put ${name} in customers' calendar feeds. ${why}`,
+      });
+    }
     // Who works when feeds pay, and claims staff accounts' time (ADR 0621): a reviewed change.
     if (object.staffed) {
       issues.push({
@@ -396,6 +525,33 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
         code: "outside_audience",
         path: `objects.${name}.staffed`,
         message: `A runtime extension cannot declare ${name} a shift staff work. ${why}`,
+      });
+    }
+    // Time recorded against a record feeds pay and is a staff record (ADR 0850): a reviewed change.
+    if (object.workedOn) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.workedOn`,
+        message: `A runtime extension cannot declare ${name} something staff record their time against. ${why}`,
+      });
+    }
+    // Who looks after whom opens a pack role's reach to a Person's records (ADRs 0831, 0889).
+    if (object.team) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.team`,
+        message: `A runtime extension cannot declare who on the staff looks after the People ${name} is about. ${why}`,
+      });
+    }
+    // The public-write door (ADR 0720): what the public may create is a reviewed change.
+    if (object.intake) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.intake`,
+        message: `A runtime extension cannot open ${name} to the public's answers. ${why}`,
       });
     }
     // Who ticks what is a staff record, read by the person and rosterers only (ADR 0650).

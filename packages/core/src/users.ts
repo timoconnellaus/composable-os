@@ -23,11 +23,20 @@ export interface PrincipalLike {
  */
 export async function resolveActingUser(db: CrmDb, principal: PrincipalLike): Promise<ActingUser> {
   const email = principal.email.trim().toLowerCase();
-  const find = () =>
+  const columns = ["id", "email", "name", "role", "deactivated_at", "support_grant_id"] as const;
+  // By id first, one row of the primary key: the OR below (with lower(email), which no index
+  // holds) reads the whole table, and every staff request comes here.
+  const find = async () =>
+    (await db.query
+      .selectFrom("core_user")
+      .select(columns)
+      // Extension principals (migration 0020) are never a signed-in user.
+      .where("kind", "=", "human")
+      .where("id", "=", principal.userId)
+      .executeTakeFirst()) ??
     db.query
       .selectFrom("core_user")
-      .select(["id", "email", "name", "role", "deactivated_at", "support_grant_id"])
-      // Extension principals (migration 0020) are never a signed-in user.
+      .select(columns)
       .where("kind", "=", "human")
       .where((eb) =>
         eb.or([eb("id", "=", principal.userId), eb(eb.fn("lower", ["email"]), "=", email)]),
