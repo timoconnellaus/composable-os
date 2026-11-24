@@ -35,10 +35,14 @@ export async function installShippedExtensions(options: {
     [2, failed],
   ] as const) {
     for (const shipped of [...list]) {
-      const result = await installOne(options, shipped);
+      const { result, commit } = await installOne(options, shipped);
       if (result.outcome === "failed" && pass === 1) {
         failed.push(shipped);
         continue;
+      }
+      // Told only when the second try fails too: one that waited for another installs then.
+      if (result.outcome === "failed") {
+        await tellAdmins(options.db, shipped.id, commit, result.error ?? "");
       }
       results.push(result);
     }
@@ -49,8 +53,9 @@ export async function installShippedExtensions(options: {
 async function installOne(
   options: { db: CrmDb; host: ExtensionHost; floor?: GateFloor },
   shipped: ShippedExtension,
-): Promise<ShippedInstallResult> {
+): Promise<{ result: ShippedInstallResult; commit: string | null }> {
   let commit: string | null = null;
+  const done = (result: ShippedInstallResult) => ({ result, commit });
   try {
     const installed = await options.db.query
       .selectFrom("core_extensions")
@@ -58,9 +63,9 @@ async function installOne(
       .where("id", "=", shipped.id)
       .executeTakeFirst();
     if (installed?.source === "runtime") {
-      return { id: shipped.id, outcome: "ejected" };
+      return done({ id: shipped.id, outcome: "ejected" });
     }
-    if (!installed && shipped.optional) return { id: shipped.id, outcome: "available" };
+    if (!installed && shipped.optional) return done({ id: shipped.id, outcome: "available" });
     commit = (await options.host.commitShipped(shipped.id)).commit;
     const row = await options.db.query
       .selectFrom("core_extensions")
@@ -68,7 +73,7 @@ async function installOne(
       .where("id", "=", shipped.id)
       .executeTakeFirst();
     if (row?.commit_oid === commit) {
-      return { id: shipped.id, outcome: "unchanged" };
+      return done({ id: shipped.id, outcome: "unchanged" });
     }
     await invokeByName(
       "extension.install",
@@ -82,12 +87,11 @@ async function installOne(
         extensionHost: options.host,
       },
     );
-    return { id: shipped.id, outcome: "installed" };
+    return done({ id: shipped.id, outcome: "installed" });
   } catch (error) {
     const typed = toOperationError(error);
     console.error(`installing shipped extension ${shipped.id} failed`, typed.toJSON());
-    await tellAdmins(options.db, shipped.id, commit, typed.message);
-    return { id: shipped.id, outcome: "failed", error: typed.message };
+    return done({ id: shipped.id, outcome: "failed", error: typed.message });
   }
 }
 
