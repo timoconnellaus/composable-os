@@ -20,9 +20,11 @@ export function formatDateTime(value: string | null | undefined): string {
   return Number.isNaN(date.getTime()) ? value : dateTime.format(date);
 }
 
+/** A date, or an instant's local day. A date-only value (YYYY-MM-DD) is that calendar day. */
 export function formatDate(value: string | null | undefined): string {
   if (!value) return "";
-  const date = new Date(value);
+  // Parsed as local midnight: as an instant it would be midnight UTC, the day before west of UTC.
+  const date = new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00` : value);
   return Number.isNaN(date.getTime()) ? value : dateOnly.format(date);
 }
 
