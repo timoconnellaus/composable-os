@@ -93,9 +93,14 @@ async function readEnvelope(response: {
   status: number;
   text(): Promise<string>;
 }): Promise<unknown> {
-  let body: { data?: unknown; error?: { code?: string; message?: string; details?: unknown } };
+  let body: {
+    data?: unknown;
+    error?: { code?: string; message?: string; details?: unknown };
+  } | null;
   try {
-    body = JSON.parse(await response.text()) as typeof body;
+    const parsed: unknown = JSON.parse(await response.text());
+    // A JSON value that is not an object (a string a proxy sent, say) is no envelope.
+    body = parsed !== null && typeof parsed === "object" ? (parsed as typeof body) : null;
   } catch {
     throw new ApiError(
       "internal",
