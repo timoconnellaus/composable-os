@@ -514,3 +514,21 @@ may override any of them.
   accounting system for the CSV.
 - **Roster coupling**: one "rosterer" across gym classes and trade crews may be too broad for a
   business with both (decision 7 keeps it; revisit if asked).
+
+## Status
+
+- **Step 1, stage rules on host facts** (branch `feat/stage-39-host-set-date`, PR #350): built.
+  `packages/sdk/src/behaviour.ts` lets a stage's `requiredFields` options and `requiredByType`
+  name a read-only field (not a formula, the stage field or a field the behaviour keeps). Such a
+  host fact (`packages/core/src/records/host-facts.ts`) is written only by the host or the pack's
+  tool that only a person calls or approves (as a holder's terms), and the records of a stage
+  object that gates one are created, changed, trashed and restored only by an admin in person or
+  the host (`stage_settings_admin_only`), so the gate cannot be loosened by a member or an AI. The
+  transition engine (`packages/core/src/records/transitions.ts`) names missing facts first in a
+  required-fields refusal, lists them in `details.setByHost` and says the act sets them, not a
+  move; what it refuses is unchanged. ADR 0750 (amends 0100 and 0425). No migration. Tests:
+  `packages/core/test/stage-host-facts.test.ts` (criterion 1 on a fixture pipeline: person, MCP
+  client applied and queued, the extension's code with and without a person's tool, CSV import,
+  the host, and editing, adding, trashing and restoring the gated stages). Left for step 5: the
+  Jobs pack declaring `acceptedAt`, `signedOffAt` and `invoicedAt` and its seeded pipelines; the
+  board e2e of criterion 1 comes with the pack.

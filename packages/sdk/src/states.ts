@@ -158,7 +158,10 @@ export interface StatesSpec {
    * state named in `when`, the host moves every live record of this object pointing at it, and in
    * one of `from`, to the state `when` gives, in the same batch, as the host (a class cancelled
    * moves its bookings to `cancelled_by_us`: their places released, their uses given back). Each
-   * target needs a `host` move from each of `from`.
+   * target needs a `host` move from each of `from`. The parent is another of this extension's
+   * objects, or one of an extension this one `requires`, named in full (`ticketing.event`); a
+   * parent others draw places from as a pool is followed only by an object that draws none
+   * (ADR 0841).
    */
   follows?: {
     relation: string;
@@ -414,35 +417,53 @@ export function checkObjectStates(
     const fp = `${sp}.follows`;
     const f = states.follows;
     const rel = fieldOf(f.relation);
-    const target =
-      rel?.type === "relation" && !rel.many && rel.to?.startsWith(`${m.id}.`)
-        ? m.objects[rel.to.slice(m.id.length + 1)]
-        : undefined;
-    if (!target?.states) {
+    const to = rel?.type === "relation" && !rel.many ? rel.to : undefined;
+    const own = to?.startsWith(`${m.id}.`) ? to.slice(m.id.length + 1) : undefined;
+    const target = own !== undefined && Object.hasOwn(m.objects, own) ? m.objects[own] : undefined;
+    // A parent in another extension this one requires (ADR 0841): its states are the host's to
+    // check, at install and on every upgrade of either extension (core's checkManifest).
+    const otherExt = to && own === undefined && to.includes(".") ? to.split(".")[0] : undefined;
+    const required = otherExt !== undefined && (m.requires ?? []).includes(otherExt);
+    if (!target?.states && !required) {
       contract(
         `${fp}.relation`,
-        `"${f.relation}" must be a relation (one record) of ${name} to another of this extension's objects that declares states`,
+        `"${f.relation}" must be a relation (one record) of ${name} to another of this extension's objects that declares states, or to an object of an extension this one requires`,
       );
     } else {
-      // A parent whose places other records draw on as a pool: its counter counts claims that
-      // are not its own, which the cascade's check at commit cannot read (ADR 0550).
-      const pooled = Object.values(m.objects).some((other) => {
-        const poolField = other.capacity?.pool;
-        const relTo = poolField ? other.fields[poolField]?.to : undefined;
-        return relTo === rel?.to || relTo === rel?.to?.slice(m.id.length + 1);
-      });
-      if (pooled) {
-        contract(
-          `${fp}.relation`,
-          `${rel?.to ?? f.relation} is a pool other records draw places from: a cascade cannot follow it`,
+      // A parent whose places other records draw on as a pool counts claims that are not its
+      // own, which the cascade's check at commit cannot read (ADR 0550). A child that draws on
+      // it (a member of the pool, or claiming places on the parent or on a member) is refused;
+      // one that draws nothing moves no places and may follow it (ADR 0841). A pool is always in
+      // the parent's own extension, so a parent in another extension is never drawn on from here.
+      if (target && own !== undefined) {
+        const localOf = (ref: string | undefined) =>
+          ref?.startsWith(`${m.id}.`) ? ref.slice(m.id.length + 1) : ref;
+        const poolOf = (other: ObjectManifest | undefined) => {
+          const poolField = other?.capacity?.pool;
+          return poolField ? localOf(other?.fields[poolField]?.to) : undefined;
+        };
+        const members = new Set(
+          Object.entries(m.objects)
+            .filter(([, other]) => poolOf(other) === own)
+            .map(([key]) => key),
         );
+        const claimsOn = object.claims ? localOf(object.fields[object.claims.on]?.to) : undefined;
+        const draws =
+          members.has(name) ||
+          (claimsOn !== undefined && (claimsOn === own || members.has(claimsOn)));
+        if (members.size && draws) {
+          contract(
+            `${fp}.relation`,
+            `${to} is a pool other records draw places from, and ${name} draws places from it: a cascade cannot follow it`,
+          );
+        }
       }
-      const parentStates = new Set(
-        (target.fields[target.states.field]?.options ?? []).map((o) => o.value),
-      );
-      for (const [when, to] of Object.entries(f.when)) {
-        if (!parentStates.has(when)) {
-          contract(`${fp}.when`, `"${when}" is not a state of ${rel?.to ?? f.relation}`);
+      const parentStates = target?.states
+        ? new Set((target.fields[target.states.field]?.options ?? []).map((o) => o.value))
+        : null;
+      for (const [when, into] of Object.entries(f.when)) {
+        if (parentStates && !parentStates.has(when)) {
+          contract(`${fp}.when`, `"${when}" is not a state of ${to ?? f.relation}`);
         }
         for (const from of f.from) {
           if (!isState(from))
@@ -450,10 +471,10 @@ export function checkObjectStates(
           else if (
             !states.moves.some(
               (move) =>
-                move.to === to && move.by.includes("host") && moveOrigins(move).includes(from),
+                move.to === into && move.by.includes("host") && moveOrigins(move).includes(from),
             )
           ) {
-            contract(`${fp}.when`, `${name} needs a host move from "${from}" to "${to}"`);
+            contract(`${fp}.when`, `${name} needs a host move from "${from}" to "${into}"`);
           }
         }
       }

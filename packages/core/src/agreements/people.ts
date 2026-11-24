@@ -27,6 +27,9 @@
 // The database allows exactly these updates and deletes (migrations 0851 and 0855); nothing else
 // in an acceptance changes.
 //
+// Desk signing sessions (stage 44 step 6, ADR 0649): erase ends an open one and keeps every one
+// detached (no Person, no pinned address) with the acceptances it made; merge moves them.
+//
 // Merge: acceptances, and acceptances made as a guardian, follow the merged Person to the
 // survivor (the trigger allows a move only to the Person's `merged_into_id`, which the merge set
 // earlier in its batch), as does whom a child's paper copy went to; the minor mark is kept if
@@ -298,6 +301,17 @@ export async function queueEraseAgreements(
       ctx.db,
     ),
     sql`DELETE FROM core_agreement_minor WHERE person_id IN ${people}`.compile(ctx.db),
+    // Their desk signing sessions (stage 44 step 6, ADR 0649): an open one ends now; every one is
+    // kept detached with the acceptances it made, without them or the address it pinned. As a
+    // child a session listed, they leave its list.
+    sql`UPDATE core_agreement_desk_session SET person_id = NULL, email = NULL, code_hash = NULL,
+        token_hash = NULL, ended_at = coalesce(ended_at, ${ctx.now}),
+        end_reason = coalesce(end_reason, 'erased'), erased_at = coalesce(erased_at, ${ctx.now})
+      WHERE person_id IN ${people}`.compile(ctx.db),
+    sql`UPDATE core_agreement_desk_session SET dependant_ids = (SELECT json_group_array(d.value)
+        FROM json_each(core_agreement_desk_session.dependant_ids) d WHERE d.value NOT IN ${people})
+      WHERE EXISTS (SELECT 1 FROM json_each(core_agreement_desk_session.dependant_ids) d
+        WHERE d.value IN ${people})`.compile(ctx.db),
     // A child's paper form sent to them as its guardian (ADR 0648): the acceptance is the
     // child's and stays as it is, but the address on its copy is theirs. It is cleared with who
     // it went to, a copy not yet gone is never sent, and one that reached the email gatekeeper
@@ -358,6 +372,16 @@ export function queueMergeAgreements(
     sql`INSERT OR IGNORE INTO core_agreement_minor (person_id, set_by, set_at) SELECT ${survivorId}, set_by, set_at FROM core_agreement_minor WHERE person_id = ${mergedId}`.compile(
       ctx.db,
     ),
+    // Desk signing sessions (ADR 0649): whom they were for, as a signer or a child listed.
+    ctx.db
+      .updateTable("core_agreement_desk_session")
+      .set({ person_id: survivorId })
+      .where("person_id", "=", mergedId),
+    sql`UPDATE core_agreement_desk_session SET dependant_ids = (SELECT json_group_array(
+        CASE WHEN d.value = ${mergedId} THEN ${survivorId} ELSE d.value END)
+        FROM json_each(core_agreement_desk_session.dependant_ids) d)
+      WHERE EXISTS (SELECT 1 FROM json_each(core_agreement_desk_session.dependant_ids) d
+        WHERE d.value = ${mergedId})`.compile(ctx.db),
     ctx.db.deleteFrom("core_agreement_minor").where("person_id", "=", mergedId),
   );
 }

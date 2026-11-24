@@ -41,6 +41,13 @@ gift cards to be built.
   and the erase of a reopen's reason and of closed rows' names. Migration 1150; ADRs 0790, 0791 and
   0794 (0449 amended). Left: until step 3 fills `periodBook` a close writes no entries; inserts are
   500 rows or 1 MB to a statement (not ADR 0627's hundred), so the biggest close fits D1's 1,000.
+- **Step 2 built** (`feat/stage-52-sellable-finance`): `sellable.finance` (a category's key and
+  label, and `earned`: `at_sale`, `over_period`, `per_use` or `at_date` with `at`), its contract
+  checks, the field registry's copy with the defaults filled (`other`, `at_sale`), and the
+  declarations in Memberships (plan `over_period`, pass type `per_use`), Ticketing (ticket type
+  `at_date` on `event.startsAt`), Bookings (drop-in `at_date` on `class.startsAt`) and Courses
+  (course and bundle `at_sale`; the course plan `over_period`, as a plan). No migration; ADR 0792
+  (0435 amended). The ADR numbers of 0792 and 0793 in the table below are swapped from the draft.
 
 **This is not accounting or tax advice, and the platform gives none.** The host reports what the
 payment provider confirmed and what the host recorded. How a figure is treated in the business's
@@ -473,8 +480,8 @@ Block **BN**: migrations 1150 to 1169, ADRs 0790 to 0799 (the coordinator adds t
 | --- | --- | --- |
 | 0790 | Finance periods: the business's day, money counted when the host recorded it, the monthly close as a versioned snapshot that never refuses a money event, late sources counted once | builds on 0627 |
 | 0791 | The figures for the books: book entries, their keys, headings, balance and fingerprints; what Accounting sync reads | |
-| 0792 | Payout reads through the payments gatekeeper (read-only, the destination never read) | 0429 (dated note) |
-| 0793 | `sellable.finance`: categories and how a sale is earned | 0435 (dated note) |
+| 0792 | `sellable.finance`: categories and how a sale is earned | 0435 (dated note) |
+| 0793 | Payout reads through the payments gatekeeper (read-only, the destination never read) | 0429 (dated note) |
 | 0794 | `finance:read` and `finance:close`; what an AI may do with figures | 0449 (dated note) |
 | 0795 | A subscription's state history and the amount due on a failing renewal | 0485 (dated note) |
 

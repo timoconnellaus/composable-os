@@ -164,6 +164,21 @@ export const ACCESS_STAFF: readonly StaffPath[] = [
     why: "A pack's web block mounted on its own, in development only; a deployed host renders nothing there.",
   },
   {
+    path: "/desk",
+    why:
+      "The desk tablet's page (stage 44 step 6, ADR 0649): served only on the desk origin, a " +
+      "hostname of its own that this Access application does not cover; the staff hostname " +
+      "answers it as not found.",
+  },
+  {
+    path: "/enrol",
+    why: "Enrolling the desk tablet (ADR 0780): on the desk origin only, as /desk.",
+  },
+  {
+    path: "/api/desk/*",
+    why: "The desk tablet's calls: on the desk origin only, as /desk.",
+  },
+  {
     path: "/gatekeeper/*",
     why:
       "Every other gatekeeper route: OAuth callbacks and connect pages opened in a staff " +
@@ -191,6 +206,8 @@ export const GATEKEEPER_ROUTES: Readonly<Record<string, readonly string[]>> = {
   fake: [],
   // The fake accounting books (stage 61): development and tests only, and it serves no routes.
   "accounting-fake": [],
+  // The fake booking system (stage 65): development and tests only, and it serves no routes.
+  "booking-system-fake": [],
 };
 
 /** Whether `pathname` matches a layout pattern. */

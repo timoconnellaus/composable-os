@@ -76,7 +76,7 @@ export function passedOverChoice(
 
 // --- What a message is about --------------------------------------------------------------------
 
-export interface ClassFacts {
+interface ClassFacts {
   id: string;
   startsAt: string | null;
   state: string | null;
@@ -101,7 +101,7 @@ async function classFacts(ctx: ExtensionContext, id: string): Promise<ClassFacts
 type Send = Omit<RoutineSendInput, "kind">;
 
 /** Asks the host for each email of `kind`, in order. */
-export async function sendAll(
+async function sendAll(
   ctx: ExtensionContext,
   kind: string,
   sends: Send[],

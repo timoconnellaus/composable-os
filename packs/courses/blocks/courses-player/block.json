@@ -4,7 +4,7 @@
   "skin": "web",
   "operations": ["x.courses.lesson", "media.play", "x.courses.progress"],
   "files": ["player.tsx", "LICENSE"],
-  "dependsOn": ["ui-button"],
+  "dependsOn": ["ui-button", "content-rich-text"],
   "packages": {
     "@composable-os/pack-courses": "*"
   }

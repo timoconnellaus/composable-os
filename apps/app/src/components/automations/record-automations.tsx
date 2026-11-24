@@ -14,7 +14,7 @@ import { ZapIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { LoadMoreSentinel } from "#/components/layout/infinite";
-import { callStageOp } from "#/lib/automation-ops";
+import { callOp } from "#/lib/operations";
 import { errorMessage, invalidateAfterWrite } from "#/lib/query";
 import { type AutomationItem, useManualAutomations, useRuns } from "./hooks.ts";
 import { compactRelative } from "./model.ts";
@@ -25,7 +25,7 @@ async function runOn(automation: AutomationItem, object: string, ids: readonly s
   let started: string[] = [];
   let skipped = 0;
   for (let i = 0; i < ids.length; i += 100) {
-    const result = await callStageOp("automation.run", {
+    const result = await callOp("automation.run", {
       id: automation.id,
       object,
       recordIds: ids.slice(i, i + 100),

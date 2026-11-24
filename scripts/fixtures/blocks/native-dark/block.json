@@ -1,0 +1,9 @@
+{
+  "name": "native-dark",
+  "pack": null,
+  "skin": "native",
+  "operations": [],
+  "files": ["dark-screen.tsx"],
+  "dependsOn": ["native-base"],
+  "packages": {}
+}

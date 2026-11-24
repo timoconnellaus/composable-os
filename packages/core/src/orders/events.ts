@@ -25,6 +25,7 @@ import { resolveChannelTarget } from "../notifications/channels.ts";
 import { loadDeliverySettings } from "../notifications/preferences.ts";
 import { notifyStatements } from "../notifications/send.ts";
 import type { HandlerContext } from "../operation.ts";
+import { jsonList } from "../records/common.ts";
 import { applySubscriptionEvent } from "../subscriptions/events.ts";
 import { SYSTEM_USER } from "../users.ts";
 import { type PaymentsEvent, sendHostEmail } from "./gateway.ts";
@@ -40,13 +41,14 @@ const currency = z
   .transform((c) => c.toUpperCase());
 const provider = z.enum(["stripe", "fake"]);
 const minor = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
+const country = z
+  .string()
+  .regex(/^[A-Z]{2}$/)
+  .nullable();
 /** The provider's tax on a payment (ADR 0479), as it said it. */
 const taxReport = z.object({
   amount: minor,
-  country: z
-    .string()
-    .regex(/^[A-Z]{2}$/)
-    .nullable(),
+  country,
   lines: z.array(z.object({ ref: id, amount: minor })).max(100),
 });
 
@@ -100,15 +102,7 @@ const invoiceRead = z.object({
     .url({ protocol: /^https$/ })
     .max(2000)
     .nullable(),
-  tax: z
-    .object({
-      amount: minor,
-      country: z
-        .string()
-        .regex(/^[A-Z]{2}$/)
-        .nullable(),
-    })
-    .optional(),
+  tax: z.object({ amount: minor, country }).optional(),
 });
 
 /** The event as the gatekeeper's hook delivers it, checked before it is stored. */
@@ -160,7 +154,7 @@ export const paymentsEventSchema: z.ZodType<PaymentsEvent> = z.discriminatedUnio
     invoice: invoiceRead.optional(),
     occurredAt: z.string().max(40),
   }),
-]) as z.ZodType<PaymentsEvent>;
+]);
 
 export interface PaymentEventKey {
   provider: string;
@@ -574,15 +568,13 @@ async function resolveRefundedLatePayment(
   const back = Number(before?.total ?? 0) + event.amount;
   const paidIn = late.reduce((sum, p) => sum + p.amount, 0);
   if (back < paidIn) return;
-  for (const payment of late) {
-    ctx.write(
-      ctx.db
-        .updateTable("core_order_payment")
-        .set({ resolved: "refunded", resolved_at: ctx.now })
-        .where("provider", "=", event.provider)
-        .where("event_id", "=", payment.event_id),
-    );
-  }
+  ctx.write(
+    ctx.db
+      .updateTable("core_order_payment")
+      .set({ resolved: "refunded", resolved_at: ctx.now })
+      .where("provider", "=", event.provider)
+      .where("event_id", "in", jsonList(late.map((p) => p.event_id))),
+  );
 }
 
 // --- The host's adapter --------------------------------------------------------------------------
@@ -599,7 +591,7 @@ export interface PaymentEventDeps {
 }
 
 /** How many times an event is applied again after the order changed under it. */
-export const PAYMENT_EVENT_RETRIES = 5;
+const PAYMENT_EVENT_RETRIES = 5;
 const RETRIED_REASONS = new Set([
   "order_stale",
   "subscription_stale",
@@ -609,8 +601,9 @@ const RETRIED_REASONS = new Set([
 ]);
 
 /**
- * Applies one stored event through `order.applyPaymentEvent`, again on `order_stale`, then sends
- * the confirmation email once the payment has committed. Returns the outcome.
+ * Applies one stored event through `order.applyPaymentEvent`, again (up to PAYMENT_EVENT_RETRIES
+ * times) when another event for the same order or subscription committed first, then sends the
+ * confirmation email once the payment has committed. Returns the outcome.
  */
 export async function applyStoredPaymentEvent(
   deps: PaymentEventDeps,
@@ -667,7 +660,7 @@ export const PAYMENT_EVENT_TELL_AFTER = 5;
  * and so on, at most a day apart), so one that keeps failing never stops being tried and never
  * crowds out the others.
  */
-export function paymentEventDue(attempts: number, receivedAt: string, now: string): boolean {
+function paymentEventDue(attempts: number, receivedAt: string, now: string): boolean {
   if (attempts < PAYMENT_EVENT_TELL_AFTER) return true;
   const n = attempts - PAYMENT_EVENT_TELL_AFTER;
   // The cumulative wait after the first few tries: 1h, then +2h, +4h… each step at most a day.

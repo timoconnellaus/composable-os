@@ -166,8 +166,9 @@ function UpdatesPage() {
               variant="outline"
               size="sm"
               onClick={() => {
-                setRefresh(true);
-                void releases.refetch();
+                // The first check switches to the refreshing input, which fetches by itself.
+                if (refresh) void releases.refetch();
+                else setRefresh(true);
               }}
             >
               <RefreshCwIcon aria-hidden /> Check now

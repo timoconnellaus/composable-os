@@ -56,6 +56,69 @@
       "hostInternal": true
     },
     {
+      "name": "desk.accept",
+      "audiences": ["public"],
+      "risk": "write",
+      "hostInternal": true,
+      "deskOnly": true
+    },
+    {
+      "name": "desk.claim",
+      "audiences": ["public"],
+      "risk": "write",
+      "hostInternal": true,
+      "deskOnly": true
+    },
+    {
+      "name": "desk.documents",
+      "audiences": ["public"],
+      "risk": "write",
+      "hostInternal": true,
+      "deskOnly": true
+    },
+    {
+      "name": "desk.finish",
+      "audiences": ["public"],
+      "risk": "write",
+      "hostInternal": true,
+      "deskOnly": true
+    },
+    {
+      "name": "desk.heartbeat",
+      "audiences": ["public"],
+      "risk": "write",
+      "hostInternal": true,
+      "deskOnly": true
+    },
+    {
+      "name": "desk.status",
+      "audiences": ["public"],
+      "risk": "read",
+      "hostInternal": true,
+      "deskOnly": true
+    },
+    {
+      "name": "device.claim",
+      "audiences": ["public"],
+      "risk": "write",
+      "hostInternal": true,
+      "deskOnly": true
+    },
+    {
+      "name": "intake.open",
+      "audiences": ["staff", "customer", "public"],
+      "risk": "read",
+      "hostInternal": true,
+      "toolOnly": true
+    },
+    {
+      "name": "intake.submit",
+      "audiences": ["staff", "customer", "public"],
+      "risk": "write",
+      "hostInternal": true,
+      "toolOnly": true
+    },
+    {
       "name": "me.agreements.accept",
       "audiences": ["customer"],
       "risk": "write",
@@ -86,6 +149,18 @@
       "hostInternal": true
     },
     {
+      "name": "me.attention",
+      "audiences": ["customer"],
+      "risk": "read",
+      "hostInternal": true
+    },
+    {
+      "name": "me.code",
+      "audiences": ["customer"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
       "name": "me.deleteAccount",
       "audiences": ["customer"],
       "risk": "write",
@@ -100,6 +175,18 @@
       "name": "me.get",
       "audiences": ["customer"],
       "risk": "read"
+    },
+    {
+      "name": "me.pin.clear",
+      "audiences": ["customer"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
+      "name": "me.pin.set",
+      "audiences": ["customer"],
+      "risk": "write",
+      "hostInternal": true
     },
     {
       "name": "me.sessions.list",
@@ -212,6 +299,11 @@
       "risk": "read",
       "hostInternal": true,
       "toolOnly": true
+    },
+    {
+      "name": "stock.get",
+      "audiences": ["staff", "customer", "public"],
+      "risk": "read"
     },
     {
       "name": "subscription.cancel",

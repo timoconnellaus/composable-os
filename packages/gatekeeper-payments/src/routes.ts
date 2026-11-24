@@ -5,6 +5,8 @@
 //   POST {base}/in/fake         fake provider webhook (fake only)
 //   GET  {base}/fake/pay/:ref   the fake hosted page (fake only)
 //   POST {base}/fake/pay/:ref   pay or cancel on the fake page (fake only)
+//   GET  {base}/fake/reader/:ref   a fake card reader's screen (fake only)
+//   POST {base}/fake/reader/:ref   tap a card, decline or cancel on it (fake only)
 
 import { eventsStub } from "./events.js";
 import {
@@ -12,6 +14,7 @@ import {
   type FakeWebhookBody,
   fakeLedger,
   fakePayPage,
+  fakeReaderPage,
   verifyFakeWebhook,
 } from "./fake.js";
 import { formatMinor } from "./money.js";
@@ -39,6 +42,7 @@ const MAX_FORM_BYTES = 16 * 1024;
 const MAX_HEADERS = 100;
 const MAX_HEADER_VALUE = 8 * 1024;
 const FAKE_REF = /^fcs_[A-Za-z0-9]{1,64}$/;
+const FAKE_READER_REF = /^frd_[A-Za-z0-9]{1,64}$/;
 
 function json(status: number, body: unknown, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -115,6 +119,13 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     if (!FAKE_REF.test(ref)) return notFound();
     if (request.method === "GET") return showFakePage(env, ref);
     if (request.method === "POST") return submitFakePage(request, env, ref);
+    return methodNotAllowed("GET, POST");
+  }
+  if (path.startsWith("/fake/reader/")) {
+    const ref = path.slice("/fake/reader/".length);
+    if (!FAKE_READER_REF.test(ref)) return notFound();
+    if (request.method === "GET") return showFakeReader(env, ref);
+    if (request.method === "POST") return submitFakeReader(request, env, ref);
     return methodNotAllowed("GET, POST");
   }
   if (path.startsWith("/fake/portal/")) {
@@ -338,4 +349,55 @@ async function submitFakePage(request: Request, env: Env, ref: string): Promise<
 
 function redirect(location: string): Response {
   return new Response(null, { status: 303, headers: { location, "cache-control": "no-store" } });
+}
+
+const FAKE_PAGE_HEADERS = {
+  "content-type": "text/html; charset=utf-8",
+  "cache-control": "no-store",
+  "x-frame-options": "DENY",
+  "content-security-policy":
+    "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+};
+
+/**
+ * A fake reader's screen (stage 50, ADR 0774): the payment on it now, if any. It shows the amount
+ * and description only, as a reader's screen does, never the order or the buyer.
+ */
+async function showFakeReader(env: Env, ref: string): Promise<Response> {
+  const ledger = fakeLedger(env);
+  const reader = await ledger.getReader(ref);
+  if (!reader) return new Response("Not found", { status: 404 });
+  const checkout = reader.action ? await ledger.getCheckout(reader.action.paymentRef) : null;
+  const payment =
+    checkout && checkout.status === "open"
+      ? {
+          description: checkout.description,
+          amount: formatMinor(checkout.amount, checkout.currency),
+        }
+      : null;
+  return new Response(fakeReaderPage(reader, payment), { headers: FAKE_PAGE_HEADERS });
+}
+
+/**
+ * Tap card, Decline or Cancel at a fake reader, from its own page. The amount is the one the host
+ * presented: nothing in the form changes it. The outcome is delivered as the provider's signed
+ * event; the page then shows the reader again.
+ */
+async function submitFakeReader(request: Request, env: Env, ref: string): Promise<Response> {
+  if (fromAnotherSite(request)) {
+    return new Response("Use the reader's own page", { status: 403 });
+  }
+  const raw = await readBounded(request, MAX_FORM_BYTES);
+  if (raw === undefined) return new Response("Payload too large", { status: 413 });
+  const outcome = new URLSearchParams(new TextDecoder().decode(raw)).get("outcome");
+  if (outcome !== "tap" && outcome !== "decline" && outcome !== "cancel") {
+    return new Response("outcome must be tap, decline or cancel", { status: 400 });
+  }
+  const result = await fakeLedger(env).readerOutcome(ref, outcome);
+  if (!result.found) return new Response("Not found", { status: 404 });
+  if (result.delivery) await deliverFakeEvent(env, result.delivery);
+  return new Response(null, {
+    status: 303,
+    headers: { location: new URL(request.url).pathname, "cache-control": "no-store" },
+  });
 }

@@ -73,6 +73,7 @@ const CONTEXT_KEYS = {
   grantedPermissions: "data",
   permissionGrants: "data",
   roleToday: "data",
+  roleLooksAfter: "data",
   markStanding: "data",
   markGiven: "data",
   reason: "data",
@@ -84,10 +85,14 @@ const CONTEXT_KEYS = {
   // Queues writes at the end of the call (stage 45): a simulated call has none (readOnlyContext).
   beforeCommit: "database",
   recordChange: "database",
+  // Writes a read's audit row (stage 56): a simulated call has none (pipeline.ts).
+  auditRead: "database",
   recordHostChange: "database",
   postActivity: "database",
   afterCommit: "data",
   simulation: "data",
+  // A count the cascade draws down (ADR 0841): a number, not a store.
+  followerBudget: "data",
   pipeline: "database",
   extensionHost: "runtime",
   extension: "data",
@@ -112,6 +117,14 @@ const CONTEXT_KEYS = {
   voice: "runtime",
   agentJobs: "runtime",
   hostMail: "runtime",
+  // The desk's secret and origin (ADR 0649): configuration the handler is given, not a store.
+  desk: "data",
+  // Key arithmetic only (an HMAC, sealing and opening a secret): it cannot act (ADR 0783).
+  personCodes: "data",
+  // Outside calls only (stage 29, ADRs 0722 and 0725): never on a staff call a dry run makes.
+  intake: "runtime",
+  callingTool: "data",
+  anonymise: "data",
 } as const satisfies Record<keyof HandlerContext, "database" | "runtime" | "data">;
 
 type RuntimeKey = {
@@ -147,6 +160,7 @@ const RUNTIMES = {
   agentJobs: { label: "agents", reads: [] },
   hostMail: { label: "the host's mail", reads: ["signInMailProblem"] },
   widgetCache: { label: "the dashboard cache", reads: ["get"] },
+  intake: { label: "the spam check", reads: [] },
 } as const satisfies Record<RuntimeKey, { label: string; reads: readonly string[] }>;
 
 export type DryRunRuntime = keyof typeof RUNTIMES;

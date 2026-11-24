@@ -929,6 +929,50 @@ describe("logging (criterion 5)", () => {
   });
 });
 
+describe("an imported session (cos programs import)", () => {
+  it("is done, and its member cannot move it back to planned; staff can", async () => {
+    const key = unique("past");
+    const made = await run<{ results: { id: string; outcome: string }[] }>(
+      "record.import",
+      {
+        object: SESSION,
+        records: [
+          {
+            key,
+            values: {
+              name: "Before the platform",
+              person: a.personId,
+              date: "2025-03-03",
+              state: "done",
+              source: "import",
+            },
+          },
+        ],
+      },
+      staff(admin),
+    );
+    const id = made.results[0]?.id as string;
+    expect(made.results[0]?.outcome).toBe("created");
+    const refused = await refusal(
+      run("x.programs.sessionComplete", { sessionId: id, state: "planned" }, as(a)),
+    );
+    // Refused by the host's staff-only rule on the move (`refusal` throws when nothing is refused).
+    expect(refused.code).toBeTruthy();
+    const kept = await run<{ values: Record<string, unknown> }>(
+      "record.get",
+      { object: SESSION, id },
+      staff(admin),
+    );
+    expect(kept.values.state).toBe("done");
+    const moved = await run<{ changed: boolean }>(
+      "x.programs.sessionComplete",
+      { sessionId: id, state: "planned" },
+      staff(admin),
+    );
+    expect(moved.changed).toBe(true);
+  });
+});
+
 describe("number bounds on the log (stage 41)", () => {
   it("a staff record.update cannot store an RPE of 50, a negative load or a half rep", async () => {
     const id = (

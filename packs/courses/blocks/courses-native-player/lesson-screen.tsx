@@ -5,9 +5,9 @@
 // the host only while the student holds the course (`useProgress`).
 import type { CoursesHooks, Playback } from "@composable-os/pack-courses/client";
 import type { ReactNode } from "react";
-import { Text } from "react-native";
 import { Button } from "../native-base/button.tsx";
 import { Screen } from "../native-base/screen.tsx";
+import { Text } from "../native-base/text.tsx";
 
 /** What the app's player is given, and how it reports where it is. */
 export interface NativePlayerProps {
@@ -32,6 +32,7 @@ export function LessonScreen({
   lessonKey: string;
   Player: (props: NativePlayerProps) => ReactNode;
   onNext: (lessonKey: string) => void;
+  /** Draws rich text: Content's `content-native-rich-text` (`RichTextView`), copied with this block. */
   renderText?: (value: unknown) => ReactNode;
   renderSession?: (courseId: string, lessonKey: string) => ReactNode;
 }) {
@@ -43,7 +44,11 @@ export function LessonScreen({
     | undefined;
   return (
     <Screen title={lesson?.title ?? "Lesson"}>
-      {isPending ? <Text accessibilityRole="progressbar">Loading the lesson…</Text> : null}
+      {isPending ? (
+        <Text tone="muted" accessibilityRole="progressbar">
+          Loading the lesson…
+        </Text>
+      ) : null}
       {error ? <Text accessibilityRole="alert">This lesson is not here.</Text> : null}
       {data && playback.data ? (
         <Player
@@ -64,6 +69,11 @@ export function LessonScreen({
           quiet={data.state === "done"}
           onPress={() => progress.mutate({ courseId, lessonKey, state: "done" })}
         />
+      ) : null}
+      {progress.error ? (
+        <Text tone="danger" accessibilityRole="alert">
+          We could not save your progress. Check the connection and try again.
+        </Text>
       ) : null}
       {data?.next ? (
         <Button

@@ -41,6 +41,7 @@ import {
   generationClash,
   patternNotApplied,
   personDeactivated,
+  personWithoutAccount,
 } from "../staffing/index.ts";
 import { assertMayRoster } from "../staffing/rosterers.ts";
 import {
@@ -427,7 +428,9 @@ export async function generateSeries(
       who !== undefined &&
       values[who] !== null &&
       values[who] !== undefined &&
-      (await personDeactivated(ctx, generated, values))
+      ((await personDeactivated(ctx, generated, values)) ||
+        // Nor on a profile holding no account where one is required (ADR 0760).
+        (await personWithoutAccount(ctx, generated, values)))
     ) {
       values[who] = null;
     }

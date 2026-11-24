@@ -10,9 +10,10 @@
 // counted how) reaches the audit log, a notice, a tool run's record or an error's text: the audit
 // rows say which period and who, never what it totals. Marking a shift not worked is a rosterer's
 // (a person applies an AI's request), as any roster correction.
+import type { CorePayPeriodTable } from "@composable-os/db";
 import { z } from "zod";
+import { addDaysToDate } from "../automations/cron.ts";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
-import { getObject } from "../fields/index.ts";
 import { newId } from "../ids.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { jsonList } from "../records/common.ts";
@@ -98,15 +99,7 @@ async function storedPeriods(ctx: HandlerContext): Promise<StoredPeriod[]> {
     .orderBy("version")
     .execute();
   const latest = new Map<string, StoredPeriod>();
-  for (const r of rows) {
-    latest.set(r.start_date, {
-      start: r.start_date,
-      end: r.end_date,
-      zone: r.zone,
-      starts: r.starts,
-      ends: r.ends,
-    });
-  }
+  for (const r of rows) latest.set(r.start_date, rangeOf(r));
   return [...latest.values()];
 }
 
@@ -132,22 +125,47 @@ function periodStarting(
   return range;
 }
 
-type PeriodRow = import("@composable-os/db").CoreDatabase["core_pay_period"];
+type PeriodRow = CorePayPeriodTable;
+
+/** A stored period's dates and instants. */
+const rangeOf = (
+  r: Pick<PeriodRow, "start_date" | "end_date" | "zone" | "starts" | "ends">,
+): PeriodRange => ({
+  start: r.start_date,
+  end: r.end_date,
+  zone: r.zone,
+  starts: r.starts,
+  ends: r.ends,
+});
 
 async function versionsOf(ctx: HandlerContext, starts: readonly string[]): Promise<PeriodRow[]> {
   if (!starts.length) return [];
-  return (await ctx.db
+  return ctx.db
     .selectFrom("core_pay_period")
     .selectAll()
     .where("start_date", "in", jsonList([...starts]))
     .where("state", "!=", "locking")
     .orderBy("start_date")
     .orderBy("version")
-    .execute()) as PeriodRow[];
+    .execute();
 }
 
-const dayBefore = (date: string) =>
-  new Date(Date.parse(`${date}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+/** `current` and up to `count` periods before it, newest first. */
+function periodsBack(
+  config: PayConfig,
+  stored: readonly StoredPeriod[],
+  current: PeriodRange,
+  count: number,
+): PeriodRange[] {
+  const ranges = [current];
+  for (let first = current; ranges.length <= count; ) {
+    const prev = periodFor(config, stored, addDaysToDate(first.start, -1));
+    if (!prev || prev.start === first.start) break;
+    ranges.push(prev);
+    first = prev;
+  }
+  return ranges;
+}
 
 const nowSeconds = (ctx: HandlerContext) => Math.floor(Date.parse(ctx.now) / 1000);
 
@@ -262,13 +280,7 @@ async function linesFor(
       lines: rows.map(lineFromRow),
       locked: chosen.state === "locked",
       version: chosen,
-      range: {
-        start: chosen.start_date,
-        end: chosen.end_date,
-        zone: chosen.zone,
-        starts: chosen.starts,
-        ends: chosen.ends,
-      },
+      range: rangeOf(chosen),
     };
   }
   return { lines: await periodLines(ctx, range, only), locked: false, version: null, range };
@@ -508,25 +520,17 @@ export const staffingPayPeriodList = defineOperation({
       zone: config.zone,
     };
     if (!current) return { setting, set: false, periods: [] };
-    const ranges: PeriodRange[] = [current];
-    for (let i = 0; i < (input.count ?? 6); i++) {
-      const first = ranges[0] as PeriodRange;
-      const prev = periodFor(config, stored, dayBefore(first.start));
-      if (!prev || prev.start === first.start) break;
-      ranges.unshift(prev);
-    }
+    const ranges = periodsBack(config, stored, current, input.count ?? 6);
     // Every version of the periods in this window.
-    const first = ranges[0] as PeriodRange;
-    const versions = (await ctx.db
+    const versions = await ctx.db
       .selectFrom("core_pay_period")
       .selectAll()
       .where("state", "!=", "locking")
-      .where("end_date", ">=", first.start)
+      .where("end_date", ">=", (ranges.at(-1) ?? current).start)
       .where("start_date", "<=", current.end)
       .orderBy("start_date")
       .orderBy("version")
-      .execute()) as PeriodRow[];
-    ranges.sort((a, b) => b.start.localeCompare(a.start));
+      .execute();
     const periods = [];
     for (const r of ranges) {
       const mine = versions.filter((v) => v.start_date === r.start);
@@ -638,14 +642,8 @@ export const staffingPayPeriodLock = defineOperation({
     // A reopened period keeps its dates and instants; a new one takes the setting's, next to
     // the periods already locked.
     const last = versions.at(-1);
-    const range: PeriodRange = last
-      ? {
-          start: last.start_date,
-          end: last.end_date,
-          zone: last.zone,
-          starts: last.starts,
-          ends: last.ends,
-        }
+    const range = last
+      ? rangeOf(last)
       : periodStarting(config, await storedPeriods(ctx), input.start);
     if (range.ends > nowSeconds(ctx)) {
       throw new ConflictError(
@@ -843,23 +841,15 @@ async function recentPeriods(
   const stored = await storedPeriods(ctx);
   const current = periodFor(config, stored, localDateOf(now, config.zone));
   if (!current) return { set: false, current: null, periods: [] };
-  const ranges: PeriodRange[] = [current];
-  for (let i = 0; i < count; i++) {
-    const first = ranges[0] as PeriodRange;
-    const prev = periodFor(config, stored, dayBefore(first.start));
-    if (!prev || prev.start === first.start) break;
-    ranges.unshift(prev);
-  }
-  const first = ranges[0] as PeriodRange;
+  const ranges = periodsBack(config, stored, current, count);
   const locked = await ctx.db
     .selectFrom("core_pay_period")
     .select(["start_date", "version"])
     .where("state", "=", "locked")
-    .where("end_date", ">=", first.start)
+    .where("end_date", ">=", (ranges.at(-1) ?? current).start)
     .where("start_date", "<=", current.end)
     .execute();
   const lockedOf = new Map(locked.map((v) => [v.start_date, v.version]));
-  ranges.sort((a, b) => b.start.localeCompare(a.start));
   return {
     set: true,
     current,
@@ -1095,7 +1085,6 @@ export const staffingMarkNotWorked = defineOperation({
     await assertRosterer(ctx, "mark a shift not worked");
     assertPersonApplies(ctx, "Marking a shift not worked");
     const s = await requireLiveShift(ctx, input.object, input.id);
-    if (!getObject(input.object)?.staffed) throw new NotFoundError(input.object, input.id);
     if (!s.shift.live || !s.shift.covered || s.shift.starts === null) {
       throw new ConflictError("Only a live shift with someone on it can be marked not worked.", {
         rule: "shift_not_live",

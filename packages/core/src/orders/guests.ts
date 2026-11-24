@@ -10,12 +10,9 @@
 // that order and nothing else, while the order is open and for a while after it closes.
 import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
-import { creatorFor, normaliseCustomerEmail, sameEmailPeople } from "../customers/accounts.ts";
-import { ConfigError, ValidationError } from "../errors.ts";
-import { notifyStatements } from "../notifications/send.ts";
-import { type HandlerContext, type RecordChange, recordHostChange } from "../operation.ts";
-import { staffPrincipal } from "../principals.ts";
-import { erasedAddresses } from "../sync/ingest.ts";
+import { normaliseCustomerEmail } from "../customers/accounts.ts";
+import { personForAddress } from "../customers/address-person.ts";
+import type { HandlerContext } from "../operation.ts";
 import type { OrderRow } from "./orders.ts";
 
 const hex = (bytes: ArrayBuffer) =>
@@ -66,57 +63,19 @@ export interface Buyer {
 }
 
 /**
- * Whose order a guest's is, from the address they gave. Queues, in the calling operation's
- * batch, the Person it creates (no match) or the notice to admins (several matches). Refuses an
- * address that is not one, and an erased person's address (the erased-address list), with the
- * same words for both.
+ * Whose order a guest's is, from the address they gave (the shared matcher, ADR 0721). Queues, in
+ * the calling operation's batch, the Person it creates (no match) or the notice to admins (several
+ * matches). Refuses an address that is not one, and an erased person's address (the erased-address
+ * list), with the same words for both.
  */
 export async function resolveBuyer(ctx: HandlerContext, address: string): Promise<Buyer> {
-  const email = normaliseCustomerEmail(address);
-  const refused = () =>
-    new ValidationError("That email address cannot be used", { field: "email" });
-  if (!email) throw refused();
-  if ((await erasedAddresses(ctx.db, [email])).size > 0) throw refused();
-
-  const matches = await sameEmailPeople(ctx.db, email);
-  if (matches.length === 1) return { email, personId: matches[0] as string, created: false };
-  if (matches.length > 1) {
-    const plan = await notifyStatements(
-      ctx.db,
-      {
-        to: [{ role: "admin" }],
-        type: "system.message",
-        title: "An order was placed with an address several people have",
-        body:
-          `${matches.length} people have ${email}. The order belongs to none of them yet: merge ` +
-          "them, then set the order's person.",
-        link: { kind: "record", object: "person", id: matches[0] as string },
-        dedupeKey: `order.several_people:${email}`,
-        source: { actor: "system" },
-      },
-      ctx.now,
-    );
-    ctx.write(...plan.statements);
-    return { email, personId: null, created: false };
-  }
-
-  // No one has the address: a Person is created with it, in this batch, by the code person.create
-  // runs. `core_person.created_by` names a staff user, so it is created for the admin who invited
-  // the address or the first active admin, as at a customer's first sign-in.
-  const creator = await creatorFor(ctx.db, email);
-  if (!creator) throw new ConfigError("There is no admin to create the buyer's Person for");
-  // Loaded lazily: operations/person.ts is reachable from the modules that import this one.
-  const { personCreate } = await import("../operations/person.ts");
-  // A view of the context with a staff author. Not a spread: on a guest's call the context has
-  // members that throw when read.
-  const asCreator = Object.create(ctx, {
-    user: { value: creator },
-    actor: { value: "automation" },
-    principal: { value: staffPrincipal(creator) },
-    // The Person is the host's to create for the order: not the guest's write.
-    recordChange: { value: (change: RecordChange) => recordHostChange(ctx, change) },
-  }) as HandlerContext;
-  const input = personCreate.input.parse({ emails: [{ email, primary: true }] });
-  const person = (await personCreate.handler(input, asCreator)) as { id: string };
-  return { email, personId: person.id, created: true };
+  return personForAddress(ctx, address, {
+    several: {
+      title: "An order was placed with an address several people have",
+      body: (count, email) =>
+        `${count} people have ${email}. The order belongs to none of them yet: merge ` +
+        "them, then set the order's person.",
+      dedupeKey: `order.several_people:${normaliseCustomerEmail(address) ?? address}`,
+    },
+  });
 }

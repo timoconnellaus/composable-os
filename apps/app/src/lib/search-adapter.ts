@@ -3,6 +3,7 @@
 // for hits related by meaning once typing pauses.
 import type { HighlightSegment } from "@composable-os/core";
 import { callOp } from "./operations.ts";
+import { recordHref } from "./schema.ts";
 
 export type { HighlightSegment };
 
@@ -31,19 +32,7 @@ export interface SearchAdapter {
 
 /** Where a hit opens. Activities and tasks have no page of their own: open a linked record. */
 export function hrefFor(hit: { object: SearchHit["object"]; id: string }): string {
-  switch (hit.object) {
-    case "person":
-      return `/people/${hit.id}`;
-    case "organisation":
-      return `/organisations/${hit.id}`;
-    case "task":
-      return "/tasks";
-    case "activity":
-      return "/activity";
-    default:
-      // Extension objects have generic record pages.
-      return `/x/${hit.object}/${hit.id}`;
-  }
+  return recordHref(hit.object, hit.id);
 }
 
 export const globalSearch: SearchAdapter = {

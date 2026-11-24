@@ -12,6 +12,7 @@
 // Every video is created with `requireSignedURLs: true`, and nothing in the host can turn it off:
 // a Stream id alone plays nothing. A token is bound to one video (`sub`), lives at most an hour
 // (Stream allows 24), and never allows a download (no `downloadable` claim).
+import { base64url, fromBase64url } from "../digest.ts";
 import { OperationError } from "../errors.ts";
 
 /** What Stream says about one video, in the host's words. */
@@ -144,20 +145,8 @@ export function requireVideoHost(): VideoHost {
 
 const encoder = new TextEncoder();
 
-/** base64url of bytes, no padding. */
-export function base64url(bytes: Uint8Array): string {
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-/** Bytes of base64url (or base64) text. */
-export function fromBase64url(text: string): Uint8Array<ArrayBuffer> {
-  const b64 = text.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
-  const binary = atob(padded);
-  return Uint8Array.from(binary, (c) => c.charCodeAt(0));
-}
+// Written here first; the package's entry still exports them from this module.
+export { base64url, fromBase64url };
 
 const RS256 = { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" } as const;
 

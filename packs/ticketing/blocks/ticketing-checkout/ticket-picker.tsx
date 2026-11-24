@@ -52,7 +52,7 @@ export function TicketPicker({
   returnUrl,
   onStarted,
 }: {
-  ticketing: Pick<TicketingHooks, "useCheckout" | "useOrder" | "useStartOrder" | "useTicketPicker">;
+  ticketing: Pick<TicketingHooks, "useCheckout" | "useStartOrder" | "useTicketPicker">;
   event: EventOnSale;
   signedIn: boolean;
   returnUrl: string;
@@ -66,6 +66,7 @@ export function TicketPicker({
   const [email, setEmail] = useState("");
   const [pay, setPay] = useState<"full" | "deposit">("full");
   const byDeposit = picker.estimate.deposit !== null;
+  const refused = refusal(start.error ?? checkout.error);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -147,9 +148,7 @@ export function TicketPicker({
           />
         </div>
       )}
-      {refusal(start.error ?? checkout.error) ? (
-        <p role="alert">{refusal(start.error ?? checkout.error)}</p>
-      ) : null}
+      {refused ? <p role="alert">{refused}</p> : null}
       <Button type="submit" disabled={picker.empty || start.isPending || checkout.isPending}>
         {start.isPending || checkout.isPending ? "Opening the payment page…" : "Pay"}
       </Button>
@@ -166,7 +165,7 @@ export function BalancePayment({
   order,
   returnUrl,
 }: {
-  ticketing: Pick<TicketingHooks, "useCheckout" | "useOrder" | "useStartOrder" | "useTicketPicker">;
+  ticketing: Pick<TicketingHooks, "useCheckout" | "useOrder">;
   order: { id: string; token?: string | null };
   returnUrl: string;
 }) {
@@ -176,6 +175,7 @@ export function BalancePayment({
   const data = current.data;
   if (!data) return current.isPending ? <p aria-busy="true">Loading your order…</p> : null;
   if (data.state !== "part_paid") return null;
+  const partAmount = minorFromInput(part, data.currency);
 
   async function open(amount: number | null) {
     const page = await checkout.mutateAsync({
@@ -205,8 +205,8 @@ export function BalancePayment({
           onChange={(e) => setPart(e.target.value)}
         />
         <Button
-          onClick={() => open(minorFromInput(part, data.currency))}
-          disabled={checkout.isPending || minorFromInput(part, data.currency) === null}
+          onClick={() => open(partAmount)}
+          disabled={checkout.isPending || partAmount === null}
         >
           Pay this amount
         </Button>

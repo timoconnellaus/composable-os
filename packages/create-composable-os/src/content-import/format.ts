@@ -19,6 +19,7 @@ import {
   slugify,
   validateDocument,
 } from "@composable-os/sdk";
+import { isObject, type Problem, replaceMarked } from "../import-door/records.ts";
 
 export const FORMAT_VERSION = 1;
 export const POST_OBJECT = "content.post";
@@ -44,10 +45,7 @@ export const POST_FIELDS: Readonly<Record<string, string>> = {
   noindex: "true to ask search engines not to list it",
 };
 
-export interface Problem {
-  file: string;
-  message: string;
-}
+export type { Problem };
 
 /** A picture's place in the values, until it is uploaded and has an id. */
 export const PICTURE = "$picture";
@@ -77,19 +75,12 @@ export interface ImportPlan {
   problems: Problem[];
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> =>
-  typeof v === "object" && v !== null && !Array.isArray(v);
 const DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
 const KEY_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/;
 
 /** Every `{ $picture }` in a value replaced by `id(file)`. */
 export function withPictures(value: unknown, id: (file: string) => string): unknown {
-  if (Array.isArray(value)) return value.map((v) => withPictures(v, id));
-  if (!isObject(value)) return value;
-  if (typeof value[PICTURE] === "string" && Object.keys(value).length === 1) {
-    return id(value[PICTURE]);
-  }
-  return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, withPictures(v, id)]));
+  return replaceMarked(value, PICTURE, id);
 }
 
 /** A placeholder media id of the right shape, for checking a post before its pictures exist. */

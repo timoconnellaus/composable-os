@@ -1,10 +1,15 @@
 // Adding and removing tags on many records at once (the *.updateMany operations).
 import { sql } from "kysely";
 import { z } from "zod";
-import { newId } from "../ids.ts";
 import type { HandlerContext } from "../operation.ts";
 import { chunk } from "./common.ts";
-import { compareTagNames, loadTags, tagNameSchema, uniqueTagNames } from "./tags.ts";
+import {
+  compareTagNames,
+  loadTags,
+  queueCreateTags,
+  tagNameSchema,
+  uniqueTagNames,
+} from "./tags.ts";
 
 export const bulkTagListSchema = z.array(tagNameSchema).max(10);
 
@@ -19,38 +24,13 @@ export async function queueBulkTags(
   add: readonly string[],
   remove: readonly string[],
 ): Promise<{ before: Map<string, string[]>; after: Map<string, string[]> }> {
-  const before = new Map<string, string[]>();
-  for (const part of chunk(ids)) {
-    for (const [id, tags] of await loadTags(ctx.db, object, part)) before.set(id, tags);
-  }
+  // One read whatever the count: loadTags passes the ids as one JSON parameter.
+  const before = await loadTags(ctx.db, object, ids);
   const addNames = uniqueTagNames(add);
   const removeNames = uniqueTagNames(remove);
   if (!addNames.length && !removeNames.length) return { before, after: before };
 
-  const existing = addNames.length
-    ? await ctx.db
-        .selectFrom("core_tags")
-        .select(["id", "name"])
-        .where("name", "in", addNames)
-        .execute()
-    : [];
-  const canonical = new Map(existing.map((t) => [t.name.toLowerCase(), t.name]));
-  const missing = addNames.filter((n) => !canonical.has(n.toLowerCase()));
-  if (missing.length) {
-    ctx.write(
-      ctx.db
-        .insertInto("core_tags")
-        .values(
-          missing.map((name) => ({
-            id: newId("tag"),
-            name,
-            created_at: ctx.now,
-            created_by: ctx.user.id,
-          })),
-        )
-        .onConflict((oc) => oc.column("name").doNothing()),
-    );
-  }
+  const canonical = await queueCreateTags(ctx, addNames);
   for (const part of chunk(ids)) {
     if (removeNames.length) {
       ctx.write(

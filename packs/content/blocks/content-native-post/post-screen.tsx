@@ -2,8 +2,9 @@
 // it (`usePost`: the published version only). An old address goes to the post's address now.
 import type { ContentHooks } from "@composable-os/pack-content/client";
 import { postDate } from "@composable-os/pack-content/client";
-import { Image, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Image, ScrollView, StyleSheet, View } from "react-native";
 import { RichTextView } from "../content-native-rich-text/rich-text-view.tsx";
+import { Text } from "../native-base/text.tsx";
 import { theme } from "../native-base/theme.ts";
 
 export function PostScreen({

@@ -43,6 +43,7 @@ import {
   type SearchHit,
   searchAdapter,
 } from "#/lib/search-adapter";
+import { useDebounced } from "#/lib/use-debounced";
 import type { CreateKind } from "./app-commands.tsx";
 import { type Theme, useTheme } from "./theme.tsx";
 
@@ -68,15 +69,6 @@ interface PaletteCommand {
 /** Hybrid (meaning) search waits for this pause in typing, and this many characters. */
 const RELATED_DELAY_MS = 400;
 const RELATED_MIN_CHARS = 3;
-
-function useDebounced<T>(value: T, ms: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(value), ms);
-    return () => clearTimeout(timer);
-  }, [value, ms]);
-  return debounced;
-}
 
 function matches(command: PaletteCommand, query: string): boolean {
   const q = query.trim().toLowerCase();
