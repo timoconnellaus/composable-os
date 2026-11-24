@@ -1362,6 +1362,20 @@ record, which stage 28's step 4 adds. `slug` is a field type: unique among an ob
 by a partial unique index the reconciler makes on its own table, made from the title when left
 empty, its old value kept in `core_slug_redirect` when a published record's slug changes.
 
+**The question schema** (stage 29, step 1, `packages/sdk/src/questions.ts`). A form's questions are
+a document field with the platform's one schema, `QUESTIONS_SCHEMA`: `{ items }`, at most 60, told
+apart by `kind` (text, email, phone, number, choice, date, rating, yesNo, consent, heading,
+paragraph), unique by `key`. Labels are `noMarkup` and a paragraph is rich text's inline runs.
+`checkQuestions` adds what the schema cannot say: camelCase keys, a `showIf` that names an earlier
+choice or yes/no with no `showIf` of its own and one of its values, a `map` to the Person (name,
+email, phone, each from the matching kind) or to a field the destination's intake lists, each
+filled once, none on an anonymous form, and no required marketing consent. `checkAnswers` checks
+`{ [key]: value }` against one version (types, required when shown, lengths, at most 3 links in a
+text, 20 KB in all, nothing for a hidden or unknown question) and gives the answers document a
+submission stores (`ANSWERS_SCHEMA`, private: no customer or public read). Its faults carry the
+question's key and a fault code, never the value. Wiring these checks into writes (the form's
+record, `intake.submit`) is stage 29's later steps.
+
 **`publishable`** ([ADR 0446](adr/0446-publishable-without-its-public-half.md),
 [ADR 0441](adr/0441-publishable-states-schedules-and-versions.md),
 `packages/core/src/operations/record-versions.ts`, `packages/core/src/records/publish.ts`).
