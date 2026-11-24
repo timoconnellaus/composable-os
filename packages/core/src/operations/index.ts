@@ -52,6 +52,7 @@ import { inviteOperations } from "./invite.ts";
 import { journeyOperations } from "./journey.ts";
 import { judgeOperations } from "./judge.ts";
 import { meOperations } from "./me.ts";
+import { meAttentionOperations } from "./me-attention.ts";
 import { mediaOperations } from "./media.ts";
 import { mediaVideoOperations } from "./media-video.ts";
 import { memoryOperations } from "./memory.ts";
@@ -181,6 +182,7 @@ export const coreOperations = [
   ...deviceSessionOperations,
   ...customerOperations,
   ...meOperations,
+  ...meAttentionOperations,
   ...personLinkOperations,
   ...noteOperations,
   ...carerOperations,

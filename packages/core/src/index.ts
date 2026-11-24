@@ -191,6 +191,7 @@ export { coreOperations } from "./operations/index.ts";
 export * from "./operations/integration.ts";
 export * from "./operations/judge.ts";
 export * from "./operations/me.ts";
+export * from "./operations/me-attention.ts";
 export * from "./operations/media.ts";
 export * from "./operations/media-video.ts";
 export * from "./operations/memory.ts";

@@ -982,7 +982,8 @@ As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
   staff. Who may sign up is a human admin's setting: invite only, also buyers (ADR 0458), or
   anyone; and, on top, anyone starting a subscription while a plan is on sale (ADR 0459).
 - **Open operations:** `me.get`, `me.update`, `me.family`, `me.signOut`, `me.sessions.*`,
-  `me.deleteAccount`, `my.list`, `my.get`, and for tools only `my.create`, `my.update`.
+  `me.deleteAccount`, `me.attention` (stage 48, ADR 0711), `my.list`, `my.get`, and for tools
+  only `my.create`, `my.update`.
 - **A pack's tool called by a customer runs as that customer.** Its operation calls take the same
   outside path with the same principal. It may set an object's writable fields and the fields
   the tool lists in its manifest. A runtime extension can open nothing.
@@ -2254,8 +2255,18 @@ over operations that already existed (`me.*`, `my.list` on `order` and `orderLin
 `subscription.*`). Orders is the one list of a customer's orders: a page of 20, then their lines in
 one `my.list` naming the page's orders. Payment method shows for a customer who pays a
 subscription that has not ended. The packs' sections are passed to the shell in `sections` for
-now; `me.portal`, the `portal` declaration, `me.attention` and the generated wiring are later
-steps. In the app, money opens the website ([ADR 0714](adr/0714-the-app-shows-money-and-opens-the-website.md)):
+now; `me.portal`, the `portal` declaration and the generated wiring are later steps. Step 4 is
+built: **Needs your attention** is `me.attention`, one customer read worked out in core
+(`packages/core/src/customers/attention.ts`, [ADR 0711](adr/0711-needs-your-attention.md)) from
+agreements, orders, subscriptions and the `allowance` behaviour, never from a pack's code. Eight
+kinds: `agree`, `card_failing`, `confirm_payment`, `balance_due`, `finish_paying`,
+`pass_expiring`, `pass_used_up` and `trial_ending`, for the caller and, for agreements and passes
+on objects that open to guardians, their live dependants; soonest first, each with the record, the
+moment, the money in minor units and a pass's uses left. A pass expiring and a trial ending are
+listed within `account.attentionDays` (`customer.settings` `attentionDays`, default 7, 1 to 30,
+human admins). It reads a fixed number of statements whatever the packs installed, the family's size or the
+number of documents, and lists a pass only where its customer reads its uses and end; its block is a
+later step. In the app, money opens the website ([ADR 0714](adr/0714-the-app-shows-money-and-opens-the-website.md)):
 the native shell shows orders and subscriptions, and "Manage on the website" opens the business's
 website account page; no native block calls a billing operation. The template's `/account` route
 and the mobile Account tab are plain pages over the same entry.
