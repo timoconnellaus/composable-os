@@ -122,6 +122,7 @@ export interface ObjectDefinitionJson {
     content: string[];
     slug?: string | undefined;
     date?: string | undefined;
+    publishIn?: string[] | undefined;
     acknowledge?: { who: string; manage: string } | undefined;
   };
   navigationOrder?: number;
@@ -1252,6 +1253,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
               content: [...publishable.content],
               ...(publishable.slug ? { slug: publishable.slug } : {}),
               ...(publishable.date ? { date: publishable.date } : {}),
+              ...(publishable.publishIn ? { publishIn: [...publishable.publishIn] } : {}),
               ...(publishable.acknowledge
                 ? {
                     acknowledge: {

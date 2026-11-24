@@ -341,9 +341,9 @@ export interface ObjectSpec {
    * What the public may read of this object (ADR 0438): the fields in `read`, of the records that
    * meet `when`. Deny by default: left out, the public sees nothing of it, and a record that does
    * not meet `when` is not found. A signed-in customer reads it too, unless the object declares a
-   * `customer` (an object declares one or the other). The public reaches it only through a pack's
-   * tool open to them (`public.list`, `public.get`). Only shipped extensions and an org's own may
-   * declare it.
+   * `customer` (an object declares one or the other, except a publishable object with an author:
+   * see `publishable`). The public reaches it only through a pack's tool open to them
+   * (`public.list`, `public.get`). Only shipped extensions and an org's own may declare it.
    */
   public?: PublicSpec;
   /**
@@ -381,6 +381,14 @@ export interface ObjectSpec {
    * publish permission, never an AI actor); `record.versions` and `record.version` read them;
    * `record.restoreVersion` copies one back into the working copy. Editing the working copy
    * never changes a version. Records get read-only `publishedVersion` and `publishedAt`.
+   *
+   * With an author (ADR 0810): a publishable object may declare a `customer`, the record's author
+   * (a review's writer). The author reads and writes their working copy through `customer`; the
+   * public reads only the published version through `public` (which may then be declared too),
+   * listed by `content.list` and never by an address (no `slug`). The fields in `customer.write`
+   * are the author's alone: staff, the assistant, MCP clients, automations and the extension's own
+   * code are refused them on every path, so a published version is always the author's words.
+   * Staff still publish, unpublish and move the record's states.
    */
   publishable?: PublishableSpec;
   /** Position in the sidebar among extension objects (lower first). Default 100. */
@@ -831,7 +839,9 @@ export interface PublishableSpec {
   /**
    * The record's address (stage 28, ADR 0442): a `slug` field of the object's own, not in
    * `content`. The public reads a record by it (`content.get`); a published record whose slug
-   * changes keeps the old one as a redirect. Needed to declare `public`.
+   * changes keeps the old one as a redirect. Left out on an object the public reads, its records
+   * are listed only (`content.list`) and `content.get` finds none (ADR 0810). An object with an
+   * author (a `customer`) has none.
    */
   slug?: string;
   /**
@@ -840,6 +850,13 @@ export interface PublishableSpec {
    * Set, it is kept: an imported post keeps its date.
    */
   date?: string;
+  /**
+   * The states in which the record may be published (ADR 0810): values of the object's `states`
+   * field. A publish (or a scheduled one coming due) of a record in any other state is refused,
+   * and a record that moves out of them is unpublished in the same batch. A review without its
+   * author's consent is never published. Left out, any state.
+   */
+  publishIn?: readonly string[];
   /**
    * Read and understood (stage 38, ADR 0702): the staff who must read a record confirm its
    * current version with one tap, and a person publishing a later version says whether it asks

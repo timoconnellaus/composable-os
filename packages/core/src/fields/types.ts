@@ -215,6 +215,8 @@ export interface PublishableDefinition {
   readonly slug?: string;
   /** The date a reader is shown: a date or datetime content field, filled on publish (ADR 0441). */
   readonly date?: string;
+  /** The states the record may be published in; left out, any (ADR 0810). */
+  readonly publishIn?: readonly string[];
   /**
    * Read and understood (ADR 0702): `who`, the object's "must read" document field; `manage`, the
    * restricted, grantable permission whose holders (and admins) read who has confirmed.

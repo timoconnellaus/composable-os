@@ -291,6 +291,7 @@ export const objectManifestSchema = z.object({
       content: z.array(z.string().max(40)).min(1).max(40),
       slug: z.string().max(40).optional(),
       date: z.string().max(40).optional(),
+      publishIn: z.array(z.string().max(100)).min(1).max(20).optional(),
       acknowledge: z
         .object({ who: z.string().max(40), manage: z.string().max(80) })
         .strict()
@@ -1357,7 +1358,9 @@ export function validateManifest(
   );
   for (const { name, object, key, p } of readDeclarations) {
     const path = `objects.${name}.${key}`;
-    if (key === "public" && object.customer) {
+    // A publishable object with an author (ADR 0810) declares both: the author reads the working
+    // copy, the public the published version.
+    if (key === "public" && object.customer && !object.publishable) {
       contract(path, "An object declares customer or public, not both");
     }
     if (key === "signedIn" && object.public) {
@@ -1437,7 +1440,9 @@ export function validateManifest(
       const field = object.fields[fieldName];
       if (!field) {
         contract(`${path}.content`, `"${fieldName}" is not a field of ${name}`);
-      } else if (field.type === "formula" || field.readOnly) {
+      } else if (field.type === "formula" || (field.readOnly && !object.customer)) {
+        // With an author (ADR 0810) the content is the author's and what the host sets beside it
+        // (what a review is about): a read-only field may be content, a formula still not.
         contract(
           `${path}.content`,
           `"${fieldName}" is ${field.type === "formula" ? "a formula" : "read-only"}: content is what staff edit`,
@@ -1464,11 +1469,31 @@ export function validateManifest(
         contract(`${path}.date`, "publishable.date is content: list it in content too");
       }
     }
-    if (object.public) {
-      if (p.slug === undefined) {
-        contract(`${path}.slug`, "A publishable object the public reads names its slug field");
+    // The states a record may be published in (ADR 0810): values of the object's states field.
+    if (p.publishIn !== undefined) {
+      const stateField = object.states ? object.fields[object.states.field] : undefined;
+      if (!object.states || stateField?.type !== "select") {
+        contract(`${path}.publishIn`, "publishable.publishIn names states: declare states first");
+      } else {
+        const states = new Set(
+          (stateField.options ?? []).map((o) => (typeof o === "string" ? o : o.value)),
+        );
+        if (new Set(p.publishIn).size !== p.publishIn.length) {
+          contract(`${path}.publishIn`, "publishable.publishIn lists a state twice");
+        }
+        for (const state of p.publishIn) {
+          if (!states.has(state)) {
+            contract(
+              `${path}.publishIn`,
+              `"${state}" is not a state of ${name} (${object.states.field})`,
+            );
+          }
+        }
       }
-      // The public reads the published version (ADR 0442): its content, its address and when it
+    }
+    if (object.public) {
+      // Without a slug the public's records are listed only (ADR 0810): content.list, never
+      // content.get. The public reads the published version (ADR 0442): its content, its address and when it
       // went live, and fields the host keeps on the working copy that are not computed from it.
       for (const fieldName of object.public.read) {
         const field = object.fields[fieldName];
@@ -1480,11 +1505,27 @@ export function validateManifest(
         }
       }
     }
-    if (object.customer || object.customerVia) {
+    // An author (ADR 0810): the customer reads and writes the working copy; anyone else outside
+    // reads only the published version, never by an address and never whose it is.
+    if (object.customerVia) {
       contract(
         path,
-        "A publishable object declares no customer or customerVia: what outsiders read of it is its published version",
+        "A publishable object declares no customerVia: what outsiders read of it is its published version",
       );
+    }
+    if (object.customer) {
+      if (p.slug !== undefined) {
+        contract(
+          `${path}.slug`,
+          "A publishable object with an author (customer) has no slug: its records are listed, not addressed",
+        );
+      }
+      if (object.public?.read.includes(object.customer.field)) {
+        contract(
+          `objects.${name}.public.read`,
+          `public.read lists "${object.customer.field}", the author: the public never reads whose it is`,
+        );
+      }
     }
     for (const taken of PUBLISHED_FIELD_NAMES) {
       const clash =
