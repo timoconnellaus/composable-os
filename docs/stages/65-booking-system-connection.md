@@ -39,6 +39,34 @@ what its API returns (below, "The outside system's terms"). Whether a business's
 is for the business and its lawyer, or the booking system's support, to confirm. The connect screen
 says so.
 
+## Status
+
+- **Step 1** (built 2026-11-24, branch `feat/stage-65-booking-contract`; ADR 0920; no migration):
+  `packages/gatekeeper-booking-system`: `BookingSystemSession` and its types (`types.d.ts`, served
+  as the resource's types), the input checks and limits and the contract's shape every answer is
+  copied into (`validate.ts`, `reads.ts`), the refusal codes (`refusal.ts`), the shared facet
+  `BookingSystemGatekeeper` (each read an observation, no action kind, apply, reject and revert
+  refused), `BookingSystem` for a connector to implement, the fake (`FakeBookingSystem`, with every
+  control the spec lists), `directSession`, and the conformance suite (21 checks), passing against
+  the fake in memory and through the fake gatekeeper's session. The fake gatekeeper
+  (`cos-gatekeeper-booking-system-fake`, vendor `booking-system-fake`, `wrangler.fake.jsonc`) is
+  bound to cos-runner in its tests (`GATEKEEPER_BOOKING_SYSTEM_FAKE`, controls
+  `TEST_BOOKING_SYSTEM`) and the CRM's dev server; the catalogue has `implements:
+  "booking-system"` and the dev-only entry. Left for later steps: the Settings → Integrations
+  heading and the one-connection rule (with step 3 or 6), the host path (step 3), everything else.
+- **Owner's change of plan (2026-11-24, during step 1)**: the booking system this spec names for the
+  first connector cannot be used (its developer terms bar use in a competing product), so there is
+  no named connector, and no outside product is named in code, tests, docs or the catalogue. Step 1
+  added, beside the fake, a **file source** in the same package (`file-source.ts`: `parseCsv`,
+  `loadFiles`, `dryRunFiles`, `FileBookingSystem`): the read-only contract from a people file
+  (each person with their membership or pass, its status and dates) and an optional timetable a
+  business exports and a member of staff loads, with column mapping by header, value mapping, row
+  issues named by row, local times in the site's zone, and a dry run; it passes the conformance
+  suite. The matching-by-address rules of "Matching" are `matchPeople` (`match.ts`), used by the
+  dry run and meant for the host's pass. The contract gained `offers.source` (`api` or `file`).
+  Not done: amending this spec (steps 2 and 9, ADR 0927 and the names in it are moot), and
+  storing and loading files through an operation and a screen (with step 4 on).
+
 ## Goal
 
 A business that keeps its booking system for months still gets the new system's worth from the

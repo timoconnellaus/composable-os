@@ -566,6 +566,18 @@ entry. Each accounting system is its own gatekeeper Worker that passes the contr
 **conformance suite**; the fake books (`accounting-fake`) are for development and tests only.
 _Avoid_: connector, sync adapter
 
+**Booking system contract**
+The typed session every booking-system gatekeeper serves (`BookingSystemSession`, in
+`packages/gatekeeper-booking-system`, ADR 0920): read the site, its people, membership types,
+memberships and passes, class types, classes, bookings, staff, one person's past visits, and the
+hints the system sent. Read only: no write of any kind and no outbound action, so nothing is
+journalled or approved. Every answer is copied into the contract's shape, so nothing else about a
+person leaves the gatekeeper. It is served from **loaded files** (the **file source**: a people
+file and optionally a timetable a business exported, mapped by column and dry run first) or, for a
+system read through its API, by a gatekeeper Worker; each passes the contract's **conformance
+suite**. The fake booking system (`booking-system-fake`) is for development and tests only.
+_Avoid_: connector, sync adapter, import
+
 **Suggested contact**
 An external address the org has exchanged mail with at least twice that matches no person,
 shown grouped by domain in the Suggested contacts inbox for one-click add. Nothing is created
