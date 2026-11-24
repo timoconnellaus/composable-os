@@ -120,7 +120,8 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   ([ADR 0019](adr/0019-audit-redaction-for-erasure.md)).
 - **What it costs** ([`cloudflare-costs.md`](cloudflare-costs.md)): an idle host's minute cron
   writes nothing. Each host step reads whether it has work before it calls its operation, so a
-  quiet minute leaves no audit row, and its reads walk indexes
+  quiet minute leaves no audit row. Its every-minute reads use indexes that hold only what is due;
+  the few reads no index holds run once an hour
   ([ADR 0130](adr/0130-automation-runtime.md), amended 2026-11-24). Cost tests count statements,
   rows read and rows written (`apps/runner/test/idle-minute-cost.test.ts`).
 - **Duplicates** ([ADR 0247](adr/0247-duplicate-rules-and-scan.md)): plain rules in code with a
@@ -365,6 +366,20 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   tool called by such a run write as an AI. The daily caps (20 per mailbox, 2,000 for the
   organisation) are counted where a row is claimed. Each kind has a human admin's switch (Settings →
   Routine email), with the log, kept 12 months by default.
+- **Routine messages** ([ADR 0670](adr/0670-routine-messages-text-and-push-on-the-routine-mail-path.md),
+  stage 30): routine mail grown to text and push. A kind may declare a text's words and a push's
+  (a title and a line, opening a screen of the business's app), checked at declaration to fit with
+  every slot at its longest (two segments with the business's name and "Reply STOP to stop"; 60 and
+  140 characters), and say whether its email is essential, its purpose, whether it is urgent and its
+  moment. Each recipient gets a row per channel, held for what its own words show; text and push
+  are off per kind until a human admin switches them on, and a Person is reached through one seam
+  (`routine-mail/reach.ts`: a textable number, a registered device), which the text and push
+  gatekeepers fill (stage 30 steps 3 and 4; until then those rows are `no_channel`). Quiet hours
+  ([ADR 0676](adr/0676-quiet-hours-and-urgent-messages.md)) hold texts and pushes, never email,
+  until the business's window ends; the runner's minute cron releases them or marks them
+  `expired`. **Host kinds** (`core.<name>`) are declared in core and asked for by host code
+  (`sendHostRoutineMessage`) with an occasion, their email sent through the host's email channel
+  (Settings → Notification delivery) on the same routine queue.
 - **Gatekeepers we wrote**: `gatekeeper-email-send`, `gatekeeper-slack-post`, `gatekeeper-webhook`.
   `gatekeeper-accounting` (stage 61, ADR 0880) is the **accounting contract** every accounting
   gatekeeper serves, not a gatekeeper of its own: the session's types and input checks, the shared
@@ -2059,6 +2074,27 @@ open offer on a plan object, or a subscription from one that has not ended, gets
 (`subscription.offer.list`, `.export`; the Subscriptions section's Continuation offers) lists who
 took theirs and when they are charged from.
 
+**Finance** (stage 52, step 1 built: ADRs [0790](adr/0790-finance-periods-the-business-day-and-the-monthly-close.md),
+[0791](adr/0791-the-figures-for-the-books-book-entries.md) and
+[0794](adr/0794-finance-read-and-finance-close.md), `packages/core/src/finance/`, migration 1150).
+Core, not a pack: the figures for the books are read from orders, payments, refunds, payouts and
+stored value. Every date is a business day, local in the organisation's zone (`finance/day.ts`). The
+business closes each calendar month (`finance.close`, a person with `finance:close`) once it has
+ended and the month before is closed (held by `core_finance_period`'s triggers for every writer,
+the first month fixed by the first close): one batch, guarded by what it read (`core_finance_guard`,
+`finance_changed`), writes a version of the month (`core_finance_period`) with its book entries and
+lines (`core_finance_entry`, `core_finance_entry_line`: one per business day, payout, held balance
+or late arrival; balanced, keyed the same in every version, fingerprinted), its report rows
+(`core_finance_row`) and every source it counted (`core_finance_counted`, so a source is counted in
+one month only). Triggers keep a closed version as it was for every writer (an erase may only
+replace a row's person). The close never refuses a money event: what arrives for a closed month is
+counted in the first open month, marked as belonging to it. Reopening (`finance.reopen`, with why)
+keeps the version; closing again writes the next. A month keeps the zone it was closed in. The
+tables are in no `rec_*` view. `finance:read` and `finance:close` are admins' and grantable; an AI
+reads figures and never closes, reopens or changes the settings (`finance.settings.update`, a human
+admin's). The reports, the files (`csvText`, shared in `packages/core/src/csv.ts` with the pay
+export), payouts and the screens are the stage's later steps.
+
 **`capacity`** (stage 26, ADRs 0430 to 0433). An object names its places field and, optionally, a
 pool (a relation to a parent object with a capacity, one level). The host keeps a counter per record
 in `core_capacity`, created and updated by `record.create`, `record.update` and the import in the
@@ -2136,7 +2172,9 @@ dependant) and `agreement.recordPaper` (staff, a person). Step 3 enforces it
 (`agreements/enforce.ts`): `createOrder` (every order, `order.startHeld` included) and
 `startSubscription` (a continuation offer included) ask at the points the bought objects declare,
 and `applyTransition` asks when a caller's record enters a state its point lists (`enter`, for its
-`person`), never for the host's own moves; something due is `agreements_due`, and the batch carries
+`person`; `keeps` names the states an object without `claims` keeps the entry in, and
+`importMovesOver` leaves the record import's writes unasked: a pass given by hand, an enrolment
+staff give and a ticket made by hand are asked, issue #281), never for the host's own moves; something due is `agreements_due`, and the batch carries
 the guard (`agreements_changed` when the counter moved). A guest carries their acceptances in the
 buying call (`agreements`), recorded with the order or the subscription checkout and no Person;
 migration 0853's triggers give them the Person when the order is paid (or the checkout confirmed)
@@ -2167,8 +2205,9 @@ a drawn signature in the host's stroke format within its limits). `web-agree` an
 (the Agree form, the signature pad on pointer events or React Native's touch responder, and the
 inline step), `web-agreements-due` and `native-agreements-due` ("Before you go on") and
 `web-my-agreements` and `native-my-agreements`. Bookings' drop-in and timetable blocks (web and
-native) and Memberships' passes and plans blocks show the step inline when the host refuses "Pay",
-"Book", "Buy" or "Join" with what is due; a visitor reads the words through
+native), Memberships' passes and plans blocks, Ticketing's checkout and Courses' course page and
+subscribe blocks (web; issue #292) show the step inline when the host refuses "Pay", "Book", "Buy",
+"Join" or "Subscribe" with what is due; a visitor reads the words through
 `agreement.guestVersions` (open to the public: only the versions in effect a guest is asked) and their
 acceptances travel in the buying call.
 Step 8 (migration 0855,

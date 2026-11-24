@@ -310,12 +310,15 @@ export type UseQuery = <T>(options: {
 export type UseMutation = <I, O>(options: {
   mutationKey: readonly unknown[];
   mutationFn: (input: I) => Promise<O>;
+  gcTime?: number;
 }) => {
   mutate(input: I): void;
   mutateAsync(input: I): Promise<O>;
   data: O | undefined;
   isPending: boolean;
   error: unknown;
+  /** Forgets the call: its variables and its answer (TanStack Query's `reset`). */
+  reset?: () => void;
 };
 
 /** The app's `useState`. */
@@ -389,7 +392,9 @@ function allTicketingHooks(
     },
     /** Starts the order through the host, which prices it and holds the places. */
     useStartOrder() {
-      return useMutation(api.mutation("x.ticketing.orderStart"));
+      // A visitor's agreements (a name typed, a signature, health answers) go in this call:
+      // not kept in the app's cache once it is over (stage 44, issue #292).
+      return useMutation({ ...api.mutation("x.ticketing.orderStart"), gcTime: 0 });
     },
     /** Opens the payment provider's page for an order (the first payment, or a balance). */
     useCheckout() {

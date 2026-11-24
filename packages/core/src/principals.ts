@@ -120,6 +120,11 @@ export type Role = (typeof ROLES)[number];
  * - `stock:adjust` record a record's opening stock and correct it (stage 37, ADR 0680). Admins by
  *   default, grantable as `orders:refund` is. An AI acting for an account that holds it may ask,
  *   never make one: its call always waits for a person who holds it too.
+ * - `finance:read` see the finance reports and their periods, and download their files (stage 52,
+ *   ADR 0794). Admins by default, grantable as `orders:refund` is (a manager, a bookkeeper). An AI
+ *   acting for an account that holds it may read figures; downloading a file is a person's only.
+ * - `finance:close` close and reopen a month's figures (stage 52, ADR 0794). Admins by default,
+ *   grantable; a person only whatever is granted (the operations are `actors: ["human"]`).
  */
 export const PERMISSIONS = [
   "records:read",
@@ -149,6 +154,8 @@ export const PERMISSIONS = [
   "orders:discount",
   "people:cards",
   "stock:adjust",
+  "finance:read",
+  "finance:close",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -195,6 +202,8 @@ export const GRANTABLE_PERMISSIONS = [
   "orders:discount",
   "people:cards",
   "stock:adjust",
+  "finance:read",
+  "finance:close",
 ] as const;
 
 /**
