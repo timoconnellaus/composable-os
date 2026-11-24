@@ -6,14 +6,16 @@
 // same people.
 //
 // Each write notes the records it touched (`watchLow`); once its handler has queued everything
-// (`beforeCommit`, ADR 0624), three statements per object are queued at the end of its batch, so
+// (`beforeCommit`, ADR 0624), four statements per object are queued at the end of its batch, so
 // they judge on hand as the batch leaves it, after every movement and sale before them:
 //
 //   1. the record's crossing is ended where on hand is now above its level (or it has none);
 //   2. a crossing is begun where it is at or below, keeping the one already there
 //      (core_stock_low, migration 0931);
-//   3. a notice to each keeper for each record in a crossing, its dedupe key the crossing's, so a
-//      record still low from before tells nobody again.
+//   3. a notice to each keeper for each record in a crossing not yet told (its dedupe key the
+//      crossing's);
+//   4. the crossing marked told, so a record still low from before tells nobody again, however
+//      long it stays low.
 //
 // The cost is the same for one record as for a count of hundreds. Who is told is `stockKeepers`.
 import type { CoreDatabase } from "@composable-os/db";
@@ -24,8 +26,8 @@ import { newId } from "../ids.ts";
 import type { HandlerContext } from "../operation.ts";
 import { parseGrants } from "../pack-roles.ts";
 
-/** Statements a low-stock check queues per object it touched. */
-export const LOW_STATEMENTS = 3;
+/** Statements a low-stock check queues per object it touched (at most). */
+export const LOW_STATEMENTS = 4;
 
 const gatheredBy = new WeakMap<object, Map<string, Set<string>>>();
 
@@ -65,7 +67,7 @@ function columnsOf(object: ObjectDefinition) {
 }
 
 /**
- * The three statements of a low-stock check of `records` of `object` (see the header), for the
+ * The statements of a low-stock check of `records` of `object` (see the header), for the
  * end of a batch. None for an object with no reorder level.
  */
 export async function lowStatements(
@@ -101,9 +103,14 @@ export async function lowStatements(
       ? sql`CASE WHEN ${ref(quantity)} IS NULL THEN '' ELSE ' Reorder quantity: ' || ${shown(quantity)} || '.' END`
       : sql`''`;
     statements.push(
-      sql`INSERT OR IGNORE INTO core_notifications (id, user_id, type, title, body, link, source, dedupe_key, human_only, read_at, created_at) SELECT ${idStem("notification")} || upper(hex(randomblob(8))), u.value, 'system.message', substr(${name} || ' is low: ' || (${sql.raw(onHand)}) || ' on hand', 1, 200), 'At or below its reorder level of ' || ${shown(level)} || '.' || ${reorder}, json_object('kind', 'record', 'object', l.object_type, 'id', l.record_id), ${JSON.stringify({ actor })}, 'stock_low:' || l.crossing, 0, NULL, ${now} FROM core_stock_low l JOIN core_capacity c ON c.object_type = l.object_type AND c.record_id = l.record_id JOIN ${view} t ON t.id = l.record_id JOIN json_each(${JSON.stringify(keepers)}) u WHERE l.object_type = ${object} AND l.record_id IN (SELECT value FROM json_each(${ids}))`,
+      sql`INSERT OR IGNORE INTO core_notifications (id, user_id, type, title, body, link, source, dedupe_key, human_only, read_at, created_at) SELECT ${idStem("notification")} || upper(hex(randomblob(8))), u.value, 'system.message', substr(${name} || ' is low: ' || (${sql.raw(onHand)}) || ' on hand', 1, 200), 'At or below its reorder level of ' || ${shown(level)} || '.' || ${reorder}, json_object('kind', 'record', 'object', l.object_type, 'id', l.record_id), ${JSON.stringify({ actor })}, 'stock_low:' || l.crossing, 0, NULL, ${now} FROM core_stock_low l JOIN core_capacity c ON c.object_type = l.object_type AND c.record_id = l.record_id JOIN ${view} t ON t.id = l.record_id JOIN json_each(${JSON.stringify(keepers)}) u WHERE l.object_type = ${object} AND l.told_at IS NULL AND l.record_id IN (SELECT value FROM json_each(${ids}))`,
     );
   }
+  // Each crossing is told once, whoever was a keeper then: kept on the crossing itself, so it
+  // outlives the notices (purged after 90 days).
+  statements.push(
+    sql`UPDATE core_stock_low SET told_at = ${now} WHERE object_type = ${object} AND told_at IS NULL AND record_id IN (SELECT value FROM json_each(${ids}))`,
+  );
   return statements.map((statement) => statement.compile(db));
 }
 
@@ -121,7 +128,8 @@ function idStem(kind: Parameters<typeof newId>[0]): string {
  * Who is told a record of `object` is low: the active people who hold its `stock.notify`
  * permission as a tool naming it would let them (pack-roles.ts, `staffAuthority`): an admin; a
  * member, unless it is restricted (ADR 0625); an account whose pack role of the same pack lists
- * it; an account a human admin granted it, while the pack declares it grantable. Without
+ * it; an account a human admin granted it, while the pack declares it grantable. An account with
+ * a pack role is told only when the role reads `object` without a limit. Without
  * `notify`, the admins.
  */
 export async function stockKeepers(
@@ -149,7 +157,15 @@ export async function stockKeepers(
   let manifest: {
     grantable?: string[];
     restricted?: string[];
-    roles?: Record<string, { permissions?: string[] }>;
+    roles?: Record<
+      string,
+      {
+        permissions?: string[];
+        read?: string[];
+        today?: Record<string, unknown>;
+        looksAfter?: Record<string, unknown>;
+      }
+    >;
   } = {};
   try {
     manifest = row?.manifest ? JSON.parse(row.manifest) : {};
@@ -160,15 +176,21 @@ export async function stockKeepers(
   const restricted = (manifest.restricted ?? []).includes(permission);
   return users
     .filter((u) => {
-      if (grantable && parseGrants(u.granted_permissions).includes(permission)) return true;
       if (u.pack_role) {
+        // A fixed role's account is told only of what its role reads, with no limit on it
+        // (today's records, the People it looks after): the notice names the record and its
+        // numbers (the review of #422). A grant opens tools, never reads (ADR 0600).
         const [extension, local] = u.pack_role.split(".");
-        return (
-          !restricted &&
-          extension === object.extension &&
-          (manifest.roles?.[local ?? ""]?.permissions ?? []).includes(permission)
-        );
+        const role = extension === object.extension ? manifest.roles?.[local ?? ""] : undefined;
+        const reads =
+          (role?.read ?? []).includes(object.name) &&
+          !Object.hasOwn(role?.today ?? {}, object.name) &&
+          !Object.hasOwn(role?.looksAfter ?? {}, object.name);
+        if (!reads) return false;
+        if (grantable && parseGrants(u.granted_permissions).includes(permission)) return true;
+        return !restricted && (role?.permissions ?? []).includes(permission);
       }
+      if (grantable && parseGrants(u.granted_permissions).includes(permission)) return true;
       return u.role === "admin" || (u.role === "member" && !restricted);
     })
     .map((u) => u.id);

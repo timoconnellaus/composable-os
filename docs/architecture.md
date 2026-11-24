@@ -2131,18 +2131,21 @@ actor: a receipt `received` adds (`received`, with its unit cost), a write-off r
 difference from on hand worked out as the batch commits). With `through`, the state is another
 record's (a count's `applied`) and all its live lines move at once. Three statements whatever the
 number of lines (up to 500), the lines as one JSON parameter; too few on hand, or a count below what
-unpaid orders hold, fails the batch with the counter's numbers. What fed a movement cannot change
-afterwards, and a moved record's lines cannot be added or changed. A runtime extension cannot
+unpaid orders hold, fails the batch with the counter's numbers. Every move into `when` is the
+host's, made through the pack's person tools (`humanOnly` or `personApproves`), so an AI's waits
+for a person. What fed a movement cannot change afterwards, a moved record's lines cannot be
+added, changed or restored, and guards in both batches (the line's on its parent's history, the
+apply's on its lines) refuse a line written while its count is applied. A runtime extension cannot
 declare it.
 
 **Low stock** (stage 37 step 2, ADR 0681, `packages/core/src/stock/low.ts`). When a write takes a
 stock record's on hand to or below its reorder level (`stock.reorderAt`), the staff who hold the
 pack's `stock.notify` permission (else the admins) get an in-app notice, once until it rises above
 again. Every write that changes on hand (opening, a correction, `stockMoves`, a paid order's sale in
-`stock/sold.ts`, a changed level) notes its records; at the end of its batch (`beforeCommit`) three
+`stock/sold.ts`, a changed level) notes its records; at the end of its batch (`beforeCommit`) four
 statements per object end the crossings of records now above, begin one (`core_stock_low`,
-migration 0931) for records at or below, and tell each keeper once per crossing (the notice's
-dedupe key is the crossing's).
+migration 0931) for records at or below, tell each keeper of a crossing not yet told and mark it
+told. A fixed role's account is told only of objects its role reads.
 
 **`allowance`** (stage 32b, ADRs [0493](adr/0493-the-allowance-behaviour.md) and
 [0494](adr/0494-which-holder-pays-and-what-happens-to-uses.md), `packages/sdk/src/allowance.ts`,

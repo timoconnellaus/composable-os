@@ -23,6 +23,13 @@ it: a sale on the website, a count, a write-off, an import.
   `counted` for set); `unitCost` (add only) and `note` feed the ledger row. **No declared move may
   leave `when`**: stock moves once per record. A runtime extension cannot declare it (install
   refuses it, as `stock`).
+- **Moving stock is a person's act** (the review of PR #422). Every declared move into `when` is
+  by `["host"]` alone, with the `tools` a person makes it through (ADR 0513: each `humanOnly` or
+  `personApproves`, with a permission: the pack's `shop:stock`), and nothing is created in `when`
+  but by the host. So `record.update` or `record.create` by a member, an automation, a customer,
+  the assistant or an MCP client never moves stock; the pack's tool does, and an AI's call of a
+  `personApproves` tool waits for a person who holds its permission, as `stock.adjust` does. A
+  quick stock-in is a receipt made and moved through the tool in one call.
 - **`through`**: the state is another record's. A count line declares `through: "count"`, `when:
   "applied"`: the count entering `applied` moves every live line pointing to it, in one batch (up
   to 500 lines; more is refused, split the count). The line object needs no states.
@@ -38,21 +45,30 @@ it: a sale on the website, a count, a write-off, an import.
   0440's trigger, with the record, on hand and held (`rule: "stock"`; "Count again in a few
   minutes" when orders hold some). A set counting one record on two lines is refused.
 - **What moved stock stays as it moved.** A record in its `when` cannot change `on`, `quantity`,
-  `unitCost` or `note`; a line cannot be added to, moved to or changed on a record that is in its
-  `when` (one read per parent per call). Other fields stay editable.
+  `unitCost` or `note`; a line cannot be added to, moved to, changed on or restored from the
+  Trash onto a record that is in its `when` (one read per parent per call). Other fields stay
+  editable.
+- **A count and its lines never race** (the review of PR #422). A line's write queues an
+  `unmoved` guard on its parent's state history (migration 0670), so a count applied between the
+  line's read and its commit fails the line's batch. The apply queues a guard on its lines' count
+  and latest change as read, so a line added, edited, trashed or restored between the apply's read
+  and its commit fails the apply. Either way the answer is a conflict (`moved_meanwhile`: look
+  again), and what commits is consistent.
 - **Low stock is the host's notice** (`stock/low.ts`). `stock.notify` names a tool permission of
   the same extension (with `reorderAt`); its holders are told, as a tool naming it would let them
   in: admins, members unless it is restricted, an account whose pack role of that pack lists it,
   and an account a human admin granted it while the pack declares it grantable. Without `notify`,
   the admins. Every write that changes on hand notes its records: `stock.opening`, `stock.adjust`,
   `stockMoves`, a paid order's sale (an order move hook, `stock/sold.ts`) and a change of a
-  record's reorder level. At the end of the call (`beforeCommit`, ADR 0624) three statements per
+  record's reorder level. At the end of the call (`beforeCommit`, ADR 0624) four statements per
   object run after everything else in the batch: records now above their level (or with none) end
   their crossing; records at or below begin one if they have none (`core_stock_low`, migration
   0931); each keeper gets one in-app notice (`system.message`, linked to the record, title "<name>
-  is low: N on hand") per record per crossing, by a dedupe key built from the crossing. A record
-  that stays low tells nobody again; after rising above and falling again it tells everyone again.
-  A simulated call tells nobody.
+  is low: N on hand") for each crossing not yet told; the crossing is marked told (`told_at`). A
+  record that stays low tells nobody again, however long, even after its notices are purged (90
+  days); after rising above and falling again it tells everyone again. A simulated call tells
+  nobody. An account with a pack role is told only when its role reads the object with no limit
+  (`today`, `looksAfter`): the notice names the record and its numbers.
 
 ## Consequences
 - Receipts, quick stock-in entries, counts and write-offs are plain pack records with states; the
@@ -60,7 +76,7 @@ it: a sale on the website, a count, a write-off, an import.
   `used`. A target in another extension (a Jobs pack moving Shop's variants) is not allowed yet:
   the contract checks the target's `stock` in the same manifest. Stage 39 widens it.
 - A count's apply costs the same statements for 2 lines as for 500, and a paid order's confirm
-  adds three per stock object (`test/stock-moves.test.ts`, `test/stock.test.ts`).
+  adds four per stock object (`test/stock-moves.test.ts`, `test/stock.test.ts`).
 - Step 1's rule that a stock object is "sellable with goods or used by stockMoves" is checked as
   "sellable, or the target of a `stockMoves` of its extension"; step 3 narrows sellable to
   `sellable.goods`.
@@ -68,9 +84,10 @@ it: a sale on the website, a count, a write-off, an import.
   names it in `stock.notify`.
 - Moving a line or a received record to Trash changes nothing in stock: the ledger keeps the
   movement and its source. A correction is a write-off, a receipt or `stock.adjust`.
-- A count's lines are read when the count moves; a line edited between that read and the commit
-  is applied as read. Editing a line of a count being applied is a race the lock does not close.
-- A keeper given the permission after a crossing began is told on the next write that touches the
-  record while it is still low.
+- A keeper given the permission after a crossing began is not told of it: the crossing was told
+  to the keepers of its time. The next crossing tells them.
+- The outside pipeline (customers, the public) has no `beforeCommit`, so a write there runs no
+  low-stock check. No such write changes on hand: the contract keeps customers out of stock-moving
+  states, and a paid order confirms on the staff pipeline (`order.applyPaymentEvent`).
 - The counter's refusal of a removal with nothing held now reads "Not enough on
   hand: this would leave N" rather than naming held stock.

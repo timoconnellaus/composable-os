@@ -22,11 +22,13 @@
 // (`assertStockMovesKept`): the ledger keeps what moved.
 import { CompiledQuery, sql } from "kysely";
 import { ValidationError } from "../errors.ts";
+import { fieldStorage, objectTableOf } from "../extensions/schema.ts";
 import { getObject, listObjects } from "../fields/index.ts";
 import type { ObjectDefinition, StockMovesDefinition } from "../fields/types.ts";
 import { newId } from "../ids.ts";
 import type { HandlerContext } from "../operation.ts";
 import { enteredBy } from "../records/transitions.ts";
+import { guardStatement } from "../recurring/bookkeeping.ts";
 import { STOCK_PLACE, stockCounterInsertMany } from "./index.ts";
 import { watchLow } from "./low.ts";
 
@@ -244,12 +246,13 @@ export async function stockMovesOnMove(
       ["c", column(moves.unitCost)],
       ["n", column(moves.note)],
     ];
+    const through = sql.ref(column(moves.through) as string);
     const rows = (
-      await sql<Record<string, unknown>>`SELECT id, ${sql.join(
+      await sql<Record<string, unknown>>`SELECT id, updated_at AS u, ${sql.join(
         read.map(([as, col]) =>
           col ? sql`${sql.ref(col)} AS ${sql.ref(as)}` : sql`NULL AS ${sql.ref(as)}`,
         ),
-      )} FROM ${sql.table(lineObject.source)} WHERE ${sql.ref(column(moves.through) as string)} = ${id} ORDER BY id LIMIT ${STOCK_MOVES_MAX_LINES + 1}`.execute(
+      )} FROM ${sql.table(lineObject.source)} WHERE ${through} = ${id} ORDER BY id LIMIT ${STOCK_MOVES_MAX_LINES + 1}`.execute(
         ctx.db,
       )
     ).rows;
@@ -272,6 +275,16 @@ export async function stockMovesOnMove(
       lineObject,
       moves,
       rows.map((row) => lineOf(lineObject, moves, String(row.id), values(row))),
+    );
+    // The lines moved are the lines there are at the commit (the review of #422): a line added,
+    // edited, sent to Trash or restored after the read fails this batch (`moved_meanwhile`, a
+    // conflict: look again). An `unmoved` guard that can never hold (a history count is never
+    // -1), inserted only when the lines' count or latest change differs from what was read.
+    const latest = rows.reduce((m, row) => (String(row.u) > m ? String(row.u) : m), "");
+    ctx.write(
+      sql`INSERT INTO core_write_guard (kind, object_type, record_id, expected) SELECT 'unmoved', ${object.name}, ${id}, -1 WHERE (SELECT count(*) || ':' || coalesce(max(updated_at), '') FROM ${sql.table(lineObject.source)} WHERE ${through} = ${id}) IS NOT ${`${rows.length}:${latest}`}`.compile(
+        ctx.db,
+      ),
     );
   }
 }
@@ -313,14 +326,48 @@ export async function assertStockMovesKept(
     return;
   }
   if (before !== null && !changed.length) return;
+  await assertParentsOpen(ctx, object, moves, [
+    idOf(Object.hasOwn(written, moves.through) ? written[moves.through] : before?.[moves.through]),
+    idOf(before?.[moves.through]),
+  ]);
+}
+
+/**
+ * Refuses restoring a line from the Trash onto a record that has moved stock (the review of
+ * #422): it would sit under it, never moved. Called by record.restore.
+ */
+export async function assertStockLineRestorable(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string,
+): Promise<void> {
+  const moves = object.stockMoves;
+  if (!moves?.through) return;
+  const column = fieldStorage(object.name, moves.through)?.column;
+  const table = objectTableOf(object.name);
+  if (!column || !table) return;
+  const row = await sql<{
+    p: unknown;
+  }>`SELECT ${sql.ref(column)} AS p FROM ${sql.table(table)} WHERE id = ${id}`.execute(ctx.db);
+  await assertParentsOpen(ctx, object, moves, [idOf(row.rows[0]?.p)]);
+}
+
+/**
+ * Refuses a line's write onto a record of `moves.throughObject` that has moved stock, and queues
+ * a guard that fails the write's batch if one moves before it commits (an `unmoved` guard on its
+ * state history, migration 0670): a line is never added or changed under a count being applied.
+ */
+async function assertParentsOpen(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  moves: StockMovesDefinition,
+  ids: readonly (string | null)[],
+): Promise<void> {
   const parentObject = moves.throughObject ? getObject(moves.throughObject) : undefined;
   const stateField = parentObject?.states?.field;
   const column = parentObject?.fields.find((f) => f.name === stateField)?.column;
   if (!parentObject || !column) return;
-  const parents = [
-    idOf(Object.hasOwn(written, moves.through) ? written[moves.through] : before?.[moves.through]),
-    idOf(before?.[moves.through]),
-  ].filter((p): p is string => p !== null);
+  const parents = ids.filter((p): p is string => p !== null);
   // One read per parent per call: a call adding many lines to one count reads it once.
   let open = openParents.get(ctx.write);
   if (!open) {
@@ -329,19 +376,24 @@ export async function assertStockMovesKept(
   }
   const unread = [...new Set(parents)].filter((p) => !open.has(`${parentObject.name}:${p}`));
   if (!unread.length) return;
-  const moved = await sql<{
+  const read = await sql<{
     id: string;
-  }>`SELECT id FROM ${sql.table(parentObject.source)} WHERE id IN (${sql.join(unread)}) AND ${sql.ref(column)} = ${moves.when}`.execute(
+    moved: number;
+    n: number;
+  }>`SELECT p.id, p.${sql.ref(column)} = ${moves.when} AS moved, (SELECT count(*) FROM core_transition_history h WHERE h.object_type = ${parentObject.name} AND h.record_id = p.id) AS n FROM ${sql.table(parentObject.source)} p WHERE p.id IN (${sql.join(unread)})`.execute(
     ctx.db,
   );
-  if (moved.rows.length) {
+  const moved = read.rows.find((r) => Number(r.moved) === 1);
+  if (moved) {
     refuse(
       object,
-      moves.through,
+      moves.through as string,
       `${parentObject.label} has moved stock: its ${object.plural?.toLowerCase() ?? "lines"} cannot be added or changed`,
-      { record: moved.rows[0]?.id },
+      { record: moved.id },
     );
   }
+  for (const r of read.rows)
+    ctx.write(guardStatement("unmoved", parentObject.name, r.id, Number(r.n)));
   for (const p of unread) open.add(`${parentObject.name}:${p}`);
 }
 

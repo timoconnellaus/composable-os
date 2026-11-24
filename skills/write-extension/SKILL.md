@@ -148,8 +148,12 @@ extension declares it; it never implements it. Each behaviour the platform has i
   "<number field>", when: "<state>", through?: "<relation to the record whose state it is>",
   kind?, unitCost?, note? }`. Entering `when` (a state no move leaves) writes the movement in that
   write's batch; with `through`, a count's `applied` moves all its lines at once (`set`: on hand
-  becomes the number counted). Never change stock from a tool: move the record. What moved stock
-  cannot be edited afterwards. A shipped pack only. See `StockMovesSpec` and ADR 0681.
+  becomes the number counted). Declare every move into `when` as `by: ["host"], tools: [...]`
+  with the pack's `humanOnly` or `personApproves` tools carrying its stock permission, and never
+  `create.in` the state (make the record, then move it through the tool): moving stock is a
+  person's act, and an AI's waits for one. Never change stock from a tool otherwise: move the
+  record. What moved stock cannot be edited afterwards. A shipped pack only. See
+  `StockMovesSpec` and ADR 0681.
 - **`unique`** on an object: `unique: [{ fields: [<up to 4 fields>], states?: [<states>] }]`, no
   two live records in those states share the fields (one active booking per Person per class).
   The database refuses the second, however many write at once (`conflict`, `rule: "unique"`).

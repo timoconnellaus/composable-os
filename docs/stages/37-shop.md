@@ -71,7 +71,12 @@ questions at the end refine later steps and block none of the first ones.
   (core cannot name `shop:stock`); a stock object is "sellable, or moved by a `stockMoves`" until
   step 3 adds `goods`; a `stockMoves` target must be in the same extension (stage 39 widens it for
   Jobs). The over-receipt warning and notice, and a count's "differences over a threshold" notice,
-  are the pack's step 6 (they need the purchase line). Left: steps 3 to 14.
+  are the pack's step 6 (they need the purchase line). After review: a move into a stock-moving
+  state is the host's through the pack's person tools (`humanOnly`/`personApproves`), never a
+  plain staff, customer or `create.in` move, so an AI's waits for a person; guards close the race
+  of a count's apply with its lines both ways; a line cannot be restored under an applied count; a
+  crossing is marked told (it outlives the notices' purge); a fixed role is told only of objects
+  it reads. Left: steps 3 to 14.
 
 Vocabulary: "product" is the platform's word for a composition (ADR 0400) and is avoided for what
 a business sells. This spec says **item** (a thing in the shop: "Club hoodie") and **variant** (one

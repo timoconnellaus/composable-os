@@ -179,6 +179,9 @@ export const STOCK_MOVE_KINDS = {
  *   remove; `counted` for set.
  * - `unitCost` (add only) is a number field of the cost of one, in minor units; `note` a text
  *   field the ledger keeps.
+ * - Every declared move into `when` is by `["host"]`, with the `tools` (humanOnly or
+ *   personApproves, with a permission) a person makes it through; nothing is created in `when`
+ *   but by the host. Moving stock is a person's act: an AI's call of the tool waits for a person.
  * - A quantity is a whole number, above 0 (add, remove) or 0 and above (set). Once moved, `on`,
  *   `quantity`, `unitCost` and `note` cannot change, and a moved record's lines cannot be added to
  *   or changed: the ledger keeps what moved.
@@ -297,6 +300,26 @@ export function checkObjectStockMoves(
     contract(
       `${path}.when`,
       `No move may leave "${moves.when}": stock moves once, when a record enters it`,
+    );
+  }
+  // Moving stock is a person's act with the pack's permission (ADR 0681, the review of #422):
+  // the host's alone, and the tools a person calls (ADR 0513), so an assistant's or an MCP
+  // client's call of them waits for a person, and no customer, member or automation moves stock
+  // by moving a record.
+  states.moves.forEach((move, i) => {
+    if (move.to !== moves.when) return;
+    if (move.by.some((mover) => mover !== "host")) {
+      contract(
+        `objects.${owner}.states.moves.${i}.by`,
+        `Entering "${moves.when}" moves stock: declare it by ["host"] with the tools a person makes it through (states.moves.<n>.tools)`,
+      );
+    }
+  });
+  const created = states.create?.in?.[moves.when];
+  if (created?.some((mover) => mover !== "host")) {
+    contract(
+      `objects.${owner}.states.create.in.${moves.when}`,
+      `Creating a record in "${moves.when}" moves stock: only the host may; create it in another state and move it through a tool`,
     );
   }
 }

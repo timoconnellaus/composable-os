@@ -57,15 +57,38 @@ function shop(id: string): ExtensionManifest {
           label: "Stockroom",
           description: "Fixture: receives and counts stock.",
           permissions: [`${id}:stock`],
+          read: [`${id}.variant`],
+        },
+        door: {
+          label: "Door",
+          description: "Fixture: holds the stock permission and reads no variant.",
+          permissions: [`${id}:stock`],
           read: [],
         },
       },
       tools: {
-        stockIn: defineTool({
-          description: "Fixture: the stockroom's write.",
+        receive: defineTool({
+          description: "Fixture: receives a delivery (a person approves anyone else's call).",
           input: z.object({}),
           output: z.object({}),
           permission: `${id}:stock`,
+          personApproves: true,
+          handler: () => ({}),
+        }),
+        writeOff: defineTool({
+          description: "Fixture: writes stock off, a person's own act.",
+          input: z.object({}),
+          output: z.object({}),
+          permission: `${id}:stock`,
+          humanOnly: true,
+          handler: () => ({}),
+        }),
+        applyCount: defineTool({
+          description: "Fixture: applies a count (a person approves anyone else's call).",
+          input: z.object({}),
+          output: z.object({}),
+          permission: `${id}:stock`,
+          personApproves: true,
           handler: () => ({}),
         }),
       },
@@ -99,9 +122,8 @@ function shop(id: string): ExtensionManifest {
           states: {
             field: "state",
             initial: "draft",
-            create: { in: { received: ["staff"] } },
             moves: [
-              { from: "draft", to: "received", by: ["staff"] },
+              { from: "draft", to: "received", by: ["host"], tools: ["receive"] },
               { from: "draft", to: "cancelled", by: ["staff"], final: true },
             ],
           },
@@ -127,7 +149,7 @@ function shop(id: string): ExtensionManifest {
           states: {
             field: "state",
             initial: "draft",
-            moves: [{ from: "draft", to: "done", by: ["staff"] }],
+            moves: [{ from: "draft", to: "done", by: ["host"], tools: ["writeOff"] }],
           },
           stockMoves: { move: "remove", on: "variant", quantity: "quantity", when: "done" },
         },
@@ -142,7 +164,7 @@ function shop(id: string): ExtensionManifest {
           states: {
             field: "state",
             initial: "draft",
-            moves: [{ from: "draft", to: "applied", by: ["staff"] }],
+            moves: [{ from: "draft", to: "applied", by: ["host"], tools: ["applyCount"] }],
           },
         },
         countline: {
@@ -185,6 +207,7 @@ let viewer: ActingUser;
 let granted: ActingUser;
 let stockroom: ActingUser;
 let gone: ActingUser;
+let door: ActingUser;
 
 beforeAll(async () => {
   admin = await createUser("admin");
@@ -193,6 +216,7 @@ beforeAll(async () => {
   granted = await createUser("viewer");
   stockroom = await createUser("viewer");
   gone = await createUser("member");
+  door = await createUser("viewer");
   const m = shop(ext);
   await reconcile(m);
   const now = new Date().toISOString();
@@ -207,6 +231,9 @@ beforeAll(async () => {
   await env.DB.prepare("UPDATE core_user SET pack_role = ? WHERE id = ?")
     .bind(`${ext}.stockroom`, stockroom.id)
     .run();
+  await env.DB.prepare("UPDATE core_user SET pack_role = ? WHERE id = ?")
+    .bind(`${ext}.door`, door.id)
+    .run();
   await env.DB.prepare("UPDATE core_user SET deactivated_at = ? WHERE id = ?")
     .bind(now, gone.id)
     .run();
@@ -219,6 +246,46 @@ async function create(object: string, values: Record<string, unknown>): Promise<
 
 const update = (object: string, id: string, values: Record<string, unknown>, user = admin) =>
   run("record.update", { object, id, values }, context(user));
+
+/** The tool of the pack that makes a move into a stock-moving state (a person's, ADR 0513). */
+const TOOL_OF: Record<string, string> = {
+  [RECEIPT]: "receive",
+  [WRITEOFF]: "writeOff",
+  [COUNT]: "applyCount",
+};
+
+/** A call made from inside the pack's tool, run for a person who holds its permission. */
+const asTool = (name: string, overrides: Record<string, unknown> = {}) =>
+  context(admin, {
+    actor: "extension",
+    extension: {
+      id: ext,
+      permissions: { read: [], write: [], operations: [], modules: ["ops"] },
+      tool: {
+        name,
+        humanOnly: name === "writeOff",
+        ...(name === "writeOff" ? {} : { personApproves: true }),
+        permission: KEEP,
+        calledBy: { account: admin.id, actor: "human" },
+      },
+    },
+    ...overrides,
+  } as never);
+
+/** Moves a record into its stock-moving state through the pack's tool. */
+const moveIn = (object: string, id: string, state: string, overrides = {}) =>
+  run(
+    "record.update",
+    { object, id, values: { state } },
+    asTool(TOOL_OF[object] as string, overrides),
+  );
+
+/** A quick stock-in: a receipt made, then received through the tool. */
+async function stockIn(variant: string, quantity: number, values: Record<string, unknown> = {}) {
+  const id = await create(RECEIPT, { variant, quantity, ...values });
+  await moveIn(RECEIPT, id, "received");
+  return id;
+}
 
 async function variantWith(quantity: number, values: Record<string, unknown> = {}) {
   const id = await create(VARIANT, { name: unique("Hoodie"), price: 60, ...values });
@@ -385,7 +452,7 @@ describe("a record's state moves its stock", () => {
       note: "Delivery 18",
     });
     expect(await stockOf(variant)).toMatchObject({ onHand: 0 });
-    await update(RECEIPT, receipt, { state: "received" });
+    await moveIn(RECEIPT, receipt, "received");
     expect(await stockOf(variant)).toMatchObject({ onHand: 24, held: 0, available: 24 });
     expect(await movements(variant)).toEqual([
       expect.objectContaining({
@@ -403,7 +470,7 @@ describe("a record's state moves its stock", () => {
 
   it("a quick stock-in made received adds at once; a cancelled receipt adds nothing", async () => {
     const variant = await variantWith(2);
-    await create(RECEIPT, { variant, quantity: 6, state: "received" });
+    await stockIn(variant, 6);
     const cancelled = await create(RECEIPT, { variant, quantity: 50 });
     await update(RECEIPT, cancelled, { state: "cancelled" });
     expect(await stockOf(variant)).toMatchObject({ onHand: 8 });
@@ -416,16 +483,16 @@ describe("a record's state moves its stock", () => {
   it("refuses a receipt with no quantity or no variant, and changing one once received", async () => {
     const variant = await variantWith(0);
     const none = await create(RECEIPT, { variant });
-    expect(await refusal(update(RECEIPT, none, { state: "received" }))).toMatchObject({
+    expect(await refusal(moveIn(RECEIPT, none, "received"))).toMatchObject({
       code: "invalid_input",
       details: { rule: "stock_moves", field: "quantity" },
     });
     const nowhere = await create(RECEIPT, { quantity: 3 });
-    expect(await refusal(update(RECEIPT, nowhere, { state: "received" }))).toMatchObject({
+    expect(await refusal(moveIn(RECEIPT, nowhere, "received"))).toMatchObject({
       details: { rule: "stock_moves", field: "variant" },
     });
     expect(await stateOf(RECEIPT, none)).toBe("draft");
-    const done = await create(RECEIPT, { variant, quantity: 4, state: "received" });
+    const done = await stockIn(variant, 4);
     expect(await refusal(update(RECEIPT, done, { quantity: 40 }))).toMatchObject({
       code: "invalid_input",
       details: { rule: "stock_moves", field: "quantity" },
@@ -438,7 +505,7 @@ describe("a record's state moves its stock", () => {
   it("a write-off removes; more than is on hand fails its batch and leaves it a draft", async () => {
     const variant = await variantWith(5);
     const broken = await create(WRITEOFF, { variant, quantity: 2 });
-    await update(WRITEOFF, broken, { state: "done" });
+    await moveIn(WRITEOFF, broken, "done");
     expect(await stockOf(variant)).toMatchObject({ onHand: 3 });
     expect((await movements(variant))[0]).toMatchObject({
       quantity: -2,
@@ -446,7 +513,7 @@ describe("a record's state moves its stock", () => {
       sourceId: broken,
     });
     const tooMany = await create(WRITEOFF, { variant, quantity: 4 });
-    expect(await refusal(update(WRITEOFF, tooMany, { state: "done" }))).toMatchObject({
+    expect(await refusal(moveIn(WRITEOFF, tooMany, "done"))).toMatchObject({
       code: "invalid_input",
       details: { rule: "stock", onHand: -1, held: 0 },
     });
@@ -465,7 +532,7 @@ describe("a count applied", () => {
       { variant: b as string, counted: 5 },
       { variant: c as string, counted: 3 },
     ]);
-    await update(COUNT, count, { state: "applied" });
+    await moveIn(COUNT, count, "applied");
     expect((await stockOf(a as string)).onHand).toBe(8);
     expect((await stockOf(b as string)).onHand).toBe(5);
     expect((await stockOf(c as string)).onHand).toBe(3);
@@ -488,7 +555,7 @@ describe("a count applied", () => {
       { variant: other, counted: 1 },
       { variant: held, counted: 1 },
     ]);
-    const refused = await refusal(update(COUNT, count, { state: "applied" }));
+    const refused = await refusal(moveIn(COUNT, count, "applied"));
     expect(refused).toMatchObject({
       code: "invalid_input",
       details: { rule: "stock", record: held, onHand: 1, held: 2 },
@@ -530,11 +597,11 @@ describe("a count applied", () => {
       { variant, counted: 1 },
       { variant, counted: 2 },
     ]);
-    expect(await refusal(update(COUNT, twice, { state: "applied" }))).toMatchObject({
+    expect(await refusal(moveIn(COUNT, twice, "applied"))).toMatchObject({
       details: { rule: "stock_moves", field: "variant" },
     });
     const count = await countOf([{ variant, counted: 1 }]);
-    await update(COUNT, count, { state: "applied" });
+    await moveIn(COUNT, count, "applied");
     expect(
       await refusal(
         run(
@@ -546,7 +613,7 @@ describe("a count applied", () => {
     ).toMatchObject({ code: "invalid_input", details: { rule: "stock_moves", field: "count" } });
     const { items } = await run<{ items: { id: string }[] }>(
       "record.list",
-      { object: LINE, filters: [{ field: "count", op: "eq", value: count }] },
+      { object: LINE, filter: { field: "count", op: "eq", value: count } },
       context(admin),
     );
     const line = items[0]?.id as string;
@@ -585,10 +652,10 @@ describe("low stock", () => {
     await pay(await startAsGuest([{ object: VARIANT, id: variant, quantity: 1 }]));
     expect(Object.values(await told())).toEqual([1, 1, 1]);
     // A receipt above, then a write-off to below: told again.
-    await create(RECEIPT, { variant, quantity: 10, state: "received" });
+    await stockIn(variant, 10);
     expect(Object.values(await told())).toEqual([1, 1, 1]);
     const writeoff = await create(WRITEOFF, { variant, quantity: 11 });
-    await update(WRITEOFF, writeoff, { state: "done" });
+    await moveIn(WRITEOFF, writeoff, "done");
     expect((await stockOf(variant)).onHand).toBe(3);
     expect(Object.values(await told())).toEqual([2, 2, 2]);
     // Nobody else: not a viewer without the permission, nor one granted it while the pack does
@@ -597,11 +664,14 @@ describe("low stock", () => {
     expect(all[viewer.id]).toBeUndefined();
     expect(all[granted.id]).toBeUndefined();
     expect(all[gone.id]).toBeUndefined();
+    // Nor a fixed role holding the permission whose role does not read variants (the review of
+    // #422): the notice names the record and its numbers.
+    expect(all[door.id]).toBeUndefined();
   });
 
   it("a count, and a raised level, tell once each crossing", async () => {
     const counted = await variantWith(20, { reorderLevel: 4 });
-    await update(COUNT, await countOf([{ variant: counted, counted: 4 }]), { state: "applied" });
+    await moveIn(COUNT, await countOf([{ variant: counted, counted: 4 }]), "applied");
     expect(Object.keys(await toldOf(counted))).toHaveLength(3);
     const raised = await variantWith(8, { reorderLevel: 2 });
     await update(VARIANT, raised, { reorderLevel: 8 });
@@ -617,6 +687,199 @@ describe("low stock", () => {
     await pay(await startAsGuest([{ object: VARIANT, id: none, quantity: 1 }]));
     expect(await toldOf(variant)).toEqual({});
     expect(await toldOf(none)).toEqual({});
+  });
+});
+
+// --- After the review of #422 ----------------------------------------------------------------
+
+/** A database whose first batch (the call's commit) waits for `first` to run and commit. */
+function beforeCommitOf(first: () => Promise<unknown>) {
+  let ran = false;
+  const d1 = new Proxy(env.DB, {
+    get(target, prop) {
+      if (prop === "batch") {
+        return async (statements: D1PreparedStatement[]) => {
+          if (!ran) {
+            ran = true;
+            await first();
+          }
+          return target.batch(statements);
+        };
+      }
+      const value = Reflect.get(target, prop);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return createCrmDb(d1);
+}
+
+async function linesOf(count: string): Promise<{ id: string }[]> {
+  return (
+    await run<{ items: { id: string }[] }>(
+      "record.list",
+      { object: LINE, filter: { field: "count", op: "eq", value: count } },
+      context(admin),
+    )
+  ).items;
+}
+
+describe("moving stock is a person's act", () => {
+  const issuesOf = (change: (m: ExtensionManifest) => void) => {
+    const m = structuredClone(shop("decl"));
+    change(m);
+    return validateManifest(m).issues.map((i) => `${i.path}: ${i.message}`);
+  };
+  type Writable = Record<string, Record<string, unknown> & { states: Record<string, unknown> }>;
+
+  it("the contract refuses a stock-moving state that staff or customers enter, or are made in", () => {
+    const issues = issuesOf((m) => {
+      const objects = m.objects as unknown as Writable;
+      const receipt = objects.receipt as Writable[string];
+      const count = objects.count as Writable[string];
+      receipt.states.moves = [{ from: "draft", to: "received", by: ["staff"] }];
+      receipt.states.create = { in: { received: ["staff"] } };
+      count.states.moves = [{ from: "draft", to: "applied", by: ["customer", "host"] }];
+    });
+    expect(issues).toEqual(
+      expect.arrayContaining([
+        'objects.receipt.states.moves.0.by: Entering "received" moves stock: declare it by ["host"] with the tools a person makes it through (states.moves.<n>.tools)',
+        'objects.receipt.states.create.in.received: Creating a record in "received" moves stock: only the host may; create it in another state and move it through a tool',
+        'objects.count.states.moves.0.by: Entering "applied" moves stock: declare it by ["host"] with the tools a person makes it through (states.moves.<n>.tools)',
+      ]),
+    );
+  });
+
+  it("an assistant, an MCP client or a member moves no stock by moving or making a record", async () => {
+    const variant = await variantWith(3);
+    const count = await countOf([{ variant, counted: 1_000_000 }]);
+    const receipt = await create(RECEIPT, { variant, quantity: 500 });
+    for (const ctx of [
+      context(admin, { actor: "assistant" }),
+      context(admin, { actor: "mcp" }),
+      context(member),
+      context(admin),
+    ]) {
+      await expect(
+        run("record.update", { object: COUNT, id: count, values: { state: "applied" } }, ctx),
+      ).rejects.toBeTruthy();
+      await expect(
+        run("record.update", { object: RECEIPT, id: receipt, values: { state: "received" } }, ctx),
+      ).rejects.toBeTruthy();
+      await expect(
+        run(
+          "record.create",
+          { object: RECEIPT, values: { variant, quantity: 500, state: "received" } },
+          ctx,
+        ),
+      ).rejects.toBeTruthy();
+    }
+    expect((await stockOf(variant)).onHand).toBe(3);
+    expect(await stateOf(COUNT, count)).toBe("draft");
+    // A person's call of the pack's tool moves it.
+    await moveIn(COUNT, count, "applied");
+    expect((await stockOf(variant)).onHand).toBe(1_000_000);
+  });
+});
+
+describe("a count and its lines never race", () => {
+  it("a line added after the count's lines were read fails the apply; applied again, it counts", async () => {
+    const [a, b] = [await variantWith(10), await variantWith(10)];
+    const count = await countOf([{ variant: a, counted: 4 }]);
+    const added = beforeCommitOf(() => create(LINE, { count, variant: b, counted: 2 }));
+    expect(await refusal(moveIn(COUNT, count, "applied", { db: added }))).toMatchObject({
+      code: "conflict",
+      details: { reason: "moved_meanwhile" },
+    });
+    expect(await stateOf(COUNT, count)).toBe("draft");
+    expect((await stockOf(a)).onHand).toBe(10);
+    await moveIn(COUNT, count, "applied");
+    expect((await stockOf(a)).onHand).toBe(4);
+    expect((await stockOf(b)).onHand).toBe(2);
+  });
+
+  it("a line edited after the read fails the apply; it is applied as it stands", async () => {
+    const a = await variantWith(10);
+    const count = await countOf([{ variant: a, counted: 4 }]);
+    const line = (await linesOf(count))[0]?.id as string;
+    const edited = beforeCommitOf(() => update(LINE, line, { counted: 7 }));
+    expect(await refusal(moveIn(COUNT, count, "applied", { db: edited }))).toMatchObject({
+      code: "conflict",
+    });
+    expect((await stockOf(a)).onHand).toBe(10);
+    await moveIn(COUNT, count, "applied");
+    expect((await stockOf(a)).onHand).toBe(7);
+  });
+
+  it("a line added or edited while the count is applied fails the line's write", async () => {
+    const [a, b] = [await variantWith(10), await variantWith(10)];
+    const count = await countOf([{ variant: a, counted: 4 }]);
+    const line = (await linesOf(count))[0]?.id as string;
+    const applied = beforeCommitOf(() => moveIn(COUNT, count, "applied"));
+    expect(
+      await refusal(
+        run(
+          "record.create",
+          { object: LINE, values: { count, variant: b, counted: 2 } },
+          context(admin, { db: applied }),
+        ),
+      ),
+    ).toMatchObject({ code: "conflict", details: { reason: "moved_meanwhile" } });
+    expect(await linesOf(count)).toHaveLength(1);
+    expect((await stockOf(a)).onHand).toBe(4);
+    expect((await stockOf(b)).onHand).toBe(10);
+    // An edit read before the apply and committed after it: refused too, so the line says 4.
+    const other = await countOf([{ variant: b, counted: 3 }]);
+    const otherLine = (await linesOf(other))[0]?.id as string;
+    const appliedToo = beforeCommitOf(() => moveIn(COUNT, other, "applied"));
+    expect(
+      await refusal(
+        run(
+          "record.update",
+          { object: LINE, id: otherLine, values: { counted: 9 } },
+          context(admin, { db: appliedToo }),
+        ),
+      ),
+    ).toMatchObject({ code: "conflict" });
+    expect((await stockOf(b)).onHand).toBe(3);
+    expect(line).toBeTruthy();
+  });
+
+  it("a line cannot come back from the Trash under a count applied meanwhile", async () => {
+    const [a, b] = [await variantWith(10), await variantWith(10)];
+    const count = await countOf([
+      { variant: a, counted: 4 },
+      { variant: b, counted: 1 },
+    ]);
+    const lines = await linesOf(count);
+    const trashed = lines[1]?.id as string;
+    await run("record.delete", { object: LINE, id: trashed }, context(admin));
+    await moveIn(COUNT, count, "applied");
+    expect(
+      await refusal(run("record.restore", { object: LINE, id: trashed }, context(admin))),
+    ).toMatchObject({ code: "invalid_input", details: { rule: "stock_moves", field: "count" } });
+    expect(await linesOf(count)).toHaveLength(1);
+    expect((await stockOf(b)).onHand).toBe(10);
+  });
+});
+
+describe("a crossing is told once, however long it lasts", () => {
+  it("purging the notices does not tell a record still low again", async () => {
+    const variant = await variantWith(6, { reorderLevel: 5 });
+    await pay(await startAsGuest([{ object: VARIANT, id: variant, quantity: 1 }]));
+    expect(Object.keys(await toldOf(variant))).toHaveLength(3);
+    // As notifications/purge.ts does after 90 days.
+    await env.DB.prepare(
+      "DELETE FROM core_notifications WHERE dedupe_key LIKE 'stock_low:%' AND json_extract(link, '$.id') = ?",
+    )
+      .bind(variant)
+      .run();
+    await pay(await startAsGuest([{ object: VARIANT, id: variant, quantity: 1 }]));
+    expect(await toldOf(variant)).toEqual({});
+    // A rise and a fall is a new crossing.
+    await stockIn(variant, 10);
+    const writeoff = await create(WRITEOFF, { variant, quantity: 12 });
+    await moveIn(WRITEOFF, writeoff, "done");
+    expect(Object.keys(await toldOf(variant))).toHaveLength(3);
   });
 });
 
@@ -690,7 +953,7 @@ describe("what a count's apply costs", () => {
     await invokeByName(
       "record.update",
       { object: COUNT, id: count, values: { state: "applied" } },
-      context(admin, { db: meteredDb }),
+      asTool("applyCount", { db: meteredDb }),
     );
     for (const id of [variants[0], variants.at(-1)]) {
       expect((await stockOf(id as string)).onHand).toBe(1);
@@ -705,6 +968,6 @@ describe("what a count's apply costs", () => {
     const most = await applyCost(STOCK_MOVES_MAX_LINES);
     expect(most).toBe(two);
     expect(most).toBeLessThan(100);
-    expect(LOW_STATEMENTS + STOCK_MOVES_STATEMENTS).toBe(6);
+    expect(LOW_STATEMENTS + STOCK_MOVES_STATEMENTS).toBe(7);
   }, 120_000);
 });

@@ -1073,6 +1073,7 @@ export interface CoreStockLowTable {
   record_id: string;
   crossing: string;
   since: string;
+  told_at: string | null;
 }
 export type StockMovementKind =
   | "opening"
