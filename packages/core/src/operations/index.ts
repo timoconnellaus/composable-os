@@ -79,6 +79,7 @@ import { recordImportOperations } from "./record-import.ts";
 import { recordVersionOperations } from "./record-versions.ts";
 import { recurringOperations } from "./recurring.ts";
 import { retentionOperations } from "./retention.ts";
+import { roomsOperations } from "./rooms.ts";
 import { routineOperations } from "./routine.ts";
 import { routineMailOperations } from "./routine-mail.ts";
 import { screenOperations } from "./screens.ts";
@@ -199,6 +200,7 @@ export const coreOperations = [
   ...stockOperations,
   ...recurringOperations,
   ...staffingOperations,
+  ...roomsOperations,
   ...staffingFeedOperations,
   ...staffingHoursOperations,
   ...staffingLeaveOperations,

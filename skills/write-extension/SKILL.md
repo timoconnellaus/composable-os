@@ -213,8 +213,11 @@ extension declares it; it never implements it. Each behaviour the platform has i
   (`conflict`, `rule: "room_taken"`, naming no other record). `before` and `after` are minutes
   kept free (a number field, or `relation.field`: a service's buffer). With `only`, just the
   things with that flag set are claimed (a room marked "one booking at a time"; a shared floor
-  never). Never check whether a room is free in a tool. See `OccupiesSpec` in
-  `packages/sdk/src/occupies.ts` and ADR 0765.
+  never). Never check whether a room is free in a tool. For the room calendar (`rooms.week`,
+  `rooms.check`, read by a shipped pack's tool), `provisional: [<live states shown as held>]` and
+  `title: "<a text or select field, or relation.field of one of your objects>"` (never the
+  client's name; left out, the object's label). See `OccupiesSpec` in
+  `packages/sdk/src/occupies.ts` and ADRs 0765 and 0844.
 - **`intake`** when the public or customers send answers (a form, its submissions, a record a
   form may also make): `intake: { role: "form", questions: "<document field with
   QUESTIONS_SCHEMA, in publishable.content>", answeredBy: "<select: public, customers, links,
