@@ -108,6 +108,7 @@ const WHY = {
    * (keys, never a document) when an admin changes the rates.
    */
   invoices: "invoices: host code for a document it is numbering, or the rate keys lines use",
+  /**
    * Check-in codes (stage 51 step 3, ADR 0783): whether a Person a code, card or PIN names is
    * live, and their names to compare with the name typed, answered to host code only; a member's
    * own and their dependants' given names for their own app; that a Person staff named exists.

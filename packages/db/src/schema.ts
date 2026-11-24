@@ -2149,6 +2149,9 @@ export interface CoreInvoiceEventTable {
   currency: string | null;
   at: string;
   by_user: string | null;
+}
+
+/**
  * Migration 1270 (stage 58 step 1, ADR 0850): one stretch of time a staff member worked, the one
  * record of time worked. Times are unix seconds; `ends` is null while open. The database refuses
  * two overlapping entries of one account and a second open one.
