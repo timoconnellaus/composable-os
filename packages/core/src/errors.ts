@@ -399,6 +399,14 @@ export function toOperationError(error: unknown): OperationError {
       rule: "room_taken",
     });
   }
+  // One client's booked shift over another of theirs that a batch committed meanwhile (migration
+  // 1092, ADR 0763): the read before the write saw it free.
+  if (message.includes("core_client_busy")) {
+    return new ConflictError(
+      "That time is not free. Nothing was changed: choose another free time.",
+      { rule: "not_free_time" },
+    );
+  }
   // An offer of a shift left `open` meanwhile (migration 0812, ADR 0623): taken by someone else a
   // moment before, withdrawn, cancelled or lapsed. Of the writes racing for it exactly one landed.
   if (message.includes("core_staff_offer_closed")) {

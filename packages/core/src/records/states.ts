@@ -16,6 +16,7 @@ import { moveOrigins } from "@composable-os/sdk";
 import type { ObjectDefinition, StatesDefinition, WindowDefinition } from "../fields/types.ts";
 import { type HandlerContext, personsTool } from "../operation.ts";
 import { guardStatement } from "../recurring/bookkeeping.ts";
+import { assertOnFreeTime } from "../staffing/free.ts";
 import {
   ALL_MOVERS,
   type Lifecycle,
@@ -246,6 +247,11 @@ export function statesLifecycle(object: ObjectDefinition, states: StatesDefiniti
           to,
           from,
         );
+      }
+      // A booked shift a customer or the public makes or moves is on a free time (ADR 0763),
+      // after the window above, which answers for itself. Staff are warned instead.
+      if (write.by === "customer") {
+        await assertOnFreeTime(write.ctx, o, write.id, before, { ...after, [field]: toId });
       }
       // A state a record may be created in is not a move from the initial state (ADR 0503).
       const createdIn =
@@ -504,7 +510,10 @@ export async function assertCreateRules(
   by: "customer" | "staff",
 ): Promise<void> {
   const states = object.states;
-  if (!states?.create) return;
+  if (!states?.create) {
+    if (by !== "staff") await assertOnFreeTime(ctx, object, null, null, after);
+    return;
+  }
   const labelOf = (name: string) => object.fields.find((f) => f.name === name)?.label ?? name;
   const choices = object.fields.find((f) => f.name === states.field)?.options?.choices ?? [];
   const wanted = after[states.field];
@@ -543,4 +552,6 @@ export async function assertCreateRules(
     `Creating ${object.label.toLowerCase()}`,
   );
   if (refusal) throw fail(refusal.rule, refusal.message, refusal.times);
+  // A booked shift made for them is on a free time (ADR 0763), as their own create would be.
+  await assertOnFreeTime(ctx, object, null, null, { ...after, [states.field]: toId });
 }

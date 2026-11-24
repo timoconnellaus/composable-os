@@ -40,7 +40,13 @@ const STAFF_ACTORS: ReadonlySet<string> = new Set(["human", "assistant", "mcp"])
  * The staff account a call is for: in a pack tool's run, the account the tool was called for (the
  * pipeline's verified caller); otherwise the calling account itself.
  */
-export function actingAccount(ctx: Pick<HandlerContext, "actor" | "extension" | "user">): string {
+export function actingAccount(
+  ctx: Pick<HandlerContext, "actor" | "extension" | "user"> &
+    Partial<Pick<HandlerContext, "onBehalfOf">>,
+): string {
+  // The host writing for a customer or the public (ADR 0426): no staff account acts, and the
+  // context has no actor to read; its user is the caller's stand-in.
+  if (ctx.onBehalfOf && ctx.onBehalfOf.kind !== "staff") return ctx.user.id;
   const tool = ctx.extension?.tool;
   if (ctx.actor === "extension" && tool?.calledBy) return tool.calledBy.account;
   return ctx.user.id;
@@ -392,7 +398,11 @@ export async function queueNotice(ctx: HandlerContext, notice: StaffNotice): Pro
       link: notice.link ?? null,
       ...(notice.dedupeKey ? { dedupeKey: notice.dedupeKey } : {}),
       ...(notice.humanOnly ? { humanOnly: true } : {}),
-      source: { actor: ctx.actor, userId: me },
+      // The host writing for a customer or the public has no actor to read (ADR 0426).
+      source: {
+        actor: ctx.onBehalfOf && ctx.onBehalfOf.kind !== "staff" ? ctx.onBehalfOf.kind : ctx.actor,
+        userId: me,
+      },
     },
     ctx.now,
   );

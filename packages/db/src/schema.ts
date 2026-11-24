@@ -1611,6 +1611,16 @@ export interface CoreWriteGuardTable {
   expected: number;
 }
 
+/**
+ * Migration 1092 (stage 49, ADR 0763): a guard that one client's booked shifts do not overlap,
+ * counted inside the write's batch (never holds a row).
+ */
+export interface CoreClientGuardTable {
+  object_type: string;
+  record_id: string;
+  clashes: number;
+}
+
 /** Migration 0560: one record a series made, keyed on the series and its local date. */
 export interface CoreRecurrenceOccurrenceTable {
   series_object: string;
@@ -3874,6 +3884,7 @@ export interface CoreDatabase {
   core_finance_counted: CoreFinanceCountedTable;
   core_finance_guard: CoreFinanceGuardTable;
   core_write_guard: CoreWriteGuardTable;
+  core_client_guard: CoreClientGuardTable;
   core_allowance: CoreAllowanceTable;
   core_allowance_period: CoreAllowancePeriodTable;
   core_allowance_use: CoreAllowanceUseTable;

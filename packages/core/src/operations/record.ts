@@ -137,7 +137,7 @@ export type RecordOutput = z.infer<typeof recordSchema>;
 
 /** A warning a write of a shift was made with (stage 45, ADR 0622): it was made, not refused. */
 export const staffWarningSchema = z.object({
-  code: z.enum(["unavailable", "not_qualified", "uncovered"]),
+  code: z.enum(["unavailable", "not_qualified", "uncovered", "outside_hours", "client_busy"]),
   object: z.string(),
   id: z.string(),
   account: z.string().nullable(),

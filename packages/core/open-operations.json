@@ -323,6 +323,13 @@
       "toolOnly": true
     },
     {
+      "name": "staffing.free",
+      "audiences": ["staff", "customer", "public"],
+      "risk": "read",
+      "hostInternal": true,
+      "toolOnly": true
+    },
+    {
       "name": "state.resolve",
       "audiences": ["staff", "customer"],
       "risk": "read",

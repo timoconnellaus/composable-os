@@ -37,6 +37,21 @@ import type { ExtensionManifest, FieldManifest, ObjectManifest } from "./manifes
  * - `private` (optional, ADR 0761): the record's title may name a client (an appointment). The
  *   roster shows the shift as its kind to anyone but its person and those who roster, a clash
  *   answer names it by its kind, and it is never offered to others. The feed never shows a title.
+ * - `open` (optional, ADRs 0762 and 0763): the shift is booked at free times (an appointment).
+ *   The host answers the free start times of a kind (`staffing.free`): its providers' open hours,
+ *   less time off, their claims with margins, taken rooms, closures and the client's own shifts,
+ *   on the kind's step; and staff writes are warned `outside_hours` and `client_busy`.
+ *   - `length`: `kind.field`, the minutes a shift of the kind lasts (a service's length).
+ *   - `step` (optional): `kind.field`, the minutes between start times (15, 30 or 60; 30 when
+ *     empty), counted from the organisation's local midnight.
+ *   - `rooms` (optional): `kind.field`, a relation (many) of the kind to the things this object
+ *     `occupies`, in the order they are offered; empty on a kind record, it needs none.
+ *   - `client` (optional): a relation field (one record) of this object to a Person: one client's
+ *     live shifts of this object do not overlap.
+ *   - `closedBy` (optional): another of this extension's objects whose records are date ranges
+ *     (`from`, `until`: date fields): nothing is free on their dates.
+ *   - `customer` (optional): `true`: a create or move by a customer or the public must be on a
+ *     free time, by every door, in the batch that writes it.
  * - `evidence` (optional): what shows a shift was worked, beside its pay line (ADR 0627): another
  *   object of this extension whose records name the shift (`link`, a relation to this object) and
  *   the staff account that marked each (`by`, a user field): a class's bookings, ticked by whoever
@@ -67,8 +82,19 @@ export interface StaffedSpec {
   claimAfter?: { field: string };
   account?: "required";
   private?: boolean;
+  open?: StaffedOpenSpec;
   evidence?: { object: string; link: string; by: string };
   timesFrom?: string;
+}
+
+/** A shift booked at free times (ADRs 0762 and 0763): see `StaffedSpec.open`. */
+export interface StaffedOpenSpec {
+  length: { field: string };
+  step?: { field: string };
+  rooms?: { field: string };
+  client?: string;
+  closedBy?: { object: string; from: string; until: string };
+  customer?: true;
 }
 
 const fieldName = z.string().max(40);
@@ -90,6 +116,20 @@ export const staffedManifestSchema = z
     claimAfter: z.object({ field: path }).strict().optional(),
     account: z.literal("required").optional(),
     private: z.boolean().optional(),
+    open: z
+      .object({
+        length: z.object({ field: path }).strict(),
+        step: z.object({ field: path }).strict().optional(),
+        rooms: z.object({ field: path }).strict().optional(),
+        client: fieldName.optional(),
+        closedBy: z
+          .object({ object: fieldName, from: fieldName, until: fieldName })
+          .strict()
+          .optional(),
+        customer: z.literal(true).optional(),
+      })
+      .strict()
+      .optional(),
     evidence: z.object({ object: fieldName, link: fieldName, by: fieldName }).strict().optional(),
     timesFrom: fieldName.optional(),
   })
@@ -248,6 +288,83 @@ export function checkObjectStaffed(
       `${at}.account`,
       `"required" needs who.account: "${staffed.who.field}" is a user field, always an account`,
     );
+  }
+
+  // Booked at free times (ADRs 0762 and 0763): the kind's length, step and rooms, the client, the
+  // closures.
+  if (staffed.open) {
+    const open = staffed.open;
+    // A field of the kind (null once a problem with the path is reported).
+    const kindField = (key: "length" | "step" | "rooms"): FieldManifest | undefined | null => {
+      const declared = open[key];
+      if (!declared) return null;
+      const [via, field, ...rest] = declared.field.split(".");
+      if (via !== staffed.kind || !field || rest.length) {
+        contract(
+          `${at}.open.${key}.field`,
+          `"${declared.field}" must be ${staffed.kind}.<a field of what it names>`,
+        );
+        return null;
+      }
+      if (!kindObject) {
+        contract(
+          `${at}.open.${key}.field`,
+          `"${staffed.kind}" must name another of this extension's objects for free times`,
+        );
+        return null;
+      }
+      return own(kindObject, field);
+    };
+    for (const key of ["length", "step"] as const) {
+      const field = kindField(key);
+      if (field !== null && !single(field, ["number"])) {
+        contract(
+          `${at}.open.${key}.field`,
+          `"${open[key]?.field}" must be a number field of ${kindTarget as string}`,
+        );
+      }
+    }
+    const rooms = kindField("rooms");
+    if (rooms !== null) {
+      const thingField = object.occupies ? own(object, object.occupies.thing) : undefined;
+      if (!thingField) {
+        contract(`${at}.open.rooms`, `${name} must declare occupies for the rooms it is booked in`);
+      } else if (rooms?.type !== "relation" || !rooms.many || rooms.to !== thingField.to) {
+        contract(
+          `${at}.open.rooms.field`,
+          `"${open.rooms?.field}" must be a relation field (many) of ${kindTarget as string} to ${thingField.to as string}`,
+        );
+      }
+    }
+    if (open.client !== undefined) {
+      const client = own(object, open.client);
+      if (client?.type !== "relation" || client.many || client.to !== "person") {
+        contract(
+          `${at}.open.client`,
+          `"${open.client}" must be a relation field (one record) of ${name} to person`,
+        );
+      }
+    }
+    if (open.closedBy) {
+      const c = open.closedBy;
+      const closure =
+        c.object !== name && Object.hasOwn(m.objects, c.object) ? m.objects[c.object] : undefined;
+      if (!closure) {
+        contract(
+          `${at}.open.closedBy.object`,
+          `"${c.object}" must be another object of this extension`,
+        );
+      } else {
+        for (const key of ["from", "until"] as const) {
+          if (!single(own(closure, c[key]), ["date"])) {
+            contract(
+              `${at}.open.closedBy.${key}`,
+              `"${c[key]}" must be a date field of ${c.object}`,
+            );
+          }
+        }
+      }
+    }
   }
 
   // The evidence a shift was worked: another object of this extension naming it, and who marked.

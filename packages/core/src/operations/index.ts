@@ -92,6 +92,7 @@ import { settingsOperations } from "./settings.ts";
 import { setupOperations } from "./setup.ts";
 import { staffingOperations } from "./staffing.ts";
 import { staffingFeedOperations } from "./staffing-feed.ts";
+import { staffingFreeOperations } from "./staffing-free.ts";
 import { staffingHoursOperations } from "./staffing-hours.ts";
 import { staffingLeaveOperations } from "./staffing-leave.ts";
 import { staffingPayOperations } from "./staffing-pay.ts";
@@ -211,6 +212,7 @@ export const coreOperations = [
   ...staffingFeedOperations,
   ...meCalendarFeedOperations,
   ...staffingHoursOperations,
+  ...staffingFreeOperations,
   ...staffingLeaveOperations,
   ...staffingPayOperations,
   ...staffingTimeOperations,

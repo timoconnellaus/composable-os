@@ -112,7 +112,7 @@ Create a record of an extension object (`<extension>.<object>`, see schema.objec
 | `createdAt` | string or null | yes |   |   |
 | `updatedAt` | string or null | yes |   |   |
 | `warnings` | array of object |   |   | A shift's warnings (ADR 0622): its person away or not qualified, or nobody on it. The write was made. |
-| `warnings[].code` | `"unavailable"`, `"not_qualified"`, `"uncovered"` | yes |   |   |
+| `warnings[].code` | `"unavailable"`, `"not_qualified"`, `"uncovered"`, `"outside_hours"`, `"client_busy"` | yes |   |   |
 | `warnings[].object` | string | yes |   |   |
 | `warnings[].id` | string | yes |   |   |
 | `warnings[].account` | string or null | yes |   |   |
@@ -568,7 +568,7 @@ Update field values of a record. On extension objects any writable field; on cor
 | `createdAt` | string or null | yes |   |   |
 | `updatedAt` | string or null | yes |   |   |
 | `warnings` | array of object |   |   | A shift's warnings (ADR 0622): its person away or not qualified, or nobody on it. The write was made. |
-| `warnings[].code` | `"unavailable"`, `"not_qualified"`, `"uncovered"` | yes |   |   |
+| `warnings[].code` | `"unavailable"`, `"not_qualified"`, `"uncovered"`, `"outside_hours"`, `"client_busy"` | yes |   |   |
 | `warnings[].object` | string | yes |   |   |
 | `warnings[].id` | string | yes |   |   |
 | `warnings[].account` | string or null | yes |   |   |

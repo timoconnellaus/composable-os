@@ -677,6 +677,11 @@ export interface StaffedDefinition {
   account?: "required" | undefined;
   /** Its title may name a client: off the roster for others, never offered (ADR 0761). */
   private?: boolean | undefined;
+  /**
+   * Booked at free times (ADRs 0762 and 0763): `length`, `step` and `rooms` are `kind.field`
+   * paths, `client` a field of the object, `closedBy.object` the closures' registry name.
+   */
+  open?: StaffedOpenDefinition | undefined;
   /** What shows a shift was worked (ADR 0627): `object` is the evidence object's registry name. */
   evidence?: { object: string; link: string; by: string } | undefined;
   /**
@@ -685,6 +690,16 @@ export interface StaffedDefinition {
    */
   timesFrom?: string | undefined;
   timesFromObject?: string | undefined;
+}
+
+/** The SDK's StaffedOpenSpec with the closures' registry name (ADRs 0762 and 0763). */
+export interface StaffedOpenDefinition {
+  length: { field: string };
+  step?: { field: string } | undefined;
+  rooms?: { field: string } | undefined;
+  client?: string | undefined;
+  closedBy?: { object: string; from: string; until: string } | undefined;
+  customer?: true | undefined;
 }
 
 /**
