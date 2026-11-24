@@ -85767,6 +85767,202 @@
       "pack": "deals"
     },
     {
+      "name": "x.forms.enter",
+      "description": "Enter answers on someone's behalf (a phone call, a paper form) or fill in a staff form (an incident report), for any published form. The submission is marked as entered by staff, and the person is found or made from the email answered, filling only their empty fields. Staff cannot tick a 'keep me updated' line for someone: only the person can. (Extension tool from Forms 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "formId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The form (forms.form record id)"
+          },
+          "answers": {
+            "propertyNames": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "description": "The answers by question key: text, email, phone and date as strings (a date YYYY-MM-DD), number and rating as numbers, a choice as a string or a list of strings, yes/no and a tick box as true or false. Leave out what was not answered.",
+            "type": "object",
+            "properties": {},
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "formId",
+          "answers"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "received": {
+            "type": "boolean",
+            "const": true,
+            "description": "The answers were sent: shown the same whatever the host's spam checks decided"
+          }
+        },
+        "required": [
+          "received"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "forms"
+    },
+    {
+      "name": "x.forms.markSpam",
+      "description": "Mark a submission as spam: it leaves the inbox and is kept in Spam. A person's act: the assistant may suggest it, and the suggestion waits for a person to approve it. Undo with notSpam. (Extension tool from Forms 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "submissionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The submission (forms.submission id)"
+          }
+        },
+        "required": [
+          "submissionId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "forms"
+    },
+    {
+      "name": "x.forms.move",
+      "description": "Move a submission in the inbox: new, in hand or done. Refused when the move is not one the inbox has (a spam submission is taken out with notSpam first), or when someone moved it meanwhile. (Extension tool from Forms 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "submissionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The submission (forms.submission id)"
+          },
+          "to": {
+            "type": "string",
+            "enum": [
+              "new",
+              "inHand",
+              "done"
+            ]
+          },
+          "from": {
+            "type": "string",
+            "enum": [
+              "new",
+              "inHand",
+              "done",
+              "spam"
+            ],
+            "description": "Only if it is still in this state: for a move two people may make at once"
+          }
+        },
+        "required": [
+          "submissionId",
+          "to"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "forms"
+    },
+    {
+      "name": "x.forms.notSpam",
+      "description": "Take a submission out of Spam: it is back in the inbox as new. A person's act: the assistant may suggest it, and the suggestion waits for a person to approve it. (Extension tool from Forms 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "submissionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The submission (forms.submission id)"
+          }
+        },
+        "required": [
+          "submissionId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "forms"
+    },
+    {
       "name": "x.leads.convert",
       "description": "Convert a lead into a deal: creates a deal for the lead's organisation, owned by the lead's owner and linked to the lead, in the given pipeline and stage (default: the default pipeline's first stage); adds the lead's person to the deal as a participant; and marks the lead converted with its deal and date. No data is copied: the deal points at the same person and organisation records. If the lifecycle extension is installed, the person's lifecycle stage moves to opportunity. Safe to run again after a failure (it finishes without a second deal); a converted lead cannot be converted again. (Extension tool from Leads 1.0.0.)",
       "risk": "write",

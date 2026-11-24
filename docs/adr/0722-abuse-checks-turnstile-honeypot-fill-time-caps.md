@@ -64,3 +64,9 @@ client's address.
 - A deployment opening a form to the public sets `TURNSTILE_SECRET_KEY` on cos-runner and puts the
   site key in its client app (`docs/deploying.md`, "Forms: Turnstile").
 - Turnstile with a real site key on a real hostname is not yet tried on a live host.
+
+## Amended 2026-11-24, stage 29 step 3 ([ADR 0726](0726-the-forms-pack-forms-submissions-and-who-reads-them.md))
+- The hourly cap is the form pack's setting when its form declares `intake.hourlyCap`: a number
+  setting the contract requires to be `personApproves`, so an AI's change waits for a person. Left
+  out or empty, 200. Forms' `hourlyCap` defaults to 200 (1 to 10,000). Spam retention is a setting
+  of step 7, with the purge.

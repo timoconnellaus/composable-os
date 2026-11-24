@@ -1,0 +1,30 @@
+{
+  "name": "@composable-os/pack-forms",
+  "version": "0.1.0",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "description": "Forms: forms a business builds and publishes, and the answers people send to them, kept as submissions in an inbox (stage 29, ADR 0726). Answers arrive only through the host's intake door (ADR 0720). Bundled as source into cos-runner.",
+  "composableOs": {
+    "optional": true,
+    "label": "Forms",
+    "description": "Enquiry, sign-up, survey, feedback and staff forms the business builds and publishes, with every answer in one inbox, linked to the person who sent it."
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@composable-os/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.5.1",
+    "@cloudflare/workers-types": "5.20261104.1",
+    "@composable-os/config": "workspace:*",
+    "typescript": "6.0.3",
+    "vitest": "5.1.0"
+  }
+}
