@@ -314,6 +314,7 @@
 - [jobChange.* operations](https://docs.composableos.dev/reference/operations/jobchange/): The core operations named jobChange.*
 - [journey.* operations](https://docs.composableos.dev/reference/operations/journey/): The core operations named journey.*
 - [judge.* operations](https://docs.composableos.dev/reference/operations/judge/): The core operations named judge.*
+- [location.* operations](https://docs.composableos.dev/reference/operations/location/): The core operations named location.*
 - [me.* operations](https://docs.composableos.dev/reference/operations/me/): The core operations named me.*
 - [media.* operations](https://docs.composableos.dev/reference/operations/media/): The core operations named media.*
 - [memory.* operations](https://docs.composableos.dev/reference/operations/memory/): The core operations named memory.*
@@ -331,6 +332,7 @@
 - [query.* operations](https://docs.composableos.dev/reference/operations/query/): The core operations named query.*
 - [record.* operations](https://docs.composableos.dev/reference/operations/record/): The core operations named record.*
 - [recurring.* operations](https://docs.composableos.dev/reference/operations/recurring/): The core operations named recurring.*
+- [rooms.* operations](https://docs.composableos.dev/reference/operations/rooms/): The core operations named rooms.*
 - [routine.* operations](https://docs.composableos.dev/reference/operations/routine/): The core operations named routine.*
 - [routineMail.* operations](https://docs.composableos.dev/reference/operations/routinemail/): The core operations named routineMail.*
 - [sample.* operations](https://docs.composableos.dev/reference/operations/sample/): The core operations named sample.*

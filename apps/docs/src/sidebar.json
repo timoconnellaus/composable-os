@@ -180,6 +180,36 @@
         ]
       },
       {
+        "label": "Forms",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "packs/forms"
+          },
+          {
+            "slug": "packs/forms/data-model"
+          },
+          {
+            "slug": "packs/forms/tools"
+          },
+          {
+            "slug": "packs/forms/permissions"
+          },
+          {
+            "slug": "packs/forms/screens"
+          },
+          {
+            "slug": "packs/forms/messages"
+          },
+          {
+            "slug": "packs/forms/settings"
+          },
+          {
+            "slug": "packs/forms/decisions"
+          }
+        ]
+      },
+      {
         "label": "Leads",
         "collapsed": true,
         "items": [
@@ -392,6 +422,30 @@
         ]
       },
       {
+        "label": "Finance",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "capabilities/finance"
+          },
+          {
+            "slug": "capabilities/finance/operations"
+          },
+          {
+            "slug": "capabilities/finance/permissions"
+          },
+          {
+            "slug": "capabilities/finance/behaviours"
+          },
+          {
+            "slug": "capabilities/finance/screens"
+          },
+          {
+            "slug": "capabilities/finance/decisions"
+          }
+        ]
+      },
+      {
         "label": "Client notes",
         "collapsed": true,
         "items": [
@@ -573,6 +627,9 @@
             "slug": "reference/operations/judge"
           },
           {
+            "slug": "reference/operations/location"
+          },
+          {
             "slug": "reference/operations/me"
           },
           {
@@ -622,6 +679,9 @@
           },
           {
             "slug": "reference/operations/recurring"
+          },
+          {
+            "slug": "reference/operations/rooms"
           },
           {
             "slug": "reference/operations/routine"

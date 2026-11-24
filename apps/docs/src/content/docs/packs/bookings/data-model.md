@@ -312,7 +312,8 @@ One dated class: made by a series, or a one-off. Members book its places; its re
       "scheduled",
       "done"
     ],
-    "only": "exclusive"
+    "only": "exclusive",
+    "title": "title"
   },
   "public": {
     "read": [

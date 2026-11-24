@@ -707,6 +707,9 @@ each with the host's **reference** (`cos:…`) so it is found again and never wr
 only a document the host posted, always approved by a person. No delete, no edit of a posted
 entry. Each accounting system is its own gatekeeper Worker that passes the contract's
 **conformance suite**; the fake books (`accounting-fake`) are for development and tests only.
+The connection is **the host's alone** (ADR 0881): only the host's own call (`callAsHost`,
+purpose `accounting`) reaches it, never a person, an AI, Code Mode or an extension
+(`accounting_host_only`).
 _Avoid_: connector, sync adapter
 
 ### Booking system contract
@@ -1012,6 +1015,22 @@ _Avoid_: build, artifact (for the bundle as a whole), package
 Which releases a deployment is offered: **stable** (`X.Y.Z` only) or **beta** (also `X.Y.Z-beta.N`).
 Set in Settings → Updates. See ADR 0161.
 
+### Location
+
+(stage 64)
+
+One place the business works from, inside the one organisation (ADR 0910): a gym's second studio,
+in trades a branch or depot. A base record (`location`, `core_location`) with a name, a short name
+for a badge, an address, its own time zone, whether the public is shown it, an optional drop-in
+price, and `open` or `closed` (a person closes one; the last open one never). Never a tenant. The
+public reads a public open location's name, short name, address and zone (ADR 0916).
+_Avoid_: site (a site is a client app), branch (except in trades), the location hint
+
+### Main location
+
+The first location, made by migration 1390 from the organisation's name and zone. Its zone is the
+organisation's (pay periods and the books) and changes only with it, in Settings → General.
+
 ### Location hint
 
 Where a new install asks Cloudflare to create its D1 database and R2 buckets (`oc` is Oceania),
@@ -1140,7 +1159,7 @@ as the write, for every actor (ADR 0404): `stages` (the **stage behaviour**) and
 **state machine**), which exist and share the **transition engine**; `capacity` (places, holds
 and claims, ADRs 0430 to 0433) and `sellable` (prices, sale rules and what a paid line grants,
 ADR 0435), which exist; `publishable` (a working copy and published versions, ADR 0446), whose
-half without a public exists; `recurring` (a weekly series that makes dated records, ADR 0500), capacity **claimants**
+half without a public exists; `recurring` (a series that makes dated records, weekly or every N weeks, months or years, ADRs 0500 and 0860), capacity **claimants**
 (ADR 0501, with waitlists, ADR 0520) and declared uniqueness (ADR 0502), which exist since stage
 31; `allowance` (ADR 0493), which exists since stage 32b; `staffed` (a shift and its time claim,
 ADR 0621), which exists since stage 45.
@@ -1511,9 +1530,12 @@ what made it (an order line, a record or a person), who and when. Never changed 
 
 (of a recurring schedule)
 
-A record that declares `recurring`: a weekly rule in local wall-clock time (weekdays, a time, a
+A record that declares `recurring`: a rule in local wall-clock time (weekdays, a time, a
 length, from and until dates, a zone) that makes dated records of another object ahead, up to its
-horizon (a timetable line makes its classes). Each record made is its **occurrence**, keyed on the
+horizon (a timetable line makes its classes). Weekly, or by its **interval rule** every N weeks
+on its weekdays, every N months on a day (the month's last when shorter) or every N years on a
+date, fixed on the calendar from its first date, never counted from when the last was done; a
+length may be in days (ADR 0860). Each record made is its **occurrence**, keyed on the
 series and its local date so it is made once. A copied field staff change on one occurrence (its
 coach) is its **field exception**: the series never writes that field again and still writes the
 rest; one whose time or state staff change is **detached** whole and the series' no more. **Follow
@@ -1947,6 +1969,19 @@ never is. A **buffer** (minutes kept free before or after) enters the claim. One
 time: not a capacity.
 _Avoid_: reservation, slot
 
+### Room calendar
+
+and **provisional** (stage 57, built in step 1: ADR 0844)
+
+The **room calendar** is every claim on the business's rooms in a range, whatever takes them (a
+class, an appointment, a hire, an event, a block), read from the one claim by a pack's tool
+(`rooms.week`, and `rooms.check` for one room at one time). Each shows its kind, a **title** its
+object declares (an appointment's service, never its client), its times with set-up and
+pack-down, and whether it is **provisional**: held, not yet firm (a hire before its deposit). A
+provisional claim refuses a clash as a firm one does. Someone on a fixed role sees only that a
+room is taken, and when. Nobody's name and no money are on it.
+_Avoid_: availability (Venue hire's tool over it), schedule, timetable (the classes')
+
 ### Buffer
 
 (stage 49, built in step 1: ADR 0760)
@@ -2228,7 +2263,7 @@ an optional trial): subscribed to, never put on an order (stage 32a, ADR 0485). 
 **membership plan** (`memberships.plan`) is the second: its subscription grants a membership
 (`sellable.recurring.grants`, ADR 0510).
 _Avoid_: plan alone (a hosted plan), product; "recurring" for it alone (the `recurring` behaviour
-is a timetable's weekly rule, ADR 0500)
+is a timetable's rule, ADRs 0500 and 0860)
 
 ### Free trial
 
