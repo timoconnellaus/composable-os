@@ -496,6 +496,9 @@ describe("the closed handler context (ADR 0413)", () => {
       // Stage 31a step 8 (ADR 0560): the host makes a drop-in booking held with its order.
       "order.startHeld",
       "order.view",
+      // Stage 49 step 4 (ADR 0763): free times read open hours, time off and the time and room
+      // claims, core tables, and answer only when someone is free.
+      "staffing.free",
       // Stage 31a (ADR 0504): it reads a booking whole and its class's rules, as the write does.
       "state.resolve",
       // Stage 32a (ADR 0485): the host calls the payments gatekeeper for the payer.

@@ -9,7 +9,8 @@
 // and works only once the business has switched recording on (Rostering's `recordsTime`,
 // declared in its `staffing.settings`). A person reads and changes only their own entries. The
 // start and finish of a clocked entry are the host's clock (`ctx.now`); a time in the request is
-// never read. Approval is step 2: a finished or entered entry waits for an approver.
+// never read. A finished or entered entry that matches its shift within the tolerance is approved
+// by the host (step 2, ADR 0851); the rest wait for an approver (operations/staffing-time-approve.ts).
 //
 // No note reaches the audit log (redacted) and no entry's times reach a notice to anyone else.
 import type { CoreDatabase } from "@composable-os/db";
@@ -29,6 +30,8 @@ import {
   changedOne,
   ENTRY_MAX_HOURS,
   entryById,
+  HOST,
+  hostApproves,
   inLockedPeriod,
   isoOf,
   itemsOf,
@@ -51,7 +54,7 @@ const note = z.string().max(500);
  * A time call: a shipped pack's tool, a person's own (never an AI acting for one, whatever is
  * granted), with recording switched on. Refused otherwise, saying nothing of any entry.
  */
-async function assertTimeCall(ctx: HandlerContext, name: string): Promise<void> {
+export async function assertTimeCall(ctx: HandlerContext, name: string): Promise<void> {
   await assertShippedToolRun(ctx, name);
   const tool = ctx.extension?.tool;
   if (tool?.humanOnly !== true || tool.calledBy?.actor !== "human") {
@@ -79,7 +82,10 @@ async function ownEntry(ctx: HandlerContext, id: string): Promise<StoredEntry> {
  * The entry exactly as it was read: every column a person's correction reads, not only its time
  * stamp (two corrections made in the same millisecond would both match that).
  */
-function unchanged(eb: ExpressionBuilder<CoreDatabase, "core_time_entry">, entry: StoredEntry) {
+export function unchanged(
+  eb: ExpressionBuilder<CoreDatabase, "core_time_entry">,
+  entry: StoredEntry,
+) {
   return eb.and([
     eb("id", "=", entry.id),
     eb("state", "=", entry.state),
@@ -90,12 +96,13 @@ function unchanged(eb: ExpressionBuilder<CoreDatabase, "core_time_entry">, entry
     eb("against_record", "is", entry.against_record),
     eb("note", "is", entry.note),
     eb("finish_missing", "=", entry.finish_missing),
+    eb("held", "is", entry.held),
     eb("updated_at", "=", entry.updated_at),
   ]);
 }
 
 /** An entry inside a locked pay period is never made or changed. */
-async function assertPeriodOpen(ctx: HandlerContext, seconds: number): Promise<void> {
+export async function assertPeriodOpen(ctx: HandlerContext, seconds: number): Promise<void> {
   if (await inLockedPeriod(ctx.db, seconds)) {
     throw new ConflictError(
       "This is inside a locked pay period, so nothing was changed. Whoever handles pay reopens the period first.",
@@ -105,7 +112,10 @@ async function assertPeriodOpen(ctx: HandlerContext, seconds: number): Promise<v
 }
 
 /** The organisation's zone, and a zone given for local times (its own, else the organisation's). */
-async function zones(ctx: HandlerContext, given?: string): Promise<{ org: string; zone: string }> {
+export async function zones(
+  ctx: HandlerContext,
+  given?: string,
+): Promise<{ org: string; zone: string }> {
   const org = (await loadGeneralSettings(ctx.db)).timezone;
   const zone = given ?? org;
   if (!isTimezone(zone)) throw new ValidationError(`${zone} is not a time zone`, { field: "zone" });
@@ -119,7 +129,7 @@ async function zones(ctx: HandlerContext, given?: string): Promise<{ org: string
  * finish is missing (`late`) is taken however long ago it started: otherwise an entry left open
  * past the setting's days could never be closed, and its person could record no time again.
  */
-async function checkEntered(
+export async function checkEntered(
   ctx: HandlerContext,
   starts: number,
   ends: number,
@@ -170,7 +180,7 @@ async function againstOf(
 
 // --- Shapes ---------------------------------------------------------------------------------------
 
-const entrySchema = z.object({
+export const entrySchema = z.object({
   id: z.string(),
   account: z.string(),
   state: z.enum(["open", "waiting", "approved", "rejected"]),
@@ -188,6 +198,15 @@ const entrySchema = z.object({
   finishMissing: z.boolean(),
   note: z.string().nullable(),
   rejectedWhy: z.string().nullable(),
+  approval: z
+    .object({ by: z.enum(["host", "approver"]), at: z.string() })
+    .nullable()
+    .describe("host: it matched its shift within the tolerance"),
+  recorded: z
+    .object({ startsAt: z.string(), endsAt: z.string(), breakMinutes: z.number().int() })
+    .nullable()
+    .describe("The times as recorded, when an approver approved it changed"),
+  reopenedWhy: z.string().nullable(),
 });
 
 const proposalSchema = z.object({
@@ -209,13 +228,13 @@ const proposalOf = (a: Against | null) =>
       }
     : null;
 
-async function itemOf(ctx: HandlerContext, id: string, row: StoredEntry) {
+export async function itemOf(ctx: HandlerContext, id: string, row: StoredEntry) {
   const [item] = await itemsOf(ctx.db, [{ ...row, id }]);
   return item as z.infer<typeof entrySchema>;
 }
 
 /** A stored row from what is about to be written (the answer is read before the batch commits). */
-function rowOf(values: Partial<StoredEntry> & Pick<StoredEntry, "id">, base?: StoredEntry) {
+export function rowOf(values: Partial<StoredEntry> & Pick<StoredEntry, "id">, base?: StoredEntry) {
   return {
     account_id: "",
     starts: 0,
@@ -235,6 +254,8 @@ function rowOf(values: Partial<StoredEntry> & Pick<StoredEntry, "id">, base?: St
     approved_by: null,
     approved_at: null,
     rejected_why: null,
+    held: null,
+    reopened_why: null,
     note: null,
     start_key: null,
     made_by: "",
@@ -243,6 +264,19 @@ function rowOf(values: Partial<StoredEntry> & Pick<StoredEntry, "id">, base?: St
     ...base,
     ...values,
   } as StoredEntry;
+}
+
+/**
+ * The state a finished entry lands in (ADR 0851): approved by the host when it matches its shift
+ * within the tolerance, otherwise waiting for an approver.
+ */
+async function finishedState(ctx: HandlerContext, row: StoredEntry) {
+  const { matchMinutes } = await timeSettings(ctx.db);
+  const guard = await hostApproves(ctx.db, row, matchMinutes);
+  if (!guard) return { state: "waiting" as const };
+  // In the write's batch: the shift's claim is still the one it matched.
+  ctx.write(guard);
+  return { state: "approved" as const, approved_by: HOST, approved_at: ctx.now };
 }
 
 // --- Start and finish ------------------------------------------------------------------------------
@@ -357,7 +391,8 @@ export const staffingTimeClockOut = defineOperation({
   name: "staffing.time.clockOut",
   description:
     "Tool-only (a shipped pack's tool): finish the entry you started, now (the host's clock), " +
-    "with the unpaid break minutes you took. It then waits for an approver. For an entry whose " +
+    "with the unpaid break minutes you took. Approved by the host when it matches your shift " +
+    "within the tolerance (5 minutes by default); otherwise it waits for an approver. For an entry whose " +
     "finish is missing (you forgot), enter the time you finished with staffing.time.edit " +
     "instead. A person's own act. Returns the entry.",
   input: z.object({
@@ -405,7 +440,7 @@ export const staffingTimeClockOut = defineOperation({
     const changes = {
       ends: now,
       break_minutes: breakMins,
-      state: "waiting" as const,
+      ...(await finishedState(ctx, { ...open, ends: now })),
       ...(input.note !== undefined ? { note: input.note || null } : {}),
       updated_at: ctx.now,
     };
@@ -436,7 +471,8 @@ export const staffingTimeEnter = defineOperation({
     "signal on a site): startsAt and endsAt, local date-times in zone (the organisation's if left " +
     "out), the unpaid break minutes, and what it was against (one of your own shifts, a job, or " +
     "null for other work). Up to the setting's days back (14 by default), never in a locked pay " +
-    "period, never overlapping another of your entries. It waits for an approver. A person's " +
+    "period, never overlapping another of your entries. Approved by the host when it matches " +
+    "your shift within the tolerance; otherwise it waits for an approver. A person's " +
     "own act. Returns the entry.",
   input: z.object({
     startsAt: localDateTime,
@@ -464,7 +500,7 @@ export const staffingTimeEnter = defineOperation({
     const against = await againstOf(ctx, input.against ?? null);
     await assertNoOverlap(ctx, account, starts, ends);
     const id = newId("timeEntry");
-    const values = {
+    const made = {
       id,
       account_id: account,
       starts,
@@ -475,12 +511,12 @@ export const staffingTimeEnter = defineOperation({
       against_object: against?.object ?? null,
       against_record: against?.id ?? null,
       how: "entered" as const,
-      state: "waiting" as const,
       note: input.note || null,
       made_by: account,
       created_at: ctx.now,
       updated_at: ctx.now,
     };
+    const values = { ...made, ...(await finishedState(ctx, rowOf(made))) };
     ctx.write(ctx.db.insertInto("core_time_entry").values(values));
     return { id, entry: await itemOf(ctx, id, rowOf(values)) };
   },
@@ -493,7 +529,8 @@ export const staffingTimeEdit = defineOperation({
     "(open, waiting or rejected): what it was against (null: other work), the break minutes, " +
     "the note, and for a finished entry its startsAt and endsAt (local date-times in zone). For " +
     "an open entry whose finish is missing, endsAt enters the time you finished. A rejected " +
-    "entry corrected waits for an approver again. Changing a clocked entry's times makes it " +
+    "entry corrected waits for an approver again (or is approved by the host when it now matches " +
+    "its shift). Changing a clocked entry's times makes it " +
     "entered. A person's own act. Returns the entry.",
   input: z.object({
     id: z.string().min(1).max(64),
@@ -556,7 +593,8 @@ export const staffingTimeEdit = defineOperation({
         : await againstOf(ctx, input.against);
     if (timesChanged) await assertNoOverlap(ctx, account, starts, ends, entry.id);
     const finished = ends !== null;
-    const changes = {
+    const retimed = timesChanged || breakMins !== entry.break_minutes;
+    const base = {
       starts,
       ends,
       break_minutes: breakMins,
@@ -567,11 +605,30 @@ export const staffingTimeEdit = defineOperation({
         : {}),
       // Times the person typed are not the host's clock.
       ...(timesChanged && entry.how === "clocked" ? { how: "entered" as const } : {}),
-      state: finished ? ("waiting" as const) : ("open" as const),
+      // Times the person rewrote on an approver's entry for them are theirs now, not the
+      // approver's: entered, made by them (ADR 0851), and still held for an approver.
+      ...(retimed && entry.how === "by_approver"
+        ? { how: "entered" as const, how_why: null, made_by: account }
+        : {}),
+      // The person's own correction is what they recorded: an earlier approval's change is not
+      // kept beside times it never saw.
+      ...(retimed
+        ? { recorded_starts: null, recorded_ends: null, recorded_break_minutes: null }
+        : {}),
+      // A finish the host had marked missing, entered afterwards, waits for an approver.
+      ...(finished && entry.finish_missing === 1
+        ? { held: entry.held ?? ("person" as const) }
+        : {}),
       finish_missing: finished ? 0 : entry.finish_missing,
       ...(entry.state === "rejected" ? { rejected_why: null } : {}),
       ...(input.note !== undefined ? { note: input.note || null } : {}),
       updated_at: ctx.now,
+    };
+    const changes = {
+      ...base,
+      ...(finished
+        ? await finishedState(ctx, rowOf({ ...base, id: entry.id }, entry))
+        : { state: "open" as const }),
     };
     // Guarded: an entry approved or changed meanwhile is left as it is, and the call fails
     // rather than answer a change that was not saved.
@@ -605,6 +662,14 @@ export const staffingTimeWithdraw = defineOperation({
     await assertTimeCall(ctx, "staffing.time.withdraw");
     const entry = await ownEntry(ctx, input.id);
     const missing = entry.state === "open" && entry.finish_missing === 1;
+    if (entry.held === "approver") {
+      // Sent back or reopened by an approver: corrected, never deleted and entered again for the
+      // host to approve on a match (ADR 0851).
+      throw new ConflictError(
+        "An approver has looked at this entry, so it is corrected rather than withdrawn.",
+        { rule: "time_held" },
+      );
+    }
     if (entry.state !== "waiting" && entry.state !== "rejected" && !missing) {
       throw new ConflictError(
         entry.state === "open"

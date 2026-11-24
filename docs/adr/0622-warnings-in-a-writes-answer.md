@@ -76,3 +76,9 @@ request is cancelled instead), `staffing.awayList` answers which rows came from 
 the business has a leave type `staffing.away` makes no new kind `leave` row: a person says `other`
 or `regular`, and leave is asked for. Rows already made stay as they are. See
 [ADR 0853](0853-leave-types-requests-the-balance-ledger-and-approved-leave-as-unavailability.md).
+
+## Amended 2026-11-24 (stage 49 step 4, ADR 0763)
+A shift booked at free times (`staffed.open`) adds two warnings for staff writes not yet ended:
+`outside_hours` (outside its person's open hours for its kind) and `client_busy` (its client has
+another live one at that time). A customer's or the public's write is answered with no warnings
+([ADR 0763](0763-the-customers-check-on-a-free-time.md)).

@@ -974,6 +974,9 @@ function staffedDefinition(
   const holder = declared.who.account
     ? own.find((f) => f.localName === declared.who.field)?.definition.to
     : undefined;
+  const timesFromObject = declared.timesFrom
+    ? own.find((f) => f.localName === declared.timesFrom)?.definition.to
+    : undefined;
   return {
     staffed: {
       ...declared,
@@ -982,6 +985,21 @@ function staffedDefinition(
         ...(declared.who.account ? { account: declared.who.account, object: holder } : {}),
       },
       live: [...declared.live],
+      ...(declared.open
+        ? {
+            open: {
+              ...declared.open,
+              ...(declared.open.closedBy
+                ? {
+                    closedBy: {
+                      ...declared.open.closedBy,
+                      object: `${object.extensionId}.${declared.open.closedBy.object}`,
+                    },
+                  }
+                : {}),
+            },
+          }
+        : {}),
       ...(declared.evidence
         ? {
             evidence: {
@@ -990,6 +1008,7 @@ function staffedDefinition(
             },
           }
         : {}),
+      ...(timesFromObject ? { timesFromObject } : {}),
     },
   };
 }

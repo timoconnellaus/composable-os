@@ -470,13 +470,15 @@ async function queueScrubShared(
 
   const activities = await ctx.db
     .selectFrom("core_activity as a")
-    .select(["a.id", "a.subject", "a.body", "a.payload", "a.body_ref"])
+    .select(["a.id", "a.subject", "a.body", "a.payload", "a.body_ref", "a.sections"])
     .where("a.id", "not in", jsonList(removed.activityIds))
     .where((eb) =>
       eb.or([
         sql<SqlBool>`a.id IN (SELECT l.activity_id FROM core_activity_links l
           WHERE l.object_type = ${object} AND l.record_id IN ${jsonList(recordIds)})`,
-        mentions(sql`coalesce(a.subject, '') || ' ' || coalesce(a.body, '') || ' ' || a.payload`),
+        mentions(
+          sql`coalesce(a.subject, '') || ' ' || coalesce(a.body, '') || ' ' || a.payload || ' ' || coalesce(a.sections, '')`,
+        ),
       ]),
     )
     .execute();
@@ -488,6 +490,16 @@ async function queueScrubShared(
     const subject = m.text(a.subject);
     const body = m.text(a.body);
     const payload = JSON.stringify(scrubJson(JSON.parse(a.payload), m).value);
+    // A note from a template keeps its text twice: the body made from it, and its sections
+    // (stage 56, ADR 0833). Both are scrubbed.
+    const sections =
+      a.sections === null
+        ? null
+        : JSON.stringify(
+            (JSON.parse(a.sections) as { key: string; label: string; text: string }[]).map(
+              (section) => ({ ...section, text: m.text(section.text) ?? "" }),
+            ),
+          );
     // A person erase drops the full email body in R2 rather than rewriting it: a body is mostly
     // about its sender and recipients (greetings, signatures, quoted replies) and names are not
     // matched in shared text, so a rewrite would leave them. So does an organisation erase when
@@ -502,6 +514,7 @@ async function queueScrubShared(
       subject === a.subject &&
       body === a.body &&
       payload === a.payload &&
+      sections === a.sections &&
       bodyRef === a.body_ref
     ) {
       continue;
@@ -509,7 +522,7 @@ async function queueScrubShared(
     ctx.write(
       ctx.db
         .updateTable("core_activity")
-        .set({ subject, body, payload, body_ref: bodyRef, updated_at: ctx.now })
+        .set({ subject, body, payload, sections, body_ref: bodyRef, updated_at: ctx.now })
         .where("id", "=", a.id),
     );
   }

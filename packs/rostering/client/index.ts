@@ -301,6 +301,8 @@ export function clockChange(day: RosterDay): string | null {
 export function warningLabel(code: StaffWarning["code"]): string {
   if (code === "unavailable") return "Away";
   if (code === "not_qualified") return "Not qualified";
+  if (code === "outside_hours") return "Outside open hours";
+  if (code === "client_busy") return "Client already booked";
   return "Nobody on it";
 }
 

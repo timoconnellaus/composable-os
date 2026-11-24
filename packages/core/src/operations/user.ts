@@ -412,6 +412,7 @@ export async function grantable(
     "stock:adjust": "Record opening stock and correct how many are on hand",
     "finance:read": "See the finance reports and download their files",
     "finance:close": "Close and reopen a month's finance figures",
+    "bookingSystem:manage": "Load the booking system's lists and link its people and coaches",
   };
   return [
     ...GRANTABLE_PERMISSIONS.map((permission) => ({

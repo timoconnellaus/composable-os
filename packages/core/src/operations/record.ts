@@ -95,14 +95,18 @@ import {
 import { type ChangeMarks, CREATED, type MarkSource } from "../routine-mail/marks.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import {
+  assertFollowerRoom,
   assertHolderTrashable,
   assertRosterRestore,
   assertRosterWrite,
+  followedTimeFields,
+  followersMoved,
   holderWritten,
   type StaffWarning,
   staffedReleased,
   staffedRestored,
   staffedWritten,
+  timesFollowed,
   warningsOf,
 } from "../staffing/index.ts";
 import { stockCounterInsert } from "../stock/index.ts";
@@ -133,7 +137,7 @@ export type RecordOutput = z.infer<typeof recordSchema>;
 
 /** A warning a write of a shift was made with (stage 45, ADR 0622): it was made, not refused. */
 export const staffWarningSchema = z.object({
-  code: z.enum(["unavailable", "not_qualified", "uncovered"]),
+  code: z.enum(["unavailable", "not_qualified", "uncovered", "outside_hours", "client_busy"]),
   object: z.string(),
   id: z.string(),
   account: z.string().nullable(),
@@ -346,6 +350,14 @@ async function prepareValues(
         rule: "intake_host_only",
       });
     }
+    // A shift's times that follow a record (ADR 0751: a crew place's visit) are copied from it by
+    // the host alone, whoever writes, the declaring extension's own tools included.
+    if (!hostCode && followedTimeFields(object).has(name)) {
+      throw new ValidationError(
+        `${object.name}.${name} is set by the host and cannot be written: it follows ${object.staffed?.timesFrom}`,
+        { field: name, rule: "times_follow" },
+      );
+    }
     if (!hostCode && hostFilled(object).has(name)) {
       throw new ValidationError(`${object.name}.${name} is set by the host and cannot be written`, {
         field: name,
@@ -464,6 +476,37 @@ function withHostValues(
 ) {
   const extra = hostValues(object, outcome.values);
   return [...prepared.filter((p) => !Object.hasOwn(outcome.values, p.field.name)), ...extra];
+}
+
+/** A create's defaults less the times a shift takes from its record (ADR 0751: a zone's). */
+function withoutFollowedDefaults(
+  object: ObjectDefinition,
+  given: Record<string, unknown>,
+  values: Record<string, unknown>,
+): Record<string, unknown> {
+  const followed = followedTimeFields(object);
+  if (!followed.size) return values;
+  return Object.fromEntries(
+    Object.entries(values).filter(([name]) => !followed.has(name) || Object.hasOwn(given, name)),
+  );
+}
+
+/**
+ * A shift whose times follow a record (ADR 0751) with that record's start, end, zone and kind in
+ * place of any given, read from the record its values name; other values are left as they are.
+ */
+async function followedValues(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  prepared: PreparedValue[],
+): Promise<PreparedValue[]> {
+  if (!object.staffed?.timesFrom) return prepared;
+  const followed = await timesFollowed(ctx, object, valuesOf(prepared));
+  if (!Object.keys(followed).length) return prepared;
+  return [
+    ...prepared.filter((p) => !Object.hasOwn(followed, p.field.name)),
+    ...hostValues(object, followed),
+  ];
 }
 
 /** A lifecycle outcome with more host values (the allowance's) on top of its own. */
@@ -748,8 +791,18 @@ export async function createRecord(
       ? await (await import("../orders/grants.ts")).handGrantValues(ctx, object, asked)
       : asked;
   // A slug left empty is made from the title; one given must be free (ADR 0442).
-  const withDefaults = await slugsForCreate(ctx, object, await applyDefaults(ctx, object, handed));
-  let prepared = await prepareValues(ctx, object, withDefaults, "create", options);
+  const withDefaults = await slugsForCreate(
+    ctx,
+    object,
+    withoutFollowedDefaults(object, handed, await applyDefaults(ctx, object, handed)),
+  );
+  let prepared = await followedValues(
+    ctx,
+    object,
+    await prepareValues(ctx, object, withDefaults, "create", options),
+  );
+  // At most so many shifts follow one record's times (ADR 0751), counted when one is made.
+  await assertFollowerRoom(ctx, object, null, valuesOf(prepared));
   assertOneOf(object, valuesOf(prepared));
   assertRuleValues(object, valuesOf(prepared));
   // A form's questions, with its anonymous flag and destination (ADR 0720).
@@ -1152,6 +1205,12 @@ export async function updateRecord(
   if (by !== "host") await assertMayChangeMustRead(ctx, object, id, asked, before.values);
   let prepared = await prepareValues(ctx, object, asked, "update", options);
   if (!prepared.length) return false;
+  // Pointed at another record its times follow: they are that record's now (ADR 0751).
+  const timesFrom = object.staffed?.timesFrom;
+  if (timesFrom && prepared.some((p) => p.field.name === timesFrom)) {
+    prepared = await followedValues(ctx, object, prepared);
+    await assertFollowerRoom(ctx, object, id, valuesOf(prepared));
+  }
   assertRuleValues(object, { ...before.values, ...valuesOf(prepared) });
   assertFormQuestions(object, { ...before.values, ...valuesOf(prepared) });
   await assertSlugsFree(ctx, object, id, valuesOf(prepared));
@@ -1228,7 +1287,21 @@ export async function updateRecord(
     by,
   );
   await holderWritten(ctx, object, id, before.values, { ...before.values, ...valuesOf(prepared) });
-  const own = prepared.filter((p) => p.own);
+  // Shifts whose times follow this record move with it (ADR 0751): its own statement copies them,
+  // after the host has read that none would put its person on two shifts at once.
+  // A write that also cancels them (its cascade) writes their new times after the cascade has
+  // moved them, so the copy never claims a time for a shift being cancelled (the review of #419).
+  const afterCascade = await followersMoved(
+    ctx,
+    object,
+    id,
+    before.values,
+    { ...before.values, ...valuesOf(prepared) },
+    by,
+    outcome.moved?.id,
+  );
+  const later = prepared.filter((p) => p.own && afterCascade.has(p.field.name));
+  const own = prepared.filter((p) => p.own && !afterCascade.has(p.field.name));
   if (own.length || !isCoreObject(object.name)) {
     const table = objectTableOf(object.name);
     if (table) {
@@ -1271,6 +1344,14 @@ export async function updateRecord(
   );
   // Records that follow this one's moves move with it, as the host, in this batch (ADR 0507).
   await moveFollowers(ctx, object, id, outcome.moved?.id);
+  if (later.length) {
+    ctx.write(
+      CompiledQuery.raw(
+        `UPDATE ${objectTableOf(object.name)} SET ${later.map((p) => `${p.column} = ?`).join(", ")} WHERE id = ? AND deleted_at IS NULL`,
+        [...later.map((p) => p.stored), id],
+      ),
+    );
+  }
   // A series' future records follow it; a closure cancels what it covers (ADR 0500).
   await seriesChanged(ctx, object, id, before.values, after, {
     confirm: options.recurringConfirm,

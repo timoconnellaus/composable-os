@@ -416,6 +416,18 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   (people with their memberships and passes; optionally the timetable), with column mapping and a
   dry run, and `match.ts` holds the matching-by-address rules. No named connector is planned (the
   owner's decision of 2026-11-24, ADR 0920).
+  The host's **copy** of a business's booking system is core's (`packages/core/src/outside/`,
+  migration 1410, ADR 0922), never a pack's: settings (one row, a human admin's), each loaded
+  `members` or `timetable` list with its export date and counts, and the outside people (kept only
+  while a member, holding a live pass, booked, or staff-linked), memberships, classes, bookings and
+  coaches, in no `rec_*` view. `outside/ingest.ts` reads any `BookingSystemSession` and plans one
+  set-based batch that replaces the copy of a kind (about 34 statements for a members list of
+  3,000 rows, 69 for 28 days of 15 classes); `outside/match.ts` links an outside person to exactly
+  one live Person by folded address, never merged and changing nothing on the Person, sends
+  ambiguous ones to To match, keeps nothing of an erased address or suppressed ref, and links
+  people later from `person.create`, `person.update`, `person.restore` and `import.csv.commit`.
+  `outside.status`, `outside.matches` and `outside.settings.get` read it with `bookingSystem:manage`; `outside.link` and `outside.unlink`
+  are a person's with it, and `outside.settings.update` a human admin's.
   Inbound webhooks and sync events land in `core_integration_event`; cos-runner's cron turns them
   into `webhook` and `syncEvent` automation triggers (ADR 0173), dropping private activities.
 - **Notification delivery** ([ADR 0172](adr/0172-notification-delivery.md)): cos-runner's minute
@@ -1291,7 +1303,8 @@ upserts, `UPDATE OR REPLACE` and id updates. A read before the write names the o
 series' generation makes a clashing date uncovered (kept as a field exception) rather than fail; a
 series change that would double-book on any date is refused naming the dates; a reconcile over
 shifts that clash and have not ended is refused (`staffed_conflict`; past clashes are skipped and reported, and admins are told of a refused shipped upgrade). A live shift must end after it starts, and a coach profile on shifts not yet ended cannot go to the Trash. Writes answer **warnings** they are
-made with (`unavailable`, `not_qualified`, `uncovered` within 14 days), which the audit row
+made with (`unavailable`, `not_qualified`, `uncovered` within 14 days; `outside_hours` and
+`client_busy` for a shift booked at free times, below), which the audit row
 records; `staffing.check` (tool-only) is the same answer first. Qualifications and unavailability
 are core tables in no `rec_*` view (`core_staff_qualification`, `core_staff_away`). Bookings' class
 declares it. **Claim margins** (stage 49 step 1, [ADR 0760](adr/0760-claim-margins-and-a-required-account-on-staffed.md)):
@@ -1305,6 +1318,16 @@ and by triggers on the shift's and the profile's tables (`rule: "staffed_account
 stays allowed. `private: true` ([ADR 0761](adr/0761-a-shift-that-names-a-client-kept-off-the-roster-and-the-feed.md))
 marks a shift whose title may name a client (an appointment): the roster shows it as its kind to
 anyone but its person and rosterers, clash answers name it by its kind, and it is never offered.
+**Times that follow** (stage 39 step 2, [ADR 0751](adr/0751-times-that-follow.md)): `timesFrom`
+names a required relation to another of the extension's objects (a crew place's visit) whose
+`starts`, `ends`, `zone` and `kind` fields, under the same names, the host copies onto the shift,
+whose own copies are read-only and written by nobody else. Triggers on the record's table copy them
+onto every shift naming it in the same statement, and on the shift's table copy them back on any
+other write, so the claims follow and `core_staff_time` refuses a move that would double-book
+anyone, whole; the record code reads each following shift first, naming the person, with each
+shift's roster rules, warnings and notices (a move that also cancels them writes their times after
+its cascade). At most 25 follow one record, refused when the 26th is made; a shift naming no record
+is refused by its trigger. Not with a series making the shift, nor a chain of them.
 
 **`occupies`** ([ADR 0765](adr/0765-occupies-the-claim-on-a-thing.md), `packages/core/src/occupies/`;
 stage 49 step 2). The time claim's twin for things: a record that declares
@@ -1382,7 +1405,32 @@ hours, each for every kind of work or for some kinds only (a service). Read by w
 fly (`openRanges`, `openCovers`), merged where they touch; "not open" is time off, never an entry.
 Set, changed and removed by the person or a rosterer through the tool-only `staffing.hours.set`,
 `.clear` and `.list`; an AI's change waits for a person; at most 50 entries a person;
-`user.deactivate` removes a leaver's. Free times (step 4) subtract time off, claims and rooms.
+`user.deactivate` removes a leaver's.
+
+**Free times and the customer's check** (stage 49 step 4, ADRs
+[0762](adr/0762-open-hours-and-free-times.md) and
+[0763](adr/0763-the-customers-check-on-a-free-time.md), `packages/core/src/staffing/free.ts`,
+`operations/staffing-free.ts`; no migration). A staffed object booked at free times declares
+`staffed.open: { length, step?, rooms?, client?, closedBy?, customer? }` (the kind's length, step
+and rooms as `kind.field` paths, the record's client, a closures object). `freeTimes` works out,
+at read time, the start times of one kind: on the step from the organisation's local midnight,
+where a qualified, active provider's open hours for the kind cover the whole shift, their time off
+does not touch it, its claim with the kind's margins overlaps none of theirs (what the batch has
+queued counted), the first of the kind's rooms is free (an unclaimed room always is), no closure
+covers its dates, the client has no live shift of the object over it, and for a customer or the
+public the create rules' window and staff-only flag allow it. Bounded to 31 days and 20 providers,
+in a fixed number of reads (the same for 31 days of 20 busy coaches as for one); answered by the tool-only
+`staffing.free`, open through a shipped pack's tool to staff, customers and the public (a
+customer's client is themselves or a live dependant; the public names nobody), never saying why a
+time is not free. **The customer's check** (`staffed.open.customer`): a customer's or the public's
+create or move of such a shift, by every door (the transition engine's place, and
+`assertCreateRules` for a record the host makes for them), must be on a time `freeTimes` answers
+for its provider, with the kind's length and exactly one of its free rooms, or none when it needs
+none (`conflict`, `rule: "not_free_time"`); the triggers still decide a race, and the client's own
+bookings are guarded at commit (`core_client_guard`, migration 1092). Staff writes are made with
+`outside_hours` and `client_busy` warnings instead. A customer's write of such a shift names its
+provider without being a rosterer's, and is answered with no staff warnings and tells the roster
+nobody.
 
 **Time entries** (stage 58 step 1, [ADR 0850](adr/0850-time-entries-the-hosts-clock-overlaps-refused-and-worked-on.md),
 `packages/core/src/staffing/time.ts`, `operations/staffing-time.ts`, migration 1270): the one
@@ -1396,7 +1444,23 @@ shape (as the claim's do), and a partial unique index one open entry per person.
 a person's own act on their own entries (`humanOnly`, a person, never an AI), working once the
 pack's `staffing.settings.recordsTime` is on. The minute cron (`staffing.due`) marks an entry left
 open past its shift's end and `finishMissingHours` (14 hours with no shift) finish missing and
-tells its person. Approval (step 2) and pay from approved entries (step 3) build on it.
+tells its person. Pay from approved entries (step 3) builds on it.
+
+**Differences and approval** (stage 58 step 2, [ADR 0851](adr/0851-differences-from-the-roster-and-approval-of-time.md),
+`staffing/time.ts` (`hostApproves`, `differencesOf`), `staffing/sets.ts` (`timeBasesOf`,
+`notWorkedOf`), `operations/staffing-time-approve.ts`, migration 1273): the host works out each
+entry's difference from its shift (whole minutes early or late at each end, against the shift's
+own time), unrostered time (a job, other work, a shift gone since), entries over 12 hours and the
+past shifts of people counted by time with nothing recorded (**not recorded**), set-based. An
+entry the person finishes or enters that matches their own live shift within the tolerance
+(Rostering's `staffing.settings.matchMinutes`, 5, 0 to 30) is approved by the host
+(`approved_by = 'host'`); the rest wait, and an entry held (`held`: an approver's entry for
+someone, a missing finish entered afterwards, sent back or reopened by an approver) is never
+approved by the host. The tool-only `staffing.time.waiting` and `differences`
+(an approver reads everyone's, a person their own), `approve` (up to 100, as is or changed, the
+recorded times kept beside), `reject` (with why), `reopen` (with why, while the period is open) and
+`enterFor` (an approver's entry for someone: it always waits) are a person's at the screen; the
+approvers are the rosterers, never deciding their own entries.
 
 **Pay periods** (stage 45 step 6, [ADR 0627](adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md),
 `packages/core/src/staffing/pay.ts`, `operations/staffing-pay.ts`, migration 0813): who is counted

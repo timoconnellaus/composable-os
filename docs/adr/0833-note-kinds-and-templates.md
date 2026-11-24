@@ -26,12 +26,16 @@ said what kind of note it is, where it starts, or how low it may go.
   this step is a Note (the migration sets it), and a note any path writes without one reads as a
   Note. **Note stays `staff` and is never retired** (a check constraint and the operations): it is
   the kind of the assistant's drafts (`activity.proposeNote`), imports and API writes that name
-  none, so a note written without a kind is read exactly as notes always were. A business that
+  none, so a note written without a kind is read exactly as notes always were. Its template never
+  has a required section (the operation, and triggers on `core_note_kind`), so a note written
+  without a kind, which has a body only, is never refused for it. A business that
   wants notes kept tighter adds a kind of its own.
 - **A note starts at its kind's level and is never below its lowest.** The level given, or the
   kind's own; `activity.log` and `.update` refuse one below the lowest (`note_below_kind`), even
   to an admin who may lower levels, and migration 1232's triggers refuse it to every writer,
-  against a kind changed meanwhile. A note moves only to a kind in use (`note_kind_retired`).
+  against a kind changed meanwhile. A note moves only to a kind in use (`note_kind_retired`), by
+  a person only (`note_kind_person`: a kind will decide evidence, step 7), and is held to the new
+  kind's template as a new note is; the old kind's sections leave it and its body stays.
   Evidence is copied from the kind at write and never taken away (a move to an evidence kind
   sets it; a move away keeps it).
 - **A template fills the note's body.** `sections` (each a template key and its text) replace
@@ -40,7 +44,9 @@ said what kind of note it is, where it starts, or how low it may go.
   body (timeline, search, summaries for a `staff` note) reads it unchanged. The filled sections are
   kept with their labels as written (`core_activity.sections`), so a note reads alone after its
   template changes. A kind with a required section takes its sections, not a body alone; a body
-  written over a template note later replaces its sections.
+  written over a template note later replaces its sections. The body made from sections is held to a
+  body's own limit (100,000 characters, `note_too_long`). An erase scrubs a surviving note's
+  sections as it scrubs its body (ADR 0320).
 - **Keeping the kinds is `notes:manage`'s** (`note.kinds.save`, `note.kinds.retire`), admins and
   grants. **A kind's levels are a person's**: an assistant or MCP client acting for someone who
   holds it may draft a kind's name and template wording (`note_kind_level_person` refuses any
@@ -70,4 +76,6 @@ beside sections refused; a note below its kind's lowest refused to an admin and 
 note written without a kind, or by a path naming none, reads as a Note; moving a note to another
 kind; a retired kind refused and its notes keeping it; `notes:manage` needed, keys kept across a
 label change; an AI's draft waiting for a person with `notes:manage`, and an AI refused any level
-and the retiring. `packages/client/test/notes.test.ts`: the composer's draft logic.
+and the retiring; and the review of PR #434's sequences: an erase scrubbing sections, Note refused
+a required section (operation and trigger), the body limit over sections, an AI refused a kind
+move, and a move leaving the old sections and meeting the new template. `packages/client/test/notes.test.ts`: the composer's draft logic.

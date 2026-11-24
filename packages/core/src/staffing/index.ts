@@ -13,6 +13,11 @@
 //   away over the shift (`unavailable`), not qualified for its kind (`not_qualified`), or a live
 //   shift left with nobody on it within the uncovered window (`uncovered`). The write's answer and
 //   its audit row carry them; `staffing.check` gives the same answer before the write.
+// - **Times that follow** (ADR 0751): a shift whose time is another record's (`staffed.timesFrom`,
+//   a crew place on a visit) takes its start, end, zone and kind from that record. Triggers copy
+//   them in the database (staffing/sql.ts); what is here fills them in a create's values, and reads
+//   before a write of the record that every shift following it stays free, naming whoever would be
+//   on two shifts at once, with each shift's warnings and notices.
 import { CompiledQuery, type Kysely, sql } from "kysely";
 import { addDaysToDate } from "../automations/cron.ts";
 import {
@@ -25,7 +30,7 @@ import { objectTableOf } from "../extensions/schema.ts";
 import { getObject, listObjects } from "../fields/index.ts";
 import type { ObjectDefinition, StaffedDefinition } from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
-import type { Mover } from "../records/transitions.ts";
+import { callerOf, type Mover } from "../records/transitions.ts";
 import {
   isoWeekday,
   localParts,
@@ -35,7 +40,7 @@ import {
 } from "../time/local.ts";
 import { orgReader, visibleSource } from "../visibility/index.ts";
 import { shiftRemoved, shiftWritten } from "./changes.ts";
-import { WEEKDAYS } from "./hours.ts";
+import { openCovers, WEEKDAYS } from "./hours.ts";
 import { kindObjectOf } from "./kinds.ts";
 import {
   actingAccount,
@@ -70,11 +75,13 @@ export interface Shift {
   /** Seconds kept free before and after it, read from its kind (ADR 0760); 0 without margins. */
   before: number;
   after: number;
+  /** A booked shift's client (`staffed.open.client`, ADR 0763), when it has one. */
+  client?: string | null;
 }
 
 /** A warning a write is made with (ADR 0622). */
 export interface StaffWarning {
-  code: "unavailable" | "not_qualified" | "uncovered";
+  code: "unavailable" | "not_qualified" | "uncovered" | "outside_hours" | "client_busy";
   object: string;
   id: string;
   account: string | null;
@@ -122,6 +129,14 @@ function batchOf(ctx: { write: object }): StaffBatch {
     batches.set(ctx.write, state);
   }
   return state;
+}
+
+/**
+ * The claims this batch has written (a claim) or released (null), by `object\u0000id`: free times
+ * read them over what is held (ADR 0763).
+ */
+export function queuedClaims(ctx: { write: object }): ReadonlyMap<string, Claim | null> {
+  return batchOf(ctx).claims;
 }
 
 /** Notes that this batch takes `offer` (ADR 0623): the person's write that follows is the take's. */
@@ -213,6 +228,7 @@ export async function shiftOf(
     kind,
     before: starts !== null && starts > now ? margins.before : 0,
     after: ends !== null && ends + margins.after > now ? margins.after : 0,
+    ...(def.open?.client ? { client: text(values[def.open.client]) } : {}),
   };
 }
 
@@ -436,6 +452,9 @@ export async function assertRosterWrite(
   by: Mover | undefined,
 ): Promise<void> {
   if (by === "host" || batchOf(ctx).taking) return;
+  // A customer booking a shift that is booked at free times names its provider: the customer's
+  // check decides that (a qualified provider, free then, ADR 0763), not who rosters.
+  if (by === "customer" && object.staffed?.open?.customer) return;
   const changes = (fields: readonly string[]) =>
     fields.filter((f) =>
       before === null
@@ -615,11 +634,15 @@ export async function staffedWritten(
     if (clash) throw await doubleBooked(ctx, object.name, id, claim, clash);
   }
   noteClaim(ctx, object.name, id, claim);
+  // A customer's or the public's booking of a shift booked at free times (ADR 0763) is answered
+  // with no staff warnings, and tells the roster nobody: a booked shift is never offered, and
+  // its provider hears from the pack's own messages.
+  const outside = callerOf(ctx).kind !== "staff" && object.staffed.open !== undefined;
   const changes = changesStaffing(object, before, after);
-  const warnings = changes ? await warningsFor(ctx, object, id, shift) : [];
+  const warnings = changes && !outside ? await warningsFor(ctx, object, id, shift) : [];
   batchOf(ctx).warnings.set(key(object.name, id), warnings);
   // Its open offer and who is told (ADRs 0623 and 0624), in this write's batch.
-  if (changes && !options.restore) {
+  if (changes && !options.restore && !outside) {
     const now = Math.floor(Date.parse(ctx.now) / 1000);
     await shiftWritten(ctx, {
       object,
@@ -712,6 +735,162 @@ export async function staffedRestored(
   if (!object.staffed) return;
   const values = await storedShiftValues(ctx, object, id);
   if (values) await staffedWritten(ctx, object, id, null, values, { restore: true });
+}
+
+// --- Times that follow (stage 39 step 2, ADR 0751) ----------------------------------------------
+
+/** At most this many shifts follow one record's times (a visit's crew), read before it moves. */
+export const TIMES_FOLLOWERS_MAX = 25;
+
+/**
+ * The fields of a shift whose times follow a record (`staffed.timesFrom`) that the host copies from
+ * it: its start, end, zone and kind. Nobody else writes them, the declaring pack's code included.
+ */
+export function followedTimeFields(object: ObjectDefinition): ReadonlySet<string> {
+  const def = object.staffed;
+  if (!def?.timesFrom) return new Set();
+  return new Set(
+    [def.starts, def.ends, def.zone, def.kind].filter((f): f is string => typeof f === "string"),
+  );
+}
+
+/**
+ * The values a shift whose times follow a record takes from the record its `values` name (ADR
+ * 0751), as that record holds them (in or out of the Trash), or nothing when they name none.
+ */
+export async function timesFollowed(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  values: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const def = object.staffed;
+  const parent = def?.timesFromObject ? getObject(def.timesFromObject) : undefined;
+  const table = parent ? objectTableOf(parent.name) : undefined;
+  const id = def?.timesFrom ? text(values[def.timesFrom]) : null;
+  if (!parent || !table || id === null) return {};
+  const fields = [...followedTimeFields(object)];
+  const columns = fields.map((f) => parent.fields.find((x) => x.name === f)?.column);
+  if (columns.some((c) => !c)) return {};
+  const row = (await (ctx.db as AnyDb)
+    .selectFrom(table)
+    .select(columns.map((c, i) => `${c} as f${i}`))
+    .where("id", "=", id)
+    .executeTakeFirst()) as Record<string, unknown> | undefined;
+  if (!row) return {};
+  return Object.fromEntries(fields.map((f, i) => [f, row[`f${i}`] ?? null]));
+}
+
+/**
+ * A shift whose times follow a record, made or pointed at one (ADR 0751): refused when that record
+ * already has TIMES_FOLLOWERS_MAX shifts of this object following it, so no record gets into a
+ * state whose time cannot change (the review of PR #419).
+ */
+export async function assertFollowerRoom(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string | null,
+  values: Record<string, unknown>,
+): Promise<void> {
+  const def = object.staffed;
+  const parent = def?.timesFrom ? text(values[def.timesFrom]) : null;
+  const table = objectTableOf(object.name);
+  const link = object.fields.find((f) => f.name === def?.timesFrom)?.column;
+  if (!def || parent === null || !table || !link) return;
+  let query = (ctx.db as AnyDb)
+    .selectFrom(table)
+    .select("id")
+    .where(link, "=", parent)
+    .where("deleted_at", "is", null);
+  if (id !== null) query = query.where("id", "!=", id);
+  const rows = await query.limit(TIMES_FOLLOWERS_MAX).execute();
+  if (rows.length >= TIMES_FOLLOWERS_MAX) {
+    const parentLabel = def.timesFromObject
+      ? (getObject(def.timesFromObject)?.label ?? "This record")
+      : "This record";
+    throw new ConflictError(
+      `${parentLabel} already has ${TIMES_FOLLOWERS_MAX} ${(object.plural ?? "shifts").toLowerCase()}, the most whose times can follow it`,
+      { rule: "times_follow_too_many", object: object.name },
+    );
+  }
+}
+
+/**
+ * A record that shifts follow the times of (a visit) written with other times, a zone or a kind
+ * (ADR 0751). The triggers copy them onto every shift naming it in the record's own statement;
+ * this reads first, for each shift not in the Trash, what that copy does: a move that would put
+ * one person on two overlapping shifts is refused whole, naming them (`double_booked`); a shift
+ * that has started is moved only by someone who rosters, as its own times would be; each shift's
+ * warnings join the record's answer, and its person is told, as for a shift moved by hand. More
+ * than TIMES_FOLLOWERS_MAX shifts following one record refuses the write.
+ */
+export async function followersMoved(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string,
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+  by: Mover,
+  /** The state this write moves the record into, when it moves: its cascade runs in the batch. */
+  movedTo?: string,
+): Promise<ReadonlySet<string>> {
+  // The fields to write after this write's cascade: shifts it takes out of their live states would
+  // otherwise take the new time, and claim it, before the cascade moves them.
+  const afterCascade = new Set<string>();
+  for (const follower of listObjects()) {
+    const def = follower.staffed;
+    if (!def?.timesFrom || def.timesFromObject !== object.name) continue;
+    const fields = [...followedTimeFields(follower)];
+    if (fields.every((f) => same(before[f], after[f]))) continue;
+    const table = objectTableOf(follower.name);
+    const link = follower.fields.find((f) => f.name === def.timesFrom)?.column;
+    if (!table || !link) continue;
+    const rows = (await (ctx.db as AnyDb)
+      .selectFrom(table)
+      .select("id")
+      .where(link, "=", id)
+      .where("deleted_at", "is", null)
+      .orderBy("id")
+      .limit(TIMES_FOLLOWERS_MAX + 1)
+      .execute()) as { id: string }[];
+    if (rows.length > TIMES_FOLLOWERS_MAX) {
+      throw new ConflictError(
+        `${object.label} has more than ${TIMES_FOLLOWERS_MAX} ${(follower.plural ?? "shifts").toLowerCase()} whose times follow it: remove some before changing its time`,
+        { rule: "times_follow_too_many", object: follower.name },
+      );
+    }
+    const copied = Object.fromEntries(fields.map((f) => [f, after[f] ?? null]));
+    // The state cascade of this same write (ADR 0507): a shift it moves out of its live states
+    // claims nothing at the new time, and its own move tells its person (the review of PR #419).
+    const follows = follower.states?.follows;
+    const cascade =
+      movedTo && follows && follows.relation === def.timesFrom ? follows.when[movedTo] : undefined;
+    const warnings: StaffWarning[] = [];
+    for (const row of rows) {
+      const values = await storedShiftValues(ctx, follower, row.id, true);
+      if (!values) continue;
+      const next = { ...values, ...copied };
+      const stateField = follower.states?.field;
+      const state = stateField ? values[stateField] : undefined;
+      if (cascade && stateField && typeof state === "string" && follows?.from.includes(state)) {
+        if (!def.live.includes(cascade)) {
+          for (const f of fields) if (!same(before[f], after[f])) afterCascade.add(f);
+          continue;
+        }
+        next[stateField] = cascade;
+      }
+      // Every rule a write of the shift's own fields meets (ADR 0626): a started shift's times, the
+      // checklist its kind carries, and whatever is added there later (the review of PR #419).
+      await assertRosterWrite(ctx, follower, values, next, by);
+      await staffedWritten(ctx, follower, row.id, values, next, { by });
+      warnings.push(...warningsOf(ctx, follower.name, row.id));
+    }
+    if (warnings.length) {
+      const k = key(object.name, id);
+      const batch = batchOf(ctx).warnings;
+      batch.set(k, [...(batch.get(k) ?? []), ...warnings]);
+    }
+  }
+  return afterCascade;
 }
 
 /** A shift as stored, with what it is and whether it is in the Trash (the offers read it). */
@@ -1289,6 +1468,58 @@ export async function warningsFor(
     out.push(
       warn("not_qualified", `${name} is not marked as qualified for this kind of ${label}.`),
     );
+  }
+  // A booked shift staff make outside its person's open hours, or over its client's own (ADR
+  // 0763): made, and said. A customer's is refused instead (staffing/free.ts).
+  out.push(...(await bookedWarnings(ctx, object, id, shift, name, warn)));
+  return out;
+}
+
+/** The `outside_hours` and `client_busy` warnings of a booked shift not yet ended (ADR 0763). */
+async function bookedWarnings(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string,
+  shift: Shift,
+  name: string,
+  warn: (code: StaffWarning["code"], message: string) => StaffWarning,
+): Promise<StaffWarning[]> {
+  const def = object.staffed;
+  const now = Math.floor(Date.parse(ctx.now) / 1000);
+  const { starts, ends, account } = shift;
+  if (!def?.open || !account || starts === null || ends === null || !(ends > starts)) return [];
+  if (ends <= now) return [];
+  const out: StaffWarning[] = [];
+  const label = object.label.toLowerCase();
+  const kindObject = kindObjectOf(object);
+  const hours = await ctx.db
+    .selectFrom("core_staff_hours")
+    .selectAll()
+    .where("account_id", "=", account)
+    .execute();
+  const kind = shift.kind && kindObject ? { object: kindObject, id: shift.kind } : undefined;
+  if (!openCovers(hours, starts, ends, kind)) {
+    out.push(warn("outside_hours", `This ${label} is outside ${name}'s open hours.`));
+  }
+  const table = objectTableOf(object.name);
+  const clientCol = object.fields.find((f) => f.name === def.open?.client)?.column;
+  const column = (f: string | undefined) => object.fields.find((x) => x.name === f)?.column;
+  const startsCol = column(def.starts);
+  const endsCol = column(def.ends);
+  const stateCol = column(object.states?.field);
+  if (shift.client && table && clientCol && startsCol && endsCol && stateCol) {
+    const s = `CAST(strftime('%s', ${startsCol}) AS INTEGER)`;
+    const e = `CAST(strftime('%s', ${endsCol}) AS INTEGER)`;
+    const busy = await sql
+      .raw<{ id: string }>(
+        `SELECT id FROM ${table} WHERE ${clientCol} = ${literal(shift.client)} AND deleted_at IS NULL ` +
+          `AND ${stateCol} IN (${def.live.map(literal).join(", ")}) AND id != ${literal(id)} ` +
+          `AND ${s} < ${ends} AND ${e} > ${starts} LIMIT 1`,
+      )
+      .execute(ctx.db);
+    if (busy.rows.length) {
+      out.push(warn("client_busy", `The client already has another ${label} at that time.`));
+    }
   }
   return out;
 }

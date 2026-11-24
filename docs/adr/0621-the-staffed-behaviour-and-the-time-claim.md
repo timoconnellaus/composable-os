@@ -132,3 +132,10 @@ and after it (`claimBefore`, `claimAfter`, read from its kind), which widen its 
 on it (migration 1091); classes declare none, so back to back stays allowed. A shift may also
 require an account (`account: "required"`): one naming a profile with no account is refused while
 it has not ended. See [ADR 0760](0760-claim-margins-and-a-required-account-on-staffed.md).
+
+## Amended 2026-11-24 (stage 39 step 2, ADR 0751)
+A shift's times may be another record's: `timesFrom` names a relation to a record of the same
+extension (a crew place's visit) whose start, end, zone and kind the host copies onto it, by
+triggers on both tables, so the claim of every crew place follows its visit and a move that would
+double-book anyone fails whole, named by the read before the write. See
+[ADR 0751](0751-times-that-follow.md).

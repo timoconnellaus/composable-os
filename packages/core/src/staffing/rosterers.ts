@@ -40,7 +40,13 @@ const STAFF_ACTORS: ReadonlySet<string> = new Set(["human", "assistant", "mcp"])
  * The staff account a call is for: in a pack tool's run, the account the tool was called for (the
  * pipeline's verified caller); otherwise the calling account itself.
  */
-export function actingAccount(ctx: Pick<HandlerContext, "actor" | "extension" | "user">): string {
+export function actingAccount(
+  ctx: Pick<HandlerContext, "actor" | "extension" | "user"> &
+    Partial<Pick<HandlerContext, "onBehalfOf">>,
+): string {
+  // The host writing for a customer or the public (ADR 0426): no staff account acts, and the
+  // context has no actor to read; its user is the caller's stand-in.
+  if (ctx.onBehalfOf && ctx.onBehalfOf.kind !== "staff") return ctx.user.id;
   const tool = ctx.extension?.tool;
   if (ctx.actor === "extension" && tool?.calledBy) return tool.calledBy.account;
   return ctx.user.id;
@@ -70,6 +76,7 @@ interface StaffingDeclaration {
     recordsTime?: string;
     enterDays?: string;
     finishMissingHours?: string;
+    matchMinutes?: string;
   };
 }
 
@@ -82,6 +89,7 @@ const SETTING_KEYS = [
   "recordsTime",
   "enterDays",
   "finishMissingHours",
+  "matchMinutes",
 ] as const;
 
 /** The installed, active, shipped packs that declare the roster's rules (ADR 0626). */
@@ -309,6 +317,8 @@ export async function rosterNumbers(db: Kysely<CoreDatabase>): Promise<RosterNum
 export const DEFAULT_ENTER_DAYS = 14;
 /** Hours after its shift's end an open entry is marked finish missing unless a setting says. */
 export const DEFAULT_FINISH_MISSING_HOURS = 4;
+/** Minutes an entry may differ from its shift and still match it unless a setting says (ADR 0851). */
+export const DEFAULT_MATCH_MINUTES = 5;
 
 /** Recording time (stage 58, ADR 0850): whether staff record it, and its numbers. */
 export interface TimeSettings {
@@ -316,6 +326,8 @@ export interface TimeSettings {
   recordsTime: boolean;
   enterDays: number;
   finishMissingHours: number;
+  /** The tolerance: an entry within it at both ends matches its shift (0 to 30 minutes). */
+  matchMinutes: number;
 }
 
 /**
@@ -330,10 +342,11 @@ export async function timeSettings(db: Kysely<CoreDatabase>): Promise<TimeSettin
       recordsTime: false,
       enterDays: DEFAULT_ENTER_DAYS,
       finishMissingHours: DEFAULT_FINISH_MISSING_HOURS,
+      matchMinutes: DEFAULT_MATCH_MINUTES,
     };
   }
   const values = await extensionSettingValues(db, declared.extension);
-  const { recordsTime, enterDays, finishMissingHours } = declared.settings;
+  const { recordsTime, enterDays, finishMissingHours, matchMinutes } = declared.settings;
   return {
     recordsTime: recordsTime ? values[recordsTime] === true : false,
     enterDays: bounded(enterDays ? values[enterDays] : undefined, 0, 62, DEFAULT_ENTER_DAYS),
@@ -342,6 +355,12 @@ export async function timeSettings(db: Kysely<CoreDatabase>): Promise<TimeSettin
       1,
       24,
       DEFAULT_FINISH_MISSING_HOURS,
+    ),
+    matchMinutes: bounded(
+      matchMinutes ? values[matchMinutes] : undefined,
+      0,
+      30,
+      DEFAULT_MATCH_MINUTES,
     ),
   };
 }
@@ -392,7 +411,11 @@ export async function queueNotice(ctx: HandlerContext, notice: StaffNotice): Pro
       link: notice.link ?? null,
       ...(notice.dedupeKey ? { dedupeKey: notice.dedupeKey } : {}),
       ...(notice.humanOnly ? { humanOnly: true } : {}),
-      source: { actor: ctx.actor, userId: me },
+      // The host writing for a customer or the public has no actor to read (ADR 0426).
+      source: {
+        actor: ctx.onBehalfOf && ctx.onBehalfOf.kind !== "staff" ? ctx.onBehalfOf.kind : ctx.actor,
+        userId: me,
+      },
     },
     ctx.now,
   );

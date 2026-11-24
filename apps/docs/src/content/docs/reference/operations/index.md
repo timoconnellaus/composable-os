@@ -63,6 +63,7 @@ Every operation in the core registry, grouped by the first part of its name. Any
 - [`order`](/reference/operations/order/)
 - [`organisation`](/reference/operations/organisation/)
 - [`outbound`](/reference/operations/outbound/)
+- [`outside`](/reference/operations/outside/)
 - [`person`](/reference/operations/person/)
 - [`personCode`](/reference/operations/personcode/)
 - [`plan`](/reference/operations/plan/)

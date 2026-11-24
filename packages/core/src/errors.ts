@@ -399,6 +399,14 @@ export function toOperationError(error: unknown): OperationError {
       rule: "room_taken",
     });
   }
+  // One client's booked shift over another of theirs that a batch committed meanwhile (migration
+  // 1092, ADR 0763): the read before the write saw it free.
+  if (message.includes("core_client_busy")) {
+    return new ConflictError(
+      "That time is not free. Nothing was changed: choose another free time.",
+      { rule: "not_free_time" },
+    );
+  }
   // An offer of a shift left `open` meanwhile (migration 0812, ADR 0623): taken by someone else a
   // moment before, withdrawn, cancelled or lapsed. Of the writes racing for it exactly one landed.
   if (message.includes("core_staff_offer_closed")) {
@@ -596,6 +604,14 @@ export function toOperationError(error: unknown): OperationError {
     return new ValidationError("A shift must end after it starts, so nothing was changed.", {
       rule: "staffed_time",
     });
+  }
+  // A shift whose times follow a record naming none that exists (ADR 0751), written by a path
+  // that does not check first: it would keep whatever times it was given.
+  if (message.includes("core_staff_times_no_record")) {
+    return new ValidationError(
+      "This shift's times follow a record it does not name, so nothing was changed.",
+      { rule: "times_follow" },
+    );
   }
   // A live shift that requires an account naming a profile that holds none, or a profile left
   // without one under such a shift (ADR 0760), by a path that does not check first.

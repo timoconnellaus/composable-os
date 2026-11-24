@@ -69,6 +69,7 @@ import { notificationOperations } from "./notification.ts";
 import { notificationDeliveryOperations } from "./notification-delivery.ts";
 import { orderOperations } from "./order.ts";
 import { organisationOperations } from "./organisation.ts";
+import { outsideOperations } from "./outside.ts";
 import { personOperations } from "./person.ts";
 import { personCodeOperations } from "./person-code.ts";
 import { personLinkOperations } from "./person-link.ts";
@@ -92,11 +93,13 @@ import { settingsOperations } from "./settings.ts";
 import { setupOperations } from "./setup.ts";
 import { staffingOperations } from "./staffing.ts";
 import { staffingFeedOperations } from "./staffing-feed.ts";
+import { staffingFreeOperations } from "./staffing-free.ts";
 import { staffingHoursOperations } from "./staffing-hours.ts";
 import { staffingLeaveOperations } from "./staffing-leave.ts";
 import { staffingPayOperations } from "./staffing-pay.ts";
 import { staffingScreenOperations } from "./staffing-screens.ts";
 import { staffingTimeOperations } from "./staffing-time.ts";
+import { staffingTimeApproveOperations } from "./staffing-time-approve.ts";
 import { stateResolveOperations } from "./state-resolve.ts";
 import { stockOperations } from "./stock.ts";
 import { subscriptionOperations } from "./subscription.ts";
@@ -211,14 +214,17 @@ export const coreOperations = [
   ...staffingFeedOperations,
   ...meCalendarFeedOperations,
   ...staffingHoursOperations,
+  ...staffingFreeOperations,
   ...staffingLeaveOperations,
   ...staffingPayOperations,
   ...staffingTimeOperations,
+  ...staffingTimeApproveOperations,
   ...staffingScreenOperations,
   ...screenOperations,
   ...checklistOperations,
   ...checklistDayOperations,
   ...financeOperations,
+  ...outsideOperations,
   ...allowanceOperations,
   ...waitlistOperations,
   ...agreementOperations,

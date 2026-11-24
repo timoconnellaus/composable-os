@@ -48,3 +48,12 @@ delete an author's note and an admin can; raising by the author, lowering refuse
 `notes:manage` and allowed to an admin, lowering a sensitive note refused with `notes:manage`
 alone; a note about two People is refused above `staff`; an AI actor cannot write a kept note,
 change a level, delete a note or set who looks after whom.
+
+## Amendment, 2026-11-24 (stage 56 step 2, ADR 0833)
+One exception to "nothing for an AI actor", which the spec asks for: an assistant or MCP client
+acting for an account that holds `notes:manage` may **draft** a kind of note's name and template
+(`note.kinds.save`). Its call always waits for review (`alwaysReview`), the adjudicator never
+approves it, and `approval.approve` applies it only for a person who holds `notes:manage`
+themselves. It never sets or changes a kind's levels (`note_kind_level_person`), never retires one,
+and gains nothing else: it still reads no `coaches` or `sensitive` note, and moving a note to
+another kind is a person's act (`note_kind_person`), as changing its level is.

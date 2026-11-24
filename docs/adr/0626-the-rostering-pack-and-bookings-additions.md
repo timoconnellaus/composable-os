@@ -172,3 +172,8 @@ classes are steps 6 and 7's.
 The roster shows a shift whose title may name a client (`staffed.private`, an appointment) as its
 kind's name to anyone but its own person and those who roster. See
 [ADR 0761](0761-a-shift-that-names-a-client-kept-off-the-roster-and-the-feed.md).
+
+## Amended 2026-11-24 (stage 49 step 4, ADR 0763)
+A customer booking a shift that is booked at free times (`staffed.open.customer`) names its
+provider without being a rosterer: the customer's check decides it
+([ADR 0763](0763-the-customers-check-on-a-free-time.md)).

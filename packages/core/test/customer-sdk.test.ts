@@ -214,6 +214,8 @@ describe("the generic writes are for tools only", () => {
       "order.startHeld",
       "public.get",
       "public.list",
+      // Stage 49 step 4 (ADR 0763): free times, from a pack's tool (Bookings' freeTimes).
+      "staffing.free",
       // Stage 31a (ADR 0504): the dry run of a requested move (a member's cancel).
       "state.resolve",
     ]);

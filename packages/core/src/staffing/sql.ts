@@ -21,6 +21,14 @@
 // a change of its minutes for the shifts that have not ended (by the database's clock: history is
 // never refused). A shift that requires an account (`staffed.account: "required"`) and names a
 // profile holding none is refused while it has not ended, on its table and on the profile's.
+//
+// Times that follow (stage 39 step 2, ADR 0751): a shift whose time is another record's (a crew
+// place on a visit, `staffed.timesFrom`) has its start, end, zone and kind copied from that record
+// by triggers: on the record's table, an insert (a REPLACE too) or a change of those columns
+// copies them onto every shift naming it, in the same statement, so the shifts' own triggers
+// derive their claims and core_staff_time refuses the whole statement if one person would be on
+// two shifts at once; on the shift's table, an insert or a write of its link or its own times
+// copies them from the record again (a path that wrote them some other way is put right).
 import { CompiledQuery } from "kysely";
 import { ident } from "../extensions/naming.ts";
 
@@ -50,6 +58,13 @@ export interface StaffedTables {
     | undefined;
   /** A live shift with a person must have an account (ADR 0760): only with `account`. */
   required?: boolean | undefined;
+  /**
+   * The record whose time this shift is (ADR 0751): the shift's relation column naming it, that
+   * record's table, and the columns copied, each as [the shift's, the record's].
+   */
+  times?:
+    | { link: string; table: string; columns: readonly (readonly [string, string])[] }
+    | undefined;
 }
 
 const seconds = (column: string) => `CAST(strftime('%s', r.${ident(column)}) AS INTEGER)`;
@@ -132,7 +147,7 @@ export function deriveClaims(t: StaffedTables, where: string): string {
 
 /** The trigger names one staffed object owns: on its table, its account's and its kind's. */
 function staffedTriggerNames(
-  t: Pick<StaffedTables, "table" | "account" | "margins" | "required">,
+  t: Pick<StaffedTables, "table" | "account" | "margins" | "required" | "times">,
 ): string[] {
   return [
     `${t.table}__staffed_ins`,
@@ -148,7 +163,15 @@ function staffedTriggerNames(
     ...payLockTriggerNames(t),
     ...marginTriggerNames(t),
     ...requiredTriggerNames(t),
+    ...timesTriggerNames(t),
   ];
+}
+
+/** The triggers copying a shift's times from its record (ADR 0751): on its table and the record's. */
+function timesTriggerNames(t: Pick<StaffedTables, "table" | "times">): string[] {
+  if (!t.times) return [];
+  const on = `${t.times.table}__times_${t.table}`;
+  return [`${t.table}__times_ins`, `${t.table}__times_upd`, `${on}_ins`, `${on}_upd`];
 }
 
 /** The triggers following a kind's minutes (ADR 0760), on the kind's table. */
@@ -247,7 +270,7 @@ function createPayLockTriggers(t: StaffedTables): string[] {
 
 /** DROP TRIGGER statements for an object's triggers (safe when they do not exist). */
 export function dropStaffedTriggers(
-  t: Pick<StaffedTables, "table" | "account" | "margins" | "required">,
+  t: Pick<StaffedTables, "table" | "account" | "margins" | "required" | "times">,
 ): string[] {
   return staffedTriggerNames(t).map((name) => `DROP TRIGGER IF EXISTS ${ident(name)}`);
 }
@@ -326,6 +349,63 @@ export function createStaffedTriggers(t: StaffedTables): string[] {
     ...createPayLockTriggers(t),
     ...createMarginTriggers(t),
     ...createRequiredTriggers(t),
+    ...createTimesTriggers(t),
+  ];
+}
+
+/**
+ * Times that follow (ADR 0751). On the record's table (a visit): inserted (a REPLACE too) or given
+ * other times, a zone or a kind, its values are copied onto every shift naming it, in or out of the
+ * Trash, in that statement; each shift's own triggers then derive its claim, and core_staff_time's
+ * refuse the whole statement when one would overlap another of its person's. On the shift's table:
+ * inserted, pointed at another record, or its own copies written by some other path, they are
+ * copied from its record again. Only rows that differ are written, so the two never loop (and D1
+ * runs with recursive triggers off).
+ */
+function createTimesTriggers(t: StaffedTables): string[] {
+  if (!t.times) return [];
+  const [ins, upd, parentIns, parentUpd] = timesTriggerNames(t).map(ident);
+  const shift = ident(t.table);
+  const record = ident(t.times.table);
+  const link = ident(t.times.link);
+  const columns = t.times.columns.map(([mine, theirs]) => [ident(mine), ident(theirs)] as const);
+  const set = (from: string) => columns.map(([m, r]) => `${m} = ${from}.${r}`).join(", ");
+  const differs = (row: string, from: string) =>
+    columns.map(([m, r]) => `${row}${m} IS NOT ${from}.${r}`).join(" OR ");
+  const toShifts = `UPDATE ${shift} SET ${set("NEW")} WHERE ${link} = NEW.id AND (${differs("", "NEW")});`;
+  // A shift naming no record (a raw insert, or a link to one deleted for good) has no times to
+  // take: refused, rather than left with whatever times it was given (the review of PR #419).
+  const fromRecord =
+    `SELECT RAISE(ABORT, 'core_staff_times_no_record') WHERE NEW.${link} IS NULL ` +
+    `OR NOT EXISTS (SELECT 1 FROM ${record} p WHERE p.id = NEW.${link}); ` +
+    `UPDATE ${shift} SET ${columns.map(([m, r]) => `${m} = (SELECT p.${r} FROM ${record} p WHERE p.id = NEW.${link})`).join(", ")} ` +
+    `WHERE id = NEW.id AND EXISTS (SELECT 1 FROM ${record} p WHERE p.id = NEW.${link} AND (${differs("NEW.", "p")}));`;
+  const watched = [...new Set([t.times.link, ...t.times.columns.map(([m]) => m)])].map(ident);
+  const theirs = [...new Set(["id", ...t.times.columns.map(([, r]) => r)])].map(ident);
+  return [
+    `CREATE TRIGGER ${ins} AFTER INSERT ON ${shift} BEGIN ${fromRecord} END`,
+    `CREATE TRIGGER ${upd} AFTER UPDATE OF ${watched.join(", ")} ON ${shift} BEGIN ${fromRecord} END`,
+    `CREATE TRIGGER ${parentIns} AFTER INSERT ON ${record} BEGIN ${toShifts} END`,
+    `CREATE TRIGGER ${parentUpd} AFTER UPDATE OF ${theirs.join(", ")} ON ${record} BEGIN ${toShifts} END`,
+  ];
+}
+
+/**
+ * The shifts of `t` whose times differ from their record's, given its times again (ADR 0751): an
+ * object that newly declares `timesFrom` over records written before. Run once the triggers exist,
+ * so each claim follows (and core_staff_time refuses a copy that would double-book someone).
+ */
+export function syncTimes(t: StaffedTables): CompiledQuery[] {
+  if (!t.times) return [];
+  const shift = ident(t.table);
+  const record = ident(t.times.table);
+  const link = `${shift}.${ident(t.times.link)}`;
+  const columns = t.times.columns.map(([mine, theirs]) => [ident(mine), ident(theirs)] as const);
+  return [
+    CompiledQuery.raw(
+      `UPDATE ${shift} SET ${columns.map(([m, r]) => `${m} = (SELECT p.${r} FROM ${record} p WHERE p.id = ${link})`).join(", ")} ` +
+        `WHERE EXISTS (SELECT 1 FROM ${record} p WHERE p.id = ${link} AND (${columns.map(([m, r]) => `${shift}.${m} IS NOT p.${r}`).join(" OR ")}))`,
+    ),
   ];
 }
 

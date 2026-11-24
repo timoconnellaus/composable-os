@@ -67,6 +67,37 @@ business, and its lawyer or the booking system's support, to confirm. The load s
   dry run and meant for the host's pass. The contract gained `offers.source` (`api` or `file`).
   Not done: amending this spec (steps 2 and 9, ADR 0927 and the names in it are moot), and
   storing and loading files through an operation and a screen (with step 4 on).
+- **Step 3** (built 2026-11-24, branch `feat/stage-65-core`; ADR 0922; migration 1410): the core
+  copy in `packages/core/src/outside/`. Migration 1410 adds all eleven `core_outside_*` tables (one
+  settings row by default). `settings.ts`: the settings and each list's age (from its export date,
+  in the business's zone; a members list past the largest age is "too old to count").
+  `ingest.ts`: `readMembers` and `readTimetable` read any `BookingSystemSession`;
+  `planMembers` and `planTimetable` plan one batch that replaces the copy of a kind, keep only
+  members, live passes, the booked and the staff-linked, write set based (100 rows a statement, one
+  JSON parameter) and add one timeline activity per Person linked; the fixture costs about 34 and 69
+  statements (`outside-ingest-cost.test.ts`). `match.ts`: matching by folded address with the
+  contract's `matchPeople`, erased addresses and suppressed refs keeping nothing, and
+  `matchPersonAddresses`, called from `person.create` and `person.update`, linking someone who
+  appears later. `bookingSystem:manage` in `principals.ts` (admins, grantable, never to a fixed
+  role). Operations (`operations/outside.ts`): `outside.settings.get`, `outside.settings.update`
+  (a human admin), `outside.status`, `outside.matches`, `outside.link` and `outside.unlink` (a
+  person with `bookingSystem:manage`). Tests: `outside.test.ts` (criteria 3 for link, unlink and
+  settings, 4, 10 for the copy's reads, the allowance part of 8, the file source through the same
+  ingest) and the cost test (criterion 11). Decided here: "the same address" is the folded form
+  (ADR 0692), so two Persons can be candidates; an unlink is a staff link to nobody, kept by ref;
+  no foreign key to `core_person`. Left for later steps: `outside.file.preview`, `outside.file.load`,
+  `outside.lists.remove`, saved mappings and the notices (step 4, which runs these plans); the
+  screens and `outside.person` (step 5); `memberOf` and every consumer (step 6); outside classes in
+  Bookings (step 7); erase writing `core_outside_suppressed` and removing the rows, and merge (step
+  10).
+- **Step 3, after review** (2026-11-24, PR #428): `person.restore` and `import.csv.commit` link
+  too (one read for a whole import), and nothing links from a Person write while the copy is off;
+  an unlink is kept by the hash of the ref (`core_outside_unlinked`, in migration 1410), so an
+  unlinked person's row stays only while they count; a staff link to a Person in the Trash is
+  dropped at the next load and not counted; To match pages by kind and ref; a booking naming an
+  erased address keeps nothing; a membership is live by the business's day; a plan over 900
+  statements is refused. **Gate: step 4 does not merge before step 10** (erase reaching the copy),
+  because from step 4 on a list can be loaded and `person.erase` would leave its copy behind.
 
 ## Goal
 

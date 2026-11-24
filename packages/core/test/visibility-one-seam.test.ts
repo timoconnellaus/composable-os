@@ -103,6 +103,12 @@ const WHY = {
   codes:
     "check-in codes: a Person a code names is live, names compared, given names for their own app",
   /**
+   * The booking system's copy (stage 65, ADR 0922): which live Persons hold an address, by its
+   * folded form, to match an outside person to one by address. Answered to host code only, ids
+   * only, never to a caller.
+   */
+  outside: "booking-system matching: the live Persons holding an address, ids only, to host code",
+  /**
    * A pack role's limit (ADR 0889): which People the staff account looks after, read to narrow
    * what its role reaches, never answered to anyone.
    */
@@ -227,6 +233,7 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "orders/moves.ts": [10, WHY.host],
   // ADR 0560: an owed refund's order, read by the minute cron to settle the row.
   "orders/refund-due.ts": [1, WHY.host],
+  "outside/match.ts": [1, WHY.outside],
   // Programs' coach role (ADR 0889): the People an account looks after (its team's live records)
   // and whether a record is one of theirs; it only narrows what a staff read reaches.
   "pack-role-looks-after.ts": [4, WHY.role],
@@ -256,6 +263,10 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "operations/staffing-screens.ts": [2, WHY.host],
   // Open hours (stage 49 step 3, ADR 0762): that the kinds an entry is for exist, by id only.
   "operations/staffing-hours.ts": [1, WHY.host],
+  // Free times (stage 49 step 4, ADR 0763): the qualified providers' profiles (id and account),
+  // and the times of the client's own live shifts of the object (the caller's own or a live
+  // dependant's for a customer); answered only as which start times are free.
+  "staffing/free.ts": [2, WHY.host],
   "staffing/sets.ts": [1, WHY.host],
   // Pay periods (step 6, ADR 0627): a period's shifts (person, times, kind, title, place), their
   // holders' accounts, their kinds' names and set-up minutes, and the evidence object's marker
