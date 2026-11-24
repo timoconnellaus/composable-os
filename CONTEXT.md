@@ -1721,7 +1721,8 @@ the end of the day, it is missed. Those who **manage checklists** (`checklists:w
 day went and may tick for someone. Its screens are the Daily checklists pack's.
 _Avoid_: task list, to-do (a task is something else), inspection, daily task
 
-**Finance period**, **Close** and **Book entry** (stage 52, step 1 built: ADRs 0790 and 0791)
+**Finance period**, **Close**, **Book entry** and **Day summary** (stage 52, steps 1 and 3 built:
+ADRs 0790, 0791 and 0796)
 A **finance period** is a calendar month of the business's days (local, in the organisation's
 zone: a day across a clock change is 23 or 25 hours). The business **closes** each month once it has
 ended and the month before is closed: its **book entries** and report rows are kept exactly as they
@@ -1730,7 +1731,10 @@ writes the next. A book entry is one business day's summary, one payout, what is
 at the month's end, or what arrived **late** for a closed month (counted in the first open month,
 marked as belonging to the closed one): lines with headings in the host's words, debits equal to
 credits, a key the same in every version and a fingerprint of its lines. Money is counted on the
-day the host recorded it. Seen with `finance:read`, closed and reopened with `finance:close`
+day the host recorded it. A **day summary** is the `day` entry of one business day money moved:
+money in and out through the provider against sales and refunds by kind of sale and tax by code
+and country, each payment and refund shared over its order's lines in proportion; the Sales, Tax and
+Refunds reports are made from the same shares. Seen with `finance:read`, closed and reopened with `finance:close`
 (admins, and by grant); closing and reopening are a person's, never an AI's.
 _Avoid_: ledger, journal, accounting period (accounting is stage 61's), lock (the pay period's word)
 

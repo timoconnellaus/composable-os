@@ -113,6 +113,12 @@ const WHY = {
    * reads is answered to the caller.
    */
   intake: "the public-write door: its counts, and a Person the host matched",
+  /**
+   * Finance (stage 52, ADRs 0794 and 0796): the business's own figures, read org-wide from
+   * orders, their lines and the name of whose order a refund was, answered only to an account
+   * holding `finance:read`, never to a customer or the public.
+   */
+  finance: "finance: the business's figures, org-wide, for finance:read holders only",
 } as const;
 type Why = (typeof WHY)[keyof typeof WHY];
 
@@ -123,6 +129,7 @@ type Why = (typeof WHY)[keyof typeof WHY];
  */
 const REMAINING: Record<string, [reads: number, why: Why]> = {
   "ai/embedding.ts": [9, WHY.org],
+  "finance/book.ts": [5, WHY.finance],
   "ai/summaries.ts": [16, WHY.later],
   // Stage 32b (ADR 0493): a spend checks its Person is not in the Trash, in the write's own path.
   "agreements/due.ts": [2, WHY.agreements],

@@ -6,10 +6,12 @@
 // cut short. The tables' triggers keep a closed version as it was, for every writer.
 //
 // What a month holds is `periodBook`'s: the reports each add their entries, rows, sources and
-// guards there (stage 52 steps 3 to 6 and 8). Until they land a month closes with none.
+// guards there. Step 3 adds the day summaries, Sales, Tax and Refunds (`finance/book.ts`); steps
+// 4 to 6 and 8 add theirs.
 import { CompiledQuery } from "kysely";
 import { ConflictError } from "../errors.ts";
 import type { HandlerContext } from "../operation.ts";
+import { moneyBook } from "./book.ts";
 import type { LocalRange } from "./day.ts";
 import { type BookEntry, type SealedEntry, sealEntry } from "./entries.ts";
 
@@ -66,9 +68,28 @@ export interface PeriodBook {
   guards: string[];
 }
 
-/** The month's book as the host's figures stand now. */
-export async function periodBook(_ctx: HandlerContext, _range: LocalRange): Promise<PeriodBook> {
-  return { entries: [], rows: [], counted: [], guards: [] };
+/**
+ * The month's book as the host's figures stand now: its money (day summaries, Sales, Tax and
+ * Refunds), and what arrived for the closed months before it that none of their versions counted.
+ */
+export async function periodBook(ctx: HandlerContext, range: LocalRange): Promise<PeriodBook> {
+  const { entries, rows, counted, guards } = await moneyBook(
+    ctx.db,
+    range,
+    await closedBefore(ctx.db, range),
+  );
+  return { entries, rows, counted, guards };
+}
+
+/** The closed months before `range` (the months a late source can belong to). */
+export async function closedBefore(db: HandlerContext["db"], range: LocalRange) {
+  return db
+    .selectFrom("core_finance_period")
+    .select(["month", "starts", "ends"])
+    .where("state", "=", "closed")
+    .where("ends", "<=", range.starts)
+    .orderBy("month")
+    .execute();
 }
 
 type AnyDb = { executeQuery: (q: CompiledQuery) => Promise<{ rows: unknown[] }> };
