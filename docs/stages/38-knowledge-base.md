@@ -18,10 +18,11 @@ screens); ADRs [0154](../adr/0154-embeddings-queue-and-vectorize.md),
 [0622](../adr/0622-warnings-in-a-writes-answer.md) and
 [0650](../adr/0650-checklists-templates-runs-ticks-and-a-done-run-kept-unchanged.md).
 
-Status: **spec agreed** (owner interviewed 2026-11-24: decisions 1 to 11). Roadmap stage 38, issue
-[#106](https://github.com/timoconnellaus/composable-os/issues/106). Steps 1 to 8 may start. Step
-10, training through Courses, waits for the questions at the end (they change its details, not the
-read-and-confirm part).
+Status: **spec agreed** (owner interviewed 2026-11-24: decisions 1 to 11; decisions 12 to 17
+decided by the coordinator the same day under the owner's standing rule that best-practice answers
+are decided, not asked). Roadmap stage 38, issue
+[#106](https://github.com/timoconnellaus/composable-os/issues/106). Every step may start in the
+order below; nothing waits for an interview.
 
 ## Goal
 
@@ -136,6 +137,21 @@ parking, what to bring, how the app works. Most readers are on a phone.
 | 10 | **A review reminder per procedure, default 12 months** (0 means never) |
 | 11 | **Training** (raised by the owner in the interview's chat): for more complicated things, a procedure can require completing a course rather than only reading and confirming, using the Courses pack's lessons and progress with staff as the learners and no payment. "Training not completed" raises the same roster warning as "not yet confirmed" |
 
+### Decided by the coordinator (2026-11-24)
+
+The questions the interview left open or decision 11 raised, each decided at the spec's
+recommendation under the owner's standing rule (best-practice answers are decided, not asked). The
+owner may override any of them.
+
+| # | Decision | Why |
+| --- | --- | --- |
+| 12 | **Training expiry is chosen per procedure**: "redo every N months", empty for never. When it lapses the procedure is to read again, with the roster warning | Some training (first aid steps) is meant to be refreshed and most is not; it mirrors the review reminder per procedure |
+| 13 | **A rosterer sees the warning naming the person and the procedure** ("Sam has not read: Injuries"); the full read status is only for `knowledge:manage` | Enough to act on before the shift; the whole picture stays with the owner and those they allow |
+| 14 | **An important change to a procedure with training asks for a tap on the new wording**, not the course again; redoing the course comes from expiry (decision 12) | Redoing a whole course for a changed step would be ignored or resented |
+| 15 | **A training course has no Programs sessions** for now: videos, text and downloads | Programs sessions belong to a Person; Programs for staff is its own change |
+| 16 | **A course is for customers or for staff, never both** | Keeps staff training out of the shop and the course subscription |
+| 17 | **Every procedure a person must read and has not warns on the roster** | Simple first; a per-procedure "needed before a shift" switch can follow if the warnings get noisy |
+
 ## The design in one page
 
 **A Knowledge pack (`packs/knowledge`) with two publishable objects.** A **procedure** is for staff
@@ -236,7 +252,7 @@ search see it. A **learner** is a staff account taking a course for staff (step 
 
 | Object | Fields | Behaviours |
 | --- | --- | --- |
-| `knowledge.procedure` | title, slug, summary, body (`richText`), section (relation), owner (user: who keeps it right), must read (`everyone`, or a list of: staff roles admin, member and viewer; the installed pack roles; grantable pack permissions such as `bookings:desk` for the front desk), review every (months, default 12, 0 for never), next review (date, from the last publish), training course (step 10, empty until then) | `publishable { content: [title, summary, body, section], slug, staffRead: true, acknowledge: { who: "mustRead" } }`. No `public`, no `signedIn` |
+| `knowledge.procedure` | title, slug, summary, body (`richText`), section (relation), owner (user: who keeps it right), must read (`everyone`, or a list of: staff roles admin, member and viewer; the installed pack roles; grantable pack permissions such as `bookings:desk` for the front desk), review every (months, default 12, 0 for never), next review (date, from the last publish), training course and redo training every (months, empty for never) (step 10, empty until then) | `publishable { content: [title, summary, body, section], slug, staffRead: true, acknowledge: { who: "mustRead" } }`. No `public`, no `signedIn` |
 | `knowledge.section` | name, order | none; staff only |
 | `knowledge.helpPage` | title, slug, summary, body (`richText`), topic (relation), order, related pages (relations), search title, search description, hide from search engines | `publishable { content: [...], slug }`, `public.read` of the content fields and slug |
 | `knowledge.helpTopic` | name, slug, order, icon (a fixed list) | `public.read: [name, slug, order, icon]` |
@@ -271,11 +287,11 @@ versions and confirmations. A scheduled read-again version asks nobody until it 
 | `content.search { object, q, cursor? }` | public, customer, staff | the public for `public` objects; staff also for `staffRead` objects | read | Matches in published words: title, section heading, anchor, a highlighted snippet as segments (no HTML). Rate limited for the public. Every query word a prefix match, as `search.global` |
 | `content.passages { q, objects?, limit? }` | staff | staff accounts without a pack role (the assistant's users) | read | The best passages from published `staffRead` and `public` objects: record, version, heading, anchor, text. Never a working copy |
 | `record.publish { ..., readAgain? }` | staff | a person with `records:publish` (unchanged; an AI asks, ADR 0480) | write | On an `acknowledge` object, `readAgain` is true for the first version and must be stated for later ones; an AI's publish request carries its suggestion and the approver chooses |
-| `ack.confirm { object, id, version }` | staff | the account itself, `actors: ["human"]`, pack roles included | write | Records a confirmation of the current version. Refused for a version that is not current, an account not in "must read", twice for one version, and for a procedure with training (its course's completion counts instead) |
+| `ack.confirm { object, id, version }` | staff | the account itself, `actors: ["human"]`, pack roles included | write | Records a confirmation of the current version. Refused for a version that is not current, an account not in "must read", and twice for one version. On a procedure with training, refused until the account has a completion of its course that holds (completing the course counts for the version current then; a later read-again version asks for a tap, decision 14) |
 | `ack.mine {}` | staff | the account itself, pack roles included | read | What is to read for me (and, step 10, which needs a course), and what I confirmed and when |
 | `ack.status { object, id }` | staff | `knowledge:manage` (admins, grantable, restricted, a person only) | read | For the current version: who must read, who confirmed or completed and when, who has not and since when |
 | `ack.overview {}` | staff | `knowledge:manage` | read | Every acknowledged procedure: how many have confirmed the current version of how many |
-| `staffing.check` and the roster writes (amended) | staff | unchanged | — | Return `to_read` for a person with anything to read, naming the procedures (question 2 may narrow what a rosterer sees). Not returned to an AI actor, as `unavailable` is not |
+| `staffing.check` and the roster writes (amended) | staff | unchanged | — | Return `to_read` for a person with anything to read, naming the procedures (decision 13). Not returned to an AI actor, as `unavailable` is not |
 | `checklist.save` (amended) | staff | `checklists:write` (unchanged) | write | A template may name one published procedure as its "how to" |
 
 `ack.*` and `content.passages` read core tables in no `rec_*` view, so dashboards, `query.sql`,
@@ -354,7 +370,7 @@ All to staff, through `notification.send`; nothing to customers.
 ## Training through Courses (step 10, platform and pack)
 
 What a course for staff needs, from what Courses is today (above). The interview settled that
-training is wanted; questions 1, 3 and 4 at the end settle its details before step 10 is built.
+training is wanted; decisions 12 to 16 settle its details.
 
 ### The learner record
 
@@ -397,8 +413,10 @@ training is wanted; questions 1, 3 and 4 at the end settle its details before st
   today (every lesson that is not a download is done). Courses declares where its outline and
   progress are (a `training` declaration on `courses.course`); the host's one function answers
   "has this account completed this course", and nothing in a block or a tool decides it.
-- Which version counts: a completion counts for the procedure while it holds (question 1 on
-  expiry; question 3 on a changed procedure).
+- What counts: a completion holds until the procedure's "redo training every" months pass since
+  it (decision 12; empty for never), and then the procedure is to read again. A completion counts
+  for the procedure's version current when it was made; after a later read-again version, the
+  person confirms the new wording with a tap (decision 14).
 
 ### The course itself
 
@@ -411,7 +429,7 @@ training is wanted; questions 1, 3 and 4 at the end settle its details before st
   - is in no subscription: the subscription source's `covers: "all"` (ADR 0488) gains a filter
     honouring `for` (platform), so a subscriber never reaches staff training;
   - has no `session` lessons in the first build: a Programs session belongs to a Person, so a
-    course for staff with a session lesson is refused at publish (question 4 if wanted later).
+    course for staff with a session lesson is refused at publish (decision 15).
 - Writing and publishing a course for staff is as any course: the course builder, a person
   publishes.
 
@@ -493,7 +511,9 @@ buying a course, the import, and the course subscription, except the `for` filte
     and native blocks, every rich-text block type and anchors included.
 15. **Training (step 10):** a procedure requiring a course for staff is to read for each account in
     "must read" until the host says that account completed the course, with the same roster
-    warning; `ack.confirm` is refused for it; a cleaner (pack role) opens the course, plays its
+    warning; `ack.confirm` is refused for it until the course is completed; a completion past the
+    procedure's "redo training every" makes it to read again; after a read-again version a tap on
+    the new wording counts, without redoing the course; a cleaner (pack role) opens the course, plays its
     videos and marks lessons done on the web and in the app and nothing else of Courses; a customer
     and a course subscriber never find, buy or read a course for staff; one staff account cannot
     write another's progress.
@@ -556,7 +576,7 @@ ADRs the build writes:
 | 7 | **Passages and the assistant**: chunking at headings, passage vectors, `content.passages`, the tool and skill, citations in the chat | `ai/embedding.ts`, `ai/hybrid.ts`, `assistant/skills.ts` | After 1; beside 5 and 6; coordinate with stage 17's waves in flight |
 | 8 | **Checklist "how to"** | `checklists/`, `operations/checklist.ts`, a migration (`core_checklist`), Rostering's checklist block | After 5; beside 6 and 7; collides with Rostering's checklist follow-ons |
 | 9 | **The first client**: its procedures written (by staff or the assistant, published by a person), its help pages on its site | the client's repository | After 6 |
-| 10 | **Training through Courses**: 10a platform (the staff own-row scope, the `training` source, the learners' reach, completion, the subscription's `for` filter); 10b `packs/courses` (`for`, `learner`, staff audiences, `myTraining`, screens) and Knowledge's training course field | 10a: `visibility/` (access), `pack-roles.ts`, `subscriptions/` (the source), `operations/media-video.ts`; 10b: `packs/courses`, `packs/knowledge` | After the owner answers questions 1, 3 and 4, and after steps 3 and 4. 10a collides with any work in `visibility/` or `pack-roles.ts`; 10b with Courses' own follow-ons. Reviewed for security as step 2 is |
+| 10 | **Training through Courses**: 10a platform (the staff own-row scope, the `training` source, the learners' reach, completion, the subscription's `for` filter); 10b `packs/courses` (`for`, `learner`, staff audiences, `myTraining`, screens) and Knowledge's training course field | 10a: `visibility/` (access), `pack-roles.ts`, `subscriptions/` (the source), `operations/media-video.ts`; 10b: `packs/courses`, `packs/knowledge` | After steps 3 and 4. 10a collides with any work in `visibility/` or `pack-roles.ts`; 10b with Courses' own follow-ons. Reviewed for security as step 2 is |
 
 **Up to three sessions at once**: steps 1 then 3 in one (the publish batch); step 2 in a second
 (after stage 47's merge), then 4; step 5 then 6 in a third, on paper first. Step 7 joins once step 1
@@ -579,50 +599,17 @@ platform pieces and a Courses change), the largest single step.
 | Who writes | Members and admins; a coach or cleaner when given `knowledge:write`. Viewers do not write |
 | Who publishes | `records:publish`, as for every publishable object: someone allowed to publish procedures may also publish posts and courses. A per-object publish right is not built |
 | The first version | Always asks everyone who must read it |
-| Which procedures warn on the roster | Every procedure the person must read and has not (question 6 may narrow it) |
+| Which procedures warn on the roster | Every procedure the person must read and has not (decision 17) |
 | Reminders | After 7 days, once; a weekly summary to the procedure's owner |
 | Keeping confirmations | For good, removed with an account's erase (for the business to confirm with its accountant or lawyer) |
-| A training procedure | Completing the course takes the place of the tap; there is no separate confirmation |
+| A training procedure | Completing the course takes the place of the first tap; a later read-again version asks for a tap (decision 14) |
 | A course for staff | Not public, not sold, in no subscription, no session lessons, no enrolment |
 | How a procedure names its course | An optional relation to `courses.course` that the contract allows only while Courses is installed (platform), so Knowledge does not require Courses; the build's ADR settles the mechanism |
 
 ## Questions for the owner
 
-Left open by the interview or raised by decision 11. None blocks steps 1 to 9.
-
-1. **Does training expire and need redoing?**
-   - (a) Never: once completed it counts.
-   - (b) You choose per procedure: "redo every N months", empty for never.
-   - (c) Every training expires after 12 months.
-   **Recommended: (b).** Some training (first aid steps) is meant to be refreshed and most is not;
-   it mirrors the review reminder you chose per procedure.
-2. **Can a person who rosters see who has confirmed or completed what?**
-   - (a) The roster warning names the person and the procedure ("Sam has not read: Injuries");
-     the full read status only for you and those you allow.
-   - (b) Rosterers see the full read status for everyone.
-   - (c) The warning says only "has procedures to read", without which.
-   **Recommended: (a).** A rosterer needs to know enough to act (ask Sam to read it before the
-   class); the whole picture stays with you.
-3. **When a procedure with training changes in an important way, what do staff redo?**
-   - (a) They confirm the new wording with one tap; the course is not redone.
-   - (b) They complete the course again.
-   - (c) You choose each time, as for other procedures.
-   **Recommended: (a)**, with expiry (question 1) for redoing the course. Redoing a whole course for
-   a changed step would be ignored or resented.
-4. **Should a training course be able to include a training session from Programs** (a workout to
-   follow and log)?
-   - (a) Not now: training courses are videos, text and downloads.
-   - (b) Yes, which needs staff to have Programs sessions too.
-   **Recommended: (a).** It keeps step 10 small; Programs for staff is its own change.
-5. **Should the same course be both sold to customers and used to train staff?**
-   - (a) No: a course is for customers or for staff.
-   - (b) Yes: staff can be required to complete a course you also sell.
-   **Recommended: (a).** It keeps staff training out of the shop and the subscription. (b) is a
-   small later change.
-6. **Which procedures should warn on the roster?**
-   - (a) Every procedure the person must read and has not.
-   - (b) Only procedures you mark "needed before working a shift".
-   **Recommended: (a)** at first. If the warnings get noisy, (b) is a switch on the procedure.
+None open. The six questions this spec raised were decided by the coordinator (decisions 12 to
+17), each at its recommendation; the owner may override any of them.
 
 ## Risks
 
