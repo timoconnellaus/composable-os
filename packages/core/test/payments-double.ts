@@ -230,7 +230,10 @@ export function paymentsDouble(events: () => Events, crm: () => CrmDb = () => db
                   title: "End a subscription now",
                   description: "Cancel a subscription.",
                   fields: [],
-                  actionKind: { tag: "payments.subscription.cancel", label: "Cancel a subscription" },
+                  actionKind: {
+                    tag: "payments.subscription.cancel",
+                    label: "Cancel a subscription",
+                  },
                   autoApprovable: false,
                   descriptionIsComplete: true,
                 },

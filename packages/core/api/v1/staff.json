@@ -56703,7 +56703,7 @@
     },
     {
       "name": "subscription.coolOff",
-      "description": "End a subscription in its cooling-off period, for a full refund of what was paid in it (subscription.coolingOff says whether it may be, and what it owes). Ended at the payment provider now: nothing more is charged, and what it gives stops once the provider confirms. Then each order paid up to the end of the period, and between the ask and the end, is owed back in full, whatever was used; each waits for a person with orders:refund to approve it. The bookings ahead the membership paid for are cancelled as the business's. Refused for a plan with no cooling off, a membership moved over with a continuation offer, a member who has cooled off before, while nothing has been paid (a free trial: cancel instead), and after the period unless one was asked in it. A signed-in customer ends their own (the one they pay for, a child's included) and asks again only inside the period; staff any, with subscriptions:manage, and finish one asked in time after it (a lapsed one too: what was paid in the period is owed). Each ask reads the provider first and is a new request to it; nothing is done twice. A person decides, never an AI assistant.",
+      "description": "End a subscription in its cooling-off period, for a full refund of what was paid in it (subscription.coolingOff says whether it may be, and what it owes). Ended at the payment provider now: nothing more is charged, and what it gives stops once the provider confirms. Then each order paid up to the end of the period, and between the ask and the end, is owed back in full, whatever was used; each waits for a person with orders:refund to approve it. The bookings ahead the membership paid for are cancelled as the business's. Refused for a plan with no cooling off, a membership moved over with a continuation offer, a member who has cooled off before, while nothing has been paid (a free trial: cancel instead), and after the period unless one was asked in it. An ask inside the period opens it for 7 days; any end in that time is the cooling off's, and at its deadline it lapses (the ordinary cancel works again). A signed-in customer ends their own (the one they pay for, a child's included) and asks again only inside the period; staff any, with subscriptions:manage, ask again until the deadline, and finish a lapsed one (only what was paid in the period is owed). Each ask reads the provider first and is a new request to it; nothing is done twice. A person decides, never an AI assistant.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -56825,7 +56825,7 @@
     },
     {
       "name": "subscription.coolOffSweep",
-      "description": "The host's minute step for cooling offs whose call to the payment provider was lost or never made: reads the provider first (ended: done), asks again while the cooling-off period is open, else tells admins once. Bounded; nothing when nothing is due. The host's own cron only.",
+      "description": "The host's minute step for cooling offs: one whose call to the payment provider was lost or never made is resolved from the provider's read or asked again (the same ask) until its deadline; at the deadline, or once its waiting cancel is rejected or expires, an open one lapses (its waiting cancel rejected, admins told once); then the summary emails. Bounded; nothing when nothing is due. The host's own cron only.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -56850,6 +56850,9 @@
           "unread": {
             "type": "number"
           },
+          "lapsed": {
+            "type": "number"
+          },
           "mailed": {
             "type": "number"
           }
@@ -56859,6 +56862,7 @@
           "asked",
           "told",
           "unread",
+          "lapsed",
           "mailed"
         ],
         "additionalProperties": false
@@ -56968,11 +56972,10 @@
                           "type": "string",
                           "enum": [
                             "asked",
-                            "refused",
                             "ended",
                             "lapsed"
                           ],
-                          "description": "asked: the payment provider was asked to end it now; refused: the provider refused (nothing ended); ended: it ended then and its refunds are owed; lapsed: it ended another way later, and nothing is owed as cooled off"
+                          "description": "asked: open until its deadline (any end of the subscription by then is its end); ended: it ended (or staff finished it) and its refunds are owed; lapsed: its deadline passed (or its waiting cancel was turned down, or the end was not its): nothing owed as cooled off, and the ordinary cancel works again"
                         },
                         "asked": {
                           "anyOf": [
@@ -56981,14 +56984,15 @@
                               "enum": [
                                 "sent",
                                 "pending",
-                                "unknown"
+                                "unknown",
+                                "refused"
                               ]
                             },
                             {
                               "type": "null"
                             }
                           ],
-                          "description": "What came of asking the provider: unknown means its next event decides"
+                          "description": "What came of the latest ask of the provider"
                         },
                         "askedBy": {
                           "type": "string",
@@ -57000,27 +57004,51 @@
                         "askedAt": {
                           "type": "string"
                         },
+                        "deadline": {
+                          "type": "string",
+                          "description": "Open until then: the ask plus the approval expiry (7 days)"
+                        },
                         "endedAt": {
                           "type": [
                             "string",
                             "null"
                           ]
                         },
+                        "finished": {
+                          "type": "boolean",
+                          "description": "Staff finished a lapsed one"
+                        },
+                        "lapsedBecause": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "deadline",
+                                "action",
+                                "end_time",
+                                "used"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "askAgain": {
                           "type": "boolean",
-                          "description": "The caller may ask the provider again now: the member only inside the period"
+                          "description": "The caller may ask the provider again now (the member inside the period, staff before the deadline), or (staff) finish a lapsed one"
                         },
                         "open": {
                           "type": "boolean",
-                          "description": "Under way (asked, or refused inside the period): the ordinary cancel waits"
+                          "description": "Open, before its deadline: the ordinary cancel waits"
                         },
                         "staffTold": {
                           "type": "boolean",
-                          "description": "Admins were told it is stuck"
+                          "description": "Admins were told it is stuck or lapsed"
                         },
                         "paid": {
                           "type": "number",
-                          "description": "What it owes back (paid up to the end of the period, and between the ask and the end), in minor units"
+                          "description": "What it owes (or would, if it ended now): paid on or before the end of the period, plus paid after the ask and by the end, in minor units"
                         },
                         "refunded": {
                           "type": "number",
@@ -57048,7 +57076,10 @@
                         "asked",
                         "askedBy",
                         "askedAt",
+                        "deadline",
                         "endedAt",
+                        "finished",
+                        "lapsedBecause",
                         "askAgain",
                         "open",
                         "staffTold",

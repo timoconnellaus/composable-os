@@ -833,7 +833,9 @@ describe("who it covers", () => {
       .bind(again.subscriptionId, holder, ENDS_14, START, START, START, START)
       .run();
     await expect(
-      env.DB.prepare("UPDATE core_subscription_cool_off SET state = 'ended' WHERE subscription_id = ?")
+      env.DB.prepare(
+        "UPDATE core_subscription_cool_off SET state = 'ended' WHERE subscription_id = ?",
+      )
         .bind(again.subscriptionId)
         .run(),
     ).rejects.toThrow(/core_cool_off_used/);
@@ -1028,7 +1030,10 @@ describe("rule B: while open and before its deadline, any end is the cooling off
     // Paid after the end: neither owed nor in the figure shown.
     await paidAt(id, day(19), 700);
     expect(sumOf(await owed(id))).toBe(5000);
-    expect((await statusOf(buyer, id, day(19))).coolOff).toMatchObject({ state: "ended", paid: 5000 });
+    expect((await statusOf(buyer, id, day(19))).coolOff).toMatchObject({
+      state: "ended",
+      paid: 5000,
+    });
   });
 
   it("the bounds: an end the tolerance before the ask is; one a second earlier is not; one after the deadline is not", async () => {
@@ -1036,7 +1041,9 @@ describe("rule B: while open and before its deadline, any end is the cooling off
     const just = await member("b-tol");
     gw.nextCancel = "throw";
     await coolOff(just.buyer, just.id, day(3));
-    await ended(just.id, { endedAt: at(day(3)().toISOString(), -tolerance + 1000)().toISOString() });
+    await ended(just.id, {
+      endedAt: at(day(3)().toISOString(), -tolerance + 1000)().toISOString(),
+    });
     expect((await coolOffRow(just.id))?.state).toBe("ended");
     const before = await member("b-before");
     gw.nextCancel = "throw";
@@ -1044,7 +1051,10 @@ describe("rule B: while open and before its deadline, any end is the cooling off
     await ended(before.id, {
       endedAt: at(day(3)().toISOString(), -tolerance - 1000)().toISOString(),
     });
-    expect(await coolOffRow(before.id)).toMatchObject({ state: "lapsed", lapsed_because: "end_time" });
+    expect(await coolOffRow(before.id)).toMatchObject({
+      state: "lapsed",
+      lapsed_because: "end_time",
+    });
     expect(await owed(before.id)).toEqual([]);
     const after = await member("b-after");
     gw.nextCancel = "pending";
@@ -1054,7 +1064,10 @@ describe("rule B: while open and before its deadline, any end is the cooling off
       endedAt: at(START, 150 * DAY)().toISOString(),
       endReason: "cancellation_requested",
     });
-    expect(await coolOffRow(after.id)).toMatchObject({ state: "lapsed", lapsed_because: "end_time" });
+    expect(await coolOffRow(after.id)).toMatchObject({
+      state: "lapsed",
+      lapsed_because: "end_time",
+    });
     expect(await owed(after.id)).toEqual([]);
   });
 
@@ -1087,7 +1100,11 @@ describe("rule C: what is owed, one formula, and the figure shown is the same", 
       { id: order?.id, amount: 1000, reason: "A class we cancelled" },
       staff(),
     );
-    await run("approval.approve", { actionIds: asked.refunds.map((r) => r.pendingActionId) }, staff());
+    await run(
+      "approval.approve",
+      { actionIds: asked.refunds.map((r) => r.pendingActionId) },
+      staff(),
+    );
     await payments.providerRefunds(gw.action);
     expect((await statusOf(buyer, id, day(6))).refund).toBe(3000);
     expect(await coolOff(buyer, id, day(6))).toMatchObject({ refund: 3000 });
@@ -1097,7 +1114,9 @@ describe("rule C: what is owed, one formula, and the figure shown is the same", 
       [1000, 0],
     ]);
     await runRefundsDue(db, { integrations: runtime });
-    const asks = [...gw.refunds.values()].filter((r) => r.orderId === order?.id).map((r) => r.amount);
+    const asks = [...gw.refunds.values()]
+      .filter((r) => r.orderId === order?.id)
+      .map((r) => r.amount);
     expect(asks).toEqual([1000, 2000]);
   });
 });
@@ -1110,7 +1129,9 @@ describe("rule D: at its deadline an open one lapses, and the ordinary cancel wo
     const row = await coolOffRow(id);
     expect(row?.pending_action_id).toMatch(/^pac_/);
     // Open: the ordinary cancel waits.
-    expect((await refusal(run("subscription.cancel", { id }, as(buyer, day(5))))).details).toMatchObject({
+    expect(
+      (await refusal(run("subscription.cancel", { id }, as(buyer, day(5))))).details,
+    ).toMatchObject({
       rule: "cooling_off_open",
     });
     gw.providerReads.set(`fsub_${id}`, { ...read(id) });
@@ -1246,7 +1267,9 @@ describe("rule G: every state has an exit", () => {
     expect((await refusal(coolOff(buyer, id, day(16)))).details).toMatchObject({
       reason: "window_passed",
     });
-    expect((await refusal(run("subscription.cancel", { id }, as(buyer, day(16))))).details).toMatchObject({
+    expect(
+      (await refusal(run("subscription.cancel", { id }, as(buyer, day(16))))).details,
+    ).toMatchObject({
       rule: "cooling_off_open",
     });
     const status = await statusOf(buyer, id, day(16));
@@ -1261,7 +1284,10 @@ describe("rule G: every state has an exit", () => {
     const { buyer, id } = await member("g-again");
     gw.nextCancel = "refused";
     await refusal(coolOff(buyer, id, day(3)));
-    expect((await statusOf(buyer, id, day(3))).coolOff).toMatchObject({ askAgain: true, open: true });
+    expect((await statusOf(buyer, id, day(3))).coolOff).toMatchObject({
+      askAgain: true,
+      open: true,
+    });
     expect(await coolOff(buyer, id, day(4))).toMatchObject({ asked: "sent" });
     expect(cancels(id).map((c) => c.request.askKey)).toEqual(["cool-off-1", "cool-off-2"]);
   });
@@ -1277,7 +1303,9 @@ describe("the third review's probes, as tests with exact amounts", () => {
       const { buyer, id } = await member(`p1-${label}`);
       gw.nextCancel = how;
       await coolOff(buyer, id, day(3));
-      expect((await refusal(run("subscription.cancel", { id }, as(buyer, day(5))))).details).toMatchObject({
+      expect(
+        (await refusal(run("subscription.cancel", { id }, as(buyer, day(5))))).details,
+      ).toMatchObject({
         rule: "cooling_off_open",
       });
       for (let n = 1; n <= 5; n += 1) await renew(id, n);
@@ -1302,7 +1330,10 @@ describe("the third review's probes, as tests with exact amounts", () => {
     gw.nextCancel = "refused";
     await refusal(coolOff(after.buyer, after.id, day(2)));
     await ended(after.id, { endedAt: day(13)().toISOString(), endReason: "payment_failed" });
-    expect(await coolOffRow(after.id)).toMatchObject({ state: "lapsed", lapsed_because: "end_time" });
+    expect(await coolOffRow(after.id)).toMatchObject({
+      state: "lapsed",
+      lapsed_because: "end_time",
+    });
     expect(sumOf(await owed(after.id))).toBe(0);
   });
 
@@ -1333,7 +1364,15 @@ describe("the provider and the sweep", () => {
     await env.DB.prepare(
       "INSERT INTO core_subscription_cool_off (subscription_id, holder_person_id, asked_by, days, window_ends_at, state, asked_at, deadline_at, last_asked_at, updated_at) VALUES (?, ?, 'payer', 14, ?, 'asked', ?, ?, ?, ?)",
     )
-      .bind(id, buyer.principal.personId, ENDS_14, asked, at(asked, DEADLINE_MS)().toISOString(), asked, asked)
+      .bind(
+        id,
+        buyer.principal.personId,
+        ENDS_14,
+        asked,
+        at(asked, DEADLINE_MS)().toISOString(),
+        asked,
+        asked,
+      )
       .run();
     expect((await statusOf(buyer, id, day(3))).coolOff).toMatchObject({
       asked: null,
@@ -1573,11 +1612,13 @@ describe("bookings ahead and the summary email", () => {
     await ended(id).catch(() => undefined);
     expect(await subscriptionState(id)).not.toBe("ended");
     for (let i = 0; i < 6; i += 1) {
-      await applyPendingPaymentEvents({ crm: db, integrations: runtime, clock: day(2 + i * 0.001) });
+      await applyPendingPaymentEvents({
+        crm: db,
+        integrations: runtime,
+        clock: day(2 + i * 0.001),
+      });
     }
-    expect(
-      await noticeCount("payment-event.failing:"),
-    ).toBeGreaterThan(0);
+    expect(await noticeCount("payment-event.failing:")).toBeGreaterThan(0);
     const stuck = await env.DB.prepare(
       "SELECT attempts FROM core_payment_event WHERE applied_at IS NULL ORDER BY attempts DESC LIMIT 1",
     ).first<{ attempts: number }>();

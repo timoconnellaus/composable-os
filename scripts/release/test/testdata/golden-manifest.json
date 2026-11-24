@@ -613,7 +613,7 @@
     },
     {
       "name": "0856_subscription_cooling_off.sql",
-      "sha256": "ef7fa6930afc0bf26f963c8c41900f99e648701e1636d04dbebad3d2ffc73f3f"
+      "sha256": "4d590075025662e5a4bafceab98d2e3d9135d3059b8c5976a74e1514b999c2d4"
     },
     {
       "name": "0857_agreement_copy_guardian.sql",

@@ -768,7 +768,12 @@ async function endedAtProvider(
   try {
     const target = await paymentsTarget(ctx.db);
     const read = (
-      await callSubscriptionGatekeeper(ctx.integrations, target, "getSubscription", row.provider_ref)
+      await callSubscriptionGatekeeper(
+        ctx.integrations,
+        target,
+        "getSubscription",
+        row.provider_ref,
+      )
     ).value as { ref?: unknown; status?: unknown } | null;
     if (read?.ref !== row.provider_ref) return null;
     return read.status === "canceled";
@@ -1131,10 +1136,7 @@ export async function releaseBookingsAhead(
       .where("trashed", "=", 0)
       .where((eb) => eb.or([eb("valid_until", "is", null), eb("valid_until", ">", ctx.now)]))
       .where((eb) =>
-        eb.or([
-          eb("object_type", "!=", grant.object_type),
-          eb("record_id", "!=", grant.record_id),
-        ]),
+        eb.or([eb("object_type", "!=", grant.object_type), eb("record_id", "!=", grant.record_id)]),
       )
       .limit(1)
       .execute();
@@ -1289,7 +1291,10 @@ export async function sweepCoolOffs(
       continue;
     }
     if (own.call_outcome === "pending") {
-      if (own.told_at === null && at(ctx.now) - at(own.last_asked_at) >= COOL_OFF_PENDING_AFTER_MS) {
+      if (
+        own.told_at === null &&
+        at(ctx.now) - at(own.last_asked_at) >= COOL_OFF_PENDING_AFTER_MS
+      ) {
         await tellAdmins(ctx.db, row, "pending", ctx.now);
         out.told += 1;
       }
