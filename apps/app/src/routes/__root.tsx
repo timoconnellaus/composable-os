@@ -9,6 +9,7 @@ import {
   useRouter,
 } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { NotFoundPage } from "../components/not-found.tsx";
 import { currentProductName, PRODUCT_NAME_META } from "../components/product-name.ts";
 import { THEME_INIT_SCRIPT, ThemeProvider, useTheme } from "../components/theme.tsx";
 import appCss from "../styles.css?url";
@@ -28,6 +29,8 @@ export const Route = createRootRouteWithContext<RouterContext>()({
     links: [{ rel: "stylesheet", href: appCss }],
   }),
   component: () => <Outlet />,
+  // A URL that is no page, and a page a fixed-role account may not open (stage 47): the same.
+  notFoundComponent: () => <NotFoundPage />,
   shellComponent: RootDocument,
 });
 

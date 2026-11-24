@@ -174,7 +174,11 @@ async function main() {
   ).version as string;
 
   // 1. Build every package (turbo): the runner and gatekeepers write their dry-run bundles to dist/.
-  if (!args["skip-build"]) run(ROOT, "pnpm", ["build"], productEnv);
+  // CORE_SCHEMA_VERSION is written from the migration files first, whatever turbo's cache holds.
+  if (!args["skip-build"]) {
+    run(ROOT, "node", ["packages/db/scripts/schema-version.mjs"]);
+    run(ROOT, "pnpm", ["build"], productEnv);
+  }
 
   const packages = readDeployablePackages(ROOT);
   const scratch = mkdtempSync(join(tmpdir(), "cos-release-"));

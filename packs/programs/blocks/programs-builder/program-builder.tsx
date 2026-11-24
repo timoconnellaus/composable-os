@@ -65,6 +65,27 @@ const nameOf = (bank: Bank, id: string) =>
 const measureOf = (bank: Bank, id: string) =>
   (bank.byId.get(id)?.values.measure as string | undefined) ?? null;
 
+/**
+ * The builder as the product's admin shows it (stage 47): the list of programs, and the one
+ * opened from it, with a way back. The admin passes it nothing but the hooks.
+ */
+export function ProgramWorkspace({
+  programs,
+}: {
+  programs: Parameters<typeof ProgramBuilder>[0]["programs"];
+}) {
+  const [open, setOpen] = useState<string | null>(null);
+  if (!open) return <ProgramList programs={programs} onOpen={setOpen} />;
+  return (
+    <div className="grid gap-4">
+      <Button type="button" variant="outline" className="w-fit" onClick={() => setOpen(null)}>
+        All programs
+      </Button>
+      <ProgramBuilder key={open} programs={programs} programId={open} />
+    </div>
+  );
+}
+
 /** The whole builder for one program. */
 export function ProgramBuilder({
   programs,

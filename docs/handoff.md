@@ -23,7 +23,7 @@ enterprise hosting.
 - **Merge commits only, never rebase or force-push.** Never bypass CI (`--admin`). Resolve conflicts
   by keeping both sides.
 - Parallel builds use **disjoint migration and ADR number ranges** ([`parallel-work.md`](parallel-work.md)).
-  `CORE_SCHEMA_VERSION` (`packages/db/src/migrate.ts`) equals the highest migration, and the database's
+  `CORE_SCHEMA_VERSION` (generated from the migration files, never edited) equals the highest migration, and the database's
   schema version is the highest migration applied, so out-of-order ranges are safe (ADR 0002 amendment).
 - Use **Node 24** (`.nvmrc`). In this environment plain `node` may switch versions: put
   `$HOME/.nvm/versions/node/v24.21.0/bin` first on `PATH` and use `command node`.

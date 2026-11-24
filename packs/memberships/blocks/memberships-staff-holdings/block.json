@@ -8,7 +8,8 @@
     "x.memberships.voidPass",
     "subscription.list",
     "subscription.pause",
-    "subscription.unpause"
+    "subscription.unpause",
+    "record.list"
   ],
   "files": ["holdings.tsx", "LICENSE"],
   "dependsOn": ["ui-button", "ui-card", "ui-input", "ui-label"],

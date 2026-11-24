@@ -12,6 +12,40 @@ import { Label } from "../ui-label/label.tsx";
 
 type Hooks = Pick<BookingsHooks, "useDay" | "useBookFor" | "useFindPeople">;
 
+/** Today's date (YYYY-MM-DD) in `timeZone`. */
+const todayIn = (timeZone: string) =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+
+/**
+ * The front desk as the product's admin shows it (stage 47): today in the desk's own zone (the
+ * browser's), with a day to choose. The admin passes it nothing but the hooks.
+ */
+export function FrontDesk({ bookings }: { bookings: Hooks }) {
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const [date, setDate] = useState(() => todayIn(timeZone));
+  return (
+    <div className="grid gap-4">
+      <div className="grid max-w-xs gap-1">
+        <Label htmlFor="desk-date">Day</Label>
+        <Input
+          id="desk-date"
+          type="date"
+          value={date}
+          onChange={(event) => {
+            if (event.target.value) setDate(event.target.value);
+          }}
+        />
+      </div>
+      <Desk bookings={bookings} date={date} timeZone={timeZone} />
+    </div>
+  );
+}
+
 export function Desk({
   bookings,
   date,

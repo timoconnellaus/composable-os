@@ -124,6 +124,8 @@ describe("the committed roles file", () => {
     expect(door?.operations).toEqual([
       "record.get",
       "record.list",
+      // The screens of the admin it may open (stage 47, ADR 0660): every pack role reaches it.
+      "screens.mine",
       "x.ticketing.checkIn",
       "x.ticketing.undoCheckIn",
     ]);

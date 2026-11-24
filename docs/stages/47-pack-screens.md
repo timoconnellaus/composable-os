@@ -13,7 +13,8 @@ precedent for code built into the admin at build time and loaded lazily);
 `packages/core/src/pack-roles.ts`; `apps/app/src/routes/_app.tsx`, `components/app-sidebar.tsx`
 and `lib/nav.ts`; `packages/create-composable-os/src/blocks.ts` and `scripts/check-blocks.mjs`.
 
-Status: **spec agreed** (owner interviewed 2026-11-24: decisions 1 to 4). Build may start.
+Status: **built** 2026-11-24 (owner interviewed 2026-11-24: decisions 1 to 4;
+[ADR 0660](../adr/0660-pack-screens-in-the-admin.md); see "Built" at the end).
 
 ## Goal
 
@@ -245,3 +246,97 @@ One build session may take all four; step 4 must not land without 1 to 3.
 - A fixed-role account's shell shows screens only.
 - Record screens are tabs on the record page.
 - An assistant gets no screens.
+
+## Built (2026-11-24)
+
+[ADR 0660](../adr/0660-pack-screens-in-the-admin.md) (amends 0005, 0010, 0401 and 0436; closes
+0629's and stage 45's open item). No migration. All four steps in one PR.
+
+- **Step 1.** `screens` in the manifest (`ScreenSpec`, `screenManifestSchema`, `screenIssues` in
+  `packages/sdk`); refused for a runtime extension by `checkManifest` (so `cos ext check` and
+  install). `screens.mine` (`packages/core/src/operations/screens.ts`): two statements; the gate is
+  `staffAuthority` per tool, with the tool's audience and actors; empty for any actor but a person.
+  `PACK_ROLE_CORE_READS = ["screens.mine"]` in `pack-roles.ts` is the one widening of pack roles.
+  Not exposed to MCP (`mcp.expose: false`): the admin's read, and empty for an MCP client anyway.
+- **Step 2.** `apps/app/screens-plugin.ts` (`virtual:cos-screens`: a lazy loader per screen, every
+  pack's hooks for `/blocks`, an empty module on the server); `pack-blocks-plugin.ts` now runs in
+  the build too. `/s/$pack/$screen` (`ssr: false`), record tabs `s:<pack>.<screen>` in
+  `useRecordViews`, `ScreenView` with an error boundary, the staff client
+  (`src/lib/staff-client.ts`, shared with `/blocks`), and `forgetScreen` on close.
+- **Step 3.** `ScreensNav` in the sidebar; `getSession` returns the account's pack role and such an
+  account gets `FixedRoleLayout` (its screens, account menu without the email read, sign out; its
+  home lists its screens or says its work is in the app); every other path throws `notFound()` in
+  `_app`'s `beforeLoad`. Root and `_app` "not found" is one page (`components/not-found.tsx`).
+- **Step 4.** Screens declared in Bookings, Memberships, Rostering (with step 4b's checklists:
+  My shifts with each duty's checklist, and the rosterers' Checklists), Programs and Courses
+  (gates in ADR 0660). E2E through the admin's navigation: `bookings.spec.ts` (the desk as an admin, the
+  class list's tab, a coach's shell, ticking and the desk granted and removed, a coach granted the
+  desk), `rostering-blocks.spec.ts` (the roster week, my shifts, offers, my calendar, pay; Pay
+  "not found" for the team). A production build is checked by `apps/app/test-node/
+  screens-plugin.test.ts` (one chunk per screen, none in the entry; a missing block or export
+  fails). The site's Bookings and Rostering lines say staff use the screens in the admin.
+
+**Decided while building (open to override):**
+- A record screen may also have `nav`: then it is listed in the navigation and opened without the
+  record, and its block chooses one (the class list: today's classes, for a coach, who has no
+  record pages). Otherwise the coach could not reach its list.
+- Blocks that needed props the shell does not give got small wrapper exports in the same block:
+  `FrontDesk` (today in the browser's zone, a day picker), `TodayClassList`, `PersonMemberships`
+  (pass types read by a new staff hook, `useStaffPassTypes`, `record.list`) and `ProgramWorkspace`
+  (the program list, then the builder). The browser's zone stands for the desk's: the host's
+  answers (each class's own zone, the coach's today) still decide.
+- Courses' builder builds one course, so it is a record screen (a tab on the course), not a nav
+  screen.
+- A gate names the tools that decide who may open the screen (its main read and the write its
+  main action makes), not every tool it calls: the host refuses the rest and the block shows its
+  state. A screen that saves through the host's record writes (Courses' builder, Programs' bank and
+  builder) is gated by `writes` (the viewer must pass `record.update` on that object). A record
+  screen may be gated by tools staff share with customers (Programs' client view: `logAdd`). A
+  member holds the team's Rostering tools, so a member sees the team's screens;
+  criterion 4's "no Rostering section" holds for an account with none of the rights (a coach
+  without the grant, a door account, `packages/core/test/screens.test.ts`).
+- `/blocks` stays for blocks that are not screens and for the specs that mount a block with props
+  (the members' blocks, and the time-away and not-a-rosterer journeys, which show the blocks' own
+  refusal states that the admin never reaches).
+
+### Changed after the security review of PR #303 (2026-11-24)
+- **A staff cookie only from the host's own pages**: the HTTP surface refuses a staff cookie session
+  whose request's `Origin` is not the host's own, even an `API_ALLOWED_ORIGINS` one (ADR 0415
+  amended); customers' cookies, native bearer tokens and the no-Origin content-type check unchanged
+  (`apps/app/test/staff-cross-origin.test.ts`).
+- **Only what the build holds**: the admin's build hands the host each pack's gate fingerprint
+  (`virtual:cos-screens-built`, `setBuiltScreens`); `screens.mine` lists a pack's screens only when
+  the installed manifest matches, so a row with a pack's id and another manifest lists nothing. An
+  org extension may not take the id of any pack the release carries (`shipped-list.ts`), except in
+  local development (`COS_DEV_ORG_PACKS`, ignored outside a Vite development build).
+- **Pack roles and the other server routes**: one decision (`identity.ts`), applied to routes in `authorize` and to server functions in the
+  function middleware every server function runs (`start.ts`), refuses a pack-role account
+  every server function and `/api/*` route but its session, operations, sign-in and sign-out and
+  the health check (`apps/app/test/pack-role-surfaces.test.ts` walks them all); the hello workflow
+  needs an admin.
+- **Gates** as above (`writes`), and the gates trimmed to the deciding tools.
+- **Tests**: a gate tool's audience and actors (`personMayCall`), the record tab gate, a malformed
+  manifest (skipped, logged once), the squatter; every real admin build now checks its own output
+  (`bundleProblems` in `generateBundle`: each screen's block in a lazy chunk the first load does not
+  fetch, no block code in the server's build), and fails if not.
+- **The cached list**: keyed by the signed-in account, and asked again at once when a screen's call
+  is refused as forbidden.
+
+### Changed after the second security review of PR #303 (2026-11-24)
+- **The staff cookie rule on every reader**: `/api/v1/auth/token` exchanged a staff cookie from an
+  allowed origin (a `text/plain` POST, no preflight) for a staff device session. One function
+  (`staffCookieAllowed`, `apps/app/src/server/staff-origin.ts`) is now applied wherever a staff
+  cookie is read: the HTTP adapter's `staffSession` (the surface, the token exchange, media, the
+  agreement PDFs), `authorize` (pages, server functions, `/api/*` routes, the assistant's socket,
+  the native sign-in page) and the MCP consent page. It refuses an `Origin` that is not the host's,
+  an `Origin` of `null` without `Sec-Fetch-Site: same-origin`, and no `Origin` with a
+  `Sec-Fetch-Site` other than `same-origin`, except a top-level GET navigation (a link into the
+  admin). The token exchange takes only `application/json`. Tests: the exploit and the same
+  attempt on each reader (`apps/app/test/staff-cross-origin.test.ts`).
+- **The pack-role guard end to end**: a coach's browser sends the admin's own `getSystemHealth`
+  and `startHelloWorkflow` requests through TanStack Start and both are refused by the function
+  middleware; the same health request from an account with no pack role is answered
+  (`bookings.spec.ts`).
+- **`COS_DEV_ORG_PACKS` fails closed**: ignored outside a Vite development build (`devOrgPacks`).
+- **MCP**: a pack-role account is not refused there; it is held to its role (ADR 0436).
+- **Refusals ask for `screens.mine` again** at once, then at most every five seconds.

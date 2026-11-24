@@ -34,6 +34,14 @@ best-practice answers are decided, not asked (decisions 1 to 10 below). The owne
 any of them. Every step may start in the order below; step 8 waits for stage 34's shared step and
 gift cards to be built.
 
+- **Step 1 built** (PR #337, `feat/stage-52-periods-entries`): the business's day, finance months,
+  the close as one guarded batch, versions and reopening, the entries tables and their triggers
+  (months closed and reopened in order for every writer, the first month fixed by the first close),
+  `finance:read` and `finance:close`, the finance settings, `csvText` in `packages/core/src/csv.ts`,
+  and the erase of a reopen's reason and of closed rows' names. Migration 1150; ADRs 0790, 0791 and
+  0794 (0449 amended). Left: until step 3 fills `periodBook` a close writes no entries; inserts are
+  500 rows or 1 MB to a statement (not ADR 0627's hundred), so the biggest close fits D1's 1,000.
+
 **This is not accounting or tax advice, and the platform gives none.** The host reports what the
 payment provider confirmed and what the host recorded. How a figure is treated in the business's
 books (when a sale is earned, what tax is owed, what a refund or a gift card does to it) is for the
