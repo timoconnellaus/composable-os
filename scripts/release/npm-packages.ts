@@ -16,7 +16,6 @@
 import { execFileSync } from "node:child_process";
 import {
   cpSync,
-  existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -26,6 +25,7 @@ import {
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { repositoryPackIds } from "@composable-os/product/packs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const REPOSITORY = "https://github.com/timoconnellaus/composable-os";
@@ -33,8 +33,8 @@ const REPOSITORY = "https://github.com/timoconnellaus/composable-os";
 interface Compiled {
   kind: "compiled";
   dir: string;
-  /** Source files compiled (relative to dir); tests and configs are never included. */
-  sources: string[];
+  /** The folder of the source files compiled (relative to dir); tests and configs never are. */
+  source: "src" | ".";
   /** Keep the TypeScript sources in the package as well (the SDK). */
   keepSource?: boolean;
 }
@@ -44,23 +44,21 @@ interface Bundled {
 }
 type Spec = Compiled | Bundled | { kind: "create" };
 
-const packs = readdirSync(join(ROOT, "packs")).filter((id) =>
-  existsSync(join(ROOT, "packs", id, "package.json")),
-);
+const packs = repositoryPackIds(ROOT);
 
 export const PACKAGES: Record<string, Spec> = {
-  "@composable-os/client": { kind: "compiled", dir: "packages/client", sources: ["src"] },
+  "@composable-os/client": { kind: "compiled", dir: "packages/client", source: "src" },
   "@composable-os/sdk": {
     kind: "compiled",
     dir: "packages/sdk",
-    sources: ["src"],
+    source: "src",
     keepSource: true,
   },
-  "@composable-os/product": { kind: "compiled", dir: "packages/product", sources: ["src"] },
+  "@composable-os/product": { kind: "compiled", dir: "packages/product", source: "src" },
   ...Object.fromEntries(
     packs.map((id) => [
       `@composable-os/pack-${id}`,
-      { kind: "compiled", dir: `packs/${id}`, sources: ["."] } satisfies Compiled,
+      { kind: "compiled", dir: `packs/${id}`, source: "." } satisfies Compiled,
     ]),
   ),
   "@composable-os/cli": { kind: "bundled", dir: "packages/create-composable-os" },
@@ -84,8 +82,8 @@ function walk(dir: string, base = dir): string[] {
 }
 
 /** `./src/index.ts` → `./dist/index.js` (and the `.d.ts` beside it). */
-function distPath(path: string, sources: string[]): { js: string; dts: string } {
-  const root = sources[0] === "." ? "" : `${sources[0]}/`;
+function distPath(path: string, source: Compiled["source"]): { js: string; dts: string } {
+  const root = source === "." ? "" : `${source}/`;
   const rel = path
     .replace(/^\.\//, "")
     .replace(root, "")
@@ -105,12 +103,10 @@ function pinned(deps: Record<string, string> | undefined, version: string) {
 
 function compile(spec: Compiled, out: string) {
   const dir = join(ROOT, spec.dir);
-  const files = spec.sources.flatMap((s) =>
-    walk(join(dir, s))
-      .map((f) => (s === "." ? f : `${s}/${f}`))
-      .filter(isSource),
-  );
-  const rootDir = spec.sources[0] === "." ? "." : spec.sources[0];
+  const files = walk(join(dir, spec.source))
+    .map((f) => (spec.source === "." ? f : `${spec.source}/${f}`))
+    .filter(isSource);
+  const rootDir = spec.source;
   const config = join(dir, "tsconfig.npm.json");
   writeFileSync(
     config,
@@ -193,7 +189,7 @@ function packageJson(name: string, spec: Spec, version: string): Record<string, 
   }
   const exports: Record<string, { types: string; default: string }> = {};
   for (const [key, path] of Object.entries(source.exports as Record<string, string>)) {
-    const { js, dts } = distPath(path, spec.sources);
+    const { js, dts } = distPath(path, spec.source);
     exports[key] = { types: dts, default: js };
   }
   return {
