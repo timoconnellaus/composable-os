@@ -26,6 +26,7 @@ import { queueMergeSignals } from "../journeys/signals.ts";
 import { listInputSchema, pageSchema, runListQuery, selectFields } from "../list.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { queueMergeOrders } from "../orders/merge.ts";
+import { queueMergePersonCodes } from "../people-codes/people.ts";
 import { holdsPermission } from "../principals.ts";
 import { bulkTagListSchema, queueBulkTags } from "../records/bulk-tags.ts";
 import {
@@ -1148,6 +1149,8 @@ export const personMerge = defineOperation({
     queueMergeAllowances(ctx, survivor.id, merged.id);
     // Journey signals: the survivor keeps the later of each (stage 53, ADR 0802).
     queueMergeSignals(ctx, survivor.id, merged.id);
+    // Cards follow the Person; the survivor's PIN is kept (stage 51, ADR 0783).
+    queueMergePersonCodes(ctx, survivor.id, merged.id);
     // Family links follow the Person; one between the two is deleted, a duplicate or one that
     // would become two-way is ended (ADR 0540).
     const plan = await planMergeLinks(ctx.db, survivor.id, merged.id);

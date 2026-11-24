@@ -238,6 +238,12 @@ export * from "./orders/index.ts";
 export { holdRoleToday, type TodayLimit, type TodayLimits } from "./pack-role-today.ts";
 export * from "./pack-roles.ts";
 export {
+  type Identified,
+  type IdentifyInput,
+  identifyPerson,
+} from "./people-codes/identify.ts";
+export { type PersonCodeKeys, personCodeKeys } from "./people-codes/keys.ts";
+export {
   type AnyInvocationContext,
   type BatchOutcome,
   type CommitEvent,

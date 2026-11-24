@@ -1411,6 +1411,22 @@ answers the caller's own links. The database refuses a two-way link. A merge re-
 for a person's approval from any other actor; an erase deletes them and says which children have
 no guardian left.
 
+**A person's code** ([ADR 0783](adr/0783-a-persons-code-the-rotating-app-code-cards-and-the-pin.md),
+`packages/core/src/people-codes/`, migration 1135). What identifies a Person at a check-in tablet
+(stage 51): `core_person_code` holds **app codes** (a TOTP secret, sealed with AES-GCM, tied by a
+foreign key to one sign-in, `core_device_session` or `core_customer_session`, so it ends with it;
+one per live dependant on a guardian's sign-in) and **cards** (the HMAC of a fixed code, issued and
+revoked by staff with `people:cards`, `actors: ["human"]`). `core_person_pin` holds a PIN's PBKDF2
+hash. The keys are derived from `BETTER_AUTH_SECRET` by HKDF and reach handlers as
+`ctx.personCodes` (on a customer's call, `hostInternal` core operations only). `me.code` answers
+the caller's code and their dependants' (a native app also gets the secret, to make it offline),
+`me.pin.set`/`clear` their PIN. `identifyPerson` is host code for a device tool, not an operation:
+an app code's current or previous 30-second step, a live card, or exactly one Person by name key
+and PIN; every miss answers `not_found`; per-device lock-outs (`core_identify_lockout`) and ten
+wrong PINs a day per Person are written at once. Erase deletes codes, cards and PIN; merge moves
+cards and keeps the survivor's PIN. `people:cards` is the one core permission a fixed-role account
+may be granted (`FIXED_ROLE_CORE_GRANTS`, ADR 0600 amended).
+
 **Time zones** ([ADR 0460](adr/0460-time-zones-on-records.md)). A `timezone` field type (an IANA
 name the runtime knows; the deployment's zone when left empty on create), and date-relative
 triggers that count days in a record's own zone (`zoneField`), scanned hourly by cos-runner's cron.

@@ -111,6 +111,7 @@ import {
   staffMayCall,
   staffRightsReach,
 } from "./pack-roles.ts";
+import type { PersonCodeKeys } from "./people-codes/keys.ts";
 import {
   ACTORS,
   type ActingUser,
@@ -236,6 +237,11 @@ export interface InvocationContext {
   agentJobs?: AgentJobHost;
   /** The host's own mail for staff (ADR 0455). Not inherited when nested. */
   hostMail?: HostMail;
+  /**
+   * The keys of people's check-in codes and PINs (stage 51, ADR 0783), derived from the host's
+   * auth secret by the adapter. Absent: codes, cards and PINs are refused. Nested calls inherit it.
+   */
+  personCodes?: PersonCodeKeys;
   /**
    * Set on an agent's calls (ADR 0344): what its grant allows, checked on every call. Passed by the
    * AgentJob object, never by a model. Not inherited when nested, which is why operations that run
@@ -962,6 +968,7 @@ async function invokeOnce<O extends AnyOperation>(
     ...(ctx.voice ? { voice: ctx.voice } : {}),
     ...(ctx.agentJobs ? { agentJobs: ctx.agentJobs } : {}),
     ...(ctx.hostMail ? { hostMail: ctx.hostMail } : {}),
+    ...(ctx.personCodes ? { personCodes: ctx.personCodes } : {}),
     pipeline: {
       crm: ctx.db,
       resolve: (name) => ctx.resolveOperation?.(name),
@@ -1052,6 +1059,7 @@ async function invokeOnce<O extends AnyOperation>(
       ...(ctx.assistantThreads ? { assistantThreads: ctx.assistantThreads } : {}),
       ...(ctx.voice ? { voice: ctx.voice } : {}),
       ...(ctx.agentJobs ? { agentJobs: ctx.agentJobs } : {}),
+      ...(ctx.personCodes ? { personCodes: ctx.personCodes } : {}),
       // An approved update or rollback is applied through here (approval.approve).
       ...(ctx.updater ? { updater: ctx.updater } : {}),
       // A call an approved action makes: checked against the reviewed preview, and its changes
@@ -1805,6 +1813,11 @@ export interface OutsideInvocationContext {
   integrations?: IntegrationRuntime;
   /** As for staff calls: the adapter's statements in the call's own batch (ADR 0416). */
   inBatch?: InBatch | undefined;
+  /**
+   * The keys of people's check-in codes and PINs (stage 51, ADR 0783), given only to a
+   * `hostInternal` core operation's handler: `me.code`, `me.pin.set`.
+   */
+  personCodes?: PersonCodeKeys;
   /** Never set: these make a context a staff one. */
   user?: undefined;
   actor?: undefined;
@@ -2192,6 +2205,9 @@ async function invokeOutside<O extends AnyOperation>(
         ...(hostTool && ctx.extensionHost ? { extensionHost: ctx.extensionHost } : {}),
         ...(op.hostInternal === true && !op.name.startsWith("x.") && ctx.integrations
           ? { integrations: ctx.integrations }
+          : {}),
+        ...(op.hostInternal === true && !op.name.startsWith("x.") && ctx.personCodes
+          ? { personCodes: ctx.personCodes }
           : {}),
         get actor() {
           return staffOnly("actor");

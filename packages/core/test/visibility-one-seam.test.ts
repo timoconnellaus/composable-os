@@ -95,6 +95,13 @@ const WHY = {
    * their display name for staff. Never a list of anyone else.
    */
   agreements: "agreements: the Trash, minor and name facts of a Person the host was given",
+  /**
+   * Check-in codes (stage 51 step 3, ADR 0783): whether a Person a code, card or PIN names is
+   * live, and their names to compare with the name typed, answered to host code only; a member's
+   * own and their dependants' given names for their own app; that a Person staff named exists.
+   */
+  codes:
+    "check-in codes: a Person a code names is live, names compared, given names for their own app",
 } as const;
 type Why = (typeof WHY)[keyof typeof WHY];
 
@@ -158,6 +165,7 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "operations/order.ts": [4, WHY.host],
   "operations/organisation.ts": [9, WHY.write],
   "operations/person.ts": [7, WHY.write],
+  "operations/person-code.ts": [2, WHY.codes],
   "operations/setup.ts": [1, WHY.write],
   "operations/suggestions.ts": [6, WHY.write],
   "orders/checkout.ts": [1, WHY.host],
@@ -171,6 +179,7 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   // ADR 0560: an owed refund's order, read by the minute cron to settle the row.
   "orders/refund-due.ts": [1, WHY.host],
   "orders/orders.ts": [2, WHY.host],
+  "people-codes/identify.ts": [3, WHY.codes],
   "records/erase-log.ts": [1, WHY.write],
   // Erase (and, ADR 0590, the marks of the erased person's orders).
   "records/erase-stores.ts": [2, WHY.write],

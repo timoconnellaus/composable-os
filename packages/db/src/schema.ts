@@ -1513,6 +1513,49 @@ export interface CoreStaffFeedTable {
   created_at: string;
 }
 
+/**
+ * Migration 1135 (stage 51 step 3, ADR 0783): what identifies a Person at a check-in tablet. An
+ * `app` code's secret (encrypted, for one sign-in) or a `card`'s code (an HMAC only). Never in a
+ * rec_* view.
+ */
+export interface CorePersonCodeTable {
+  id: string;
+  person_id: string;
+  kind: "app" | "card";
+  code_hmac: string | null;
+  label: string | null;
+  issued_by: string | null;
+  secret_enc: string | null;
+  device_session_id: string | null;
+  customer_session_id: string | null;
+  guardian_id: string | null;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+  revoked_by: string | null;
+}
+
+/** Migration 1135: a Person's PIN, as a slow hash, and its wrong tries over a day. */
+export interface CorePersonPinTable {
+  person_id: string;
+  hash: string;
+  salt: string;
+  iterations: number;
+  set_at: string;
+  failed_count: Generated<number>;
+  failed_since: string | null;
+  disabled_at: string | null;
+}
+
+/** Migration 1135: a device's failed identifications this minute, per entry. No Person. */
+export interface CoreIdentifyLockoutTable {
+  device_id: string;
+  entry: "name" | "code";
+  window_started_at: string;
+  failures: number;
+  locked_until: string | null;
+}
+
 /** Migration 0815 (stage 45 step 4b, ADR 0650): a checklist template. Not personal. */
 export interface CoreChecklistTable {
   id: string;
@@ -3193,6 +3236,9 @@ export interface CoreDatabase {
   core_staff_hours: CoreStaffHoursTable;
   core_time_entry: CoreTimeEntryTable;
   core_staff_feed: CoreStaffFeedTable;
+  core_person_code: CorePersonCodeTable;
+  core_person_pin: CorePersonPinTable;
+  core_identify_lockout: CoreIdentifyLockoutTable;
   core_checklist: CoreChecklistTable;
   core_checklist_step: CoreChecklistStepTable;
   core_checklist_run: CoreChecklistRunTable;

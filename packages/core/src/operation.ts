@@ -23,6 +23,7 @@ import type { HostMail } from "./invites.ts";
 import type { Judge } from "./judge/types.ts";
 import type { ModelRunner } from "./models.ts";
 import type { VoiceRuntime } from "./operations/voice.ts";
+import type { PersonCodeKeys } from "./people-codes/keys.ts";
 import {
   ACTORS,
   type ActingUser,
@@ -279,6 +280,11 @@ export interface HandlerContext {
   readonly agentJobs?: AgentJobHost;
   /** The host's own mail for staff (ADR 0455): the invite notice. Absent: not sent. */
   readonly hostMail?: HostMail;
+  /**
+   * The keys of people's check-in codes and PINs (stage 51, ADR 0783). Absent: codes, cards and
+   * PINs are refused. On a customer's call only a `hostInternal` core operation gets it.
+   */
+  readonly personCodes?: PersonCodeKeys;
 }
 
 /**
