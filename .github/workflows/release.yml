@@ -85,6 +85,21 @@ jobs:
             npm publish "./npm-out/$t" --dry-run --access public --tag "$tag"
           done
 
+      - name: Every npm package already exists, so the npm job can publish it
+        # Trusted publishing cannot create a package: a new one (a new pack) is published once by
+        # hand first (docs/deploying.md, "Publishing to npm", steps 2 and 3). Checked here, before
+        # the release goes public, rather than failing the npm job after it.
+        if: ${{ vars.NPM_PUBLISH == 'true' }}
+        run: |
+          missing=""
+          for d in npm-out/*/; do
+            name=$(node -p "require('./${d}package.json').name")
+            npm view "$name" name > /dev/null 2>&1 || missing="$missing $name"
+          done
+          if [[ -n "$missing" ]]; then
+            echo "::error::Not on npm yet, publish each once by hand and add its trusted publisher first:$missing"; exit 1
+          fi
+
       - uses: actions/upload-artifact@v4
         with:
           name: npm-packages
