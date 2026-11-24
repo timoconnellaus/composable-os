@@ -1921,7 +1921,10 @@ A record declares `staffed` to be one. One person's shifts never overlap: a **do
 refused by the database, for every actor. Each live, covered shift whose person has an account
 holds a **time claim** (its own time, never preparation or pack-down, widened by its **buffer**
 when its kind keeps one). A write of a shift answers its **warnings** (away, not qualified,
-uncovered), which never refuse it (ADR 0622).
+uncovered), which never refuse it (ADR 0622). A shift may take its times from another record
+(**times that follow**, `staffed.timesFrom`, ADR 0751): a crew place has its visit's start, end,
+zone and kind, copied by the host, so it moves with its visit, and a move that would put anyone on
+two shifts at once fails whole.
 _Avoid_: session, slot, booking
 
 ### Thing
@@ -2120,7 +2123,8 @@ _Avoid_: ledger, journal, accounting period (accounting is stage 61's), lock (th
 An object whose records move when the record a relation points to moves (`states.follows`): a
 class cancelled moves its bookings to `cancelled_by_us`, as the host, in the same batch (ADR 0507).
 The parent is in the follower's extension or one it requires (an event's crew shifts and room uses);
-a child that draws places from a pool never follows it (ADR 0841).
+a child that draws places from a pool never follows it (ADR 0841). A staffed follower can follow
+its parent's times too (`staffed.timesFrom`, ADR 0751).
 
 ### Approved by a person
 
