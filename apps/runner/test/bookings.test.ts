@@ -1,13 +1,12 @@
 // Stage 31a, build step 3: the Bookings pack (packs/bookings) in the real host, beside Programs,
 // installed as shipped, with real D1 and the sandbox. The holders that pay for a booking are the
-// Memberships pack's (stage 32b, built in parallel); here a fixture holder stands in for it
-// (`bkfixture.pass`, a runtime extension, never the real pack's id, so both can share a database),
-// and this file installs a test variant of the pack whose `paidBy` also names the fixture (the
-// shipped declaration names only `memberships.membership` and `memberships.pass`), so the
-// spender's declaration
-// (`paidBy`, `at` the class's start, the class type copied, the local weekday and minute) is
-// proved against the host's allowance behaviour before the real holder exists (step 4 connects
-// it). `cos ext test`'s harness does not simulate allowances (ADR 0493), hence this file.
+// Memberships pack's; here a fixture holder stands in for them (`bkfixture.pass`, a runtime
+// extension, never the real pack's id, so both can share a database), and this file installs a
+// test variant of the pack whose `paidBy` also names the fixture (the shipped declaration names
+// only `memberships.membership` and `memberships.pass`). So the spender's declaration (`paidBy`,
+// `at` the class's start, the class type copied, the local weekday and minute) is proved against
+// the host's allowance behaviour on its own; bookings-memberships.test.ts proves it with the real
+// holder. `cos ext test`'s harness does not simulate allowances (ADR 0493), hence this file.
 //
 // What it shows: Bookings is refused before Programs; a series makes its classes in local time,
 // titled after their class type, and far enough ahead for a class type that opens booking 70 days
