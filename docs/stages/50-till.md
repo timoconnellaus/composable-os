@@ -588,9 +588,12 @@ business during setup.
   `packages/gatekeeper-payments/src/`: `registerReader`, `removeReader` and `listReaders` on
   `PaymentProvider` and the session (register and remove are the actions
   `payments.reader.register` and `.remove`, never auto-approvable); `presentPayment` and
-  `cancelPresented`; the host-only rule on all but `listReaders`; the `reader` event; Stripe's
+  `cancelPresented`; the host-only rule on every reader call; in core, both reader actions always
+  reviewed and approved only by a human admin (`READER_KINDS`, `approval.ts`, after the PR's
+  review); the `reader` event; Stripe's
   Terminal calls and the mapping of `payment_intent.succeeded` (card-present only) and
   `terminal.reader.action_failed`; fake readers in the fake ledger with a page each (Tap card,
   Decline, Cancel) delivering signed events. Tests: `__tests__/readers.test.ts` (fake, through the
-  facet and routes) and `__tests__/stripe.test.ts` (Stripe, by injected fetch). Left: the host's
+  facet and routes), `__tests__/stripe.test.ts` (Stripe, by injected fetch) and core's
+  `test/reader-approval.test.ts`. Left: the host's
   half (step 4b), and the real provider in test mode (step 10).

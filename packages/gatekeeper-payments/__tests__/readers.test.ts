@@ -173,6 +173,18 @@ describe("registering a card reader", () => {
     }
   });
 
+  it("removes nothing when the provider's reader is not the host's reader of that id", async () => {
+    const h = await host();
+    const reader = await registered(h);
+    const other = await registered(h);
+    const receipt = (await h.call("removeReader", [
+      { readerId: other.readerId, readerRef: reader.ref, reason: "Replaced" },
+    ])) as PaymentsReaderChangeReceipt;
+    await expect(h.apply(receipt.id)).rejects.toThrow(/refused.*not reader/);
+    const refs = ((await h.call("listReaders", [])) as PaymentsReader[]).map((r) => r.ref);
+    expect(refs).toEqual(expect.arrayContaining([reader.ref, other.ref]));
+  });
+
   it("removes a reader as an action; it can take no payment after", async () => {
     const h = await host();
     const reader = await registered(h);
@@ -290,6 +302,27 @@ describe("a payment on a fake reader", () => {
     expect(await paymentsFor(h, orderId)).toHaveLength(1);
   });
 
+  it("a key sent again with another order, amount or currency is refused", async () => {
+    const h = await host();
+    const reader = await registered(h);
+    const orderId = unique("ord");
+    const input = presentInput(orderId, reader.ref);
+    await h.call("presentPayment", [input]);
+    for (const changed of [
+      { ...input, amount: 1 },
+      { ...input, orderId: unique("ord") },
+      { ...input, currency: "nzd" },
+    ]) {
+      await expect(h.call("presentPayment", [changed])).rejects.toThrow(/other details/);
+    }
+    // Paid, the same: never answered "paid" for a payment of another amount.
+    await atReader(reader.ref, "tap");
+    await vi.waitFor(async () => expect(await paymentsFor(h, orderId)).toHaveLength(1));
+    await expect(h.call("presentPayment", [{ ...input, amount: 1 }])).rejects.toThrow(
+      /other details/,
+    );
+  });
+
   it("one payment at a time on a reader", async () => {
     const h = await host();
     const reader = await registered(h);
@@ -323,8 +356,8 @@ describe("a payment on a fake reader", () => {
       /only by the host/,
     );
     await expect(h.call("cancelPresented", ["frd_1"])).rejects.toThrow(/only by the host/);
-    // Reading the readers is an observation any session may make.
-    expect(Array.isArray(await h.call("listReaders", []))).toBe(true);
+    // The list too: a reader's reference is all the fake reader's public page needs.
+    await expect(h.call("listReaders", [])).rejects.toThrow(/only by the host/);
   });
 
   it("nothing in the reader's form changes the amount; an unknown outcome is refused", async () => {

@@ -28,13 +28,21 @@ Registering and removing are the gatekeeper's actions `payments.reader.register`
 `payments.reader.remove`: never auto-approvable, described to the approver by the label and the
 address (never the single-use code), and nothing reaches the provider until the action is applied.
 A reader moves no money but adds a device that can take it, so it is treated as an outbound act.
+**Core always reviews both kinds** (`READER_KINDS` in `ALWAYS_REVIEWED_KINDS`,
+`integrations/outbound.ts`): they are asked only by the host's own call, whose actions the host's
+message rule would otherwise apply at once (review of PR #348). **Only a human admin approves
+one** (`approval.ts`): a person whose role holds `integrations:manage`, which no grant gives; no AI
+actor, not by relaying the admin's yes. The registration's idempotency key is the host's id and a
+hash of the code, so applying it again is the same request, and a new code for the same id (a
+mistyped one, or a reader registered again after removal) is a new one. A removal first reads the
+provider's reader and removes nothing unless it is the host's reader of that id.
 
 **The host's own call only.** `registerReader`, `removeReader`, `presentPayment` and
 `cancelPresented` are refused unless the session is the host's own orders call (`isHostOrders`,
 as plan changes and the portal are, ADR 0485). The host keeps which till a reader serves and the
 presentation it matches a payment on; a reader registered, or a payment presented, by Code Mode, an
-extension's tool, MCP or the assistant would be one the host never asked for. `listReaders` is an
-observation any session may make.
+extension's tool, MCP or the assistant would be one the host never asked for. `listReaders` is the
+host's own call too: a reader's reference is all the fake reader's public page needs.
 
 **Presenting a payment is an observation, not an action**, as opening a checkout is: no money
 moves until the buyer's card does. `presentPayment({ orderId, amount, currency, description,
@@ -75,9 +83,13 @@ never the order or the buyer, and is on only where the fake is (ADR 0485).
 
 ## Consequences
 
-- Step 4b adds `payments.reader.register` and `.remove` to the host's always-reviewed kinds, a
+- Step 4b adds a
   `reader` kind of `core_order_checkout` holding the presented reference, the `reader` event to
   `paymentsEventSchema`, and the operations that call these methods.
+- The idempotency key holds within Stripe's 24 hours: a presentation retried after that would make
+  a new intent. The desk expiry is 15 minutes, so the host never retries one that old.
+- Sent again with another order, amount or currency, a presentation's key is refused (Stripe's
+  `idempotency_error`; the fake refuses it the same way, so a host bug is not hidden in tests).
 - Not verified against the real provider (the stage's step 10, which needs a test account and a
   simulated or real reader): whether `card_present` intents capture automatically in the
   business's country, which reader failure codes mean a cancel (`customer_canceled`, `canceled`

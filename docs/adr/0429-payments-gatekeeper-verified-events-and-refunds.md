@@ -105,6 +105,6 @@ window applies to both).
 ## Amendment, 2026-11-24 (stage 50 step 4a, ADR 0774)
 - The gatekeeper also takes card payments in person, on readers driven from the server:
   `registerReader` and `removeReader` (the actions `payments.reader.register` and `.remove`, never
-  auto-approvable), `listReaders`, `presentPayment` and `cancelPresented`, all but the list the
-  host's own call only. A payment on a reader arrives as the same `payment` event, through the one
+  auto-approvable, always reviewed by core and approved only by a human admin), `listReaders`,
+  `presentPayment` and `cancelPresented`, all the host's own call only. A payment on a reader arrives as the same `payment` event, through the one
   verified door; a reader's action that took no payment is a new `reader` event. See ADR 0774.

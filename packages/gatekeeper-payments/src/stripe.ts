@@ -904,8 +904,9 @@ export class StripeProvider implements PaymentProvider {
     form.set("label", input.label);
     form.set("location", location);
     form.set("metadata[cos_reader]", input.readerId);
+    const key = await readerKey(input);
     const { body } = await this.#terminal(
-      () => this.#call("POST", "/v1/terminal/readers", form, `cos-reader-${input.readerId}`),
+      () => this.#call("POST", "/v1/terminal/readers", form, key),
       "register the reader",
     );
     const reader = stripeReaderRead(body);
@@ -927,17 +928,25 @@ export class StripeProvider implements PaymentProvider {
     });
   }
 
-  /** Deletes the reader; one Stripe no longer has (`resource_missing`) is already removed. */
+  /**
+   * Deletes the reader, once it is read to be the host's reader of that id (the approver was shown
+   * both ids). One Stripe no longer has (`resource_missing`) is already removed.
+   */
   async removeReader(input: PaymentsRemoveReaderInput): Promise<void> {
+    const path = `/v1/terminal/readers/${encodeURIComponent(input.readerRef)}`;
     try {
+      const { body } = await this.#terminal(
+        () => this.#call("GET", path, undefined, undefined),
+        "read the reader",
+      );
+      if (body.deleted === true) return;
+      if (stringOrNull(metadataOf(body.metadata).cos_reader) !== input.readerId) {
+        throw new ActionApplyError(
+          `Stripe's reader ${input.readerRef} is not reader ${input.readerId}, so nothing was removed.`,
+        );
+      }
       await this.#terminal(
-        () =>
-          this.#call(
-            "DELETE",
-            `/v1/terminal/readers/${encodeURIComponent(input.readerRef)}`,
-            undefined,
-            undefined,
-          ),
+        () => this.#call("DELETE", path, undefined, undefined),
         "remove the reader",
       );
     } catch (error) {
@@ -948,10 +957,11 @@ export class StripeProvider implements PaymentProvider {
 
   /**
    * A `card_present` PaymentIntent for the amount, then handed to the reader. The intent's
-   * idempotency key is the presentation's, so a retry finds the same intent: paid already, it is
-   * answered `paid`; otherwise it is handed to the reader again. One intent is paid at most once,
-   * so a retry never charges twice. The reader's call carries no key: a decline leaves the intent
-   * unpaid and the same presentation may be tried again.
+   * idempotency key is the presentation's, so a retry within Stripe's 24 hours finds the same
+   * intent (Stripe replays the first answer, so it reads as unpaid). Handing it to the reader again
+   * is then refused if it was paid, and the intent read now says so: answered `paid`. One intent is
+   * paid at most once, so a retry never charges twice. The reader's call carries no key: a decline
+   * leaves the intent unpaid and the same presentation may be tried again.
    */
   async presentPayment(
     input: PaymentsPresentInput,
@@ -973,7 +983,6 @@ export class StripeProvider implements PaymentProvider {
     const ref = stringOrNull(intent.id);
     if (ref === null) throw new Error("Stripe answered the payment without an id.");
     const answer = (status: "presented" | "paid") => ({ ref, readerRef: input.readerRef, status });
-    if (intent.status === "succeeded") return answer("paid");
     const process = new URLSearchParams();
     process.set("payment_intent", ref);
     try {
@@ -1201,6 +1210,16 @@ export function sessionToPayment(session: Record<string, unknown>, ref: string):
     currency: currencyOf(session.currency) ?? "",
     paymentRef: idOf(session.payment_intent),
   };
+}
+
+/**
+ * The idempotency key of a reader's registration: one per host id and pairing code. Applying the
+ * same registration again is the same request; a new code for the same id (a mistyped one, or a
+ * reader removed and registered again) is a new one, which Stripe would otherwise refuse as a key
+ * reused with other parameters. Only a hash of the code is sent in the key.
+ */
+async function readerKey(input: PaymentsRegisterReaderInput): Promise<string> {
+  return `cos-reader-${input.readerId}-${(await idempotencyOf(input.registrationCode)).slice(0, 16)}`;
 }
 
 /** A Terminal Reader as a PaymentsReader, or null without an id. */

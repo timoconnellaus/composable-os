@@ -522,13 +522,22 @@ export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
     return this.ctx.storage.kv.get<FakeReader>(READER + ref) ?? null;
   }
 
-  /** Takes a reader off the account, clearing what was on it. One already gone is not an error. */
-  async removeReader(input: PaymentsRemoveReaderInput): Promise<void> {
+  /**
+   * Takes a reader off the account, clearing what was on it. One already gone is not an error; a
+   * reader that is not the host's reader of that id is refused, and nothing is removed.
+   */
+  async removeReader(
+    input: PaymentsRemoveReaderInput,
+  ): Promise<{ ok: true } | { ok: false; reason: string }> {
     const kv = this.ctx.storage.kv;
     const reader = kv.get<FakeReader>(READER + input.readerRef);
-    if (!reader) return;
+    if (!reader) return { ok: true };
+    if (reader.readerId !== input.readerId) {
+      return { ok: false, reason: `that reader is not reader ${input.readerId}` };
+    }
     kv.delete(READER + reader.ref);
     kv.delete(READER_BY_ID + reader.readerId);
+    return { ok: true };
   }
 
   /**
@@ -548,6 +557,15 @@ export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
       existingRef === undefined ? undefined : kv.get<FakeCheckout>(CHECKOUT + existingRef);
     if (checkout && !checkout.inPerson) {
       return { ok: false, reason: "that idempotency key opened a checkout, not a presentation" };
+    }
+    // As the provider refuses a key sent again with other details: a host bug, never hidden.
+    if (
+      checkout &&
+      (checkout.orderId !== input.orderId ||
+        checkout.amount !== input.amount ||
+        checkout.currency !== input.currency)
+    ) {
+      return { ok: false, reason: "that idempotency key was presented with other details" };
     }
     if (checkout?.status === "paid") return { ok: true, checkout, status: "paid" };
     if (checkout && checkout.inPerson?.readerRef !== input.readerRef) {
@@ -1314,7 +1332,12 @@ export class FakeProvider implements PaymentProvider {
   }
 
   async removeReader(input: PaymentsRemoveReaderInput): Promise<void> {
-    await this.#options.ledger.removeReader(input);
+    const result = await this.#options.ledger.removeReader(input);
+    if (!result.ok) {
+      throw new ActionApplyError(
+        `The fake provider refused the removal, so nothing was removed: ${result.reason}.`,
+      );
+    }
   }
 
   async presentPayment(

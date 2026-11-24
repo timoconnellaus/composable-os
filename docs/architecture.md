@@ -1718,7 +1718,8 @@ provider confirms. The host's own calls (a checkout, the confirmation email) use
 cards in person on readers driven from the server: `registerReader` and `removeReader` are its
 actions `payments.reader.register` and `.remove`, which a person approves; `presentPayment` puts
 an order's amount on a named reader (an observation, keyed per presentation so a retry charges
-once) and `cancelPresented` clears it. All but `listReaders` are the host's own call only. A
+once) and `cancelPresented` clears it. Every reader call is the host's own call only, and core
+always reviews the two reader actions (`READER_KINDS`): only a human admin approves one. A
 payment on a reader arrives as the same verified `payment` event (its reference as both
 `checkoutRef` and `paymentRef`); a reader's action that took no payment is a `reader` event. The
 fake provider has fake readers with a page each (Tap card, Decline, Cancel). The host's half (the

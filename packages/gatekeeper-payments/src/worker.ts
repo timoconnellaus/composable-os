@@ -860,9 +860,10 @@ class PaymentsSessionImpl extends RpcTarget implements PaymentsSession {
   }
 
   // --- Card readers (stage 50, ADR 0774) ------------------------------------------------------
-  // All but the list are the host's own call only: the host keeps which till a reader serves and
-  // the presentation it matches the payment on, so a reader registered or a payment presented any
-  // other way (Code Mode, an extension's tool, MCP, the assistant) is one the host never asked for.
+  // The host's own call only: the host keeps which till a reader serves and the presentation it
+  // matches the payment on, so a reader registered or a payment presented any other way (Code
+  // Mode, an extension's tool, MCP, the assistant) is one the host never asked for. The list too:
+  // a reader's reference is all the fake reader's public page needs (review of PR #348).
 
   async registerReader(input: PaymentsRegisterReaderInput): Promise<PaymentsReaderChangeReceipt> {
     const parsed = parseRegisterReaderInput(input);
@@ -887,6 +888,7 @@ class PaymentsSessionImpl extends RpcTarget implements PaymentsSession {
   }
 
   async listReaders(): Promise<PaymentsReader[]> {
+    await requireHostReaderQueue(this.#queue);
     const provider = this.#backend.open();
     await this.#queue.authorizeObservation({
       title: "List card readers",

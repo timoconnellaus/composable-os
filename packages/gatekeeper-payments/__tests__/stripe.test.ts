@@ -396,7 +396,9 @@ describe("the Stripe provider's card readers (stage 50, ADR 0774)", () => {
     expect(reader?.form.get("registration_code")).toBe("simulated-code");
     expect(reader?.form.get("location")).toBe("tml_1");
     expect(reader?.form.get("metadata[cos_reader]")).toBe("rdr_1");
-    expect(reader?.headers.get("idempotency-key")).toBe("cos-reader-rdr_1");
+    expect(reader?.headers.get("idempotency-key")).toMatch(/^cos-reader-rdr_1-[0-9a-f]{16}$/);
+    // The key carries a hash of the code, never the code.
+    expect(reader?.headers.get("idempotency-key")).not.toContain("simulated");
     await stripe.registerReader({ ...registration, readerId: "rdr_2" });
     expect(requests.filter((r) => r.url.endsWith("/v1/terminal/locations"))).toHaveLength(1);
   });
@@ -406,11 +408,63 @@ describe("the Stripe provider's card readers (stage 50, ADR 0774)", () => {
     await expect(stripe.registerReader(registration)).rejects.toBeInstanceOf(ActionApplyError);
     const gone = provider(() => refused("resource_missing"));
     await gone.stripe.removeReader({ readerId: "rdr_1", readerRef: "tmr_1", reason: "Replaced" });
-    expect(gone.requests[0]?.method).toBe("DELETE");
+    expect(gone.requests.map((r) => r.method)).toEqual(["GET"]);
+    const removed = provider((r) =>
+      r.method === "GET" ? ok({ id: "tmr_1", metadata: { cos_reader: "rdr_1" } }) : ok({}),
+    );
+    await removed.stripe.removeReader({
+      readerId: "rdr_1",
+      readerRef: "tmr_1",
+      reason: "Replaced",
+    });
+    expect(removed.requests.map((r) => r.method)).toEqual(["GET", "DELETE"]);
     const other = provider(() => failing(500));
     await expect(
       other.stripe.removeReader({ readerId: "rdr_1", readerRef: "tmr_1", reason: "Replaced" }),
     ).rejects.not.toBeInstanceOf(ActionApplyError);
+  });
+
+  it("a new code for the same reader id is a new request: Stripe refuses a key reused with other details", async () => {
+    // Stripe's idempotency, modelled: a key replays its first answer, refused one included, and a
+    // key sent again with other parameters is refused (idempotency_error).
+    const seen = new Map<string, { form: string; status: number; body: unknown }>();
+    const { stripe } = provider((r) => {
+      const key = r.headers.get("idempotency-key");
+      const answer = (status: number, body: unknown) => {
+        if (key) seen.set(key, { form: r.form.toString(), status, body });
+        return new Response(JSON.stringify(body), { status });
+      };
+      const prior = key ? seen.get(key) : undefined;
+      if (prior) {
+        if (prior.form !== r.form.toString()) {
+          return new Response(JSON.stringify({ error: { type: "idempotency_error" } }), {
+            status: 400,
+          });
+        }
+        return new Response(JSON.stringify(prior.body), { status: prior.status });
+      }
+      if (r.url.endsWith("/v1/terminal/locations")) return answer(200, { id: "tml_1" });
+      if (r.form.get("registration_code") === "mistyped-code") {
+        return answer(400, { error: { type: "invalid_request_error", code: "invalid_request" } });
+      }
+      return answer(200, { id: "tmr_1", metadata: { cos_reader: "rdr_1" } });
+    });
+    await expect(
+      stripe.registerReader({ ...registration, registrationCode: "mistyped-code" }),
+    ).rejects.toBeInstanceOf(ActionApplyError);
+    expect((await stripe.registerReader(registration)).ref).toBe("tmr_1");
+    // The same registration applied again is the same request, answered the same.
+    expect((await stripe.registerReader(registration)).ref).toBe("tmr_1");
+  });
+
+  it("removes nothing when Stripe's reader is not the host's reader of that id", async () => {
+    const { stripe, requests } = provider(() =>
+      ok({ id: "tmr_1", metadata: { cos_reader: "rdr_other" } }),
+    );
+    await expect(
+      stripe.removeReader({ readerId: "rdr_1", readerRef: "tmr_1", reason: "Replaced" }),
+    ).rejects.toThrow(/is not reader rdr_1/);
+    expect(requests.map((r) => r.method)).toEqual(["GET"]);
   });
 
   it("presents a card_present PaymentIntent on the reader, keyed by the presentation", async () => {
@@ -439,9 +493,29 @@ describe("the Stripe provider's card readers (stage 50, ADR 0774)", () => {
   });
 
   it("a retry after a timeout charges once: paid is answered paid, on the reader is presented", async () => {
-    const paid = provider(() => ok({ id: "pi_1", status: "succeeded" }));
+    // Stripe's replay, modelled: the create call answers what it answered first (unpaid), the
+    // reader refuses an intent already paid, and the intent read now says it was.
+    let tapped = false;
+    const paid = provider((r) => {
+      if (r.url.endsWith("/v1/payment_intents")) {
+        return ok({ id: "pi_1", status: "requires_payment_method" });
+      }
+      if (r.url.endsWith("/process_payment_intent")) {
+        return tapped ? refused("payment_intent_unexpected_state") : ok({ id: "tmr_1" });
+      }
+      if (r.url.endsWith("/v1/payment_intents/pi_1")) {
+        return ok({ id: "pi_1", status: tapped ? "succeeded" : "requires_payment_method" });
+      }
+      return ok({ id: "tmr_1", action: null });
+    });
+    expect((await paid.stripe.presentPayment(present)).status).toBe("presented");
+    tapped = true;
     expect((await paid.stripe.presentPayment(present)).status).toBe("paid");
-    expect(paid.requests).toHaveLength(1);
+    // The same intent both times: one payment.
+    const creates = paid.requests.filter((r) => r.url.endsWith("/v1/payment_intents"));
+    expect(new Set(creates.map((r) => r.headers.get("idempotency-key")))).toEqual(
+      new Set(["present-ord_1-1:intent"]),
+    );
 
     const onReader = provider((r) => {
       if (r.url.endsWith("/v1/payment_intents"))

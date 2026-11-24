@@ -113,7 +113,7 @@ interface PaymentsSession {
   // …the subscription methods below, and the card readers (ADR 0774):
   registerReader(input): Promise<PaymentsReaderChangeReceipt>;  // host only; action payments.reader.register
   removeReader(input): Promise<PaymentsReaderChangeReceipt>;    // host only; action payments.reader.remove
-  listReaders(): Promise<PaymentsReader[]>;                     // observation
+  listReaders(): Promise<PaymentsReader[]>;                     // host only; observation
   presentPayment(input): Promise<PaymentsPresentation>;         // host only; observation, no approval
   cancelPresented(readerRef: string): Promise<void>;            // host only; observation
 }
@@ -187,18 +187,19 @@ is an inert stand-in for the portal.
 
 A reader belongs to the payment account, at a location (an address). The host asks for an amount
 on a named reader; the buyer taps or inserts their card on it; the provider's webhook reports the
-payment. Every call but `listReaders` is the host's own orders call only (`isHostOrders()`), as the
+payment. Every reader call is the host's own orders call only (`isHostOrders()`), as the
 portal is: Code Mode, extensions, the assistant and MCP are refused.
 
 | Method | What it does |
 | --- | --- |
-| `registerReader({ readerId, registrationCode, label, locationName, address })` | Submits `payments.reader.register` (never auto-approvable; the approver sees the label and address, never the code). Applied: the location for that address, made once and kept in the facet (Stripe: `POST /v1/terminal/locations`), then `POST /v1/terminal/readers` with the code, the label and `metadata[cos_reader]` the host's id (idempotency key `cos-reader-<readerId>`). A refused code fails it terminally; any other failure leaves it pending, safe to apply again. |
-| `removeReader({ readerId, readerRef, reason })` | Submits `payments.reader.remove`. Applied: `DELETE /v1/terminal/readers/:ref`; one already gone is removed. |
+| `registerReader({ readerId, registrationCode, label, locationName, address })` | Submits `payments.reader.register` (never auto-approvable; the approver sees the label and address, never the code). Applied: the location for that address, made once and kept in the facet (Stripe: `POST /v1/terminal/locations`), then `POST /v1/terminal/readers` with the code, the label and `metadata[cos_reader]` the host's id (idempotency key `cos-reader-<readerId>-<hash of the code>`: a new code is a new request). A refused code fails it terminally; any other failure leaves it pending, safe to apply again. |
+| `removeReader({ readerId, readerRef, reason })` | Submits `payments.reader.remove`. Applied: the reader is read first and nothing is removed unless its `metadata.cos_reader` is `readerId`; then `DELETE /v1/terminal/readers/:ref`. One already gone is removed. |
 | `listReaders()` | An observation, then at most 100 readers: `{ provider, ref, readerId, label, locationRef, status, deviceType }`. The host finds its reader by `readerId`. |
-| `presentPayment({ orderId, amount, currency, description, readerRef, idempotencyKey })` | An observation, then a card-present payment handed to the reader (Stripe: `POST /v1/payment_intents` with `payment_method_types[0]=card_present`, `capture_method=automatic`, `metadata[order_id]`, key `<idempotencyKey>:intent`; then `POST /v1/terminal/readers/:ref/process_payment_intent`). Returns `{ provider, ref, readerRef, status: "presented" \| "paid" }`. The same key is the same payment: paid, it answers `paid` and presents nothing; unpaid, it is handed to the reader again. A reader with another payment on it refuses. |
+| `presentPayment({ orderId, amount, currency, description, readerRef, idempotencyKey })` | An observation, then a card-present payment handed to the reader (Stripe: `POST /v1/payment_intents` with `payment_method_types[0]=card_present`, `capture_method=automatic`, `metadata[order_id]`, key `<idempotencyKey>:intent`; then `POST /v1/terminal/readers/:ref/process_payment_intent`). Returns `{ provider, ref, readerRef, status: "presented" \| "paid" }`. The same key is the same payment (within Stripe's 24 hours): unpaid, it is handed to the reader again; paid, the reader refuses it, the intent read now says so, and it answers `paid`. The same key with another order, amount or currency is refused. A reader with another payment on it refuses. |
 | `cancelPresented(readerRef)` | An observation, then the reader is cleared (Stripe: `cancel_action`); the payment stays unpaid. |
 
-Refund a card-present payment with `refund` on its `ref`. Not verified against Stripe yet (the
+Core always reviews `payments.reader.register` and `.remove`, and only a human admin approves them
+(`READER_KINDS`, ADR 0774). Refund a card-present payment with `refund` on its `ref`. Not verified against Stripe yet (the
 stage's step 10): see ADR 0774's consequences.
 
 ## Events

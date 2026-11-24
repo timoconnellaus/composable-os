@@ -436,7 +436,8 @@ export interface PaymentsPresentInput {
   readerRef: string;
   /**
    * 1 to 200 characters, one per presentation: the same key makes no second payment, so a retry
-   * after a timeout charges once.
+   * after a timeout charges once (Stripe keeps a key 24 hours). Sent again with another order,
+   * amount or currency, it is refused.
    */
   idempotencyKey: string;
 }
@@ -612,13 +613,15 @@ export interface PaymentsSession {
   /**
    * Submits `payments.reader.register` (never auto-approvable): registers a card reader to the
    * payment account at its address. It moves no money but adds a device that can take it. The
-   * host's own call only, as `removeReader`, `presentPayment` and `cancelPresented` are: any other
-   * session is refused.
+   * host's own call only, as every reader call below is: any other session is refused.
    */
   registerReader(input: PaymentsRegisterReaderInput): Promise<PaymentsReaderChangeReceipt>;
-  /** Submits `payments.reader.remove` (never auto-approvable): takes a reader off the account. */
+  /**
+   * Submits `payments.reader.remove` (never auto-approvable): takes a reader off the account. The
+   * provider's reader must be the host's reader of `readerId`, or nothing is removed.
+   */
   removeReader(input: PaymentsRemoveReaderInput): Promise<PaymentsReaderChangeReceipt>;
-  /** The account's readers, at most 100. Records an observation first. */
+  /** The account's readers, at most 100. Records an observation first. The host's own call only. */
   listReaders(): Promise<PaymentsReader[]>;
   /**
    * Puts a payment of the order's amount on a reader. Records an observation first. No approval:
