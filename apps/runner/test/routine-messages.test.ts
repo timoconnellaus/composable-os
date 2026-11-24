@@ -91,6 +91,21 @@ const DAY = 24 * HOUR;
 const CLASS = "bookings.class";
 const SITE = "https://gym.example";
 const ZONE = "Australia/Sydney";
+/**
+ * Midday today in Sydney, as an instant: a message prepared then is outside quiet hours whatever
+ * the time the test runs (ADR 0676), so its text and push are ready rather than waiting.
+ */
+const middayNow = () => {
+  const day = new Date().toISOString().slice(0, 10);
+  const at = Date.parse(`${day}T12:00:00+11:00`);
+  const shown = new Intl.DateTimeFormat("en-GB", {
+    timeZone: ZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date(at));
+  return new Date(shown === "12:00" ? at : at + HOUR).toISOString();
+};
 
 let introspector: Awaited<ReturnType<typeof introspectWorkflow>>;
 let admin: ActingUser;
@@ -371,7 +386,7 @@ describe("a row per channel", { timeout: 60_000 }, () => {
         "bookingConfirmed",
         runId,
         { kind: "confirmation", record: b.bookingId, message: "booked" },
-        { reach },
+        { reach, now: middayNow() },
       );
       statuses[b.who.personId] = (await rowsOf(b.bookingId, runId)).map((r) => [
         r.channel,
@@ -727,7 +742,7 @@ describe("the cost of one message on every channel", { timeout: 60_000 }, () => 
         "bookingConfirmed",
         await runOf("bookingConfirmed", b.bookingId, "record"),
         { kind: "confirmation", record: b.bookingId, message: "booked" },
-        { db: emailOnly.db },
+        { db: emailOnly.db, now: middayNow() },
       );
     } finally {
       await switches(true);
@@ -740,7 +755,7 @@ describe("the cost of one message on every channel", { timeout: 60_000 }, () => 
         "bookingConfirmed",
         runId,
         { kind: "confirmation", record: b.bookingId, message: "booked" },
-        { db: all.db, reach: everyone },
+        { db: all.db, reach: everyone, now: middayNow() },
       );
     } finally {
       await run("routineMail.settings.update", { textOnlyWithoutApp: true }, staff());
