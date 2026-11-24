@@ -74,7 +74,7 @@ export interface CoursesImportReport {
 const placeholder = (i: number) => `med_import${i}`;
 
 /** The one live Person with this address, or why there is not one. */
-async function personFor(
+export async function personFor(
   host: ImportHost,
   email: string,
 ): Promise<{ id: string } | { problem: string }> {

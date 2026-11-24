@@ -1,5 +1,5 @@
 {
-  "$comment": "Generated. Every operation customers or the public may call, with its risk class (ADR 0402, ADR 0411). Do not edit: run `pnpm --filter @composable-os/core open-operations`. A new line here opens the host to people outside the org, so review it as such.",
+  "$comment": "Generated. Every operation customers, the public or an enrolled device may call, with its risk class (ADR 0402, ADR 0411, ADR 0781). Do not edit: run `pnpm --filter @composable-os/core open-operations`. A new line here opens the host to people outside the org, so review it as such.",
   "operations": [
     {
       "name": "access.check",
@@ -56,6 +56,74 @@
       "hostInternal": true
     },
     {
+      "name": "desk.accept",
+      "audiences": ["public"],
+      "risk": "write",
+      "hostInternal": true,
+      "deskOnly": true
+    },
+    {
+      "name": "desk.claim",
+      "audiences": ["public"],
+      "risk": "write",
+      "hostInternal": true,
+      "deskOnly": true
+    },
+    {
+      "name": "desk.documents",
+      "audiences": ["public"],
+      "risk": "write",
+      "hostInternal": true,
+      "deskOnly": true
+    },
+    {
+      "name": "desk.finish",
+      "audiences": ["public"],
+      "risk": "write",
+      "hostInternal": true,
+      "deskOnly": true
+    },
+    {
+      "name": "desk.heartbeat",
+      "audiences": ["public"],
+      "risk": "write",
+      "hostInternal": true,
+      "deskOnly": true
+    },
+    {
+      "name": "desk.status",
+      "audiences": ["public"],
+      "risk": "read",
+      "hostInternal": true,
+      "deskOnly": true
+    },
+    {
+      "name": "device.claim",
+      "audiences": ["public"],
+      "risk": "write",
+      "hostInternal": true,
+      "deskOnly": true
+    },
+    {
+      "name": "device.heartbeat",
+      "audiences": ["device"],
+      "risk": "read"
+    },
+    {
+      "name": "intake.open",
+      "audiences": ["staff", "customer", "public"],
+      "risk": "read",
+      "hostInternal": true,
+      "toolOnly": true
+    },
+    {
+      "name": "intake.submit",
+      "audiences": ["staff", "customer", "public"],
+      "risk": "write",
+      "hostInternal": true,
+      "toolOnly": true
+    },
+    {
       "name": "me.agreements.accept",
       "audiences": ["customer"],
       "risk": "write",
@@ -86,6 +154,48 @@
       "hostInternal": true
     },
     {
+      "name": "me.attention",
+      "audiences": ["customer"],
+      "risk": "read",
+      "hostInternal": true
+    },
+    {
+      "name": "me.birthday.get",
+      "audiences": ["customer"],
+      "risk": "read",
+      "hostInternal": true
+    },
+    {
+      "name": "me.birthday.set",
+      "audiences": ["customer"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
+      "name": "me.calendarFeed.revoke",
+      "audiences": ["customer"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
+      "name": "me.calendarFeed.rotate",
+      "audiences": ["customer"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
+      "name": "me.calendarFeed.status",
+      "audiences": ["customer"],
+      "risk": "read",
+      "hostInternal": true
+    },
+    {
+      "name": "me.code",
+      "audiences": ["customer"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
       "name": "me.deleteAccount",
       "audiences": ["customer"],
       "risk": "write",
@@ -100,6 +210,36 @@
       "name": "me.get",
       "audiences": ["customer"],
       "risk": "read"
+    },
+    {
+      "name": "me.phone.check",
+      "audiences": ["customer"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
+      "name": "me.phone.startCheck",
+      "audiences": ["customer"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
+      "name": "me.pin.clear",
+      "audiences": ["customer"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
+      "name": "me.pin.set",
+      "audiences": ["customer"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
+      "name": "me.portal",
+      "audiences": ["customer"],
+      "risk": "read",
+      "hostInternal": true
     },
     {
       "name": "me.sessions.list",
@@ -138,6 +278,12 @@
     },
     {
       "name": "my.create",
+      "audiences": ["customer"],
+      "risk": "write",
+      "toolOnly": true
+    },
+    {
+      "name": "my.delete",
       "audiences": ["customer"],
       "risk": "write",
       "toolOnly": true
@@ -207,11 +353,23 @@
       "toolOnly": true
     },
     {
+      "name": "staffing.free",
+      "audiences": ["staff", "customer", "public"],
+      "risk": "read",
+      "hostInternal": true,
+      "toolOnly": true
+    },
+    {
       "name": "state.resolve",
       "audiences": ["staff", "customer"],
       "risk": "read",
       "hostInternal": true,
       "toolOnly": true
+    },
+    {
+      "name": "stock.get",
+      "audiences": ["staff", "customer", "public"],
+      "risk": "read"
     },
     {
       "name": "subscription.cancel",
@@ -380,6 +538,18 @@
       "pack": "courses"
     },
     {
+      "name": "x.forms.form",
+      "audiences": ["customer", "public"],
+      "risk": "read",
+      "pack": "forms"
+    },
+    {
+      "name": "x.forms.submit",
+      "audiences": ["customer", "public"],
+      "risk": "write",
+      "pack": "forms"
+    },
+    {
       "name": "x.memberships.buy",
       "audiences": ["customer", "public"],
       "risk": "write",
@@ -417,6 +587,12 @@
     },
     {
       "name": "x.programs.logAdd",
+      "audiences": ["staff", "customer"],
+      "risk": "write",
+      "pack": "programs"
+    },
+    {
+      "name": "x.programs.logRemove",
       "audiences": ["staff", "customer"],
       "risk": "write",
       "pack": "programs"

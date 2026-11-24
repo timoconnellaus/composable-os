@@ -4,7 +4,7 @@
 // (packages/core/api/v1/<audience>.json), and read by `cos client generate` to write a product's
 // typed client.
 import { z } from "zod";
-import { AUDIENCES, type Audience, audiencesOf } from "../audiences.ts";
+import { AUDIENCES, type Audience, audiencesOf, isDeviceOperation } from "../audiences.ts";
 import type { AnyOperation } from "../operation.ts";
 import type { RiskClass } from "../principals.ts";
 
@@ -75,6 +75,70 @@ export interface PackRolesFile {
     restricted: boolean;
     operations: string[];
   }[];
+  /**
+   * The packs each carried pack requires (its manifest's `requires`, ADR 0478), for a pack that
+   * requires any: `cos deploy` installs them with it and `cos add` copies their blocks for it.
+   */
+  requires?: Record<string, string[]>;
+  /**
+   * Each carried pack's sections of My account (its manifest's `portal`, stage 48, ADR 0710),
+   * with the function its client entry (`@composable-os/pack-<id>/client`) exports to make the
+   * hooks its blocks take: `cos add web-account` copies the sections' blocks and writes the
+   * client app's `account-sections.gen.ts` from this.
+   */
+  portal?: Record<string, PortalPackFile>;
+  /**
+   * The owner's client (stage 60, ADR 0872): the staff operations Today needs, as this release
+   * serves them (`OWNER_CLIENT_OPERATIONS` less any it does not have yet). `mobile.owner: true`
+   * writes `roles/owner.ts` from it. Absent from a release older than the owner's client.
+   */
+  owner?: { operations: string[] };
+}
+
+/**
+ * Every operation the owner's client may hold (stage 60, ADR 0872): Today and its drill-in rows,
+ * one's own alerts, the four approval operations, the notice inbox's three and who is signed in.
+ * Not a pack role: any staff account may sign in with it, and the host decides every call. A
+ * release writes into `roles.json` the ones it serves (`ownerClientOperations`), so an operation
+ * of a later step joins the client when its release does. Adding one here is a reviewed change:
+ * each name is in the company's public app bundle (ADR 0451).
+ */
+export const OWNER_CLIENT_OPERATIONS: readonly string[] = Object.freeze([
+  "today.get",
+  "today.rows",
+  "today.alerts",
+  "today.setAlerts",
+  "approval.list",
+  "approval.get",
+  "approval.approve",
+  "approval.reject",
+  "notification.list",
+  "notification.unreadCount",
+  "notification.markRead",
+  "user.me",
+]);
+
+/** The owner's client's operations a staff contract serves, sorted (`roles.json`'s `owner`). */
+export function ownerClientOperations(staff: ApiContract): string[] {
+  const served = new Set(
+    staff.operations.filter((op) => op.audiences.includes("staff")).map((op) => op.name),
+  );
+  return OWNER_CLIENT_OPERATIONS.filter((name) => served.has(name)).sort();
+}
+
+/** One carried pack's sections of My account, as the release's roles file holds them. */
+export interface PortalPackFile {
+  /** The hooks factory its client entry exports: `createMembershipsHooks`. */
+  hooks: string;
+  sections: Record<
+    string,
+    {
+      label: string;
+      order: number;
+      web?: { block: string; export: string };
+      native?: { block: string; export: string };
+    }
+  >;
 }
 
 function jsonSchema(schema: z.ZodType, io: "input" | "output"): JsonSchema {
@@ -102,9 +166,15 @@ function staleGroup(name: string): string {
   return first ?? name;
 }
 
-/** Operations a client can call: tool-only ones (reached only from inside a tool) are left out. */
+/**
+ * Operations a client can call: tool-only ones (reached only from inside a tool), and the desk
+ * origin's own calls and an enrolled device's (reached only through its handler, ADRs 0649 and
+ * 0781), are left out.
+ */
 export function buildContract(operations: readonly AnyOperation[]): ApiContract {
-  const callable = operations.filter((op) => !op.toolOnly);
+  const callable = operations.filter(
+    (op) => !op.toolOnly && !op.deskOnly && !isDeviceOperation(op),
+  );
   const queries = callable.filter((op) => op.risk === "read");
   const entries = callable.map((op): ContractOperation => {
     const kind = op.risk === "read" ? "query" : "mutation";

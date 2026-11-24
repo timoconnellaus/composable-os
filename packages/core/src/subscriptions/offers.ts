@@ -37,9 +37,11 @@ import { notifyStatements } from "../notifications/send.ts";
 import type { HandlerContext } from "../operation.ts";
 import { type PaymentsTarget, paymentsTarget } from "../orders/gateway.ts";
 import { holdsPermission } from "../principals.ts";
+import { jsonList } from "../records/common.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import { realWallClock, zoneOffset } from "../time/local.ts";
 import { type RecordAccess, recordAccess } from "../visibility/records.ts";
+import { GIVING_STATES } from "./access.ts";
 import { pageStatus, TRIAL_HOLD_AFTER_EXPIRY_MS } from "./trial.ts";
 
 /**
@@ -785,8 +787,6 @@ export interface OfferReportItem {
   createdAt: string;
 }
 
-const RUNNING_STATES = ["trialing", "active", "past_due"] as const;
-
 /** A cursor this list gave: the last row's address and id. */
 function readCursor(cursor: string): { e: string; i: string } {
   let parsed: unknown;
@@ -913,12 +913,9 @@ export async function listOffers(
     const subs = await ctx.db
       .selectFrom("core_subscription")
       .select(["id", "state", "created_at", "holder_person_id", "plan_object"])
-      .where(
-        "holder_person_id",
-        "in",
-        untaken.map((r) => r.person_id as string),
-      )
-      .where("state", "in", [...RUNNING_STATES])
+      // One bound parameter: a page holds up to 200 offers, past D1's 100 a statement.
+      .where("holder_person_id", "in", jsonList(untaken.map((r) => r.person_id as string)))
+      .where("state", "in", [...GIVING_STATES])
       .orderBy("created_at", "desc")
       .execute();
     for (const s of subs) {

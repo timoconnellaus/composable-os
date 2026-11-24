@@ -1,6 +1,8 @@
 // A small Slack Web API and OAuth v2 client over fetch. Base URLs come from the Worker's vars so
 // tests can point it at a fake Slack; nothing else is configurable.
 
+import { stripTrailingSlashes } from "@composable-os/gatekeeper-interface/gatekeeper";
+
 const DEFAULT_API_BASE = "https://slack.com/api";
 const DEFAULT_OAUTH_BASE = "https://slack.com/oauth/v2";
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -55,10 +57,6 @@ export function isSlackAuthError(error: unknown): boolean {
 /** Endpoints, from the Worker's vars. */
 export type SlackEndpoints = { apiBase: string; oauthBase: string };
 
-function trimSlash(value: string): string {
-  return value.replace(/\/+$/, "");
-}
-
 function requireHttpUrl(name: string, value: string): string {
   let url: URL;
   try {
@@ -69,7 +67,7 @@ function requireHttpUrl(name: string, value: string): string {
   if (url.protocol !== "https:" && url.hostname !== "localhost") {
     throw new Error(`${name} must be an https URL.`);
   }
-  return trimSlash(value);
+  return stripTrailingSlashes(value);
 }
 
 /** Resolves the Slack endpoints from SLACK_API_BASE and SLACK_OAUTH_BASE (empty: Slack's own). */

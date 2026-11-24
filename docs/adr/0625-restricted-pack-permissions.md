@@ -107,3 +107,9 @@ leave it out of the notices it causes, and refuse a run that was not called for 
   cannot call it: the pipeline decides each call, so they only over-list.
 - Stage 45's pay tools (step 6) declare `rostering:pay` restricted and `humanOnly`.
 - Stage 14a's composed roles hand out sets of grants; the authority stays in `staffAuthority`.
+
+## Amended 2026-11-24: restricted core permissions (stage 56, [ADR 0832](0832-the-notes-permissions.md))
+A core permission can be restricted too. `notes:clients`, `notes:sensitive` and `notes:manage`
+(`RESTRICTED_CORE_PERMISSIONS` in `principals.ts`) are listed `restricted` by
+`user.grantablePermissions`, so the `self_grant` refusal holds for them; as every core permission,
+they are never granted to a fixed role's account. They also give an AI actor nothing.

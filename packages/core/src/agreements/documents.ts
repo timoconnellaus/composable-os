@@ -9,6 +9,7 @@ import { AGREEMENT_KINDS, RICH_TEXT_SCHEMA, validateDocument } from "@composable
 import type { Kysely } from "kysely";
 import { sql } from "kysely";
 import { z } from "zod";
+import { sha256Hex } from "../digest.ts";
 import { listObjects } from "../fields/index.ts";
 
 export { AGREEMENT_KINDS };
@@ -36,10 +37,10 @@ const BODY_BLOCKS_REFUSED = new Set(["embed", "button", "image"]);
 const INVISIBLE =
   /[\u200b-\u200f]|[\u2060-\u2064]|[\ufeff]|[\u061c]|[\u00ad]|[\u034f]|[\u180e]|[\u3164]|[\u115f]|[\u1160]|[\uffa0]|[\u2800]|[\ufe00-\ufe0f]|[\u{e0100}-\u{e01ef}]/gu;
 /** Bidirectional overrides and isolates: they make a text read differently from what it holds. */
-const BIDI_CONTROLS = /[\u202a-\u202e\u2066-\u2069]/;
+export const BIDI_CONTROLS = /[\u202a-\u202e\u2066-\u2069]/;
 /** C0 and C1 control characters, and DEL. */
 // biome-ignore lint/suspicious/noControlCharactersInRegex: refusing control characters is the point.
-const CONTROLS = /[\u0000-\u001f\u007f-\u009f]/;
+export const CONTROLS = /[\u0000-\u001f\u007f-\u009f]/;
 /** The same in body text, which may hold tabs and line ends. */
 // biome-ignore lint/suspicious/noControlCharactersInRegex: refusing control characters is the point.
 const BODY_CONTROLS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/;
@@ -191,7 +192,7 @@ export interface VersionContent {
 
 /** SHA-256 (hex) of the canonical JSON of a version's whole content. */
 export async function versionHash(content: VersionContent): Promise<string> {
-  const bytes = new TextEncoder().encode(
+  return sha256Hex(
     canonicalJson({
       kind: content.kind,
       title: content.title,
@@ -204,8 +205,6 @@ export async function versionHash(content: VersionContent): Promise<string> {
       askAgainMonths: content.askAgainMonths ?? null,
     }),
   );
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
-  return [...digest].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /** A stored version row, as migration 0850 holds it. */

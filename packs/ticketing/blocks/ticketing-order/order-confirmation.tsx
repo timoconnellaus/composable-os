@@ -20,6 +20,7 @@ export function OrderConfirmation({
   if (isPending) return <p aria-busy="true">Checking your order…</p>;
   if (error || !data) return <p role="alert">We could not find this order.</p>;
   const status = orderStatus(data);
+  const tax = data.taxAmount ?? 0;
   return (
     <section className="grid gap-3" aria-live="polite">
       <h2 className="text-xl font-semibold">{status.title}</h2>
@@ -41,10 +42,8 @@ export function OrderConfirmation({
         {formatMoney(data.paid, data.currency)}
       </p>
       {/* The payment provider's own tax figure (ADR 0479): inside the prices, not added to them. */}
-      {(data.taxAmount ?? 0) > 0 ? (
-        <p data-testid="order-tax">
-          Including tax {formatMoney(data.taxAmount ?? 0, data.currency)}
-        </p>
+      {tax > 0 ? (
+        <p data-testid="order-tax">Including tax {formatMoney(tax, data.currency)}</p>
       ) : null}
       {status.kind === "part_paid" ? children : null}
     </section>

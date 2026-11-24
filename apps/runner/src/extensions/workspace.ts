@@ -37,6 +37,10 @@ const summaryKey = (id: string, commit: string, base: string | null) =>
   `summary:${id}:${commit}:${base ?? "-"}`;
 const EXTENSION_ID = /^[a-z][a-z0-9]{1,29}$/;
 
+function assertExtensionId(id: string): void {
+  if (!EXTENSION_ID.test(id)) throw new Error(`Invalid extension id ${id}`);
+}
+
 function assertPath(path: string): void {
   if (
     !path ||
@@ -46,9 +50,6 @@ function assertPath(path: string): void {
     throw new Error(`Invalid file path ${path}`);
   }
 }
-
-/** A content hash of a shipped extension's files (path order independent). */
-export const shippedHash = contentHash;
 
 /** What `sourceOf` returns: the source hash of a commit, and its build or its files. */
 export type CommitSource =
@@ -76,6 +77,13 @@ export class ExtensionWorkspace extends DurableObject<Env> {
     } catch {
       return false;
     }
+  }
+
+  /** Makes `dir` a git repository if it is not one yet. */
+  async #ensureRepo(dir: string): Promise<void> {
+    if (await this.#exists(`${dir}/.git`)) return;
+    await this.workspace.fs.mkdir(dir, { recursive: true });
+    await this.workspace.git.init({ dir });
   }
 
   /** Runs `task` after every earlier git mutation has finished. */
@@ -184,14 +192,11 @@ export class ExtensionWorkspace extends DurableObject<Env> {
     message: string,
     author: { name: string; email: string },
   ): Promise<{ commit: string; changed: boolean }> {
-    if (!EXTENSION_ID.test(id)) throw new Error(`Invalid extension id ${id}`);
+    assertExtensionId(id);
     const dir = extensionDir(id);
     const fs = this.workspace.fs;
     const git = this.workspace.git;
-    if (!(await this.#exists(`${dir}/.git`))) {
-      await fs.mkdir(dir, { recursive: true });
-      await git.init({ dir });
-    }
+    await this.#ensureRepo(dir);
     const existing = (await git.lsFiles({ dir })).filter((p) => !Object.hasOwn(files, p));
     for (const path of existing) {
       await fs.rm(`${dir}/${path}`, { force: true });
@@ -236,7 +241,7 @@ export class ExtensionWorkspace extends DurableObject<Env> {
       throw new Error(`${id} was ejected; releases no longer update it`);
     }
     return this.#serialise(async () => {
-      const hash = await shippedHash(shipped.files);
+      const hash = await contentHash(shipped.files);
       const key = `shipped:${id}`;
       const known = await this.ctx.storage.get<{ hash: string; commit: string }>(key);
       if (known?.hash === hash && (await this.#head(id)) === known.commit) {
@@ -328,7 +333,7 @@ export class ExtensionWorkspace extends DurableObject<Env> {
   }
 
   async #workingCopy(id: string, options: WorkingCopyOptions = {}): Promise<WorkingCopy> {
-    if (!EXTENSION_ID.test(id)) throw new Error(`Invalid extension id ${id}`);
+    assertExtensionId(id);
     const dir = extensionDir(id);
     const ejected = Boolean(await this.ctx.storage.get(ejectedKey(id)));
     if (!(await this.#exists(`${dir}/.git`))) {
@@ -370,13 +375,10 @@ export class ExtensionWorkspace extends DurableObject<Env> {
     files: Record<string, string | null>,
     replace: boolean,
   ): Promise<WorkspaceWrite> {
-    if (!EXTENSION_ID.test(id)) throw new Error(`Invalid extension id ${id}`);
+    assertExtensionId(id);
     const dir = extensionDir(id);
     const fs = this.workspace.fs;
-    if (!(await this.#exists(`${dir}/.git`))) {
-      await fs.mkdir(dir, { recursive: true });
-      await this.workspace.git.init({ dir });
-    }
+    await this.#ensureRepo(dir);
     for (const path of Object.keys(files)) assertPath(path);
     if (replace) {
       for (const path of await this.#workingPaths(id)) {

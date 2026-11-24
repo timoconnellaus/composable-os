@@ -138,18 +138,18 @@ export function WidgetEditor({
       });
       if (result.status === "unavailable") {
         setAiMessage(result.message);
-      } else if (result.status === "invalid") {
-        setAiMessage(`The model's widget did not pass the checks: ${result.message}`);
-        if (result.widget) {
-          setWidget({ ...result.widget, layout: widget.layout });
-          setTab("manual");
-        }
-      } else {
-        const next = { ...result.widget, layout: widget.layout };
-        setWidget(next);
-        setClickThrough(next.clickThrough ? JSON.stringify(next.clickThrough, null, 2) : "");
-        setPreview(result.preview);
+        return;
       }
+      if (result.status === "invalid") {
+        setAiMessage(`The model's widget did not pass the checks: ${result.message}`);
+      }
+      if (!result.widget) return;
+      if (result.status === "invalid") setTab("manual");
+      // The described widget replaces the old one whole: its click-through and its preview too.
+      const next = { ...result.widget, layout: widget.layout };
+      setWidget(next);
+      setClickThrough(next.clickThrough ? JSON.stringify(next.clickThrough, null, 2) : "");
+      setPreview(result.status === "invalid" ? null : result.preview);
     } catch (e) {
       setError(errorMessage(e));
     } finally {

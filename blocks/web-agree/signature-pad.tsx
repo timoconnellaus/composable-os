@@ -38,11 +38,9 @@ export function SignaturePad({
     const point = pointOf(event);
     if (!point) return;
     event.preventDefault();
-    if (!recorder.begin(point, event.pointerId)) {
-      redraw();
-      return;
+    if (recorder.begin(point, event.pointerId)) {
+      event.currentTarget.setPointerCapture(event.pointerId);
     }
-    event.currentTarget.setPointerCapture(event.pointerId);
     redraw();
   }
 

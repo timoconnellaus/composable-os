@@ -16,11 +16,16 @@
 //
 // The base layer's web blocks that call the host (`blocks/web-*`: the agreement blocks, stage 44)
 // mount here too, and every block is also given the agreements hooks as `agreements`
-// (createAgreementsHooks from @composable-os/client), for the inline agreement step.
+// (createAgreementsHooks from @composable-os/client), for the inline agreement step, and the notes
+// hooks as `notes` (createNotesHooks, stage 56), for the note composer a pack's screen opens.
 import {
   AGREEMENTS_HOOKS_CALL,
   type AgreementsClient,
   createAgreementsHooks,
+  createNotesHooks,
+  type HookCalls,
+  NOTES_HOOKS_CALL,
+  type NotesClient,
 } from "@composable-os/client";
 
 /** A client holding every operation (the `operations` is what the hooks read). */
@@ -66,7 +71,7 @@ const files: Record<string, () => Promise<Record<string, unknown>>> = import.met
 /** A typed client's shape over the browser's own calls (#/lib/staff-client), holding every
  * operation a pack's hooks call (`calls`, the pack's `*_HOOKS_CALL`): this page shows every block
  * (ADR 0453). */
-function browserClient<C>(calls: Record<string, readonly string[]>): C {
+function browserClient<C>(calls: Readonly<Record<string, HookCalls>>): C {
   return staffClient<C>(calls, "blocks");
 }
 
@@ -99,26 +104,30 @@ const customerSignIn = {
  * The pack's hooks over the browser's client, loaded with its headless entry. Every pack's is in
  * the build's generated map (screens-plugin.ts): this page names no pack.
  */
-function usePackHooks(pack: string): AnyHooks {
+function usePackHooks(pack: string, onFail: (message: string) => void): AnyHooks {
   const [hooks, setHooks] = useState<{ pack: string; hooks: AnyHooks } | null>(null);
   useEffect(() => {
     let live = true;
     const load = PACK_HOOKS[pack];
     if (!load) return;
-    void load().then(({ createHooks, calls }) => {
-      if (!live) return;
-      // The app's own React Query: a query is refetched when the block asks, as a client app's is.
-      const react = { useQuery, useMutation, useState, useEffect };
-      const make = createHooks as (react: unknown, client: unknown) => AnyHooks;
-      setHooks({
-        pack,
-        hooks: make(react, browserClient(calls as Record<string, readonly string[]>)),
+    load()
+      .then(({ createHooks, calls }) => {
+        if (!live) return;
+        // The app's own React Query: a query is refetched when the block asks, as a client app's is.
+        const react = { useQuery, useMutation, useState, useEffect };
+        const make = createHooks as (react: unknown, client: unknown) => AnyHooks;
+        setHooks({
+          pack,
+          hooks: make(react, browserClient(calls as Record<string, HookCalls>)),
+        });
+      })
+      .catch((error: unknown) => {
+        if (live) onFail(String(error));
       });
-    });
     return () => {
       live = false;
     };
-  }, [pack]);
+  }, [pack, onFail]);
   return hooks?.pack === pack ? hooks.hooks : null;
 }
 
@@ -129,11 +138,17 @@ function BlocksPage() {
   // A base-layer block (`web-…`) belongs to no pack.
   const base = block?.startsWith("web-") ?? false;
   const pack = base ? "" : (block?.split("-")[0] ?? "");
-  const hooks = usePackHooks(pack);
+  const hooks = usePackHooks(pack, setFailed);
   const [agreements] = useState(() =>
     createAgreementsHooks(
       { useQuery, useMutation } as never,
       browserClient<FullClient<AgreementsClient>>(AGREEMENTS_HOOKS_CALL),
+    ),
+  );
+  const [notes] = useState(() =>
+    createNotesHooks(
+      { useQuery, useMutation } as never,
+      browserClient<FullClient<NotesClient>>(NOTES_HOOKS_CALL),
     ),
   );
   useEffect(() => {
@@ -163,7 +178,7 @@ function BlocksPage() {
   if (extra.signIn === "customer") extra.signIn = customerSignIn;
   return (
     <main className="mx-auto max-w-5xl p-6" data-block={block}>
-      <Component {...{ ...(base ? {} : { [pack]: hooks }), agreements, ...extra }} />
+      <Component {...{ ...(base ? {} : { [pack]: hooks }), agreements, notes, ...extra }} />
     </main>
   );
 }

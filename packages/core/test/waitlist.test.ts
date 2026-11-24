@@ -24,7 +24,7 @@ import {
   updateRecord,
 } from "../src/index.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
-import { context, createUser, db, unique } from "./helpers.ts";
+import { context, createUser, db, refusal as refused, unique } from "./helpers.ts";
 
 const ext = extId("wl");
 const KLASS = `${ext}.klass`;
@@ -154,15 +154,6 @@ async function holds(k: string) {
 async function values(id: string) {
   const record = await invoke("record.get", { object: BOOKING, id }, context(admin));
   return record.values as Record<string, unknown>;
-}
-
-async function refused(promise: Promise<unknown>) {
-  const error = await promise.then(
-    () => null,
-    (e: unknown) => e,
-  );
-  expect(error).not.toBeNull();
-  return error as { code: string; details: Record<string, unknown>; message: string };
 }
 
 beforeAll(async () => {

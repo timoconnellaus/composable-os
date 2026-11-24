@@ -112,8 +112,10 @@ describe("tools from the registry (AC2)", () => {
   it("shows an account with a pack role only the tools the role could allow (ADR 0436)", async () => {
     const coach = await signUp(mcpEnv, "viewer");
     const tokens = await connect(fetchApp, coach);
-    // The door role of a pack this deployment does not have: it holds nothing, so nothing is
-    // listed and every call is refused (the role itself is tested in apps/runner).
+    // The door role of a pack this deployment does not have: it holds nothing of the pack, so no
+    // tool is listed and every other call is refused (the role itself is tested in apps/runner).
+    // Every staff account, pack roles included, reads published versions of a staff-read object
+    // (ADR 0701): those three reads are all it is described.
     await env.DB.prepare("UPDATE core_user SET pack_role = 'ticketing.door' WHERE id = ?")
       .bind(coach.id)
       .run();
@@ -121,7 +123,11 @@ describe("tools from the registry (AC2)", () => {
     const names = (await client.listTools()).tools.map((t) => t.name);
     expect(names.filter((n) => n !== "describe_operations" && n !== "call_operation")).toEqual([]);
     const described = await call(client, "describe_operations", { includeSchemas: false });
-    expect(described.data.operations).toEqual([]);
+    expect((described.data.operations as { name: string }[]).map((op) => op.name).sort()).toEqual([
+      "content.search",
+      "content.staffGet",
+      "content.staffList",
+    ]);
     const attempt = await call(client, "call_operation", { name: "person.list", input: {} });
     expect(attempt.data).toMatchObject({ error: { code: "forbidden" } });
   });

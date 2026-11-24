@@ -3,12 +3,14 @@
 // zone, the place, the person's name (and whether it is the reader), whether it has nobody on it,
 // its open offer, and, for a rosterer only, its warnings. Never a class's bookings, places taken,
 // its list or any Person: so a coach whose role reaches class lists only today sees the whole
-// future roster through Rostering's grant, and nothing the role protects.
+// future roster through Rostering's grant, and nothing the role protects. A shift whose title may
+// name a client (`staffed.private`, an appointment, ADR 0761) shows its kind's name (the service)
+// as its title to anyone but its own person and those who roster.
 //
 // Read as the host, set-based: one read per staffed object for its shifts, then one each for the
 // people, the kinds' names, the places and the open offers; the warnings from one read of the
 // qualifications and one of the unavailabilities of the people on it. A range is at most 62 days.
-import { sql } from "kysely";
+import { type RawBuilder, sql } from "kysely";
 import { declaredOf, recordFacts, templateCopies, usable } from "../checklists/index.ts";
 import { objectTableOf } from "../extensions/schema.ts";
 import { getObject, listObjects } from "../fields/index.ts";
@@ -53,7 +55,7 @@ export interface RosterShift {
 export type ChecklistState = "not_started" | "in_progress" | "done" | "missed" | "cancelled";
 
 /** The most shifts one object gives one read; more, and the answer says it was cut short. */
-export const PER_OBJECT = 1000;
+const PER_OBJECT = 1000;
 
 // biome-ignore lint/suspicious/noExplicitAny: x_* tables are not in CoreDatabase; names come from the registry.
 type AnyDb = import("kysely").Kysely<any>;
@@ -99,6 +101,8 @@ export async function rosterRange(
     uncoveredDays: number;
     /** Whose checklists' states the reader sees: everyone's (a rosterer), their own, or none. */
     checklists?: "all" | "own" | "none";
+    /** The reader rosters, so sees a private shift's own title (ADR 0761); else only their own. */
+    clients?: boolean;
   },
 ): Promise<{ shifts: RosterShift[]; truncated: boolean }> {
   const out: RosterShift[] = [];
@@ -119,6 +123,30 @@ export async function rosterRange(
     const titleCol = column(object, object.titleField);
     const [placeField, placeOf] = (def.place ?? "").split(".") as [string, string | undefined];
     const placeCol = def.place ? column(object, placeField) : null;
+    // Whose each shift is: the user field itself, or its holder's account (a coach profile's).
+    const holder = def.who.account && def.who.object ? getObject(def.who.object) : undefined;
+    const holderTable = holder ? objectTableOf(holder.name) : undefined;
+    const holderCol = holder ? column(holder, def.who.account) : null;
+    const holders = async (where: RawBuilder<unknown>) => {
+      if (!holderTable || !holderCol) return new Map<string, string | null>();
+      const found = await sql<{ id: string; account: string | null }>`SELECT id, ${sql.ref(
+        holderCol,
+      )} AS account FROM ${sql.table(holderTable)} WHERE ${where}`.execute(ctx.db);
+      return new Map(found.rows.map((h) => [h.id, text(h.account)]));
+    };
+    // One person's roster is filtered here, before the limit, so their later shifts are not cut
+    // off by everyone else's.
+    let whose = sql`1 = 1`;
+    let accountOf: Map<string, string | null> | null = null;
+    if (range.account !== undefined) {
+      if (!def.who.account) whose = sql`${sql.ref(who)} = ${range.account}`;
+      else {
+        if (!holderCol) continue;
+        accountOf = await holders(sql`${sql.ref(holderCol)} = ${range.account}`);
+        if (!accountOf.size) continue;
+        whose = sql`${sql.ref(who)} IN ${jsonList([...accountOf.keys()])}`;
+      }
+    }
     const rows = await sql<{
       id: string;
       who: string | null;
@@ -136,6 +164,7 @@ export async function rosterRange(
         AND ${sql.ref(starts)} >= ${lo} AND ${sql.ref(starts)} < ${hi}
         AND CAST(strftime('%s', ${sql.ref(starts)}) AS INTEGER) >= ${range.from}
         AND CAST(strftime('%s', ${sql.ref(starts)}) AS INTEGER) < ${range.to}
+        AND ${whose}
       ORDER BY ${sql.ref(starts)} LIMIT ${PER_OBJECT + 1}`.execute(ctx.db);
     if (!rows.rows.length) continue;
     // More than one read gives: the answer says it was cut short (ask for fewer days).
@@ -143,19 +172,9 @@ export async function rosterRange(
       truncated = true;
       rows.rows.length = PER_OBJECT;
     }
-    // Whose each shift is: the user field itself, or its holder's account (a coach profile's).
-    const accountOf = new Map<string, string | null>();
-    if (def.who.account && def.who.object) {
-      const holder = getObject(def.who.object);
-      const holderTable = holder ? objectTableOf(holder.name) : undefined;
-      const holderCol = holder ? column(holder, def.who.account) : null;
+    if (!accountOf && def.who.account) {
       const ids = [...new Set(rows.rows.map((r) => r.who).filter((w): w is string => !!w))];
-      if (holderTable && holderCol && ids.length) {
-        const held = await sql<{ id: string; account: string | null }>`SELECT id, ${sql.ref(
-          holderCol,
-        )} AS account FROM ${sql.table(holderTable)} WHERE id IN ${jsonList(ids)}`.execute(ctx.db);
-        for (const h of held.rows) accountOf.set(h.id, text(h.account));
-      }
+      accountOf = ids.length ? await holders(sql`id IN ${jsonList(ids)}`) : new Map();
     }
     const kindObject = kindObjectOf(object);
     const kindNames = kindObject
@@ -182,14 +201,17 @@ export async function rosterRange(
       const account = !covered
         ? null
         : def.who.account
-          ? (accountOf.get(r.who as string) ?? null)
+          ? (accountOf?.get(r.who as string) ?? null)
           : text(r.who);
       if (range.account !== undefined && account !== range.account) continue;
       if (account) people.set(account, "");
+      const kindName = r.kind ? kindNames.get(r.kind) || null : null;
+      // A private shift's title may name its client: its kind's name instead (ADR 0761).
+      const hidden = def.private === true && !options.clients && !(account && account === reader);
       out.push({
         object: object.name,
         id: r.id,
-        title: text(r.title) ?? object.label,
+        title: (hidden ? kindName : text(r.title)) ?? object.label,
         kind:
           kindObject && r.kind
             ? { object: kindObject, id: r.kind, name: kindNames.get(r.kind) ?? "" }

@@ -14,6 +14,56 @@ Status: **spec agreed** (owner interviewed 2026-11-24: decision 1; the owner's e
 decisions of 2026-11-24 stand as decisions 2 to 4; decisions 5 to 13 decided as best practice by
 the coordinator, open to override). Build may start.
 
+- **Step 1, time entries** (built 2026-11-24, migration 1270, [ADR 0850](../adr/0850-time-entries-the-hosts-clock-overlaps-refused-and-worked-on.md)):
+  `core_time_entry` with the overlap triggers (every statement shape), one open entry per person
+  and a start's idempotency key; the tool-only `staffing.time.clockIn`, `clockOut` (the host's
+  clock), `enter`, `edit`, `withdraw` and `mine`, a person's own act on their own entries, working
+  once the pack's `staffing.settings.recordsTime` is on (`enterDays`, `finishMissingHours` read
+  beside it); what an entry is against (an own live shift, a live `workedOn` record, or other
+  work); finish missing on the minute cron (`staffing.due`); `workedOn` in the SDK, refused to a
+  runtime extension. Until step 2 every finished or entered entry waits. Leaving does not yet mark
+  an open entry finish missing (step 4 amends `leaving.ts`).
+- **Step 2, differences and approval** (branch `feat/stage-58-approval`; migration 1273,
+  [ADR 0851](../adr/0851-differences-from-the-roster-and-approval-of-time.md); amends ADR 0850):
+  built in core. The tolerance (`staffing.settings.matchMinutes`, 5, 0 to 30); an entry finished,
+  entered or corrected that matches the person's own live shift within it is approved by the host
+  (`approved_by = 'host'`, the claim guarded in the batch), the rest wait (time with no shift, and
+  an entry held, `core_time_entry.held`: an approver's entry for someone, a missing finish entered
+  afterwards, one an approver sent back or reopened, which its person corrects and never
+  withdraws). Differences in minutes, any part of a minute counting as one; no note or reason in
+  `differences`. The tool-only `staffing.time.waiting`, `differences` (an approver
+  reads everyone's, a person their own; early and late in whole minutes, unrostered, over 12 hours,
+  not recorded for people counted by time; set-based, `staffing/sets.ts`), `approve` (up to 100,
+  as is or changed, the recorded times kept beside; all or none), `reject` (with why, the person
+  told; a correction waits again or matches), `reopen` (with why, `core_time_entry.reopened_why`,
+  while the period is open) and `enterFor` (`staffing/time.ts`, `operations/staffing-time-approve.ts`).
+  Nobody decides their own entry (an admin may when nobody else can). Tests:
+  `packages/core/test/staffing-time-approve.test.ts` (the hand-worked fixture across midnight and
+  Sydney's clock change), `staffing-time-approve-cost.test.ts` (100 changed approvals in 614
+  statements; differences in 24 statements whatever the range). Notices name no approver and no
+  time. Amended after the review of PR #417. Left for later steps: not recorded
+  from `recordedFrom` (step 3), the 07:00 summary to approvers and Rostering's tools and setting
+  (step 5), the screens (step 6).
+- **Step 4, leave** (branch `feat/stage-58-leave`; migration 1271, ADR 0853; amends ADRs 0622,
+  0624, 0629): built in core. `core_leave_type`, `core_leave_request`, `core_leave_day`,
+  `core_leave_balance_entry` (insert only) and `core_staff_away.leave_request`, with triggers
+  (a request decided once, so two approvals at once apply once; what it asked fixed; an approved
+  one never deleted; a refusing type's approval refused below zero by the database). The tool-only
+  operations `staffing.leave.types`, `saveType`, `request`, `requestFor` (with `approve`),
+  `cancel`, `mine`, `pending`, `approve`, `decline`, `cancelApproved`, `balances`, `setBalance`,
+  `adjust` (`staffing/leave.ts`, `operations/staffing-leave.ts`). Approval in one batch writes the
+  balance entry, the away row and takes the person off each covered shift not started, offering
+  each to everyone eligible (each take-off guarded on the person still holding it; eligibility and
+  the offer notices set-based; at most 40 shifts an approval, 670 queries at that size with four
+  kinds of 100 qualified people, `staffing-leave-cost.test.ts`). Approved leave is cancelled only
+  with its away row removed and its balance reversed (a stale cancel fails whole). Open: a weekly
+  pattern's later generation can name the person on a shift inside approved leave (ADR 0853).
+  `staffing.back` refuses a request's row;
+  `staffing.away` makes no new kind `leave` once a type exists; `user.deactivate` cancels waiting
+  requests and marks an entry left open finish missing (no finish written). Tests: `packages/core/test/staffing-leave.test.ts`. Left for later steps: the lock's
+  triggers over leave and leave lines in pay (step 3, migration 1272), Rostering's tools and
+  notification words (step 5), the screens (step 6), the `forget` additions (with `staffing.forget`).
+
 ## Goal
 
 Staff record the time they actually worked, and the business pays from it. A cleaner taps "start"

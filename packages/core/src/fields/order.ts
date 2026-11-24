@@ -3,12 +3,13 @@
 //
 // An order's lifecycle is declared here, in code, and held by the transition engine (ADR 0425).
 // `paid`, `part_paid`, `refunded` and `expired` are moves only platform code makes (`host`): a
-// verified payment, the expiry sweep, a confirmed refund. No person, MCP client, extension or
+// verified payment or one the host applied itself (ADR 0694), the expiry sweep, a confirmed refund. No person, MCP client, extension or
 // import can make them, whatever they send.
 //
 // Both objects declare a customer: a signed-in customer reads their own orders and those orders'
 // lines through the visibility seam, and nobody else's. Nothing is writable by a customer.
 import { creditNoteObject, invoiceObject, quoteObject } from "./invoice.ts";
+import { locationObject } from "./location.ts";
 import { mediaObject } from "./media.ts";
 import { subscriptionObject } from "./subscription.ts";
 import { defineObject, type ObjectDefinition, type StatesDefinition } from "./types.ts";
@@ -37,10 +38,11 @@ export const ORDER_MACHINE: StatesDefinition = {
   field: "state",
   initial: "pending",
   moves: [
-    // Only a verified payment marks an order paid, in part or in full.
+    // Only a verified payment, or one the host applied (ADR 0694), marks an order paid.
     { from: ["pending", "part_paid", "expired"], to: "paid", by: ["host"] },
-    // A late deposit staff honour (ADR 0429) makes an expired order part paid.
-    { from: ["pending", "expired"], to: "part_paid", by: ["host"] },
+    // A late deposit staff honour (ADR 0429) makes an expired order part paid; a recorded payment
+    // entered in error and reversed (ADR 0694) leaves a paid one part paid, its balance owed.
+    { from: ["pending", "expired", "paid"], to: "part_paid", by: ["host"] },
     // A buyer may give up an order they have paid nothing on. Once money is on it, staff cancel.
     // The host too (ADR 0560): a drop-in booking that leaves its held place another way (its
     // class cancelled) cancels its unpaid order in the same batch.
@@ -84,6 +86,7 @@ export const orderObject = defineObject({
       "subscriptionId",
       "periodStart",
       "periodEnd",
+      "discount",
     ],
     write: [],
   },
@@ -182,6 +185,8 @@ export const orderObject = defineObject({
       filterable: true,
       sortable: false,
     },
+    // Adjustments (stage 34, ADR 0690): money off, already taken out of the total.
+    { ...amount, name: "discount", label: "Discount", column: "discount" },
   ],
 });
 
@@ -203,6 +208,8 @@ export const orderLineObject = defineObject({
       "unitPrice",
       "total",
       "taxAmount",
+      "discount",
+      "netTotal",
     ],
     write: [],
   },
@@ -248,6 +255,9 @@ export const orderLineObject = defineObject({
       filterable: true,
       sortable: false,
     },
+    // Adjustments (stage 34, ADR 0690): the line's share of them, and what it costs after them.
+    { ...amount, name: "discount", label: "Discount", column: "line_discount" },
+    { ...amount, name: "netTotal", label: "Line total after discounts", column: "line_net" },
   ],
 });
 
@@ -268,6 +278,8 @@ export const BASE_OBJECTS = {
   quote: quoteObject,
   invoice: invoiceObject,
   creditNote: creditNoteObject,
+  // Stage 64 (ADR 0910): a place the business works from.
+  location: locationObject,
 } as const satisfies Record<string, ObjectDefinition>;
 
 export type BaseObjectName = keyof typeof BASE_OBJECTS;
@@ -281,4 +293,5 @@ export const BASE_TABLES = {
   quote: "core_quote",
   invoice: "core_invoice",
   creditNote: "core_credit_note",
+  location: "core_location",
 } as const satisfies Record<BaseObjectName, string>;

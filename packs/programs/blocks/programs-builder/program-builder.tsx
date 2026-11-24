@@ -35,27 +35,30 @@ import { Label } from "../ui-label/label.tsx";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
+/** The hooks the builder calls. */
+type BuilderHooks = Pick<
+  ProgramsHooks,
+  | "useAssign"
+  | "useBank"
+  | "useClassTypes"
+  | "useCreateProgram"
+  | "useDraft"
+  | "useExercises"
+  | "useImportText"
+  | "usePeople"
+  | "usePrograms"
+  | "usePublish"
+  | "usePublishOffered"
+  | "useRestoreVersion"
+  | "useVersions"
+  | "useWorkingCopy"
+>;
+
 interface Bank {
   byId: Map<string, RecordOut>;
   list: RecordOut[];
   /** The hooks, for a search of the whole bank on the host. */
-  programs: Pick<
-    ProgramsHooks,
-    | "useAssign"
-    | "useBank"
-    | "useClassTypes"
-    | "useCreateProgram"
-    | "useDraft"
-    | "useExercises"
-    | "useImportText"
-    | "usePeople"
-    | "usePrograms"
-    | "usePublish"
-    | "usePublishOffered"
-    | "useRestoreVersion"
-    | "useVersions"
-    | "useWorkingCopy"
-  >;
+  programs: BuilderHooks;
 }
 
 type Change = (next: Layout) => void;
@@ -91,23 +94,7 @@ export function ProgramBuilder({
   programs,
   programId,
 }: {
-  programs: Pick<
-    ProgramsHooks,
-    | "useAssign"
-    | "useBank"
-    | "useClassTypes"
-    | "useCreateProgram"
-    | "useDraft"
-    | "useExercises"
-    | "useImportText"
-    | "usePeople"
-    | "usePrograms"
-    | "usePublish"
-    | "usePublishOffered"
-    | "useRestoreVersion"
-    | "useVersions"
-    | "useWorkingCopy"
-  >;
+  programs: BuilderHooks;
   programId: string;
 }) {
   const copy = programs.useWorkingCopy(programId);
@@ -724,7 +711,38 @@ function ItemEditor({
           />
         </div>
       ) : (
-        <LevelsEditor layout={layout} at={at} levels={item.levels} bank={bank} change={change} />
+        <>
+          <div className="grid gap-2" data-testid="everyone">
+            {(item.exercises ?? []).map((p, e) => (
+              <PrescriptionEditor
+                // biome-ignore lint/suspicious/noArrayIndexKey: exercises are positions in their item.
+                key={e}
+                layout={layout}
+                at={{ ...at, everyone: true, exercise: e }}
+                prescription={p}
+                bank={bank}
+                change={change}
+                removable
+              />
+            ))}
+            <ExercisePicker
+              bank={bank}
+              label="Add an exercise for everyone, beside the levels"
+              compact
+              onPick={(id) =>
+                change(
+                  layoutEdits.addExercise(
+                    layout,
+                    { ...at, everyone: true },
+                    id,
+                    measureOf(bank, id),
+                  ),
+                )
+              }
+            />
+          </div>
+          <LevelsEditor layout={layout} at={at} levels={item.levels} bank={bank} change={change} />
+        </>
       )}
       <NotesEditor
         notes={item.notes ?? []}
@@ -1191,23 +1209,7 @@ function Versions({
   programId,
   onRestored,
 }: {
-  programs: Pick<
-    ProgramsHooks,
-    | "useAssign"
-    | "useBank"
-    | "useClassTypes"
-    | "useCreateProgram"
-    | "useDraft"
-    | "useExercises"
-    | "useImportText"
-    | "usePeople"
-    | "usePrograms"
-    | "usePublish"
-    | "usePublishOffered"
-    | "useRestoreVersion"
-    | "useVersions"
-    | "useWorkingCopy"
-  >;
+  programs: BuilderHooks;
   programId: string;
   onRestored: (layout: Layout, title?: string) => void;
 }) {
@@ -1301,29 +1303,7 @@ function Versions({
   );
 }
 
-function Assign({
-  programs,
-  programId,
-}: {
-  programs: Pick<
-    ProgramsHooks,
-    | "useAssign"
-    | "useBank"
-    | "useClassTypes"
-    | "useCreateProgram"
-    | "useDraft"
-    | "useExercises"
-    | "useImportText"
-    | "usePeople"
-    | "usePrograms"
-    | "usePublish"
-    | "usePublishOffered"
-    | "useRestoreVersion"
-    | "useVersions"
-    | "useWorkingCopy"
-  >;
-  programId: string;
-}) {
+function Assign({ programs, programId }: { programs: BuilderHooks; programId: string }) {
   const [search, setSearch] = useState("");
   const [person, setPerson] = useState<{ id: string; name: string } | null>(null);
   const [classType, setClassType] = useState("");
@@ -1430,23 +1410,7 @@ export function ProgramList({
   programs,
   onOpen,
 }: {
-  programs: Pick<
-    ProgramsHooks,
-    | "useAssign"
-    | "useBank"
-    | "useClassTypes"
-    | "useCreateProgram"
-    | "useDraft"
-    | "useExercises"
-    | "useImportText"
-    | "usePeople"
-    | "usePrograms"
-    | "usePublish"
-    | "usePublishOffered"
-    | "useRestoreVersion"
-    | "useVersions"
-    | "useWorkingCopy"
-  >;
+  programs: BuilderHooks;
   onOpen: (programId: string) => void;
 }): ReactNode {
   const list = programs.usePrograms();
@@ -1528,7 +1492,7 @@ export function ProgramList({
             onClick={async () => {
               const out = await importText.mutateAsync({ text });
               setUnread(out.unread);
-              onOpen(out.programId);
+              if (out.programId) onOpen(out.programId);
             }}
           >
             Import

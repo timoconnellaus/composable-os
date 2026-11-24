@@ -69,11 +69,6 @@ export function toObjectDefinition(info: ObjectInfo): ObjectDefinition {
   };
 }
 
-/** Writable extension fields of an object (formulas and system fields excluded). */
-export function editableFields(info: ObjectInfo): FieldInfo[] {
-  return info.fields.filter((f) => f.extension && !f.readOnly);
-}
-
 /** Extension fields of an object grouped by the extension that added them. */
 export function fieldsByExtension(info: ObjectInfo): [string, FieldInfo[]][] {
   const groups = new Map<string, FieldInfo[]>();

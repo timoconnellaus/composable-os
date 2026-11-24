@@ -28,10 +28,23 @@ export interface ToolCaller {
    */
   principal?: OutsidePrincipal;
   /**
+   * Set when an enrolled device holding a device role called the tool (ADR 0781): who started
+   * it, for the tool to record (`ctx.caller`). The run's operation calls are the extension's, as
+   * for staff, and no account is "me" in them.
+   */
+  device?: { deviceId: string; name: string };
+  /**
    * The staff caller's pack role limit to today (ADR 0553), from the pipeline's read of the
    * account: the run's record reads and writes of these objects reach today's records only.
    */
   roleToday?: import("../pack-role-today.ts").TodayLimits;
+  /** With `roleToday`: the moment of the call that took the limit; its day is the run's today. */
+  roleTodayAt?: string;
+  /**
+   * The staff caller's pack role limit to the People they look after (ADR 0889): the run's
+   * record reads and writes of these objects reach those People's records only.
+   */
+  roleLooksAfter?: import("../pack-role-looks-after.ts").LooksAfterLimit;
   /** The person who approved this call, when another actor's call was approved (ADR 0552). */
   approvedBy?: string;
   /**

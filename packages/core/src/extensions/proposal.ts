@@ -336,7 +336,8 @@ export function computeImpact(input: {
       `Ejects the shipped extension ${manifest.id}: from now on it is a runtime extension and stops receiving upstream updates with new releases.`,
     );
   }
-  if (previous && deltaSize(widened) > 0) {
+  const widens = Boolean(previous) && deltaSize(widened) > 0;
+  if (widens) {
     warnings.push("Asks for permissions beyond the installed version.");
   }
   const hidden = of(["hide_field", "hide_object"]);
@@ -346,6 +347,7 @@ export function computeImpact(input: {
     );
   }
   const typeChanges = of(["change_type"]);
+  const labels = manifestSummaryContext(manifest);
   const schemaChanged = changes.length > 0;
   return {
     extension: manifest.id,
@@ -366,23 +368,20 @@ export function computeImpact(input: {
       requested,
       widened,
       narrowed,
-      widens: Boolean(previous) && deltaSize(widened) > 0,
+      widens,
     },
     modules: [...requested.modules],
-    triggers: Object.entries(manifest.automations).map(([name, a]) => {
-      const labels = manifestSummaryContext(manifest);
-      return {
-        name,
-        label: a.label,
-        trigger: triggerText(a, labels),
-        summary: automationSummary(a, labels).text,
-        connections: (a.connections ?? []).map(({ id, gatekeeper, purpose }) => ({
-          id,
-          gatekeeper,
-          purpose,
-        })),
-      };
-    }),
+    triggers: Object.entries(manifest.automations).map(([name, a]) => ({
+      name,
+      label: a.label,
+      trigger: triggerText(a, labels),
+      summary: automationSummary(a, labels).text,
+      connections: (a.connections ?? []).map(({ id, gatekeeper, purpose }) => ({
+        id,
+        gatekeeper,
+        purpose,
+      })),
+    })),
     tools,
     views: Object.keys(manifest.views),
     files: {

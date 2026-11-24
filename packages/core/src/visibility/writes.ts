@@ -11,6 +11,7 @@ import type { ObjectDefinition } from "../fields/types.ts";
 import type { HandlerContext, RecordChange } from "../operation.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { jsonList } from "../records/common.ts";
+import { restrictedWrites, splitRestricted } from "../records/restricted.ts";
 import { holdsAccess } from "./access.ts";
 import { unknownObject } from "./customer.ts";
 import { isLiveDependant, linkGuardStatement } from "./guardians.ts";
@@ -88,6 +89,12 @@ export async function assertVisibleWrites(
     if (!object) throw unknownObject(change.object);
     const scope: Scope = scopeOf(ctx.principal, object);
     if (scope.kind !== "customer") throw unknownObject(change.object);
+    // A record of an object that lets its customer remove their own (`customer.delete`): only
+    // whose it is matters, checked with the updates below.
+    if (change.action === "delete" && object.customer?.delete) {
+      existing.set(object.name, [...(existing.get(object.name) ?? []), change.id]);
+      continue;
+    }
     if (change.action !== "create" && change.action !== "update") {
       throw new ForbiddenError(`A customer cannot ${change.action} a ${object.name}`);
     }
@@ -168,6 +175,8 @@ export interface RecordWriter {
     values: Record<string, unknown>,
     options?: { from?: string | undefined },
   ): Promise<boolean>;
+  /** Moves a record to Trash with every rule `record.delete` holds. */
+  delete(ctx: HandlerContext, object: ObjectDefinition, id: string): Promise<void>;
 }
 
 let recordWriter: RecordWriter | null = null;
@@ -287,6 +296,23 @@ async function assertAccessRequired(
   }
 }
 
+/**
+ * A restricted value (ADR 0811) is written by the record's author only: a guardian acting for a
+ * dependant writes none of a dependant's, as they read none.
+ */
+function assertAuthor(
+  object: ObjectDefinition,
+  restricted: Record<string, unknown>,
+  author: boolean,
+): void {
+  const name = Object.keys(restricted)[0];
+  if (name !== undefined && !author) {
+    throw new ValidationError(`${object.name}.${name} is written by its author only`, {
+      field: name,
+    });
+  }
+}
+
 /** Runs `write` and marks every change it recorded as one the seam checked. */
 async function recording<T>(
   writer: SeamWriter,
@@ -345,18 +371,24 @@ export async function createVisible(
     throw new ForbiddenError(`A customer cannot create a ${object.name}`);
   }
   const owner = await ownerFor(writer, scope, options.forPersonId);
+  // A restricted field (ADR 0811) is its author's: the record code never sees it, and the store
+  // keeps it in this batch, after the record.
+  const { plain, restricted } = splitRestricted(object, values);
+  assertAuthor(object, restricted, owner === scope.personId);
   await assertRelationsVisible(writer.reader, object, values);
   await assertAccessRequired(writer.reader, object, values, null);
   const madeBy = scope.declaration.guardians?.madeBy;
   const owned = {
-    ...values,
+    ...plain,
     [scope.declaration.field]: owner,
     ...(madeBy ? { [madeBy]: scope.personId } : {}),
   };
   // For a dependant, the final check (assertVisibleWrites) adds the link's guard to the batch.
   const create = recordWriter.create;
   const seamSet = new Set(madeBy ? [madeBy] : []);
-  return { id: await recording(writer, (host) => create(host, object, owned, { seamSet })) };
+  const id = await recording(writer, (host) => create(host, object, owned, { seamSet }));
+  writer.host.write(...restrictedWrites(writer.host, object, id, restricted));
+  return { id };
 }
 
 /** Changes one of the caller's own records, in fields they (or the tool) may set. */
@@ -380,13 +412,19 @@ export async function updateVisible(
   // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
   const row = (await (writer.reader.db as any)
     .selectFrom(ownedSource(writer.reader, object))
-    .select("id")
+    .select(["id", "owner"])
     .where("id", "=", id)
     .executeTakeFirst()) as AnyRow | undefined;
   if (!row) throw new NotFoundError(object.name, id);
+  // A restricted field (ADR 0811): its author's own record only, kept by the store, not the record.
+  const { plain, restricted } = splitRestricted(object, values);
+  assertAuthor(object, restricted, String(row.owner) === scope.personId);
+  writer.host.write(...restrictedWrites(writer.host, object, id, restricted));
+  // Only restricted values: the record itself is not changed (nor its updated time).
+  if (!Object.keys(plain).length && options.from === undefined) return;
   // A dependant's record (ADR 0540): the final check (assertVisibleWrites) holds the write to the
   // live link at commit, as it does every change to a dependant's record.
-  await assertRelationsVisible(writer.reader, object, values);
+  await assertRelationsVisible(writer.reader, object, plain);
   if (object.customer?.requireAccess?.length) {
     // What the row points to now, through the caller's own source (its listed columns).
     // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
@@ -401,7 +439,7 @@ export async function updateVisible(
       const column = field ? viewColumnOf(field) : null;
       existing[name] = column && current ? current[column] : null;
     }
-    await assertAccessRequired(writer.reader, object, values, existing);
+    await assertAccessRequired(writer.reader, object, plain, existing);
   }
   const update =
     coreWriters.get(object.name)?.update ??
@@ -409,5 +447,26 @@ export async function updateVisible(
   if (!update) throw new OperationError("internal", `No writer for ${object.name}`);
   // `from` is passed by the tool and judged by the record code: a move made from a current read.
   const from = options.from === undefined ? {} : { from: options.from };
-  await recording(writer, (host) => update(host, object, id, values, from));
+  await recording(writer, (host) => update(host, object, id, plain, from));
+}
+
+/**
+ * Moves one of the caller's own records to Trash, where its object lets its customer remove their
+ * own (`customer.delete`, ADR 0414, amended): a logged set ticked by mistake. Any other object, and a
+ * record that is not theirs, is answered as a record that is not there.
+ */
+export async function deleteVisible(writer: SeamWriter, name: string, id: string): Promise<void> {
+  const { object } = customerScopeFor(writer, name);
+  if (!object.customer?.delete || isCoreObject(object.name) || !recordWriter) {
+    throw new ForbiddenError(`A customer cannot delete a ${object.name}`);
+  }
+  // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
+  const row = (await (writer.reader.db as any)
+    .selectFrom(ownedSource(writer.reader, object))
+    .select("id")
+    .where("id", "=", id)
+    .executeTakeFirst()) as AnyRow | undefined;
+  if (!row) throw new NotFoundError(object.name, id);
+  const trash = recordWriter.delete;
+  await recording(writer, (host) => trash(host, object, id));
 }

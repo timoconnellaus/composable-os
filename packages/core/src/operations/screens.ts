@@ -25,6 +25,7 @@ import { toolOperation } from "../extensions/tools.ts";
 import { type AnyOperation, defineOperation } from "../operation.ts";
 import { loadStaffRights, type StaffRights, staffAuthority } from "../pack-roles.ts";
 import { type Role, staffPrincipal } from "../principals.ts";
+import { agreementDeskFind, agreementDeskStart } from "./agreement-desk.ts";
 import { recordUpdate } from "./record.ts";
 
 const screenOut = z.object({
@@ -51,6 +52,26 @@ let built: ReadonlyMap<string, string> | null = null;
 export function setBuiltScreens(fingerprints: Readonly<Record<string, string>> | null): void {
   built = fingerprints ? new Map(Object.entries(fingerprints)) : null;
 }
+
+/**
+ * Core's own staff screens, declared the way a pack declares its screens (stage 47's shape: a
+ * label, where it sits, and the operations whose callers may open it), and listed by the same
+ * rule: a person who could call every operation in `opens`. The admin's build holds their
+ * components itself (`pack: "core"`). Stage 44 step 6 (ADR 0649): Sign at the desk, so a coach
+ * granted agreements:desk (a fixed-role account, ADR 0600 amended) finds it in their small shell.
+ */
+export const CORE_SCREENS: Readonly<
+  Record<string, { label: string; nav: { group: string; order: number }; opens: readonly string[] }>
+> = Object.freeze({
+  desk: {
+    label: "Sign at the desk",
+    nav: { group: "Agreements", order: 10 },
+    opens: ["agreement.desk.start", "agreement.desk.find"],
+  },
+});
+
+/** Core's screens are under this name, which no extension may take as its id (reserved). */
+export const CORE_SCREEN_PACK = "core";
 
 /** Packs whose installed manifest could not be read, said once each per isolate. */
 const unreadable = new Set<string>();
@@ -83,6 +104,18 @@ export const screensMine = defineOperation({
         .execute(),
     ]);
     const screens: MyScreen[] = [];
+    for (const [key, screen] of Object.entries(CORE_SCREENS)) {
+      const ops = screen.opens.map((name) => coreOperationNamed(name));
+      if (!ops.every((op) => op && personMayCall(op, ctx.user, rights))) continue;
+      screens.push({
+        pack: CORE_SCREEN_PACK,
+        key,
+        label: screen.label,
+        nav: screen.nav,
+        route: screenRoute(CORE_SCREEN_PACK, key),
+        record: null,
+      });
+    }
     for (const row of rows) {
       const fingerprint = built.get(row.id);
       if (!fingerprint) continue;
@@ -152,5 +185,13 @@ function mayOpen(
   });
   return tools && writes.every((object) => personMayCall(recordUpdate, user, rights, { object }));
 }
+
+/** The core operation `name`, for core screens' gates (read late: the registry imports this). */
+function coreOperationNamed(name: string): AnyOperation | undefined {
+  return coreScreenGates.get(name);
+}
+const coreScreenGates = new Map<string, AnyOperation>(
+  [agreementDeskStart, agreementDeskFind].map((op) => [op.name, op as AnyOperation]),
+);
 
 export const screenOperations = [screensMine] as const;

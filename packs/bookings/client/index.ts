@@ -8,7 +8,13 @@
 // and it holds no rules. When booking opens, whether a cancel is late, whether a class type is
 // booked by the gym, the places left and what a booking spends are the host's: a block shows the
 // host's answer (`book`'s and `cancel`'s), never works one out.
-import { type ClientHolding, type PackClient, packHooks } from "@composable-os/client";
+import {
+  type ClientHolding,
+  type PackClient,
+  packHooks,
+  type UseMutation,
+  type UseQuery,
+} from "@composable-os/client";
 import type { z } from "@composable-os/sdk";
 import type {
   book,
@@ -95,6 +101,16 @@ export type BookingsClient = PackClient<BookingsOperations>;
 
 // --- Plain functions (display only) --------------------------------------------------------------
 
+/** Today's date (YYYY-MM-DD) in `timeZone`, by this device's clock. */
+export function todayIn(timeZone: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
 /** A class's start and end in its own zone ("Tue 3 Mar, 06:00–07:00"), for display. */
 export function classTime(
   klass: { startsAt: string | null; endsAt: string | null; timeZone: string | null },
@@ -174,27 +190,7 @@ export function bookingFor(
 
 // --- Hooks ---------------------------------------------------------------------------------------
 
-/** The app's `useQuery`, as far as these hooks use it. */
-export type UseQuery = <T>(options: {
-  queryKey: readonly unknown[];
-  queryFn: () => Promise<T>;
-  enabled?: boolean;
-}) => { data: T | undefined; isPending: boolean; error: unknown; refetch?: () => unknown };
-
-/** The app's `useMutation`, as far as these hooks use it. */
-export type UseMutation = <I, O>(options: {
-  mutationKey: readonly unknown[];
-  mutationFn: (input: I) => Promise<O>;
-  gcTime?: number;
-}) => {
-  mutate(input: I): void;
-  mutateAsync(input: I): Promise<O>;
-  data: O | undefined;
-  isPending: boolean;
-  error: unknown;
-  /** Forgets the call: its variables and its answer (TanStack Query's `reset`). */
-  reset?: () => void;
-};
+export type { UseMutation, UseQuery } from "@composable-os/client";
 
 /**
  * The operations each hook calls (ADR 0453). A customer's client gets the member's hooks (the

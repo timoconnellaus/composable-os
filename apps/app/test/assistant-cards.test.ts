@@ -5,19 +5,12 @@
 import { env } from "cloudflare:workers";
 import type { A2uiPart } from "@composable-os/agent-a2ui";
 import type { Principal } from "@composable-os/auth";
-import {
-  type AssistantEvent,
-  type AssistantThreadState,
-  resolveActingUser,
-  type TranscriptItem,
-} from "@composable-os/core";
+import { resolveActingUser, type TranscriptItem } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { describe, expect, it } from "vitest";
-import { type AssistantHttpEnv, handleState, handleTurn } from "../src/server/assistant/http.ts";
 import { runOperation } from "../src/server/operations.ts";
+import { turn as assistantTurn, threadState as state } from "./assistant-helpers.ts";
 
-const ORIGIN = "https://crm.test";
-const appEnv = env as unknown as AssistantHttpEnv;
 const db = createCrmDb(env.DB);
 
 let n = 0;
@@ -33,32 +26,7 @@ async function member(): Promise<Principal> {
   return principal;
 }
 
-async function turn(principal: Principal, text: string): Promise<AssistantEvent[]> {
-  const response = await handleTurn(
-    new Request(`${ORIGIN}/api/assistant/turn`, {
-      method: "POST",
-      headers: { "content-type": "application/json", origin: ORIGIN },
-      body: JSON.stringify({ text }),
-    }),
-    appEnv,
-    principal,
-  );
-  expect(response.status).toBe(200);
-  return (await response.text())
-    .split("\n\n")
-    .map((frame) => frame.split("\n").find((l) => l.startsWith("data: ")))
-    .filter((l): l is string => Boolean(l))
-    .map((l) => JSON.parse(l.slice(6)) as AssistantEvent);
-}
-
-async function state(principal: Principal): Promise<AssistantThreadState> {
-  const response = await handleState(
-    new Request(`${ORIGIN}/api/assistant/thread`),
-    appEnv,
-    principal,
-  );
-  return (await response.json()) as AssistantThreadState;
-}
+const turn = (principal: Principal, text: string) => assistantTurn(principal, { text });
 
 const cards = (items: TranscriptItem[]) =>
   items.flatMap((i) => (i.kind === "card" ? [i.part] : [])) as A2uiPart[];

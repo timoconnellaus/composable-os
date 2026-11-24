@@ -17,9 +17,15 @@ const closedInRange = (status: "won" | "lost") => ({
   ],
 });
 
+const OWNER_FILTER = {
+  type: "user" as const,
+  id: "owner",
+  label: "Owner",
+  default: "anyone" as const,
+};
 const FILTERS = [
   { type: "dateRange" as const, id: "date", label: "Closed", default: "this_quarter" as const },
-  { type: "user" as const, id: "owner", label: "Owner", default: "anyone" as const },
+  OWNER_FILTER,
 ];
 
 export const salesOverview: DashboardDeclaration = {
@@ -203,7 +209,7 @@ export const salesOverview: DashboardDeclaration = {
 export const pipelineHealth: DashboardDeclaration = {
   title: "Pipeline health",
   description: "Stalled deals, slipped close dates and how long deals sit in each stage.",
-  filters: [FILTERS[1] as (typeof FILTERS)[1]],
+  filters: [OWNER_FILTER],
   widgets: [
     {
       id: "slipped",

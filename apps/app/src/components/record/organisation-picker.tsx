@@ -6,10 +6,11 @@ import { Input } from "@composable-os/ui/components/input";
 import { cn } from "@composable-os/ui/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { Building2Icon, PlusIcon, XIcon } from "lucide-react";
-import { useEffect, useId, useState } from "react";
+import { useId, useState } from "react";
 import { toast } from "sonner";
 import { callOp } from "#/lib/operations";
 import { errorMessage, useOpMutation } from "#/lib/query";
+import { useDebounced } from "#/lib/use-debounced";
 
 export interface PickedOrganisation {
   id: string;
@@ -26,14 +27,10 @@ export interface OrganisationPickerProps {
 
 export function OrganisationPicker({ value, onChange, id, autoFocus }: OrganisationPickerProps) {
   const [query, setQuery] = useState("");
-  const [debounced, setDebounced] = useState("");
   const listId = useId();
   const create = useOpMutation("organisation.create");
 
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(query.trim()), 150);
-    return () => clearTimeout(timer);
-  }, [query]);
+  const debounced = useDebounced(query.trim(), 150);
 
   const results = useQuery({
     queryKey: ["op", "search.global", { query: debounced, objects: ["organisation"] }],

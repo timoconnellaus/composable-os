@@ -46,13 +46,14 @@ export function TicketScreen({
     };
   }, [brightness]);
 
-  const usable = ticket.state === "valid" && ticket.code;
+  // Only a valid ticket's code is drawn to be scanned.
+  const scannable = ticket.state === "valid" ? ticket.code : null;
   return (
     <Screen title={title}>
       {detail ? <Text style={styles.detail}>{detail}</Text> : null}
       <View style={styles.card} accessible accessibilityLabel="Ticket code">
-        {usable ? (
-          <Qr value={ticket.code as string} size={240} />
+        {scannable ? (
+          <Qr value={scannable} size={240} />
         ) : (
           <Text style={styles.detail}>
             {ticket.state === "used" ? "This ticket has been used." : "This ticket is not valid."}
@@ -72,7 +73,7 @@ const styles = StyleSheet.create({
   card: {
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#ffffff",
+    backgroundColor: theme.color.codeBackground,
     borderRadius: theme.radius,
     padding: theme.space.lg,
     marginVertical: theme.space.md,

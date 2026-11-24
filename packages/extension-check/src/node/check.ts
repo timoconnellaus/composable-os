@@ -16,6 +16,7 @@ import {
 import { evaluateFiles, readExtensionFiles } from "./evaluate.ts";
 import { createLocalDb, type LocalDb } from "./local-db.ts";
 import { findPlatform, type Platform } from "./platform.ts";
+import { portalBlockIssues } from "./portal.ts";
 
 export interface LocatedIssue extends CheckIssue {
   /** The file to open: the issue's own for source issues, else where the path's key is written. */
@@ -44,9 +45,14 @@ function siblingsNamed(dir: string, id: string, manifest: unknown): string[] {
     const name = match[1] as string;
     if (name !== id && existsSync(join(dirname(resolve(dir)), name, "index.ts"))) names.add(name);
   }
-  // The extensions it requires (stage 42, ADR 0478), named or not.
-  const required = (manifest as { requires?: unknown } | null)?.requires;
-  for (const name of Array.isArray(required) ? required : []) {
+  // The extensions it requires (stage 42, ADR 0478), named or not, and those an automation runs
+  // only with (ADR 0812): checked against them, as a deployment that has them installed would.
+  const m = manifest as { requires?: unknown; automations?: Record<string, unknown> } | null;
+  const onlyWith = Object.values(m?.automations ?? {}).flatMap((a) => {
+    const ids = (a as { onlyWith?: unknown } | null)?.onlyWith;
+    return Array.isArray(ids) ? ids : [];
+  });
+  for (const name of [...(Array.isArray(m?.requires) ? m.requires : []), ...onlyWith]) {
     if (
       typeof name === "string" &&
       name !== id &&
@@ -172,7 +178,10 @@ export async function checkExtensionDir(
     }
     await refreshSchemaRegistry(local.db);
     const result = await checkEvaluated(local.db, id, evaluated, now, { installed: [...done] });
-    const issues = [...before, ...result.issues];
+    // A pack's sections of My account name blocks in its folder (stage 48, ADR 0710): read here,
+    // where the files are; the host has only the manifest.
+    const portal = result.manifest ? portalBlockIssues(root, result.manifest, platform.root) : [];
+    const issues = [...before, ...result.issues, ...portal];
     return {
       ...result,
       id,

@@ -18,6 +18,7 @@ import type { ObjectDefinition } from "../fields/types.ts";
 import type { NotificationLink } from "../notifications/types.ts";
 import type { HandlerContext } from "../operation.ts";
 import type { Mover } from "../records/transitions.ts";
+import { loadGeneralSettings } from "../settings.ts";
 import type { Shift } from "./index.ts";
 import { kindObjectOf } from "./kinds.ts";
 import { cancelOpenOfferStatement, followShiftStatement, openOfferOn, whenOf } from "./offers.ts";
@@ -25,6 +26,15 @@ import { actingAccount, queueNotice, rosterers, shiftLink, staffName } from "./r
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 const text = (value: unknown) => (typeof value === "string" && value !== "" ? value : null);
+
+/** A read made at most once, when first asked for. */
+function once<T>(read: () => Promise<T>): () => Promise<T> {
+  let value: Promise<T> | undefined;
+  return () => {
+    value ??= read();
+    return value;
+  };
+}
 
 /** One write of a shift, as staffing/index.ts read it. */
 export interface ShiftWrite {
@@ -105,6 +115,9 @@ const SUMMARY: Record<Kind, (n: number) => string> = {
 async function sendGathered(ctx: HandlerContext, list: readonly Gathered[]): Promise<void> {
   const byPerson = new Map<string, Gathered[]>();
   for (const n of list) byPerson.set(n.to, [...(byPerson.get(n.to) ?? []), n]);
+  // Who made the changes, and the org's zone the dates are in: read once for every summary.
+  const byName = once(() => staffName(ctx.db, actingAccount(ctx)));
+  const orgZone = once(async () => (await loadGeneralSettings(ctx.db)).timezone);
   for (const [to, mine] of byPerson) {
     const first = mine[0] as Gathered;
     // About one shift (its offer cancelled and its person off it): each as it is.
@@ -120,8 +133,8 @@ async function sendGathered(ctx: HandlerContext, list: readonly Gathered[]): Pro
       kinds.size === 1 ? SUMMARY[first.kind](mine.length) : `${mine.length} changes to your shifts`;
     const starts = mine.map((n) => n.starts).filter((s): s is number => s !== null);
     const range = starts.length
-      ? `From ${await whenOf(ctx, Math.min(...starts), null)} to ${await whenOf(ctx, Math.max(...starts), null)}, by ${await staffName(ctx.db, actingAccount(ctx))}.`
-      : `By ${await staffName(ctx.db, actingAccount(ctx))}.`;
+      ? `From ${await whenOf(ctx, Math.min(...starts), await orgZone())} to ${await whenOf(ctx, Math.max(...starts), await orgZone())}, by ${await byName()}.`
+      : `By ${await byName()}.`;
     const lines = [...mine]
       .sort((a, b) => (a.starts ?? 0) - (b.starts ?? 0))
       .slice(0, 15)
@@ -132,6 +145,37 @@ async function sendGathered(ctx: HandlerContext, list: readonly Gathered[]): Pro
 }
 
 // --- A write of a shift ---------------------------------------------------------------------------
+
+/**
+ * Cancels the shift's open offer at commit (an offer made meanwhile is caught too) and tells its
+ * offerer, when there is one open now. `when` is the shift's time, for the summary's line.
+ */
+async function cancelOffer(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string,
+  notice: {
+    why: string;
+    title: string;
+    when: (() => Promise<string>) | null;
+    starts: number | null;
+    link: NotificationLink;
+  },
+): Promise<void> {
+  const { why, title } = notice;
+  ctx.write(cancelOpenOfferStatement(ctx, object.name, id, why));
+  const offer = await openOfferOn(ctx.db, object.name, id);
+  if (!offer) return;
+  await gather(ctx, {
+    to: offer.from_account ?? offer.made_by,
+    kind: "offer",
+    title: `Your offer was cancelled: ${title}`,
+    body: why,
+    line: notice.when ? `${title}, ${await notice.when()}: ${why}` : `${title}: ${why}`,
+    starts: notice.starts,
+    link: notice.link,
+  });
+}
 
 export async function shiftWritten(ctx: HandlerContext, w: ShiftWrite): Promise<void> {
   const def = w.object.staffed;
@@ -147,7 +191,8 @@ export async function shiftWritten(ctx: HandlerContext, w: ShiftWrite): Promise<
   const kindChanged = w.before !== null && !same(w.before[def.kind], w.after[def.kind]);
   const wasLive = w.beforeShift?.live ?? false;
   const ended = wasLive && !w.shift.live;
-  const when = () => whenOf(ctx, w.shift.starts, zone);
+  // The shift's time as notices show it, read once (the org's zone is a read).
+  const when = once(() => whenOf(ctx, w.shift.starts, zone));
 
   // Its open offer: cancelled when it goes to someone else or is no longer a shift, by the shift
   // at commit (an offer made meanwhile is caught too). A take is the one write that keeps it.
@@ -155,19 +200,7 @@ export async function shiftWritten(ctx: HandlerContext, w: ShiftWrite): Promise<
     const why = ended
       ? "The shift was cancelled."
       : "The shift was given to someone else, so the offer was cancelled.";
-    ctx.write(cancelOpenOfferStatement(ctx, w.object.name, w.id, why));
-    const offer = await openOfferOn(ctx.db, w.object.name, w.id);
-    if (offer) {
-      await gather(ctx, {
-        to: offer.from_account ?? offer.made_by,
-        kind: "offer",
-        title: `Your offer was cancelled: ${title}`,
-        body: why,
-        line: `${title}, ${await when()}: ${why}`,
-        starts: w.shift.starts,
-        link,
-      });
-    }
+    await cancelOffer(ctx, w.object, w.id, { why, title, when, starts: w.shift.starts, link });
   } else if ((timeChanged || kindChanged) && w.shift.starts !== null) {
     // The cut-off follows the shift's time, and the taker's list its kind.
     const kindObject = kindObjectOf(w.object);
@@ -181,11 +214,7 @@ export async function shiftWritten(ctx: HandlerContext, w: ShiftWrite): Promise<
 
   // A take tells its own people; a series' generation (the host making records) tells nobody.
   if (w.taking || (w.by === "host" && w.before === null)) return;
-  let actor: string | null = null;
-  const actorName = async () => {
-    actor ??= await staffName(ctx.db, actingAccount(ctx));
-    return actor;
-  };
+  const actorName = once(() => staffName(ctx.db, actingAccount(ctx)));
   const was = w.beforeShift?.account ?? null;
   const now = w.shift.account;
   if (was !== now) {
@@ -269,24 +298,17 @@ export async function shiftRemoved(
   const title = values ? shiftTitle(object, values) : object.label;
   const link = shiftLink(object.name, id);
   const why = "The shift was removed.";
-  ctx.write(cancelOpenOfferStatement(ctx, object.name, id, why));
-  const offer = await openOfferOn(ctx.db, object.name, id);
-  const zone = values ? shiftZone(object, values) : null;
-  if (offer) {
-    await gather(ctx, {
-      to: offer.from_account ?? offer.made_by,
-      kind: "offer",
-      title: `Your offer was cancelled: ${title}`,
-      body: why,
-      line: `${title}: ${why}`,
-      starts: shift?.starts ?? null,
-      link,
-    });
-  }
+  await cancelOffer(ctx, object, id, {
+    why,
+    title,
+    when: null,
+    starts: shift?.starts ?? null,
+    link,
+  });
   if (shift?.live && shift.account && values) {
     const starts = shift.starts;
     if (starts !== null && starts * 1000 > Date.parse(ctx.now)) {
-      const when = await whenOf(ctx, starts, zone);
+      const when = await whenOf(ctx, starts, shiftZone(object, values));
       await gather(ctx, {
         to: shift.account,
         kind: "cancelled",

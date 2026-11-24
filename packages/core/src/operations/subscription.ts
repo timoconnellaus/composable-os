@@ -26,7 +26,7 @@
 // caller's own subscription (through the seam) or the checkout it opens.
 import { z } from "zod";
 import { guestAcceptancesSchema } from "../agreements/enforce.ts";
-import { ConflictError, ForbiddenError } from "../errors.ts";
+import { ForbiddenError } from "../errors.ts";
 import { SUBSCRIPTION_STATES } from "../fields/subscription.ts";
 import { filterSchema } from "../filter.ts";
 import { LIST_MAX_LIMIT, sortSchema } from "../list.ts";
@@ -40,7 +40,6 @@ import {
 import {
   coolingOffFor,
   coolOff,
-  coolOffOpen,
   NOT_OFFERED,
   releaseFollowUp,
   sweepCoolOffs,
@@ -358,16 +357,7 @@ export const subscriptionCancel = defineOperation({
   mcp: { expose: false },
   async handler(input, ctx) {
     const row = await subscriptionForChange(ctx, input.id);
-    // A cooling off under way is finished as one (ADR 0647): an ordinary cancel would end it
-    // without its refunds, or as an end that is not the cooling off's.
-    if (await coolOffOpen(ctx.db, row.id, ctx.now)) {
-      throw new ConflictError(
-        "A cooling off is under way on this membership: it ends with a full refund of what was " +
-          "paid in the period. Wait for it, or finish it from Cooling off; it cannot also be " +
-          "cancelled now.",
-        { subscription: row.id, rule: "cooling_off_open" },
-      );
-    }
+    // A cooling off under way is refused by both (ADR 0647, subscriptions/subscriptions.ts).
     if (input.now) await cancelNow(ctx, row, input.reason);
     else await cancelAtPeriodEnd(ctx, row, input.reason);
     return { id: row.id, requested: true as const };

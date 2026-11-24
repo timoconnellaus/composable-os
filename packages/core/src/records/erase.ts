@@ -13,7 +13,11 @@ import { queueScrubConversations } from "../assistant/erase.ts";
 import { queueEraseMemory } from "../assistant/memory.ts";
 import { queueEraseRoutines } from "../assistant/routines.ts";
 import { emailRef } from "../assistant/scrub.ts";
+import { queueEraseFinance } from "../finance/erase.ts";
+import { eraseJourneyStatements } from "../journeys/entries.ts";
+import { queueEraseSignals } from "../journeys/signals.ts";
 import type { HandlerContext } from "../operation.ts";
+import { queueErasePersonCodes } from "../people-codes/people.ts";
 import { chunk, jsonList } from "./common.ts";
 import { drainAllBlobDeletions, writeEraseLog } from "./erase-log.ts";
 import {
@@ -353,6 +357,7 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
   // notifications, integration events and the outbox. All in this batch.
   const subject = {
     object,
+    recordId,
     recordIds,
     terms,
     names: request.names ?? [],
@@ -377,8 +382,19 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
 
   // Their records' lifecycle history, and what ties an order to them (stage 25, ADR 0426).
   await queueEraseOrders(ctx, subject);
+  // A reopened month's reason naming them, and closed finance rows about them (stage 52).
+  await queueEraseFinance(ctx, subject);
   // Their passes' and memberships' uses, and the uses they spent (stage 32b, ADR 0494).
   if (subject.object === "person") queueEraseAllowances(ctx, [...recordIds]);
+  // Their journey entries and step log (stage 53, ADR 0800).
+  if (subject.object === "person") {
+    const journeys = eraseJourneyStatements(ctx.db, [...recordIds]);
+    if (journeys.length) ctx.write(...journeys);
+  }
+  // Their journey signals: when they last did each thing (stage 53, ADR 0802).
+  if (subject.object === "person") queueEraseSignals(ctx, [...recordIds]);
+  // Their check-in codes, cards and PIN, and the dependants' codes on their app (stage 51, ADR 0783).
+  if (subject.object === "person") queueErasePersonCodes(ctx, [...recordIds]);
 
   // 3f. The erase log outside D1 (R2), so an erasure can be re-applied after a restore. Written
   // before the commit: if it cannot be written the erase fails and can be retried.
@@ -391,6 +407,15 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
     ctx.db.deleteFrom("core_duplicate_pair").where(
       sql<SqlBool>`(object = ${object} AND (a_id IN ${subjectIds} OR b_id IN ${subjectIds}))
           OR ${mentionsSql(terms, sql`details`)}`,
+    ),
+  );
+
+  // 3h. What imports last wrote (ADR 0470): a key or its stored values naming the subject (an
+  // imported set's person, its notes) go. A re-run then finds no person for those rows.
+  ctx.write(
+    ctx.db.deleteFrom("core_import_key").where(
+      // One search over both columns: the terms are bound once (at most 100 values a statement).
+      sql<SqlBool>`record_id IN ${subjectIds} OR ${mentionsSql(terms, sql`import_key || ' ' || coalesce(written, '')`)}`,
     ),
   );
 
@@ -445,13 +470,15 @@ async function queueScrubShared(
 
   const activities = await ctx.db
     .selectFrom("core_activity as a")
-    .select(["a.id", "a.subject", "a.body", "a.payload", "a.body_ref"])
+    .select(["a.id", "a.subject", "a.body", "a.payload", "a.body_ref", "a.sections"])
     .where("a.id", "not in", jsonList(removed.activityIds))
     .where((eb) =>
       eb.or([
         sql<SqlBool>`a.id IN (SELECT l.activity_id FROM core_activity_links l
           WHERE l.object_type = ${object} AND l.record_id IN ${jsonList(recordIds)})`,
-        mentions(sql`coalesce(a.subject, '') || ' ' || coalesce(a.body, '') || ' ' || a.payload`),
+        mentions(
+          sql`coalesce(a.subject, '') || ' ' || coalesce(a.body, '') || ' ' || a.payload || ' ' || coalesce(a.sections, '')`,
+        ),
       ]),
     )
     .execute();
@@ -463,6 +490,16 @@ async function queueScrubShared(
     const subject = m.text(a.subject);
     const body = m.text(a.body);
     const payload = JSON.stringify(scrubJson(JSON.parse(a.payload), m).value);
+    // A note from a template keeps its text twice: the body made from it, and its sections
+    // (stage 56, ADR 0833). Both are scrubbed.
+    const sections =
+      a.sections === null
+        ? null
+        : JSON.stringify(
+            (JSON.parse(a.sections) as { key: string; label: string; text: string }[]).map(
+              (section) => ({ ...section, text: m.text(section.text) ?? "" }),
+            ),
+          );
     // A person erase drops the full email body in R2 rather than rewriting it: a body is mostly
     // about its sender and recipients (greetings, signatures, quoted replies) and names are not
     // matched in shared text, so a rewrite would leave them. So does an organisation erase when
@@ -477,6 +514,7 @@ async function queueScrubShared(
       subject === a.subject &&
       body === a.body &&
       payload === a.payload &&
+      sections === a.sections &&
       bodyRef === a.body_ref
     ) {
       continue;
@@ -484,7 +522,7 @@ async function queueScrubShared(
     ctx.write(
       ctx.db
         .updateTable("core_activity")
-        .set({ subject, body, payload, body_ref: bodyRef, updated_at: ctx.now })
+        .set({ subject, body, payload, sections, body_ref: bodyRef, updated_at: ctx.now })
         .where("id", "=", a.id),
     );
   }

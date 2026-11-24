@@ -24,6 +24,8 @@ import {
   coreRegistry,
   defineOperation,
   forPacks,
+  OWNER_CLIENT_OPERATIONS,
+  ownerClientOperations,
   type PackRolesFile,
   packRoleReaches,
   withPacks,
@@ -40,8 +42,8 @@ const computed = {
   public: withPacks(contractFor(contract, "public"), releasePackIds),
 };
 // Each carried pack's roles (ADR 0436) and the operations a holder may call: the tools whose
-// permission the role holds, and the generic reads (record.get, record.list) of the objects it
-// reads. `cos client generate` writes a role's client from this and the staff contract, so a
+// permission the role holds, any pack's tools open to every staff account (ADR 0652), and the
+// generic reads (record.get, record.list) of the objects it reads. `cos client generate` writes a role's client from this and the staff contract, so a
 // customer-facing app that needs a role names no other staff operation (ADR 0451).
 const computedRoles: PackRolesFile = {
   version: API_VERSION,
@@ -50,6 +52,11 @@ const computedRoles: PackRolesFile = {
     const ops = [
       ...coreRegistry.list(),
       ...releasePackTools.filter((op) => op.name.startsWith(`x.${manifest.id}.`)),
+      // Any carried pack's tools open to every staff account (ADR 0652: Daily checklists' today,
+      // day, tick and done), which a role reaches wherever that pack is installed.
+      ...releasePackTools.filter(
+        (op) => op.packAnyStaff === true && !op.name.startsWith(`x.${manifest.id}.`),
+      ),
     ];
     return Object.entries(manifest.roles ?? {})
       .map(([local, role]) => {
@@ -95,7 +102,64 @@ const computedRoles: PackRolesFile = {
       }));
     })
     .sort((a, b) => a.permission.localeCompare(b.permission)),
+  // The packs each pack requires (Courses: Programs and Content), so a client repo's tools bring
+  // them: the host installs them first, and a block may use theirs.
+  requires: Object.fromEntries(
+    releasePackExtensions
+      .map((extension) => toManifest(extension))
+      .filter((manifest) => manifest.requires?.length)
+      .map((manifest): [string, string[]] => [manifest.id, [...(manifest.requires ?? [])]])
+      .sort(([a], [b]) => a.localeCompare(b)),
+  ),
+  // The owner's client (stage 60, ADR 0872): the listed operations this release serves to staff.
+  owner: { operations: ownerClientOperations(computed.staff) },
 };
+
+// Each carried pack's client entry, read as text for the hooks factory it exports (`cos add`
+// writes a client app's account sections with it, stage 48, ADR 0710).
+const packClients = import.meta.glob<string>("../../../packs/*/client/index.ts", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+});
+const hooksFactoryOf = (pack: string): string => {
+  const source = Object.entries(packClients).find(([path]) =>
+    path.endsWith(`/packs/${pack}/client/index.ts`),
+  )?.[1];
+  const found = [...(source ?? "").matchAll(/export function (create[A-Za-z]+Hooks)\b/g)].map(
+    (m) => m[1] as string,
+  );
+  if (found.length !== 1) {
+    throw new Error(
+      `packs/${pack}/client/index.ts must export one create<Name>Hooks for its account sections`,
+    );
+  }
+  return found[0] as string;
+};
+const portalPacks = releasePackExtensions
+  .map((extension) => toManifest(extension))
+  .filter((manifest) => manifest.portal && Object.keys(manifest.portal).length);
+if (portalPacks.length) {
+  computedRoles.portal = Object.fromEntries(
+    portalPacks.map((manifest) => [
+      manifest.id,
+      {
+        hooks: hooksFactoryOf(manifest.id),
+        sections: Object.fromEntries(
+          Object.entries(manifest.portal ?? {}).map(([key, s]) => [
+            key,
+            {
+              label: s.label,
+              order: s.order,
+              ...(s.web ? { web: s.web } : {}),
+              ...(s.native ? { native: s.native } : {}),
+            },
+          ]),
+        ),
+      },
+    ]),
+  );
+}
 
 // scripts/write-api-contract.mjs reads these lines (only it asks for them: they are large).
 if ((env as { PRINT_API_CONTRACT?: string }).PRINT_API_CONTRACT === "1") {
@@ -119,16 +183,51 @@ describe("the committed roles file", () => {
     ).toEqual(roles);
   });
 
+  it("gives the owner's client only its listed staff operations, as this release serves them (ADR 0872)", () => {
+    const owner = computedRoles.owner?.operations ?? [];
+    expect(owner.every((name) => OWNER_CLIENT_OPERATIONS.includes(name))).toBe(true);
+    // The approvals and the inbox are built; Today's own operations join when their step does.
+    for (const name of [
+      "approval.approve",
+      "approval.get",
+      "approval.list",
+      "approval.reject",
+      "notification.list",
+      "notification.markRead",
+      "notification.unreadCount",
+      "user.me",
+    ]) {
+      expect(owner).toContain(name);
+    }
+    const byName = new Map(computed.staff.operations.map((op) => [op.name, op]));
+    for (const name of owner) expect(byName.get(name)?.pack).toBeUndefined();
+    expect(owner).not.toContain("record.list");
+    expect(owner).not.toContain("approval.decide");
+    // Nothing in it is open to customers or the public (ADR 0402).
+    const outside = [...computed.customer.operations, ...computed.public.operations];
+    expect(outside.filter((op) => OWNER_CLIENT_OPERATIONS.includes(op.name))).toEqual([]);
+  });
+
   it("gives the door role its tools and its reads, and nothing else", () => {
     const door = computedRoles.roles.find((r) => r.name === "ticketing.door");
     expect(door?.operations).toEqual([
       // Every pack role's own read-and-understood list and confirmations (ADR 0702).
       "ack.confirm",
       "ack.mine",
+      // The published versions every staff account reads (ADR 0701), on a staff-read object only.
+      "content.search",
+      "content.staffGet",
+      "content.staffList",
       "record.get",
       "record.list",
       // The screens of the admin it may open (stage 47, ADR 0660): every pack role reaches it.
       "screens.mine",
+      // Today's checklists (ADR 0652): every staff account's, the host answering each with only
+      // the checklists it may do.
+      "x.dailychecks.day",
+      "x.dailychecks.done",
+      "x.dailychecks.tick",
+      "x.dailychecks.today",
       "x.ticketing.checkIn",
       "x.ticketing.undoCheckIn",
     ]);

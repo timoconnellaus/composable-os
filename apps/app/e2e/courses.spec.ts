@@ -52,7 +52,7 @@ const here = (url: string, baseURL: string) => {
 
 /** Both packs on, the payments fake bound, and a ready video in the library. */
 async function setUp(page: Page, baseURL: string): Promise<{ video: string }> {
-  for (const id of ["programs", "courses"]) {
+  for (const id of ["programs", "content", "courses"]) {
     await op(page.request, "extension.install", { id, shipped: true }, false);
   }
   const origin = new URL(baseURL).origin;

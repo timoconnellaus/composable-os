@@ -2,7 +2,7 @@
   "name": "programs-native-class-today",
   "pack": "programs",
   "skin": "native",
-  "operations": ["x.programs.classToday", "record.list"],
+  "operations": ["x.programs.classToday", "my.list", "record.list"],
   "files": ["class-today-screen.tsx", "LICENSE"],
   "dependsOn": ["native-base"],
   "packages": {

@@ -124,3 +124,13 @@ In `packages/core/test/order-tax.test.ts`:
   reported tax: https://docs.stripe.com/tax/reports
 - Registrations, the head office, pricing: https://docs.stripe.com/tax/settings-api,
   https://stripe.com/tax/pricing
+
+## Amendment, 2026-11-24 (stage 34 step 1, ADR 0690): shares of the net
+A payment is split over the lines in proportion to what each costs after its adjustments
+(`line_total - line_discount`), not its price, so the provider is sent the net it charges. The host
+still never calculates tax.
+
+## Amendment, 2026-11-24 (stage 34 step 3, ADR 0694): a payment taken another way
+A payment a person records (a transfer, cash) carries no tax figure: the provider did not charge
+it and the host still never calculates tax. How the business accounts for tax on it is for the
+business to confirm with its accountant. See ADR 0694.

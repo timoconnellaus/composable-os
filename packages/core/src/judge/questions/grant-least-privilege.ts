@@ -8,7 +8,7 @@
 // starter may resubmit once with a justification. Code checks separately that a grant never
 // exceeds what its starter may do; that is not this question. When the judge is off or cannot
 // answer, the grant is shown to the person to confirm before the agent starts (fails closed).
-import { choice } from "../questions.ts";
+import { choice, clip } from "../questions.ts";
 import { failureOf, type Judge, type JudgeUnavailableReason } from "../types.ts";
 
 export const GRANT_PLACEMENT = "grant.leastPrivilege" as const;
@@ -58,11 +58,6 @@ export interface GrantState {
   /** The starter's reason, on its one resubmission. */
   justification?: string;
 }
-
-const clip = (text: string, max: number) => {
-  const flat = text.replace(/\s+/g, " ").trim();
-  return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`;
-};
 
 export function grantState(input: {
   brief: string;

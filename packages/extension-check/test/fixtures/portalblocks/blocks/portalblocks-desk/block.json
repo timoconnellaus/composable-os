@@ -1,0 +1,8 @@
+{
+  "name": "portalblocks-desk",
+  "pack": "portalblocks",
+  "skin": "web",
+  "operations": ["x.portalblocks.mine", "x.portalblocks.day"],
+  "files": ["desk.tsx"],
+  "dependsOn": []
+}

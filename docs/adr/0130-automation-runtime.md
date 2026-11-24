@@ -189,3 +189,19 @@ the instance and marks the run `cancelled`.
   ([ADR 0171](0171-automation-events-outbox.md)). The `integration` source is registered and its
   events polled from `core_integration_event` ([ADR 0173](0173-integration-trigger-source.md)).
   Automations that declare connections wait for them to be bound ([ADR 0170](0170-automation-run-as-bindings.md)).
+- 2026-11-24 (Cloudflare spend, [`docs/cloudflare-costs.md`](../cloudflare-costs.md)): a quiet
+  minute writes nothing. Every step of cos-runner's minute tick that runs an operation as the host
+  first reads whether it has anything to do (one row of an index, outside the pipeline) and
+  calls the operation only when it has: `order.expireDue`, `record.publishDue`,
+  `content.reindex` and `agreement.takeEffect` now do, as `staffing.due` and `checklist.due`
+  already did. A call that happens is gated and audited as before; a minute with nothing due
+  leaves no audit row (it left four, 5,760 a day). A read the tick makes every minute uses an
+  index that holds only what is due, written out where the index is partial (SQLite uses a
+  partial index only for its own predicate, stated literally, and may still prefer another
+  index: the checklist read keeps it off the type key with `+object_type`). A read no index
+  holds runs in an hour's first minute only, when what it looks for waits long enough: the
+  subscription sweep's events not arriving and offers whose plan has gone (paging through their
+  window, so a burst is not cut at the first page), and the guest acceptance cleanup's check.
+  Those hourly reads still grow with their tables until each has an index (the doc's "left").
+  `apps/runner/test/idle-minute-cost.test.ts` holds the tick to no write; and, off the hour, to no
+  full table scan and a few rows a statement with rows on file that are not due.

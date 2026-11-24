@@ -19,6 +19,8 @@
 // this secret to this value), so a replay changes nothing. Shared here because both ends depend on
 // this package: the deployment signs (@composable-os/core), the control plane verifies.
 
+import { sameDigest, sha256Hex, toBase64, toHex } from "./hash.ts";
+
 export const CONTROL_KEY_SECRET = "COS_CONTROL_KEY";
 export const CONTROL_URL_VAR = "COS_CONTROL_URL";
 export const TENANT_ID_VAR = "COS_TENANT_ID";
@@ -50,14 +52,8 @@ export interface AiSecretRequest {
 
 const encoder = new TextEncoder();
 
-function hex(bytes: ArrayBuffer): string {
-  return Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
 function base64url(bytes: ArrayBuffer): string {
-  let binary = "";
-  for (const byte of new Uint8Array(bytes)) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return toBase64(new Uint8Array(bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 async function hmac(key: string, message: string): Promise<ArrayBuffer> {
@@ -81,7 +77,7 @@ async function signature(
   key: string,
   parts: { tenant: string; timestamp: string; method: string; path: string; body: string },
 ): Promise<string> {
-  const bodyHash = hex(await crypto.subtle.digest("SHA-256", encoder.encode(parts.body)));
+  const bodyHash = await sha256Hex(parts.body);
   const message = [
     "v1",
     parts.tenant,
@@ -90,7 +86,7 @@ async function signature(
     parts.path,
     bodyHash,
   ].join("\n");
-  return `v1=${hex(await hmac(key, message))}`;
+  return `v1=${toHex(new Uint8Array(await hmac(key, message)))}`;
 }
 
 /** The headers for one signed request from a deployment. */
@@ -108,13 +104,6 @@ export async function signDeploymentRequest(input: {
     "x-cos-timestamp": timestamp,
     "x-cos-signature": await signature(input.key, { ...input, timestamp }),
   };
-}
-
-function safeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
 }
 
 const TENANT = /^t[a-z0-9]{9}$/;
@@ -148,6 +137,6 @@ export async function verifyDeploymentRequest(
     path: new URL(request.url).pathname,
     body,
   });
-  if (!safeEqual(expected, given)) return { ok: false, reason: "bad signature" };
+  if (!sameDigest(expected, given)) return { ok: false, reason: "bad signature" };
   return { ok: true, tenant, body };
 }

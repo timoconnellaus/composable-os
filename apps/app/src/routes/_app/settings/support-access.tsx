@@ -10,7 +10,7 @@ import { Skeleton } from "@composable-os/ui/components/skeleton";
 import { createFileRoute } from "@tanstack/react-router";
 import { LifeBuoyIcon, LockIcon } from "lucide-react";
 import { toast } from "sonner";
-import { EmptyState } from "#/components/empty-state";
+import { EmptyState, ErrorState } from "#/components/empty-state";
 import { PageLayout } from "#/components/layout/page-layout";
 import { formatDateTime } from "#/lib/format";
 import { errorMessage, useOp, useOpMutation } from "#/lib/query";
@@ -50,7 +50,11 @@ function GrantList() {
   if (grants.isPending) return <Skeleton className="h-24" />;
   if (grants.isError) {
     return (
-      <EmptyState title="Could not load support access" description={errorMessage(grants.error)} />
+      <ErrorState
+        title="Could not load support access"
+        error={grants.error}
+        onRetry={() => void grants.refetch()}
+      />
     );
   }
   if (!grants.data.items.length) {

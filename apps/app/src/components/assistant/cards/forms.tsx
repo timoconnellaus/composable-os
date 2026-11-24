@@ -24,6 +24,7 @@ import { UploadIcon } from "lucide-react";
 import { useId, useMemo, useState } from "react";
 import { RecordPicker } from "#/components/record-picker";
 import { useOp } from "#/lib/query";
+import { ALL_USERS_INPUT } from "#/lib/users-adapter";
 import { ActionButton, Body, CardLink, Footer, Frame, Header } from "./parts.tsx";
 
 type Value = string | number | boolean | null;
@@ -36,7 +37,8 @@ export interface FormState {
   complete: boolean;
 }
 
-const filled = (value: Value | undefined) => value !== null && value !== undefined && value !== "";
+const filled = (value: Value | undefined): value is NonNullable<Value> =>
+  value !== null && value !== undefined && value !== "";
 
 export function useFormValues(fields: readonly FormField[]): FormState {
   const [values, setValues] = useState<Values>(() =>
@@ -58,8 +60,7 @@ export function formValues(fields: readonly FormField[], values: Values): Record
   for (const field of fields) {
     const value = values[field.name];
     if (!filled(value)) continue;
-    out[field.name] =
-      field.kind === "number" || field.kind === "money" ? Number(value) : (value as Value);
+    out[field.name] = field.kind === "number" || field.kind === "money" ? Number(value) : value;
   }
   return out;
 }
@@ -76,7 +77,8 @@ function UserSelect({
   value: string;
   onChange: (value: string) => void;
 }) {
-  const users = useOp("user.list", { limit: 200 }, { staleTime: 60_000 });
+  // The same read and cache entry as useUsers, which needs the /_app route a card may render outside.
+  const users = useOp("user.list", ALL_USERS_INPUT, { staleTime: 60_000 });
   const known = users.data?.items ?? [];
   const current = value && !known.some((u) => u.id === value);
   return (

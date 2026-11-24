@@ -18,7 +18,8 @@ const SELF = /^scripts\/check-stray-names(?:\.test)?\.mjs$/;
 
 /** What a rule about a client's supplier says to write instead. */
 const SUPPLIER =
-  "the repository does not name a client's suppliers (the owner's decision, 2026-11-22)";
+  "the repository does not name a client's suppliers (the owner's decision of 2026-11-22, kept " +
+  "on 2026-11-24 with no named connector, ADR 0921)";
 
 /**
  * A rule with its own `allow` uses it in place of ALLOW: a client's suppliers are kept out of
@@ -71,9 +72,7 @@ export const RULES = [
     name: "a client's booking system",
     pattern: /mind\s?body/i,
     instead: `${SUPPLIER}: say "its current booking system"`,
-    // Stage 65's spec names the connector it specifies (the owner's decision 4, 2026-11-24); the
-    // build's step 2 widens this to where the connector is defined, documented and listed.
-    allow: [SELF, /^docs\/stages\/65-/],
+    allow: [SELF],
   },
   {
     name: "a client's course platform",

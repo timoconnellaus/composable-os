@@ -277,7 +277,7 @@ describe("the manifest", () => {
   // its pack; a deployment serves those of the packs it installed: none here.
   const listed = (file: OpenOperationsFile, audience: "customer" | "public") =>
     forPacks(file, INSTALLED_PACKS)
-      .operations.filter((op) => op.audiences.includes(audience) && !op.toolOnly)
+      .operations.filter((op) => op.audiences.includes(audience) && !op.toolOnly && !op.deskOnly)
       .map((op) => op.name)
       .sort();
 

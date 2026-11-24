@@ -3,11 +3,12 @@
 // screen). Which sessions a class has, and what a member reads of them, are the host's.
 import type { PlannedSession, ProgramsHooks } from "@composable-os/pack-programs/client";
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { Button } from "../native-base/button.tsx";
 import { List } from "../native-base/list.tsx";
 import { Row } from "../native-base/row.tsx";
 import { Screen } from "../native-base/screen.tsx";
+import { Text } from "../native-base/text.tsx";
 
 export function ClassTodayScreen({
   programs,
@@ -34,7 +35,16 @@ export function ClassTodayScreen({
           />
         ))}
       </View>
-      {classes.isPending ? <Text>Loading…</Text> : null}
+      {classes.isPending ? (
+        <Text tone="muted" accessibilityRole="progressbar">
+          Loading…
+        </Text>
+      ) : null}
+      {types.error || classes.error ? (
+        <Text tone="danger" accessibilityRole="alert">
+          We could not load today's classes. Check the connection and try again.
+        </Text>
+      ) : null}
       {classes.data ? (
         <List empty="No class session today.">
           {classes.data.sessions.map((s) => (

@@ -2,7 +2,8 @@
 // the sandbox, and reach the host only through ctx.ops. None of them holds a rule: who is on two
 // shifts at once (refused), who may take an offer, the cut-off, who is warned about what, who may
 // roster and who learns that someone is away are all the host's (the `staffed` behaviour and its
-// tool-only `staffing.*` operations, ADRs 0621 to 0625). Each operation acts for the staff account
+// tool-only `staffing.*` operations, ADRs 0621 to 0625; a duty shift's checklist is the host's
+// `checklist.*`). Each operation acts for the staff account
 // the host verified as this tool's caller, never for anything in the input; a tool asks, and
 // passes on what the host answered.
 //
@@ -19,10 +20,20 @@
 import { defineTool, z } from "@composable-os/sdk";
 
 /** The team's tools: the role's permission, or the same tools granted to another role's account. */
-const TEAM = ["rostering:team", "rostering:roster"] as const;
+const TEAM_TOOL = {
+  permission: ["rostering:team", "rostering:roster"],
+  grantLiftsRoleLimits: true,
+};
 /** The rosterers' tools: restricted (held by admins and by grant only, ADR 0625). */
 const MANAGE = "rostering:manage";
 
+/** How someone is counted for pay; a counted shift's is one of the first two. */
+const basis = z.enum(["by_time", "by_class", "not_counted"]);
+const countedBasis = z.enum(["by_time", "by_class"]);
+/** A shift's kind of work (a class type or a duty), by its object and record id. */
+const kindRef = z.object({ object: z.string(), id: z.string() }).nullable();
+/** A shift, by its object and record id. */
+const shiftRef = { object: z.string().min(1).max(81), id: z.string().min(1).max(64) };
 const localDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date, YYYY-MM-DD");
 const localDateTime = z
   .string()
@@ -31,7 +42,8 @@ const localTime = z.string().regex(/^[0-2]\d:[0-5]\d$/, "a time, HH:MM");
 const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 
 const warning = z.object({
-  code: z.enum(["unavailable", "not_qualified", "uncovered"]),
+  // The last two only for a shift booked at free times (an appointment, ADR 0763).
+  code: z.enum(["unavailable", "not_qualified", "uncovered", "outside_hours", "client_busy"]),
   object: z.string(),
   id: z.string(),
   account: z.string().nullable(),
@@ -157,8 +169,7 @@ export const week = defineTool({
   input: z.object({ from: localDate.optional(), to: localDate.optional() }),
   output: roster,
   risk: "read",
-  permission: [...TEAM],
-  grantLiftsRoleLimits: true,
+  ...TEAM_TOOL,
   handler: async (input, ctx) => roster.parse(await ctx.ops.call("staffing.week", range(input, 7))),
 });
 
@@ -169,8 +180,7 @@ export const mine = defineTool({
   input: z.object({ from: localDate.optional(), to: localDate.optional() }),
   output: roster,
   risk: "read",
-  permission: [...TEAM],
-  grantLiftsRoleLimits: true,
+  ...TEAM_TOOL,
   handler: async (input, ctx) =>
     roster.parse(await ctx.ops.call("staffing.week", { ...range(input, 28), mine: true })),
 });
@@ -186,8 +196,7 @@ export const offers = defineTool({
     mine: z.array(offerShape),
   }),
   risk: "read",
-  permission: [...TEAM],
-  grantLiftsRoleLimits: true,
+  ...TEAM_TOOL,
   handler: async (_input, ctx) => (await ctx.ops.call("staffing.offers", {})) as never,
 });
 
@@ -198,14 +207,12 @@ export const offer = defineTool({
     "Offers close at the cut-off before the shift starts. Whoever rosters may offer any shift, " +
     "and one with nobody on it. A person's own act.",
   input: z.object({
-    object: z.string().min(1).max(81),
-    id: z.string().min(1).max(64),
+    ...shiftRef,
     to: z.string().min(1).max(64).optional().describe("A staff account: offer it to them only"),
   }),
   output: z.object({ offer: offerShape, told: z.number().nullable() }),
   risk: "write",
-  permission: [...TEAM],
-  grantLiftsRoleLimits: true,
+  ...TEAM_TOOL,
   humanOnly: true,
   handler: async (input, ctx) => (await ctx.ops.call("staffing.offer", input)) as never,
 });
@@ -215,8 +222,7 @@ export const withdraw = defineTool({
   input: z.object({ offer: z.string().min(1).max(64) }),
   output: z.object({ offer: offerShape }),
   risk: "write",
-  permission: [...TEAM],
-  grantLiftsRoleLimits: true,
+  ...TEAM_TOOL,
   humanOnly: true,
   handler: async (input, ctx) => (await ctx.ops.call("staffing.withdraw", input)) as never,
 });
@@ -234,8 +240,7 @@ export const take = defineTool({
   }),
   output: z.object({ offer: z.string(), shift: summary, warnings: z.array(warning) }),
   risk: "write",
-  permission: [...TEAM],
-  grantLiftsRoleLimits: true,
+  ...TEAM_TOOL,
   humanOnly: true,
   handler: async (input, ctx) => (await ctx.ops.call("staffing.take", input)) as never,
 });
@@ -249,8 +254,7 @@ export const away = defineTool({
   input: z.object(awayInput),
   output: awayAnswer,
   risk: "write",
-  permission: [...TEAM],
-  grantLiftsRoleLimits: true,
+  ...TEAM_TOOL,
   humanOnly: true,
   // What someone writes about their leave never reaches the audit log.
   redact: ["note"],
@@ -264,8 +268,7 @@ export const back = defineTool({
   input: z.object({ id: z.string().min(1).max(64) }),
   output: z.object({ id: z.string() }),
   risk: "write",
-  permission: [...TEAM],
-  grantLiftsRoleLimits: true,
+  ...TEAM_TOOL,
   humanOnly: true,
   handler: async (input, ctx) => (await ctx.ops.call("staffing.back", input)) as never,
 });
@@ -277,8 +280,7 @@ export const myAway = defineTool({
   input: z.object({ from: localDate.optional(), to: localDate.optional() }),
   output: z.object({ items: z.array(awayShape) }),
   risk: "read",
-  permission: [...TEAM],
-  grantLiftsRoleLimits: true,
+  ...TEAM_TOOL,
   handler: async (input, ctx) => {
     // Your own: the account is the host-verified caller, never one the input names.
     const caller = ctx.caller;
@@ -304,8 +306,7 @@ export const me = defineTool({
     uncoveredDays: z.number(),
   }),
   risk: "read",
-  permission: [...TEAM],
-  grantLiftsRoleLimits: true,
+  ...TEAM_TOOL,
   handler: async (_input, ctx) => (await ctx.ops.call("staffing.me", {})) as never,
 });
 
@@ -333,8 +334,7 @@ export const myPayPeriods = defineTool({
     periods: z.array(myPeriod),
   }),
   risk: "read",
-  permission: [...TEAM],
-  grantLiftsRoleLimits: true,
+  ...TEAM_TOOL,
   humanOnly: true,
   handler: async (input, ctx) => (await ctx.ops.call("staffing.myPay.periods", input)) as never,
 });
@@ -360,11 +360,11 @@ export const myPay = defineTool({
     counted: z
       .boolean()
       .describe("False: you are not counted for pay then, and there are no figures"),
-    basis: z.enum(["by_time", "by_class", "not_counted"]),
+    basis,
     totals: z.array(
       z.object({
-        basis: z.enum(["by_time", "by_class"]),
-        kind: z.object({ object: z.string(), id: z.string() }).nullable(),
+        basis: countedBasis,
+        kind: kindRef,
         kindName: z.string(),
         shifts: z.number(),
         minutes: z.number(),
@@ -379,7 +379,7 @@ export const myPay = defineTool({
         id: z.string(),
         title: z.string(),
         kindName: z.string(),
-        basis: z.enum(["by_time", "by_class"]),
+        basis: countedBasis,
         place: z.string().nullable(),
         localDate: z.string(),
         localStart: z.string(),
@@ -398,8 +398,7 @@ export const myPay = defineTool({
     hours: z.string().nullable(),
   }),
   risk: "read",
-  permission: [...TEAM],
-  grantLiftsRoleLimits: true,
+  ...TEAM_TOOL,
   humanOnly: true,
   handler: async (input, ctx) => (await ctx.ops.call("staffing.myPay", input)) as never,
 });
@@ -420,8 +419,7 @@ export const feed = defineTool({
   input: z.object({}),
   output: feedState,
   risk: "read",
-  permission: [...TEAM],
-  grantLiftsRoleLimits: true,
+  ...TEAM_TOOL,
   handler: async (_input, ctx) => feedState.parse(await ctx.ops.call("staffing.feed.status", {})),
 });
 
@@ -440,8 +438,7 @@ export const feedRotate = defineTool({
     createdAt: z.string(),
   }),
   risk: "write",
-  permission: [...TEAM],
-  grantLiftsRoleLimits: true,
+  ...TEAM_TOOL,
   humanOnly: true,
   // The address is a secret: never in the audit log or a stored reply.
   redactResult: ["path"],
@@ -457,8 +454,7 @@ export const feedRevoke = defineTool({
   }),
   output: z.object({ account: z.string(), revoked: z.boolean() }),
   risk: "write",
-  permission: [...TEAM],
-  grantLiftsRoleLimits: true,
+  ...TEAM_TOOL,
   humanOnly: true,
   handler: async (input, ctx) => (await ctx.ops.call("staffing.feed.revoke", input)) as never,
 });
@@ -473,8 +469,7 @@ export const assign = defineTool({
     "people on and off it are told; its open offer is cancelled. Whoever rosters; an assistant " +
     "may ask, and a person applies it.",
   input: z.object({
-    object: z.string().min(1).max(81),
-    id: z.string().min(1).max(64),
+    ...shiftRef,
     account: z.string().min(1).max(64).nullable(),
   }),
   output: z.object({ shift: summary, warnings: z.array(warning) }),
@@ -484,27 +479,29 @@ export const assign = defineTool({
   handler: async (input, ctx) => (await ctx.ops.call("staffing.assign", input)) as never,
 });
 
+/** The shift putting someone on another would clash with (refused), if any. */
+const clash = z
+  .object({
+    object: z.string(),
+    id: z.string(),
+    title: z.string(),
+    startsAt: z.string(),
+    endsAt: z.string(),
+  })
+  .nullable();
+
 export const check = defineTool({
   description:
     "What putting someone (account; null for nobody; left out for the shift as it is) on a " +
     "shift would be made with: its warnings (away, not qualified, nobody on it) and the other " +
     "shift it would clash with (refused). Changes nothing. Whoever rosters.",
   input: z.object({
-    object: z.string().min(1).max(81),
-    id: z.string().min(1).max(64),
+    ...shiftRef,
     account: z.string().min(1).max(64).nullable().optional(),
   }),
   output: z.object({
     warnings: z.array(warning),
-    clash: z
-      .object({
-        object: z.string(),
-        id: z.string(),
-        title: z.string(),
-        startsAt: z.string(),
-        endsAt: z.string(),
-      })
-      .nullable(),
+    clash,
   }),
   risk: "read",
   permission: MANAGE,
@@ -517,15 +514,7 @@ const candidate = z.object({
   eligible: z.boolean().describe("Qualified, free and available: could take it"),
   noProfile: z.boolean().describe("The shift cannot name them (a class needs a coach profile)"),
   warnings: z.array(warning),
-  clash: z
-    .object({
-      object: z.string(),
-      id: z.string(),
-      title: z.string(),
-      startsAt: z.string(),
-      endsAt: z.string(),
-    })
-    .nullable(),
+  clash,
 });
 
 export const candidates = defineTool({
@@ -534,7 +523,7 @@ export const candidates = defineTool({
     "made with (warnings, or the shift it would clash with), the eligible first; who is on it; " +
     "and, for a shift of a weekly pattern, the pattern's person and whether it keeps its own. " +
     "Whoever rosters.",
-  input: z.object({ object: z.string().min(1).max(81), id: z.string().min(1).max(64) }),
+  input: z.object(shiftRef),
   output: z.object({
     current: z.object({ account: z.string().nullable(), name: z.string().nullable() }),
     pattern: z
@@ -553,7 +542,7 @@ export const follow = defineTool({
     "Put a shift of a weekly pattern back to its pattern's person: it drops its own person and " +
     "follows the pattern again. Refused for a one-off shift, and if the pattern's person is on " +
     "another shift then. Whoever rosters; an assistant may ask, and a person applies it.",
-  input: z.object({ object: z.string().min(1).max(81), id: z.string().min(1).max(64) }),
+  input: z.object(shiftRef),
   output: z.object({ object: z.string(), id: z.string(), warnings: z.array(warning) }),
   risk: "write",
   permission: MANAGE,
@@ -783,8 +772,7 @@ export const markNotWorked = defineTool({
     "shift in a locked pay period is refused until the period is reopened. Whoever rosters; an " +
     "assistant may ask, and a person applies it.",
   input: z.object({
-    object: z.string().min(1).max(81),
-    id: z.string().min(1).max(64),
+    ...shiftRef,
     notWorked: z.boolean().default(true),
     reason: z.string().trim().min(1).max(500).optional(),
   }),
@@ -806,8 +794,6 @@ export const markNotWorked = defineTool({
 
 /** Pay: restricted (held by admins and by grant only, ADR 0625), and every tool `humanOnly`. */
 const PAY = "rostering:pay";
-const basis = z.enum(["by_time", "by_class", "not_counted"]);
-
 export const payBasis = defineTool({
   description:
     "Say how a member of staff is counted for pay from a date on (today when left out): " +
@@ -896,8 +882,6 @@ export const periods = defineTool({
   handler: async (input, ctx) => (await ctx.ops.call("staffing.payPeriod.list", input)) as never,
 });
 
-const kindRef = z.object({ object: z.string(), id: z.string() }).nullable();
-
 export const periodTotals = defineTool({
   description:
     "One pay period's totals: per counted person and kind of work, the shifts and the hours " +
@@ -920,7 +904,7 @@ export const periodTotals = defineTool({
         account: z.string(),
         name: z.string(),
         email: z.string(),
-        basis: z.enum(["by_time", "by_class"]),
+        basis: countedBasis,
         kind: kindRef,
         kindName: z.string(),
         shifts: z.number(),
@@ -935,7 +919,7 @@ export const periodTotals = defineTool({
         account: z.string(),
         name: z.string(),
         email: z.string(),
-        basis: z.enum(["by_time", "by_class"]),
+        basis: countedBasis,
         object: z.string(),
         id: z.string(),
         kind: kindRef,
@@ -1076,8 +1060,6 @@ const checklistRun = z.object({
   ),
 });
 
-const shiftRef = { object: z.string().min(1).max(81), id: z.string().min(1).max(64) };
-
 export const checklist = defineTool({
   description:
     "A shift's checklist and how it is going: each step, its tick (who ticked it, and for whom), " +
@@ -1100,8 +1082,7 @@ export const checklist = defineTool({
     youRoster: z.boolean(),
   }),
   risk: "read",
-  permission: [...TEAM],
-  grantLiftsRoleLimits: true,
+  ...TEAM_TOOL,
   humanOnly: true,
   handler: async (input, ctx) => (await ctx.ops.call("checklist.forRecord", input)) as never,
 });
@@ -1129,8 +1110,7 @@ export const tick = defineTool({
     of: z.number(),
   }),
   risk: "write",
-  permission: [...TEAM],
-  grantLiftsRoleLimits: true,
+  ...TEAM_TOOL,
   humanOnly: true,
   // What someone writes on a step, why it was not done, why it was ticked for them, and how it
   // went: never in the audit log.
@@ -1146,8 +1126,7 @@ export const checklistDone = defineTool({
   input: z.object({ ...shiftRef, forWhy: z.string().trim().max(500).optional() }),
   output: z.object({ run: z.string(), state: z.literal("done") }),
   risk: "write",
-  permission: [...TEAM],
-  grantLiftsRoleLimits: true,
+  ...TEAM_TOOL,
   humanOnly: true,
   redact: ["forWhy"],
   handler: async (input, ctx) => (await ctx.ops.call("checklist.complete", input)) as never,

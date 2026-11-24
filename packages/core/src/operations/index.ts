@@ -13,6 +13,7 @@ import { agentOperations } from "./agent.ts";
 import { agreementOperations } from "./agreement.ts";
 import { agreementAcceptanceOperations } from "./agreement-acceptance.ts";
 import { agreementCopyOperations } from "./agreement-copy.ts";
+import { agreementDeskOperations } from "./agreement-desk.ts";
 import { agreementRetentionOperations } from "./agreement-retention.ts";
 import { aiOperations } from "./ai.ts";
 import { aiCacheOperations } from "./ai-cache.ts";
@@ -24,7 +25,9 @@ import { auditOperations } from "./audit.ts";
 import { automationOperations } from "./automation.ts";
 import { automationBindingOperations } from "./automation-binding.ts";
 import { capacityOperations } from "./capacity.ts";
+import { carerOperations } from "./carer.ts";
 import { checklistOperations } from "./checklist.ts";
+import { checklistDayOperations } from "./checklist-days.ts";
 import { codeOperations } from "./code.ts";
 import { connectedAppOperations } from "./connected-app.ts";
 import { contentOperations } from "./content.ts";
@@ -32,6 +35,7 @@ import { countOperations } from "./count.ts";
 import { customerOperations } from "./customer.ts";
 import { customerSettingsOperations } from "./customer-settings.ts";
 import { dashboardOperations } from "./dashboard.ts";
+import { deviceOperations } from "./device.ts";
 import { deviceSessionOperations } from "./device-session.ts";
 import { duplicateOperations } from "./duplicate.ts";
 import { enrichmentOperations } from "./enrichment.ts";
@@ -42,23 +46,35 @@ import { extensionOperations } from "./extension.ts";
 import { extensionAuthoringOperations } from "./extension-authoring.ts";
 import { extensionUiOperations } from "./extension-ui.ts";
 import { fieldOptionsOperations } from "./field-options.ts";
+import { financeOperations } from "./finance.ts";
 import { importOperations } from "./import.ts";
 import { importRecordsOperations } from "./import-records.ts";
+import { intakeOperations } from "./intake.ts";
 import { integrationOperations } from "./integration.ts";
 import { inviteOperations } from "./invite.ts";
 import { invoiceOperations } from "./invoice.ts";
+import { journeyOperations } from "./journey.ts";
 import { judgeOperations } from "./judge.ts";
+import { locationOperations } from "./location.ts";
 import { meOperations } from "./me.ts";
+import { meAttentionOperations } from "./me-attention.ts";
+import { meCalendarFeedOperations } from "./me-calendar-feed.ts";
+import { mePhoneOperations } from "./me-phone.ts";
+import { mePortalOperations } from "./me-portal.ts";
 import { mediaOperations } from "./media.ts";
 import { mediaVideoOperations } from "./media-video.ts";
 import { memoryOperations } from "./memory.ts";
 import { myOperations } from "./my.ts";
 import { myWriteOperations } from "./my-write.ts";
+import { noteOperations } from "./note.ts";
+import { noteKindOperations } from "./note-kind.ts";
 import { notificationOperations } from "./notification.ts";
 import { notificationDeliveryOperations } from "./notification-delivery.ts";
 import { orderOperations } from "./order.ts";
 import { organisationOperations } from "./organisation.ts";
+import { outsideOperations } from "./outside.ts";
 import { personOperations } from "./person.ts";
+import { personCodeOperations } from "./person-code.ts";
 import { personLinkOperations } from "./person-link.ts";
 import { personWithRecordOperations } from "./person-with-record.ts";
 import { planOperations } from "./plan.ts";
@@ -69,7 +85,9 @@ import { recordOperations } from "./record.ts";
 import { recordImportOperations } from "./record-import.ts";
 import { recordVersionOperations } from "./record-versions.ts";
 import { recurringOperations } from "./recurring.ts";
+import { restrictedOperations } from "./restricted.ts";
 import { retentionOperations } from "./retention.ts";
+import { roomsOperations } from "./rooms.ts";
 import { routineOperations } from "./routine.ts";
 import { routineMailOperations } from "./routine-mail.ts";
 import { screenOperations } from "./screens.ts";
@@ -78,10 +96,15 @@ import { settingsOperations } from "./settings.ts";
 import { setupOperations } from "./setup.ts";
 import { staffingOperations } from "./staffing.ts";
 import { staffingFeedOperations } from "./staffing-feed.ts";
+import { staffingFreeOperations } from "./staffing-free.ts";
 import { staffingHoursOperations } from "./staffing-hours.ts";
+import { staffingLeaveOperations } from "./staffing-leave.ts";
 import { staffingPayOperations } from "./staffing-pay.ts";
 import { staffingScreenOperations } from "./staffing-screens.ts";
+import { staffingTimeOperations } from "./staffing-time.ts";
+import { staffingTimeApproveOperations } from "./staffing-time-approve.ts";
 import { stateResolveOperations } from "./state-resolve.ts";
+import { stockOperations } from "./stock.ts";
 import { subscriptionOperations } from "./subscription.ts";
 import { subscriptionOfferOperations } from "./subscription-offer.ts";
 import { suggestionOperations } from "./suggestions.ts";
@@ -121,6 +144,7 @@ export const coreOperations = [
   ...recordVersionOperations,
   ...contentOperations,
   ...ackOperations,
+  ...locationOperations,
   ...mediaOperations,
   ...mediaVideoOperations,
   ...recordImportOperations,
@@ -147,8 +171,10 @@ export const coreOperations = [
   ...automationOperations,
   ...automationBindingOperations,
   ...myWriteOperations,
+  ...restrictedOperations,
   ...publicReadOperations,
   ...accessOperations,
+  ...intakeOperations,
   ...stateResolveOperations,
   ...timedMoveOperations,
   ...notificationOperations,
@@ -169,28 +195,48 @@ export const coreOperations = [
   ...fieldOptionsOperations,
   ...customerSettingsOperations,
   ...routineMailOperations,
+  ...deviceOperations,
   ...deviceSessionOperations,
   ...customerOperations,
   ...meOperations,
+  ...mePhoneOperations,
+  ...meAttentionOperations,
+  ...mePortalOperations,
   ...personLinkOperations,
+  ...noteOperations,
+  ...noteKindOperations,
+  ...carerOperations,
+  ...personCodeOperations,
   ...orderOperations,
   ...subscriptionOperations,
   ...subscriptionOfferOperations,
   ...myOperations,
   ...capacityOperations,
+  ...stockOperations,
   ...recurringOperations,
   ...staffingOperations,
+  ...roomsOperations,
   ...staffingFeedOperations,
+  ...meCalendarFeedOperations,
   ...staffingHoursOperations,
+  ...staffingFreeOperations,
+  ...staffingLeaveOperations,
   ...staffingPayOperations,
+  ...staffingTimeOperations,
+  ...staffingTimeApproveOperations,
   ...staffingScreenOperations,
   ...screenOperations,
   ...checklistOperations,
+  ...checklistDayOperations,
+  ...financeOperations,
+  ...outsideOperations,
   ...allowanceOperations,
   ...waitlistOperations,
   ...agreementOperations,
   ...agreementAcceptanceOperations,
   ...agreementCopyOperations,
+  ...agreementDeskOperations,
   ...agreementRetentionOperations,
   ...invoiceOperations,
+  ...journeyOperations,
 ] as const;

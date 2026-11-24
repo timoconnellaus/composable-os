@@ -1,0 +1,31 @@
+{
+  "name": "@composable-os/gatekeeper-booking-system",
+  "version": "0.0.0",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "description": "The read-only booking-system contract every booking-system gatekeeper implements: its types, input checks, the shared session, a fake booking system and the conformance suite.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./session": "./src/session.ts",
+    "./fake-worker": "./src/fake-worker.ts",
+    "./types": "./src/types.d.ts"
+  },
+  "scripts": {
+    "types": "wrangler types --config wrangler.fake.jsonc",
+    "typecheck": "wrangler types --config wrangler.fake.jsonc --check && tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@composable-os/gatekeeper-interface": "workspace:*",
+    "@composable-os/gatekeeper-kit": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.5.1",
+    "@composable-os/config": "workspace:*",
+    "typescript": "6.0.3",
+    "vitest": "5.1.0",
+    "wrangler": "4.157.0"
+  }
+}

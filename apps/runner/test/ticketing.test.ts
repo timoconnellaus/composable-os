@@ -21,7 +21,6 @@ import {
   extensionDashboardId,
   getObject,
   type InvocationContext,
-  invokeByName,
   linkCustomer,
   loadExtensionOperations,
   memoryWidgetCache,
@@ -45,20 +44,11 @@ import { listedPacks } from "../src/extensions/shipped-list.ts";
 import { fakeProviderStub } from "../src/integrations/fake.ts";
 import { blobStore, integrationRuntime } from "../src/integrations/runtime.ts";
 import { runWorkflows, setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, unique } from "./helpers.ts";
+import { connectFake } from "./fake-connection.ts";
+import { createAdmin, db, host, newCustomer, run, unique } from "./helpers.ts";
+import { packFiles } from "./pack-files.ts";
 
-const files = Object.fromEntries(
-  Object.entries(
-    import.meta.glob<string>("../../../packs/ticketing/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  )
-    .map(([path, text]) => [path.split("/").pop() as string, text] as const)
-    // The pack's extension files, as a release carries them (not its config or tests).
-    .filter(([name]) => name !== "vitest.config.ts"),
-);
+const files = packFiles("ticketing");
 
 /** The extension host of a deployment whose product lists Ticketing. */
 const shippedHost: ExtensionHost = {
@@ -112,14 +102,6 @@ const as = (principal: CustomerPrincipal): OutsideInvocationContext => ({
   integrations,
   extensionHost: shippedHost,
 });
-
-function run<T = Record<string, unknown>>(
-  name: string,
-  input: unknown,
-  ctx: InvocationContext | OutsideInvocationContext,
-): Promise<T> {
-  return invokeByName(name, input, ctx) as Promise<T>;
-}
 
 /** What a call was refused with: its code and the host's details (unwrapped from a tool's). */
 async function refusal(call: Promise<unknown>) {
@@ -225,25 +207,8 @@ async function counter(object: string, id: string) {
     .first<{ held: number; taken: number }>();
 }
 
-async function createCustomer(
-  label: string,
-): Promise<{ principal: CustomerPrincipal; email: string }> {
-  const tag = unique(label).toLowerCase();
-  const email = `${tag}@buyers.test`;
-  const person = await run<{ id: string }>(
-    "person.create",
-    { givenName: `Given-${tag}`, emails: [{ email }] },
-    staff(admin),
-  );
-  const customerId = `cus_${tag}`;
-  const now = new Date().toISOString();
-  await env.DB.prepare(
-    "INSERT INTO core_customer (id, person_id, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
-  )
-    .bind(customerId, person.id, email, now, now)
-    .run();
-  return { principal: { kind: "customer", customerId, personId: person.id }, email };
-}
+const createCustomer = (label: string) =>
+  newCustomer(staff(admin), label, { domain: "buyers.test" });
 
 async function createStaff(role: "member" | "viewer", name: string): Promise<ActingUser> {
   const id = `usr_${unique("staff")}`;
@@ -259,28 +224,13 @@ async function createStaff(role: "member" | "viewer", name: string): Promise<Act
 
 /** The fake provider's consent page and handoff, for the org (as customer-mail.test.ts). */
 async function connectFakeMail(address: string): Promise<string> {
-  const created = await run<{
-    connection: { id: string };
-    connect: { url: string; nonce: string };
-  }>("connection.create", { vendor: "fake", scope: "org", sharingLevel: "full" }, staff(admin));
-  const url = `http://crm.test${created.connect.url}`;
-  await runner.gatekeeperFetch("fake", new Request(url));
-  const done = await runner.gatekeeperFetch(
-    "fake",
-    new Request(url, { method: "POST", body: new URLSearchParams({ address }) }),
-  );
-  const ticket = /var ticket = "([^"]+)"/.exec(await done.text())?.[1] ?? "";
-  await run(
-    "connection.completeConnect",
-    { connectionId: created.connection.id, ticket, nonce: created.connect.nonce },
-    staff(admin),
-  );
+  const id = await connectFake((name, input) => run(name, input, staff(admin)), address);
   await run(
     "connection.bindResource",
-    { id: created.connection.id, url: `fake://outbox/${encodeURIComponent(address)}` },
+    { id, url: `fake://outbox/${encodeURIComponent(address)}` },
     staff(admin),
   );
-  return created.connection.id;
+  return id;
 }
 
 async function emailsTo(address: string) {
@@ -1050,6 +1000,16 @@ describe("paying by deposit (criterion 6a)", () => {
       currency: "AUD",
       dueAt: expect.stringContaining(NEXT_YEAR),
     });
+    // The ticket granted and its check-in are the holder's journey signals (stage 53, ADR 0802).
+    const { results: signals } = await env.DB.prepare(
+      "SELECT signal, record_id FROM core_person_signal WHERE person_id = ? ORDER BY signal",
+    )
+      .bind(buyer.principal.personId)
+      .all();
+    expect(signals).toEqual([
+      { signal: "ticketing.checkedIn", record_id: ticket?.id },
+      { signal: "ticketing.ticketBought", record_id: ticket?.id },
+    ]);
 
     // The rest in two parts.
     await checkoutAndPay(now, as(buyer.principal), 30000);
@@ -1460,6 +1420,10 @@ describe("the door role (criterion 6b, ADR 0436)", () => {
     // Every pack role's own read-and-understood list and confirmations (ADR 0702).
     "ack.confirm",
     "ack.mine",
+    // The published versions every staff account reads (ADR 0701), on a staff-read object only.
+    "content.search",
+    "content.staffGet",
+    "content.staffList",
   ]);
 
   it("can check in and list an event's tickets", async () => {

@@ -5,17 +5,23 @@ import type { z } from "zod";
 import type { AgreementsSpec, HealthNotesSpec } from "./agreements.ts";
 import type { AllowanceSpec } from "./allowance.ts";
 import type { AutomationSpec } from "./automation.ts";
+import type { CalendarEntrySpec } from "./calendar-entry.ts";
 import type { CapacitySpec, ClaimsSpec } from "./capacity.ts";
 import type { ChecklistsSpec } from "./checklists.ts";
 import type { DocumentPathSpec, DocumentSchema } from "./document.ts";
 import type { FieldTypeName } from "./field-types.ts";
+import type { IntakeSpec } from "./intake.ts";
+import type { JourneySignalSpec } from "./journey-signals.ts";
 import type { OccupiesSpec } from "./occupies.ts";
 import type { RecurringScheduleSpec } from "./recurring.ts";
 import type { RoutineMailModule, RoutineMailSpec } from "./routine-mail.ts";
 import type { SellableSpec } from "./sellable.ts";
 import type { StaffedSpec } from "./staffed.ts";
 import type { StatesSpec } from "./states.ts";
+import type { StockMovesSpec, StockSpec } from "./stock.ts";
+import type { TeamSpec } from "./team.ts";
 import type { UniqueSpec } from "./unique.ts";
+import type { WorkedOnSpec } from "./worked-on.ts";
 
 /** The contract version this SDK writes. The host accepts this and the previous version. */
 export const CONTRACT_VERSION = 1;
@@ -267,6 +273,10 @@ export interface ObjectSpec {
   capacity?: CapacitySpec;
   /** Something that can be bought, and what a paid line grants (see SellableSpec, ADR 0435). */
   sellable?: SellableSpec;
+  /** Things counted on a shelf, sold from a ledger the host keeps (see StockSpec, ADR 0680). */
+  stock?: StockSpec;
+  /** A record's state moves stock: received adds, a write-off removes, a count sets (see StockMovesSpec, ADR 0681). */
+  stockMoves?: StockMovesSpec;
   /**
    * Uses a record holds (a pass, a membership), or a record that spends one (a booking): see
    * AllowanceSpec, ADRs 0493 and 0494. The host counts and refuses a spend past the limit.
@@ -306,11 +316,35 @@ export interface ObjectSpec {
    */
   staffed?: StaffedSpec;
   /**
+   * Time can be recorded against the record (see WorkedOnSpec, ADR 0850): a job. Its time is the
+   * staff's time entries against it, read through the host; it keeps no hours of its own.
+   */
+  workedOn?: WorkedOnSpec;
+  /**
+   * Who on the staff looks after the Person a record is about (see TeamSpec, ADR 0831): the
+   * accounts in its user fields while it is live. A pack role's `looksAfter` reaches records
+   * only for those People (ADR 0889). Only shipped extensions and an org's own may declare it.
+   */
+  team?: TeamSpec;
+  /**
    * A claim on a thing (see OccupiesSpec, ADR 0765): while live, the record takes the room (or
    * chair, or hall) it names for its time. The host refuses, in the database, a second live
    * record on the same thing at an overlapping time, whatever object it is.
    */
   occupies?: OccupiesSpec;
+  /**
+   * Events in the customer's private calendar feed (see CalendarEntrySpec, ADR 0891): the record's
+   * start, end, public title and place as paths the customer may read, and the states in which it
+   * shows. The host reads them as the customer, through the visibility seam, and shows a live
+   * dependant's to their guardian. Only shipped extensions may declare it.
+   */
+  calendarEntry?: CalendarEntrySpec;
+  /**
+   * The public-write door (see IntakeSpec, ADR 0720): a form the public answers, the submission
+   * the host makes from the answers, or another pack's record a form may also make. Only the
+   * host's `intake.submit` creates a submission; nothing else opens a write to the public.
+   */
+  intake?: IntakeSpec;
   /**
    * A checklist the record's person ticks off (see ChecklistsSpec, ADR 0650): a run of the
    * template its `template` field names, made by the host, ticked by the person (or by someone who
@@ -335,9 +369,9 @@ export interface ObjectSpec {
    * What the public may read of this object (ADR 0438): the fields in `read`, of the records that
    * meet `when`. Deny by default: left out, the public sees nothing of it, and a record that does
    * not meet `when` is not found. A signed-in customer reads it too, unless the object declares a
-   * `customer` (an object declares one or the other). The public reaches it only through a pack's
-   * tool open to them (`public.list`, `public.get`). Only shipped extensions and an org's own may
-   * declare it.
+   * `customer` (an object declares one or the other, except a publishable object with an author:
+   * see `publishable`). The public reaches it only through a pack's tool open to them
+   * (`public.list`, `public.get`). Only shipped extensions and an org's own may declare it.
    */
   public?: PublicSpec;
   /**
@@ -375,6 +409,14 @@ export interface ObjectSpec {
    * publish permission, never an AI actor); `record.versions` and `record.version` read them;
    * `record.restoreVersion` copies one back into the working copy. Editing the working copy
    * never changes a version. Records get read-only `publishedVersion` and `publishedAt`.
+   *
+   * With an author (ADR 0810): a publishable object may declare a `customer`, the record's author
+   * (a review's writer). The author reads and writes their working copy through `customer`; the
+   * public reads only the published version through `public` (which may then be declared too),
+   * listed by `content.list` and never by an address (no `slug`). The fields in `customer.write`
+   * are the author's alone: staff, the assistant, MCP clients, automations and the extension's own
+   * code are refused them on every path, so a published version is always the author's words.
+   * Staff still publish, unpublish and move the record's states.
    */
   publishable?: PublishableSpec;
   /** Position in the sidebar among extension objects (lower first). Default 100. */
@@ -409,7 +451,8 @@ export type StageType = (typeof STAGE_TYPES)[number];
  * operations, so it applies to every actor: people, MCP clients, Code Mode, extensions.
  *
  * - Entering a stage needs the stage's required fields and `requiredByType[type]` to have values;
- *   otherwise the write is refused with a structured error naming the missing fields.
+ *   otherwise the write is refused with a structured error naming the missing fields. A read-only
+ *   field may be required: a fact the host sets, which no caller can supply (ADR 0750).
  * - `group` must match the stage's group; a record given only a group starts in its first stage.
  * - `probability.field` follows the stage's default probability unless it was set by hand
  *   (`probability.overridden` is then true; clearing that flag resets it).
@@ -633,7 +676,8 @@ export interface ToolSpec<In extends z.ZodType = z.ZodType, Out extends z.ZodTyp
    */
   recordAction?: RecordActionSpec;
   /**
-   * Who may call the tool: a non-empty subset of `staff`, `customer`, `public`. Left out, staff
+   * Who may call the tool: a non-empty subset of `staff`, `customer`, `public`, or `device` alone
+   * (an enrolled device whose device role holds the tool's `permission`, ADR 0781). Left out, staff
    * only. A tool open to `customer` or `public` must have risk `read` or `write`. Called by a
    * customer, the tool runs as that customer: `ctx.ops` reaches only their own records, through
    * `my.list`, `my.get`, `my.create` and `my.update`. Only shipped extensions and an org's own
@@ -651,7 +695,8 @@ export interface ToolSpec<In extends z.ZodType = z.ZodType, Out extends z.ZodTyp
    * a role of this extension to hold (`roles`, ADR 0436). Admins and members hold it as they hold
    * any tool (a viewer only when the tool's risk is `read`); a staff account given one of this
    * extension's roles holds it only when the role lists it. Only shipped extensions and an org's
-   * own may declare it.
+   * own may declare it. A tool open to `device` names the permission a device role holds
+   * (`deviceRoles`, ADR 0781), and no staff role, grant or restriction names it.
    *
    * Or a list: any one of them opens the tool (ADR 0600). Bookings' day view is the coach's and
    * the desk's (`["bookings:coach", "bookings:desk"]`): a coach reaches it through the role, held
@@ -680,6 +725,23 @@ export interface ToolSpec<In extends z.ZodType = z.ZodType, Out extends z.ZodTyp
    * grantable permission added to a role's own tool never lifts the role's limits by accident.
    */
   grantLiftsRoleLimits?: boolean;
+  /**
+   * Every staff account may call it, pack roles included (ADR 0652): a cleaner's `rostering.team`,
+   * a coach, the door, as well as admins and members. For a tool whose host operation decides
+   * who may do what by a rule of its own (Daily checklists' `today` and `tick`: the checklist's
+   * own "who may do it"), so no role or grant has to name it. A person's own act (`humanOnly`),
+   * for staff only, with no `permission` or `corePermission`. Only shipped extensions and an
+   * org's own may declare it.
+   */
+  anyStaff?: boolean;
+  /**
+   * A core permission a staff caller needs instead of `records:read` or `records:write` (ADR
+   * 0652): one an admin may grant one by one (`checklists:write`). Admins and those granted it
+   * call the tool; nobody else does, and no pack role reaches it (a pack role holds no core
+   * permission). For staff only, with no `permission`. Only shipped extensions and an org's own
+   * may declare it.
+   */
+  corePermission?: string;
   /**
    * Fields of the input the audit log never keeps (ADR 0626): a note about someone's leave. The
    * call is still audited, with those fields shown as redacted. It only hides more, so any
@@ -720,21 +782,58 @@ export interface RoleSpec {
    * call the account makes and every call of a tool run it started. Other staff are not limited.
    */
   today?: Readonly<Record<string, string | { at: string; until?: string; zone?: string }>>;
+  /**
+   * Objects whose records the role reaches only for the People its holder looks after (ADR
+   * 0889), by object: its relation (one record) to `person`. Its holder looks after a Person
+   * when a live record of one of this extension's objects that declares a `team` names them in
+   * its staff fields (a client's assignment naming the coach). The host holds it on every call
+   * the account makes and every call of a tool run it started: a list holds only those People's
+   * records, a read or a change of another's is not found, a new record must be about one of
+   * them, and any other operation naming the object is refused. Other staff are not limited.
+   */
+  looksAfter?: Readonly<Record<string, string>>;
+}
+
+/**
+ * A device role an extension declares (ADR 0781): what an enrolled device given it may do, with
+ * no person signed in. A human admin enrols a device for the role (`device.enrol { use: "role",
+ * role: "<id>.<name>" }`); its credential then calls exactly the tools whose permission the role
+ * lists (each open to `device` only) and `device.heartbeat`, and nothing else. It reads no
+ * record: its tools return only what their outputs declare. Bookings' check-in tablet:
+ * `{ permissions: ["bookings:checkin"], screen: { block: "bookings-checkin-tablet", export:
+ * "CheckInTablet" } }`. Only a shipped pack may declare one: a runtime extension's fails `cos ext
+ * check` and install, and is ignored at run time.
+ */
+export interface DeviceRoleSpec {
+  label: string;
+  /** What the device is for, shown to the admin who enrols it. */
+  description: string;
+  /** Permissions of this extension's device tools (`<id>:<word>`) the role holds. */
+  permissions: readonly string[];
+  /** The device's screen: a web block of this pack and the component it exports. */
+  screen: { block: string; export: string };
 }
 
 /**
  * Who started a tool (ADR 0436), set by the host from the session it verified and never from the
- * input: a staff user, a signed-in customer or the public. A tool's own operation calls run as
- * the extension (or as the customer, ADR 0414); this is for recording who asked, such as who
- * checked a ticket in. Absent in automations and in a manifest evaluation.
+ * input: a staff user, a signed-in customer, the public, or an enrolled device holding one of
+ * this extension's device roles (ADR 0781: the device's id and the name an admin gave it, "Front
+ * door tablet"). A tool's own operation calls run as the extension (or as the customer, ADR
+ * 0414); this is for recording who asked, such as who checked a ticket in, or that a booking was
+ * ticked at the door. Absent in automations and in a manifest evaluation.
  */
 export type StartedBy =
   | { readonly kind: "staff"; readonly userId: string; readonly name: string }
   | { readonly kind: "customer" }
-  | { readonly kind: "public" };
+  | { readonly kind: "public" }
+  | { readonly kind: "device"; readonly deviceId: string; readonly name: string };
 
-/** Who may call a tool. `staff` when nothing is declared (ADR 0402). */
-export const TOOL_AUDIENCES = ["staff", "customer", "public"] as const;
+/**
+ * Who may call a tool. `staff` when nothing is declared (ADR 0402). `device` (ADR 0781): an
+ * enrolled device whose device role holds the tool's permission, on the desk origin only; a tool
+ * open to `device` is open to nobody else.
+ */
+export const TOOL_AUDIENCES = ["staff", "customer", "public", "device"] as const;
 export type ToolAudience = (typeof TOOL_AUDIENCES)[number];
 
 /**
@@ -825,7 +924,9 @@ export interface PublishableSpec {
   /**
    * The record's address (stage 28, ADR 0442): a `slug` field of the object's own, not in
    * `content`. The public reads a record by it (`content.get`); a published record whose slug
-   * changes keeps the old one as a redirect. Needed to declare `public`.
+   * changes keeps the old one as a redirect. Left out on an object the public reads, its records
+   * are listed only (`content.list`) and `content.get` finds none (ADR 0810). An object with an
+   * author (a `customer`) has none.
    */
   slug?: string;
   /**
@@ -834,6 +935,13 @@ export interface PublishableSpec {
    * Set, it is kept: an imported post keeps its date.
    */
   date?: string;
+  /**
+   * The states in which the record may be published (ADR 0810): values of the object's `states`
+   * field. A publish (or a scheduled one coming due) of a record in any other state is refused,
+   * and a record that moves out of them is unpublished in the same batch. A review without its
+   * author's consent is never published. Left out, any state.
+   */
+  publishIn?: readonly string[];
   /**
    * Read and understood (stage 38, ADR 0702): the staff who must read a record confirm its
    * current version with one tap, and a person publishing a later version says whether it asks
@@ -844,6 +952,14 @@ export interface PublishableSpec {
    * customer reads.
    */
   acknowledge?: { who: string; manage: string };
+  /**
+   * Staff read (stage 38, ADR 0701): every staff account reads the current published version,
+   * never the working copy, through `content.staffGet`, `content.staffList` and `content.search`,
+   * pack-role accounts (a coach, a cleaner, the door) included, which read nothing else outside
+   * their own pack. What they read is the `content` fields and the slug. Editors still edit the
+   * working copy on the record's page.
+   */
+  staffRead?: boolean;
 }
 
 /** An object's customer: see `ObjectSpec.customer`. */
@@ -863,6 +979,12 @@ export interface CustomerSpec {
    * any tool.
    */
   createOnly?: readonly string[];
+  /**
+   * Whether a customer may put one of their own records in the Trash, through a pack tool's
+   * `my.delete` (ADR 0414, amended 2026-11-24): a logged set ticked by mistake. Left out, they
+   * cannot. A reviewed change, as `customer` is.
+   */
+  delete?: boolean;
   /**
    * The family link (ADR 0540): a signed-in guardian also reads their live dependants' records of
    * this object (a child's bookings), with the same `read` fields. With `write: true` they also
@@ -972,6 +1094,11 @@ export interface ExtensionSpec {
   /** Fixed staff roles an admin can give to a staff account (ADR 0436). */
   roles?: Record<string, RoleSpec>;
   /**
+   * Device roles an admin can enrol a device for (ADR 0781): the business's own tablet, signed in
+   * as nobody, calling only the tools the role holds (`audiences: ["device"]`).
+   */
+  deviceRoles?: Record<string, DeviceRoleSpec>;
+  /**
    * Permissions of this extension's tools (`<id>:<word>`) a human admin may grant to a staff
    * account one by one (ADR 0449), on top of its role: a coach who is a member granted the
    * permission of a tool a member could not otherwise call. Only shipped extensions and an org's
@@ -986,6 +1113,14 @@ export interface ExtensionSpec {
    * declare it, and only their automations send it (`ctx.routineMail.send`).
    */
   routineMail?: Record<string, RoutineMailSpec>;
+  /**
+   * Journey signals (stage 53, ADR 0802): moments about a Person that a journey can start or stop
+   * on, each a record of this extension's objects created or entering a state, and the field
+   * naming its Person (`started: { label: "Membership started", object: "membership" }`). The
+   * host records the last time each Person had each one, in the write's own batch. Only shipped
+   * extensions may declare them.
+   */
+  journeySignals?: Record<string, JourneySignalSpec>;
   /**
    * What each grantable permission gives, in plain words, shown to the admin who ticks it
    * (`{ "bookings:desk": "Works the front desk: ..." }`). Absent: the tools it opens are listed.
@@ -1017,6 +1152,100 @@ export interface ExtensionSpec {
    * and install, and the key is ignored at run time.
    */
   screens?: Record<string, ScreenSpec>;
+  /**
+   * The numbers a shipped pack adds to the owner's Today (stage 60, ADR 0870), by key: each a
+   * read-only query over `rec_*` views that the host runs for the business's local day and shows
+   * to whoever could call every tool in its `opens`. Not `today`: that names a pack role's limit
+   * (ADR 0553). Only a shipped pack may declare them, at most 8; a runtime extension declaring
+   * `todayItems` fails `cos ext check` and install, and the key is ignored at run time.
+   */
+  todayItems?: Record<string, TodayItemSpec>;
+  /**
+   * The pack's sections of My account (stage 48, ADR 0710), by key: the customer's own area on
+   * the business's website and in its app. Each names a web and a native block of this pack, the
+   * objects whose records mean "this customer has some" (`has`), and where it sits. The host lists
+   * a section to a customer only when they, or a child linked to them where the object opens to
+   * guardians, have one of those records (`me.portal`); `cos add web-account` copies the blocks and
+   * writes the wiring. Only a shipped pack may declare sections: a runtime extension declaring
+   * `portal` fails `cos ext check` and install, and the key is ignored at run time.
+   */
+  portal?: Record<string, PortalSectionSpec>;
+}
+
+/**
+ * One section of My account a shipped pack adds (stage 48, ADR 0710). The client app's shell
+ * renders `export` of the block, giving it the pack's hooks under the pack's id (`bookings`,
+ * `memberships`) and the page's `returnUrl`: every other prop of the component is optional.
+ */
+export interface PortalSectionSpec {
+  /** The section's heading: "Memberships and passes". */
+  label: string;
+  /** The website's block: a web block of this pack, and the component it exports. */
+  web?: { block: string; export: string };
+  /** The app's block: a native block of this pack (`<id>-native-<name>`), and its component. */
+  native?: { block: string; export: string };
+  /**
+   * Where it sits among the sections, lower first: 1 to 59, so a pack's come before the base
+   * sections (Orders at 60 onward).
+   */
+  order: number;
+  /**
+   * This pack's objects (`<id>.<object>`) that declare a customer, whose records mean the
+   * customer has something here: the section shows only then. Never empty: a page anyone may
+   * open ("Buy a pass") is a page the client links to, not a section.
+   */
+  has: readonly string[];
+}
+
+/** How a Today item's value is shown. Money is never a pack's: it is the host's (stage 52). */
+export const TODAY_ITEM_FORMATS = ["count", "percent"] as const;
+export type TodayItemFormat = (typeof TODAY_ITEM_FORMATS)[number];
+
+/** What a Today item's value is compared with: the same time yesterday or a week ago, or nothing. */
+export const TODAY_ITEM_COMPARES = ["yesterday", "lastWeek", "none"] as const;
+export type TodayItemCompare = (typeof TODAY_ITEM_COMPARES)[number];
+
+/** The parameters the host binds into a Today item's SQL: the local day `[from, to)` and now. */
+export const TODAY_ITEM_PARAMS = ["today_from", "today_to", "now"] as const;
+
+/**
+ * One number a shipped pack adds to Today (stage 60, ADR 0870). The host binds `:today_from`,
+ * `:today_to` (the business's local day, as instants) and `:now`, runs `sql` under the widget
+ * rules (one `SELECT` or `WITH` over `rec_*` views, bound parameters, row and time limits) and
+ * shows its one column, `value`. For the comparison it binds the earlier day's window instead.
+ */
+export interface TodayItemSpec {
+  /** The card's label: "Came today". */
+  label: string;
+  /** Where it sits among every item on Today (lower first). Default 100. */
+  order?: number;
+  /** `count` or `percent`. No money format: a money number is a Finance reports figure. */
+  format: TodayItemFormat;
+  /** Read-only SQL returning one row with one column, `value`. */
+  sql: string;
+  /** Default `yesterday`. */
+  compare?: TodayItemCompare;
+  /** When the card needs attention: its value above or below a number. Left out, never. */
+  attention?: { above: number } | { below: number };
+  /**
+   * The rows behind the number, at most 50: read-only SQL with the same parameters returning a
+   * display column (`label`), optionally a secondary line (`detail`) and the id of a record of
+   * `record.object` (one of this pack's objects, `person` or `organisation`) in column
+   * `record.id`. Names and record ids only: never notes, health answers, pay or leave.
+   */
+  rows?: {
+    sql: string;
+    label: string;
+    detail?: string;
+    record: { object: string; id: string };
+  };
+  /**
+   * This pack's own tools, every one of which the viewer must be able to call to see the item,
+   * as a screen's `opens` (ADR 0660). At least one is for staff only.
+   */
+  opens: readonly string[];
+  /** On the web, a card opens this screen of the pack (stage 47) rather than its rows. */
+  web?: { screen: string };
 }
 
 /**
