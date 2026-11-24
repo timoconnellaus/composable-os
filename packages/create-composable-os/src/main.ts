@@ -290,6 +290,8 @@ export class CliError extends Error {}
 export const PACKS_VAR = "COS_PACKS";
 /** The customer sessions' signing secret (ADR 0421): generated once per deployment by cos deploy. */
 export const CUSTOMER_SECRET = "CUSTOMER_AUTH_SECRET";
+/** The desk origin's own secret (stage 44 step 6, ADR 0649), made once on a custom domain. */
+export const DESK_SECRET = "DESK_SECRET";
 export const ORG_EXTENSIONS_VAR = "COS_ORG_EXTENSIONS";
 
 export function str(flags: Flags, key: string): string | undefined {
@@ -768,6 +770,15 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
     deps.redactor.add(appSecrets.BETTER_AUTH_SECRET);
   }
   appSecrets.BETTER_AUTH_URL ??= `https://${hostname}`;
+  // Signing at the desk (stage 44 step 6, ADR 0649): the desk origin is `desk.` before a custom
+  // domain (deploy.ts adds it and sets DESK_HOSTNAME); its codes, device credentials and session
+  // tokens are kept under their own secret, made once per deployment, never another's.
+  if (hostnameMode === "custom" && !appSet.includes(DESK_SECRET) && !appSecrets[DESK_SECRET]) {
+    let secret = randomSecret();
+    while (secret === appSecrets.BETTER_AUTH_SECRET) secret = randomSecret();
+    appSecrets[DESK_SECRET] = secret;
+    deps.redactor.add(secret);
+  }
   // Customer sign-in on the company's web app (ADR 0421), set by `cos deploy` for a product with
   // a web app (ADR 0450): CUSTOMER_AUTH_URL is the web app's origin; CUSTOMER_AUTH_SECRET is
   // generated once per deployment, never printed or written anywhere but the Worker, and never

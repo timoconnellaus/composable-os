@@ -97,9 +97,8 @@ export default {
     // The desk origin (stage 44 step 6, ADR 0649): its own hostname for this Worker, serving its
     // two pages and its calls and nothing else. The staff origin serves none of the desk's paths.
     if (isDeskRequest(request, env)) {
-      return handleDesk(request, env as unknown as DeskHandlerEnv, (page) =>
-        app.fetch(page, env, ctx),
-      );
+      // Its pages go straight to TanStack Start: never through MCP's OAuth wrapper (`app`).
+      return handleDesk(request, env as unknown as DeskHandlerEnv, (page) => handler.fetch(page));
     }
     // Hosted support access (ADR 0212): a 404 unless COS_SUPPORT_PUBLIC_KEY is set.
     const pathname = new URL(request.url).pathname;
