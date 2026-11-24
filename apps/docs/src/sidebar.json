@@ -390,6 +390,30 @@
             "slug": "capabilities/agreements/decisions"
           }
         ]
+      },
+      {
+        "label": "Booking system copy",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "capabilities/outside"
+          },
+          {
+            "slug": "capabilities/outside/operations"
+          },
+          {
+            "slug": "capabilities/outside/permissions"
+          },
+          {
+            "slug": "capabilities/outside/behaviours"
+          },
+          {
+            "slug": "capabilities/outside/screens"
+          },
+          {
+            "slug": "capabilities/outside/decisions"
+          }
+        ]
       }
     ]
   },
@@ -574,6 +598,9 @@
           },
           {
             "slug": "reference/operations/outbound"
+          },
+          {
+            "slug": "reference/operations/outside"
           },
           {
             "slug": "reference/operations/person"

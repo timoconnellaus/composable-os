@@ -52129,9 +52129,9 @@
             ]
           },
           "after": {
-            "description": "The last ref of the page before",
+            "description": "The `next` of the page before",
             "type": "string",
-            "maxLength": 600
+            "maxLength": 700
           },
           "limit": {
             "type": "integer",
@@ -52643,7 +52643,7 @@
     },
     {
       "name": "outside.unlink",
-      "description": "Unlink an outside person or coach, with why: they stay in the copy linked to nobody, and the host never links them by address again (a load keeps the unlink by ref) until a person links them with outside.link. Removes them from To match. A person with bookingSystem:manage only, never an AI.",
+      "description": "Unlink an outside person or coach, with why: they stay in the copy linked to nobody while they count (a member, a live pass, booked), and the host never links them by address again (the decision is kept by ref across loads) until a person links them with outside.link. Removes them from To match. A person with bookingSystem:manage only, never an AI.",
       "risk": "write",
       "audiences": [
         "staff"

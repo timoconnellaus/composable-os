@@ -19,7 +19,7 @@ import { sql } from "kysely";
 import { z } from "zod";
 import { ValidationError } from "../errors.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
-import { LINK_SUBJECT } from "../outside/match.ts";
+import { LINK_SUBJECT, suppressedRefHash } from "../outside/match.ts";
 import {
   businessToday,
   currentLists,
@@ -197,22 +197,29 @@ export const outsideStatus = defineOperation({
   risk: "read",
   mcp: { title: "Booking system lists" },
   async handler(_input, ctx) {
-    const [settings, lists, today, counts] = await Promise.all([
+    const [settings, lists, today, counts, linkedRow] = await Promise.all([
       loadOutsideSettings(ctx.db),
       currentLists(ctx.db),
       businessToday(ctx.db, ctx.now),
       sql<Record<string, number>>`SELECT
         (SELECT count(*) FROM core_outside_person) AS people,
-        (SELECT count(*) FROM core_outside_person WHERE person_id IS NOT NULL) AS linked,
         (SELECT count(*) FROM core_outside_membership) AS memberships,
         (SELECT count(*) FROM core_outside_class) AS classes,
         (SELECT count(*) FROM core_outside_booking) AS bookings,
         (SELECT count(*) FROM core_outside_staff) AS staff,
-        (SELECT count(*) FROM core_outside_staff WHERE user_id IS NOT NULL) AS staffLinked,
+        (SELECT count(*) FROM core_outside_staff s JOIN core_user u ON u.id = s.user_id
+          AND u.deactivated_at IS NULL) AS staffLinked,
         (SELECT count(*) FROM core_outside_match WHERE kind = 'person') AS waitingPeople,
         (SELECT count(*) FROM core_outside_match WHERE kind = 'staff') AS waitingStaff`.execute(
         ctx.db,
       ),
+      // Linked to a live Person: a link to one in the Trash, erased or merged away is no link.
+      ctx.db
+        .selectFrom("core_outside_person as o")
+        .innerJoin(visibleTable(ctx, "person", "p"), "p.id", "o.person_id")
+        .where("p.deleted_at", "is", null)
+        .select((eb) => eb.fn.countAll<number>().as("n"))
+        .executeTakeFirst(),
     ]);
     const loaders = [...new Set([...lists.values()].map((l) => l.loaded_by))];
     const names = loaders.length
@@ -254,7 +261,7 @@ export const outsideStatus = defineOperation({
       }),
       counts: {
         people: n("people"),
-        linked: n("linked"),
+        linked: Number(linkedRow?.n ?? 0),
         memberships: n("memberships"),
         classes: n("classes"),
         bookings: n("bookings"),
@@ -279,7 +286,7 @@ export const outsideMatches = defineOperation({
     "a person links them with outside.link. Paged by ref. Needs bookingSystem:manage.",
   input: z.object({
     kind: z.enum(["person", "staff"]).optional().describe("Only people, or only coaches"),
-    after: z.string().max(600).optional().describe("The last ref of the page before"),
+    after: z.string().max(700).optional().describe("The `next` of the page before"),
     limit: z.number().int().min(1).max(MATCHES_PAGE).optional(),
   }),
   output: z.object({
@@ -320,11 +327,25 @@ export const outsideMatches = defineOperation({
         "s.display_name",
         "s.address as staffAddress",
       ])
-      .orderBy("m.ref")
       .orderBy("m.kind")
+      .orderBy("m.ref")
       .limit(limit + 1);
     if (input.kind) query = query.where("m.kind", "=", input.kind);
-    if (input.after !== undefined) query = query.where("m.ref", ">", input.after);
+    if (input.after !== undefined) {
+      // The cursor is the last row's kind and ref: a person and a coach may share a ref.
+      const at = input.after.indexOf(":");
+      const kind = input.after.slice(0, at);
+      const after = input.after.slice(at + 1);
+      if (at < 0 || (kind !== "person" && kind !== "staff")) {
+        throw new ValidationError("Not a cursor of outside.matches.", { field: "after" });
+      }
+      query = query.where((eb) =>
+        eb.or([
+          eb("m.kind", ">", kind),
+          eb.and([eb("m.kind", "=", kind), eb("m.ref", ">", after)]),
+        ]),
+      );
+    }
     const rows = await query.execute();
     const page = rows.slice(0, limit);
     const parsed = page.map((r) => {
@@ -373,7 +394,7 @@ export const outsideMatches = defineOperation({
         }),
         since: row.created_at,
       })),
-      next: rows.length > limit ? (page.at(-1)?.ref ?? null) : null,
+      next: rows.length > limit && page.length ? `${page.at(-1)?.kind}:${page.at(-1)?.ref}` : null,
     };
   },
 });
@@ -486,6 +507,10 @@ export const outsideLink = defineOperation({
         .deleteFrom("core_outside_match")
         .where("kind", "=", input.kind)
         .where("ref", "=", input.ref),
+      ctx.db
+        .deleteFrom("core_outside_unlinked")
+        .where("kind", "=", input.kind)
+        .where("hash", "=", await suppressedRefHash(input.ref)),
     );
     return {
       kind: input.kind,
@@ -497,10 +522,10 @@ export const outsideLink = defineOperation({
 export const outsideUnlink = defineOperation({
   name: "outside.unlink",
   description:
-    "Unlink an outside person or coach, with why: they stay in the copy linked to nobody, and the " +
-    "host never links them by address again (a load keeps the unlink by ref) until a person links " +
-    "them with outside.link. Removes them from To match. A person with bookingSystem:manage only, " +
-    "never an AI.",
+    "Unlink an outside person or coach, with why: they stay in the copy linked to nobody while " +
+    "they count (a member, a live pass, booked), and the host never links them by address again " +
+    "(the decision is kept by ref across loads) until a person links them with outside.link. " +
+    "Removes them from To match. A person with bookingSystem:manage only, never an AI.",
   input: z.object({ kind: z.enum(["person", "staff"]), ref, why }),
   output: z.object({ kind: z.enum(["person", "staff"]), unlinked: z.boolean() }),
   permission: "bookingSystem:manage",
@@ -531,6 +556,20 @@ export const outsideUnlink = defineOperation({
         .deleteFrom("core_outside_match")
         .where("kind", "=", input.kind)
         .where("ref", "=", input.ref),
+      // The decision itself, by hash: it outlives the row, which is kept only while they count.
+      ctx.db
+        .insertInto("core_outside_unlinked")
+        .values({
+          kind: input.kind,
+          hash: await suppressedRefHash(input.ref),
+          unlinked_by: ctx.user.id,
+          unlinked_at: ctx.now,
+        })
+        .onConflict((oc) =>
+          oc
+            .columns(["kind", "hash"])
+            .doUpdateSet({ unlinked_by: ctx.user.id, unlinked_at: ctx.now }),
+        ),
     );
     return { kind: input.kind, unlinked: true };
   },

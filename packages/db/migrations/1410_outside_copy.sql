@@ -10,12 +10,13 @@
 -- record read reaches them; they are read only through the `outside.*` operations. No x_* table and
 -- no core_write_guard kind. No foreign key to core_person or core_user: an erased or merged Person's
 -- outside rows are removed by erase and merge themselves (stage 65 step 10), and a link to a Person
--- that is gone reads as no link (every read joins core_person).
+-- who is gone or in the Trash counts as no link (every count and load joins the live Persons).
 --
 -- An outside person is matched to a Person by address, never merged: a link by address changes
 -- nothing on the Person. `link_how` says how: `address` (the host found exactly one Person with
 -- the address) or `staff` (a person with bookingSystem:manage chose, with why). A staff link with
--- no Person is staff saying "nobody here": the next load keeps it and links nobody by address.
+-- no Person is staff saying "nobody here"; that decision itself is kept by hash in
+-- core_outside_unlinked, so it outlives the row and keeps no name or address.
 
 -- The one row of settings (a human admin's, outside.settings.update): the source, on or off, the
 -- outside types that make a Person a member (NULL: every type of kind `membership`, no pass), the
@@ -198,4 +199,15 @@ CREATE TABLE core_outside_suppressed (
   hash TEXT PRIMARY KEY,
   kind TEXT NOT NULL CHECK (kind IN ('ref', 'address')),
   created_at TEXT NOT NULL
+);
+
+-- Staff's "nobody here" for an outside person or coach (outside.unlink), by the hash of the ref
+-- only: the next load links that ref by address never again, until a person links it by hand, and
+-- keeps no row for it unless it is kept for another reason (a member, a live pass, booked).
+CREATE TABLE core_outside_unlinked (
+  kind TEXT NOT NULL CHECK (kind IN ('person', 'staff')),
+  hash TEXT NOT NULL,
+  unlinked_by TEXT NOT NULL,
+  unlinked_at TEXT NOT NULL,
+  PRIMARY KEY (kind, hash)
 );

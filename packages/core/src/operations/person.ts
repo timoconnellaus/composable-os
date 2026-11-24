@@ -465,12 +465,11 @@ export const personCreate = defineOperation({
     ctx.write(ctx.db.insertInto("core_person").values(row));
     queueEmails(ctx, id, emails);
     // An unlinked outside person with one of these addresses is linked now (stage 65, ADR 0922).
-    if (emails.length)
-      await matchPersonAddresses(
-        ctx,
-        id,
-        emails.map((e) => e.email),
-      );
+    if (emails.length) {
+      await matchPersonAddresses(ctx, [
+        { personId: id, emails: emails.map((e) => e.email), complete: true },
+      ]);
+    }
     queuePhones(ctx, id, phones);
     const tags = await queueSetTags(ctx, "person", id, input.tags ?? []);
 
@@ -633,11 +632,9 @@ export async function updatePerson(
       id,
     );
     queueEmails(ctx, id, after.emails);
-    await matchPersonAddresses(
-      ctx,
-      id,
-      after.emails.map((e) => e.email),
-    );
+    await matchPersonAddresses(ctx, [
+      { personId: id, emails: after.emails.map((e) => e.email), complete: true },
+    ]);
   }
   if (input.phones !== undefined) {
     after.phones = normalisePhones(input.phones);
@@ -809,6 +806,10 @@ export const personRestore = defineOperation({
         .set({ deleted_at: null, deleted_by: null, merged_into_id: null, updated_at: ctx.now })
         .where("id", "=", input.id),
     );
+    // Their addresses are live again: an unlinked outside person with one is linked now (ADR 0922).
+    await matchPersonAddresses(ctx, [
+      { personId: input.id, emails: person.emails.map((e) => e.email), complete: true },
+    ]);
     ctx.recordChange({
       object: "person",
       id: input.id,

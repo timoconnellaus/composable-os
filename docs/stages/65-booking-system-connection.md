@@ -90,6 +90,14 @@ business, and its lawyer or the booking system's support, to confirm. The load s
   screens and `outside.person` (step 5); `memberOf` and every consumer (step 6); outside classes in
   Bookings (step 7); erase writing `core_outside_suppressed` and removing the rows, and merge (step
   10).
+- **Step 3, after review** (2026-11-24, PR #428): `person.restore` and `import.csv.commit` link
+  too (one read for a whole import), and nothing links from a Person write while the copy is off;
+  an unlink is kept by the hash of the ref (`core_outside_unlinked`, in migration 1410), so an
+  unlinked person's row stays only while they count; a staff link to a Person in the Trash is
+  dropped at the next load and not counted; To match pages by kind and ref; a booking naming an
+  erased address keeps nothing; a membership is live by the business's day; a plan over 900
+  statements is refused. **Gate: step 4 does not merge before step 10** (erase reaching the copy),
+  because from step 4 on a list can be loaded and `person.erase` would leave its copy behind.
 
 ## Goal
 

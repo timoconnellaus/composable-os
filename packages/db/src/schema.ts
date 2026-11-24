@@ -1310,6 +1310,14 @@ export interface CoreOutsideMatchTable {
   created_at: string;
 }
 
+/** Migration 1410: staff's "nobody here" for an outside ref, by hash. */
+export interface CoreOutsideUnlinkedTable {
+  kind: "person" | "staff";
+  hash: string;
+  unlinked_by: string;
+  unlinked_at: string;
+}
+
 /** Migration 1410: an erased Person's outside ref and address, by hash. */
 export interface CoreOutsideSuppressedTable {
   hash: string;
@@ -3889,6 +3897,7 @@ export interface CoreDatabase {
   core_outside_staff: CoreOutsideStaffTable;
   core_outside_match: CoreOutsideMatchTable;
   core_outside_suppressed: CoreOutsideSuppressedTable;
+  core_outside_unlinked: CoreOutsideUnlinkedTable;
   rec_media: RecMediaView;
   rec_publish_version: RecPublishVersionView;
   rec_stage_history: CrmStageHistoryView;

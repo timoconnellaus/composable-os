@@ -34,19 +34,21 @@ import { CompiledQuery, type Kysely } from "kysely";
 import { normaliseCustomerEmail } from "../customers/accounts.ts";
 import { ValidationError } from "../errors.ts";
 import { newId } from "../ids.ts";
-import { chunk } from "../records/common.ts";
+import { chunk, jsonList } from "../records/common.ts";
+import { orgReader, visibleTable } from "../visibility/index.ts";
 import {
   decideMatches,
   droppedOf,
   foldOutside,
   type HeldOutsideLink,
-  LINK_SUBJECT,
+  linkActivityStatements,
   normaliseStaff,
   type OutsideOutcome,
   personsByFolded,
+  unlinkedOf,
   usersByAddress,
 } from "./match.ts";
-import type { ListKind } from "./settings.ts";
+import { businessToday, type ListKind } from "./settings.ts";
 
 type Db = Kysely<CoreDatabase>;
 
@@ -56,6 +58,21 @@ export const INGEST_CHUNK = 100;
 export const MAX_TIMETABLE_DAYS = 92;
 /** The most classes one timetable list holds. */
 export const MAX_LIST_CLASSES = 5_000;
+/**
+ * The most statements one load's batch may hold: D1 allows 1,000 an invocation, and the operation
+ * that runs it (step 4) needs a few of its own (its reads, the audit row).
+ */
+export const MAX_PLAN_STATEMENTS = 900;
+
+/** Refuses a list too big for one load's batch, before anything is written. */
+function checkBudget(statements: readonly CompiledQuery[]): void {
+  if (statements.length > MAX_PLAN_STATEMENTS) {
+    throw new ValidationError(
+      `This list is too big to load at once (${statements.length} writes; at most ${MAX_PLAN_STATEMENTS}).`,
+      { rule: "outside_list_too_big" },
+    );
+  }
+}
 
 /** What a `members` list says, in the contract's shape. */
 export interface MembersData {
@@ -295,7 +312,8 @@ function checkMeta(meta: ListMeta): void {
 export async function planMembers(db: Db, data: MembersData, meta: ListMeta): Promise<IngestPlan> {
   checkMeta(meta);
   const listId = newId("outsideList");
-  const today = meta.now.slice(0, 10);
+  // Live by the business's day, as the list's age is.
+  const today = await businessToday(db, meta.now);
   const byPerson = new Map<string, BookingSystemMembership[]>();
   for (const m of data.memberships) byPerson.set(m.person, [...(byPerson.get(m.person) ?? []), m]);
   const live = (m: BookingSystemMembership) =>
@@ -311,9 +329,35 @@ export async function planMembers(db: Db, data: MembersData, meta: ListMeta): Pr
   ]);
   const booked = new Set(bookedRows.map((r) => r.person_ref));
   // A link by address holds only while its Person still has the address (the matching reads
-  // that); a staff link holds by ref. An erased or merged Person's links are removed by erase
-  // and merge themselves (stage 65 step 10).
-  const held = heldLinks(heldRows.map((r) => ({ ...r, exists: 1 })));
+  // that); a staff link holds by ref while its Person is live: one in the Trash, erased or merged
+  // away is no link, and the outside person is matched again.
+  const linkedTo = [
+    ...new Set(heldRows.map((r) => r.to).filter((id): id is string => id !== null)),
+  ];
+  const livePersons = new Set(
+    linkedTo.length
+      ? (
+          await db
+            .selectFrom(visibleTable(orgReader(db), "person"))
+            .select("id")
+            .where("id", "in", jsonList(linkedTo))
+            .where("deleted_at", "is", null)
+            .execute()
+        ).map((r) => r.id)
+      : [],
+  );
+  const held = heldLinks(
+    heldRows.map((r) => ({ ...r, exists: r.to !== null && livePersons.has(r.to) ? 1 : 0 })),
+  );
+  // Staff's "nobody here", kept by hash so it outlives the row (it keeps no one by itself).
+  const nobody = await unlinkedOf(
+    db,
+    "person",
+    data.people.map((p) => p.ref),
+  );
+  for (const [ref, decision] of nobody) {
+    held.set(ref, { to: null, how: "staff", by: decision.by, why: null, at: decision.at });
+  }
 
   // Who is kept, and why: the least the first wave uses.
   const seen = new Set<string>();
@@ -334,7 +378,7 @@ export async function planMembers(db: Db, data: MembersData, meta: ListMeta): Pr
           ? "pass"
           : booked.has(person.ref)
             ? "booked"
-            : held.get(person.ref)?.how === "staff"
+            : held.get(person.ref)?.how === "staff" && held.get(person.ref)?.to
               ? "staff"
               : null;
     if (why === null) {
@@ -419,7 +463,6 @@ export async function planMembers(db: Db, data: MembersData, meta: ListMeta): Pr
     active: t.active ? 1 : 0,
   }));
   const persons = [...linkedPersons];
-  const activities = persons.map((person) => ({ id: newId("activity"), person }));
 
   const statements = [
     ...listStatements("members", listId, meta, personRows.length),
@@ -472,8 +515,14 @@ export async function planMembers(db: Db, data: MembersData, meta: ListMeta): Pr
       kind: "person",
       created_at: meta.now,
     }),
-    ...activityStatements(activities, meta),
+    ...linkActivityStatements(persons, {
+      userId: meta.by,
+      actor: "human",
+      now: meta.now,
+      how: "address",
+    }),
   ];
+  checkBudget(statements);
   const t = tally(outcomes);
   return {
     listId,
@@ -491,37 +540,6 @@ export async function planMembers(db: Db, data: MembersData, meta: ListMeta): Pr
       },
     },
   };
-}
-
-/** One system activity on each Person linked now, naming no address, in two set-based inserts. */
-function activityStatements(
-  activities: readonly { id: string; person: string }[],
-  meta: ListMeta,
-): CompiledQuery[] {
-  if (!activities.length) return [];
-  const payload = JSON.stringify({ kind: "outside_link", how: "address" });
-  return [
-    ...chunk(activities, INGEST_CHUNK).map((part) =>
-      raw(
-        "INSERT INTO core_activity (id, type, subject, body, payload, occurred_at, author_user_id, author_actor, created_at, updated_at) SELECT json_extract(value, '$.id'), 'system', ?, NULL, ?, ?, ?, 'human', ?, ? FROM json_each(?)",
-        [
-          LINK_SUBJECT,
-          payload,
-          meta.now,
-          meta.by,
-          meta.now,
-          meta.now,
-          JSON.stringify(part.map((a) => ({ id: a.id }))),
-        ],
-      ),
-    ),
-    ...chunk(activities, INGEST_CHUNK).map((part) =>
-      raw(
-        "INSERT INTO core_activity_links (activity_id, object_type, record_id) SELECT json_extract(value, '$.id'), 'person', json_extract(value, '$.person') FROM json_each(?)",
-        [JSON.stringify(part)],
-      ),
-    ),
-  ];
 }
 
 /**
@@ -552,6 +570,13 @@ export async function planTimetable(
     .where("s.link_how", "is not", null)
     .execute();
   const held = heldLinks(heldRows.map((r) => ({ ...r, exists: r.exists === null ? 0 : 1 })));
+  for (const [ref, decision] of await unlinkedOf(
+    db,
+    "staff",
+    data.staff.map((s) => s.ref),
+  )) {
+    held.set(ref, { to: null, how: "staff", by: decision.by, why: null, at: decision.at });
+  }
 
   const staff = [...new Map(data.staff.map((s) => [s.ref, s])).values()];
   const staffAddress = (s: BookingSystemStaff) =>
@@ -560,7 +585,16 @@ export async function planTimetable(
   const bookingPeople = [...new Set(data.bookings.map((b) => b.person))];
   const [holders, droppedPeople] = await Promise.all([
     usersByAddress(db, addresses),
-    droppedOf(db, bookingPeople, []),
+    // A list with no ids of its own names a person by their address (`email:<address>`): one on
+    // the erased-address list keeps no booking either.
+    droppedOf(
+      db,
+      bookingPeople,
+      bookingPeople.flatMap((ref) => {
+        const address = ref.startsWith("email:") ? normaliseCustomerEmail(ref.slice(6)) : null;
+        return address ? [address] : [];
+      }),
+    ),
   ]);
   const outcomes = decideMatches(
     staff.map((s) => ({ ref: s.ref, address: staffAddress(s) })),
@@ -613,7 +647,15 @@ export async function planTimetable(
   }));
   const bookings = [...new Map(data.bookings.map((b) => [b.ref, b])).values()];
   const bookingRows = bookings
-    .filter((b) => classRefs.has(b.class) && !droppedPeople.refs.has(b.person))
+    .filter(
+      (b) =>
+        classRefs.has(b.class) &&
+        !droppedPeople.refs.has(b.person) &&
+        !(
+          b.person.startsWith("email:") &&
+          droppedPeople.addresses.has(normaliseCustomerEmail(b.person.slice(6)) ?? "")
+        ),
+    )
     .map((b) => ({ ref: b.ref, class_ref: b.class, person_ref: b.person, state: b.state }));
   const typeRows = [...new Map(data.classTypes.map((t) => [t.ref, t])).values()].map((t) => ({
     ref: t.ref,
@@ -679,6 +721,7 @@ export async function planTimetable(
       created_at: meta.now,
     }),
   ];
+  checkBudget(statements);
   return {
     listId,
     kind: "timetable",

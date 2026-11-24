@@ -37,7 +37,9 @@ and merge remove an outside row themselves (step 10), and a link is a ref to a P
 system connected later) within the contract's limits; `planMembers` and `planTimetable` plan one
 batch that marks the previous list of the kind `replaced`, writes the new `current` list (export
 date, who, when, counts only), deletes the copy's rows of that kind (one statement per table) and
-inserts the new ones set based, 100 rows a statement as one `json_each(?)` parameter. Rows not in
+inserts the new ones set based, 100 rows a statement as one `json_each(?)` parameter. A plan over
+900 statements is refused before anything is written (`outside_list_too_big`), leaving the
+operation that runs it room under D1's 1,000. Rows not in
 the new list go, with their links and matches; a staff link is carried by ref. The fixture (a
 members list of 3,000 rows with 800 members, a timetable of 28 days of 15 classes with their
 bookings) loads in about 34 and 69 statements (the cost test holds both under 250, with no
@@ -65,18 +67,24 @@ the Person (no name, address, phone or customer account; nothing sent) and adds 
 activity, "Linked to the booking system's list", naming no address. Coaches are matched the same way
 to active human staff accounts by their exact address.
 
-**A Person who appears later is linked then.** `person.create` and `person.update` (whenever the
-addresses are written) call `matchPersonAddresses`: an unlinked outside person with one of the
+**A Person who appears later is linked then.** `person.create`, `person.update` (whenever the
+addresses are written), `person.restore` and `import.csv.commit` call `matchPersonAddresses`, for
+any number of Persons at once: an unlinked outside person with one of the
 Person's addresses, sharing it with no other, is linked by the same rule, or waits if another
 Person holds it too; a link by address to this Person whose address it no longer holds is dropped
-and matched again at the next load. One indexed read when no list holds the addresses. A customer's
-first sign-in creates its Person through `person.create`, so signing up links.
+and matched again at the next load. One indexed read when no list holds the addresses, however many Persons an import writes; the
+activities are written set based. Nothing is linked this way while the copy is off, or for a ref
+staff unlinked. A customer's first sign-in creates its Person through `person.create`, so signing
+up links. A staff link to a Person in the Trash, erased or merged away, is no link: the next load
+matches the outside person again, and `outside.status` counts only links to live Persons.
 
 **Staff link by hand, and unlink.** `outside.link` (an outside person to any live Person, or a coach
 to an active staff account) and `outside.unlink`, each with why, a person with
 `bookingSystem:manage` only (`actors: ["human"]`, never MCP, Code Mode, an extension or an
-automation). Both are kept across loads by ref. An unlink is a staff link to nobody: the host never
-links that ref by address again until a person links it. The audit row keeps who and why, never the
+automation). Both are kept across loads by ref. An unlink is staff's "nobody here": the decision is kept by
+the hash of the ref alone (`core_outside_unlinked`), so it holds across loads without keeping the
+person, whose row stays only while they count for another reason (a member, a live pass, booked);
+the host never links that ref by address again until a person links it, which clears the decision. The audit row keeps who and why, never the
 ref (a list with no ids uses the address as the ref).
 
 **`bookingSystem:manage`**, a core permission: admins by default, grantable one by one (ADR 0449),
@@ -89,7 +97,8 @@ of kind `membership`, no pass), the two links (https only, shown as is) and the 
 days by default, 1 to 90).
 
 **A list is as old as its file.** Each list carries its export date (never after today); its age
-is worked out when read, in the business's zone, and a members list past the largest age is shown
+is worked out when read, in the business's zone (and a membership is live by the business's day
+too), and a members list past the largest age is shown
 "too old to count" (`outside.status`), so no cron is needed for it.
 
 **The verified-address rule** (applied by step 6, decided here so the copy is built for it): a
@@ -99,7 +108,10 @@ alone grants nothing.
 
 **Suppression on erase.** `core_outside_suppressed` holds, by hash only, an erased Person's outside
 ref and address; every load reads it with the erased-address list and keeps nothing of them, their
-bookings included. Writing it, and removing an erased Person's outside rows, is step 10's.
+bookings included (a booking naming a person by address, `email:<address>`, too). Writing it, and
+removing an erased Person's outside rows, is step 10's. **Step 10's erase gates step 4**: no
+operation loads a list before `person.erase` reaches the copy, so no list is ever loaded on a host
+whose erase leaves a person's data behind (ADR 0320).
 
 ## Consequences
 

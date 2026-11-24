@@ -581,4 +581,253 @@ describe("the booking system's copy", () => {
       (await refusal(call("query.sql", { sql: "SELECT * FROM core_outside_person" }, admin))).code,
     ).toBe("invalid_input");
   });
+
+  // --- The review of PR #428. ------------------------------------------------------------------
+
+  it("links an unlinked outside person when an import or a restore gives a Person their address", async () => {
+    const { session, address } = freshFake();
+    await loadMembers(session, admin.id);
+    expect(await outsidePerson("fake-person-011")).toMatchObject({ person_id: null });
+    await call(
+      "import.csv.commit",
+      { object: "person", csv: `Name,Email\nLane Imported,${address(10)}\n` },
+      admin,
+    );
+    const imported = (await outsidePerson("fake-person-011"))?.person_id as string;
+    expect(imported).toMatch(/^per_/);
+    expect(
+      (await timeline("person", imported)).filter(
+        (a) => a.subject === "Linked to the booking system's list",
+      ),
+    ).toHaveLength(1);
+
+    // In the Trash the link by address is matched again at the next load; restored, it links.
+    await call("person.delete", { id: imported }, admin);
+    await loadMembers(session, admin.id);
+    expect(await outsidePerson("fake-person-011")).toMatchObject({ person_id: null });
+    await call("person.restore", { id: imported }, admin);
+    expect(await outsidePerson("fake-person-011")).toMatchObject({
+      person_id: imported,
+      link_how: "address",
+    });
+  });
+
+  it("links nobody from a Person write while the copy is off", async () => {
+    const { session, address } = freshFake();
+    await loadMembers(session, admin.id);
+    await call("outside.settings.update", { enabled: false }, admin);
+    try {
+      await createPerson(admin, [address(10)]);
+      expect(await outsidePerson("fake-person-011")).toMatchObject({ person_id: null });
+    } finally {
+      await call("outside.settings.update", { enabled: true }, admin);
+    }
+  });
+
+  it("keeps an unlinked person only while they count, and never links them by address again", async () => {
+    const { fake, session, address } = freshFake();
+    const harper = await createPerson(admin, [address(6)]);
+    // No timetable from the tests before: being booked would keep them for another reason.
+    await env.DB.prepare("DELETE FROM core_outside_booking").run();
+    await loadMembers(session, admin.id);
+    await call(
+      "outside.unlink",
+      { kind: "person", ref: "fake-person-007", why: "not ours" },
+      admin,
+    );
+    // They stop counting: no row, no name, no address is kept for them.
+    const pass = fake.state.memberships.find((m) => m.person === "fake-person-007");
+    if (pass) pass.status = "ended";
+    await loadMembers(session, admin.id);
+    expect(await outsidePerson("fake-person-007")).toBeNull();
+    // They count again: kept, and staff's "nobody here" still holds.
+    if (pass) pass.status = "live";
+    await loadMembers(session, admin.id);
+    expect(await outsidePerson("fake-person-007")).toMatchObject({
+      person_id: null,
+      link_how: "staff",
+      why_kept: "pass",
+    });
+    // Linking by hand clears the decision: the next load keeps the hand link.
+    await call(
+      "outside.link",
+      { kind: "person", ref: "fake-person-007", personId: harper, why: "it is them" },
+      admin,
+    );
+    await loadMembers(session, admin.id);
+    expect(await outsidePerson("fake-person-007")).toMatchObject({
+      person_id: harper,
+      link_how: "staff",
+    });
+    const left = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_outside_unlinked WHERE hash = ?",
+    )
+      .bind(await suppressedRefHash("fake-person-007"))
+      .first<{ n: number }>();
+    expect(left?.n).toBe(0);
+  });
+
+  it("drops a staff link to a Person in the Trash at the next load, and counts no link to one", async () => {
+    const { session } = freshFake();
+    const chosen = await createPerson(admin, [`${unique("q")}@example.com`]);
+    await loadMembers(session, admin.id);
+    await call(
+      "outside.link",
+      { kind: "person", ref: "fake-person-003", personId: chosen, why: "the same person" },
+      admin,
+    );
+    const linked = await call<{ counts: { linked: number } }>("outside.status", {}, admin);
+    await call("person.delete", { id: chosen }, admin);
+    const after = await call<{ counts: { linked: number } }>("outside.status", {}, admin);
+    expect(after.counts.linked).toBe(linked.counts.linked - 1);
+    await loadMembers(session, admin.id);
+    expect(await outsidePerson("fake-person-003")).toMatchObject({ person_id: null });
+  });
+
+  it("pages To match by kind and ref, so a person and a coach with one ref both show", async () => {
+    await env.DB.batch(["DELETE FROM core_outside_match"].map((q) => env.DB.prepare(q)));
+    await env.DB.batch(
+      [
+        ["person", "r1"],
+        ["staff", "r1"],
+        ["person", "r2"],
+      ].map(([kind, ref]) =>
+        env.DB.prepare(
+          "INSERT INTO core_outside_match (kind, ref, why, candidates, created_at) VALUES (?, ?, 'no_address', '[]', ?)",
+        ).bind(kind, ref, NOW),
+      ),
+    );
+    const seen: string[] = [];
+    let after: string | undefined;
+    for (let i = 0; i < 5; i++) {
+      const page: { matches: { kind: string; ref: string }[]; next: string | null } = await call(
+        "outside.matches",
+        { limit: 1, ...(after ? { after } : {}) },
+        admin,
+      );
+      seen.push(...page.matches.map((m) => `${m.kind}:${m.ref}`));
+      if (!page.next) break;
+      after = page.next;
+    }
+    expect(seen.sort()).toEqual(["person:r1", "person:r2", "staff:r1"]);
+    await env.DB.prepare("DELETE FROM core_outside_match").run();
+  });
+
+  it("keeps no booking of an erased address named by a list with no ids", async () => {
+    const erased = `${unique("gone")}@example.com`;
+    await env.DB.prepare(
+      "INSERT INTO core_erased_address (hash, object_type, erased_at) VALUES (?, 'person', ?)",
+    )
+      .bind(await erasedAddressHash(erased), NOW)
+      .run();
+    const cls = {
+      ref: unique("cls"),
+      classType: "t",
+      title: "Class",
+      startsAt: "2026-11-25T08:00:00.000Z",
+      endsAt: "2026-11-25T09:00:00.000Z",
+      location: null,
+      staff: null,
+      places: null,
+      booked: 2,
+      waiting: 0,
+      cancelled: false,
+      modifiedAt: null,
+    };
+    const plan = await planTimetable(
+      db.query,
+      {
+        locations: [],
+        classTypes: [{ ref: "t", name: "Type", description: null, active: true }],
+        classes: [cls],
+        bookings: [
+          {
+            ref: "b1",
+            class: cls.ref,
+            person: `email:${erased}`,
+            state: "booked",
+            modifiedAt: null,
+          },
+          {
+            ref: "b2",
+            class: cls.ref,
+            person: "email:kept@example.com",
+            state: "booked",
+            modifiedAt: null,
+          },
+        ],
+        staff: [],
+      },
+      meta(admin.id),
+    );
+    await db.batch(plan.statements);
+    const rows = (
+      await env.DB.prepare("SELECT person_ref FROM core_outside_booking").all<{
+        person_ref: string;
+      }>()
+    ).results.map((r) => r.person_ref);
+    expect(rows).toEqual(["email:kept@example.com"]);
+  });
+
+  it("judges a membership live by the business's day, not UTC's", async () => {
+    const { fake, session } = freshFake();
+    // Only fake-person-003's membership makes them a member; it ends on 23 November.
+    fake.change("person", "fake-person-003", { memberStatus: "not_member" });
+    const m = fake.state.memberships.find((x) => x.person === "fake-person-003");
+    if (m) m.until = "2026-11-23";
+    await env.DB.prepare(
+      "INSERT INTO core_settings (key, value, updated_at) VALUES ('org_timezone', ?, 'now') ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+    )
+      .bind(JSON.stringify("Australia/Sydney"))
+      .run();
+    try {
+      // 21:00 UTC on the 23rd is 08:00 on the 24th in Sydney: the membership has ended there.
+      const plan = await planMembers(db.query, await readMembers(session), {
+        ...meta(admin.id),
+        now: "2026-11-23T21:00:00.000Z",
+        exportedOn: "2026-11-23",
+      });
+      await db.batch(plan.statements);
+      expect(await outsidePerson("fake-person-003")).toBeNull();
+    } finally {
+      await env.DB.prepare("DELETE FROM core_settings WHERE key = 'org_timezone'").run();
+    }
+  });
+
+  it("refuses a list too big for one batch before anything is written", async () => {
+    const memberships = Array.from({ length: 95_000 }, (_, i) => ({
+      ref: `big-${i}`,
+      person: "big-person",
+      type: "t",
+      name: "Pass",
+      kind: "pass" as const,
+      status: "live" as const,
+      from: null,
+      until: null,
+      usesTotal: null,
+      usesLeft: null,
+      renews: false,
+    }));
+    await expect(
+      planMembers(
+        db.query,
+        {
+          people: [
+            {
+              ref: "big-person",
+              email: null,
+              givenName: null,
+              familyName: null,
+              memberStatus: "member",
+              active: true,
+              modifiedAt: null,
+            },
+          ],
+          membershipTypes: [],
+          memberships,
+        },
+        meta(admin.id),
+      ),
+    ).rejects.toMatchObject({ code: "invalid_input", details: { rule: "outside_list_too_big" } });
+  });
 });

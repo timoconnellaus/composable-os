@@ -407,8 +407,8 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   3,000 rows, 69 for 28 days of 15 classes); `outside/match.ts` links an outside person to exactly
   one live Person by folded address, never merged and changing nothing on the Person, sends
   ambiguous ones to To match, keeps nothing of an erased address or suppressed ref, and links
-  people later from `person.create` and `person.update`. `outside.status`, `outside.matches` and
-  `outside.settings.get` read it with `bookingSystem:manage`; `outside.link` and `outside.unlink`
+  people later from `person.create`, `person.update`, `person.restore` and `import.csv.commit`.
+  `outside.status`, `outside.matches` and `outside.settings.get` read it with `bookingSystem:manage`; `outside.link` and `outside.unlink`
   are a person's with it, and `outside.settings.update` a human admin's.
   Inbound webhooks and sync events land in `core_integration_event`; cos-runner's cron turns them
   into `webhook` and `syncEvent` automation triggers (ADR 0173), dropping private activities.

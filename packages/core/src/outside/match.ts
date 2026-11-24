@@ -12,13 +12,15 @@ import {
   type MatchOutcome,
   matchPeople,
 } from "@composable-os/gatekeeper-booking-system";
-import { type Kysely, sql } from "kysely";
+import { CompiledQuery, type Kysely, sql } from "kysely";
 import { foldAddress, foldedSql, normaliseCustomerEmail } from "../customers/accounts.ts";
+import { newId } from "../ids.ts";
 import type { HandlerContext } from "../operation.ts";
-import { jsonList } from "../records/common.ts";
+import { chunk, jsonList } from "../records/common.ts";
 import { sha256Ref } from "../records/erase-log.ts";
 import { erasedAddressHash } from "../records/erase-subject.ts";
 import { erasedAddresses } from "../sync/ingest.ts";
+import { SYSTEM_USER } from "../users.ts";
 
 type Db = Kysely<CoreDatabase>;
 
@@ -167,19 +169,107 @@ export const foldOutside = (address: string): string | null => foldAddress(addre
 /** A coach's address as staff accounts hold it. */
 export const normaliseStaff = (address: string): string | null => normaliseCustomerEmail(address);
 
+/** The hashes `core_outside_unlinked` keeps staff's "nobody here" under, for these refs. */
+export async function unlinkedOf(
+  db: Db,
+  kind: "person" | "staff",
+  refs: readonly string[],
+): Promise<Map<string, { by: string; at: string }>> {
+  const out = new Map<string, { by: string; at: string }>();
+  if (!refs.length) return out;
+  const hashes = await Promise.all(
+    [...new Set(refs)].map(async (ref) => ({ ref, hash: await suppressedRefHash(ref) })),
+  );
+  const rows = await db
+    .selectFrom("core_outside_unlinked")
+    .select(["hash", "unlinked_by", "unlinked_at"])
+    .where("kind", "=", kind)
+    .where("hash", "in", jsonList(hashes.map((h) => h.hash)))
+    .execute();
+  const byHash = new Map(rows.map((r) => [r.hash, r]));
+  for (const h of hashes) {
+    const row = byHash.get(h.hash);
+    if (row) out.set(h.ref, { by: row.unlinked_by, at: row.unlinked_at });
+  }
+  return out;
+}
+
 /**
- * Rule 6 and the dropped link, when a Person's addresses change (`person.create`, `person.update`):
- * an unlinked outside person with one of `emails` (folded) is linked now, by the same rule, without
- * waiting for a load; a link by address to this Person whose address it no longer holds is dropped
- * (and matched again at the next load). One read when no list holds the addresses; two otherwise.
- * Queues its writes and at most one timeline activity on the Person.
+ * The timeline activity a link adds to each Person linked, naming no address: set based (two
+ * statements per 100 Persons), so a load or an import that links hundreds stays in budget.
+ */
+export function linkActivityStatements(
+  persons: readonly string[],
+  author: { userId: string | null; actor: string; now: string; how: "address" | "staff" },
+): CompiledQuery[] {
+  if (!persons.length) return [];
+  const rows = persons.map((person) => ({ id: newId("activity"), person }));
+  const payload = JSON.stringify({ kind: "outside_link", how: author.how });
+  // As the pipeline's own activities: an extension's, a customer's or the public's are `system`.
+  const actor = ["human", "assistant", "mcp", "automation"].includes(author.actor)
+    ? author.actor
+    : "system";
+  return [
+    ...chunk(rows, 100).map((part) =>
+      CompiledQuery.raw(
+        "INSERT INTO core_activity (id, type, subject, body, payload, occurred_at, author_user_id, author_actor, created_at, updated_at) SELECT json_extract(value, '$.id'), 'system', ?, NULL, ?, ?, ?, ?, ?, ? FROM json_each(?)",
+        [
+          LINK_SUBJECT,
+          payload,
+          author.now,
+          author.userId,
+          actor,
+          author.now,
+          author.now,
+          JSON.stringify(part.map((a) => ({ id: a.id }))),
+        ],
+      ),
+    ),
+    ...chunk(rows, 100).map((part) =>
+      CompiledQuery.raw(
+        "INSERT INTO core_activity_links (activity_id, object_type, record_id) SELECT json_extract(value, '$.id'), 'person', json_extract(value, '$.person') FROM json_each(?)",
+        [JSON.stringify(part)],
+      ),
+    ),
+  ];
+}
+
+/** The Persons a write is about to give these live addresses. */
+export interface PersonAddresses {
+  personId: string;
+  emails: readonly string[];
+  /**
+   * `emails` are all the Person's live addresses after the write (create, update, restore): a link
+   * by address to an address it no longer holds is dropped. False: addresses added only (import).
+   */
+  complete: boolean;
+}
+
+/**
+ * Rule 6 and the dropped link, when Persons' addresses change (`person.create`, `person.update`,
+ * `person.restore`, `import.csv.commit`): an unlinked outside person with one of their addresses
+ * (folded) is linked now, by the same rule, without waiting for a load; one that two Persons now
+ * hold waits in To match; a link by address to a Person whose address it no longer holds is dropped
+ * (and matched again at the next load). Nothing is linked while the copy is off, or for a ref staff
+ * unlinked. One indexed read when no list holds the addresses, however many Persons. Queues its
+ * writes and one timeline activity per Person linked.
  */
 export async function matchPersonAddresses(
   ctx: HandlerContext,
-  personId: string,
-  emails: readonly string[],
+  entries: readonly PersonAddresses[],
 ): Promise<void> {
-  const folded = [...new Set(emails.map(foldAddress).filter((a): a is string => a !== null))];
+  const own = new Map<string, Set<string>>();
+  for (const e of entries) {
+    const set = own.get(e.personId) ?? new Set<string>();
+    for (const email of e.emails) {
+      const f = foldAddress(email);
+      if (f) set.add(f);
+    }
+    own.set(e.personId, set);
+  }
+  const folded = [...new Set([...own.values()].flatMap((s) => [...s]))];
+  const complete = entries.filter((e) => e.complete).map((e) => e.personId);
+  if (!folded.length && !complete.length) return;
   const rows = await ctx.db
     .selectFrom("core_outside_person as o")
     .leftJoin("core_outside_match as m", (join) =>
@@ -189,20 +279,28 @@ export async function matchPersonAddresses(
     .where((eb) =>
       eb.or([
         ...(folded.length ? [eb("o.address_folded", "in", jsonList(folded))] : []),
-        eb.and([eb("o.person_id", "=", personId), eb("o.link_how", "=", "address")]),
+        ...(complete.length
+          ? [
+              eb.and([
+                eb("o.person_id", "in", jsonList(complete)),
+                eb("o.link_how", "=", "address"),
+              ]),
+            ]
+          : []),
       ]),
     )
     .execute();
   if (!rows.length) return;
+  const completeSet = new Set(complete);
   for (const r of rows) {
-    if (r.person_id !== personId || r.link_how !== "address") continue;
-    if (r.address_folded !== null && folded.includes(r.address_folded)) continue;
+    if (r.link_how !== "address" || r.person_id === null || !completeSet.has(r.person_id)) continue;
+    if (r.address_folded !== null && own.get(r.person_id)?.has(r.address_folded)) continue;
     ctx.write(
       ctx.db
         .updateTable("core_outside_person")
         .set({ person_id: null, link_how: null, linked_at: null })
         .where("ref", "=", r.ref)
-        .where("person_id", "=", personId)
+        .where("person_id", "=", r.person_id)
         .where("link_how", "=", "address"),
     );
   }
@@ -214,34 +312,55 @@ export async function matchPersonAddresses(
       folded.includes(r.address_folded),
   );
   if (!unlinked.length) return;
+  const settings = await ctx.db
+    .selectFrom("core_outside_settings")
+    .select("enabled")
+    .where("id", "=", 1)
+    .executeTakeFirst();
+  if (settings?.enabled === 0) return;
   const sharing = new Map<string, number>();
   for (const r of rows) {
     if (r.address_folded) sharing.set(r.address_folded, (sharing.get(r.address_folded) ?? 0) + 1);
   }
-  const others = await personsByFolded(
-    ctx.db,
-    unlinked.map((r) => r.address_folded as string),
-  );
-  let linked = false;
+  const writing = new Set(own.keys());
+  const [others, staffSaidNobody] = await Promise.all([
+    personsByFolded(
+      ctx.db,
+      unlinked.map((r) => r.address_folded as string),
+    ),
+    unlinkedOf(
+      ctx.db,
+      "person",
+      unlinked.map((r) => r.ref),
+    ),
+  ]);
+  const linked: string[] = [];
   for (const r of unlinked) {
     const address = r.address_folded as string;
-    if ((sharing.get(address) ?? 0) > 1) continue;
-    const persons = (others.get(address) ?? []).filter((id) => id !== personId);
-    if (persons.length) {
-      ctx.write(
-        ctx.db
-          .insertInto("core_outside_match")
-          .values({
-            kind: "person",
-            ref: r.ref,
-            why: "several_people",
-            candidates: JSON.stringify([...persons, personId]),
-            created_at: ctx.now,
-          })
-          .onConflict((oc) => oc.doNothing()),
-      );
+    if ((sharing.get(address) ?? 0) > 1 || staffSaidNobody.has(r.ref)) continue;
+    // Who holds the address once this write commits: the others in the database (the Persons
+    // written here as they will be), and the Persons written here that take it.
+    const holders = new Set((others.get(address) ?? []).filter((id) => !writing.has(id)));
+    for (const [id, set] of own) if (set.has(address)) holders.add(id);
+    const persons = [...holders];
+    if (persons.length !== 1) {
+      if (persons.length > 1) {
+        ctx.write(
+          ctx.db
+            .insertInto("core_outside_match")
+            .values({
+              kind: "person",
+              ref: r.ref,
+              why: "several_people",
+              candidates: JSON.stringify(persons),
+              created_at: ctx.now,
+            })
+            .onConflict((oc) => oc.doNothing()),
+        );
+      }
       continue;
     }
+    const [personId] = persons as [string];
     ctx.write(
       ctx.db
         .updateTable("core_outside_person")
@@ -250,13 +369,14 @@ export async function matchPersonAddresses(
         .where("person_id", "is", null)
         .where("link_how", "is", null),
     );
-    linked = true;
+    if (!linked.includes(personId)) linked.push(personId);
   }
-  if (linked) {
-    ctx.postActivity({
-      subject: LINK_SUBJECT,
-      payload: { kind: "outside_link", how: "address" },
-      links: [{ object: "person", id: personId }],
-    });
-  }
+  ctx.write(
+    ...linkActivityStatements(linked, {
+      userId: ctx.user.id === SYSTEM_USER.id ? null : ctx.user.id,
+      actor: ctx.actor,
+      now: ctx.now,
+      how: "address",
+    }),
+  );
 }
