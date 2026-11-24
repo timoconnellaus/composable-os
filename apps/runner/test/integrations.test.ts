@@ -2,13 +2,13 @@
 // OAuth provider: the connect flow end to end (ticket + nonce handoff), facets the host owns and
 // recreates after a restart, outbound items through the approval queue, hooks, and sync with
 // restricted reads that are never written anywhere.
-import { abortAllDurableObjects } from "cloudflare:test";
+import { abortAllDurableObjects, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { type ActingUser, invokeByName, PendingApprovalError } from "@composable-os/core";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { extensionHost } from "../src/index.ts";
 import { fakeProviderStub } from "../src/integrations/fake.ts";
-import { blobStore, integrationRuntime } from "../src/integrations/runtime.ts";
+import { blobStore, hostFor, integrationRuntime } from "../src/integrations/runtime.ts";
 import { createAdmin, db, unique } from "./helpers.ts";
 
 const integrations = integrationRuntime(env);
@@ -474,6 +474,34 @@ describe("sync", () => {
       .bind(`ical:e1.${ext}@cal.test`)
       .first();
     expect(row).toMatchObject({ type: "meeting", subject: "Intro call", disclosure: "metadata" });
+  });
+
+  it("an expired connection stops polling with no alarm left, and carries on once restored", async () => {
+    const { connection, mailbox } = await syncedConnection(member);
+    await op(member, "connection.setSync", { id: connection.id, mail: mailbox, calendar: null });
+    await op(member, "connection.syncNow", { id: connection.id });
+    const stub = hostFor(env, connection.id);
+    const alarm = () => runInDurableObject(stub, (_host, state) => state.storage.getAlarm());
+    const lastRun = async () => (await stub.syncState())?.mail?.lastRunAt;
+    expect(await alarm()).not.toBeNull();
+
+    // The provider says the credentials expired: the next pass pulls nothing and sets no alarm,
+    // so the object is not woken every 15 minutes to fail (docs/cloudflare-costs.md).
+    await stub.credentialsChanged("expired");
+    const before = await lastRun();
+    await runInDurableObject(stub, (_host, state) => state.storage.setAlarm(Date.now()));
+    expect(await runDurableObjectAlarm(stub)).toBe(true);
+    expect(await alarm()).toBeNull();
+    expect(await lastRun()).toBe(before);
+
+    // Restored: the loop starts again within seconds and re-arms after its pass.
+    await stub.credentialsChanged("restored");
+    const soon = await alarm();
+    expect(soon).not.toBeNull();
+    expect(soon ?? 0).toBeLessThanOrEqual(Date.now() + 5_000);
+    expect(await runDurableObjectAlarm(stub)).toBe(true);
+    expect(await lastRun()).not.toBe(before);
+    expect(await alarm()).not.toBeNull();
   });
 
   it("disconnect revokes the account and stops the host", async () => {
