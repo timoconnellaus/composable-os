@@ -15,12 +15,13 @@ import {
   sessionSets,
 } from "@composable-os/pack-programs/client";
 import { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { Button } from "../native-base/button.tsx";
 import { Field } from "../native-base/field.tsx";
 import { List } from "../native-base/list.tsx";
 import { Row } from "../native-base/row.tsx";
 import { Screen } from "../native-base/screen.tsx";
+import { Text } from "../native-base/text.tsx";
 import { theme } from "../native-base/theme.ts";
 
 type HistoryHooks = PastSessionsHooks & Pick<ProgramsHooks, "useSession" | "useUpdateSet">;
@@ -60,13 +61,17 @@ export function HistoryScreen({
   if (page.isPending)
     return (
       <Screen title="History">
-        <Text>Loading…</Text>
+        <Text tone="muted" accessibilityRole="progressbar">
+          Loading…
+        </Text>
       </Screen>
     );
   if (!page.data)
     return (
       <Screen title="History">
-        <Text>We could not load past sessions.</Text>
+        <Text tone="danger" accessibilityRole="alert">
+          We could not load past sessions.
+        </Text>
       </Screen>
     );
   const { sessions, nextCursor } = page.data;
