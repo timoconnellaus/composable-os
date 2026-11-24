@@ -661,12 +661,20 @@ export default defineExtension({
   grantable: ["memberships:passes"],
   // What a journey can start or stop on (stage 53, ADR 0802): the host records the last time each
   // member had each, in the write's batch. A trial that turns into a paid membership is not a
-  // trial ended: that is the member joining.
+  // trial ended: that is the member joining. A payment caught up, or a pause ended, is neither.
   journeySignals: {
     started: {
       label: "Membership started",
       description: "A membership begins, on trial or paid.",
       object: "membership",
+    },
+    joined: {
+      label: "Joined after a trial",
+      description: "A trial becomes a paid membership.",
+      object: "membership",
+      enters: ["active"],
+      from: ["trialing"],
+      created: false,
     },
     ended: {
       label: "Membership ended",

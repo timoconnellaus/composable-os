@@ -1306,7 +1306,8 @@ async function invokeOnce<O extends AnyOperation>(
       // And the journey signals the write made (stage 53, ADR 0802), standing as its marks do.
       ...signalStatements({ db: ctx.db.query }, changes, {
         standing: staffStanding(ctx),
-        bulk: isBulkOperation(op.name, bulkSize),
+        // A bulk-write operation is bulk whatever its size: an import's last chunk of one record.
+        bulk: isBulkOperation(op.name, bulkSize) || op.risk === "bulk-write",
         now,
       }),
     );

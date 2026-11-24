@@ -889,10 +889,34 @@ export function planFromState(
       ...capacityBackfill(next, ext, now),
       ...allowanceBackfill(next, ext, orgZone, now),
       ...exceptionCleanup(next, ext),
+      ...signalCleanup(current, next, ext),
     ],
     changes,
     issues,
   );
+}
+
+/**
+ * The recorded journey signals (stage 53, ADR 0802) of signals this extension no longer
+ * declares: when each Person last did something it stopped naming is not kept.
+ */
+function signalCleanup(current: SchemaState, next: SchemaState, ext: string): CompiledQuery[] {
+  const ids = (state: SchemaState) =>
+    new Set(
+      state.objects
+        .filter((o) => o.extensionId === ext)
+        .flatMap((o) => (o.definition.signals ?? []).map((signal) => signal.id)),
+    );
+  const kept = ids(next);
+  const gone = [...ids(current)].filter((id) => !kept.has(id));
+  return gone.length
+    ? [
+        CompiledQuery.raw(
+          "DELETE FROM core_person_signal WHERE signal IN (SELECT value FROM json_each(?))",
+          [JSON.stringify(gone)],
+        ),
+      ]
+    : [];
 }
 
 function finishPlan(
@@ -1070,6 +1094,10 @@ export async function planDropHidden(
       return to ? [to.includes(".") ? to : `${o.extensionId}.${to}`] : [];
     }),
   );
+  // When each Person last had its journey signals (stage 53, ADR 0802) goes with its table.
+  const signalDrops = droppedObjects.map((o) =>
+    CompiledQuery.raw("DELETE FROM core_person_signal WHERE object_type = ?", [o.name]),
+  );
   const grantDrops = droppedObjects.flatMap((o) => [
     ...(granted.has(o.name)
       ? [CompiledQuery.raw("DELETE FROM core_order_grant WHERE object_type = ?", [o.name])]
@@ -1085,7 +1113,14 @@ export async function planDropHidden(
     current,
     next,
     tableDdl,
-    [...capacityDrops, ...claimantDrops, ...recurringDrops, ...allowanceDrops, ...grantDrops],
+    [
+      ...capacityDrops,
+      ...claimantDrops,
+      ...recurringDrops,
+      ...allowanceDrops,
+      ...signalDrops,
+      ...grantDrops,
+    ],
     changes,
     [],
   );

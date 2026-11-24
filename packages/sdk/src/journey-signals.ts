@@ -55,9 +55,20 @@ export const journeySignalsManifestSchema = z.record(
   journeySignalSchema,
 );
 
+type Origins = string | readonly string[];
+
 interface CheckObject {
   fields: Record<string, { type: string; to?: string | undefined; many?: boolean | undefined }>;
-  states?: { field: string } | undefined;
+  states?:
+    | {
+        field: string;
+        initial: string;
+        moves: readonly { from: Origins; to: string }[];
+        create?: { in?: Record<string, unknown> | undefined } | undefined;
+        follows?: { from: readonly string[]; when: Record<string, string> } | undefined;
+        after?: readonly { from: Origins; to: string }[] | undefined;
+      }
+    | undefined;
   customer?: { field: string } | undefined;
 }
 
@@ -76,6 +87,24 @@ function stateValues(object: CheckObject): Set<string> | null {
       typeof o === "string" ? o : String((o as { value?: unknown }).value ?? ""),
     ),
   );
+}
+
+/**
+ * Every way a record of `object` changes state: its moves, its timed moves (`after`) and the
+ * moves it follows from a related record (`follows`), each as where from and where to.
+ */
+function movesOf(object: CheckObject): { from: readonly string[]; to: string }[] {
+  const states = object.states;
+  if (!states) return [];
+  const list = (from: Origins) => (typeof from === "string" ? [from] : from);
+  return [
+    ...states.moves.map((m) => ({ from: list(m.from), to: m.to })),
+    ...(states.after ?? []).map((m) => ({ from: list(m.from), to: m.to })),
+    ...Object.values(states.follows?.when ?? {}).map((to) => ({
+      from: states.follows?.from ?? [],
+      to,
+    })),
+  ];
 }
 
 /** The contract's issues with a manifest's `journeySignals`. */
@@ -115,16 +144,45 @@ export function journeySignalIssues(manifest: CheckManifest): { path: string; me
       contract(`${base}.enters`, `${signal.object} declares no states`);
       continue;
     }
+    let known = true;
     for (const [key, list] of [
       ["enters", signal.enters],
       ["from", signal.from ?? []],
     ] as const) {
       list.forEach((value, i) => {
         if (!values.has(value)) {
+          known = false;
           contract(`${base}.${key}.${i}`, `"${value}" is not a state of ${signal.object}`);
         }
       });
     }
+    if (!known) continue;
+    // A signal that can happen: a declared move into one of its states (from one it names), or a
+    // create straight into one. A `from` no move leaves for them names nothing.
+    const enters = new Set(signal.enters);
+    const into = movesOf(object).filter((m) => enters.has(m.to));
+    const createdIn = new Set([
+      object.states?.initial ?? "",
+      ...Object.keys(object.states?.create?.in ?? {}),
+    ]);
+    const byCreate = signal.created !== false && signal.enters.some((e) => createdIn.has(e));
+    const fromOk = (m: { from: readonly string[]; to: string }) =>
+      m.from.some((f) => f !== m.to && (!signal.from || signal.from.includes(f)));
+    if (!byCreate && !into.some(fromOk)) {
+      contract(
+        `${base}.enters`,
+        `No declared move or create of ${signal.object} makes this signal: it can never happen`,
+      );
+      continue;
+    }
+    signal.from?.forEach((value, i) => {
+      if (!into.some((m) => m.to !== value && m.from.includes(value))) {
+        contract(
+          `${base}.from.${i}`,
+          `No declared move of ${signal.object} leaves "${value}" for ${[...enters].join(" or ")}`,
+        );
+      }
+    });
   }
   return issues;
 }
