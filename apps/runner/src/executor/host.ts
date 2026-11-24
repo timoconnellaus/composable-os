@@ -170,6 +170,8 @@ export interface RunState {
    * writes of these objects reach today's records only, whatever the extension may read.
    */
   roleToday?: TodayLimits;
+  /** With `roleToday`: the moment of the call that started the run; its day is the run's today. */
+  roleTodayAt?: string;
   /**
    * Set for a tool declared `risk: "read"` (ADR 0022 amendment, 2026-11-22): it may only read.
    * Its operation calls must be read operations, its storage answers `get` and `list` only, and
@@ -385,6 +387,7 @@ export class RunHost extends RpcTarget {
             // The caller's pack role limit to today holds on every call of this run, and on the
             // runs of tools it calls (ADR 0553): the pipeline holds it before each operation.
             ...(run.roleToday ? { roleToday: run.roleToday } : {}),
+            ...(run.roleToday && run.roleTodayAt ? { roleTodayAt: run.roleTodayAt } : {}),
             // Who stands behind what the tool writes (ADR 0590): its caller, not the extension.
             ...this.#marks(),
             ...(run.simulate ? { simulate: run.simulate } : this.#events()),

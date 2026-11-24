@@ -146,6 +146,7 @@ export function toolOperation(
                 name: ctx.user.name,
                 // A pack role limited to today holds inside the tool too (ADR 0553).
                 ...(ctx.roleToday ? { roleToday: ctx.roleToday } : {}),
+                ...(ctx.roleToday && ctx.roleTodayAt ? { roleTodayAt: ctx.roleTodayAt } : {}),
                 // Who approved it, for a tool a person approves called by another actor.
                 ...(ctx.approval?.approvedBy ? { approvedBy: ctx.approval.approvedBy } : {}),
                 // A run calling this tool: the weaker of its standing and the tool's wins.

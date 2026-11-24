@@ -163,6 +163,11 @@ export interface HandlerContext {
    * account on this call; absent when it holds no such role. A tool's run carries it on.
    */
   readonly roleToday?: import("./pack-role-today.ts").TodayLimits | undefined;
+  /**
+   * With `roleToday`: the moment whose local day it holds to (issue #290), the call's own or the
+   * one a tool's run carries on from the call that started it.
+   */
+  readonly roleTodayAt?: string | undefined;
   /** The caller's reason for the change, when it gave one (MCP). */
   readonly reason?: string | undefined;
   /**

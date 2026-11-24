@@ -32,6 +32,8 @@ export interface ToolCaller {
    * account: the run's record reads and writes of these objects reach today's records only.
    */
   roleToday?: import("../pack-role-today.ts").TodayLimits;
+  /** With `roleToday`: the moment of the call that took the limit; its day is the run's today. */
+  roleTodayAt?: string;
   /** The person who approved this call, when another actor's call was approved (ADR 0552). */
   approvedBy?: string;
   /**
