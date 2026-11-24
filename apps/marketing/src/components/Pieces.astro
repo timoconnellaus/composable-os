@@ -21,7 +21,8 @@
 // stage 47) and checklists on a duty (step 4b) are merged.
 // Agreements (stage 44) is being built: documents and versions (step 1), acceptances (step 2),
 // the check before paying, subscribing and booking (step 3), the copy and the signed PDF (step 4)
-// and the screens on the web and in the app (step 5) are merged; signing at the desk (step 6)
+// and the screens on the web and in the app (step 5, and the ticket and course checkouts,
+// issue #292) are merged; signing at the desk (step 6)
 // and cooling off (step 7) are not yet.
 // The last card is the piece built only for this business.
 import { STATUS } from "../status.ts";
@@ -74,7 +75,7 @@ const pieces = [
   {
     soon: STATUS.building,
     title: "Agreements",
-    body: "Terms, waivers, health questions and a parent's consent, written by the business and agreed to on the web or in the app, with a typed name or a drawn signature. Visitors agree on the way to paying, parents agree for their children, and nobody books a class or buys a membership or pass without agreeing first. A copy goes by email to whoever agrees online, and the business can download the signed PDF at any time. The app's screens are built but not yet tried on phones. Still to come: signing on the business's own tablet at the desk, and a cooling-off period.",
+    body: "Terms, waivers, health questions and a parent's consent, written by the business and agreed to on the web or in the app, with a typed name or a drawn signature. Visitors agree on the way to paying, parents agree for their children, and nobody books a class or buys a membership, a pass, a ticket or a course without agreeing first to what the business asks there. A copy goes by email to whoever agrees online, and the business can download the signed PDF at any time. The app's screens are built but not yet tried on phones. Still to come: signing on the business's own tablet at the desk, and a cooling-off period.",
   },
 ];
 ---

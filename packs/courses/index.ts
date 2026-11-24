@@ -150,7 +150,14 @@ export default defineExtension({
       },
       // Where agreement may be needed (stage 44, ADR 0641): nothing is attached by default, so it
       // sells as before until the business attaches a document (its terms) to "course".
-      agreements: { point: "course", label: "Buying a course", suggests: ["terms"] },
+      // The course page and subscribe blocks show what is due and let the buyer agree on the way
+      // (issue #292).
+      agreements: {
+        point: "course",
+        label: "Buying a course",
+        suggests: ["terms"],
+        inlineStep: true,
+      },
       sellable: {
         price: "price",
         saleWindow: { from: "onSaleFrom" },
@@ -213,7 +220,12 @@ export default defineExtension({
       public: { read: ["title", "slug", "summary", "description", "cover", "courses", "price"] },
       // Where agreement may be needed (stage 44, ADR 0641): nothing is attached by default, so it
       // sells as before until the business attaches a document (its terms) to "course".
-      agreements: { point: "course", label: "Buying a course", suggests: ["terms"] },
+      agreements: {
+        point: "course",
+        label: "Buying a course",
+        suggests: ["terms"],
+        inlineStep: true,
+      },
       sellable: {
         price: "price",
         tax: { code: "txcd_20060158" },
@@ -251,7 +263,12 @@ export default defineExtension({
       public: { read: ["title", "description", "price", "trialDays"] },
       // Where agreement may be needed (stage 44, ADR 0641): nothing is attached by default, so it
       // sells as before until the business attaches a document (its terms) to "course".
-      agreements: { point: "course", label: "Buying a course", suggests: ["terms"] },
+      agreements: {
+        point: "course",
+        label: "Buying a course",
+        suggests: ["terms"],
+        inlineStep: true,
+      },
       sellable: {
         price: "price",
         // As its courses (ADR 0479): taxed only once a human admin turns tax on.

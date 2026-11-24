@@ -222,7 +222,7 @@ export function agreementRefusal(error: unknown): AgreementRefusal | null {
   return { kind: "due", message: "Something must be agreed to first.", documents };
 }
 
-/** Said where a screen has no agreement step yet (Ticketing's and Courses' checkouts). */
+/** Said where a screen that buys has no agreement step (a client app's own screen). */
 export const NO_AGREEMENT_STEP_WORDS =
   "This needs an agreement that can't be given here yet. Ask the business how to agree to it first.";
 

@@ -328,11 +328,15 @@ describe("the points the packs declare", () => {
     expect(at("booking")).toEqual([BOOKING]);
     expect(at("event")).toEqual(["ticketing.tickettype"]);
     expect(at("course")).toEqual(["courses.bundle", "courses.course", "courses.plan"]);
-    // Stage 44 step 5: Memberships' and Bookings' screens let a person agree on the way;
-    // Ticketing's and Courses' do not yet, so the admin is warned when attaching there.
+    // Stage 44 step 5 and issue #292: every shipped pack's screens let a person agree on the way,
+    // so the admin is warned at none of these points.
     const inline = (point: string) => items.find((p) => p.point === point)?.inlineStep;
-    expect([inline("membership"), inline("booking")]).toEqual([true, true]);
-    expect([inline("event"), inline("course")]).toEqual([false, false]);
+    expect(["membership", "booking", "event", "course"].map(inline)).toEqual([
+      true,
+      true,
+      true,
+      true,
+    ]);
   });
 });
 
@@ -378,6 +382,28 @@ describe("Ticketing and Courses sell as before with nothing attached (criterion 
       expect(audit.results).toEqual([]);
     } finally {
       await run("agreement.retire", { documentId: eventWaiver.id }, staff());
+    }
+  });
+
+  it("terms on `course` make a visitor's course purchase need them, carried in x.courses.buy (issue #292)", async () => {
+    const course = await create("courses.course", { title: unique("Terms"), price: 40 });
+    await run("record.publish", { object: "courses.course", id: course }, staff());
+    const buyCourse = (extra: Record<string, unknown> = {}) =>
+      run<{ id: string }>("x.courses.buy", { courseId: course, email: visitor(), ...extra }, guest);
+    const courseTerms = await publish("terms", ["course"]);
+    try {
+      const refused = await refusal(buyCourse());
+      expect(refused.details.rule).toBe("agreements_due");
+      expect(dueIds(refused)).toEqual([courseTerms.id]);
+      const bought = await buyCourse({ agreements: guestAgrees([courseTerms]) });
+      const rows = await env.DB.prepare(
+        "SELECT by, person_id FROM core_agreement_acceptance WHERE order_id = ?",
+      )
+        .bind(bought.id)
+        .all<{ by: string; person_id: string | null }>();
+      expect(rows.results).toEqual([{ by: "guest", person_id: null }]);
+    } finally {
+      await run("agreement.retire", { documentId: courseTerms.id }, staff());
     }
   });
 });
