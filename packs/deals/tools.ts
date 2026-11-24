@@ -78,8 +78,10 @@ export const stageMetrics = defineTool({
   }),
   async handler({ pipelineId, since }, ctx) {
     const params = [pipelineId, since ?? null, since ?? null];
-    const stages = await ctx.ops.call<SqlResult>("query.sql", { sql: STAGE_SQL, params });
-    const velocity = await ctx.ops.call<SqlResult>("query.sql", { sql: VELOCITY_SQL, params });
+    const [stages, velocity] = await Promise.all([
+      ctx.ops.call<SqlResult>("query.sql", { sql: STAGE_SQL, params }),
+      ctx.ops.call<SqlResult>("query.sql", { sql: VELOCITY_SQL, params }),
+    ]);
     const v = velocity.rows[0] ?? {};
     ctx.log.info("stage metrics", { pipelineId, stages: stages.rows.length });
     return {
