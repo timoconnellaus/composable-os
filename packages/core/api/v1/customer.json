@@ -1877,6 +1877,7 @@
         "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list"
@@ -2468,9 +2469,11 @@
         "me.agreements.list",
         "me.agreements.pdf",
         "me.attention",
+        "me.birthday.get",
         "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list"
@@ -2522,9 +2525,11 @@
         "me.agreements.list",
         "me.agreements.pdf",
         "me.attention",
+        "me.birthday.get",
         "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list"
