@@ -43,6 +43,7 @@ import { extensionUiOperations } from "./extension-ui.ts";
 import { fieldOptionsOperations } from "./field-options.ts";
 import { importOperations } from "./import.ts";
 import { importRecordsOperations } from "./import-records.ts";
+import { inboxOperations } from "./inbox.ts";
 import { integrationOperations } from "./integration.ts";
 import { inviteOperations } from "./invite.ts";
 import { judgeOperations } from "./judge.ts";
@@ -114,6 +115,7 @@ export const coreOperations = [
   ...queryOperations,
   ...importOperations,
   ...importRecordsOperations,
+  ...inboxOperations,
   ...exportOperations,
   ...recordOperations,
   ...recordVersionOperations,

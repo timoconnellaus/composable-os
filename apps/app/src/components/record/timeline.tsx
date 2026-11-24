@@ -33,6 +33,7 @@ import {
   type LucideIcon,
   MailIcon,
   MessageSquareTextIcon,
+  MessagesSquareIcon,
   PhoneIcon,
   RefreshCwIcon,
   SparklesIcon,
@@ -61,6 +62,7 @@ const TYPE_ICON: Record<ActivityType, LucideIcon> = {
   call: PhoneIcon,
   meeting: CalendarIcon,
   system: SparklesIcon,
+  chat: MessagesSquareIcon,
 };
 
 const str = (value: unknown): string | null => (typeof value === "string" && value ? value : null);

@@ -45,14 +45,16 @@ export interface PagedResult<T> extends AdapterResult<T> {
 
 // --- Timeline -------------------------------------------------------------------------------
 
-export type ActivityType = "note" | "email" | "call" | "meeting" | "system";
-export type HumanActivityType = Exclude<ActivityType, "system">;
+// `chat`: a chat message in an inbox conversation (stage 36), written by the inbox only.
+export type ActivityType = "note" | "email" | "call" | "meeting" | "system" | "chat";
+export type HumanActivityType = Exclude<ActivityType, "system" | "chat">;
 export const ACTIVITY_TYPE_LABELS: Record<ActivityType, string> = {
   note: "Note",
   email: "Email",
   call: "Call",
   meeting: "Meeting",
   system: "System",
+  chat: "Chat message",
 };
 
 export interface TimelinePayload extends Record<string, unknown> {

@@ -8,6 +8,7 @@ import { ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
 import { activityObject } from "../fields/activity.ts";
 import { getObject } from "../fields/index.ts";
 import { newId } from "../ids.ts";
+import { activityConversationReadable, type InboxViewer } from "../inbox/index.ts";
 import {
   decodeCursor,
   encodeCursor,
@@ -84,7 +85,8 @@ export const activityPayloadSchemas = {
 } as const;
 export type HumanActivityType = keyof typeof activityPayloadSchemas;
 export const HUMAN_ACTIVITY_TYPES = Object.keys(activityPayloadSchemas) as HumanActivityType[];
-export const ACTIVITY_TYPES = ["note", "email", "call", "meeting", "system"] as const;
+/** `chat`: a chat message in a conversation, written by the inbox only (stage 36, ADR 0740). */
+export const ACTIVITY_TYPES = ["note", "email", "call", "meeting", "system", "chat"] as const;
 
 const commonLogFields = {
   subject: z.string().trim().max(500).nullish().describe("Headline: email subject, call topic"),
@@ -140,6 +142,8 @@ export const activitySchema = z.object({
   hasFullBody: z.boolean().optional(),
   /** The email conversation it belongs to. */
   threadKey: z.string().nullable().optional(),
+  /** The inbox conversation a message or staff note belongs to (stage 36, ADR 0740). */
+  conversationId: z.string().nullable().optional(),
 });
 export type Activity = z.infer<typeof activitySchema>;
 
@@ -163,16 +167,29 @@ type ActivityRow = {
   body_ref: string | null;
   disclosure: "full" | "metadata" | null;
   thread_key: string | null;
+  conversation_id: string | null;
 };
 
-/** Private activities are visible only to the user they were made private for. */
-export function visibleTo(userId: string) {
-  return sql<boolean>`(a.private_to IS NULL OR a.private_to = ${userId})`;
+/**
+ * Private activities are visible only to the user they were made private for, and the messages
+ * and notes of a private conversation only to admins and whoever has it (ADR 0740).
+ */
+export function visibleTo(user: InboxViewer) {
+  return sql<boolean>`((a.private_to IS NULL OR a.private_to = ${user.id}) AND ${activityConversationReadable(user, "a")})`;
+}
+
+/** The staff account reading, for `visibleTo`. Anyone else reads no table (visibleTable). */
+function viewerOf(reader: Reader): InboxViewer {
+  const { principal } = reader;
+  return principal.kind === "staff"
+    ? { id: principal.userId, role: principal.role }
+    : { id: "", role: "viewer" };
 }
 
 function activityQuery(reader: Reader) {
   return reader.db
     .selectFrom(visibleTable(reader, "activity", "a"))
+    .where(visibleTo(viewerOf(reader)))
     .leftJoin("core_user as u", "u.id", "a.author_user_id")
     .select([
       "a.id",
@@ -192,6 +209,7 @@ function activityQuery(reader: Reader) {
       "a.body_ref",
       "a.disclosure",
       "a.thread_key",
+      "a.conversation_id",
     ]);
 }
 
@@ -220,6 +238,7 @@ async function toActivities(db: Kysely<CoreDatabase>, rows: ActivityRow[]): Prom
     disclosure: row.disclosure,
     hasFullBody: row.body_ref !== null,
     threadKey: row.thread_key,
+    conversationId: row.conversation_id,
   }));
 }
 
@@ -377,13 +396,8 @@ export const activityGet = defineOperation({
   risk: "read",
   mcp: { idempotent: true },
   async handler(input, ctx) {
-    const activity = await requireActivity(ctx, input.id, {
-      includeDeleted: input.includeDeleted,
-    });
-    if (activity.private && activity.authorUserId !== ctx.user.id) {
-      throw new NotFoundError("activity", input.id);
-    }
-    return activity;
+    // Private ones, and a private conversation's, are not found for anyone else (visibleTo).
+    return requireActivity(ctx, input.id, { includeDeleted: input.includeDeleted });
   },
 });
 
@@ -408,6 +422,11 @@ export const activityUpdate = defineOperation({
     const before = await requireActivity(ctx, input.id);
     if (before.type === "system") {
       throw new ValidationError("System activities are written by the CRM and cannot be edited");
+    }
+    if (before.conversationId || before.type === "chat") {
+      throw new ValidationError(
+        "A message or note in a conversation is the inbox's and cannot be edited",
+      );
     }
     const subject = input.subject === undefined ? before.subject : input.subject?.trim() || null;
     const body = input.body === undefined ? before.body : input.body?.trim() ? input.body : null;
@@ -532,7 +551,6 @@ export const activityListForRecord = defineOperation({
   async handler(input, ctx) {
     let query = activityQuery(ctx)
       .where("a.deleted_at", "is", null)
-      .where(visibleTo(ctx.user.id))
       .where("a.id", "in", (eb) =>
         eb
           .selectFrom("core_activity_links")
@@ -619,15 +637,17 @@ export const activitySetPrivate = defineOperation({
   async handler(input, ctx) {
     const row = await ctx.db
       .selectFrom(visibleTable(ctx, "activity"))
-      .select(["id", "external_key", "author_user_id", "private_to"])
+      .select(["id", "external_key", "author_user_id", "private_to", "conversation_id"])
       .where("id", "=", input.id)
       .where("deleted_at", "is", null)
       .executeTakeFirst();
     if (!row || (row.private_to !== null && row.private_to !== ctx.user.id)) {
       throw new NotFoundError("activity", input.id);
     }
-    if (row.external_key === null) {
-      throw new ValidationError("Only synced emails and meetings can be marked private");
+    if (row.external_key === null || row.conversation_id !== null) {
+      throw new ValidationError(
+        "Only synced emails and meetings can be marked private (a conversation is marked private as a whole)",
+      );
     }
     if (row.author_user_id !== ctx.user.id) {
       throw new ForbiddenError("Only the owner of the mailbox it came from can change this");
@@ -666,7 +686,7 @@ export const activityGetBody = defineOperation({
       .select(["a.id", "a.body", "a.body_ref"])
       .where("a.id", "=", input.id)
       .where("a.deleted_at", "is", null)
-      .where(visibleTo(ctx.user.id))
+      .where(visibleTo(ctx.user))
       .executeTakeFirst();
     if (!row) throw new NotFoundError("activity", input.id);
     if (row.body_ref && ctx.blobs) {

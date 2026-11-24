@@ -1267,6 +1267,18 @@ export const personMerge = defineOperation({
     after.tags = await queueSetTags(ctx, "person", survivor.id, [...survivor.tags, ...merged.tags]);
     queueClearTags(ctx, "person", merged.id);
     queueMoveLinks(ctx, "person", merged.id, survivor.id);
+    // Their conversations follow the Person (stage 36, ADR 0740); a concurrent inbox write
+    // that read the old version fails, not this.
+    ctx.write(
+      ctx.db
+        .updateTable("core_conversation")
+        .set((eb) => ({
+          person_id: survivor.id,
+          updated_at: ctx.now,
+          version: eb("version", "+", 1),
+        }))
+        .where("person_id", "=", merged.id),
+    );
     await queueRepointRelations(ctx, "person", merged.id, survivor.id);
     queueClosePairs(ctx, "person", survivor.id, merged.id);
 

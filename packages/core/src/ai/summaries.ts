@@ -12,6 +12,7 @@ import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, sql } from "kysely";
 import { NotFoundError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
+import { notInPrivateConversation } from "../inbox/index.ts";
 import type { BlobStore } from "../integrations/runtime.ts";
 import { jsonList } from "../records/common.ts";
 import type { ModelMessage, ModelRunner } from "./client.ts";
@@ -341,10 +342,21 @@ export async function activitySummaryInput(
   activityId: string,
   blobs?: BlobStore,
 ): Promise<SummaryInput | null> {
+  // A private conversation's messages are summarised for nobody (stage 36, ADR 0740).
   const a = await db
-    .selectFrom("core_activity")
-    .select(["id", "type", "subject", "body", "body_ref", "private_to", "disclosure", "deleted_at"])
-    .where("id", "=", activityId)
+    .selectFrom("core_activity as a")
+    .select([
+      "a.id",
+      "a.type",
+      "a.subject",
+      "a.body",
+      "a.body_ref",
+      "a.private_to",
+      "a.disclosure",
+      "a.deleted_at",
+    ])
+    .where("a.id", "=", activityId)
+    .where(notInPrivateConversation("a"))
     .executeTakeFirst();
   if (!a || a.deleted_at || a.private_to) return null;
   if (a.disclosure === "metadata" || a.type === "system") return null;

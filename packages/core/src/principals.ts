@@ -90,6 +90,12 @@ export type Role = (typeof ROLES)[number];
  *   Admins by default, grantable as `orders:refund` is. An AI acting for an account that holds it
  *   may draft one; its write always waits for a person who holds it too, so a checklist staff are
  *   asked to follow is always one a person approved.
+ * - `inbox:read` read the shared inbox: conversations, their messages and staff notes (stage 36,
+ *   ADR 0740). Every role; a private conversation only for admins and whoever has it. A pack role
+ *   holds none of the inbox permissions, and none is grantable.
+ * - `inbox:work` take, assign, close and reopen conversations, write notes and mark one private.
+ *   Admins and members.
+ * - `inbox:manage` the inbox's settings and shared saved replies. Admins.
  */
 export const PERMISSIONS = [
   "records:read",
@@ -109,6 +115,9 @@ export const PERMISSIONS = [
   "agreements:paper",
   "agreements:health",
   "checklists:write",
+  "inbox:read",
+  "inbox:work",
+  "inbox:manage",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -122,8 +131,8 @@ export const CORE_PERMISSION_NAMESPACES: readonly string[] = [
 ];
 
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
-  viewer: ["records:read"],
-  member: ["records:read", "records:write"],
+  viewer: ["records:read", "inbox:read"],
+  member: ["records:read", "records:write", "inbox:read", "inbox:work"],
   admin: PERMISSIONS,
 };
 
@@ -170,13 +179,16 @@ export function holdsPermission(
  * Policy changes stay human-only whatever the scope: `policy.update` is `actors: ["human"]`.
  * `write` carries `records:publish` (ADR 0480): with it a client may only ask for a publish, for
  * an account that holds the permission, and a person approves every request.
+ * `read` and `write` carry the inbox's read and work (ADR 0740): a client sees the conversations
+ * its user may see, and what only a person may do there (marking private, linking a sender) is
+ * `actors: ["human"]` whatever the scope.
  */
 export const MCP_SCOPES = ["read", "write", "admin"] as const;
 export type McpScope = (typeof MCP_SCOPES)[number];
 
 export const SCOPE_PERMISSIONS: Record<McpScope, readonly Permission[]> = {
-  read: ["records:read"],
-  write: ["records:read", "records:write", "records:publish"],
+  read: ["records:read", "inbox:read"],
+  write: ["records:read", "records:write", "records:publish", "inbox:read", "inbox:work"],
   admin: PERMISSIONS,
 };
 

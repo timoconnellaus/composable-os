@@ -7,9 +7,9 @@
 //                              ─► Vectorize upsert / delete ─► core_embedding (hash) ─► dequeue
 //
 // The text is built here, from the live tables, so it is never embedded for a record that is
-// deleted, private (`private_to`), or synced with less than full disclosure: ADR 0112's
-// restricted reads are never written at all, and metadata-only and private activities are
-// skipped. A record with nothing to embed has its vector deleted, which is also how an erase
+// deleted, private (`private_to`, or in a private conversation), or synced with less than full
+// disclosure: ADR 0112's restricted reads are never written at all, and metadata-only and private
+// activities are skipped. A record with nothing to embed has its vector deleted, which is also how an erase
 // (ADR 0019) removes vectors.
 //
 // The seam (`EmbeddingProducer`): today the pipeline enqueues and cos-app drains after the commit;
@@ -21,6 +21,7 @@ import { type Compilable, type CompiledQuery, type Kysely, sql } from "kysely";
 type Statement = Compilable | CompiledQuery;
 
 import { getObject, isCoreObject, listObjects } from "../fields/index.ts";
+import { notInPrivateConversation } from "../inbox/index.ts";
 import type { RecordChange } from "../operation.ts";
 import { jsonList } from "../records/common.ts";
 import type { ModelRunner } from "./client.ts";
@@ -43,10 +44,12 @@ export const SELF_ENQUEUEING: ReadonlySet<string> = new Set([
   "sync.ingest",
   "person.erase",
   "organisation.erase",
+  "conversation.setPrivate",
+  "message.note",
 ]);
 
 /** Activity types worth embedding (not `system` posts like "Stage changed"). */
-const ACTIVITY_TYPES = ["note", "email", "call", "meeting"];
+const ACTIVITY_TYPES = ["note", "email", "call", "meeting", "chat"];
 
 /** Fields whose change can change a record's embedding text, per core object. */
 const TEXT_FIELDS: Record<string, readonly string[]> = {
@@ -121,6 +124,23 @@ export function enqueueEmbeddings(
     SELECT json_extract(j.value, '$[0]'), json_extract(j.value, '$[1]'), ${now}, 0
     FROM json_each(${json}) j
     WHERE true
+    ON CONFLICT (object_type, record_id) DO UPDATE SET queued_at = excluded.queued_at, attempts = 0
+  `.compile(db);
+}
+
+/**
+ * Queues every activity of a conversation, in one statement however many it has: marking it
+ * private deletes their vectors at the drain (a private conversation's messages have no text to
+ * embed), and unmarking it embeds them again (stage 36, ADR 0740).
+ */
+export function enqueueConversationEmbeddings(
+  db: Kysely<CoreDatabase>,
+  conversationId: string,
+  now: string,
+): Statement {
+  return sql`
+    INSERT INTO core_embedding_queue (object_type, record_id, queued_at, attempts)
+    SELECT 'activity', a.id, ${now}, 0 FROM core_activity a WHERE a.conversation_id = ${conversationId}
     ON CONFLICT (object_type, record_id) DO UPDATE SET queued_at = excluded.queued_at, attempts = 0
   `.compile(db);
 }
@@ -217,10 +237,11 @@ export async function embeddingTexts(
       subject: string | null;
       body: string | null;
     }>`
-      SELECT id, type, subject, body FROM core_activity
-      WHERE id IN ${list} AND deleted_at IS NULL AND private_to IS NULL
-        AND (disclosure IS NULL OR disclosure = 'full')
-        AND type IN ${jsonList(ACTIVITY_TYPES)}`.execute(db);
+      SELECT a.id, a.type, a.subject, a.body FROM core_activity a
+      WHERE a.id IN ${list} AND a.deleted_at IS NULL AND a.private_to IS NULL
+        AND (a.disclosure IS NULL OR a.disclosure = 'full')
+        AND a.type IN ${jsonList(ACTIVITY_TYPES)}
+        AND ${notInPrivateConversation("a")}`.execute(db);
     for (const r of rows.rows) {
       const text = `${r.subject ?? ""}\n${r.body ?? ""}`.trim();
       if (text) out.set(r.id, clip(`${r.type}: ${text}`));

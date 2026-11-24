@@ -109,6 +109,8 @@ export const ID_PREFIXES = {
   checklistNote: "ckn",
   /** One tick of a checklist run's step, never changed (ADR 0650). */
   checklistTick: "ckt",
+  /** A conversation in the shared inbox (stage 36, ADR 0740). */
+  conversation: "cnv",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;
