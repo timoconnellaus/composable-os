@@ -116,3 +116,15 @@ describe("an AI's restore is a roster change when it brings back who works a shi
     );
   });
 });
+
+describe("an AI's update is a roster change when it moves a shift that has started (ADR 0627)", () => {
+  it("only when a time changes: not when it sends the end the shift already has", async () => {
+    const id = await shift(null);
+    const during = "2026-06-02T09:30:00.000Z";
+    const update = (values: Record<string, unknown>) =>
+      rosterChangeCall(db.query, "record.update", { object: SHIFT, id, values }, during);
+    expect(await update({ name: "Renamed", endsAt: "2026-06-02T10:00:00.000Z" })).toBe(false);
+    expect(await update({ endsAt: "2026-06-02T11:00:00.000Z" })).toBe(true);
+    expect(await update({ startsAt: "2026-06-02T09:15:00.000Z" })).toBe(true);
+  });
+});

@@ -73,7 +73,7 @@ function Account() {
         sessions: sessions.items,
         family,
         orders: orders.orders,
-        subscriptions: subscriptions.items as AccountSubscription[],
+        subscriptions: subscriptions.items,
       });
     } catch (error) {
       if (signedOut(error)) window.location.assign("/sign-in");

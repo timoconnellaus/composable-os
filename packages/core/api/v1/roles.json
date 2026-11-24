@@ -207,6 +207,18 @@
     "courses": ["programs", "content"],
     "memberships": ["programs"]
   },
+  "owner": {
+    "operations": [
+      "approval.approve",
+      "approval.get",
+      "approval.list",
+      "approval.reject",
+      "notification.list",
+      "notification.markRead",
+      "notification.unreadCount",
+      "user.me"
+    ]
+  },
   "portal": {
     "bookings": {
       "hooks": "createBookingsHooks",

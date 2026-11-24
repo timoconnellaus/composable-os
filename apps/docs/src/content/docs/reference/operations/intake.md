@@ -8,7 +8,7 @@ editUrl: false
 
 ## intake.open
 
-From a pack's tool: one of its forms as the caller may answer it now (published, open, within its dates and open to them; otherwise not found, whatever the reason). Returns the published version's number and content (its questions, title and thank-you words) and, for a caller who is not signed in, `shown`: the host's token of when the form was shown, which intake.submit needs to tell a person from a script. Read-only.
+From a pack's tool: one of its forms as the caller may answer it now (published, open, within its dates and open to them; otherwise not found, whatever the reason). Returns the published version's number and content (its questions, title and thank-you words) and, for a caller who is not signed in, `shown`: the host's token of when the form was shown, which intake.submit needs to tell a person from a script. Give the form's id, or its address (`slug`) when the form object has one: a link or a QR code names a form by its address. Read-only.
 
 |  |  |
 | --- | --- |
@@ -22,7 +22,8 @@ From a pack's tool: one of its forms as the caller may answer it now (published,
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
 | `object` | string | yes | min length 1, max length 81 | The form object, e.g. forms.form |
-| `id` | string | yes | min length 1, max length 64 |   |
+| `id` | string |   | min length 1, max length 64 |   |
+| `slug` | string |   | min length 1, max length 200 | The form's address, instead of id |
 
 ### Output
 

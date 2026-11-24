@@ -146,11 +146,10 @@ export function eraseJourneyStatements(
   personIds: readonly string[],
 ): CompiledQuery[] {
   if (!personIds.length) return [];
-  const ids = JSON.stringify([...personIds]);
+  const ids = jsonList(personIds);
   return [
     sql`DELETE FROM core_journey_step_log WHERE entry_id IN (SELECT e.id FROM core_journey_entry e
-      WHERE e.person_id IN (SELECT value FROM json_each(${ids})))`.compile(db),
-    sql`DELETE FROM core_journey_entry
-      WHERE person_id IN (SELECT value FROM json_each(${ids}))`.compile(db),
+      WHERE e.person_id IN ${ids})`.compile(db),
+    sql`DELETE FROM core_journey_entry WHERE person_id IN ${ids}`.compile(db),
   ];
 }

@@ -34,6 +34,7 @@ import type { ObjectDefinition } from "../fields/types.ts";
 import { notifyStatements } from "../notifications/send.ts";
 import { type HandlerContext, type RecordChange, recordHostChange } from "../operation.ts";
 import { createRecord } from "../operations/record.ts";
+import { extensionSettingValues } from "../records/windows.ts";
 import { orgReader } from "../visibility/index.ts";
 import { type Asker, type OpenForm, openForm } from "./forms.ts";
 import { personAnswers, type Submitter, submitterOf } from "./person.ts";
@@ -43,7 +44,7 @@ import { NO_INTAKE_RUNTIME } from "./runtime.ts";
 export const MIN_FILL_MS = 3000;
 /** A shown-time token older than this is refused: the client loads the form again. */
 export const SHOWN_MAX_MS = 24 * 60 * 60 * 1000;
-/** Submissions an hour per deployment, across every form (the spec's default). */
+/** Submissions an hour per deployment, across every form (the spec's default; a pack's setting). */
 export const DEPLOYMENT_HOURLY_CAP = 200;
 /** A mailbox's submissions to one form in 24 hours before the next is kept as spam. */
 export const MAILBOX_DAILY_LIMIT = 5;
@@ -136,6 +137,19 @@ async function countSince(
   return Number(row.rows[0]?.n ?? 0);
 }
 
+/**
+ * The deployment's hourly cap: the form object's `hourlyCap` setting (one a person approves) when
+ * it holds a whole number of at least 1, else the platform's 200.
+ */
+async function hourlyCapOf(ctx: HandlerContext, form: OpenForm): Promise<number> {
+  const setting = form.object.intake.hourlyCap;
+  if (!setting || !form.object.extension) return DEPLOYMENT_HOURLY_CAP;
+  const value = (await extensionSettingValues(ctx.db, form.object.extension))[setting];
+  return typeof value === "number" && Number.isInteger(value) && value >= 1
+    ? value
+    : DEPLOYMENT_HOURLY_CAP;
+}
+
 /** Over the deployment's hourly cap or the form's daily one: admins told once, "try later". */
 async function assertUnderCaps(ctx: HandlerContext, form: OpenForm) {
   const { submission, object } = form;
@@ -152,11 +166,12 @@ async function assertUnderCaps(ctx: HandlerContext, form: OpenForm) {
     const column = columnOf(other, other.intake.form);
     if (column) lastHour += await countSince(ctx, other, column, hourAgo);
   }
-  if (lastHour >= DEPLOYMENT_HOURLY_CAP) {
+  const hourlyCap = await hourlyCapOf(ctx, form);
+  if (lastHour >= hourlyCap) {
     await tellAdmins(
       ctx,
       "Forms are taking more answers than usual",
-      `${DEPLOYMENT_HOURLY_CAP} answers came in within an hour, so new ones are turned away for ` +
+      `${hourlyCap} answers came in within an hour, so new ones are turned away for ` +
         "now. If this is not a busy day, it may be spam.",
       `intake.hourly_cap:${ctx.now.slice(0, 13)}`,
     );
@@ -222,6 +237,16 @@ function destinationValues(
     out[map.field] = answer.kind === "choice" ? (answer.values[0] ?? null) : answer.value;
   }
   return out;
+}
+
+/** Whether the person ticked a `marketing` consent line of these questions ("keep me updated"). */
+function tickedMarketing(questions: Questions, answers: Answers): boolean {
+  return questions.items.some(
+    (item) =>
+      item.kind === "consent" &&
+      item.purpose === "marketing" &&
+      answers.answers.some((a) => a.key === item.key && "value" in a && a.value === true),
+  );
 }
 
 /** The first rating answer, in the questions' order (for dashboards). */
@@ -381,6 +406,9 @@ export async function submitIntake(
     ...(submitter ? { [declared.certainty]: submitter.certainty } : {}),
     ...(declared.via && via ? { [declared.via]: via } : {}),
     ...(declared.rating ? { [declared.rating]: firstRating(answers) } : {}),
+    ...(declared.marketing
+      ? { [declared.marketing]: tickedMarketing(form.questions, answers) }
+      : {}),
     ...(spam && states ? { [states.field]: declared.spam } : {}),
   };
   const created = submitter?.created === true;

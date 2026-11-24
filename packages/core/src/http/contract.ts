@@ -87,6 +87,43 @@ export interface PackRolesFile {
    * client app's `account-sections.gen.ts` from this.
    */
   portal?: Record<string, PortalPackFile>;
+  /**
+   * The owner's client (stage 60, ADR 0872): the staff operations Today needs, as this release
+   * serves them (`OWNER_CLIENT_OPERATIONS` less any it does not have yet). `mobile.owner: true`
+   * writes `roles/owner.ts` from it. Absent from a release older than the owner's client.
+   */
+  owner?: { operations: string[] };
+}
+
+/**
+ * Every operation the owner's client may hold (stage 60, ADR 0872): Today and its drill-in rows,
+ * one's own alerts, the four approval operations, the notice inbox's three and who is signed in.
+ * Not a pack role: any staff account may sign in with it, and the host decides every call. A
+ * release writes into `roles.json` the ones it serves (`ownerClientOperations`), so an operation
+ * of a later step joins the client when its release does. Adding one here is a reviewed change:
+ * each name is in the company's public app bundle (ADR 0451).
+ */
+export const OWNER_CLIENT_OPERATIONS: readonly string[] = Object.freeze([
+  "today.get",
+  "today.rows",
+  "today.alerts",
+  "today.setAlerts",
+  "approval.list",
+  "approval.get",
+  "approval.approve",
+  "approval.reject",
+  "notification.list",
+  "notification.unreadCount",
+  "notification.markRead",
+  "user.me",
+]);
+
+/** The owner's client's operations a staff contract serves, sorted (`roles.json`'s `owner`). */
+export function ownerClientOperations(staff: ApiContract): string[] {
+  const served = new Set(
+    staff.operations.filter((op) => op.audiences.includes("staff")).map((op) => op.name),
+  );
+  return OWNER_CLIENT_OPERATIONS.filter((name) => served.has(name)).sort();
 }
 
 /** One carried pack's sections of My account, as the release's roles file holds them. */

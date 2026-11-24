@@ -1,6 +1,7 @@
 // Trash: soft-deleted people, organisations, activities and tasks (trash.list), newest first, in
 // a virtualised list that loads more as you scroll. Each is restorable with its object's restore
 // operation until its restorable-until date; restoring is optimistic and offers Undo.
+import type { CoreInput } from "@composable-os/core";
 import { Badge } from "@composable-os/ui/components/badge";
 import { Button } from "@composable-os/ui/components/button";
 import {
@@ -11,7 +12,7 @@ import {
   SelectValue,
 } from "@composable-os/ui/components/select";
 import { Skeleton } from "@composable-os/ui/components/skeleton";
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   Building2Icon,
@@ -31,12 +32,12 @@ import { PageCount, PageLayout } from "#/components/layout/page-layout";
 import { formatDate, formatDateTime } from "#/lib/format";
 import { callOp } from "#/lib/operations";
 import { updateCached } from "#/lib/optimistic";
-import { errorMessage, invalidateAfterWrite, opKey } from "#/lib/query";
+import { errorMessage, invalidateAfterWrite, useInfiniteOp } from "#/lib/query";
 import { useUserLabel } from "#/lib/users-adapter";
 
 export const Route = createFileRoute("/_app/trash")({ component: TrashPage });
 
-type TrashObject = "person" | "organisation" | "activity" | "task" | "media";
+type TrashObject = NonNullable<CoreInput<"trash.list">["object"]>;
 
 const OBJECTS: Record<TrashObject, { label: string; icon: LucideIcon }> = {
   person: { label: "Person", icon: UserIcon },
@@ -47,6 +48,9 @@ const OBJECTS: Record<TrashObject, { label: string; icon: LucideIcon }> = {
 };
 
 const ALL = "all";
+
+/** What putting an item in or out of Trash changes besides its own object: its links. */
+const TRASH_TOUCHES = ["person.", "organisation.", "affiliation."];
 
 /** Moves a restored item back to Trash (Undo). */
 function trashAgain(object: TrashObject, id: string) {
@@ -86,13 +90,7 @@ function TrashPage() {
   const [object, setObject] = useState<TrashObject | typeof ALL>(ALL);
   const [restoring, setRestoring] = useState<string | null>(null);
   const input = { ...(object === ALL ? {} : { object }), limit: 50 };
-  const trash = useInfiniteQuery({
-    queryKey: opKey("trash.list", input),
-    queryFn: ({ pageParam }) =>
-      callOp("trash.list", { ...input, ...(pageParam ? { cursor: pageParam } : {}) }),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (page) => page.nextCursor ?? undefined,
-  });
+  const trash = useInfiniteOp("trash.list", input);
   const items = useMemo(() => trash.data?.pages.flatMap((p) => p.items) ?? [], [trash.data]);
 
   async function onRestore(item: (typeof items)[number]) {
@@ -116,9 +114,7 @@ function TrashPage() {
           label: "Undo",
           onClick: () =>
             void trashAgain(item.object, item.id)
-              .then(() =>
-                invalidateAfterWrite(client, `${item.object}.delete`, ["person.", "organisation."]),
-              )
+              .then(() => invalidateAfterWrite(client, `${item.object}.delete`, TRASH_TOUCHES))
               .catch((error: unknown) => toast.error(errorMessage(error))),
         },
       });
@@ -127,7 +123,7 @@ function TrashPage() {
       toast.error(errorMessage(error));
     } finally {
       setRestoring(null);
-      await invalidateAfterWrite(client, `${item.object}.restore`, ["person.", "organisation."]);
+      await invalidateAfterWrite(client, `${item.object}.restore`, TRASH_TOUCHES);
     }
   }
 

@@ -18,6 +18,7 @@ import { orderLineObject } from "../fields/order.ts";
 import type { ObjectDefinition, TaxDefinition } from "../fields/types.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { type AnyRow, orgReader, visibleSource } from "../visibility/index.ts";
+import { viewRow } from "./sellable.ts";
 import { loadOrderTax, loadOrderTaxCodes } from "./settings.ts";
 
 /** An event's address for tax, as the provider takes it. */
@@ -83,12 +84,7 @@ async function readRow(
   object: ObjectDefinition,
   id: string,
 ): Promise<AnyRow | undefined> {
-  // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
-  return (await (db as any)
-    .selectFrom(visibleSource(orgReader(db), object))
-    .selectAll()
-    .where("id", "=", id)
-    .executeTakeFirst()) as AnyRow | undefined;
+  return viewRow(db, visibleSource(orgReader(db), object), id);
 }
 
 function fieldValue(object: ObjectDefinition, row: AnyRow, field: string | undefined): unknown {

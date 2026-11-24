@@ -5,6 +5,8 @@
 // the balance. The buyer is sent back to `returnUrl`, which must be on an origin the deployment
 // lists; coming back there tells the host nothing. Only the provider's verified webhook marks a
 // payment (orders/events.ts).
+
+import { sha256Hex } from "../digest.ts";
 import { ConflictError, ValidationError } from "../errors.ts";
 import type { HandlerContext } from "../operation.ts";
 import { openProviderCheckout, paymentsTarget } from "./gateway.ts";
@@ -26,12 +28,9 @@ export interface OpenedCheckout {
 /** A retried press of "Pay" within ten minutes, for the same amount, opens the same page. */
 const IDEMPOTENCY_WINDOW_MS = 10 * 60_000;
 
+/** The first 8 bytes of the SHA-256 of `text`, as 16 hex characters. */
 async function shortHash(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return [...new Uint8Array(digest)]
-    .slice(0, 8)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  return (await sha256Hex(text)).slice(0, 16);
 }
 
 const KIND_WORDS: Record<Charge["kind"], string> = {

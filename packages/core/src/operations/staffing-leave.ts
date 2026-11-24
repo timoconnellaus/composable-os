@@ -52,11 +52,15 @@ import {
   staffName,
 } from "../staffing/rosterers.ts";
 import { updateRecord } from "./record.ts";
-import { assertPersonApplies, assertShippedToolRun, requireAccount } from "./staffing.ts";
+import {
+  accountId,
+  assertPersonApplies,
+  assertShippedToolRun,
+  localDate,
+  localTime,
+  requireAccount,
+} from "./staffing.ts";
 
-const localDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date, YYYY-MM-DD");
-const localTime = z.string().regex(/^[0-2]\d:[0-5]\d$/, "a time, HH:MM");
-const accountId = z.string().min(1).max(64);
 const entityId = z.string().min(1).max(64);
 const note = z.string().max(500);
 const why = z.string().min(1).max(200);

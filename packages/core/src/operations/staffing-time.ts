@@ -39,12 +39,8 @@ import {
   secondsOf,
 } from "../staffing/time.ts";
 import { localParts } from "../time/local.ts";
-import { assertShippedToolRun, instantOf } from "./staffing.ts";
+import { assertShippedToolRun, instantOf, localDate, localDateTime } from "./staffing.ts";
 
-const localDateTime = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, "a local date and time, YYYY-MM-DDTHH:MM");
-const localDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date, YYYY-MM-DD");
 const againstRef = z.object({ object: z.string().min(1).max(81), id: z.string().min(1).max(64) });
 const breakMinutes = z.number().int().min(0).max(600);
 const note = z.string().max(500);
