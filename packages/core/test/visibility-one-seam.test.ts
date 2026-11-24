@@ -215,6 +215,12 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   // Deleting an account (stage 48 step 6, ADR 0713): the caller's own open orders, by the Person
   // the principal names, and their lines' titles, which the host then cancels as their order.cancel.
   "customers/account-delete.ts": [2, WHY.host],
+  // Cooling off (stage 44 step 7, ADR 0647): the subscriptions a payer or staff asked about, the
+  // payer checked by the host itself (a customer's own is the one they pay for, ADR 0487), their
+  // paid orders and the refunds owed on them, and (in the end's batch and its follow-ups) the
+  // bookings ahead the cooled-off membership paid for and the member's own waiting places, by the
+  // host.
+  "subscriptions/cooling-off.ts": [4, WHY.host],
   // `hasBought` (ADR 0458, #221): whose address it is, before anyone has signed in (no caller).
   "customers/accounts.ts": [2, WHY.org],
   // The subscription access source's `covers: "all"`: only live ids (stage 32a review, ADR 0488).
