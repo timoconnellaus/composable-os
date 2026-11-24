@@ -2,11 +2,15 @@ import type { ReactNode } from "react";
 import { SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { theme } from "./theme.ts";
 
-/** A screen: a title and its content, scrolling, inside the safe area. */
+/**
+ * A screen: a title and its content, scrolling, inside the safe area. A tap on a button lands
+ * while the keyboard is open (it does not only close the keyboard), so a form or a set's tick
+ * takes one tap.
+ */
 export function Screen({ title, children }: { title?: string; children: ReactNode }) {
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         {title ? <Text style={styles.title}>{title}</Text> : null}
         <View style={styles.body}>{children}</View>
       </ScrollView>

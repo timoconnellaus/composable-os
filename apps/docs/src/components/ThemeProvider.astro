@@ -1,0 +1,7 @@
+---
+// Light only (ADR 0465): the page is always light, whatever the system or a stored choice says.
+---
+
+<script is:inline>
+  document.documentElement.dataset.theme = "light";
+</script>

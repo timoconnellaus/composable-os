@@ -178,6 +178,11 @@ export interface HandlerContext {
    */
   readonly roleToday?: import("./pack-role-today.ts").TodayLimits | undefined;
   /**
+   * With `roleToday`: the moment whose local day it holds to (issue #290), the call's own or the
+   * one a tool's run carries on from the call that started it.
+   */
+  readonly roleTodayAt?: string | undefined;
+  /**
    * The staff caller's pack role limit to the People they look after (ADR 0889), with the
    * account it is for; absent when it holds no such role. A tool's run carries it on.
    */

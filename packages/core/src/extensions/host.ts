@@ -32,6 +32,8 @@ export interface ToolCaller {
    * account: the run's record reads and writes of these objects reach today's records only.
    */
   roleToday?: import("../pack-role-today.ts").TodayLimits;
+  /** With `roleToday`: the moment of the call that took the limit; its day is the run's today. */
+  roleTodayAt?: string;
   /**
    * The staff caller's pack role limit to the People they look after (ADR 0889): the run's
    * record reads and writes of these objects reach those People's records only.

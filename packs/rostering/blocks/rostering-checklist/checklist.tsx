@@ -261,7 +261,7 @@ export function ShiftChecklist({
                           <ul className="grid gap-1">
                             {step.history.map((h) => (
                               <li key={h.id}>
-                                {h.state === "cleared" ? h.label : tickLabel(h)}
+                                {tickLabel(h)}
                                 {h.why ? ` · Why: ${h.why}` : ""}
                                 {h.note ? ` · Note: ${h.note}` : ""}
                               </li>
