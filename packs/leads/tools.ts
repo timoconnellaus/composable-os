@@ -26,9 +26,9 @@ export const UNQUALIFIED_REASONS = [
 ] as const;
 
 /** The deal field Leads adds (`fields["deals.deal"].lead`), by its registry name. */
-export const DEAL_LEAD_FIELD = "leads.lead";
+const DEAL_LEAD_FIELD = "leads.lead";
 /** The lifecycle extension's person field, when that extension is installed. */
-export const LIFECYCLE_FIELD = "lifecycle.lifecycleStage";
+const LIFECYCLE_FIELD = "lifecycle.lifecycleStage";
 /** Lifecycle stages conversion moves forward to opportunity (later ones are left alone). */
 const BEFORE_OPPORTUNITY = new Set([
   null,
@@ -197,15 +197,7 @@ export const disqualify = defineTool({
   },
   input: z.object({
     leadId: z.string().min(1).describe("The lead (leads.lead record id)"),
-    reason: z.enum([
-      "noBudget",
-      "noNeed",
-      "noAuthority",
-      "badTiming",
-      "competitor",
-      "unresponsive",
-      "other",
-    ]),
+    reason: z.enum(UNQUALIFIED_REASONS.map((r) => r.value)),
   }),
   output: z.object({ leadId: z.string(), status: z.string(), reason: z.string() }),
   async handler(input, ctx) {
