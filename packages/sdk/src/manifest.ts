@@ -3,6 +3,7 @@
 // diffs and reconciles the manifest. `validateManifest` is the contract check `extension.check`
 // runs; it returns structured issues a model can act on.
 import { z } from "zod";
+import { MUST_READ_SCHEMA } from "./acknowledge.ts";
 import {
   agreementsManifestSchema,
   checkObjectAgreements,
@@ -287,6 +288,10 @@ export const objectManifestSchema = z.object({
       content: z.array(z.string().max(40)).min(1).max(40),
       slug: z.string().max(40).optional(),
       date: z.string().max(40).optional(),
+      acknowledge: z
+        .object({ who: z.string().max(40), manage: z.string().max(80) })
+        .strict()
+        .optional(),
     })
     .strict()
     .optional(),
@@ -1478,6 +1483,39 @@ export function validateManifest(
         contract(
           `objects.${name}.fields.${taken}`,
           `"${taken}" is the host's on a publishable object`,
+        );
+      }
+    }
+    // Read and understood (stage 38, ADR 0702): who must read is a "must read" document of the
+    // object's own, outside the content; who manages it is a restricted, grantable permission;
+    // and nobody outside the org reads the object.
+    if (p.acknowledge) {
+      const { who, manage } = p.acknowledge;
+      const field = object.fields[who];
+      if (
+        field?.type !== "document" ||
+        JSON.stringify(field.schema) !== JSON.stringify(MUST_READ_SCHEMA)
+      ) {
+        contract(
+          `${path}.acknowledge.who`,
+          `acknowledge.who must name a document field of ${name} whose schema is MUST_READ_SCHEMA`,
+        );
+      } else if (p.content.includes(who)) {
+        contract(
+          `${path}.acknowledge.who`,
+          "Who must read is not content: it changes at once, not with a publish. Leave it out of content",
+        );
+      }
+      if (!(m.restricted ?? []).includes(manage) || !(m.grantable ?? []).includes(manage)) {
+        contract(
+          `${path}.acknowledge.manage`,
+          `acknowledge.manage must be a restricted and grantable permission of this extension (restricted and grantable list "${manage}")`,
+        );
+      }
+      if (object.public || object.signedIn) {
+        contract(
+          `${path}.acknowledge`,
+          "An acknowledged object is for staff: it declares no public or signedIn",
         );
       }
     }

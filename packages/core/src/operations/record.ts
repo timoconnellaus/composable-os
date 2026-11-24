@@ -50,6 +50,7 @@ import { newId } from "../ids.ts";
 import { listInputSchema, pageSchema, runListQuery } from "../list.ts";
 import type { RecordRef } from "../operation.ts";
 import { defineOperation, type HandlerContext, personsTool } from "../operation.ts";
+import { assertMayChangeMustRead } from "../records/acknowledge.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { jsonList, restorableUntil, TRASH_RETENTION_DAYS } from "../records/common.ts";
 import { FOLLOWERS_MAX, followerIds, followersOf } from "../records/follows.ts";
@@ -694,6 +695,8 @@ export async function createRecord(
   const asked = requester
     ? await resolveStateRequest(ctx, object, null, values, requester)
     : values;
+  // Who must read a record staff confirm is a person's choice (ADR 0702).
+  if (options.by !== "host") await assertMayChangeMustRead(ctx, object, null, asked, null);
   // What an order line grants, given by a person's tool instead (a pass by hand, ADR 0513): its
   // dates are the host's, as a paid line's are, and an intro offer's one per Person is used.
   const handed =
@@ -1093,6 +1096,8 @@ export async function updateRecord(
   // A move asked for by name (`cancel`) becomes the state the host picks (ADR 0503).
   const asked = await resolveStateRequest(ctx, object, before.values, values, by);
   if (options.from !== undefined) assertMovesFrom(object, before.values, asked, options.from);
+  // Who must read a record staff confirm: a person's, and once published a manager's (ADR 0702).
+  if (by !== "host") await assertMayChangeMustRead(ctx, object, id, asked, before.values);
   let prepared = await prepareValues(ctx, object, asked, "update", options);
   if (!prepared.length) return false;
   assertRuleValues(object, { ...before.values, ...valuesOf(prepared) });
@@ -1740,6 +1745,8 @@ export const objectInfoSchema = z.object({
       slug: z.string().nullable(),
       date: z.string().nullable(),
       public: z.boolean(),
+      /** Staff who must read it confirm each version that asks them (ADR 0702). */
+      acknowledged: z.boolean(),
     })
     .nullable(),
   timelineLinks: z.array(z.string()),
@@ -1781,6 +1788,7 @@ export function objectInfo(object: ObjectDefinition): ObjectInfo {
           slug: object.publishable.slug ?? null,
           date: object.publishable.date ?? null,
           public: Boolean(object.public),
+          acknowledged: Boolean(object.publishable.acknowledge),
         }
       : null,
     timelineLinks: [...(object.timelineLinks ?? [])],

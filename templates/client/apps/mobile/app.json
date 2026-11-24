@@ -6,7 +6,8 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "extra": {
-      "hostUrl": "https://admin.example.com"
+      "hostUrl": "https://admin.example.com",
+      "websiteUrl": "https://www.example.com/account"
     }
   }
 }
