@@ -205,8 +205,9 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   // host's own statements at the end of the write's batch.
   "stock/low.ts": [1, WHY.write],
   // stockMoves (ADR 0681): a moved record's lines (a count's), and whether the record a line is
-  // added to has already moved stock, read by the write that moves or changes them.
-  "stock/moves.ts": [4, WHY.write],
+  // added to, or restored onto, has already moved stock, read by the write that moves or changes
+  // them; and the guard in the apply's batch counting its lines again at the commit.
+  "stock/moves.ts": [7, WHY.write],
   // Whether an object gaining or losing `stock` has any record or counter (ADR 0680, the review
   // of #370): one row at most, read by the reconcile that would change it.
   "extensions/reconciler.ts": [1, WHY.write],
