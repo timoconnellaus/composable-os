@@ -28,6 +28,7 @@ import {
   type NotificationSendInput,
   notificationInput,
 } from "./automation.ts";
+import { DEFAULT_WAIT_TIMEOUT, NOTIFY_OPERATION } from "./automation-check.ts";
 import { type AiModule, type Extension, GATEKEEPER_MODULES, type StartedBy } from "./contract.ts";
 import { validateDocument } from "./document.ts";
 import type { ExtensionManifest, ManifestIssue, ValidateOptions } from "./manifest.ts";
@@ -515,7 +516,7 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
   let observer:
     | ((operation: string, input: Record<string, unknown>, value: unknown) => void)
     | null = null;
-  builtIn["notification.send"] = (input) => {
+  builtIn[NOTIFY_OPERATION] = (input) => {
     const notes: string[] = [];
     const admins = users.filter((u) => u.role === "admin").map((u) => u.id);
     const ids: string[] = [];
@@ -766,7 +767,7 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
       stepName ? `step ${stepName}` : "run (outside a step)";
     const notificationsBefore = notifications.length;
     observer = (operation, input, value) => {
-      if (operation === "notification.send") {
+      if (operation === NOTIFY_OPERATION) {
         if (!declaresNotify(currentStep)) {
           result.undeclared.push(`${where(currentStep)} sent a notification (not in its notifies)`);
         }
@@ -796,7 +797,7 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
         const n = (notifyCounts.get(key) ?? 0) + 1;
         notifyCounts.set(key, n);
         const input = notificationInput(event, to, message, `${key}:${n}`);
-        const sent = await base.ops.call<{ sent: number }>("notification.send", input);
+        const sent = await base.ops.call<{ sent: number }>(NOTIFY_OPERATION, input);
         return { sent: sent.sent };
       },
     };
@@ -854,7 +855,7 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
           name: stepName,
           kind: "waitForEvent",
           value,
-          skippedMs: durationMs((step.timeout ?? "7 days") as never),
+          skippedMs: durationMs((step.timeout ?? DEFAULT_WAIT_TIMEOUT) as never),
           calls: [],
         });
         return value;

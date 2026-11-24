@@ -5,7 +5,7 @@
 // the internal kind, the org route "deal won → #sales" fired by the automation consumer exactly
 // once, and the minute cron's tick.
 
-import { env, exports } from "cloudflare:workers";
+import { env } from "cloudflare:workers";
 import {
   type ActingUser,
   installShippedExtensions,
@@ -19,12 +19,10 @@ import { fakeProviderStub } from "../src/integrations/fake.ts";
 import { blobStore, integrationRuntime } from "../src/integrations/runtime.ts";
 import { NOTIFICATION_ORIGIN, runNotificationCron } from "../src/notifications/deliver.ts";
 import { dispatch, runWorkflows, setPreset, withEvents } from "./automation-fixture.ts";
-import { createAdmin, db, host, unique } from "./helpers.ts";
+import { connectFake } from "./fake-connection.ts";
+import { createAdmin, createMember, db, host, unique } from "./helpers.ts";
 
 const integrations = integrationRuntime(env);
-const runner = exports.default as unknown as {
-  gatekeeperFetch(vendor: string, request: Request): Promise<Response>;
-};
 
 function op<T>(user: ActingUser, name: string, input: unknown) {
   return invokeByName(name, input, {
@@ -36,34 +34,6 @@ function op<T>(user: ActingUser, name: string, input: unknown) {
     blobs: blobStore(env),
     extensionHost: host,
   }) as Promise<T>;
-}
-
-async function createMember(): Promise<ActingUser> {
-  const user = await createAdmin();
-  await env.DB.prepare("UPDATE core_user SET role = 'member' WHERE id = ?").bind(user.id).run();
-  return { ...user, role: "member" };
-}
-
-/** The fake provider's consent page and handoff (see integrations.test.ts). */
-async function connectFake(owner: ActingUser, address: string): Promise<string> {
-  const created = await op<{ connection: { id: string }; connect: { url: string; nonce: string } }>(
-    owner,
-    "connection.create",
-    { vendor: "fake", scope: "org", sharingLevel: "full" },
-  );
-  const url = `http://crm.test${created.connect.url}`;
-  await runner.gatekeeperFetch("fake", new Request(url));
-  const done = await runner.gatekeeperFetch(
-    "fake",
-    new Request(url, { method: "POST", body: new URLSearchParams({ address }) }),
-  );
-  const ticket = /var ticket = "([^"]+)"/.exec(await done.text())?.[1] ?? "";
-  await op(owner, "connection.completeConnect", {
-    connectionId: created.connection.id,
-    ticket,
-    nonce: created.connect.nonce,
-  });
-  return created.connection.id;
 }
 
 async function notify(userId: string, title: string, link: unknown = null) {
@@ -175,7 +145,7 @@ describe("email through the email-send gatekeeper", () => {
 describe("Slack through the fake provider's workspace", () => {
   it("DMs a person who chose Slack, and posts each org route once", async () => {
     slackAddress = `${unique("team")}@fake.test`;
-    const connection = await connectFake(admin, slackAddress);
+    const connection = await connectFake((name, input) => op(admin, name, input), slackAddress);
     await op(admin, "connection.bindResource", {
       id: connection,
       url: `fake://slack/${slackAddress}`,

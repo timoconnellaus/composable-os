@@ -10,7 +10,7 @@ import { validateManifest } from "@composable-os/sdk";
 import { beforeAll, describe, expect, it } from "vitest";
 import { type ActingUser, checkManifest, invokeByName, runStaffingDue } from "../src/index.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
-import { context, createUser, db } from "./helpers.ts";
+import { context, createUser, db, refusal } from "./helpers.ts";
 
 const ext = extId("sttime");
 const KIND = `${ext}.kind`;
@@ -165,15 +165,6 @@ type Entry = {
 type Answer = { id: string; entry: Entry; proposed?: boolean; replayed?: boolean };
 const time = <T = Answer>(name: string, input: unknown, user: ActingUser, now = NOW) =>
   invokeByName(`staffing.time.${name}`, input, tool(user, now)) as Promise<T>;
-async function refusal(promise: Promise<unknown>) {
-  const error = await promise.then(
-    () => null,
-    (e: unknown) => e,
-  );
-  expect(error).toBeTruthy();
-  return error as { code: string; message: string; details?: Record<string, unknown> };
-}
-
 async function create(object: string, values: Record<string, unknown>, now = BEFORE) {
   return (
     (await invokeByName(

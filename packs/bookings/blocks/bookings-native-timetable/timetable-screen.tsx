@@ -93,7 +93,9 @@ export function TimetableScreen({
         <List empty="No classes in these days.">
           {timetable.data.classes.map((klass) => (
             <ClassItem
-              key={klass.id}
+              // One item per person and class: a cancel started for one person is never confirmed
+              // for another after "Booking for" changes (as the web timetable).
+              key={`${chosen?.personId ?? "self"}:${klass.id}`}
               klass={klass}
               booking={bookingFor(klass.id, mine.data?.bookings)}
               forPerson={chosen ? { id: chosen.personId, name: chosen.name } : null}
