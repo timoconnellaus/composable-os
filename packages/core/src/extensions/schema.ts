@@ -15,6 +15,7 @@ import {
   type FieldManifest,
   type FieldTypeName,
   formulaTypeOf,
+  type IntakeManifest,
   isDocumentType,
   RECURRING_HORIZON_DAYS,
   type RecurringScheduleManifest,
@@ -85,6 +86,8 @@ export interface ObjectDefinitionJson {
   recurring?: RecurringScheduleManifest;
   /** A shift (stage 45, ADR 0621), as declared. */
   staffed?: StaffedManifest;
+  /** The public-write door (stage 29, ADR 0720), as declared. */
+  intake?: IntakeManifest;
   /** A checklist its person ticks off (stage 45 step 4b, ADR 0650), as declared. */
   checklists?: ChecklistsManifest;
   owner?: string;
@@ -805,6 +808,18 @@ function claimsDefinition(
 }
 
 /** The recurring declaration (ADR 0500), with the objects' registry names. */
+/** The intake declaration (ADR 0720), with a submission's form object's registry name. */
+function intakeDefinition(
+  object: ObjectState,
+  own: readonly FieldState[],
+): Pick<ObjectDefinition, "intake"> {
+  const declared = object.definition.intake;
+  if (!declared) return {};
+  if (declared.role !== "submission") return { intake: declared };
+  const formObject = own.find((f) => f.localName === declared.form)?.definition.to ?? "";
+  return { intake: { ...declared, formObject } };
+}
+
 /** The staffed declaration (ADR 0621), with the account holder's registry name. */
 function staffedDefinition(
   object: ObjectState,
@@ -1172,6 +1187,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...(object.definition.unique?.length ? { unique: object.definition.unique } : {}),
       ...recurringDefinition(object),
       ...staffedDefinition(object, own),
+      ...intakeDefinition(object, own),
       ...checklistsDefinition(object, own),
       ...(object.definition.owner ? { ownerField: object.definition.owner } : {}),
       ...(object.definition.customer ? { customer: object.definition.customer } : {}),

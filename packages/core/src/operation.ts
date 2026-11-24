@@ -18,6 +18,7 @@ import type { WidgetCache } from "./dashboards/cache.ts";
 import type { FieldDiff } from "./diff.ts";
 import type { ExtensionHost } from "./extensions/host.ts";
 import type { GateFloor } from "./gate.ts";
+import type { IntakeRuntime } from "./intake/runtime.ts";
 import type { BlobStore, IntegrationRuntime } from "./integrations/runtime.ts";
 import type { HostMail } from "./invites.ts";
 import type { Judge } from "./judge/types.ts";
@@ -233,6 +234,23 @@ export interface HandlerContext {
   readonly extension?: ExtensionCaller;
   /** The integration host, when the adapter provides one (connection.*, integration.*). */
   readonly integrations?: IntegrationRuntime;
+  /**
+   * The public-write door's runtime (stage 29, ADR 0722): the Turnstile check and the shown-time
+   * token, built by the adapter from an env-only secret. On a call from outside the org, given
+   * only to the `intake.*` operations' handlers.
+   */
+  readonly intake?: IntakeRuntime;
+  /**
+   * On a customer's or the public's call to a `hostInternal` core operation: the pack tool whose
+   * run made the call (ADR 0414), from the runner, never from the input.
+   */
+  readonly callingTool?: { extension: string; tool: string } | undefined;
+  /**
+   * On a customer's call to a `hostInternal` core operation: from now on nothing this call writes
+   * names the account (ADR 0725, an anonymous form): its audit row, its records' `created_by`, its
+   * values' marks and its events say only that a customer made it.
+   */
+  readonly anonymise?: (() => void) | undefined;
   /** Blob storage (R2) for email bodies, when the adapter provides it. */
   readonly blobs?: BlobStore;
   /** Where media originals are kept (stage 28, ADR 0444), when the adapter provides it. */

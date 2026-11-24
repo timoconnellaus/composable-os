@@ -1,0 +1,408 @@
+// The public-write door (stage 29 step 2, ADRs 0720 to 0722 and 0725): `intake.submit`'s work.
+// The one reviewed way the public may create a record. In order (the spec's abuse checks):
+//
+//   1. The edge rule (per client address, at the zone) has already counted the call.
+//   2. The form is published, open, within its dates and open to this caller; else not found.
+//   3. A public caller's Turnstile token is verified with the env-only secret; a host with no
+//      secret takes no public answers, and admins are told (once a day).
+//   4. The honeypot is empty and, for the public, the form was shown at least 3 seconds ago (the
+//      host's own shown-time token from `intake.open`). Failing either answers as a real
+//      submission does and stores nothing.
+//   5. At most 200 submissions an hour per deployment, and the form's own cap per 24 hours;
+//      over either, admins are told once and the caller gets "try later".
+//   6. The answers check against the version answered (types, required, lengths, at most 3 links
+//      in a text): refused naming the question's key, never the value.
+//   7. A sixth submission to one form in 24 hours from one mailbox (`mailboxKey`) is kept as spam,
+//      and answered as a real submission is.
+//
+// Then, in the call's one batch, as the host's change: the submitter's Person (made, or its empty
+// fields filled), the submission, any destination record, and the notice to staff. No client
+// address, user agent or device fingerprint is read or stored: the door is never given one.
+import {
+  type Answers,
+  checkAnswers,
+  INTAKE_SOURCE,
+  type IntakeVia,
+  type Questions,
+} from "@composable-os/sdk";
+import { type Compilable, sql } from "kysely";
+import { usableAddress } from "../customers/address-person.ts";
+import { mailboxKey } from "../customers/limits.ts";
+import { RateLimitedError, UnknownOperationError, ValidationError } from "../errors.ts";
+import { objectTableOf } from "../extensions/schema.ts";
+import type { ObjectDefinition } from "../fields/types.ts";
+import { notifyStatements } from "../notifications/send.ts";
+import { type HandlerContext, type RecordChange, recordHostChange } from "../operation.ts";
+import { createRecord } from "../operations/record.ts";
+import { orgReader } from "../visibility/index.ts";
+import { type Asker, type OpenForm, openForm } from "./forms.ts";
+import { personAnswers, type Submitter, submitterOf } from "./person.ts";
+import { NO_INTAKE_RUNTIME } from "./runtime.ts";
+
+/** A form shown less than this long before it is sent was not filled in by a person. */
+export const MIN_FILL_MS = 3000;
+/** A shown-time token older than this is refused: the client loads the form again. */
+export const SHOWN_MAX_MS = 24 * 60 * 60 * 1000;
+/** Submissions an hour per deployment, across every form (the spec's default). */
+export const DEPLOYMENT_HOURLY_CAP = 200;
+/** A mailbox's submissions to one form in 24 hours before the next is kept as spam. */
+export const MAILBOX_DAILY_LIMIT = 5;
+
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
+/** What every caller is told when their answers were taken, kept as spam, or dropped. */
+export const RECEIVED = { received: true as const };
+
+export const TRY_LATER_ANSWERS = "This form is taking a lot of answers just now: try again later";
+export const NOT_TAKING_ANSWERS = "This form cannot take answers just now: try again later";
+
+export interface SubmitInput {
+  object: string;
+  id: string;
+  answers: Record<string, unknown>;
+  via?: IntakeVia | undefined;
+  turnstileToken?: string | undefined;
+  shown?: string | undefined;
+  honeypot?: string | undefined;
+}
+
+/** Who is calling, from the verified context: never from the input. */
+export function askerOf(ctx: HandlerContext): Asker {
+  const caller = ctx.onBehalfOf ?? ctx.principal;
+  return caller.kind === "staff" ? "staff" : caller.kind === "customer" ? "customer" : "public";
+}
+
+/**
+ * The extension whose tool made this call, or a refusal: the door is reached from a pack's own
+ * tool only (staff included, ADR 0720), and only for that pack's own forms.
+ */
+export function assertCalledByOwner(ctx: HandlerContext, operation: string, object: string) {
+  const extension = askerOf(ctx) === "staff" ? ctx.extension?.id : ctx.callingTool?.extension;
+  if (!extension) throw new UnknownOperationError(operation);
+  if (!object.startsWith(`${extension}.`)) throw new UnknownOperationError(operation);
+}
+
+/** Runs `statements` now, outside the call's batch: a notice that must outlive a refusal. */
+async function commitNow(ctx: HandlerContext, statements: readonly Compilable[]) {
+  for (const statement of statements) {
+    try {
+      await ctx.db.executeQuery(statement.compile());
+    } catch (error) {
+      console.error("intake notice not written", String((error as Error)?.message ?? error));
+    }
+  }
+}
+
+/** Tells admins once per key (a repeat for the same key is ignored). */
+async function tellAdmins(ctx: HandlerContext, title: string, body: string, dedupeKey: string) {
+  const plan = await notifyStatements(
+    ctx.db,
+    {
+      to: [{ role: "admin" }],
+      type: "system.message",
+      title,
+      body,
+      dedupeKey,
+      source: { actor: "system" },
+    },
+    ctx.now,
+  );
+  await commitNow(ctx, plan.statements);
+}
+
+const columnOf = (object: ObjectDefinition, name: string) =>
+  object.fields.find((f) => f.name === name)?.column ?? null;
+
+/** Submissions of `object` made since `since`, of one form when given. */
+async function countSince(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  formColumn: string,
+  since: string,
+  form?: string,
+): Promise<number> {
+  const table = objectTableOf(object.name);
+  if (!table) return 0;
+  const row = await sql<{ n: number }>`
+    SELECT count(*) AS n FROM ${sql.table(table)}
+    WHERE created_at > ${since} ${form ? sql`AND ${sql.ref(formColumn)} = ${form}` : sql``}
+  `.execute(ctx.db);
+  return Number(row.rows[0]?.n ?? 0);
+}
+
+/** Over the deployment's hourly cap or the form's daily one: admins told once, "try later". */
+async function assertUnderCaps(ctx: HandlerContext, form: OpenForm) {
+  const { submission, object } = form;
+  const formColumn = columnOf(submission, submission.intake.form);
+  if (!formColumn) return;
+  const now = Date.parse(ctx.now);
+  const hourAgo = new Date(now - HOUR_MS).toISOString();
+  const day = ctx.now.slice(0, 10);
+  // The hourly cap counts every form's submissions, across every submission object.
+  const { listObjects } = await import("../fields/index.ts");
+  let lastHour = 0;
+  for (const other of listObjects()) {
+    if (other.intake?.role !== "submission") continue;
+    const column = columnOf(other, other.intake.form);
+    if (column) lastHour += await countSince(ctx, other, column, hourAgo);
+  }
+  if (lastHour >= DEPLOYMENT_HOURLY_CAP) {
+    await tellAdmins(
+      ctx,
+      "Forms are taking more answers than usual",
+      `${DEPLOYMENT_HOURLY_CAP} answers came in within an hour, so new ones are turned away for ` +
+        "now. If this is not a busy day, it may be spam.",
+      `intake.hourly_cap:${ctx.now.slice(0, 13)}`,
+    );
+    throw new RateLimitedError(TRY_LATER_ANSWERS, { rule: "intake_cap" });
+  }
+  const cap = object.intake.dailyCap ? form.values[object.intake.dailyCap] : null;
+  if (typeof cap === "number" && cap >= 0) {
+    const dayAgo = new Date(now - DAY_MS).toISOString();
+    if ((await countSince(ctx, submission, formColumn, dayAgo, form.id)) >= cap) {
+      await tellAdmins(
+        ctx,
+        "A form reached its daily limit",
+        `A form took ${cap} answers in a day, its limit, so new ones are turned away until ` +
+          "tomorrow. Raise the limit on the form if they are real.",
+        `intake.daily_cap:${form.id}:${day}`,
+      );
+      throw new RateLimitedError(TRY_LATER_ANSWERS, { rule: "intake_cap" });
+    }
+  }
+}
+
+/** Whether `email`'s mailbox sent this form `MAILBOX_DAILY_LIMIT` submissions in 24 hours. */
+async function mailboxOverLimit(ctx: HandlerContext, form: OpenForm, email: string) {
+  const { submission } = form;
+  const table = objectTableOf(submission.name);
+  const formColumn = columnOf(submission, submission.intake.form);
+  const answersColumn = columnOf(submission, submission.intake.answers);
+  if (!table || !formColumn || !answersColumn) return false;
+  const since = new Date(Date.parse(ctx.now) - DAY_MS).toISOString();
+  const rows = await sql<{ email: string | null }>`
+    SELECT json_extract(j.value, '$.value') AS email
+    FROM ${sql.table(table)} AS t, json_each(t.${sql.ref(answersColumn)}, '$.answers') AS j
+    WHERE t.${sql.ref(formColumn)} = ${form.id} AND t.created_at > ${since}
+      AND json_extract(j.value, '$.kind') = 'email'
+    LIMIT 5000
+  `.execute(ctx.db);
+  const mine = mailboxKey(email.toLowerCase());
+  let sent = 0;
+  for (const row of rows.rows) {
+    if (typeof row.email === "string" && mailboxKey(row.email.trim().toLowerCase()) === mine) {
+      sent += 1;
+      if (sent >= MAILBOX_DAILY_LIMIT) return true;
+    }
+  }
+  return false;
+}
+
+/** The answers the destination's listed fields take, from the questions that map to them. */
+function destinationValues(questions: Questions, answers: Answers): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const item of questions.items) {
+    const map = "map" in item ? item.map : undefined;
+    if (map?.to !== "destination") continue;
+    const answer = answers.answers.find((a) => a.key === item.key);
+    if (!answer) continue;
+    out[map.field] = answer.kind === "choice" ? (answer.values[0] ?? null) : answer.value;
+  }
+  return out;
+}
+
+/** The first rating answer, in the questions' order (for dashboards). */
+function firstRating(answers: Answers): number | null {
+  for (const answer of answers.answers) {
+    if (answer.kind === "rating" && typeof answer.value === "number") return answer.value;
+  }
+  return null;
+}
+
+/**
+ * The host's own view of the context for its writes: org-wide reads, the caller as who they are
+ * for, and every change recorded as the host's (ADR 0428). An anonymous submission's records
+ * name no account (ADR 0725).
+ */
+function hostView(ctx: HandlerContext, anonymous: boolean): HandlerContext {
+  if (ctx.principal.kind === "staff") return ctx;
+  const caller = ctx.principal;
+  return Object.create(ctx, {
+    principal: { value: orgReader(ctx.db).principal },
+    onBehalfOf: { value: caller },
+    actor: { value: "automation" },
+    user: {
+      value: {
+        id: caller.kind === "customer" && !anonymous ? caller.customerId : "public",
+        email: "",
+        name: caller.kind,
+        role: "viewer",
+      },
+    },
+    recordChange: { value: (change: RecordChange) => recordHostChange(ctx, change) },
+  }) as HandlerContext;
+}
+
+/** The door: see the file's comment. Answers the same whether the answers were kept or dropped. */
+export async function submitIntake(
+  ctx: HandlerContext,
+  input: SubmitInput,
+): Promise<typeof RECEIVED> {
+  const asker = askerOf(ctx);
+  assertCalledByOwner(ctx, "intake.submit", input.object);
+
+  // 2. Published, open, within its dates and open to this caller.
+  const form = await openForm(ctx, input.object, input.id, asker);
+
+  // 3. Turnstile, for the public.
+  const runtime = ctx.intake ?? NO_INTAKE_RUNTIME;
+  if (asker === "public") {
+    if (!runtime.turnstile) {
+      await tellAdmins(
+        ctx,
+        "Forms cannot take answers from the public",
+        "The spam check (Turnstile) has no secret on this deployment, so every answer from " +
+          "someone not signed in is turned away. Set TURNSTILE_SECRET_KEY (docs/deploying.md).",
+        `intake.turnstile_unset:${ctx.now.slice(0, 10)}`,
+      );
+      throw new ValidationError(NOT_TAKING_ANSWERS, { rule: "intake_unavailable" });
+    }
+    if (!input.turnstileToken) {
+      throw new ValidationError("The spam check did not run: try again", { rule: "turnstile" });
+    }
+    const verdict = await runtime.verifyTurnstile(input.turnstileToken);
+    if (verdict === "unavailable") {
+      throw new RateLimitedError("The spam check could not be made just now: try again shortly", {
+        rule: "turnstile_unavailable",
+      });
+    }
+    if (verdict !== "ok") {
+      throw new ValidationError("The spam check did not pass: try again", { rule: "turnstile" });
+    }
+  }
+
+  // 4. The honeypot (anyone outside) and the fill time (the public): success, nothing stored.
+  if (asker !== "staff") {
+    if (input.honeypot) return RECEIVED;
+    if (asker === "public") {
+      const shown = input.shown ? await runtime.readShown(form.id, input.shown) : null;
+      if (!shown) return RECEIVED;
+      const age = Date.parse(ctx.now) - Date.parse(shown);
+      if (age < MIN_FILL_MS) return RECEIVED;
+      if (age > SHOWN_MAX_MS) {
+        throw new ValidationError("This form was open a long time: load it again and send", {
+          rule: "intake_reload",
+        });
+      }
+    }
+  }
+
+  // 5. The caps.
+  if (asker !== "staff") await assertUnderCaps(ctx, form);
+
+  // 6. The answers, against the version answered.
+  const checked = checkAnswers(form.questions, input.answers);
+  if (!checked.ok) {
+    throw new ValidationError("Some answers need another look", {
+      rule: "answers",
+      issues: checked.issues,
+    });
+  }
+  const answers = checked.answers;
+  // A "keep me updated" tick is the person's own (decision 10): staff, and an AI working for
+  // staff, never tick one for someone.
+  if (asker === "staff") {
+    const ticked = form.questions.items.find(
+      (item) =>
+        item.kind === "consent" &&
+        item.purpose === "marketing" &&
+        answers.answers.some((a) => a.key === item.key && "value" in a && a.value === true),
+    );
+    if (ticked) {
+      throw new ValidationError("Only the person may tick this", {
+        rule: "answers",
+        issues: [{ key: ticked.key, fault: "consent", message: "Only the person may tick this" }],
+      });
+    }
+  }
+  const via = asker === "staff" ? "staff" : input.via;
+  if (asker !== "staff" && (via === "staff" || via === "link")) {
+    throw new ValidationError("That is not a way in for this call", { field: "via" });
+  }
+
+  // 7. The per-mailbox count, then the submitter's Person (none on an anonymous form). Spam makes
+  // no Person and fills nothing: it is kept with the caller's own Person or none.
+  const view = hostView(ctx, form.anonymous);
+  // Nothing of an anonymous submission names the account that sent it (ADR 0725).
+  if (form.anonymous && asker === "customer") ctx.anonymise?.();
+  const given = form.anonymous ? {} : personAnswers(form.questions, answers);
+  const typed = given.email && asker !== "customer" ? await usableAddress(ctx, given.email) : null;
+  const spam =
+    asker !== "staff" && given.email ? await mailboxOverLimit(ctx, form, given.email) : false;
+  const caller = ctx.onBehalfOf ?? ctx.principal;
+  const submitter: Submitter | null = form.anonymous
+    ? null
+    : spam
+      ? caller.kind === "customer"
+        ? { personId: caller.personId, certainty: "account", email: null, created: false }
+        : { personId: null, certainty: "address", email: typed, created: false }
+      : await submitterOf(view, given, asker);
+
+  // The submission, as the host's own change.
+  const { submission } = form;
+  const declared = submission.intake;
+  const states = submission.states;
+  const values: Record<string, unknown> = {
+    [declared.form]: form.id,
+    [declared.version]: form.version,
+    [declared.answers]: answers,
+    ...(submitter?.personId ? { [declared.person]: submitter.personId } : {}),
+    ...(submitter ? { [declared.certainty]: submitter.certainty } : {}),
+    ...(declared.via && via ? { [declared.via]: via } : {}),
+    ...(declared.rating ? { [declared.rating]: firstRating(answers) } : {}),
+    ...(spam && states ? { [states.field]: declared.spam } : {}),
+  };
+  const created = submitter?.created === true;
+  const submissionId = await createRecord(view, submission, values, {
+    by: "host",
+    // The Person made in this batch cannot be read yet; the form was read above.
+    ...(created ? { checkReferences: false } : {}),
+  });
+
+  if (spam) return RECEIVED;
+
+  // A destination record (a Lead), filled from the questions that map to it.
+  if (form.destination && submitter?.personId) {
+    const target = form.destination;
+    await createRecord(
+      view,
+      target,
+      {
+        ...destinationValues(form.questions, answers),
+        [target.intake.person]: submitter.personId,
+        ...(target.intake.source ? { [target.intake.source]: INTAKE_SOURCE } : {}),
+      },
+      { by: "host", ...(created ? { checkReferences: false } : {}) },
+    );
+  }
+
+  // Staff are told: the form's chosen person, else the admins.
+  const chosen = form.object.intake.notify ? form.values[form.object.intake.notify] : null;
+  const users = typeof chosen === "string" && chosen ? [chosen] : [];
+  const title = form.object.titleField ? form.values[form.object.titleField] : null;
+  const plan = await notifyStatements(
+    ctx.db,
+    {
+      to: users.length ? users.map((userId) => ({ userId })) : [{ role: "admin" }],
+      type: "system.message",
+      title: `New answers to ${typeof title === "string" && title ? title : form.object.label}`,
+      body: submitter?.certainty === "address" ? "From an unconfirmed address." : null,
+      link: { kind: "record", object: submission.name, id: submissionId },
+      source: { actor: "system" },
+    },
+    ctx.now,
+  );
+  ctx.write(...plan.statements);
+  return RECEIVED;
+}

@@ -101,3 +101,9 @@ buyer's address of an order a verified payment was applied to. `invite_only` sta
 dependant's records ([ADR 0540](0540-the-family-link.md)). The link is a core record made only by a
 person on the staff with `people:link`; the seam alone decides what it gives, per object that opts
 in (`customer.guardians`), and nothing else a customer reads or writes changed.
+
+## Note, 2026-11-24 (ADR 0720)
+The public may now create one kind of record besides a purchase: a submission to a published form,
+through the host's one door, `intake.submit` (`toolOnly`, `hostInternal`, reached only from the
+form's own pack's tool). The host writes it as its own change after its checks; nothing else opens
+a write to the public ([ADR 0720](0720-the-intake-door-one-public-write.md)).

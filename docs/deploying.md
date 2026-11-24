@@ -131,6 +131,23 @@ rules), which counts per IP at the edge and stores nothing in the deployment:
 A deployment on a `workers.dev` hostname has no zone and cannot add the rule: put a custom
 hostname in front before opening anything to the public.
 
+#### Forms: Turnstile
+
+A form the public answers (stage 29, ADR 0722) is checked with Cloudflare Turnstile before the host
+keeps anything. Create a Turnstile widget for the site's hostname (Cloudflare dashboard → Turnstile,
+managed mode), put its **site key** in the client app that draws the form, and set its **secret
+key** on cos-runner, where a pack's tool and the door (`intake.submit`) run:
+
+```sh
+wrangler secret put TURNSTILE_SECRET_KEY   # in apps/runner; scripts/deploy.mjs also reads it from the environment
+```
+
+It is an env-only secret: never in D1, an input or the audit log. Without it, forms take answers
+from signed-in customers and staff only; every public answer is turned away and admins are told
+once a day. A testing host uses Cloudflare's documented test keys (a secret that always passes).
+The edge rule above already counts the calls a form sends (`/api/v1/op/`); the hosted form page
+(`/f/<slug>`, a later step) joins it then. Not yet tried with a real site key on a live host.
+
 #### Customer sign-in
 
 Customers sign in at `/api/customer-auth/*` with a code sent by email. It needs

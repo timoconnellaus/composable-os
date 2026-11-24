@@ -412,6 +412,10 @@ describe("the closed handler context (ADR 0413)", () => {
       "content.list",
       "content.preview",
       "fixture.bookkeeping",
+      // Stage 29 step 2 (ADR 0720): the door reads a form past the caller's scope and makes the
+      // submission, the Person and a destination as the host's own change.
+      "intake.open",
+      "intake.submit",
       // Stage 44 step 2 (ADR 0642): acceptances are core tables, not records: the host reads and
       // writes them for the caller's own Person and live dependants only.
       "me.agreements.accept",

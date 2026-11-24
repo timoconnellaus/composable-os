@@ -191,6 +191,21 @@ extension declares it; it never implements it. Each behaviour the platform has i
   sets who rosters and the numbers (ADR 0626), each number setting `personApproves`. With such
   a pack installed, only a rosterer writes who works a shift (its person, a series' regular person,
   a profile's account), by any path; never set one in a tool or an automation.
+- **`intake`** when the public or customers send answers (a form, its submissions, a record a
+  form may also make): `intake: { role: "form", questions: "<document field with
+  QUESTIONS_SCHEMA, in publishable.content>", answeredBy: "<select: public, customers, links,
+  staff>", openIn: [<states>], anonymous?, destination?, opensAt?, closesAt?, dailyCap?, notify? }`
+  on a publishable form object; `{ role: "submission", form: "<relation to it>", version,
+  answers: "<document field with ANSWERS_SCHEMA>", person, certainty: "<select: account, link,
+  staff, address>", spam: "<a state the host creates it in>", via?, rating? }` on its submission
+  (never with `customer`, `public` or `signedIn`); `{ role: "destination", person, fields: [<what
+  a form may fill>], source? }` on a record another pack's form may make. The host's one door,
+  `intake.submit` (tool-only: your tool calls it for your own form, with `intake.open` first for
+  the public's shown-time token), checks the form is open to the caller, Turnstile, the honeypot,
+  the fill time, the caps and the answers, and makes the submission, the Person (empty fields
+  only) and any destination record itself. Never create a submission or check spam in a tool.
+  Shipped packs and the org's own extensions only. See `IntakeSpec` in
+  `packages/sdk/src/intake.ts` and ADRs 0720 to 0722 and 0725.
 - **`sellable`** on an object: its records can be bought (ticket types, passes, products). Only
   an object that declares it can go on an order, and the host reads its price and rules from the
   record: `sellable: { price: "<currency field>", saleWindow?: { from?, until? }, maxPerOrder?,

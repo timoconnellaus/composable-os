@@ -50,6 +50,20 @@
       "hostInternal": true
     },
     {
+      "name": "intake.open",
+      "audiences": ["staff", "customer", "public"],
+      "risk": "read",
+      "hostInternal": true,
+      "toolOnly": true
+    },
+    {
+      "name": "intake.submit",
+      "audiences": ["staff", "customer", "public"],
+      "risk": "write",
+      "hostInternal": true,
+      "toolOnly": true
+    },
+    {
       "name": "me.agreements.accept",
       "audiences": ["customer"],
       "risk": "write",

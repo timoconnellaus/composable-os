@@ -21,6 +21,24 @@ standing rule that best-practice answers are decided, not asked; the owner may o
 them). Roadmap stage 29, issue #97. Every step may start in the order below; nothing waits for an
 interview.
 
+- Step 1, built: the question schema and answer checking (`packages/sdk/src/questions.ts`:
+  `QUESTIONS_SCHEMA`, `ANSWERS_SCHEMA`, `checkQuestions`, `checkAnswers`). No ADR, no migration.
+- Step 2, built (`feat/stage-29-intake`): the `intake` behaviour in three roles (form, submission,
+  destination; `packages/sdk/src/intake.ts`), refused in a runtime extension; `checkQuestions` on
+  every write of a form; `intake.open` and `intake.submit` (`toolOnly`, `hostInternal`, open to
+  staff, customers and the public, reached only from the form's own pack's tool), in
+  `open-operations.json`; the submitter's Person by the address matcher now shared with
+  `resolveBuyer` (`customers/address-person.ts`), certainty `account`, `staff` or `address`, empty
+  fields only; a destination record; staff told; anonymous submissions with the call forgetting
+  the customer (`ctx.anonymise`); Turnstile with cos-runner's env-only `TURNSTILE_SECRET_KEY`, the
+  honeypot, the fill time by a host-made shown-time token, the caps, the per-mailbox spam rule.
+  ADRs 0720, 0721, 0722 and 0725; no migration. Decided while building: too many links is refused
+  naming the key (criterion 6), not kept as spam; the shown time is keyed from the Turnstile
+  secret, so customers skip it as they skip Turnstile; `intake.open` is the core read a pack's
+  `x.forms.form` calls; `notify` is one user (no field holds several); the hourly cap is the
+  platform's 200 until step 3's settings; Turnstile off on a testing host is Cloudflare's test
+  keys, not a setting. Not yet tried on a live host.
+
 ## Goal
 
 A business builds its own forms in the admin, with no developer: an enquiry form ("ask about
@@ -334,8 +352,9 @@ kept 30 days.
    caller gets "try later".
 6. The answers check against the version (types, required, lengths, links). Errors name the
    question key only, never the value.
-7. A submission with more links than the limit, or from an address that sent 5 to this form today
-   (by `mailboxKey`), is kept as `spam` and answered as success.
+7. A submission from an address that sent 5 to this form today (by `mailboxKey`) is kept as
+   `spam` and answered as success. (Settled at step 2: more links than the limit is refused naming
+   the question's key, as criterion 6 says, ADR 0720.)
 
 No client address, user agent or device fingerprint is stored.
 

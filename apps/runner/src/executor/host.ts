@@ -17,6 +17,8 @@ import {
   type EventSink,
   type ExtensionHost,
   ForbiddenError,
+  type IntakeRuntime,
+  intakeRuntime,
   invokeByName,
   OperationError,
   type Origin,
@@ -60,6 +62,11 @@ export interface HostEnv {
   AUTOMATION_EVENTS?: Queue;
   AI?: unknown;
   AI_GATEWAY_ID?: string;
+  /**
+   * The public-write door's spam check (stage 29, ADR 0722): an optional secret, env-only. Unset,
+   * forms take no answers from the public.
+   */
+  TURNSTILE_SECRET_KEY?: string;
 }
 
 /** A Code Mode run (ADR 0042): the script acts as the connected user, not as an extension. */
@@ -303,6 +310,11 @@ export class RunHost extends RpcTarget {
     return tool?.risk === "read";
   }
 
+  /** The public-write door's runtime, from this Worker's Turnstile secret (ADR 0722). */
+  #intake(): IntakeRuntime {
+    return intakeRuntime(this.#env.TURNSTILE_SECRET_KEY);
+  }
+
   /** The events queue for a tool's own calls, where this Worker has one. */
   #events(): { events?: EventSink } {
     return this.#env.AUTOMATION_EVENTS
@@ -370,6 +382,8 @@ export class RunHost extends RpcTarget {
             floor: parseFloor(this.#env.APPROVAL_FLOOR),
             ...this.#events(),
             ...(await this.#tools(operation)),
+            // The public-write door's spam check, for its own operations (ADR 0722).
+            ...(operation.startsWith("intake.") ? { intake: this.#intake() } : {}),
           })
         : await invokeByName(operation, input ?? {}, {
             actor: "extension",

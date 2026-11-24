@@ -9,6 +9,7 @@ import type { CapacitySpec, ClaimsSpec } from "./capacity.ts";
 import type { ChecklistsSpec } from "./checklists.ts";
 import type { DocumentPathSpec, DocumentSchema } from "./document.ts";
 import type { FieldTypeName } from "./field-types.ts";
+import type { IntakeSpec } from "./intake.ts";
 import type { RecurringScheduleSpec } from "./recurring.ts";
 import type { RoutineMailModule, RoutineMailSpec } from "./routine-mail.ts";
 import type { SellableSpec } from "./sellable.ts";
@@ -304,6 +305,12 @@ export interface ObjectSpec {
    * write with its warnings (away, not qualified, no one on it).
    */
   staffed?: StaffedSpec;
+  /**
+   * The public-write door (see IntakeSpec, ADR 0720): a form the public answers, the submission
+   * the host makes from the answers, or another pack's record a form may also make. Only the
+   * host's `intake.submit` creates a submission; nothing else opens a write to the public.
+   */
+  intake?: IntakeSpec;
   /**
    * A checklist the record's person ticks off (see ChecklistsSpec, ADR 0650): a run of the
    * template its `template` field names, made by the host, ticked by the person (or by someone who

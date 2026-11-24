@@ -1011,6 +1011,11 @@
           "name": "JUDGE_PLACEMENTS",
           "text": "",
           "type": "plain_text"
+        },
+        {
+          "name": "TURNSTILE_SECRET_KEY",
+          "text": "$SECRET(TURNSTILE_SECRET_KEY)",
+          "type": "secret_text"
         }
       ],
       "compatibilityDate": "2026-10-01",
@@ -1067,8 +1072,15 @@
         }
       ],
       "role": "runner",
-      "secrets": [],
-      "sha256": "96437343803be8ced6ce7494968aba0e74332c14da5e9891708d9a524ee5909a"
+      "secrets": [
+        {
+          "description": "Optional. Cloudflare Turnstile's secret key (stage 29, ADR 0722): forms check a visitor's spam token with it, and without it take no answers from people who are not signed in. Set by a person (docs/deploying.md, Forms: Turnstile); never stored in D1.",
+          "name": "TURNSTILE_SECRET_KEY",
+          "required": false,
+          "source": "user"
+        }
+      ],
+      "sha256": "9dd8d4f472c91373bb9f728d59dc75dfa07e6c91131049531b115f71d5d04916"
     },
     {
       "bindings": [],
