@@ -329,6 +329,46 @@ describe("the fake provider's subscriptions", () => {
     expect(observations.some((o) => o.title === "Open the customer portal")).toBe(true);
   });
 
+  it("gives a customer a new email only for the host's own call, once applied (stage 48)", async () => {
+    const other = await host();
+    const input = { customerRef: "fcus_none", email: "new@gym.test", changeId: "ech_1" };
+    await expect(other.call("updateCustomerEmail", [input])).rejects.toThrow(/only by the host/);
+    const h = await host(true);
+    const id = unique("sbs");
+    const checkout = (await h.call("createSubscriptionCheckout", [
+      subscriptionInput(id),
+    ])) as PaymentsCheckout;
+    await exports.default.fetch(
+      new Request(checkout.url, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ outcome: "pay" }).toString(),
+        redirect: "manual",
+      }),
+    );
+    const state = async () => (await fakeLedger(env as never).state()) as FakeLedgerState;
+    const sub = (await state()).subscriptions.find((s) => s.subscriptionId === id);
+    if (!sub) throw new Error("no fake subscription");
+    const receipt = (await h.call("updateCustomerEmail", [
+      { ...input, customerRef: sub.customerRef },
+    ])) as { status: string; id: number };
+    // Submitted as its own kind, never auto-approvable; nothing reaches the provider until applied.
+    const { submissions } = await h.recorded();
+    const action = submissions.at(-1)?.[1] as ActionDescription | undefined;
+    expect(action?.actionKind?.tag).toBe("payments.customer.email");
+    expect(action?.autoApprovable).toBe(false);
+    expect((await state()).customerEmails[sub.customerRef]).toBeUndefined();
+    await h.apply(receipt.id);
+    expect((await state()).customerEmails[sub.customerRef]).toBe("new@gym.test");
+    // A customer the provider does not have is refused, and malformed input before anything.
+    const unknown = (await h.call("updateCustomerEmail", [input])) as { id: number };
+    await expect(h.apply(unknown.id)).rejects.toThrow(/nothing changed/);
+    await expect(
+      h.call("updateCustomerEmail", [{ ...input, email: "not an address" }]),
+    ).rejects.toThrow();
+    await expect(h.call("updateCustomerEmail", [{ ...input, changeId: "x" }])).rejects.toThrow();
+  });
+
   it("refuses malformed subscription input", async () => {
     const h = await host();
     const id = unique("sbs");
@@ -894,6 +934,19 @@ describe("the Stripe provider's subscriptions", () => {
     );
     expect(silent).toMatchObject({ kind: "refund", creditNote: true });
     expect(silent).not.toHaveProperty("tax");
+  });
+
+  it("gives a customer a new email, once per address change (stage 48)", async () => {
+    const { provider, requests } = stripe(() => ok({ id: "cus_1", email: "new@gym.test" }));
+    await provider.updateCustomerEmail({
+      customerRef: "cus_1",
+      email: "new@gym.test",
+      changeId: "ech_1",
+    });
+    expect(requests.map((r) => [r.method, r.url, r.form.get("email")])).toEqual([
+      ["POST", "https://stripe.test/v1/customers/cus_1", "new@gym.test"],
+    ]);
+    expect(requests[0]?.headers.get("idempotency-key")).toBe("cos-email-ech_1-cus_1");
   });
 
   it("cancels at period end, now, resumes, and makes the portal's configuration once", async () => {

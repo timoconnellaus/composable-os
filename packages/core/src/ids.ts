@@ -76,6 +76,8 @@ export const ID_PREFIXES = {
   subscriptionChange: "sbc",
   /** A native app's signed-in session on the HTTP surface (stage 23, ADR 0419). */
   deviceSession: "dvs",
+  /** A change of a customer account's sign-in address, waiting for its code (stage 48, ADR 0712). */
+  emailChange: "ech",
   /** Places claimed from a record's capacity (stage 26, ADR 0430). */
   capacityClaim: "clm",
   /** A movement in the stock ledger (stage 37, ADR 0680); a sale's is named after its claim. */

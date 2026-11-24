@@ -123,6 +123,7 @@ export type SessionMethod =
   | "unpauseSubscription"
   | "voidPendingUpdate"
   | "openPortal"
+  | "updateCustomerEmail"
   | "registerReader"
   | "removeReader"
   | "listReaders"

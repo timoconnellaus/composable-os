@@ -364,21 +364,23 @@ async function assertEmailsFree(
   }
 }
 
+/** Email rows per insert: seven bound variables each, under D1's 100 per statement. */
+const EMAIL_ROWS_PER_INSERT = 14;
+
 function queueEmails(ctx: HandlerContext, personId: string, emails: Person["emails"]) {
   ctx.write(ctx.db.deleteFrom("core_person_emails").where("person_id", "=", personId));
-  if (emails.length) {
+  const rows = emails.map((e, position) => ({
+    id: newId("email"),
+    person_id: personId,
+    email: e.email,
+    label: e.label,
+    is_primary: e.primary ? 1 : 0,
+    position,
+    created_at: ctx.now,
+  }));
+  for (let at = 0; at < rows.length; at += EMAIL_ROWS_PER_INSERT) {
     ctx.write(
-      ctx.db.insertInto("core_person_emails").values(
-        emails.map((e, position) => ({
-          id: newId("email"),
-          person_id: personId,
-          email: e.email,
-          label: e.label,
-          is_primary: e.primary ? 1 : 0,
-          position,
-          created_at: ctx.now,
-        })),
-      ),
+      ctx.db.insertInto("core_person_emails").values(rows.slice(at, at + EMAIL_ROWS_PER_INSERT)),
     );
   }
 }

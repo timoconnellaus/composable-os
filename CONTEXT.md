@@ -1281,8 +1281,9 @@ _Avoid_: registration, membership
 
 **Sign-in mail**
 The host's sign-in code email, its own outbound kind (`email.signin`): given only when the
-integration host says the send is its own (`callAsHost`, purpose `sign-in`) and the message is the
-fixed code template. A human admin lets it apply without review; until then sign-in by code is not
+integration host says the send is its own (`callAsHost`, purpose `sign-in`) and the message is one
+of its fixed templates (the sign-in code; an address change's code and its notice to the old
+address, ADR 0712). A human admin lets it apply without review; until then sign-in by code is not
 set up (ADR 0456).
 _Avoid_: system email, transactional email
 
@@ -2379,8 +2380,23 @@ _Avoid_: related, linked (any relation), shared (the signed-in scope's word)
 **Sign-in address**
 The address a customer's account signs in with: the one the emailed code was sent to and
 verified on (`me.get`'s `signInEmail`). The only address a company may trust to link its own
-records to a customer. Not the Person's contact email, which staff can change.
+records to a customer. Not the Person's contact email, which staff can change. It changes only by
+an **address change**: a code emailed to the new address, entered by the member (ADR 0712).
 _Avoid_: primary email (the Person's contact address), login
+
+**Address change** (`core_customer_email_change`)
+A request to move a customer account to a new sign-in address (stage 48, ADR 0712): the member
+asks after a recent sign-in, or a staff admin starts it for them; a code goes to the new address
+and only the member, signed in, finishes it with that code. Then the account's address and the
+Person's primary email change, the old address leaves the Person and is told, other sessions end
+and the payment provider is given the new address. The record keeps the old address for erase.
+_Avoid_: email update, login change
+
+**Recent sign-in**
+A sign-in made within the last 15 minutes, read from the session's own row, which asking for and
+confirming an address change and deleting the account need; otherwise the call is refused `sign_in_again` and
+the member signs in again (ADR 0712).
+_Avoid_: re-authentication, step-up (the staff approvals' second step)
 
 **Time zone** (field)
 A `timezone` field (ADR 0460): an IANA zone name the runtime knows, the deployment's zone when a

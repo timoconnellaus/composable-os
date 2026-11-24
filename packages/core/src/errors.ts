@@ -9,6 +9,7 @@ export type OperationErrorCode =
   | "denied"
   | "pending_approval"
   | "second_step_required"
+  | "sign_in_again"
   | "rate_limited"
   | "plan_limit"
   | "not_found"
@@ -141,6 +142,24 @@ export class PlanLimitError extends OperationError {
   override name = "PlanLimitError";
   constructor(message: string, details?: unknown) {
     super("plan_limit", message, details);
+  }
+}
+
+/**
+ * A sensitive act of a customer's (changing the sign-in address, deleting the account) needs a
+ * sign-in made within the last few minutes (stage 48, ADR 0712), and this call's session is older
+ * or unknown. The client sends the person through the code sign-in and back, then asks again.
+ */
+export class SignInAgainError extends OperationError {
+  override name = "SignInAgainError";
+  constructor(withinMinutes: number) {
+    super(
+      "sign_in_again",
+      `Sign in again first: this needs a sign-in within ${withinMinutes} minutes`,
+      {
+        withinMinutes,
+      },
+    );
   }
 }
 
@@ -356,6 +375,18 @@ export function toOperationError(error: unknown): OperationError {
     return new ForbiddenError("A confirmation is never changed or deleted", {
       reason: "immutable",
     });
+  }
+  // An address change confirmed, cancelled or replaced by another call while this one was being
+  // planned (migration 0990's trigger and its one-open-change index, ADR 0712): nothing applied.
+  if (
+    message.includes("core_email_change_closed") ||
+    message.includes("UNIQUE constraint failed: core_customer_email_change.customer_id")
+  ) {
+    return new ConflictError(
+      "This address change was confirmed, cancelled or replaced meanwhile, so nothing was " +
+        "changed. Look at the account again.",
+      { rule: "email_change_closed" },
+    );
   }
   // A batch planned from a read that changed before it committed (migration 0560's guard): a
   // series changed under a run, or a class was booked under a change to its series.

@@ -11,12 +11,15 @@
 // the Person's row, in no `rec_*` view the seam reads, and they touch only the caller's own Person
 // (the principal's, never an input's). What the member sets is marked theirs (`customer`).
 //
-// The session operations and me.deleteAccount are account bookkeeping, not records, so they are
-// `hostInternal`: they keep `ctx.db` and touch only the caller's own account (taken from the
-// principal, never from input), its sessions and its erase request. A session token never leaves
-// them. me.deleteAccount also ends the subscriptions the caller pays at their period's end and
-// cancels their unpaid orders, with the code their own subscription.cancel and order.cancel run
-// (customers/account-delete.ts, ADR 0713).
+// The session operations, changing the sign-in address and me.deleteAccount are account
+// bookkeeping, not records, so they are `hostInternal`: they keep `ctx.db` and touch only the
+// caller's own account (taken from the principal, never from input), its sessions, its address
+// change and its erase request. A session token never leaves them. me.deleteAccount also ends the
+// subscriptions the caller pays at their period's end and cancels their unpaid orders, with the
+// code their own subscription.cancel and order.cancel run (customers/account-delete.ts, ADR 0713).
+//
+// Changing the sign-in address and deleting the account (its preview too) need a
+// sign-in within the last 15 minutes (`sign_in_again` otherwise, stage 48, ADR 0712).
 import { z } from "zod";
 import {
   applyDeletePreview,
@@ -25,10 +28,17 @@ import {
 } from "../customers/account-delete.ts";
 import { revokeCustomerFeed } from "../customers/calendar-feed.ts";
 import {
+  afterEmailChanged,
+  confirmEmailChange,
+  EMAIL_CHANGE_CODE_MINUTES,
+  startEmailChange,
+} from "../customers/email-change.ts";
+import {
   createEraseRequestStatements,
   eraseRequestDueAt,
   openEraseRequest,
 } from "../customers/erase-requests.ts";
+import { requireRecentSignIn } from "../customers/recent-sign-in.ts";
 import { loadEraseDueDays } from "../customers/settings.ts";
 import { ConflictError, NotFoundError, OperationError, ValidationError } from "../errors.ts";
 import { personObject } from "../fields/person.ts";
@@ -119,7 +129,8 @@ export const meUpdate = defineOperation({
   name: "me.update",
   description:
     "Change your own name or primary phone, as a signed-in customer. Only the fields you pass " +
-    "change; pass null to clear one. Your email cannot be changed here. Returns your Person.",
+    "change; pass null to clear one. Your email cannot be changed here: change your sign-in " +
+    "address with me.email.change and me.email.confirm. Returns your Person.",
   input: z
     .object({
       displayName: shortText(200).min(1).optional(),
@@ -352,6 +363,69 @@ export const meSignOut = defineOperation({
   },
 });
 
+// --- Changing the sign-in address (stage 48, ADR 0712) ------------------------------------------
+
+export const meEmailChange = defineOperation({
+  name: "me.email.change",
+  description:
+    "Ask to change the address you sign in with, as a signed-in customer who signed in within " +
+    `the last 15 minutes (else sign_in_again). A code is emailed to the new address; enter it ` +
+    `with me.email.confirm within ${EMAIL_CHANGE_CODE_MINUTES} minutes. Nothing changes until ` +
+    "then. Asking again replaces the earlier request. The answer is the same whatever the " +
+    "address: whether it can be used is said only when the code is entered.",
+  input: z
+    .object({ email: z.string().trim().min(3).max(320).describe("The new sign-in address") })
+    .strict(),
+  output: z.object({
+    newEmail: z.string().describe("The address the code was sent to"),
+    expiresAt: z.string().describe("When the code stops working"),
+  }),
+  permission: "records:write",
+  risk: "write",
+  audiences: ["customer"],
+  hostInternal: true,
+  mcp: { expose: false },
+  async handler(input, ctx) {
+    const { customerId } = customerOf(ctx);
+    await requireRecentSignIn(ctx);
+    return startEmailChange(ctx, customerId, input.email, "customer");
+  },
+});
+
+export const meEmailConfirm = defineOperation({
+  name: "me.email.confirm",
+  description:
+    "Finish changing your sign-in address with the code emailed to the new address, as the " +
+    "signed-in customer it was asked for (by you, or by staff for you), signed in within the " +
+    "last 15 minutes (else sign_in_again; the code keeps working). From then on you sign " +
+    "in with the new address, which is also your primary email; the old one is removed from " +
+    "your details and told of the change; every other place you are signed in is signed out. " +
+    "A wrong code five times ends the request. Refused, changing nothing, when the new address " +
+    "is already in use at the business.",
+  input: z.object({ code: z.string().trim().min(1).max(20).describe("The emailed code") }).strict(),
+  output: z.object({
+    signInEmail: z.string().describe("Your sign-in address now"),
+    sessionsEnded: z.number().describe("Other sessions signed out"),
+  }),
+  permission: "records:write",
+  risk: "write",
+  audiences: ["customer"],
+  hostInternal: true,
+  mcp: { expose: false },
+  // The code is never kept, not even in the audit log.
+  redact: ["code"],
+  async handler(input, ctx) {
+    const { customerId, personId } = customerOf(ctx);
+    // Owner decision 4: entered by someone signed in within the last 15 minutes, whoever asked.
+    await requireRecentSignIn(ctx);
+    const done = await confirmEmailChange(ctx, { customerId, personId }, input.code);
+    return ctx.afterCommit(async () => {
+      await afterEmailChanged(ctx, personId, done.change);
+      return { signInEmail: done.change.newEmail, sessionsEnded: done.sessionsEnded };
+    });
+  },
+});
+
 // --- Deleting the account ----------------------------------------------------------------------
 
 const money = { amount: z.number().int(), currency: z.string() };
@@ -424,7 +498,8 @@ const deletePreviewSchema = z.object({
 export const meDeleteAccount = defineOperation({
   name: "me.deleteAccount",
   description:
-    "Delete your customer account and ask for your personal data to be erased. Without " +
+    "Delete your customer account and ask for your personal data to be erased, signed in within " +
+    "the last 15 minutes (else sign_in_again, for the preview too). Without " +
     "`confirm` it changes nothing and says what will happen: each subscription you pay ends when " +
     "the period already paid for ends (nothing refunded, nothing more charged), or with a " +
     "cooling off you asked for; one that cannot be ended that way (an end date set later, or " +
@@ -472,6 +547,8 @@ export const meDeleteAccount = defineOperation({
       .where("person_id", "=", personId)
       .executeTakeFirst();
     if (!account) throw new NotFoundError("customer account", customerId);
+    // The preview too: what deleting would do is asked for on the way to doing it (ADR 0712).
+    await requireRecentSignIn(ctx);
     const preview = await deletePreview(ctx, personId);
     const open = await openEraseRequest(ctx.db, personId);
     const dueAt = open?.dueAt ?? eraseRequestDueAt(ctx.now, await loadEraseDueDays(ctx.db));
@@ -535,5 +612,7 @@ export const meOperations = [
   meSessionsList,
   meSessionsRevoke,
   meSignOut,
+  meEmailChange,
+  meEmailConfirm,
   meDeleteAccount,
 ] as const;

@@ -443,6 +443,8 @@ async function authRoutes(route: string, request: Request, env: ApiEnv): Promise
           { audience: "customer", subjectId: resolved.principal.customerId },
           deviceName,
           now,
+          // The app's session is as recent as the browser sign-in it came from (ADR 0712).
+          resolved.signedInAt,
         ),
       );
     }

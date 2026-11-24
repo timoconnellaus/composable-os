@@ -907,6 +907,29 @@ export interface CoreCustomerVerificationTable {
   updated_at: DateColumn;
 }
 
+/**
+ * Migration 0990 (stage 48, ADR 0712): a request to change an account's sign-in address, waiting
+ * for the code emailed to the new address. One open per account; the code only as a hash.
+ */
+export interface CoreCustomerEmailChangeTable {
+  id: string;
+  customer_id: string;
+  new_email: string;
+  /** The new address's mailbox (`mailboxKey`), for counting requests only. */
+  new_mailbox: string;
+  old_email: string;
+  /** `customer`, or the staff user id of the admin who started it. */
+  started_by: string;
+  code_hash: string;
+  expires_at: string;
+  tries_left: Defaulted<number>;
+  created_at: string;
+  confirmed_at: Defaulted<string | null>;
+  ended_at: Defaulted<string | null>;
+  end_reason: Defaulted<CustomerEmailChangeEnd | null>;
+}
+export type CustomerEmailChangeEnd = "replaced" | "cancelled" | "tries" | "in_use" | "unsent";
+
 /** Migration 0401: an address staff invited to sign up. */
 export interface CoreCustomerInviteTable {
   email: string;
@@ -4329,6 +4352,7 @@ export interface CoreDatabase {
   core_field_options: CoreFieldOptionsTable;
   core_customer: CoreCustomerTable;
   core_customer_session: CoreCustomerSessionTable;
+  core_customer_email_change: CoreCustomerEmailChangeTable;
   core_customer_verification: CoreCustomerVerificationTable;
   core_customer_invite: CoreCustomerInviteTable;
   core_erase_request: CoreEraseRequestTable;
