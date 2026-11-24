@@ -6,6 +6,7 @@ import {
   diffLines,
   groupPreview,
   type PreviewEntry,
+  readAgainSuggestion,
   shortId,
   summariseDecision,
 } from "../src/components/approvals/describe.ts";
@@ -133,5 +134,20 @@ describe("summariseDecision", () => {
     );
     expect(out.headline).toBe("Applied 1 change, 1 failed, 1 skipped.");
     expect(out.problems.map((p) => p.actionId)).toEqual(["pac_2", "pac_3"]);
+  });
+});
+
+describe("a publish request's read-again suggestion (ADR 0702)", () => {
+  it("is read from the diff and shown as the approver's choice, not as a field line", () => {
+    const asked = update("rec_1", {
+      publishedVersion: { before: 1, after: 2 },
+      readAgain: { before: null, after: false },
+      draftFingerprint: { before: "abc", after: "abc" },
+    });
+    expect(readAgainSuggestion([asked])).toBe(false);
+    expect(diffLines(asked).map((l) => l.label)).not.toContain("Read again");
+    expect(
+      readAgainSuggestion([update("rec_2", { name: { before: "a", after: "b" } })]),
+    ).toBeNull();
   });
 });
