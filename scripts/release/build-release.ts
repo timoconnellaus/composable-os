@@ -262,7 +262,7 @@ async function main() {
   );
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
   main().catch((error: unknown) => {
     console.error(`release build failed: ${(error as Error).message}`);
     process.exitCode = 1;

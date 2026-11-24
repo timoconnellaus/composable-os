@@ -25,6 +25,7 @@ import {
 } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const REPOSITORY = "https://github.com/timoconnellaus/composable-os";
@@ -243,10 +244,12 @@ export function buildNpmPackages(version: string, outDir: string): string[] {
   return tarballs;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
-  const args = process.argv.slice(2);
-  const version = args[args.indexOf("--version") + 1];
-  const out = resolve(args[args.indexOf("--out") + 1] ?? "npm-out");
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const { values } = parseArgs({
+    options: { version: { type: "string" }, out: { type: "string", default: "npm-out" } },
+  });
+  const version = values.version;
+  const out = resolve(values.out);
   if (!version || !/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(version)) {
     console.error("Usage: node scripts/release/npm-packages.ts --version x.y.z --out <dir>");
     process.exit(2);
