@@ -1759,10 +1759,12 @@ address with a code on the plan when "anyone starting a subscription" is on, ADR
 checkout (`core_subscription_trial`, a trigger refusing a second unreleased hold, so two starts at
 once give one trial), released only when the gatekeeper says its page expired uncompleted
 (`getSubscriptionCheckout`), and used when the provider's verified event confirms it. "Per
-holder" and the intro offer's "per Person" count every live Person sharing a folded address
-(`a+1@x` and `a+2@x`, [ADR 0692](adr/0692-one-person-per-folded-address.md), #225):
-`core_person_emails.folded` is kept by triggers, `samePeople` (`customers/accounts.ts`) is the
-subquery the checks read, and migration 0955's triggers refuse a second hold by such People. A person
+holder" and the intro offer's "per Person" count every Person sharing a folded address (`a+1@x`
+and `a+2@x`, one in the Trash too; [ADR 0692](adr/0692-one-person-per-folded-address.md), #225):
+the folded form is an expression over `core_person_emails.email` with an index (migration 0955;
+`foldedSql`, nothing stored), `samePeople` (`customers/accounts.ts`) is the subquery the checks
+read, and migration 0955's triggers refuse a second hold by such People. A trial page goes back
+only to whoever opened it for the same holder. A person
 merge moves subscriptions and trials to the survivor. With no event, past due gives access for 30
 days of failing, and an active one past its period keeps access while staff are told the events
 are not arriving (the minute cron, `subscriptions/sweep.ts`). Staff end one at once
