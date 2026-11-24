@@ -1217,6 +1217,19 @@ The pack role `bookings.coach`: the day's classes, a class list and ticking name
 nothing else (no money, no other people, no booking or cancelling). An account holds one pack role
 (ADR 0436). A coach who also works the desk is granted the **Desk permission** on top (ADR 0600).
 
+**Coach** (the Programs role)
+The pack role `programs.coach` (ADR 0881): a coach's own clients in the app, the People an active
+assignment names them coach of: their assignments and sessions, logging and marking for them, their
+history and progress. Nobody else's, no class sessions, no programs, no assigning, no people. Who a
+client's coach is, is the assignment's `coach`, the object's **team**.
+
+**Team** (on an object)
+A shipped pack's declaration of who on the staff looks after the Person a record is about (`team:
+{ person, staff, live }`, stage 56's decision, built in ADR 0881): the accounts in its user fields
+while the record is live. It gives nothing alone; a pack role's `looksAfter` reaches records only
+for those People. Programs' assignment names the client's coach.
+_Avoid_: stage 14a's teams (groups of staff), crew
+
 **Desk permission** (Bookings)
 `bookings:desk`, the front desk's tools: find people, book anyone (a walk-in too) into any class,
 cancel and move bookings, give a use back, any day's classes and a class's full list. Every member
@@ -1755,7 +1768,8 @@ _Avoid_: published (stage 28's word for a version), visible (the seam's word for
 A fixed staff role a pack declares (ADR 0436): the permissions of its own tools and the objects of
 its own an account given it may read. A human admin gives at most one to a staff account; while
 it is held, it and the pack permissions granted to the account (ADR 0600) are all that account may
-do, on every operation; the role's limits bind only the calls the role allows. The door role is
+do, on every operation; the role's limits bind only the calls the role allows (today only, ADR
+0553; only the People its holder looks after, through a pack's team, ADR 0881). The door role is
 Ticketing's.
 Stage 14a's roles and teams will extend it.
 _Avoid_: role (alone, it means admin, member or viewer), team, scope
