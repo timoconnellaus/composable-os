@@ -133,34 +133,8 @@ export function finishedLabel(item: DayItem, locale = "en-AU", zone = "UTC"): st
 
 // --- Refusals -----------------------------------------------------------------------------------
 
-export type DayRefusalKind =
-  | "checklist_window"
-  | "checklist_closed"
-  | "checklist_not_your_tick"
-  | "checklist_nothing_to_clear"
-  | "checklist_too_many_ticks"
-  | "checklist_for_why"
-  | "checklist_for_whom"
-  | "checklist_for_someone"
-  | "checklist_not_theirs"
-  | "checklist_note_needed"
-  | "checklist_why"
-  | "checklist_incomplete"
-  | "checklists_manage"
-  | "human_only"
-  | "forbidden"
-  | "not_found"
-  | "invalid"
-  | "network"
-  | "other";
-
-export interface DayRefusal {
-  kind: DayRefusalKind;
-  /** The host's words, or ours for a network failure or a refusal with none. */
-  message: string;
-}
-
-const KNOWN: ReadonlySet<string> = new Set<DayRefusalKind>([
+/** The rules a refusal of the day's checklists names, each with its own designed state. */
+const HOST_RULES = [
   "checklist_window",
   "checklist_closed",
   "checklist_not_your_tick",
@@ -175,7 +149,24 @@ const KNOWN: ReadonlySet<string> = new Set<DayRefusalKind>([
   "checklist_incomplete",
   "checklists_manage",
   "human_only",
-]);
+] as const;
+
+export type DayRefusalKind =
+  | (typeof HOST_RULES)[number]
+  | "forbidden"
+  | "not_found"
+  | "invalid"
+  | "network"
+  | "other";
+
+export interface DayRefusal {
+  kind: DayRefusalKind;
+  /** The host's words, or ours for a network failure or a refusal with none. */
+  message: string;
+}
+
+const KNOWN: ReadonlySet<string> = new Set(HOST_RULES);
+const isHostRule = (rule: string): rule is (typeof HOST_RULES)[number] => KNOWN.has(rule);
 
 const record = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === "object" ? (value as Record<string, unknown>) : null;
@@ -198,8 +189,8 @@ export function dayRefusal(error: unknown): DayRefusal {
         ? inner.rule
         : null;
   const message = typeof e?.message === "string" && e.message ? e.message : null;
-  if (rule && KNOWN.has(rule)) {
-    return { kind: rule as DayRefusalKind, message: message ?? "That did not work. Try again." };
+  if (rule && isHostRule(rule)) {
+    return { kind: rule, message: message ?? "That did not work. Try again." };
   }
   const code =
     typeof details?.code === "string" ? details.code : typeof e?.code === "string" ? e.code : null;
