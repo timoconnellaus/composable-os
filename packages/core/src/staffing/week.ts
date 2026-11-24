@@ -10,7 +10,7 @@
 // Read as the host, set-based: one read per staffed object for its shifts, then one each for the
 // people, the kinds' names, the places and the open offers; the warnings from one read of the
 // qualifications and one of the unavailabilities of the people on it. A range is at most 62 days.
-import { sql } from "kysely";
+import { type RawBuilder, sql } from "kysely";
 import { declaredOf, recordFacts, templateCopies, usable } from "../checklists/index.ts";
 import { objectTableOf } from "../extensions/schema.ts";
 import { getObject, listObjects } from "../fields/index.ts";
@@ -127,17 +127,25 @@ export async function rosterRange(
     const holder = def.who.account && def.who.object ? getObject(def.who.object) : undefined;
     const holderTable = holder ? objectTableOf(holder.name) : undefined;
     const holderCol = holder ? column(holder, def.who.account) : null;
-    const held = holderTable && holderCol ? { table: holderTable, column: holderCol } : null;
+    const holders = async (where: RawBuilder<unknown>) => {
+      if (!holderTable || !holderCol) return new Map<string, string | null>();
+      const found = await sql<{ id: string; account: string | null }>`SELECT id, ${sql.ref(
+        holderCol,
+      )} AS account FROM ${sql.table(holderTable)} WHERE ${where}`.execute(ctx.db);
+      return new Map(found.rows.map((h) => [h.id, text(h.account)]));
+    };
     // One person's roster is filtered here, before the limit, so their later shifts are not cut
     // off by everyone else's.
     let whose = sql`1 = 1`;
+    let accountOf: Map<string, string | null> | null = null;
     if (range.account !== undefined) {
       if (!def.who.account) whose = sql`${sql.ref(who)} = ${range.account}`;
-      else if (held) {
-        whose = sql`${sql.ref(who)} IN (SELECT id FROM ${sql.table(held.table)} WHERE ${sql.ref(
-          held.column,
-        )} = ${range.account})`;
-      } else continue;
+      else {
+        if (!holderCol) continue;
+        accountOf = await holders(sql`${sql.ref(holderCol)} = ${range.account}`);
+        if (!accountOf.size) continue;
+        whose = sql`${sql.ref(who)} IN ${jsonList([...accountOf.keys()])}`;
+      }
     }
     const rows = await sql<{
       id: string;
@@ -164,15 +172,9 @@ export async function rosterRange(
       truncated = true;
       rows.rows.length = PER_OBJECT;
     }
-    const accountOf = new Map<string, string | null>();
-    if (def.who.account && held) {
+    if (!accountOf && def.who.account) {
       const ids = [...new Set(rows.rows.map((r) => r.who).filter((w): w is string => !!w))];
-      if (ids.length) {
-        const accounts = await sql<{ id: string; account: string | null }>`SELECT id, ${sql.ref(
-          held.column,
-        )} AS account FROM ${sql.table(held.table)} WHERE id IN ${jsonList(ids)}`.execute(ctx.db);
-        for (const h of accounts.rows) accountOf.set(h.id, text(h.account));
-      }
+      accountOf = ids.length ? await holders(sql`id IN ${jsonList(ids)}`) : new Map();
     }
     const kindObject = kindObjectOf(object);
     const kindNames = kindObject
@@ -199,7 +201,7 @@ export async function rosterRange(
       const account = !covered
         ? null
         : def.who.account
-          ? (accountOf.get(r.who as string) ?? null)
+          ? (accountOf?.get(r.who as string) ?? null)
           : text(r.who);
       if (range.account !== undefined && account !== range.account) continue;
       if (account) people.set(account, "");
