@@ -6,6 +6,7 @@
 // less: while `core_user.pack_role` is set, the account may call exactly
 //   - the tools of that pack whose declared permission the role lists, and
 //   - `record.get` and `record.list` on the objects of that pack the role lists, and
+//   - `screens.mine`, the screens of the admin it may open (stage 47, ADR 0660),
 //   - its own read-and-understood list and confirmations (`ack.mine`, `ack.confirm`, ADR 0702),
 // and is refused every other operation, by the pipeline, before its input is looked at. Its own
 // `role` grants nothing while the pack role is held.
@@ -42,6 +43,14 @@ export interface HeldPackRole {
 
 /** The reads a pack role's `read` opens, on the objects it lists. Nothing else reads for it. */
 export const PACK_ROLE_READS: readonly string[] = ["record.get", "record.list"];
+
+/**
+ * The core reads every pack role reaches whatever it lists (stage 47, ADR 0660): only
+ * `screens.mine`, which answers with the screens the account itself may open, so a coach, a door
+ * or a team account signed in to the admin gets its own screens and nothing else. It reads no
+ * record. Nothing else is opened to pack roles.
+ */
+export const PACK_ROLE_CORE_READS: readonly string[] = ["screens.mine"];
 
 /**
  * The operations every pack role reaches, about the account itself (stage 38, ADR 0702): its
@@ -161,6 +170,7 @@ export function packRoleReaches(role: HeldPackRole, op: AnyOperation): boolean {
   if (op.packPermissions !== undefined) {
     return op.packPermissions.some((p) => role.permissions.includes(p));
   }
+  if (PACK_ROLE_CORE_READS.includes(op.name)) return true;
   return role.read.length > 0 && PACK_ROLE_READS.includes(op.name);
 }
 
@@ -257,6 +267,8 @@ export function staffMayCall(
 export function packRoleAllows(role: HeldPackRole, op: AnyOperation, input: unknown): boolean {
   if (!packRoleReaches(role, op)) return false;
   if (op.packPermissions !== undefined || PACK_ROLE_OWN.includes(op.name)) return true;
+  // The account's own screens (ADR 0660): its input is empty, and its answer is the account's.
+  if (PACK_ROLE_CORE_READS.includes(op.name)) return true;
   // record.get and record.list name their object in the input.
   const object = (input as { object?: unknown } | null)?.object;
   return typeof object === "string" && role.read.includes(object);

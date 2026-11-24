@@ -21,6 +21,11 @@ export type ShippedSource = (typeof SHIPPED_EXTENSIONS)[number];
 export interface ShippedListEnv {
   COS_PACKS?: string;
   COS_ORG_EXTENSIONS?: string;
+  /**
+   * Local development only ("1", apps/app/vite.config.ts): org extensions may hold unlisted packs'
+   * ids. Ignored outside a Vite development build (`devOrgPacks`).
+   */
+  COS_DEV_ORG_PACKS?: string;
   BLOBS?: R2Bucket;
 }
 
@@ -115,11 +120,37 @@ export async function orgExtensions(env: ShippedListEnv): Promise<ShippedSource[
   return list;
 }
 
-/** Everything this deployment installs as shipped: its product's packs, then the org's own. */
-export async function shippedExtensions(env: ShippedListEnv): Promise<ShippedSource[]> {
+/**
+ * Whether this runner is a Vite development build: `vite dev` (apps/app's auxiliary Worker) and the
+ * tests. Every shipped runner is bundled by wrangler (scripts/build.mjs), which defines no
+ * `import.meta.env`, so a var set by hand on a deployed Worker cannot turn it on.
+ */
+const VITE_DEV = (import.meta as { env?: { DEV?: boolean } }).env?.DEV === true;
+
+/** Whether org extensions may hold unlisted packs' ids: the flag, and only in development. */
+export function devOrgPacks(env: Pick<ShippedListEnv, "COS_DEV_ORG_PACKS">, dev = VITE_DEV) {
+  return dev && env.COS_DEV_ORG_PACKS === "1";
+}
+
+/**
+ * Everything this deployment installs as shipped: its product's packs, then the org's own. `dev`
+ * is for the tests only: whether this is a development build.
+ */
+export async function shippedExtensions(
+  env: ShippedListEnv,
+  dev = VITE_DEV,
+): Promise<ShippedSource[]> {
   const packs = listedPacks(env.COS_PACKS);
   const own = await orgExtensions(env);
-  const taken = new Set(packs.map((p) => p.id));
+  // An org's extension never takes the id of a pack this release carries, listed or not: a
+  // pack's id is what the admin's built-in screens and pack roles are keyed by (stage 47, ADR
+  // 0660), so an org extension holding an unlisted pack's id could borrow them. Local development
+  // alone delivers some packs as org extensions (scripts/dev-setup.mjs: optional, and Bookings'
+  // test variant), which its Vite config says with COS_DEV_ORG_PACKS. The flag fails closed: it
+  // counts only in a development build (`devOrgPacks`), never on a deployed Worker.
+  const taken = new Set(
+    devOrgPacks(env, dev) ? packs.map((p) => p.id) : SHIPPED_EXTENSIONS.map((p) => p.id),
+  );
   for (const extension of own) {
     if (taken.has(extension.id)) {
       throw new Error(`The org's extension ${extension.id} has a pack's id`);

@@ -23639,7 +23639,7 @@
     },
     {
       "name": "content.search",
-      "description": "Search the published records of a content object (help pages, blog posts) by the words the public reads in them: their published versions only, never a draft or a working copy. Every word must match the start of a word, so partial input works. Best matches first, one result per record, each with its slug, title, the section the best match is in (its heading and anchor, to link to) and a highlighted snippet as plain and matching parts. Pass nextCursor back as cursor. Read-only.",
+      "description": "Search the published records of a content object (help pages, blog posts) by the words the public reads in them: their published versions only, never a draft or a working copy. Every word of two letters or more must match the start of a word, so partial input works. Best matches first, one result per record, each with its slug, title, the section the best match is in (its heading and anchor, to link to) and a highlighted snippet as plain and matching parts. Pass nextCursor back as cursor. Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -56166,6 +56166,106 @@
         },
         "required": [
           "objects"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "screens.mine",
+      "description": "The staff screens of the installed packs the signed-in person may open in the admin: each one's pack, key, label, where it sits in the navigation, its route, and the object whose record page shows it as a tab. A screen is listed only when the person could call every tool that gates it. Empty for anyone but a person. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "screens": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "pack": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "nav": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "group": {
+                          "type": "string"
+                        },
+                        "order": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "group",
+                        "order"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "route": {
+                  "type": "string"
+                },
+                "record": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "object": {
+                          "type": "string"
+                        },
+                        "as": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "object",
+                        "as"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "pack",
+                "key",
+                "label",
+                "nav",
+                "route",
+                "record"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "screens"
         ],
         "additionalProperties": false
       },

@@ -12,6 +12,7 @@
         "ack.mine",
         "record.get",
         "record.list",
+        "screens.mine",
         "x.bookings.day",
         "x.bookings.markAll",
         "x.bookings.markAttended",
@@ -29,6 +30,7 @@
       "operations": [
         "ack.confirm",
         "ack.mine",
+        "screens.mine",
         "x.rostering.away",
         "x.rostering.back",
         "x.rostering.checklist",
@@ -60,6 +62,7 @@
         "ack.mine",
         "record.get",
         "record.list",
+        "screens.mine",
         "x.ticketing.checkIn",
         "x.ticketing.undoCheckIn"
       ]

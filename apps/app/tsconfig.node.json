@@ -3,5 +3,5 @@
   // types: Node's globals would clash with workerd's.
   "extends": "@composable-os/config/tsconfig.base.json",
   "compilerOptions": { "types": ["node"] },
-  "include": ["dev-secrets.ts", "test-node", "vitest.node.config.ts"]
+  "include": ["dev-secrets.ts", "screens-plugin.ts", "test-node", "vitest.node.config.ts"]
 }

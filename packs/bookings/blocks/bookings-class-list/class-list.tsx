@@ -10,6 +10,75 @@ import { Button } from "../ui-button/button.tsx";
 
 type Hooks = Pick<BookingsHooks, "useRoster" | "useMarkAttended" | "useUndoAttended">;
 
+/** Today's date (YYYY-MM-DD) in `timeZone`. */
+const todayIn = (timeZone: string) =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+
+/**
+ * A class's list as the product's admin shows it (stage 47): on a class's page, that class's
+ * list; opened from the navigation (a coach), today's classes in this browser's zone to choose
+ * one from. Which classes a coach may open (today's only) is the host's: it lists no others.
+ */
+export function TodayClassList({
+  bookings,
+  classId,
+}: {
+  bookings: Hooks & Pick<BookingsHooks, "useDay">;
+  classId?: string;
+}) {
+  const [chosen, setChosen] = useState<string | null>(null);
+  if (classId) return <ClassList bookings={bookings} classId={classId} />;
+  if (chosen) {
+    return (
+      <div className="grid gap-3">
+        <Button type="button" variant="outline" className="w-fit" onClick={() => setChosen(null)}>
+          Today's classes
+        </Button>
+        <ClassList bookings={bookings} classId={chosen} />
+      </div>
+    );
+  }
+  return <TodayClasses bookings={bookings} onOpen={setChosen} />;
+}
+
+function TodayClasses({
+  bookings,
+  onOpen,
+}: {
+  bookings: Pick<BookingsHooks, "useDay">;
+  onOpen: (classId: string) => void;
+}) {
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const day = bookings.useDay({ date: todayIn(timeZone), timeZone });
+  if (day.isPending) return <p aria-busy="true">Loading today's classes…</p>;
+  if (day.error || !day.data) return <p role="alert">We could not load today's classes.</p>;
+  if (!day.data.classes.length) return <p role="status">No classes today.</p>;
+  return (
+    <ul className="grid gap-2" aria-label="Today's classes">
+      {day.data.classes.map((klass) => (
+        <li key={klass.id}>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full justify-between"
+            onClick={() => onOpen(klass.id)}
+          >
+            <span>
+              {klass.title ?? "Class"} · {classTime(klass)}
+            </span>
+            <span>{klass.state === "scheduled" ? `${klass.booked} booked` : klass.state}</span>
+          </Button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 const STATE_LABEL: Record<string, string> = {
   booked: "Booked",
   attended: "Came",

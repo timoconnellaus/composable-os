@@ -1454,6 +1454,9 @@ describe("the door role (criterion 6b, ADR 0436)", () => {
     "x.ticketing.undoCheckIn",
     "record.get",
     "record.list",
+    // The screens of the admin it may open (stage 47, ADR 0660): the one core read every pack
+    // role reaches; a door account has none.
+    "screens.mine",
     // Every pack role's own read-and-understood list and confirmations (ADR 0702).
     "ack.confirm",
     "ack.mine",

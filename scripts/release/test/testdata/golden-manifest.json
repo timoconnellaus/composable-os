@@ -621,7 +621,7 @@
     },
     {
       "name": "0971_publish_acks.sql",
-      "sha256": "5fea04cdb24c6ba53d5b9025b3f5b0014f0885c5f868fc6afdfd16bf07768251"
+      "sha256": "09f017c3de6824032dbf6eaf0aa02d781904c57acb02af1317b874b86d0067ac"
     },
     {
       "name": "1090_staff_hours.sql",
