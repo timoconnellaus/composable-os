@@ -125,6 +125,25 @@ node scripts/ci-unit-shards.mjs --check              # every package's tests in 
 If one shard grows much slower than the others, move packages or change a split count in that
 file, using the times in the CI logs (each package's vitest `Duration`).
 
+## Working in parallel
+
+Many pull requests are open at once, so a pull request must not edit a line every other one
+edits. Do not edit:
+
+- `CORE_SCHEMA_VERSION`. It is generated from the migration files
+  (`packages/db/scripts/schema-version.mjs`, run on install and before `@composable-os/db`'s
+  typecheck, test and build). Adding a migration is adding its file (and `src/schema.ts`).
+- The migrations in the release golden manifest. The golden leaves them out and the test checks
+  them against `packages/db/migrations`. Regenerate the golden only when a Worker's config changes.
+- A stage's row in `docs/roadmap.md`, or a block's row in `docs/parallel-work.md`, per build
+  step. A roadmap row gives the stage's state when its spec was agreed; a block's row is written
+  once, when the block is claimed.
+
+Progress is recorded in the stage spec (`docs/stages/NN-*.md`), in its Status section: each build
+step adds a bullet of its own under it, saying what it built (the branch or PR, the migrations and
+ADRs it used, what is left), and does not rewrite another step's. A spec without a Status section
+gets one at its first build step.
+
 ## Pull requests
 
 - Branch from `main`, keep commits focused, and open a pull request against `main`.

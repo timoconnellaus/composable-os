@@ -4,6 +4,10 @@ Each stage runs as: **interview** (agree how it works) → **spec** in `docs/sta
 **build session** in its own worktree → review → merge. Stages are usable on their own and reduce
 risk for the next.
 
+A stage's row gives its state at the time its spec was agreed. Step-by-step progress is in the
+spec's Status section (`docs/stages/NN-*.md`), which each build step updates; build steps do not
+edit the rows here, so parallel PRs do not conflict on them.
+
 | # | Stage | Scope | Status |
 | --- | --- | --- | --- |
 | 0 | Scaffold | Monorepo, `cos-app` + `cos-runner`, D1 + migrations, identity adapters, CI, Deploy button; spike of `@cloudflare/computer` + Worker Loader | done (PR #2) |
