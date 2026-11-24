@@ -12,7 +12,9 @@
 //     read by every signed-in member (`signedIn`, ADR 0447); the bank and the class types are
 //     read by every signed-in member; a member writes a log only against a session they can see;
 //   - an assignment and a session move through fixed states (`states`), each move made from a
-//     current read (ADR 0437).
+//     current read (ADR 0437);
+//   - a session is an assignment's, or one brought in from before by an import (`source`), whose
+//     writes start no automation and send no message (the import door, ADR 0470).
 // The tools in tools.ts compose the host's operations and add no rules of their own.
 import { defineExtension } from "@composable-os/sdk";
 import { programsDashboards } from "./dashboards.ts";
@@ -30,6 +32,32 @@ import {
   sessionGet,
   today,
 } from "./tools.ts";
+
+// The pack's public entry: its shorthand reader, for an import that reads a folder of programs
+// (`cos programs import`) as `x.programs.importText` reads one.
+export {
+  type BankExercise,
+  type ImportResult as ProgramTextResult,
+  type ProgramKind,
+  readProgramText,
+  type UnreadLine,
+} from "./authoring.ts";
+export {
+  type Item,
+  LAYOUT_SCHEMA,
+  type Layout,
+  type Level,
+  type Prescription,
+  type SetTarget,
+} from "./layout.ts";
+
+/** Where a session or a set came from: left empty for the platform's own, `import` for before. */
+const source = {
+  type: "select",
+  label: "Where it came from",
+  description: "Imported: brought in from before the platform; it started nothing when it was.",
+  options: [{ value: "import", label: "Imported" }],
+} as const;
 
 const kind = {
   type: "select",
@@ -204,8 +232,22 @@ export default defineExtension({
           maxBytes: 524_288,
           paths: { weekCount: { label: "Weeks", path: "weeks", count: true } },
         },
+        importKey: {
+          type: "text",
+          label: "Import key",
+          readOnly: true,
+          description: "The name its text had where it came from: one program per key.",
+        },
+        importedHash: {
+          type: "text",
+          label: "Imported content",
+          readOnly: true,
+          description: "What the text import last wrote, so a re-run never overwrites an edit.",
+        },
       },
       publishable: { content: ["title", "kind", "theme", "guidance", "layout"] },
+      // `x.programs.importText` with a key: one live program per key, however many run at once.
+      unique: [{ fields: ["importKey"] }],
       indexes: [["kind"]],
     },
     classtype: {
@@ -310,7 +352,7 @@ export default defineExtension({
       titleField: "name",
       description:
         "One dated session of an assignment: its plan as the assigned version had it, and " +
-        "whether it was done.",
+        "whether it was done. Or one done before the platform, brought in by an import.",
       navigation: "none",
       fields: {
         name: { type: "text", label: "Name", required: true },
@@ -318,7 +360,7 @@ export default defineExtension({
           type: "relation",
           label: "Assignment",
           to: "programs.assignment",
-          required: true,
+          description: "Every session but an imported one is an assignment's.",
         },
         program: { type: "relation", label: "Program", to: "programs.program" },
         programVersion: { type: "number", label: "Version", readOnly: true },
@@ -369,14 +411,28 @@ export default defineExtension({
         completedAt: { type: "datetime", label: "Marked at" },
         completedBy: { type: "user", label: "Marked by" },
         completedByName: { type: "text", label: "Marked by (name)" },
+        source,
+        // Done before the platform: only staff move it back (a member reopening it is not theirs).
+        imported: {
+          type: "formula",
+          label: "Imported",
+          expression: 'coalesce(source, "") = "import"',
+        },
       },
+      // An assignment's, or brought in from before (`source: import`).
+      requireOneOf: [["assignment", "source"]],
       states: {
         field: "state",
         initial: "planned",
         moves: [
           { from: "planned", to: "done", by: ["staff", "customer"] },
           { from: "planned", to: "skipped", by: ["staff", "customer"] },
-          { from: ["done", "skipped"], to: "planned", by: ["staff", "customer"] },
+          {
+            from: ["done", "skipped"],
+            to: "planned",
+            by: ["staff", "customer"],
+            staffOnly: "imported",
+          },
         ],
       },
       customer: {
@@ -399,6 +455,7 @@ export default defineExtension({
           "plan",
           "state",
           "completedAt",
+          "source",
         ],
         write: [],
       },
@@ -480,6 +537,7 @@ export default defineExtension({
         },
         recordedBy: { type: "user", label: "Recorded by (coach)" },
         recordedByName: { type: "text", label: "Recorded by (name)" },
+        source,
       },
       customer: {
         field: "person",
@@ -503,6 +561,7 @@ export default defineExtension({
           "note",
           "recordedAs",
           "recordedByName",
+          "source",
         ],
         write: ["actualReps", "actualSeconds", "actualLoad", "rpe", "note"],
       },

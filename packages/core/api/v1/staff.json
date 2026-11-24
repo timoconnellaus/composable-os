@@ -84421,7 +84421,7 @@
     },
     {
       "name": "x.programs.importText",
-      "description": "Turn pasted program shorthand, or a document's text, into a working copy with structured targets: Title:, Guidance:, Week:, Session: (a weekday names its day), Focus:, Warm-up: with - lines, Block A: with its rounds, items A1: with an exercise (for everyone) or with level lines 1: to 5: (\"+\" done together, \"|\" alternatives), * notes for coaches and TV: notes shown to members. Exercises are matched to the bank by name. Every line it could not read is listed with why, for the coach to fix; nothing is guessed. Never publishes. Returns the new program and the unread lines. (Extension tool from Programs 0.1.0.)",
+      "description": "Turn pasted program shorthand, or a document's text, into a working copy with structured targets: Title:, Kind:, Guidance:, Week:, Session: (a weekday names its day), Focus:, Warm-up: with - lines, Block A: with its rounds, items A1: with an exercise (for everyone), with level lines 1: to 5: (\"+\" done together, \"|\" alternatives), or with both, * notes for coaches and TV: notes shown to members. Exercises are matched to the bank by name. Every line it could not read is listed with why, for the coach to fix; nothing is guessed. With a key (the text's name in its source), running it again changes the same program: updated while it still holds what the import last wrote, unchanged when the text is the same, and a conflict, left alone, when someone has edited it since. dryRun reads and checks the text and says what would happen, writing nothing. Never publishes. Returns the program and the unread lines. (Extension tool from Programs 0.1.0.)",
       "risk": "write",
       "audiences": [
         "staff"
@@ -84441,13 +84441,24 @@
             "maxLength": 200
           },
           "kind": {
-            "default": "class",
             "type": "string",
             "enum": [
               "class",
               "client",
               "course"
-            ]
+            ],
+            "description": "Left out: what a Kind: line says, else class"
+          },
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The text's import key (its file name in the source): one program per key"
+          },
+          "dryRun": {
+            "default": false,
+            "description": "Read and check only; write nothing",
+            "type": "boolean"
           }
         },
         "required": [
@@ -84459,7 +84470,11 @@
         "type": "object",
         "properties": {
           "programId": {
-            "type": "string"
+            "description": "Null only for a dry run that would create one",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "title": {
             "type": "string"
@@ -84474,6 +84489,16 @@
             "type": "boolean",
             "const": false,
             "description": "Always false: a person publishes it"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "created",
+              "updated",
+              "unchanged",
+              "conflict",
+              "invalid"
+            ]
           },
           "items": {
             "type": "number"
@@ -84500,6 +84525,26 @@
               ],
               "additionalProperties": false
             }
+          },
+          "faults": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "message"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Where the layout breaks the schema (a dry run's check; a write is refused)"
           }
         },
         "required": [
@@ -84508,8 +84553,10 @@
           "weeks",
           "sessions",
           "published",
+          "outcome",
           "items",
-          "unread"
+          "unread",
+          "faults"
         ],
         "additionalProperties": false
       },

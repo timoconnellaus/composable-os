@@ -7,7 +7,13 @@
 //
 // Called by a customer, a tool runs as that customer (ADR 0414): its calls are my.* and see only
 // what the seam shows them. Called by staff, it uses record.* and names the person.
-import { defineTool, type ExtensionContext, OpsCallError, z } from "@composable-os/sdk";
+import {
+  defineTool,
+  type ExtensionContext,
+  OpsCallError,
+  validateDocument,
+  z,
+} from "@composable-os/sdk";
 import {
   type BankExercise,
   type DraftPlan,
@@ -17,6 +23,7 @@ import {
   readProgramText,
 } from "./authoring.ts";
 import {
+  LAYOUT_SCHEMA,
   type Layout,
   type Prescription,
   prescriptions,
@@ -625,16 +632,23 @@ function targetIn(
     throw new OpsCallError("invalid_input", `This session has no item ${item}`, { item });
   }
   const levels = [...new Set(found.map((p) => p.level))];
-  if (levels.some((l) => l !== null) && level === undefined) {
+  // An item's exercises for everyone (level null) are logged with or without the level taken.
+  const everyone = found.filter((p) => p.level === null);
+  if (levels.some((l) => l !== null) && level === undefined && !everyone.length) {
     throw new OpsCallError("invalid_input", `Item ${item} has levels: say which was taken`, {
       item,
       levels,
     });
   }
-  const atLevel = found.filter((p) => level === undefined || p.level === level);
-  if (!atLevel.length) {
+  if (level !== undefined && !levels.includes(level)) {
     throw new OpsCallError("invalid_input", `Item ${item} has no level ${level}`, { item, levels });
   }
+  const atLevel =
+    level === undefined
+      ? levels.some((l) => l !== null)
+        ? everyone
+        : found
+      : [...found.filter((p) => p.level === level), ...everyone];
   const match = exercise ? atLevel.filter((p) => p.prescription.exercise === exercise) : atLevel;
   if (!match.length || (!exercise && match.length > 1)) {
     throw new OpsCallError(
@@ -649,7 +663,8 @@ function targetIn(
   return {
     prescription: chosen.prescription,
     target: chosen.prescription.sets[setNumber - 1] ?? null,
-    level: chosen.level,
+    // An exercise for everyone keeps the level the person took, when they say it.
+    level: chosen.level ?? level ?? null,
   };
 }
 
@@ -1102,41 +1117,99 @@ export const draft = defineTool({
   },
 });
 
+/** JSON with every object's keys in order: the same content gives the same text. */
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, v]) => v !== undefined && v !== null)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(",")}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
+
+/** Two 53-bit string hashes (cyrb53) as hex: whether a program still holds what was written. */
+function contentHash(text: string): string {
+  const one = (seed: number) => {
+    let h1 = 0xdeadbeef ^ seed;
+    let h2 = 0x41c6ce57 ^ seed;
+    for (let i = 0; i < text.length; i += 1) {
+      const c = text.charCodeAt(i);
+      h1 = Math.imul(h1 ^ c, 2654435761);
+      h2 = Math.imul(h2 ^ c, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(14, "0");
+  };
+  return `${one(1)}${one(2)}`;
+}
+
+/** What a text import writes of a program, as one hash: what it last wrote, kept beside it. */
+function importedHashOf(values: Record<string, unknown>): string {
+  return contentHash(
+    canonical({
+      title: values.title,
+      kind: values.kind,
+      guidance: values.guidance,
+      layout: values.layout,
+    }),
+  );
+}
+
 export const importText = defineTool({
   description:
     "Turn pasted program shorthand, or a document's text, into a working copy with structured " +
-    "targets: Title:, Guidance:, Week:, Session: (a weekday names its day), Focus:, Warm-up: " +
-    "with - lines, Block A: with its rounds, items A1: with an exercise (for everyone) or with " +
-    'level lines 1: to 5: ("+" done together, "|" alternatives), * notes for coaches and TV: ' +
-    "notes shown to members. Exercises are matched to the bank by name. Every line it could not " +
-    "read is listed with why, for the coach to fix; nothing is guessed. Never publishes. Returns " +
-    "the new program and the unread lines.",
+    "targets: Title:, Kind:, Guidance:, Week:, Session: (a weekday names its day), Focus:, " +
+    "Warm-up: with - lines, Block A: with its rounds, items A1: with an exercise (for everyone), " +
+    'with level lines 1: to 5: ("+" done together, "|" alternatives), or with both, * notes for ' +
+    "coaches and TV: notes shown to members. Exercises are matched to the bank by name. Every " +
+    "line it could not read is listed with why, for the coach to fix; nothing is guessed. With " +
+    "a key (the text's name in its source), running it again changes the same program: updated " +
+    "while it still holds what the import last wrote, unchanged when the text is the same, and a " +
+    "conflict, left alone, when someone has edited it since. dryRun reads and checks the text " +
+    "and says what would happen, writing nothing. Never publishes. Returns the program and the " +
+    "unread lines.",
   input: z.object({
     text: z.string().min(1).max(200_000),
     title: z.string().trim().min(1).max(200).optional(),
-    kind: z.enum(["class", "client", "course"]).default("class"),
+    kind: z
+      .enum(["class", "client", "course"])
+      .optional()
+      .describe("Left out: what a Kind: line says, else class"),
+    key: z
+      .string()
+      .trim()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe("The text's import key (its file name in the source): one program per key"),
+    dryRun: z.boolean().default(false).describe("Read and check only; write nothing"),
   }),
   output: workingCopy.extend({
+    programId: z.string().nullable().describe("Null only for a dry run that would create one"),
+    outcome: z.enum(["created", "updated", "unchanged", "conflict", "invalid"]),
     items: z.number(),
     unread: z.array(z.object({ line: z.number(), text: z.string(), reason: z.string() })),
+    faults: z
+      .array(z.object({ path: z.string(), message: z.string() }))
+      .describe("Where the layout breaks the schema (a dry run's check; a write is refused)"),
   }),
   risk: "write",
   async handler(input, ctx) {
     const bank = await bankOf(ctx);
     const read = readProgramText(input.text, bank);
     const title = input.title ?? read.title ?? "Imported program";
-    const created = await ctx.ops.call<RecordShape>("record.create", {
-      object: PROGRAM,
-      values: {
-        title,
-        kind: input.kind,
-        ...(read.guidance ? { guidance: read.guidance } : {}),
-        layout: read.layout,
-      },
-    });
+    const values: Record<string, unknown> = {
+      title,
+      kind: input.kind ?? read.kind ?? "class",
+      // Null when the text has none, so an update clears what an earlier text said.
+      guidance: read.guidance,
+      layout: read.layout,
+    };
     const sessions = read.layout.weeks.flatMap((w) => w.sessions);
-    return {
-      programId: created.id,
+    const summary = {
       title,
       weeks: read.layout.weeks.length,
       sessions: sessions.length,
@@ -1144,5 +1217,53 @@ export const importText = defineTool({
       published: false as const,
       unread: read.unread,
     };
+    const checked = validateDocument(LAYOUT_SCHEMA, read.layout);
+    const faults = checked.ok
+      ? []
+      : checked.issues.map((i) => ({ path: ["layout", ...i.path].join("."), message: i.message }));
+    const hash = importedHashOf(values);
+    const existing = input.key
+      ? (
+          await ctx.ops.call<ListShape>("record.list", {
+            object: PROGRAM,
+            filter: { field: "importKey", op: "eq", value: input.key },
+            limit: 1,
+          })
+        ).items[0]
+      : undefined;
+    // Someone edited it since the import wrote it: left alone (a save between this read and the
+    // update below is not seen: record.update has no version guard, ADR 0448).
+    const edited =
+      existing !== undefined &&
+      importedHashOf(existing.values) !== text(existing.values.importedHash);
+    const outcome = existing
+      ? edited
+        ? "conflict"
+        : hash === text(existing.values.importedHash)
+          ? "unchanged"
+          : "updated"
+      : "created";
+    const answer = (programId: string | null, said: typeof outcome | "invalid") => ({
+      ...summary,
+      programId,
+      outcome: said,
+      faults,
+    });
+    if (input.dryRun) return answer(existing?.id ?? null, faults.length ? "invalid" : outcome);
+    if (existing && outcome !== "updated") return answer(existing.id, outcome);
+    const imported = input.key ? { importKey: input.key, importedHash: hash } : {};
+    if (existing) {
+      await ctx.ops.call<RecordShape>("record.update", {
+        object: PROGRAM,
+        id: existing.id,
+        values: { ...values, importedHash: hash },
+      });
+      return answer(existing.id, "updated");
+    }
+    const created = await ctx.ops.call<RecordShape>("record.create", {
+      object: PROGRAM,
+      values: { ...values, ...imported },
+    });
+    return answer(created.id, "created");
   },
 });

@@ -111,7 +111,7 @@ export const SOLUTIONS: readonly Solution[] = [
         },
         {
           title: "Training programs",
-          body: "Programs built from your exercise bank, given to a member or a whole class, with every set logged against its target.",
+          body: "Programs built from your exercise bank, given to a member or a whole class, with every set logged against its target. Your exercises, programs and members' past training come across with an import.",
           status: "built",
         },
         {

@@ -407,6 +407,15 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
     ),
   );
 
+  // 3h. What imports last wrote (ADR 0470): a key or its stored values naming the subject (an
+  // imported set's person, its notes) go. A re-run then finds no person for those rows.
+  ctx.write(
+    ctx.db.deleteFrom("core_import_key").where(
+      // One search over both columns: the terms are bound once (at most 100 values a statement).
+      sql<SqlBool>`record_id IN ${subjectIds} OR ${mentionsSql(terms, sql`import_key || ' ' || coalesce(written, '')`)}`,
+    ),
+  );
+
   // 4. The records. Merged-away records first: they point at the survivor.
   const ordered = [...recordIds.filter((id) => id !== recordId), recordId];
   for (const ids of chunk(ordered)) {

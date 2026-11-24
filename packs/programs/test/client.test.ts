@@ -14,6 +14,7 @@ import {
   LOG,
   type LoggedSet,
   layoutSummary,
+  loadPastSessions,
   move,
   pastSessionsOf,
   pathOf,
@@ -245,6 +246,62 @@ describe("past sessions", () => {
     ]);
     expect(sets.at(-1)?.target).toBeNull();
     expect(plannedSets(plan, logged)).toBe(5);
+  });
+
+  it("an item with exercises for everyone and levels lists everyone's, then the level's", () => {
+    const both: Session = {
+      name: "Both",
+      day: 1,
+      blocks: [
+        {
+          label: "A",
+          items: [
+            {
+              kind: "levels",
+              label: "A1",
+              exercises: [{ exercise: hollow, sets: [{ kind: "time", seconds: 30 }] }],
+              levels: [
+                {
+                  mode: "one",
+                  level: 2,
+                  exercise: { exercise: pike, sets: [{ kind: "reps", reps: 5 }] },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    expect(sessionSets(both, []).map((s) => [s.item, s.exercise, s.setNumber])).toEqual([
+      ["A1", hollow, 1],
+      ["A1", pike, 1],
+    ]);
+    expect(plannedSets(both, [])).toBe(2);
+  });
+
+  it("a session imported from before, with no plan, lists the sets logged on it", () => {
+    const logged = [
+      set({ id: "log_b", item: null, exercise: pike, setNumber: 2 }),
+      set({ id: "log_a", item: null, exercise: pike, setNumber: 1 }),
+    ];
+    expect(sessionSets(null, logged).map((s) => [s.logged?.id, s.setNumber, s.target])).toEqual([
+      ["log_a", 1, null],
+      ["log_b", 2, null],
+    ]);
+    expect(plannedSets(null, logged)).toBe(0);
+  });
+
+  it("past sessions include imported ones: assigned to the person, or brought in from before", async () => {
+    const asked: unknown[] = [];
+    await loadPastSessions(
+      async (input) => {
+        asked.push(input.filter);
+        return { items: [], nextCursor: null };
+      },
+      { until: "2027-01-08" },
+    );
+    expect(JSON.stringify(asked[0])).toContain('"source"');
+    expect(JSON.stringify(asked[0])).toContain('"personal"');
   });
 
   it("summarises sessions with their sets done of planned", () => {
