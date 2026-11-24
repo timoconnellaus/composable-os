@@ -112,6 +112,10 @@ export type Role = (typeof ROLES)[number];
  * - `invoices:payments` record and reverse a payment taken another way, read the document event
  *   log and export invoices (stage 35, decision 7). Restricted: admins, and the accounts another
  *   human admin grants it to (never one's own, ADR 0625's rule); a person only.
+ * - `accounting:manage` the accounting sync (stage 61): read its settings and log, map the books'
+ *   accounts and tax rates, approve a day, retry, skip and match contacts. Admins by default,
+ *   grantable as `orders:refund` is, never to a pack role. Every write is a person's whatever is
+ *   granted (`actors: ["human"]`); changing the settings is a human admin's (`settings:manage`).
  * - `notes:clients` read notes kept to a client's coaches (level `coaches`) of every client
  *   (stage 56, ADR 0832): how a business's managers read them. Admins by default; grantable,
  *   restricted (never to oneself, never to a pack role's account), and nothing for an AI actor.
@@ -175,6 +179,7 @@ export const PERMISSIONS = [
   "invoices:send",
   "invoices:credit",
   "invoices:payments",
+  "accounting:manage",
   "notes:clients",
   "notes:sensitive",
   "notes:manage",
@@ -230,6 +235,7 @@ export const GRANTABLE_PERMISSIONS = [
   "invoices:send",
   "invoices:credit",
   "invoices:payments",
+  "accounting:manage",
   "notes:clients",
   "notes:sensitive",
   "notes:manage",

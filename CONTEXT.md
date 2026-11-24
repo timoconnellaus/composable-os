@@ -604,6 +604,15 @@ purpose `accounting`) reaches it, never a person, an AI, Code Mode or an extensi
 (`accounting_host_only`).
 _Avoid_: connector, sync adapter
 
+**Accounting sync**
+The host sending its own money to a business's books (stage 61): through one **accounting
+connection** a human admin chose (the books), from a **start date** on, to the accounts and tax
+rates a person with `accounting:manage` chose in the **mapping** (each category, tax code, fees,
+the clearing account, the payout bank account, each recorded-payment kind, rounding, refunds and
+the invoice default). Each entry waits in the host's **outbox** (`core_accounting_post`) with its
+fixed reference until it is sent once; a person approves each day until fourteen days are approved.
+_Avoid_: export, integration (it is core, not a pack or a generic integration)
+
 **Booking system contract**
 The typed session every booking-system gatekeeper serves (`BookingSystemSession`, in
 `packages/gatekeeper-booking-system`, ADR 0920): read the site, its people, membership types,

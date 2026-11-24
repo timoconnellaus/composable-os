@@ -5,6 +5,7 @@
 import { syncOperations } from "../sync/ingest.ts";
 import { a2uiOperations } from "./a2ui.ts";
 import { accessOperations } from "./access.ts";
+import { accountingOperations } from "./accounting.ts";
 import { ackOperations } from "./ack.ts";
 import { activityOperations } from "./activity.ts";
 import { adjudicatorOperations } from "./adjudicator.ts";
@@ -238,5 +239,6 @@ export const coreOperations = [
   ...agreementDeskOperations,
   ...agreementRetentionOperations,
   ...invoiceOperations,
+  ...accountingOperations,
   ...journeyOperations,
 ] as const;

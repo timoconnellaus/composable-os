@@ -406,6 +406,8 @@ export async function grantable(
     "invoices:credit": "Issue credit notes and void invoices",
     "invoices:payments":
       "Record payments taken another way (transfer, cash, card machine), and read the invoice log",
+    "accounting:manage":
+      "Run the accounting sync: map the books' accounts, approve days, fix what is held",
     "notes:clients": "Read every client's notes kept to their coaches (every read is logged)",
     "notes:sensitive": "Read sensitive notes (every opening is logged)",
     "notes:manage": "Change and delete others' notes, and lower a note's level",

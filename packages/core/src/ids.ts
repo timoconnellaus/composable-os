@@ -144,6 +144,10 @@ export const ID_PREFIXES = {
   invoiceLine: "inl",
   creditNote: "cn",
   creditNoteLine: "cnl",
+  /** An entry in the accounting outbox, to send to the books once (stage 61). */
+  accountingPost: "acp",
+  /** A bill-to waiting for a person to choose its contact in the books (stage 61). */
+  accountingMatch: "acm",
   /** A journey: steps the host takes for one Person at a time (stage 53, ADR 0800). */
   journey: "jny",
   /** A published version of a journey, never changed (ADR 0800). */
