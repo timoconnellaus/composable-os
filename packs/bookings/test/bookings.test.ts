@@ -966,6 +966,20 @@ describe("bookings pack (test host)", () => {
     expect(m.objects.coach?.unique).toEqual([{ fields: ["user"] }]);
   });
 
+  it("declares a class taking its room while it is on, when the room takes one booking at a time", () => {
+    const m = host().manifest;
+    // The host refuses two live records in one such room at once (ADR 0765); no tool checks it.
+    expect(m.objects.class?.occupies).toEqual({
+      thing: "room",
+      starts: "startsAt",
+      ends: "endsAt",
+      live: ["scheduled", "done"],
+      only: "exclusive",
+    });
+    // Off by default: a shared floor many classes use at once is never claimed.
+    expect(m.objects.room?.fields.exclusive).toMatchObject({ type: "boolean", default: false });
+  });
+
   // --- Step 7: attendance, the coach role, moves and cancelling a class -----------------------------
 
   it("declares the coach role, the list's windows, no-shows after the class, and who cancels a class", () => {
