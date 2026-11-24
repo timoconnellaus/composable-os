@@ -8,6 +8,7 @@ import { AUDITED_READS, defineOperation, PEOPLE_ONLY_AUDIT } from "../operation.
 import { ALL_ACTORS } from "../principals.ts";
 import { jsonList } from "../records/common.ts";
 import { recordRefSchema } from "../records/links.ts";
+import { keptNoteIds, visibleTable } from "../visibility/index.ts";
 
 const isoDateTime = z.iso.datetime({ offset: true }).transform((v) => new Date(v).toISOString());
 
@@ -114,6 +115,13 @@ export const auditList = defineOperation({
       // person's only: a pack since removed, or upgraded without the tool, keeps its rows hidden.
       query = query.where(
         sql<boolean>`(a.operation NOT LIKE 'x.%' OR a.operation IN (SELECT 'x.' || e.id || '.' || t.key FROM core_extensions e, json_each(e.manifest, '$.tools') t WHERE coalesce(json_extract(t.value, '$.humanOnly'), 0) != 1))`,
+      );
+    }
+    // A change to a note kept from the whole staff says it exists (stage 56, ADR 0830): no AI
+    // actor lists its rows, whatever the account holds.
+    if (ctx.actor !== "human") {
+      query = query.where(
+        sql<boolean>`NOT EXISTS (SELECT 1 FROM core_audit_changes kc WHERE kc.audit_id = a.id AND kc.object_type = 'activity' AND kc.record_id IN ${keptNoteIds()})`,
       );
     }
     if (input.userId) query = query.where("a.user_id", "=", input.userId);
@@ -231,6 +239,23 @@ export const auditListForRecord = defineOperation({
   risk: "read",
   mcp: { idempotent: true },
   async handler(input, ctx) {
+    // A note's history is for those who may read the note (stage 56, ADR 0830): to anyone else a
+    // note kept from them has none, as it has no row.
+    if (input.object === "activity") {
+      const kept = await ctx.db
+        .selectFrom(sql<{ id: string }>`${keptNoteIds()}`.as("k"))
+        .select("k.id")
+        .where("k.id", "=", input.recordId)
+        .executeTakeFirst();
+      const readable =
+        kept &&
+        (await ctx.db
+          .selectFrom(visibleTable(ctx, "activity"))
+          .select("id")
+          .where("id", "=", input.recordId)
+          .executeTakeFirst());
+      if (kept && !readable) return { items: [], nextCursor: null };
+    }
     let query = ctx.db
       .selectFrom("core_audit_changes as c")
       .innerJoin("core_audit as a", "a.id", "c.audit_id")

@@ -84,6 +84,8 @@ export const ID_PREFIXES = {
   media: "med",
   /** A family link: a guardian and a dependant (stage 31a, ADR 0540). */
   personLink: "pln",
+  /** Stage 56 (ADR 0831): a staff account that looks after a Person. */
+  personCarer: "pcr",
   refundDue: "rdu",
   /** A routine email the host was asked to send (ADR 0590). */
   routineMail: "rml",

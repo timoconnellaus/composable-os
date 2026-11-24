@@ -1,9 +1,17 @@
 // activity.* operations: log notes, emails, calls and meetings on any records' timelines, edit and
 // soft-delete them, and read a record's timeline. `system` activities are written only by the
 // pipeline (field changes, job changes, task completion), never through activity.log.
+//
+// A note has a level (stage 56, ADR 0830): `staff` (every staff account, as every activity was),
+// `coaches` or `sensitive`. The seam leaves out of every read here the notes the caller may not
+// read (`visibleTable(ctx, "activity")`, visibility/notes.ts); a sensitive one is listed as a
+// locked row, its text read by `note.open`. Who may change, delete or lower a note is decided here
+// (ADR 0832): its author, or `notes:manage` (with `notes:sensitive` for a sensitive one), and a
+// level is changed and a note deleted by a person only.
 import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, type Selectable, sql } from "kysely";
 import { z } from "zod";
+import { diffRecords } from "../diff.ts";
 import { ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
 import { activityObject } from "../fields/activity.ts";
 import { getObject } from "../fields/index.ts";
@@ -16,7 +24,7 @@ import {
   runListQuery,
   selectFields,
 } from "../list.ts";
-import { defineOperation, type HandlerContext } from "../operation.ts";
+import { defineOperation, type HandlerContext, type RecordChange } from "../operation.ts";
 import { jsonList } from "../records/common.ts";
 import {
   assertLinkTargets,
@@ -26,7 +34,14 @@ import {
   recordRefSchema,
   uniqueRefs,
 } from "../records/links.ts";
-import { type Reader, visibleTable } from "../visibility/index.ts";
+import {
+  NOTE_LEVELS,
+  type NoteLevel,
+  type NoteViewer,
+  noteRights,
+  type Reader,
+  visibleTable,
+} from "../visibility/index.ts";
 import { TRASH_RETENTION_DAYS } from "./person.ts";
 
 // --- Schemas -----------------------------------------------------------------------------------
@@ -97,11 +112,21 @@ const commonLogFields = {
     .describe("Records whose timelines show this activity (people, organisations, tasks)"),
 };
 
+const levelSchema = z
+  .enum(NOTE_LEVELS)
+  .describe(
+    "Who may read the note: staff (every staff account, the default), coaches (its author, the " +
+      "staff who look after the one Person it is about, and managers) or sensitive (its author " +
+      "and the people the business named one by one; every opening is recorded). A note at " +
+      "coaches or sensitive is about exactly one Person. Notes only.",
+  );
+
 const logInputSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("note"),
     ...commonLogFields,
     payload: activityPayloadSchemas.note.default({}),
+    level: levelSchema.default("staff"),
   }),
   z.object({ type: z.literal("email"), ...commonLogFields, payload: activityPayloadSchemas.email }),
   z.object({
@@ -140,6 +165,10 @@ export const activitySchema = z.object({
   hasFullBody: z.boolean().optional(),
   /** The email conversation it belongs to. */
   threadKey: z.string().nullable().optional(),
+  /** A note kept from the whole staff (stage 56): its level. Absent: `staff`. */
+  level: z.enum(["coaches", "sensitive"]).optional(),
+  /** A sensitive note listed without its text: open it with note.open (every opening recorded). */
+  locked: z.boolean().optional(),
 });
 export type Activity = z.infer<typeof activitySchema>;
 
@@ -163,6 +192,7 @@ type ActivityRow = {
   body_ref: string | null;
   disclosure: "full" | "metadata" | null;
   thread_key: string | null;
+  level: NoteLevel;
 };
 
 /** Private activities are visible only to the user they were made private for. */
@@ -192,16 +222,35 @@ function activityQuery(reader: Reader) {
       "a.body_ref",
       "a.disclosure",
       "a.thread_key",
+      "a.level",
     ]);
 }
 
-async function toActivities(db: Kysely<CoreDatabase>, rows: ActivityRow[]): Promise<Activity[]> {
+/**
+ * Activities from rows the seam returned. A sensitive note is a locked row (its kind, author and
+ * date, no text) unless `unlock`: only `note.open` and a write reading its own snapshot pass it.
+ */
+async function toActivities(
+  db: Kysely<CoreDatabase>,
+  rows: ActivityRow[],
+  { unlock = false } = {},
+): Promise<Activity[]> {
   const links = await loadLinks(
     db,
     "core_activity_links",
     rows.map((r) => r.id),
   );
-  return rows.map((row) => ({
+  return rows.map((row) => {
+    const locked = row.level === "sensitive" && !unlock;
+    return {
+      ...activityOf(row, links.get(row.id) ?? []),
+      ...(locked ? { subject: null, body: null, payload: {}, locked: true } : {}),
+    };
+  });
+}
+
+function activityOf(row: ActivityRow, links: Activity["links"]): Activity {
+  return {
     id: row.id,
     type: row.type,
     subject: row.subject,
@@ -211,7 +260,7 @@ async function toActivities(db: Kysely<CoreDatabase>, rows: ActivityRow[]): Prom
     authorUserId: row.author_user_id,
     authorName: row.author_name,
     authorActor: row.author_actor,
-    links: links.get(row.id) ?? [],
+    links,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at,
@@ -220,26 +269,32 @@ async function toActivities(db: Kysely<CoreDatabase>, rows: ActivityRow[]): Prom
     disclosure: row.disclosure,
     hasFullBody: row.body_ref !== null,
     threadKey: row.thread_key,
-  }));
+    ...(row.level !== "staff" ? { level: row.level } : {}),
+  };
+}
+
+/** A note's level: absent on the activity means `staff`. */
+export function levelOf(activity: Pick<Activity, "level">): NoteLevel {
+  return activity.level ?? "staff";
 }
 
 export async function loadActivity(
   reader: Reader,
   id: string,
-  { includeDeleted = false } = {},
+  { includeDeleted = false, unlock = false } = {},
 ): Promise<Activity | null> {
   let query = activityQuery(reader).where("a.id", "=", id);
   if (!includeDeleted) query = query.where("a.deleted_at", "is", null);
   const row = await query.executeTakeFirst();
   if (!row) return null;
-  const [activity] = await toActivities(reader.db, [row]);
+  const [activity] = await toActivities(reader.db, [row], { unlock });
   return activity ?? null;
 }
 
 async function requireActivity(
   reader: Reader,
   id: string,
-  options?: { includeDeleted?: boolean },
+  options?: { includeDeleted?: boolean; unlock?: boolean },
 ): Promise<Activity> {
   const activity = await loadActivity(reader, id, options);
   if (!activity) throw new NotFoundError("activity", id);
@@ -257,6 +312,67 @@ function activitySnapshot(
     occurredAt: a.occurredAt,
     links,
   };
+}
+
+/**
+ * A read that returned the text of `coaches` notes is audited, one row per call naming their ids
+ * and no text (stage 56, ADR 0830). Sensitive notes are locked here; `note.open` audits those.
+ */
+export function auditNoteReads(ctx: HandlerContext, activities: readonly Activity[]): void {
+  const notes = activities.filter((a) => a.level === "coaches").map((a) => a.id);
+  if (notes.length) ctx.auditRead?.({ notes });
+}
+
+const REDACTED = "[redacted]";
+const TEXT_FIELDS = ["subject", "body"] as const;
+
+/**
+ * The audit diff of a change to a note kept from the whole staff: the fields that changed, never
+ * their text (ADR 0019's redaction at write). Null for a `staff` note: the pipeline diffs it.
+ */
+function restrictedChange(
+  levels: readonly NoteLevel[],
+  before: Record<string, unknown> | null,
+  after: Record<string, unknown> | null,
+): Pick<RecordChange, "diff" | "restricted"> | null {
+  if (levels.every((level) => level === "staff")) return null;
+  const diff = diffRecords(before, after);
+  for (const field of TEXT_FIELDS) {
+    const entry = diff[field];
+    if (!entry) continue;
+    diff[field] = {
+      before: entry.before === null ? null : REDACTED,
+      after: entry.after === null ? null : REDACTED,
+    };
+  }
+  return { diff, restricted: true };
+}
+
+const LEVEL_RANK: Record<NoteLevel, number> = { staff: 0, coaches: 1, sensitive: 2 };
+
+/** A note at `coaches` or `sensitive` is about exactly one Person, so "whose" has one answer. */
+function assertOnePerson(level: NoteLevel, links: readonly { object: string }[]): void {
+  if (level === "staff") return;
+  if (links.filter((link) => link.object === "person").length !== 1) {
+    throw new ValidationError(
+      "A note kept to a client's coaches, or sensitive, is about exactly one person: link it to one",
+      { field: "links", rule: "note_one_person" },
+    );
+  }
+}
+
+/**
+ * Who may change or delete a note (ADR 0832): its author, or `notes:manage` (and, for a sensitive
+ * note, `notes:sensitive`), which give an AI actor nothing. Other activity types are unchanged.
+ */
+function assertMayChange(ctx: HandlerContext, activity: Activity): void {
+  if (activity.type !== "note" || activity.authorUserId === ctx.user.id) return;
+  const rights = noteRights(ctx as NoteViewer);
+  if (rights?.manage && (levelOf(activity) !== "sensitive" || rights.sensitive)) return;
+  throw new ForbiddenError(
+    "Only the note's author, or someone allowed to manage notes, can change or delete it",
+    { permission: "notes:manage", rule: "note_author" },
+  );
 }
 
 function queueLinks(
@@ -302,12 +418,25 @@ export const activityLog = defineOperation({
   output: activitySchema,
   permission: "records:write",
   risk: "write",
+  // The text is in the change's diff for a staff note, and in no audit row for any other level.
+  auditRedact: ["subject", "body"],
   mcp: { curated: true },
   async handler(input, ctx) {
     const subject = input.subject?.trim() || null;
     const body = input.body?.trim() ? input.body : null;
     requireContent(input.type, subject, body);
     const links = uniqueRefs(input.links);
+    const level: NoteLevel = input.type === "note" ? input.level : "staff";
+    if (level !== "staff" && ctx.actor !== "human") {
+      // An AI drafts a note with activity.proposeNote; a note kept from the staff is a person's.
+      throw new ForbiddenError(
+        "Only a person writes a note kept to a client's coaches or sensitive",
+        {
+          rule: "note_level_person",
+        },
+      );
+    }
+    assertOnePerson(level, links);
     await assertLinkTargets(ctx.db, links, ctx.simulation);
 
     const id = newId("activity");
@@ -323,19 +452,22 @@ export const activityLog = defineOperation({
         occurred_at: occurredAt,
         author_user_id: ctx.user.id,
         author_actor: ctx.actor === "extension" ? "system" : ctx.actor,
+        level,
         created_at: ctx.now,
         updated_at: ctx.now,
       }),
     );
     queueLinks(ctx, id, links);
+    const after = {
+      type: input.type,
+      ...activitySnapshot({ subject, body, payload, occurredAt }, linkKeys(links)),
+      ...(level !== "staff" ? { level } : {}),
+    };
     ctx.recordChange({
       object: "activity",
       id,
       action: "create",
-      after: {
-        type: input.type,
-        ...activitySnapshot({ subject, body, payload, occurredAt }, linkKeys(links)),
-      },
+      ...(restrictedChange([level], null, after) ?? { after }),
     });
     return ctx.afterCommit(() => requireActivity(ctx, id));
   },
@@ -375,6 +507,8 @@ export const activityGet = defineOperation({
   output: activitySchema,
   permission: "records:read",
   risk: "read",
+  // Its rows name notes kept from the staff: they are for people (stage 56, ADR 0830).
+  auditForPeople: true,
   mcp: { idempotent: true },
   async handler(input, ctx) {
     const activity = await requireActivity(ctx, input.id, {
@@ -383,6 +517,7 @@ export const activityGet = defineOperation({
     if (activity.private && activity.authorUserId !== ctx.user.id) {
       throw new NotFoundError("activity", input.id);
     }
+    auditNoteReads(ctx, [activity]);
     return activity;
   },
 });
@@ -391,8 +526,10 @@ export const activityUpdate = defineOperation({
   name: "activity.update",
   description:
     "Edit a note, email, call or meeting: subject, body, occurredAt, payload (validated for the " +
-    "activity's type, replacing the old payload) or links (replacing the list). The type cannot " +
-    "change. System activities cannot be edited. Returns the updated activity.",
+    "activity's type, replacing the old payload), links (replacing the list) or a note's level. " +
+    "The type cannot change. System activities cannot be edited. A note is changed by its author " +
+    "or someone allowed to manage notes; lowering a level is a person's, with that permission. " +
+    "Returns the updated activity.",
   input: z.object({
     id: activityId,
     subject: commonLogFields.subject,
@@ -400,14 +537,39 @@ export const activityUpdate = defineOperation({
     occurredAt: isoDateTime.optional(),
     payload: z.record(z.string(), z.unknown()).optional().describe("Typed by the activity's type"),
     links: commonLogFields.links.optional(),
+    level: levelSchema.optional(),
   }),
   output: activitySchema,
   permission: "records:write",
   risk: "write",
+  auditRedact: ["subject", "body"],
   async handler(input, ctx) {
-    const before = await requireActivity(ctx, input.id);
+    const before = await requireActivity(ctx, input.id, { unlock: true });
     if (before.type === "system") {
       throw new ValidationError("System activities are written by the CRM and cannot be edited");
+    }
+    assertMayChange(ctx, before);
+    const beforeLevel = levelOf(before);
+    const level = input.level ?? beforeLevel;
+    if (level !== beforeLevel) {
+      if (before.type !== "note") {
+        throw new ValidationError("Only a note has a level", { field: "level" });
+      }
+      if (ctx.actor !== "human") {
+        throw new ForbiddenError("Only a person changes a note's level", {
+          rule: "note_level_person",
+        });
+      }
+      const rights = noteRights(ctx as NoteViewer);
+      if (
+        LEVEL_RANK[level] < LEVEL_RANK[beforeLevel] &&
+        !(rights?.manage && (beforeLevel !== "sensitive" || rights.sensitive))
+      ) {
+        throw new ForbiddenError("Lowering a note's level needs permission to manage notes", {
+          permission: "notes:manage",
+          rule: "note_level_lower",
+        });
+      }
     }
     const subject = input.subject === undefined ? before.subject : input.subject?.trim() || null;
     const body = input.body === undefined ? before.body : input.body?.trim() ? input.body : null;
@@ -427,9 +589,12 @@ export const activityUpdate = defineOperation({
     let afterLinks = beforeLinks;
     if (input.links !== undefined) {
       const links = uniqueRefs(input.links);
+      assertOnePerson(level, links);
       await assertLinkTargets(ctx.db, links, ctx.simulation);
       queueLinks(ctx, input.id, links);
       afterLinks = linkKeys(links);
+    } else {
+      assertOnePerson(level, before.links);
     }
     ctx.write(
       ctx.db
@@ -439,16 +604,27 @@ export const activityUpdate = defineOperation({
           body,
           payload: JSON.stringify(payload),
           occurred_at: occurredAt,
+          level,
           updated_at: ctx.now,
         })
         .where("id", "=", input.id),
     );
+    const beforeSnapshot = {
+      ...activitySnapshot(before, beforeLinks),
+      ...(beforeLevel !== "staff" ? { level: beforeLevel } : {}),
+    };
+    const afterSnapshot = {
+      ...activitySnapshot({ subject, body, payload, occurredAt }, afterLinks),
+      ...(level !== "staff" ? { level } : {}),
+    };
     ctx.recordChange({
       object: "activity",
       id: input.id,
       action: "update",
-      before: activitySnapshot(before, beforeLinks),
-      after: activitySnapshot({ subject, body, payload, occurredAt }, afterLinks),
+      ...(restrictedChange([beforeLevel, level], beforeSnapshot, afterSnapshot) ?? {
+        before: beforeSnapshot,
+        after: afterSnapshot,
+      }),
     });
     return ctx.afterCommit(() => requireActivity(ctx, input.id));
   },
@@ -464,7 +640,12 @@ export const activityDelete = defineOperation({
   permission: "records:write",
   risk: "destructive",
   async handler(input, ctx) {
-    await requireActivity(ctx, input.id);
+    const activity = await requireActivity(ctx, input.id);
+    if (activity.type === "note" && ctx.actor !== "human") {
+      // An AI never deletes a note (stage 56, ADR 0832), whoever approves.
+      throw new ForbiddenError("Only a person deletes a note", { rule: "note_delete_person" });
+    }
+    assertMayChange(ctx, activity);
     ctx.write(
       ctx.db
         .updateTable("core_activity")
@@ -476,6 +657,7 @@ export const activityDelete = defineOperation({
       id: input.id,
       action: "delete",
       diff: { deletedAt: { before: null, after: ctx.now } },
+      ...(levelOf(activity) !== "staff" ? { restricted: true as const } : {}),
     });
     const until = new Date(Date.parse(ctx.now) + TRASH_RETENTION_DAYS * 86_400_000);
     return { id: input.id, deletedAt: ctx.now, restorableUntil: until.toISOString() };
@@ -494,6 +676,7 @@ export const activityRestore = defineOperation({
   async handler(input, ctx) {
     const activity = await requireActivity(ctx, input.id, { includeDeleted: true });
     if (!activity.deletedAt) throw new ValidationError("This activity is not in Trash");
+    assertMayChange(ctx, activity);
     ctx.write(
       ctx.db
         .updateTable("core_activity")
@@ -505,6 +688,7 @@ export const activityRestore = defineOperation({
       id: input.id,
       action: "restore",
       diff: { deletedAt: { before: activity.deletedAt, after: null } },
+      ...(levelOf(activity) !== "staff" ? { restricted: true as const } : {}),
     });
     return ctx.afterCommit(() => requireActivity(ctx, input.id));
   },
@@ -528,6 +712,7 @@ export const activityListForRecord = defineOperation({
   output: pageSchema(activitySchema),
   permission: "records:read",
   risk: "read",
+  auditForPeople: true,
   mcp: { curated: true, idempotent: true },
   async handler(input, ctx) {
     let query = activityQuery(ctx)
@@ -554,8 +739,10 @@ export const activityListForRecord = defineOperation({
       .execute();
     const page = rows.slice(0, input.limit);
     const last = page.at(-1);
+    const items = await toActivities(ctx.db, page);
+    auditNoteReads(ctx, items);
     return {
-      items: await toActivities(ctx.db, page),
+      items,
       nextCursor:
         rows.length > input.limit && last
           ? encodeCursor({ f: TIMELINE_SORT.field, d: "desc", v: last.occurred_at, id: last.id })
@@ -659,16 +846,20 @@ export const activityGetBody = defineOperation({
   output: z.object({ id: z.string(), body: z.string().nullable(), full: z.boolean() }),
   permission: "records:read",
   risk: "read",
+  auditForPeople: true,
   mcp: { idempotent: true },
   async handler(input, ctx) {
     const row = await ctx.db
       .selectFrom(visibleTable(ctx, "activity", "a"))
-      .select(["a.id", "a.body", "a.body_ref"])
+      .select(["a.id", "a.body", "a.body_ref", "a.level"])
       .where("a.id", "=", input.id)
       .where("a.deleted_at", "is", null)
       .where(visibleTo(ctx.user.id))
       .executeTakeFirst();
     if (!row) throw new NotFoundError("activity", input.id);
+    // A sensitive note's text is read with note.open, each opening recorded.
+    if (row.level === "sensitive") return { id: row.id, body: null, full: false };
+    if (row.level === "coaches") ctx.auditRead?.({ notes: [row.id] });
     if (row.body_ref && ctx.blobs) {
       const body = await ctx.blobs.get(row.body_ref);
       if (body !== null) return { id: row.id, body, full: true };

@@ -84,6 +84,8 @@ const CONTEXT_KEYS = {
   // Queues writes at the end of the call (stage 45): a simulated call has none (readOnlyContext).
   beforeCommit: "database",
   recordChange: "database",
+  // Writes a read's audit row (stage 56): a simulated call has none (pipeline.ts).
+  auditRead: "database",
   recordHostChange: "database",
   postActivity: "database",
   afterCommit: "data",

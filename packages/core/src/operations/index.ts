@@ -23,6 +23,7 @@ import { auditOperations } from "./audit.ts";
 import { automationOperations } from "./automation.ts";
 import { automationBindingOperations } from "./automation-binding.ts";
 import { capacityOperations } from "./capacity.ts";
+import { carerOperations } from "./carer.ts";
 import { checklistOperations } from "./checklist.ts";
 import { codeOperations } from "./code.ts";
 import { connectedAppOperations } from "./connected-app.ts";
@@ -52,6 +53,7 @@ import { mediaVideoOperations } from "./media-video.ts";
 import { memoryOperations } from "./memory.ts";
 import { myOperations } from "./my.ts";
 import { myWriteOperations } from "./my-write.ts";
+import { noteOperations } from "./note.ts";
 import { notificationOperations } from "./notification.ts";
 import { notificationDeliveryOperations } from "./notification-delivery.ts";
 import { orderOperations } from "./order.ts";
@@ -170,6 +172,8 @@ export const coreOperations = [
   ...customerOperations,
   ...meOperations,
   ...personLinkOperations,
+  ...noteOperations,
+  ...carerOperations,
   ...orderOperations,
   ...subscriptionOperations,
   ...subscriptionOfferOperations,

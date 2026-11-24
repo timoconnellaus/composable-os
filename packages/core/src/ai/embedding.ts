@@ -7,9 +7,9 @@
 //                              ─► Vectorize upsert / delete ─► core_embedding (hash) ─► dequeue
 //
 // The text is built here, from the live tables, so it is never embedded for a record that is
-// deleted, private (`private_to`), or synced with less than full disclosure: ADR 0112's
-// restricted reads are never written at all, and metadata-only and private activities are
-// skipped. A record with nothing to embed has its vector deleted, which is also how an erase
+// deleted, private (`private_to`), kept from the whole staff (a note's level, ADR 0830), or synced
+// with less than full disclosure: ADR 0112's restricted reads are never written at all, and
+// metadata-only, private and kept notes are skipped. A record with nothing to embed has its vector deleted, which is also how an erase
 // (ADR 0019) removes vectors.
 //
 // The seam (`EmbeddingProducer`): today the pipeline enqueues and cos-app drains after the commit;
@@ -218,7 +218,7 @@ export async function embeddingTexts(
       body: string | null;
     }>`
       SELECT id, type, subject, body FROM core_activity
-      WHERE id IN ${list} AND deleted_at IS NULL AND private_to IS NULL
+      WHERE id IN ${list} AND deleted_at IS NULL AND private_to IS NULL AND level = 'staff'
         AND (disclosure IS NULL OR disclosure = 'full')
         AND type IN ${jsonList(ACTIVITY_TYPES)}`.execute(db);
     for (const r of rows.rows) {

@@ -9,7 +9,13 @@ import { defineObject } from "../fields/types.ts";
 import { listInputSchema, pageQuery, pageSchema, selectFields } from "../list.ts";
 import { defineOperation } from "../operation.ts";
 import { availablePackRoles, PACK_ROLE_NAME_RE, parseGrants } from "../pack-roles.ts";
-import { GRANTABLE_PERMISSIONS, holdsPermission, PERMISSIONS, ROLES } from "../principals.ts";
+import {
+  GRANTABLE_PERMISSIONS,
+  holdsPermission,
+  PERMISSIONS,
+  RESTRICTED_CORE_PERMISSIONS,
+  ROLES,
+} from "../principals.ts";
 import { feedRevocations } from "../staffing/feed.ts";
 
 /** Users are not a record object (no tags, links or timeline); this only drives user.list. */
@@ -390,6 +396,9 @@ export async function grantable(
     "agreements:paper": "Record that someone signed an agreement on paper",
     "agreements:health": "Read members' health form answers (every read is logged)",
     "checklists:write": "Write the checklists staff tick off (their steps, and which are in use)",
+    "notes:clients": "Read every client's notes kept to their coaches (every read is logged)",
+    "notes:sensitive": "Read sensitive notes (every opening is logged)",
+    "notes:manage": "Change and delete others' notes, and lower a note's level",
   };
   return [
     ...GRANTABLE_PERMISSIONS.map((permission) => ({
@@ -397,7 +406,8 @@ export async function grantable(
       label: labels[permission],
       from: "core",
       forFixedRole: false,
-      restricted: false,
+      // The notes permissions (stage 56, ADR 0832) are restricted as a pack's may be (ADR 0625).
+      restricted: RESTRICTED_CORE_PERMISSIONS.includes(permission),
     })),
     ...packs,
   ];

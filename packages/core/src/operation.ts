@@ -75,6 +75,12 @@ export interface RecordChange {
    * row's summary records them beside the record.
    */
   warnings?: readonly { code: string; account: string | null; message: string }[] | undefined;
+  /**
+   * A change to a row kept from the whole staff (stage 56, ADR 0830: a note at level `coaches` or
+   * `sensitive`, before or after): it is no automation event, and no AI actor lists its audit
+   * rows. Its diff names fields, never their text (the handler redacts it).
+   */
+  restricted?: true | undefined;
 }
 
 /** A link from an activity or task to a record. */
@@ -191,6 +197,12 @@ export interface HandlerContext {
    * returns it.
    */
   readonly signIn?: (() => Promise<CustomerSignIn | null>) | undefined;
+  /**
+   * A read that returned text kept from the whole staff (stage 56, ADR 0830: a `coaches` note):
+   * this call writes an audit row, a person's included, holding `summary` (ids, never the text),
+   * as `auditReads` does for every call of an operation. Absent on a call that is not a staff read.
+   */
+  readonly auditRead?: ((summary: Record<string, unknown>) => void) | undefined;
   /** Queues statements (Kysely insert/update/delete builders) for the commit batch, in order. */
   write(...statements: (Compilable | CompiledQuery)[]): void;
   /**
@@ -491,6 +503,12 @@ export interface OperationDefinition<
   bulkSize?: (input: z.output<In>) => number;
   /** Extra input keys to redact in the audit log (secrets matching common names always are). */
   redact?: readonly string[];
+  /**
+   * Input keys left out of the audit row's input only, kept in a pending action for its approver
+   * (stage 56): text the change's own diff records where it may (a staff note's), and nowhere
+   * where it may not (a note kept from the whole staff, whose diff names the field only).
+   */
+  auditRedact?: readonly string[];
   /**
    * Keys of the result to redact in the audit log (stage 42): a one-time upload address, a
    * playback token. Set, secret-looking keys of the result are redacted too.

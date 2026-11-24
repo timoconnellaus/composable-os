@@ -90,6 +90,13 @@ export type Role = (typeof ROLES)[number];
  *   Admins by default, grantable as `orders:refund` is. An AI acting for an account that holds it
  *   may draft one; its write always waits for a person who holds it too, so a checklist staff are
  *   asked to follow is always one a person approved.
+ * - `notes:clients` read notes kept to a client's coaches (level `coaches`) of every client
+ *   (stage 56, ADR 0832): how a business's managers read them. Admins by default; grantable,
+ *   restricted (never to oneself, never to a pack role's account), and nothing for an AI actor.
+ * - `notes:sensitive` read sensitive notes (level `sensitive`), every opening audited. Admins by
+ *   default; grantable and restricted as `notes:clients` is.
+ * - `notes:manage` change and delete others' notes it can read, and lower a note's level (a
+ *   person only). Admins by default; grantable and restricted as `notes:clients` is.
  */
 export const PERMISSIONS = [
   "records:read",
@@ -109,6 +116,9 @@ export const PERMISSIONS = [
   "agreements:paper",
   "agreements:health",
   "checklists:write",
+  "notes:clients",
+  "notes:sensitive",
+  "notes:manage",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -146,7 +156,21 @@ export const GRANTABLE_PERMISSIONS = [
   "agreements:paper",
   "agreements:health",
   "checklists:write",
+  "notes:clients",
+  "notes:sensitive",
+  "notes:manage",
 ] as const;
+
+/**
+ * Core grantable permissions that are restricted (stage 56, ADR 0832, extending ADR 0625 to core
+ * permissions): held by admins and by a human admin's grant only, never granted to oneself, never
+ * to an account with a pack's fixed role, and never anything for an AI actor.
+ */
+export const RESTRICTED_CORE_PERMISSIONS: readonly Permission[] = [
+  "notes:clients",
+  "notes:sensitive",
+  "notes:manage",
+];
 
 /**
  * The account's role, or a permission granted to it (ADR 0449), allows `permission`. A pack role

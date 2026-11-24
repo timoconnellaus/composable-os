@@ -34,7 +34,7 @@ import {
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { roleHasPermission } from "../principals.ts";
 import { jsonList } from "../records/common.ts";
-import { type Reader, visibleSource } from "../visibility/index.ts";
+import { keptNoteIds, type Reader, visibleSource } from "../visibility/index.ts";
 
 const recordId = z
   .string()
@@ -202,6 +202,8 @@ async function loadMembers(
     .select(["record_id", (eb) => eb.fn.countAll<number>().as("n")])
     .where("object_type", "=", object)
     .where("record_id", "in", list)
+    // Notes kept from the whole staff are not counted (stage 56, ADR 0830).
+    .where(sql<boolean>`activity_id NOT IN ${keptNoteIds()}`)
     .groupBy("record_id")
     .execute();
   const activity = new Map(counts.map((c) => [c.record_id, Number(c.n)]));
