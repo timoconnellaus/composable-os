@@ -220,20 +220,24 @@ extension declares it; it never implements it. Each behaviour the platform has i
 - **`intake`** when the public or customers send answers (a form, its submissions, a record a
   form may also make): `intake: { role: "form", questions: "<document field with
   QUESTIONS_SCHEMA, in publishable.content>", answeredBy: "<select: public, customers, links,
-  staff>", openIn: [<states>], anonymous?, destination?, opensAt?, closesAt?, dailyCap?, notify? }`
+  staff>", openIn: [<states>], anonymous?, destination?, opensAt?, closesAt?, dailyCap?, notify?,
+  hourlyCap?: "<a number setting of yours, personApproves>" }`
   on a publishable form object, with `answeredBy`, `anonymous` and `destination` in its
-  `publishable.content` (they are read from the version answered); `{ role: "submission", form: "<relation to it>", version,
+  `publishable.content` (they are read from the version answered), and `publishable.slug` for a
+  form a link names by its address (`intake.open { object, slug }`); `{ role: "submission", form: "<relation to it>", version,
   answers: "<document field with ANSWERS_SCHEMA>", person, certainty: "<select: account, link,
-  staff, address>", spam: "<a state the host creates it in>", via?, rating? }` on its submission
+  staff, address>", spam: "<a state the host creates it in>", via?, rating?, marketing?: "<a
+  boolean the host sets when a marketing consent line was ticked>" }` on its submission
   (never with `customer`, `public` or `signedIn`); `{ role: "destination", person, fields: [<what
   a form may fill>], source? }` on a record another pack's form may make. The host's one door,
   `intake.submit` (tool-only: your tool calls it for your own form, with `intake.open` first for
   the public's shown-time token), checks the form is open to the caller, Turnstile, the honeypot,
   the fill time, the caps and the answers, and makes the submission, the Person (empty fields
   only) and any destination record itself. Never create a submission or check spam in a tool: only the door creates one, and a
-  submission's form, version, answers, certainty, via and rating are the host's on every path.
-  Shipped packs and the org's own extensions only. See `IntakeSpec` in
-  `packages/sdk/src/intake.ts` and ADRs 0720 to 0722 and 0725.
+  submission's form, version, answers, certainty, via, rating and marketing are the host's on
+  every path. Give a form no `public` scope: the public reads it through `intake.open` only. Shipped
+  packs and the org's own extensions only. See `IntakeSpec` in `packages/sdk/src/intake.ts`, ADRs
+  0720 to 0722, 0725 and 0726, and Forms: `packs/forms/index.ts`.
 - **`sellable`** on an object: its records can be bought (ticket types, passes, products). Only
   an object that declares it can go on an order, and the host reads its price and rules from the
   record: `sellable: { price: "<currency field>", saleWindow?: { from?, until? }, maxPerOrder?,

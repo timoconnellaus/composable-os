@@ -38,14 +38,15 @@ export function destinationObjectOf(name: unknown): DestinationObject | null {
 
 /**
  * A submission's fields only the host writes (ADR 0720): what was answered, to which version, how
- * sure the host is of the submitter, and which way it came. Its Person stays staff's to set (after
+ * sure the host is of the submitter, which way it came, and whether a "keep me updated" line was
+ * ticked (only the person ticks one, decision 10). Its Person stays staff's to set (after
  * a merge, an address several People had) and its state staff's to move.
  */
 export function intakeHostFields(object: ObjectDefinition): Set<string> {
   if (object.intake?.role !== "submission") return new Set();
   const i = object.intake;
   return new Set(
-    [i.form, i.version, i.answers, i.certainty, i.via, i.rating].filter(
+    [i.form, i.version, i.answers, i.certainty, i.via, i.rating, i.marketing].filter(
       (f): f is string => typeof f === "string",
     ),
   );

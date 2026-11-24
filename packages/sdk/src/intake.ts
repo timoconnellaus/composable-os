@@ -51,6 +51,12 @@ export const INTAKE_SOURCE = "website";
  *   registry name), `opensAt` and `closesAt` (datetime fields), `dailyCap` (a number field: at
  *   most so many in 24 hours) and `notify` (a user field: who is told; left empty, the admins)
  *   are optional.
+ * - `hourlyCap` (optional): a number setting of this extension, one a person approves
+ *   (`personApproves`): at most so many submissions an hour across every form of the deployment.
+ *   Left out, or the setting empty, the platform's 200.
+ *
+ * A form object with `publishable.slug` is also found by its slug (`intake.open { slug }`): a link
+ * or a QR code names the form by its address, never by its id.
  */
 export interface IntakeFormSpec {
   role: "form";
@@ -63,6 +69,7 @@ export interface IntakeFormSpec {
   closesAt?: string;
   dailyCap?: string;
   notify?: string;
+  hourlyCap?: string;
 }
 
 /**
@@ -79,6 +86,9 @@ export interface IntakeFormSpec {
  *   submission the host keeps as spam is created in.
  * - `via` (a select among `INTAKE_VIAS`) and `rating` (a number field: the first rating answer,
  *   for dashboards) are optional.
+ * - `marketing` (optional, a boolean field): set by the host when the person ticked a `marketing`
+ *   consent line of the version answered ("keep me updated", decision 10), so a list can find
+ *   them. The words they saw are the version's.
  */
 export interface IntakeSubmissionSpec {
   role: "submission";
@@ -90,6 +100,7 @@ export interface IntakeSubmissionSpec {
   spam: string;
   via?: string;
   rating?: string;
+  marketing?: string;
 }
 
 /**
@@ -121,6 +132,7 @@ export const intakeManifestSchema = z.discriminatedUnion("role", [
       closesAt: fieldName.optional(),
       dailyCap: fieldName.optional(),
       notify: fieldName.optional(),
+      hourlyCap: fieldName.optional(),
     })
     .strict(),
   z
@@ -134,6 +146,7 @@ export const intakeManifestSchema = z.discriminatedUnion("role", [
       spam: z.string().min(1).max(100),
       via: fieldName.optional(),
       rating: fieldName.optional(),
+      marketing: fieldName.optional(),
     })
     .strict(),
   z
@@ -231,6 +244,20 @@ export function checkObjectIntake(
     need("closesAt", intake.closesAt, ["datetime"], "a datetime");
     need("dailyCap", intake.dailyCap, ["number"], "a number");
     need("notify", intake.notify, ["user"], "a user");
+    if (intake.hourlyCap !== undefined) {
+      const setting = Object.hasOwn(m.settings, intake.hourlyCap)
+        ? m.settings[intake.hourlyCap]
+        : undefined;
+      if (setting?.type !== "number") {
+        contract(`${at}.hourlyCap`, `"${intake.hourlyCap}" must be a number setting of ${m.id}`);
+      } else if (setting.personApproves !== true) {
+        // How many answers the public may send is an abuse setting: never an AI's to change.
+        contract(
+          `${at}.hourlyCap`,
+          `"${intake.hourlyCap}" must be a setting a person approves (personApproves)`,
+        );
+      }
+    }
     if (object.customer || object.customerVia) {
       contract(at, "A form is read by the public through its published version: no customer");
     }
@@ -307,6 +334,7 @@ export function checkObjectIntake(
       }
     }
     need("rating", intake.rating, ["number"], "a number");
+    need("marketing", intake.marketing, ["boolean"], "a boolean");
     // Nobody outside the org reads a submission, not even its submitter (ADR 0720).
     if (object.customer || object.customerVia || object.public || object.signedIn) {
       contract(at, "A submission is read by staff only: no customer, public or signedIn");

@@ -2683,6 +2683,35 @@ unconfirmed, shown to staff as such). The host fills only a Person's empty field
 An anonymous form's submission has no submitter at all.
 _Avoid_: sender, respondent, lead (only for `leads.lead`)
 
+### Form
+
+(stage 29, the Forms pack)
+
+Questions a business asks (`forms.form`), published as versions a person publishes: an enquiry, a
+sign-up, a survey, feedback or a **staff form** (answered by staff only, an incident report). Found
+by its address (slug) while it is open to the caller. Its "who may answer", anonymity and
+destination count from the version published.
+_Avoid_: waiver, agreement (stage 44's), survey (one kind of form, not the record)
+
+### Submission
+
+(stage 29, the Forms pack)
+
+One set of answers to one version of a form (`forms.submission`), made only by the host's door, in
+the Forms **inbox** with the states new, in hand, done and spam. Read by staff accounts only: never
+by its submitter, a customer, the public or a pack-role account. A spam submission is moved out
+only by a person (`notSpam`); an AI may only suggest spam.
+_Avoid_: response, entry, lead (only for `leads.lead`), ticket (Ticketing's)
+
+### Consent line
+
+(stage 29)
+
+A tick box on a form whose exact words are kept with the version. A ticked `marketing` line ("keep
+me updated") marks the submission (`marketing`), set only by the host and never by staff or an AI;
+the Forms pack lists them in "Asked to hear from us" until Notifications keeps a consent register.
+_Avoid_: opt-in flag, subscription (a paid plan's)
+
 ### Slug
 
 A record's address in its object (`summer-launch`): lowercase words joined by hyphens, unique
