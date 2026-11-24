@@ -444,6 +444,26 @@ export function toOperationError(error: unknown): OperationError {
   if (message.includes("core_holds_capped")) {
     return new RateLimitedError(TRY_LATER, { rule: "try_later" });
   }
+  // A holder who cooled off another membership meanwhile (migration 0856, ADR 0647): once per
+  // member. The words name nobody.
+  if (message.includes("core_cool_off_used")) {
+    return new ConflictError(
+      "Cooling off has been used for this member before: it is once per member.",
+      { rule: "cooling_off", reason: "used" },
+    );
+  }
+  if (message.includes("core_cool_off_exists")) {
+    return new ConflictError(
+      "A cooling off was asked for this membership a moment ago, so nothing more was asked.",
+      { rule: "cooling_off", reason: "asked" },
+    );
+  }
+  if (message.includes("core_cool_off_final")) {
+    return new ConflictError("This cooling off has already ended, so nothing was changed.", {
+      rule: "cooling_off",
+      reason: "ended",
+    });
+  }
   // A waiter joining a waitlist after a place came free (migration 0610, ADR 0520).
   if (message.includes("core_waitlist_not_full")) {
     return new ConflictError("A place came free meanwhile: claim it instead of waiting.", {

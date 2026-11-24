@@ -319,6 +319,8 @@ export type AllowanceDefinition =
       readonly paidBy: readonly string[];
       /** A boolean field: while true, entering a spend state spends nothing (ADR 0506). */
       readonly waived?: string | undefined;
+      /** The return state the host moves it into when its holder is cooled off (ADR 0647). */
+      readonly released?: string | undefined;
     };
 
 /** The capacity behaviour as the host enforces it (the SDK's CapacitySpec, validated). */
@@ -362,6 +364,8 @@ export interface SellableDefinition {
         grants?: RecurringGrantDefinition | undefined;
         /** Staff may pause one, within these number fields' days (ADR 0531). */
         pause?: { minDays?: string | undefined; maxDays?: string | undefined } | undefined;
+        /** The extension's number setting holding the cooling-off days (ADR 0647). */
+        coolingOff?: { setting: string } | undefined;
       }
     | undefined;
   /** A boolean field: while true, a Person buys the record once across the object (ADR 0512). */

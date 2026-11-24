@@ -3273,6 +3273,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "subscription.coolingOff",
         "subscription.get",
         "subscription.list",
         "subscription.offer.mine",
@@ -3357,11 +3358,297 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "subscription.coolingOff",
         "subscription.get",
         "subscription.list",
         "subscription.offer.mine",
         "subscription.portal"
       ]
+    },
+    {
+      "name": "subscription.coolOff",
+      "description": "End a subscription in its cooling-off period, for a full refund of what was paid in it (subscription.coolingOff says whether it may be, and what it owes). Ended at the payment provider now: nothing more is charged, and what it gives stops once the provider confirms. Then each order paid up to the end of the period, and between the ask and the end, is owed back in full, whatever was used; each waits for a person with orders:refund to approve it. The bookings ahead the membership paid for are cancelled as the business's. Refused for a plan with no cooling off, a membership moved over with a continuation offer, a member who has cooled off before, while nothing has been paid (a free trial: cancel instead), and after the period unless one was asked in it. An ask inside the period opens it for 7 days; any end in that time is the cooling off's, and at its deadline it lapses (the ordinary cancel works again). A signed-in customer ends their own (the one they pay for, a child's included) and asks again only inside the period; staff any, with subscriptions:manage, ask again until the deadline, and finish a lapsed one (only what was paid in the period is owed, once the provider confirms the membership ended). Each ask reads the provider first and is a new request to it; nothing is done twice. Refused while a cancel of it waits for a person at the payments gatekeeper. A person decides, never an AI assistant.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Subscription id (sbs_…)"
+          }
+        },
+        "required": ["id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["asked", "ended", "lapsed"],
+            "description": "asked: open; ended: it ended (or was finished) and its refunds are owed; lapsed: staff asked to finish it and the provider has not confirmed the end yet"
+          },
+          "asked": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["sent", "pending", "unknown"]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "sent: the provider was asked to end it; pending: it waits for a person at the payments gatekeeper; unknown: it may or may not have reached it (its next event decides; staff are told)"
+          },
+          "refund": {
+            "type": "number",
+            "description": "Paid and not refunded so far, in minor units: owed back"
+          },
+          "currency": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "state", "asked", "refund", "currency"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "subscription.coolingOff",
+        "subscription.get",
+        "subscription.list",
+        "subscription.offer.mine",
+        "subscription.portal"
+      ]
+    },
+    {
+      "name": "subscription.coolingOff",
+      "description": "Whether each subscription may be ended in its cooling-off period for a full refund: the business's setting (whole days, 0 off), counted from when the payment provider confirmed it to the end of the last day in the business's time zone, for a new member's membership only (not a pass, not one moved over with a continuation offer), once per member. Also says how far a cooling off asked for has got and where its refunds are. The host decides; an app shows the button only when `offered`. A signed-in customer asks about the subscriptions they pay for only; another's is not found. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "minItems": 1,
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "Subscription id (sbs_…)"
+            },
+            "description": "Up to 20 subscriptions"
+          }
+        },
+        "required": ["ids"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "subscriptionId": {
+                  "type": "string"
+                },
+                "offered": {
+                  "type": "boolean",
+                  "description": "The payer may end it now for a full refund (cooling off)"
+                },
+                "why": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "not_covered",
+                        "off",
+                        "continuation",
+                        "ended",
+                        "window_passed",
+                        "used",
+                        "nothing_paid"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Why not: not_covered (the plan has no cooling off), off (the business set none), continuation (not started here as a new member), ended, window_passed, used (once per member), nothing_paid (a free trial: an ordinary cancel ends it at no charge)"
+                },
+                "days": {
+                  "type": "number",
+                  "description": "The cooling-off days that apply; 0 when none"
+                },
+                "until": {
+                  "description": "The last day of the window (YYYY-MM-DD, the business's time zone)",
+                  "type": ["string", "null"]
+                },
+                "endsAt": {
+                  "description": "The moment the window closes",
+                  "type": ["string", "null"]
+                },
+                "refund": {
+                  "type": "number",
+                  "description": "What a cooling off asked now owes back, not yet refunded, in minor units"
+                },
+                "currency": {
+                  "type": "string"
+                },
+                "coolOff": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "enum": ["asked", "ended", "lapsed"],
+                          "description": "asked: open until its deadline (any end of the subscription by then is its end); ended: it ended (or staff finished it) and its refunds are owed; lapsed: its deadline passed (or its waiting cancel was turned down, or the end was not its): nothing owed as cooled off, and the ordinary cancel works again"
+                        },
+                        "asked": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": ["sent", "pending", "unknown", "refused"]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "What came of the latest ask of the provider"
+                        },
+                        "askedBy": {
+                          "type": "string",
+                          "enum": ["payer", "staff"]
+                        },
+                        "askedAt": {
+                          "type": "string"
+                        },
+                        "deadline": {
+                          "type": "string",
+                          "description": "Open until then: the ask plus the approval expiry (7 days)"
+                        },
+                        "endedAt": {
+                          "type": ["string", "null"]
+                        },
+                        "finished": {
+                          "type": "boolean",
+                          "description": "Staff finished a lapsed one"
+                        },
+                        "finishing": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": ["asked", "sent", "pending", "unknown", "stuck"]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Staff asked to finish a lapsed one, not yet confirmed: asked or unknown (the host asks the provider again), sent (waiting for the provider's end), pending (waiting for a person at the payments gatekeeper), stuck (it could not be done; admins were told)"
+                        },
+                        "waiting": {
+                          "type": "boolean",
+                          "description": "A cancel of it waits for a person at the payments gatekeeper: nobody may ask again until it is approved or turned down"
+                        },
+                        "lapsedBecause": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": ["deadline", "action", "end_time", "used"]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "askAgain": {
+                          "type": "boolean",
+                          "description": "The caller may ask the provider again now (the member inside the period, staff before the deadline), or (staff) finish a lapsed one"
+                        },
+                        "open": {
+                          "type": "boolean",
+                          "description": "Open, before its deadline: the ordinary cancel waits"
+                        },
+                        "staffTold": {
+                          "type": "boolean",
+                          "description": "Admins were told it is stuck or lapsed"
+                        },
+                        "paid": {
+                          "type": "number",
+                          "description": "What it owes (or would, if it ended now): paid on or before the end of the period, plus paid after the ask and by the end, in minor units"
+                        },
+                        "refunded": {
+                          "type": "number",
+                          "description": "What has been refunded of that so far, in minor units"
+                        },
+                        "refunds": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": ["waiting", "refunded", "held"]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Once ended: waiting (each refund waits for a person who may refund), refunded, or held (a refund was not approved or could not be asked: staff refund it from the order)"
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "asked",
+                        "askedBy",
+                        "askedAt",
+                        "deadline",
+                        "endedAt",
+                        "finished",
+                        "finishing",
+                        "waiting",
+                        "lapsedBecause",
+                        "askAgain",
+                        "open",
+                        "staffTold",
+                        "paid",
+                        "refunded",
+                        "refunds"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "A cooling off asked for, and how far it has got"
+                }
+              },
+              "required": [
+                "subscriptionId",
+                "offered",
+                "why",
+                "days",
+                "until",
+                "endsAt",
+                "refund",
+                "currency",
+                "coolOff"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["items"],
+        "additionalProperties": false
+      },
+      "invalidates": []
     },
     {
       "name": "subscription.get",
@@ -4025,6 +4312,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "subscription.coolingOff",
         "subscription.get",
         "subscription.list",
         "subscription.offer.mine",
@@ -4229,6 +4517,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "subscription.coolingOff",
         "subscription.get",
         "subscription.list",
         "subscription.offer.mine",

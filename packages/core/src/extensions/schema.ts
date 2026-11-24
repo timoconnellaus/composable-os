@@ -755,6 +755,7 @@ function allowanceDefinition(object: ObjectState): ObjectDefinition["allowance"]
     ...(sp.movedFrom ? { movedFrom: { ...sp.movedFrom } } : {}),
     paidBy: [...(sp.paidBy ?? [])],
     ...(sp.waived ? { waived: sp.waived } : {}),
+    ...(sp.released ? { released: sp.released } : {}),
   };
 }
 
@@ -1001,6 +1002,9 @@ function sellableDefinition(object: ObjectState, own: FieldState[]): ObjectDefin
                     maxDays: opt(declared.recurring.pause.maxDays),
                   },
                 }
+              : {}),
+            ...(declared.recurring.coolingOff
+              ? { coolingOff: { setting: declared.recurring.coolingOff.setting } }
               : {}),
             ...(declared.recurring.grants
               ? {

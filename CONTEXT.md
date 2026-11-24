@@ -1400,11 +1400,21 @@ origin, shows only that Person's due documents, and locks on limits the host kee
 "on the device enrolled as [name] by [admin]", never "in person".
 _Avoid_: kiosk (a standing sign-in on a shared device, which this is not)
 
-**Cooling off** (stage 44, proposed)
-The days (a Memberships setting; 0, the default, turns it off) in which a new member may cancel a
-membership at once for a full refund of what they paid, each refund still waiting for a person with
-`orders:refund`.
-_Avoid_: trial (a plan's free first days), grace period
+**Cooling off** (stage 44, built in step 7: ADR 0647)
+The days (a Memberships setting, `coolingOffDays`; 0, the default, turns it off; a person's to
+change) in which a **new member** (a membership started here, not one moving over with a
+continuation offer, not a pass) may end their membership at once for a full refund of every period
+they paid for the period, whatever they used. The window runs from the provider-confirmed start to
+the end of the last day in the business's time zone; the days are those in force when they joined,
+for good; once per member. An ask made inside the window opens it until a **deadline** seven days
+later; while it is open any end of the membership is the cooling off's, and what is **owed** is
+every order paid up to the window's end or after the ask and up to the end, each waiting for a
+person with `orders:refund`. At the deadline an open one that has not ended **lapses** (owing
+nothing as cooled off; the ordinary cancel works again; staff may **finish** it, for the window's
+payments only, once the payment provider confirms the membership ended). The bookings ahead it paid for are cancelled as the business's. Nothing is offered in a free trial (nothing
+paid: the ordinary cancel ends it). What the law asks is the business's to confirm.
+_Avoid_: trial (a plan's free first days), grace period, cancellation (which ends it at the
+period's end, with no refund)
 
 **Shift** (the `staffed` behaviour; stage 45, built in step 2: ADR 0621)
 A time someone works: a class (its coach works it) or a **duty shift** (cleaning, opening up), with

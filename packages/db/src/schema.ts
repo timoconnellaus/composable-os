@@ -2092,6 +2092,11 @@ export interface CoreOrderTable {
   invoice_ref: Defaulted<string | null>;
   /** Migration 0530: a period paid other than as agreed, recorded for what was paid. */
   period_flag: Defaulted<"paid_less" | "paid_more" | "not_as_agreed" | null>;
+  /**
+   * Migration 0856 (ADR 0647): when the provider took a period's payment (its verified event's
+   * time), as against `paid_at` (when the host processed it). Null: not a period's order.
+   */
+  provider_paid_at: Defaulted<Timestamp | null>;
 }
 
 export interface CoreOrderLineTable {
@@ -2233,6 +2238,12 @@ export interface CoreSubscriptionCheckoutTable {
    * it. A later confirmation makes no subscription.
    */
   erased_at: Defaulted<string | null>;
+  /**
+   * Migration 0856 (stage 44 step 7, ADR 0647): the cooling-off days in force when it was started
+   * (the plan's pack's setting): the subscription's days for good, whatever the setting later.
+   * Null: no cooling off on the plan, or started before it was built (0 days).
+   */
+  cooling_off_days: Defaulted<number | null>;
 }
 
 /** Migration 0530: a subscription the provider runs and the host mirrors. */
@@ -2330,6 +2341,54 @@ export interface CoreSubscriptionChangeTable {
   requested_at: Timestamp;
   applied_at: Timestamp | null;
   updated_at: Timestamp;
+}
+
+/**
+ * Migration 0856 (stage 44 step 7, ADR 0647): a cooling off asked for, one per subscription. Its
+ * refunds are owed (core_sellable_refund_due) in the batch of the provider's event that shows the
+ * subscription ended.
+ */
+export interface CoreSubscriptionCoolOffTable {
+  subscription_id: string;
+  holder_person_id: string | null;
+  asked_by: "payer" | "staff";
+  asked_by_user: string | null;
+  days: number;
+  window_ends_at: Timestamp;
+  state: "asked" | "ended" | "lapsed";
+  call_outcome: "sent" | "pending" | "unknown" | "refused" | null;
+  asked_at: Timestamp;
+  deadline_at: Timestamp;
+  last_asked_at: Timestamp;
+  ask_count: Defaulted<number>;
+  ended_at: Timestamp | null;
+  finished: Defaulted<number>;
+  /** Staff asked to finish a lapsed one, and what came of ending it at the provider. */
+  finish_state: Defaulted<"asked" | "sent" | "pending" | "unknown" | "stuck" | null>;
+  finish_asked_at: Defaulted<Timestamp | null>;
+  owed_from: Defaulted<Timestamp | null>;
+  owed_to: Defaulted<Timestamp | null>;
+  lapsed_because: Defaulted<"deadline" | "action" | "end_time" | "used" | null>;
+  told_at: Defaulted<Timestamp | null>;
+  release_left: Defaulted<number>;
+  released_count: Defaulted<number>;
+  release_stopped: Defaulted<number>;
+  release_failures: Defaulted<number>;
+  mail_state: Defaulted<"due" | "sending" | "sent" | "pending" | "failed" | null>;
+  mail_claimed_at: Defaulted<Timestamp | null>;
+  mail_tries: Defaulted<number>;
+  updated_at: Timestamp;
+}
+
+/**
+ * Migration 0856 (ADR 0647): every cancel of a cooling off that waited for a person at the
+ * gatekeeper, kept for good; `ask` is the ask it was made by.
+ */
+export interface CoreSubscriptionCoolOffActionTable {
+  subscription_id: string;
+  action_id: string;
+  ask: number;
+  created_at: Timestamp;
 }
 
 /**
@@ -2995,6 +3054,8 @@ export interface CoreDatabase {
   core_subscription_offer: CoreSubscriptionOfferTable;
   core_subscription_grant: CoreSubscriptionGrantTable;
   core_subscription_change: CoreSubscriptionChangeTable;
+  core_subscription_cool_off: CoreSubscriptionCoolOffTable;
+  core_subscription_cool_off_action: CoreSubscriptionCoolOffActionTable;
   core_sellable_once: CoreSellableOnceTable;
   core_order_refund: CoreOrderRefundTable;
   core_automations: CoreAutomationsTable;
