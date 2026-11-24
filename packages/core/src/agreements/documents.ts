@@ -36,10 +36,10 @@ const BODY_BLOCKS_REFUSED = new Set(["embed", "button", "image"]);
 const INVISIBLE =
   /[\u200b-\u200f]|[\u2060-\u2064]|[\ufeff]|[\u061c]|[\u00ad]|[\u034f]|[\u180e]|[\u3164]|[\u115f]|[\u1160]|[\uffa0]|[\u2800]|[\ufe00-\ufe0f]|[\u{e0100}-\u{e01ef}]/gu;
 /** Bidirectional overrides and isolates: they make a text read differently from what it holds. */
-const BIDI_CONTROLS = /[\u202a-\u202e\u2066-\u2069]/;
+export const BIDI_CONTROLS = /[\u202a-\u202e\u2066-\u2069]/;
 /** C0 and C1 control characters, and DEL. */
 // biome-ignore lint/suspicious/noControlCharactersInRegex: refusing control characters is the point.
-const CONTROLS = /[\u0000-\u001f\u007f-\u009f]/;
+export const CONTROLS = /[\u0000-\u001f\u007f-\u009f]/;
 /** The same in body text, which may hold tabs and line ends. */
 // biome-ignore lint/suspicious/noControlCharactersInRegex: refusing control characters is the point.
 const BODY_CONTROLS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/;

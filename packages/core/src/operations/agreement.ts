@@ -249,9 +249,6 @@ async function draftOf(
   };
 }
 
-/** Recomputes a stored version's hash from its own content (ADR 0640: reads that matter check). */
-const intact = (v: VersionRow, kind: string) => versionIntact(v, kind);
-
 function statusOf(
   v: VersionRow,
   doc: DocumentRow,
@@ -425,7 +422,7 @@ export const agreementGet = defineOperation({
               body: _body,
               questions: _questions,
               ...rest
-            } = toVersion(v, await intact(v, doc.kind));
+            } = toVersion(v, await versionIntact(v, doc.kind));
             return {
               ...rest,
               status: statusOf(v, doc, versions, ctx.now),
@@ -457,7 +454,7 @@ export const agreementVersionGet = defineOperation({
       .executeTakeFirst();
     if (!row) throw new NotFoundError("agreement version", input.id);
     const doc = await loadDocument(ctx, row.document_id);
-    return toVersion(row as VersionRow, await intact(row as VersionRow, doc.kind));
+    return toVersion(row as VersionRow, await versionIntact(row as VersionRow, doc.kind));
   },
 });
 
@@ -643,7 +640,9 @@ export const agreementPublishPreview = defineOperation({
     const doc = await loadDocument(ctx, input.id);
     const draft = await draftOf(doc, await nameOf(ctx, doc.draft_updated_by));
     const latestRow = (await versionsOf(ctx, doc.id)).at(-1);
-    const latest = latestRow ? toVersion(latestRow, await intact(latestRow, doc.kind)) : null;
+    const latest = latestRow
+      ? toVersion(latestRow, await versionIntact(latestRow, doc.kind))
+      : null;
     const changed = latest
       ? COMPARED.filter(
           (field) => JSON.stringify(draft[field] ?? null) !== JSON.stringify(latest[field] ?? null),
@@ -925,7 +924,7 @@ export const agreementRetire = defineOperation({
 });
 
 /** How long a visitor's acceptances wait for the provider to confirm their subscription checkout. */
-export const STALE_CHECKOUT_MS = 3 * 86_400_000;
+const STALE_CHECKOUT_MS = 3 * 86_400_000;
 
 export const agreementTakeEffect = defineOperation({
   name: "agreement.takeEffect",
