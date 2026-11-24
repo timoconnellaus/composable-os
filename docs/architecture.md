@@ -1171,8 +1171,10 @@ claims on one thing, whatever objects hold them (`conflict`, `rule: "room_taken"
 record), for every writer, statement shape and race. Only things whose `only` flag is set are
 claimed (Bookings' room "One booking at a time", off by default: a shared floor is never claimed).
 Triggers the reconciler builds on the occupant's table, the thing's table (its flag) and the
-margins' table derive the claims; a claim that has ended is written only when it clashes with
-nothing (history never refuses). Marking a room exclusive over a clash to come is refused; a
+margins' table derive the claims; a claim that has ended and clashes only with other ended ones
+is left out (history never refuses). A live record in a claimed room needs a start and an end
+the database can read (the contract requires both; an unreadable time is refused), and the
+overlap check reads one claim (claims on one thing never overlap, indexed by thing and start). Marking a room exclusive over a clash to come is refused; a
 reconcile over records that clash and have not ended is refused (`occupies_conflict`, past ones
 skipped and reported); a series' date whose room is taken is made with no room (a field exception)
 and the rosterers are told. Bookings' class declares it; appointments (stage 49 step 5) and stage

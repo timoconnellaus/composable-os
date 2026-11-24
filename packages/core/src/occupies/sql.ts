@@ -106,27 +106,45 @@ export function selectClaims(t: OccupiesTables, where: string): string {
   );
 }
 
-/** A claim's latest end among the earlier claims of its thing (a window over derived claims). */
-const PREVIOUS_END =
-  "MAX(ends) OVER (PARTITION BY thing_object, thing_record ORDER BY starts, object_type, record_id " +
-  "ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)";
+/** A window over a derivation's claims of one thing, in order of start. */
+const BY_THING = "PARTITION BY thing_object, thing_record ORDER BY starts, object_type, record_id";
+const BEFORE = `${BY_THING} ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING`;
+const AFTER = `${BY_THING} ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING`;
 
 /**
- * The claims of the rows of `t` meeting `where`, written (INSERT … SELECT) in order of start. A
- * claim that has ended by `now` (SQL, unix seconds) is written only when it overlaps neither an
- * earlier one of the same derivation nor one already held; the rest meet core_thing_time's
- * triggers. Used inside triggers, so no WITH clause (SQLite allows none there).
+ * The end of the claim already held on the row `w`'s thing that starts last before `w` ends
+ * (another record's), or NULL. Claims on one thing never overlap (the triggers keep it so), so
+ * they end in the order they start: this one claim is the only one that can overlap `w`, and it
+ * has the latest end of those that do. One row read through the index by thing and start.
+ */
+const HELD_END =
+  "(SELECT c.ends FROM core_thing_time c WHERE c.thing_object = w.thing_object " +
+  "AND c.thing_record = w.thing_record " +
+  "AND NOT (c.object_type = w.object_type AND c.record_id = w.record_id) " +
+  "AND c.starts < w.ends ORDER BY c.starts DESC LIMIT 1)";
+
+/**
+ * The claims of the rows of `t` meeting `where`, written (INSERT … SELECT) in order of start.
+ * Every claim that has not ended by `now` (SQL, unix seconds) is written and meets
+ * core_thing_time's triggers. A claim that has ended is history: it is left out when it overlaps
+ * only claims that have ended too (of this derivation or already held), and written otherwise, so
+ * a clash with anything still to come is refused whichever of the two started first (as the
+ * reconcile's clashQuery refuses it). Used inside triggers, so no WITH clause (SQLite allows none
+ * there).
  */
 export function deriveClaims(t: OccupiesTables, where: string, now = DB_NOW): string {
+  const live = `CASE WHEN ends > ${now} THEN`;
   return (
     "INSERT INTO core_thing_time (object_type, record_id, thing_object, thing_record, starts, ends) " +
     "SELECT object_type, record_id, thing_object, thing_record, starts, ends FROM " +
-    `(SELECT d.*, ${PREVIOUS_END} AS prev_end FROM (${selectClaims(t, where)}) d) w ` +
-    `WHERE w.ends > ${now} OR ((w.prev_end IS NULL OR w.prev_end <= w.starts) AND NOT EXISTS (` +
-    "SELECT 1 FROM core_thing_time c WHERE c.thing_object = w.thing_object " +
-    "AND c.thing_record = w.thing_record " +
-    "AND NOT (c.object_type = w.object_type AND c.record_id = w.record_id) " +
-    "AND c.ends > w.starts AND c.starts < w.ends)) " +
+    `(SELECT w.*, ${HELD_END} AS held_end FROM (SELECT d.*, ` +
+    `MAX(ends) OVER (${BEFORE}) AS prev_end, ` +
+    `MAX(${live} ends END) OVER (${BEFORE}) AS prev_live_end, ` +
+    `MIN(${live} starts END) OVER (${AFTER}) AS next_live_start ` +
+    `FROM (${selectClaims(t, where)}) d) w) x ` +
+    `WHERE x.ends > ${now} OR x.prev_live_end > x.starts OR x.next_live_start < x.ends ` +
+    `OR (x.held_end > x.starts AND x.held_end > ${now}) ` +
+    "OR NOT (coalesce(x.prev_end > x.starts, 0) OR coalesce(x.held_end > x.starts, 0)) " +
     "ORDER BY starts"
   );
 }
@@ -179,14 +197,17 @@ export function createOccupiesTriggers(t: OccupiesTables): string[] {
       ...[t.before, t.after].flatMap((m) => (m ? [m.via?.column ?? m.column] : [])),
     ]),
   ].map(ident);
-  // A live record naming a thing whose end is at or before its start is refused, whoever writes
-  // it (it would claim nothing, and so could sit inside another's time in the room).
-  const thingSet = `r.${ident(t.thing)} IS NOT NULL AND r.${ident(t.thing)} NOT IN ('', '[]')`;
+  // A live record in a claimed thing whose time would claim nothing is refused, whoever writes
+  // it, or it could sit inside another's time in the room: an end at or before its start, or a
+  // start or end missing or not a time the database can read (`T99:00` passes a pattern check).
+  const inClaimedThing =
+    `FROM ${table} r${thingsJoin(t)} WHERE r.id = NEW.id AND r.deleted_at IS NULL` +
+    `${t.holder.only ? ` AND h.${ident(t.holder.only)} = 1` : ""} ` +
+    `AND r.${ident(t.state)} IN (${t.live.map(literal).join(", ")})`;
   const backwards =
-    `SELECT RAISE(ABORT, 'core_thing_time_backwards') FROM ${table} r ` +
-    `WHERE r.id = NEW.id AND r.deleted_at IS NULL AND ${thingSet} ` +
-    `AND r.${ident(t.state)} IN (${t.live.map(literal).join(", ")}) ` +
-    `AND ${seconds(t.starts)} IS NOT NULL AND ${seconds(t.ends)} IS NOT NULL ` +
+    `SELECT RAISE(ABORT, 'core_thing_time_unreadable') ${inClaimedThing} ` +
+    `AND (${seconds(t.starts)} IS NULL OR ${seconds(t.ends)} IS NULL); ` +
+    `SELECT RAISE(ABORT, 'core_thing_time_backwards') ${inClaimedThing} ` +
     `AND ${seconds(t.ends)} <= ${seconds(t.starts)};`;
   const out = [
     `CREATE TRIGGER ${ins} AFTER INSERT ON ${table} BEGIN ${backwards} ${clear("NEW.id")} ${deriveClaims(t, "r.id = NEW.id")}; END`,
@@ -210,8 +231,10 @@ export function createOccupiesTriggers(t: OccupiesTables): string[] {
     const [vIns, vUpd, vDel] = names.slice(6 + i * 3, 9 + i * 3);
     const source = ident(v.table);
     const via = `r.${ident(v.column)}`;
+    // A record in the Trash holds no claim, so the clear reads only the others, through the
+    // partial index on the relation (`… WHERE deleted_at IS NULL`), never the whole table.
     const rederive = (ids: string) =>
-      `${clear(`SELECT r.id FROM ${table} r WHERE ${via} IN (${ids})`)} ${deriveClaims(t, `${via} IN (${ids})`)};`;
+      `${clear(`SELECT r.id FROM ${table} r WHERE ${via} IN (${ids}) AND r.deleted_at IS NULL`)} ${deriveClaims(t, `${via} IN (${ids})`)};`;
     const watched = ["id", ...v.fields].map(ident).join(", ");
     out.push(
       `CREATE TRIGGER ${vIns} AFTER INSERT ON ${source} BEGIN ${rederive("NEW.id")} END`,
@@ -225,8 +248,8 @@ export function createOccupiesTriggers(t: OccupiesTables): string[] {
 /**
  * Every claim of an object derived again from its rows (installing, an upgrade, a changed
  * declaration), in order of start. This also heals a claim a raw REPLACE left behind (its row is
- * gone, so it is not derived again). A claim that has ended by `now` and overlaps another is left
- * out (the reconcile reported it); one that has not meets the triggers (the reconcile refused the
+ * gone, so it is not derived again). A claim that has ended by `now` and overlaps only ended ones
+ * is left out (the reconcile reported it); the rest meet the triggers (the reconcile refused the
  * plan first, so only a race reaches them).
  */
 export function resyncClaims(t: OccupiesTables, now: number): CompiledQuery[] {

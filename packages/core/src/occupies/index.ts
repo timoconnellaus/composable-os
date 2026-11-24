@@ -6,7 +6,7 @@
 // `conflict`, `rule: "room_taken"`, naming no other record. What is here only reads before a
 // write the host makes itself: a series' generation makes a date whose room is taken with no
 // room rather than fail, and tells the rosterers.
-import type { Kysely } from "kysely";
+import { type Kysely, sql } from "kysely";
 import { objectTableOf } from "../extensions/schema.ts";
 import { getObject } from "../fields/index.ts";
 import type { ObjectDefinition, OccupiesMargin } from "../fields/types.ts";
@@ -21,6 +21,26 @@ const secondsOf = (value: unknown): number | null => {
   const ms = typeof value === "string" ? Date.parse(value) : Number.NaN;
   return Number.isFinite(ms) ? Math.floor(ms / 1000) : null;
 };
+
+/**
+ * What one batch (one run of a series) has read and planned, keyed by its `write`: whether each
+ * thing is claimed and each margin's minutes (read once a run, not once a date), and the claims
+ * the run's own records will make, which the database cannot show it before its batch commits.
+ */
+interface ThingBatch {
+  claimed: Map<string, boolean>;
+  minutes: Map<string, unknown>;
+  planned: { thingObject: string; thing: string; starts: number; ends: number }[];
+}
+const batches = new WeakMap<object, ThingBatch>();
+function batchOf(ctx: { write: object }): ThingBatch {
+  let state = batches.get(ctx.write);
+  if (!state) {
+    state = { claimed: new Map(), minutes: new Map(), planned: [] };
+    batches.set(ctx.write, state);
+  }
+  return state;
+}
 
 /** A field's column on an object, from the registry. */
 const columnOf = (object: string, field: string) =>
@@ -46,12 +66,17 @@ async function marginOf(
     const table = margin.viaObject ? objectTableOf(margin.viaObject) : undefined;
     const column = margin.viaObject ? columnOf(margin.viaObject, margin.field) : undefined;
     if (!id || !table || !column) return 0;
-    const row = await (ctx.db as AnyDb)
-      .selectFrom(table)
-      .select(`${column} as minutes`)
-      .where("id", "=", id)
-      .executeTakeFirst();
-    minutes = row?.minutes;
+    const memo = batchOf(ctx).minutes;
+    const key = `${margin.viaObject}\u0000${margin.field}\u0000${id}`;
+    if (!memo.has(key)) {
+      const row = await (ctx.db as AnyDb)
+        .selectFrom(table)
+        .select(`${column} as minutes`)
+        .where("id", "=", id)
+        .executeTakeFirst();
+      memo.set(key, row?.minutes);
+    }
+    minutes = memo.get(key);
   }
   const n = typeof minutes === "number" && Number.isFinite(minutes) ? minutes : 0;
   return Math.floor(Math.max(0, n) * 60);
@@ -59,8 +84,12 @@ async function marginOf(
 
 /**
  * The things a record with `values` would claim that another record holds at an overlapping time
- * now, exactly as the triggers derive its claims (occupies/sql.ts), or none. Read before the
- * host's own write (a series' generation); the trigger still decides any race.
+ * now, or that an earlier record of this batch will, exactly as the triggers derive its claims
+ * (occupies/sql.ts), or none. Read before the host's own write (a series' generation), which makes
+ * the record next: the claims on the things left free are noted as this batch's, so a later date
+ * of the same run that would overlap them (a long class across a clock change) is made without its
+ * room too rather than fail the run. The trigger still decides any race. One read for the claims;
+ * whether a thing is claimed is read once a batch.
  */
 export async function thingsTaken(
   ctx: HandlerContext,
@@ -76,32 +105,44 @@ export async function thingsTaken(
   const starts = secondsOf(values[def.starts]);
   const ends = secondsOf(values[def.ends]);
   if (!things.length || starts === null || ends === null || !(ends > starts)) return [];
+  const batch = batchOf(ctx);
   if (def.only) {
     const table = objectTableOf(def.thingObject);
     const column = columnOf(def.thingObject, def.only);
     if (!table || !column) return [];
-    const rows = await (ctx.db as AnyDb)
-      .selectFrom(table)
-      .select("id")
-      .where("id", "in", things)
-      .where(column, "=", 1)
-      .execute();
-    const claimed = new Set(rows.map((r) => r.id as string));
-    things = things.filter((id) => claimed.has(id));
+    const unknown = things.filter((id) => !batch.claimed.has(`${def.thingObject}\u0000${id}`));
+    if (unknown.length) {
+      const rows = await (ctx.db as AnyDb)
+        .selectFrom(table)
+        .select("id")
+        .where("id", "in", unknown)
+        .where(column, "=", 1)
+        .execute();
+      const claimed = new Set(rows.map((r) => r.id as string));
+      for (const id of unknown) batch.claimed.set(`${def.thingObject}\u0000${id}`, claimed.has(id));
+    }
+    things = things.filter((id) => batch.claimed.get(`${def.thingObject}\u0000${id}`));
     if (!things.length) return [];
   }
   const from = starts - (await marginOf(ctx, def.before, values));
   const to = ends + (await marginOf(ctx, def.after, values));
-  const held = await ctx.db
-    .selectFrom("core_thing_time")
-    .select("thing_record")
-    .distinct()
-    .where("thing_object", "=", def.thingObject)
-    .where("thing_record", "in", things)
-    .where("ends", ">", from)
-    .where("starts", "<", to)
-    .execute();
-  return held.map((r) => r.thing_record);
+  // Claims on one thing never overlap, so the one that starts last before `to` is the only one
+  // that can overlap [from, to): one row per thing through the index by thing and start.
+  const held = await sql<{ thing: string }>`
+    SELECT t.value AS thing FROM json_each(${JSON.stringify(things)}) t
+    WHERE (SELECT c.ends FROM core_thing_time c
+      WHERE c.thing_object = ${def.thingObject} AND c.thing_record = t.value AND c.starts < ${to}
+      ORDER BY c.starts DESC LIMIT 1) > ${from}`.execute(ctx.db);
+  const taken = new Set(held.rows.map((r) => r.thing));
+  for (const p of batch.planned) {
+    if (p.thingObject === def.thingObject && p.starts < to && p.ends > from) taken.add(p.thing);
+  }
+  for (const thing of things) {
+    if (!taken.has(thing)) {
+      batch.planned.push({ thingObject: def.thingObject, thing, starts: from, ends: to });
+    }
+  }
+  return things.filter((id) => taken.has(id));
 }
 
 /**

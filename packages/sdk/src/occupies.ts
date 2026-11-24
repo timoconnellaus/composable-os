@@ -13,7 +13,7 @@ import type { ExtensionManifest, FieldManifest, ObjectManifest } from "./manifes
  *
  * - `thing`: a relation field of this object (one record, or many: one claim per thing) to another
  *   of this extension's objects.
- * - `starts`, `ends`: datetime fields of this object. Ranges are half-open: 09:00 to 10:00 and
+ * - `starts`, `ends`: required datetime fields of this object. Ranges are half-open: 09:00 to 10:00 and
  *   10:00 to 11:00 do not clash.
  * - `live`: the states of the object's `states` in which the record takes its thing. A record in
  *   any other state, or in the Trash, claims nothing.
@@ -87,10 +87,16 @@ export function checkObjectOccupies(
     );
   }
 
-  // The time.
+  // The time: required, or a live record with no end would sit in the room claiming nothing.
   for (const key of ["starts", "ends"] as const) {
-    if (!single(own(object, occupies[key]), ["datetime"])) {
+    const field = own(object, occupies[key]);
+    if (!single(field, ["datetime"])) {
       contract(`${at}.${key}`, `"${occupies[key]}" must be a datetime field of ${name}`);
+    } else if (!field?.required) {
+      contract(
+        `${at}.${key}`,
+        `"${occupies[key]}" must be required: a record with no time would take its ${occupies.thing} claiming nothing`,
+      );
     }
   }
   if (occupies.starts === occupies.ends) {

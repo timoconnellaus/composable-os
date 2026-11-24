@@ -31,34 +31,38 @@ CREATE TABLE core_thing_time (
   CHECK (ends > starts)
 ) WITHOUT ROWID;
 
--- By thing and end: an overlap check reads only the claims that end after the new one starts (a
--- room's past bookings are never read), however long its history.
-CREATE INDEX core_thing_time_thing ON core_thing_time (thing_object, thing_record, ends, starts);
+-- By thing and start. Claims on one thing never overlap (these triggers keep it so), so in order of
+-- start they also end in order: the one claim that starts last before a new one ends is the only
+-- one that can overlap it. Each check reads that one row, however many bookings the thing has
+-- before or after it.
+CREATE INDEX core_thing_time_thing ON core_thing_time (thing_object, thing_record, starts, ends);
 
 CREATE TRIGGER core_thing_time_insert
 BEFORE INSERT ON core_thing_time
 BEGIN
   SELECT RAISE(ABORT, 'core_thing_double_booked')
-  WHERE EXISTS (
-    SELECT 1 FROM core_thing_time c
+  WHERE (
+    SELECT c.ends FROM core_thing_time c
     WHERE c.thing_object = NEW.thing_object AND c.thing_record = NEW.thing_record
       AND NOT (c.object_type = NEW.object_type AND c.record_id = NEW.record_id)
-      AND c.ends > NEW.starts AND c.starts < NEW.ends
-  );
+      AND c.starts < NEW.ends
+    ORDER BY c.starts DESC LIMIT 1
+  ) > NEW.starts;
 END;
 
 CREATE TRIGGER core_thing_time_update
 BEFORE UPDATE ON core_thing_time
 BEGIN
   SELECT RAISE(ABORT, 'core_thing_double_booked')
-  WHERE EXISTS (
-    SELECT 1 FROM core_thing_time c
+  WHERE (
+    SELECT c.ends FROM core_thing_time c
     WHERE c.thing_object = NEW.thing_object AND c.thing_record = NEW.thing_record
       AND NOT (c.object_type = OLD.object_type AND c.record_id = OLD.record_id
         AND c.thing_object = OLD.thing_object AND c.thing_record = OLD.thing_record)
       AND NOT (c.object_type = NEW.object_type AND c.record_id = NEW.record_id)
-      AND c.ends > NEW.starts AND c.starts < NEW.ends
-  );
+      AND c.starts < NEW.ends
+    ORDER BY c.starts DESC LIMIT 1
+  ) > NEW.starts;
 END;
 
 -- Guarded: migrations land out of order (docs/parallel-work.md).

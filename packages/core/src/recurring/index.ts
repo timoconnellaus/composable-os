@@ -75,7 +75,11 @@ import {
  * (ADR 0500, "Cost"). A run's records go in one D1 batch, which counts as one query against the
  * 1000 queries a Worker invocation may make on Workers Paid; the reads each record needs (about
  * five) count one each. 25 a run and 100 a tick keep a tick near 500 queries, half the limit,
- * with the rest of the minute cron beside it.
+ * with the rest of the minute cron beside it. A date in a room another record may take (ADR 0765)
+ * reads one more, for the room's claims (whether the room is claimed is read once a run): 25
+ * dates of a class read 65 queries on a shared floor and 90 in a private room
+ * (packages/core/test/occupies-cost.test.ts), so a tick of such dates stays near 600. A date made
+ * without its room reads three more and writes a notice.
  */
 export const RECURRING_MAX_PER_RUN = 25;
 export const RECURRING_MAX_PER_TICK = 100;

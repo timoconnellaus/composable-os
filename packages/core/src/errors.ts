@@ -409,6 +409,20 @@ export function toOperationError(error: unknown): OperationError {
       rule: "staffed_time",
     });
   }
+  // A live record in a claimed room, or a live shift, with a time the database cannot read
+  // (ADRs 0765 and 0621), written by a path that does not check first.
+  if (message.includes("core_thing_time_unreadable")) {
+    return new ValidationError(
+      "A booking of a room needs a start and an end that are real times, so nothing was changed.",
+      { rule: "occupies_time" },
+    );
+  }
+  if (message.includes("core_staff_time_unreadable")) {
+    return new ValidationError(
+      "A shift's start and end must be real times, so nothing was changed.",
+      { rule: "staffed_time" },
+    );
+  }
   // A live record in a room whose end is not after its start (ADR 0765).
   if (message.includes("core_thing_time_backwards")) {
     return new ValidationError(

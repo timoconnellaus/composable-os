@@ -94,8 +94,8 @@ const rooms = (id: string, options: { occupies?: boolean } = {}) =>
           name: { type: "text", label: "Name" },
           series: { type: "relation", label: "Series", to: `${id}.series`, readOnly: true },
           room: { type: "relation", label: "Room", to: `${id}.room` },
-          startsAt: { type: "datetime", label: "Starts at" },
-          endsAt: { type: "datetime", label: "Ends at" },
+          startsAt: { type: "datetime", label: "Starts at", required: true },
+          endsAt: { type: "datetime", label: "Ends at", required: true },
           timezone: { type: "timezone", label: "Time zone" },
           changed: { type: "boolean", label: "Changed", readOnly: true },
           state: { type: "select", label: "State", options: SCHEDULED },
@@ -128,8 +128,8 @@ const rooms = (id: string, options: { occupies?: boolean } = {}) =>
           name: { type: "text", label: "Name" },
           service: { type: "relation", label: "Service", to: `${id}.service` },
           room: { type: "relation", label: "Room", to: `${id}.room` },
-          startsAt: { type: "datetime", label: "Starts at" },
-          endsAt: { type: "datetime", label: "Ends at" },
+          startsAt: { type: "datetime", label: "Starts at", required: true },
+          endsAt: { type: "datetime", label: "Ends at", required: true },
           state: {
             type: "select",
             label: "State",
@@ -161,8 +161,8 @@ const rooms = (id: string, options: { occupies?: boolean } = {}) =>
         fields: {
           name: { type: "text", label: "Name" },
           rooms: { type: "relation", label: "Rooms", to: `${id}.room`, many: true },
-          startsAt: { type: "datetime", label: "Starts at" },
-          endsAt: { type: "datetime", label: "Ends at" },
+          startsAt: { type: "datetime", label: "Starts at", required: true },
+          endsAt: { type: "datetime", label: "Ends at", required: true },
           state: {
             type: "select",
             label: "State",
@@ -262,6 +262,21 @@ describe("the declaration", () => {
         "objects.session.occupies.only",
       ]),
     );
+  });
+
+  it("requires the start and the end (review of PR #336, finding 7)", () => {
+    // A live record with no end would sit in an exclusive room claiming nothing.
+    const optional = rooms("optocc");
+    const klass = (
+      optional.objects as Record<string, { fields: Record<string, { required?: boolean }> }>
+    ).klass;
+    if (klass?.fields.endsAt) klass.fields.endsAt.required = false;
+    expect(validateManifest(optional).issues).toEqual([
+      expect.objectContaining({
+        path: "objects.klass.occupies.ends",
+        message: expect.stringContaining("must be required"),
+      }),
+    ]);
   });
 
   it("builds the triggers on the object's, the thing's and the margins' tables", async () => {
@@ -791,6 +806,113 @@ describe("series", () => {
         title: "Made with no room: Monday flow on 2031-06-09",
         body: "Series studio is already taken at that time, so Monday flow on 2031-06-09 was made with no room. Give it another room or move it.",
       },
+    ]);
+  });
+});
+
+// The review of PR #336, finding 1: a time any two digits make (`T99:00`, `T09:75`) passed the
+// datetime check, was stored as sent, claimed nothing and let a second class into the room.
+describe("a time that is not a real time", () => {
+  it("is refused at write, and by the trigger for a writer that checks nothing", async () => {
+    const studio = await room("Clock room");
+    await create(KLASS, {
+      name: "Real",
+      room: studio,
+      startsAt: at("18", "09:00"),
+      endsAt: at("18", "10:00"),
+    });
+    for (const endsAt of [
+      "2031-06-18T99:00:00Z",
+      "2031-06-18T09:75Z",
+      "2031-06-18T10:00:61Z",
+      "2031-02-31T10:00:00Z",
+      "2031-06-18T10:00+25:00",
+    ]) {
+      await expect(
+        create(KLASS, { name: "Bad", room: studio, startsAt: at("18", "09:10"), endsAt }),
+      ).rejects.toMatchObject({ code: "invalid_input" });
+    }
+    // Written past the record operations: refused by the trigger, not let in claiming nothing.
+    const T = table(KLASS);
+    const insert = (id: string, ends: string) =>
+      env.DB.prepare(
+        `INSERT INTO ${T} (id, created_at, updated_at, ${column(KLASS, "room")}, ${column(KLASS, "startsAt")}, ${column(KLASS, "endsAt")}, ${column(KLASS, "state")}) VALUES (?, ?, ?, ?, ?, ?, 'scheduled')`,
+      )
+        .bind(id, NOW, NOW, studio, at("18", "09:10"), ends)
+        .run();
+    await expect(insert("unread1", "2031-06-18T99:00:00Z")).rejects.toThrow(
+      /core_thing_time_unreadable/,
+    );
+    await expect(insert("unread2", "")).rejects.toThrow(/core_thing_time_unreadable/);
+    expect(await claims(studio)).toHaveLength(1);
+    // In a shared room nothing is claimed, so nothing is refused there.
+    const floor = await room("Clock floor", false);
+    await env.DB.prepare(
+      `INSERT INTO ${T} (id, created_at, updated_at, ${column(KLASS, "room")}, ${column(KLASS, "startsAt")}, ${column(KLASS, "endsAt")}, ${column(KLASS, "state")}) VALUES ('unread3', ?, ?, ?, ?, '', 'scheduled')`,
+    )
+      .bind(NOW, NOW, floor, at("18", "09:10"))
+      .run();
+  });
+});
+
+// The review of PR #336, finding 2: marking a room exclusive over a record still to come that
+// overlaps one that has ended was refused or let through by which of the two started first.
+describe("a clash between history and what is still to come", () => {
+  it("is refused when the room is marked, whichever started first", async () => {
+    for (const historyFirst of [true, false]) {
+      const shared = await room(`Mixed ${historyFirst}`, false);
+      // The one still to come runs from a past date to years ahead of any real clock.
+      const long = { startsAt: "2020-06-20T09:00:00.000Z", endsAt: "2039-06-20T09:00:00.000Z" };
+      const ended = historyFirst
+        ? { startsAt: "2020-06-20T08:00:00.000Z", endsAt: "2020-06-20T10:00:00.000Z" }
+        : { startsAt: "2020-06-20T09:30:00.000Z", endsAt: "2020-06-20T10:00:00.000Z" };
+      await create(KLASS, { name: "Ended", room: shared, ...ended });
+      const running = await create(KLASS, { name: "Running", room: shared, ...long });
+      await expect(update(ROOM, shared, { exclusive: true })).rejects.toMatchObject(taken);
+      expect(await claims(shared)).toEqual([]);
+      // Settled (the running one moved off the old one), it is marked.
+      await update(KLASS, running.id, { startsAt: "2020-06-21T09:00:00.000Z" });
+      await update(ROOM, shared, { exclusive: true });
+      expect(await claims(shared)).toHaveLength(2);
+    }
+  });
+});
+
+// The review of PR #336, finding 6: a run's own dates cannot see each other in the database, so a
+// daily class a day long overlapping the next date across a clock change failed the whole run.
+describe("a series' own dates overlapping", () => {
+  it("makes the later date without the room rather than fail the run", async () => {
+    const studio = await room("Long days");
+    const series = await create(SERIES, {
+      name: "All day",
+      weekdays: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+      time: "00:00",
+      length: 1440,
+      firstDate: "2031-10-04",
+      lastDate: "2031-10-06",
+      timezone: "Australia/Sydney",
+      room: studio,
+    });
+    const clock = "2031-10-01T00:00:00.000Z";
+    for (let i = 0; i < 5; i += 1) {
+      const result = await runRecurringDue(db, { clock: () => new Date(clock) });
+      expect(result.failed).toBe(0);
+      if (result.series === 0) break;
+    }
+    const page = await invoke(
+      "record.list",
+      { object: KLASS, filter: { field: "series", op: "eq", value: series.id }, limit: 10 },
+      as(clock),
+    );
+    const made = page.items
+      .map((r) => [String(r.values.startsAt), r.values.room])
+      .sort((x, y) => String(x[0]).localeCompare(String(y[0])));
+    // Sydney's clocks go forward on 5 October 2031: the 5th's day-long class runs an hour into
+    // the 6th's.
+    expect(made).toEqual([
+      ["2031-10-03T14:00:00.000Z", studio],
+      ["2031-10-04T14:00:00.000Z", studio],
+      ["2031-10-05T13:00:00.000Z", null],
     ]);
   });
 });

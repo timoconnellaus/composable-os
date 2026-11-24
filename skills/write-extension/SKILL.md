@@ -193,7 +193,7 @@ extension declares it; it never implements it. Each behaviour the platform has i
   a profile's account), by any path; never set one in a tool or an automation.
 - **`occupies`** on an object whose records take a room, chair or hall for their time (a class in
   a private room): `occupies: { thing: "<relation to another of your objects, one or many>",
-  starts, ends, live: [<states in which it takes it>], before?: { field }, after?: { field },
+  starts, ends (both required datetime fields), live: [<states in which it takes it>], before?: { field }, after?: { field },
   only?: "<a boolean field of the thing>" }`. The host refuses, in the database, two live records
   on one thing at an overlapping time, across every object that declares it, for every writer
   (`conflict`, `rule: "room_taken"`, naming no other record). `before` and `after` are minutes

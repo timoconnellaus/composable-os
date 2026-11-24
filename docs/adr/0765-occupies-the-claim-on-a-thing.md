@@ -33,8 +33,10 @@ A room is a thing, not an account, so it needs its own claim; stage 57's halls n
   `BEFORE UPDATE` triggers refuse a row that overlaps another on the same thing, whatever object
   holds it (`core_thing_double_booked`, answered `conflict`, `rule: "room_taken"`). The answer
   **names no other record**: who else is in the room is not the writer's to know (a member booking
-  online). Indexed by thing and end, so the check reads only the claims ending after the new one
-  starts: a room's years of past classes are never read.
+  online). Claims on one thing never overlap (the triggers keep it so), so in order of start they
+  also end in order, and the one claim that starts last before the new one ends is the only one
+  that can overlap it: indexed by thing and start, the check reads that one row, however many
+  bookings the room has before or after.
 - **The claims are derived by triggers the schema reconciler builds**, never by the record
   operations: on the occupant's table (`AFTER INSERT`, `AFTER UPDATE OF` every column the claim
   reads plus the id, `AFTER DELETE`); on the thing's table (a thing inserted, deleted, given another
@@ -42,12 +44,22 @@ A room is a thing, not an account, so it needs its own claim; stage 57's halls n
   service's buffer changed re-derives the records naming it). Every statement shape is covered as
   ADR 0621 covers them (a REPLACE and an upsert are inserts first; an id change is an update; a row
   a REPLACE deletes leaves its claim behind, which can only refuse more and the next reconcile
-  heals). A live record naming a thing whose end is not after its start is refused
-  (`core_thing_time_backwards`, `rule: "occupies_time"`).
+  heals). A live record in a claimed thing whose end is not after its start is refused
+  (`core_thing_time_backwards`, `rule: "occupies_time"`); in a thing that is not claimed it is not
+  checked (it claims nothing either way).
 - **History is never a reason to refuse.** A claim that has ended (by the database's clock) is
-  written only when it overlaps nothing, in every derivation: two classes that overlapped in a room
-  before it was claimed stay as they were, and editing one later (marking it done) is not refused.
-  A claim that has not ended always meets the triggers. ADR 0621's per-shift triggers do not do
+  left out when it overlaps only claims that have ended too, in every derivation: two classes that
+  overlapped in a room before it was claimed stay as they were, and editing one later (marking it
+  done) is not refused. A claim that has not ended always meets the triggers, and so does an ended
+  one that overlaps one still to come, so that clash is refused whichever of the two started first
+  (as the reconcile refuses it).
+- **A time that is not a real time claims nothing, so it is refused.** The datetime field takes
+  only hours, minutes, seconds and offsets in range on a real day (`T99:00`, `T09:75` and 31
+  February were once accepted and stored as sent, which the database's `strftime` cannot read);
+  and the trigger refuses a live record in a claimed thing whose start or end is missing or
+  unreadable (`core_thing_time_unreadable`, `rule: "occupies_time"`), for a writer past the record
+  operations. The contract requires `starts` and `ends` to be required fields. `staffed` gets the
+  same refusal for an unreadable time (`core_staff_time_unreadable`, ADR 0621 amended). ADR 0621's per-shift triggers do not do
   this; a room's flag is turned on long after its history, which a coach's account is not.
 - **Only things marked as taking one booking at a time are claimed** (`only`). Bookings' room
   gains `exclusive` ("One booking at a time", off by default), and a class declares
@@ -65,7 +77,11 @@ A room is a thing, not an account, so it needs its own claim; stage 57's halls n
 - **The host's generation never fails on a taken room.** A series' date whose room another record
   takes then is made with no room, kept as the date's own (a field exception, ADR 0620) so the
   series does not write the clash back, and the rosterers are told ("Made with no room: …"), as ADR
-  0621 makes a date uncovered. A series change whose new room or time would clash on a date is
+  0621 makes a date uncovered. The run's own earlier dates count too (they cannot be read from
+  the database before the run's batch commits): a day-long class running an hour into the next
+  date across a clock change makes that date without the room rather than fail the run. Whether a
+  room is claimed is read once a run, and each date reads the room's claims once (one query a
+  date; ADR 0500's budget amended in `recurring/index.ts`). A series change whose new room or time would clash on a date is
   refused whole by the trigger (`room_taken`, without naming the dates, unlike ADR 0621's
   `assertPlansStaffFree`; a later step may add the read).
 - **What it is not**: no capacity (one occupant at a time: a room's time is a range shared across
@@ -87,3 +103,13 @@ A room is a thing, not an account, so it needs its own claim; stage 57's halls n
   the Trash is still claimed (its occupants still name it).
 - Stage 33's import must check first: refuse, or import with no room, what would clash and has not
   ended.
+
+## Amended 2026-11-24 (review of PR #336, before merge)
+An impossible time (`T99:00`) let a second live class into an exclusive room claiming nothing:
+the datetime check was tightened, the trigger refuses an unreadable or missing time in a claimed
+thing, and the contract requires the start and the end. Marking a room exclusive over a clash
+between a record that has ended and one still to come is now refused whichever started first.
+The check reads one claim (the index by thing and start; it read every claim still to come),
+a service's buffer change clears through the partial index (it scanned the table), and a series'
+dates see each other's claims. Migration 1095 was edited in place (unmerged); a local or preview
+database that applied the earlier version must be rebuilt.
