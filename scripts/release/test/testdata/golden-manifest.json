@@ -220,6 +220,24 @@
     },
     {
       "implicit": true,
+      "name": "crm-gatekeeper-text:FakeTextLedger",
+      "optional": true,
+      "type": "durable_object",
+      "usedBy": [
+        "crm-gatekeeper-text"
+      ]
+    },
+    {
+      "implicit": true,
+      "name": "crm-gatekeeper-text:TextEvents",
+      "optional": true,
+      "type": "durable_object",
+      "usedBy": [
+        "crm-gatekeeper-text"
+      ]
+    },
+    {
+      "implicit": true,
       "name": "crm-gatekeeper-webhook:WebhookEndpoint",
       "optional": true,
       "type": "durable_object",
@@ -521,6 +539,33 @@
           "type": "ratelimit"
         },
         {
+          "name": "CUSTOMER_FEED_RATE_LIMIT",
+          "namespace_id": "4890",
+          "simple": {
+            "limit": 10,
+            "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
+          "name": "CUSTOMER_FEED_ADDRESS_RATE_LIMIT",
+          "namespace_id": "4891",
+          "simple": {
+            "limit": 120,
+            "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
+          "name": "DESK_RATE_LIMIT",
+          "namespace_id": "4151",
+          "simple": {
+            "limit": 60,
+            "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
           "name": "AI_FAKE_MODEL",
           "text": "",
           "type": "plain_text"
@@ -621,6 +666,11 @@
           "type": "plain_text"
         },
         {
+          "name": "DESK_HOSTNAME",
+          "text": "",
+          "type": "plain_text"
+        },
+        {
           "name": "IDENTITY_PROVIDER",
           "text": "better-auth",
           "type": "plain_text"
@@ -703,6 +753,11 @@
         {
           "name": "COS_UPDATE_TOKEN",
           "text": "$SECRET(COS_UPDATE_TOKEN)",
+          "type": "secret_text"
+        },
+        {
+          "name": "DESK_SECRET",
+          "text": "$SECRET(DESK_SECRET)",
           "type": "secret_text"
         },
         {
@@ -823,6 +878,12 @@
           "source": "installer"
         },
         {
+          "description": "Optional. The key the desk's codes, enrolled devices' credentials and desk session tokens are kept under (HMAC): at least 32 random characters, e.g. `openssl rand -hex 32`. With DESK_HOSTNAME, turns on signing at the desk (Settings → Devices).",
+          "name": "DESK_SECRET",
+          "required": false,
+          "source": "installer"
+        },
+        {
           "description": "Optional. Google OAuth client ID for Google sign-in.",
           "name": "GOOGLE_CLIENT_ID",
           "required": false,
@@ -847,7 +908,7 @@
           "source": "user"
         }
       ],
-      "sha256": "ad8615e69d63a4132d3f012afdb50e25e08baaf1c01a6c6d44cc1fa3ed66921c"
+      "sha256": "5c9a2c36e7bdae16801de6ef07a532cb4bdbb9ef9f77b72688be5b8c17b75e7f"
     },
     {
       "bindings": [
@@ -1011,6 +1072,11 @@
           "name": "JUDGE_PLACEMENTS",
           "text": "",
           "type": "plain_text"
+        },
+        {
+          "name": "TURNSTILE_SECRET_KEY",
+          "text": "$SECRET(TURNSTILE_SECRET_KEY)",
+          "type": "secret_text"
         }
       ],
       "compatibilityDate": "2026-10-01",
@@ -1067,8 +1133,15 @@
         }
       ],
       "role": "runner",
-      "secrets": [],
-      "sha256": "96437343803be8ced6ce7494968aba0e74332c14da5e9891708d9a524ee5909a"
+      "secrets": [
+        {
+          "description": "Optional. Cloudflare Turnstile's secret key (stage 29, ADR 0722): forms check a visitor's spam token with it, and without it take no answers from people who are not signed in. Set by a person (docs/deploying.md, Forms: Turnstile); never stored in D1.",
+          "name": "TURNSTILE_SECRET_KEY",
+          "required": false,
+          "source": "user"
+        }
+      ],
+      "sha256": "9dd8d4f472c91373bb9f728d59dc75dfa07e6c91131049531b115f71d5d04916"
     },
     {
       "bindings": [],
@@ -1703,6 +1776,88 @@
       ],
       "sha256": "1c6d3e1f449d039189ac5e7883d5deff4a1d7c8126290864aa9e8630c36e0c81",
       "shortName": "slack-post"
+    },
+    {
+      "bindings": [
+        {
+          "class_name": "TextEvents",
+          "name": "TEXT_EVENTS",
+          "type": "durable_object_namespace"
+        },
+        {
+          "class_name": "FakeTextLedger",
+          "name": "FAKE_TEXT_LEDGER",
+          "type": "durable_object_namespace"
+        },
+        {
+          "name": "BASE_URL",
+          "text": "https://$HOSTNAME/gatekeeper/text",
+          "type": "plain_text"
+        },
+        {
+          "name": "TEXT_PROVIDER",
+          "text": "",
+          "type": "plain_text"
+        },
+        {
+          "name": "TEXT_SENDER_NUMBER",
+          "text": "",
+          "type": "plain_text"
+        },
+        {
+          "name": "FAKE_WEBHOOK_SECRET",
+          "text": "$SECRET(FAKE_WEBHOOK_SECRET)",
+          "type": "secret_text"
+        }
+      ],
+      "compatibilityDate": "2026-09-04",
+      "compatibilityFlags": [
+        "allow_irrevocable_stub_storage"
+      ],
+      "crons": [],
+      "dependsOn": [],
+      "durableObjectMigrations": [
+        {
+          "new_sqlite_classes": [
+            "TextEvents",
+            "FakeTextLedger",
+            "TextGatekeeper"
+          ],
+          "tag": "v1"
+        }
+      ],
+      "mainModule": "index.js",
+      "modules": [
+        {
+          "name": "index.js",
+          "sha256": "ef5479cb7eef5a5d40e5396f03a781d9004a8470d3eaf2470baa0f1755da0b2b",
+          "size": 66,
+          "type": "esm"
+        }
+      ],
+      "name": "crm-gatekeeper-text",
+      "observability": {
+        "enabled": true,
+        "head_sampling_rate": 1,
+        "logs": {
+          "invocation_logs": false
+        }
+      },
+      "optional": true,
+      "package": "packages/gatekeeper-text",
+      "public": false,
+      "queueConsumers": [],
+      "role": "gatekeeper",
+      "secrets": [
+        {
+          "description": "Signing secret of the fake text provider's webhook (/in/fake). Generated by the installer and cos deploy when TEXT_PROVIDER is fake (only in an environment marked live: false) and none is set; kept by later deploys. Without it the fake runs on localhost only.",
+          "name": "FAKE_WEBHOOK_SECRET",
+          "required": false,
+          "source": "generated"
+        }
+      ],
+      "sha256": "aa0afa852b2bfbe4c6bc879a56e27946545b3d656ae9823017d2d72b3e9060f8",
+      "shortName": "text"
     },
     {
       "bindings": [

@@ -53,6 +53,10 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    audit log must never keep (a note about someone's leave) lists those fields in `redact`
    (Rostering: `away`). A tool only admins and accounts granted it should call names a
    **restricted** permission (see `write-extension`, Roles; Rostering's `rostering:manage`).
+   In a shipped pack only (ADR 0652): a `humanOnly` tool every staff account should reach, pack
+   roles included, because its host operation decides who may (Daily checklists' `tick`), declares
+   `anyStaff: true` and no permission; a tool only holders of a grantable core permission should
+   call declares `corePermission` (Daily checklists' `history`: `"checklists:write"`).
    `ctx.caller` says who started a tool (`{ kind: "staff", userId, name }`, a
    customer or the public), from the host and never from the input: record who did something
    with it (Ticketing: `checkIn` sets `usedBy`). Extensions cannot read users (`user.*` is never
@@ -88,7 +92,14 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    event abroad), add `zoneField: "<a timezone field>"`: days are then counted in each record's
    zone, and the run starts in the first hour of that local day (ADR 0460; Ticketing:
    `eventReminder`, `eventEnded`). An automation the request itself asks for
-   ships on; one you added as an extra ships off with `enabled: false` (Leads).
+   ships on; one you added as an extra ships off with `enabled: false` (Leads). An automation
+   that needs another pack the rest of the extension does not (a review ask after the Nth
+   attended booking) says `onlyWith: ["bookings"]`: the extension installs without it, the
+   automation is listed as waiting and starts no run until that pack is installed and on, and
+   its trigger, steps and `permissions` may name that pack's objects (ADR 0812). Spell them
+   exactly: without the pack the host cannot check them, and a wrong one shows the automation
+   as broken once the pack is installed. Run `cos ext check` with the pack beside yours. When the
+   whole extension needs the pack, use `requires` instead.
 5. **Declare every step and its intents.** A camelCase `name` each. A `do` step lists `reads`
    (objects), `writes` (`WriteIntent`: object, action, count, titles, assignee), `notifies`
    (recipient and the message as written) and `calls` (other operations, such as `query.sql`).

@@ -58,9 +58,25 @@ describe("default closed (criterion 1)", () => {
       name: string;
       audiences: readonly string[];
       toolOnly?: boolean;
+      deskOnly?: boolean;
     }[];
     const openTo = (kind: string) =>
-      new Set(listed.filter((e) => e.audiences.includes(kind) && !e.toolOnly).map((e) => e.name));
+      new Set(
+        listed
+          .filter((e) => e.audiences.includes(kind) && !e.toolOnly && !e.deskOnly)
+          .map((e) => e.name),
+      );
+    // Stage 44 step 6 (ADR 0649): the desk origin's own calls, public but reached only from its
+    // handler (`deskOnly`): any other public caller is refused them below, as a closed operation.
+    expect(listed.filter((e) => e.deskOnly).map((e) => e.name)).toEqual([
+      "desk.accept",
+      "desk.claim",
+      "desk.documents",
+      "desk.finish",
+      "desk.heartbeat",
+      "desk.status",
+      "device.claim",
+    ]);
     expect([...openTo("customer")].sort()).toEqual([
       // Stage 44 step 5 (ADR 0644 amended): the words of what a visitor is asked, no Person read.
       "agreement.guestVersions",
@@ -81,6 +97,17 @@ describe("default closed (criterion 1)", () => {
       "me.agreements.get",
       "me.agreements.list",
       "me.agreements.pdf",
+      // Stage 48 step 4 (ADR 0711): what needs their attention, worked out in core.
+      "me.attention",
+      // Stage 53 step 7 (ADR 0803): their own birthday.
+      "me.birthday.get",
+      "me.birthday.set",
+      // Stage 62 step 1 (ADR 0890): their own calendar link, made by them alone.
+      "me.calendarFeed.revoke",
+      "me.calendarFeed.rotate",
+      "me.calendarFeed.status",
+      // Stage 51 step 3 (ADR 0783): their own check-in code (and their dependants'), and PIN.
+      "me.code",
       "me.deleteAccount",
       // Stage 48 (ADR 0712): changing their own sign-in address.
       "me.email.change",
@@ -88,6 +115,13 @@ describe("default closed (criterion 1)", () => {
       // Stage 31a step 6 (ADR 0540): their own family, the children staff linked to them.
       "me.family",
       "me.get",
+      // Stage 30 step 3 (ADR 0673): checking one of their own numbers by a code sent to it.
+      "me.phone.check",
+      "me.phone.startCheck",
+      "me.pin.clear",
+      "me.pin.set",
+      // Stage 48 step 5 (ADR 0710): which sections of My account they have.
+      "me.portal",
       "me.sessions.list",
       "me.sessions.revoke",
       "me.signOut",
@@ -104,6 +138,8 @@ describe("default closed (criterion 1)", () => {
       "order.get",
       "order.start",
       "order.view",
+      // Stage 37 step 1 (ADR 0680): whether a thing in stock can be bought, by its `show`.
+      "stock.get",
       // Stage 32a (ADR 0485): a payer starts, reads, cancels and resumes their own
       // subscriptions, and opens the provider's portal for their card.
       "subscription.cancel",
@@ -139,6 +175,7 @@ describe("default closed (criterion 1)", () => {
       "order.checkout",
       "order.start",
       "order.view",
+      "stock.get",
       // Stage 32a (ADR 0485): a guest subscribes on the provider's page.
       "subscription.start",
     ]);
@@ -424,7 +461,21 @@ describe("the closed handler context (ADR 0413)", () => {
       "content.preview",
       // Stage 38 (ADR 0700): published words, searched as the public reads them.
       "content.search",
+      // Stage 44 step 6 (ADR 0649): the desk origin's calls keep the database: an enrolled
+      // device, a desk session and its acceptances are core tables, read for the request's own
+      // credential and token only.
+      "desk.accept",
+      "desk.claim",
+      "desk.documents",
+      "desk.finish",
+      "desk.heartbeat",
+      "desk.status",
+      "device.claim",
       "fixture.bookkeeping",
+      // Stage 29 step 2 (ADR 0720): the door reads a form past the caller's scope and makes the
+      // submission, the Person and a destination as the host's own change.
+      "intake.open",
+      "intake.submit",
       // Stage 44 step 2 (ADR 0642): acceptances are core tables, not records: the host reads and
       // writes them for the caller's own Person and live dependants only.
       "me.agreements.accept",
@@ -432,10 +483,29 @@ describe("the closed handler context (ADR 0413)", () => {
       "me.agreements.get",
       "me.agreements.list",
       "me.agreements.pdf",
+      // Stage 48 step 4 (ADR 0711): it reads the host's subscription, order and allowance rows.
+      "me.attention",
+      // Stage 53 step 7 (ADR 0803): a birthday is in no view the seam reads; the caller's own.
+      "me.birthday.get",
+      "me.birthday.set",
+      // Stage 62 step 1 (ADR 0890): the calendar link is a core table, the caller's own account's.
+      "me.calendarFeed.revoke",
+      "me.calendarFeed.rotate",
+      "me.calendarFeed.status",
+      // Stage 51 step 3 (ADR 0783): codes and PINs are core tables, for the caller's own sign-in.
+      "me.code",
       "me.deleteAccount",
       // Stage 48 (ADR 0712): the account's address change, its sessions and the Person's emails.
       "me.email.change",
       "me.email.confirm",
+      // Stage 30 step 3 (ADR 0673): the check's own rows, and the code sent after the commit.
+      "me.phone.check",
+      "me.phone.startCheck",
+      "me.pin.clear",
+      "me.pin.set",
+      // Stage 48 step 5 (ADR 0710): it reads the installed packs' declarations and the
+      // subscriptions the caller pays; their records only through the seam.
+      "me.portal",
       "me.sessions.list",
       "me.sessions.revoke",
       "me.signOut",
@@ -449,6 +519,9 @@ describe("the closed handler context (ADR 0413)", () => {
       // Stage 31a step 8 (ADR 0560): the host makes a drop-in booking held with its order.
       "order.startHeld",
       "order.view",
+      // Stage 49 step 4 (ADR 0763): free times read open hours, time off and the time and room
+      // claims, core tables, and answer only when someone is free.
+      "staffing.free",
       // Stage 31a (ADR 0504): it reads a booking whole and its class's rules, as the write does.
       "state.resolve",
       // Stage 32a (ADR 0485): the host calls the payments gatekeeper for the payer.

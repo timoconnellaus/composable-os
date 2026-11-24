@@ -11,6 +11,7 @@
 // declared default (`default`).
 import type { CoreDatabase } from "@composable-os/db";
 import { type Compilable, CompiledQuery, type Kysely } from "kysely";
+import { sha256Hex } from "../digest.ts";
 
 export type Standing = "person" | "customer" | "public" | "default" | "host" | "ai";
 
@@ -82,9 +83,7 @@ export function normalForm(value: unknown): string {
 }
 
 export async function valueHash(value: unknown): Promise<string> {
-  const bytes = new TextEncoder().encode(normalForm(value));
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return sha256Hex(normalForm(value));
 }
 
 type Db = Kysely<CoreDatabase>;
@@ -98,6 +97,40 @@ const keyOf = (o: string, r: string, f: string) => `${o}\u0000${r}\u0000${f}`;
 /** The mark of one of a Person's addresses, and of which address is their primary one. */
 export const addressField = (address: string) => `emails:${address.trim().toLowerCase()}`;
 export const PRIMARY_ADDRESS = "emails:$primary";
+
+/**
+ * The mark of one of a Person's phone numbers (ADR 0673), by its digits (and a leading +, as
+ * `core_person_phones.number_normalised`), and of which number is their primary one.
+ */
+export const phoneField = (number: string) => `phones:${phoneDigits(number)}`;
+export const PRIMARY_PHONE = "phones:$primary";
+
+/** A number as the host matches it: a leading + kept, every other character but digits dropped. */
+export function phoneDigits(number: string): string {
+  const trimmed = number.trim();
+  return (trimmed.startsWith("+") ? "+" : "") + trimmed.replace(/\D/g, "");
+}
+
+/** The numbers of a Person's phone list (`[{ number, primary }]`), as digits, and the primary. */
+function phonesOf(list: unknown): { all: string[]; primary: string | null } {
+  if (!Array.isArray(list)) return { all: [], primary: null };
+  const rows = list
+    .map((v) =>
+      typeof v === "string"
+        ? { number: v, primary: false }
+        : typeof v === "object" && v
+          ? {
+              number: (v as { number?: unknown }).number,
+              primary: (v as { primary?: unknown }).primary === true,
+            }
+          : null,
+    )
+    .filter((v): v is { number: string; primary: boolean } => typeof v?.number === "string")
+    .map((v) => ({ number: phoneDigits(v.number), primary: v.primary }))
+    .filter((v) => v.number.replace("+", "") !== "");
+  const primary = rows.find((r) => r.primary)?.number ?? rows[0]?.number ?? null;
+  return { all: [...new Set(rows.map((r) => r.number))], primary };
+}
 
 /** The addresses of a Person's address list (`[{ email, primary }]`), folded, and the primary. */
 function addressesOf(list: unknown): { all: string[]; primary: string | null } {
@@ -232,6 +265,49 @@ export async function markStatements(
       all.push(row);
       if (copied?.length) copies.push({ row, sources: copied });
       else pending.set(keyOf(row.o, row.r, row.f), { h: row.h, s: row.s });
+      if (change.object === "person" && field === "phones") {
+        // Each number its own mark, as each address (ADR 0673): an added one is marked as the
+        // list's value would be; one already there keeps its mark; a removed one loses it. A
+        // number is textable only when its mark is a person's or a default's (or the member
+        // checked it by code): never an AI's.
+        const before = phonesOf(change.before?.phones);
+        const after = phonesOf(value);
+        for (const gone of before.all.filter((n) => !after.all.includes(n))) {
+          out.push(
+            db
+              .deleteFrom("core_value_mark")
+              .where("object_type", "=", "person")
+              .where("record_id", "=", change.id)
+              .where("field", "=", phoneField(gone)),
+          );
+        }
+        const marked = [...after.all.filter((n) => !before.all.includes(n))].map(
+          (n) => [phoneField(n), n] as const,
+        );
+        if (after.primary && (after.primary !== before.primary || change.action !== "update")) {
+          marked.push([PRIMARY_PHONE, after.primary]);
+        }
+        for (const [f, n] of marked) {
+          const r: Row = {
+            o: "person",
+            r: change.id,
+            f,
+            h: await valueHash(n),
+            s: copied?.length ? s : own(n, s),
+          };
+          all.push(r);
+          const from = (copied ?? [])
+            .filter((c) =>
+              f === PRIMARY_PHONE
+                ? phonesOf(c.value).primary === n
+                : phonesOf(c.value).all.includes(n),
+            )
+            .map((c) => ({ ...c, field: f, value: n }));
+          if (copied?.length) copies.push({ row: r, sources: from.length ? from : copied });
+          else pending.set(keyOf(r.o, r.r, r.f), { h: r.h, s: r.s });
+        }
+        continue;
+      }
       if (change.object !== "person" || field !== "emails") continue;
       // Each address its own mark: an added one is marked as the list's value would be (a merge's
       // from the Person it came from); one already there keeps its mark; a removed one loses it.

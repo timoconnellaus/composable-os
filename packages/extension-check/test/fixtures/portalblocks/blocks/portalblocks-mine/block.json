@@ -1,0 +1,8 @@
+{
+  "name": "portalblocks-mine",
+  "pack": "portalblocks",
+  "skin": "web",
+  "operations": ["x.portalblocks.mine", "me.get"],
+  "files": ["mine.tsx"],
+  "dependsOn": []
+}

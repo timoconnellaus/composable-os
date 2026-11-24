@@ -45,6 +45,8 @@ export async function queueMergeCustomers(
   const remove = (account: AccountRow) => {
     ctx.write(
       ctx.db.deleteFrom("core_customer_session").where("customer_id", "=", account.id),
+      // A deleted account's calendar link goes with it (ADR 0890); the kept account keeps its own.
+      ctx.db.deleteFrom("core_customer_feed").where("customer_id", "=", account.id),
       ctx.db.deleteFrom("core_customer").where("id", "=", account.id),
     );
     ctx.recordChange({

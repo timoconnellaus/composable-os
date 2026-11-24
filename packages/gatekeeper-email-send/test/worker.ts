@@ -75,6 +75,12 @@ class FakeQueue extends RpcTarget {
     return this.hostPurposeAnswer ?? null;
   }
 
+  /** Who the host says is calling (issue #286); empty, it does not say, as an older host. */
+  callerKeySpaceAnswer = "";
+  async callerKeySpace(): Promise<string> {
+    return this.callerKeySpaceAnswer;
+  }
+
   /** As the CRM's integration host answers: true only for its own agreements mail (ADR 0645). */
   async isHostAgreementMail(): Promise<boolean> {
     return this.#hostAgreement;
@@ -117,6 +123,8 @@ export class TestHost extends DurableObject<Cloudflare.Env> {
       hostAgreement?: boolean;
       /** The host's purpose the queue answers (`agreements`, `routine-mail`, …). */
       hostPurpose?: string;
+      /** Who the host says is calling (`callerKeySpace`); absent, the queue does not say. */
+      callerKeySpace?: string;
       /** A facet whose storage the test may seed (`seed`). */
       seedable?: boolean;
     } = {},
@@ -143,6 +151,7 @@ export class TestHost extends DurableObject<Cloudflare.Env> {
       options.hostAgreement === true,
     );
     queue.hostPurposeAnswer = options.hostPurpose;
+    queue.callerKeySpaceAnswer = options.callerKeySpace ?? "";
 
     this.#session = (await facet.startSession(queue as never)) as unknown as EmailSendSession;
     return facet.describe();

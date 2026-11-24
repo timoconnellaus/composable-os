@@ -40,6 +40,65 @@ interview settles its shape (the first question at the end). The shared platform
 paid another way" (step 3) is shared with stage 35 (invoices and quotes) and the point of sale
 module (the till): whichever is built first builds it once, to this design.
 
+## Status
+
+- **Step 1, adjustments and the pricing seam** (`feat/stage-34-adjustments`, migration 0950, ADRs
+  0690 and 0691): `core_order_adjustment` (kept as given: only marked removed, or a reason blanked
+  by erase), each line's `line_discount`, the order's `discount` and its `total` after
+  adjustments; `applyAdjustments` (`orders/adjustments.ts`) as the adjustment stage after
+  `priceLines`, used by `createOrder` and by every change to a pending order's adjustments; the
+  checkout's tax shares split over the net lines; a deposit kept and taken off the balance (one a
+  discount leaves at or above the total is not taken: pay in full); `rec_order.discount`,
+  `rec_order_line.line_discount` and `line_net`, `rec_order_adjustment`. `order.adjust` and
+  `order.unadjust` (`orders:discount`, a new grantable core permission), the human admin's
+  `discountLimit` setting (nothing until set: every staff discount waits), a new operation option
+  `reviewWhen` that queues a person's call over the limit, an AI's call always queued, approval by
+  a human admin only, and the checkout refused while a discount waits. Refunds and refunds owed
+  needed no change: they give back what was paid, which is the net. Deviations: an adjustment
+  cannot take an order to nothing until step 3 adds a way to pay one (the spec lets a staff
+  adjustment make an order free); a price changes only before the order's checkout has opened; the
+  spec's ADR table had staff discounts as 0693, this step was given 0690 and 0691, so staff
+  discounts are 0691 and the `discount` behaviour moves to 0693 (table below). Left for later
+  steps: codes, members' prices and referrals as adjustments (4, 5, 9), the order's adjustments
+  and "Give a discount" on staff screens (10), e2e journeys (10). After the PR's review: migration
+  0951 makes a discount and the buyer's payment page unable to cross; the limit is judged again on
+  the handler's read; an AI's `order.unadjust` waits for an admin; erase redacts the discount
+  calls' audit rows; a whole-order percentage gives each line its own rounded-down share; only a
+  person's waiting discount holds the checkout, not an AI's.
+- **Step 2, folding plus addresses** (branch `feat/stage-34-address-folding`, issue #225;
+  migration 0955, ADR 0692, amending 0489 and 0512): an index over the folded form of
+  `core_person_emails.email` (the `+tag` dropped on every domain, dots kept; an expression, nothing
+  stored), `foldAddress`, `foldedSql` and `samePeople` in `customers/accounts.ts`; free trials
+  (`subscriptions/trial.ts`) and things sold once per Person (`orders/once.ts`) count every Person
+  sharing a folded address (one in the Trash too), and two triggers refuse the second of two holds
+  at once by such People. A trial page goes back only to its caller for the same holder. A pass
+  given by hand stays per Person (a person's override). Left for later steps: per-person codes and the new-customer check (step 4) and
+  referrals (step 9) read `samePeople`; migrations 0956 and 0957 of this step's range are unused.
+- **Step 3, an order paid another way** (the shared step; branch `feat/stage-34-other-payment`,
+  migration 0952, ADR 0694, amending 0427, 0429 and 0479): `method` on `core_order_payment`
+  (`provider`, `recorded` with `recorded_kind`, `recorded_by`, `received_on`, `reference`;
+  `voucher` and `stored_value` columns for steps 7 and 8) and on `core_order_refund`;
+  `applyOtherPayment` and `reverseOtherPayment` in `orders/payments.ts`, sharing one settle path
+  with `applyVerifiedPayment`; `order.recordPayment` and `order.reversePayment` (the new restricted,
+  grantable core permission `orders:payments`, human only), admins told over a human admin's
+  `recordedPaymentNotice` (0 until set: every one); the order machine's host move `paid →
+  part_paid` for a reversal (what was granted stays); refunds by method: `order.refund` sends only
+  the provider's payments, `order.recordRefund` (`orders:refund`, human only) records money paid
+  back on a recorded payment; the guard triggers (a `voucher` or `stored_value` row is refused
+  outright until its ledger exists; steps 7 and 8 replace that trigger); `rec_order_payment`;
+  erase blanks references and reasons and redacts the audit's copies. Deviations: a recorded
+  payment's refund is its own human-only operation, `order.recordRefund`, not an `order.refund`
+  that waits in Approvals (nothing is sent, so the person with `orders:refund` who paid it back
+  records it); a reversal leaves an order part paid even with nothing left paid, rather than
+  pending; voucher and stored value refunds, and decision 13's split, are steps 7 and 8. Left for
+  later: "Record a payment" on the order's staff screen (step 10). After the PR's review: a drop-in
+  (an order that moves a record) is paid in full or not at all, and its payment is reversed only
+  once its booking is cancelled; a later payment of a part-paid order leaves a record already moved
+  as it is; admins are always told of a payment recorded while the buyer's payment page is open;
+  the day received is a real day, not after today and at most a year back; host payment rows and
+  recorded refunds are never deleted (and the latter never edited); `rec_order_refund` reports
+  refunds by method.
+
 ## Goal
 
 A business can give money off, and say why, everywhere it sells: a promo code typed at checkout on
@@ -652,10 +711,10 @@ Block **BD** in [`parallel-work.md`](../parallel-work.md): migrations 0950 to 09
 
 | ADR | Decision | Amends |
 | --- | --- | --- |
-| 0690 | Adjustments on orders: net lines, the total after adjustments, the pricing seam | 0427, 0479 |
-| 0691 | The `discount` behaviour: codes, automatic prices, one deal per order, limits held by the database | 0435 |
+| 0690 | Adjustments on orders: net lines, the total after adjustments, the pricing seam (built in step 1) | 0427, 0479 |
+| 0691 | Staff discounts: `orders:discount`, the limit, approval above it (built in step 1) | 0449 |
 | 0692 | One person per folded address (#225) | 0489, 0512 |
-| 0693 | Staff discounts: `orders:discount`, the limit, approval above it | 0449 |
+| 0693 | The `discount` behaviour: codes, automatic prices, one deal per order, limits held by the database (was 0691: step 1 took 0690 and 0691) | 0435 |
 | 0694 | **An order paid another way**: the second door, payment methods, who may make each, reversal, refunds by method, reports (shared: if stage 35 or the till builds the step first, it writes this ADR in its own block and 0694 stays free) | 0427, 0429, 0479 |
 | 0695 | Discounts on subscriptions for 1 or N periods, and a one-period reward | 0486, 0530 |
 | 0696 | Gift vouchers and gift cards: stored value held by the host, part payment at checkout | 0435 |

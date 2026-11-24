@@ -143,7 +143,7 @@ export const recordImport = defineOperation({
             result("created", null);
             continue;
           }
-          const id = await createRecord(ctx, object, withSlugs);
+          const id = await createRecord(ctx, object, withSlugs, { imported: true });
           ctx.write(
             CompiledQuery.raw(
               "INSERT INTO core_import_key (object_type, import_key, record_id, written, imported_at, imported_by) VALUES (?, ?, ?, ?, ?, ?)",
@@ -189,6 +189,7 @@ export const recordImport = defineOperation({
           object,
           record.id,
           Object.fromEntries(changed.map((f) => [f, values[f]])),
+          { imported: true },
         );
         ctx.write(
           CompiledQuery.raw(

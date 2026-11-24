@@ -258,38 +258,52 @@ test("People with the 10k seed scrolls smoothly with a bounded DOM", async ({ pa
   expect(total).toBeGreaterThanOrEqual(6000);
   await expect(renderedRows(page).first()).toBeVisible();
 
-  // Scroll steadily for two seconds, one step per frame, recording frame times and the DOM size.
+  // Scroll steadily, one 120 px step per frame, recording what each step costs the page and the DOM
+  // size. A step's cost is the main thread's work for it: the scroll handlers (the virtualizer
+  // re-rendering the window) and the style and layout they cause, timed by dispatching the scroll
+  // event synchronously and forcing layout (the browser's own event then finds nothing to do).
+  // Frame times are recorded too, for the annotation, but not asserted: they come in whole vsyncs
+  // (16.7, 33.3, 50 ms) and include raster and compositing, which on a shared CI runner depend on
+  // the runner more than the page, so a frame-time ceiling sat one vsync from failing (#305).
   const result = await scroller(page).evaluate(
     (el) =>
-      new Promise<{ frames: number[]; nodes: number[]; rows: number[] }>((resolve) => {
-        const frames: number[] = [];
-        const nodes: number[] = [];
-        const rows: number[] = [];
-        let last = performance.now();
-        const start = last;
-        const step = (now: number) => {
-          frames.push(now - last);
-          last = now;
-          el.scrollTop += 120;
-          nodes.push(document.getElementsByTagName("*").length);
-          rows.push(el.querySelectorAll("tbody tr[data-index]").length);
-          if (now - start < 2000) requestAnimationFrame(step);
-          else resolve({ frames: frames.slice(1), nodes, rows });
-        };
-        requestAnimationFrame(step);
-      }),
+      new Promise<{ work: number[]; frames: number[]; nodes: number[]; rows: number[] }>(
+        (resolve) => {
+          const work: number[] = [];
+          const frames: number[] = [];
+          const nodes: number[] = [];
+          const rows: number[] = [];
+          let last = performance.now();
+          const step = (now: number) => {
+            frames.push(now - last);
+            last = now;
+            const begin = performance.now();
+            el.scrollTop += 120;
+            el.dispatchEvent(new Event("scroll"));
+            void el.querySelector("tbody")?.getBoundingClientRect();
+            work.push(performance.now() - begin);
+            nodes.push(document.getElementsByTagName("*").length);
+            rows.push(el.querySelectorAll("tbody tr[data-index]").length);
+            if (work.length < 120) requestAnimationFrame(step);
+            else resolve({ work, frames: frames.slice(1), nodes, rows });
+          };
+          requestAnimationFrame(step);
+        },
+      ),
   );
-  const sorted = [...result.frames].sort((a, b) => a - b);
-  const median = sorted[Math.floor(sorted.length / 2)] ?? Infinity;
-  const fps = 1000 / median;
+  const median = (values: number[]) =>
+    [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)] ?? Infinity;
+  const work = median(result.work);
+  const frame = median(result.frames);
   test.info().annotations.push({
     type: "scroll",
-    description: `median frame ${median.toFixed(1)} ms (${fps.toFixed(0)} fps), rows ≤ ${Math.max(...result.rows)}, DOM ${Math.min(...result.nodes)}–${Math.max(...result.nodes)} nodes`,
+    description: `median work per step ${work.toFixed(1)} ms, median frame ${frame.toFixed(1)} ms (${(1000 / frame).toFixed(0)} fps), rows ≤ ${Math.max(...result.rows)}, DOM ${Math.min(...result.nodes)}–${Math.max(...result.nodes)} nodes`,
   });
-  // 60 fps locally (a 16.7 ms frame, with a little slack for the measuring itself). Headless Chrome
-  // on shared CI runners can't hold 60 fps whatever the page does, so CI only guards against the
-  // regression that matters: rendering every row would cost hundreds of ms per frame.
-  expect(median).toBeLessThan(process.env.CI ? 50 : 18);
+  // Locally a step fits in a 60 fps frame with room to spare (about 8 ms in the dev build, where
+  // rendering every row in the window on each step cost 20). CI runners are several times slower
+  // and shared, so CI only guards against the regression that matters: rendering every loaded
+  // row would cost hundreds of ms per step. Measured at 4x CPU throttling: about 80 ms.
+  expect(work).toBeLessThan(process.env.CI ? 150 : 16);
   // Rendered rows and DOM size stay bounded while thousands of rows go by.
   expect(Math.max(...result.rows)).toBeLessThan(80);
   expect(Math.max(...result.nodes) - Math.min(...result.nodes)).toBeLessThan(1500);

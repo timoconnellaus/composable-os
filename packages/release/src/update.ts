@@ -28,10 +28,10 @@ import {
   writeDeploymentState,
 } from "./deploy.ts";
 import {
-  GATEWAY_TOKEN_SECRET,
   mergeSecrets,
   provisionAiGateway,
   retireGatewayToken,
+  suppliedGatewayToken,
 } from "./gateway.ts";
 
 /** Pauses and resumes automations around an update. */
@@ -150,15 +150,6 @@ export interface UpdateInput {
   onStep?: (step: UpdateStep, outcome?: Partial<UpdateOutcome>) => Promise<void> | void;
   secrets?: Record<string, Record<string, string>>;
   log?: Log;
-}
-
-/** An AI_GATEWAY_TOKEN the caller sets in this deploy, if any (then none is generated). */
-function suppliedGatewayToken(secrets: UpdateInput["secrets"]): { token?: string } {
-  for (const values of Object.values(secrets ?? {})) {
-    const token = values[GATEWAY_TOKEN_SECRET];
-    if (token) return { token };
-  }
-  return {};
 }
 
 export async function runUpdate(input: UpdateInput): Promise<UpdateOutcome> {
@@ -348,7 +339,9 @@ export async function healthSmoke(
     } catch (error) {
       last = (error as Error).message;
     }
-    if (options.delayMs !== 0) await new Promise((r) => setTimeout(r, options.delayMs ?? 3000));
+    if (i < attempts - 1 && options.delayMs !== 0) {
+      await new Promise((r) => setTimeout(r, options.delayMs ?? 3000));
+    }
   }
   throw new Error(`smoke check failed for ${hostname}: ${last}`);
 }

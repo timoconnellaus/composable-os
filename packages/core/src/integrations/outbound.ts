@@ -84,15 +84,50 @@ export interface OutboundSubmission {
   routineMail?: { routine: boolean; ordinary?: boolean } | undefined;
 }
 
-/** Gatekeeper kinds of routine mail (ADR 0590): email-send's, and the fake outbox's. */
-export const ROUTINE_MAIL_KINDS: ReadonlySet<string> = new Set(["email.routine", "fake.routine"]);
+/**
+ * Gatekeeper kinds of routine messages (ADR 0590, ADR 0672): email-send's, the fake outbox's, and
+ * the text gatekeeper's.
+ */
+export const ROUTINE_MAIL_KINDS: ReadonlySet<string> = new Set([
+  "email.routine",
+  "fake.routine",
+  "text.routine",
+]);
+
+/**
+ * A refund sends money back (ADR 0429): a person with `orders:refund` approves each one
+ * (approval.ts), and no AI actor can.
+ */
+export const REFUND_KINDS: ReadonlySet<string> = new Set(["payments.refund"]);
+
+/**
+ * A card reader registered to or removed from the payment account (stage 50, ADR 0774): it moves
+ * no money, but adds or takes away a device that can take it. Asked only by the host's own call,
+ * which the host's message rule would otherwise apply at once: a human admin approves each one
+ * (approval.ts), and no AI actor can.
+ */
+export const READER_KINDS: ReadonlySet<string> = new Set([
+  "payments.reader.register",
+  "payments.reader.remove",
+]);
+
+/**
+ * A void of a document the host posted to the books (stage 61, ADR 0881): it takes back an entry
+ * the bookkeeper may already have reconciled. Asked only by the host's own accounting call, which
+ * the host's message rule would otherwise apply at once: a human admin approves each one
+ * (approval.ts), and no AI actor can.
+ */
+export const ACCOUNTING_VOID_KINDS: ReadonlySet<string> = new Set(["accounting.void"]);
 
 /**
  * Kinds that are always reviewed, whoever submits them and whatever the policy, the floor, an
- * admin's auto-approve or the host say (ADR 0429). A refund sends money back: a person with
- * `orders:refund` approves each one (approval.ts), and no AI actor can.
+ * admin's auto-approve or the host say (ADRs 0429, 0774 and 0881).
  */
-export const ALWAYS_REVIEWED_KINDS: ReadonlySet<string> = new Set(["payments.refund"]);
+export const ALWAYS_REVIEWED_KINDS: ReadonlySet<string> = new Set([
+  ...REFUND_KINDS,
+  ...READER_KINDS,
+  ...ACCOUNTING_VOID_KINDS,
+]);
 
 export type OutboundDecision =
   /**
@@ -298,7 +333,8 @@ export async function submitOutbound(db: CrmDb, s: OutboundSubmission): Promise<
       judgeUsage = checked.usage;
     }
   }
-  // Whatever said otherwise above, a refund waits for a person.
+  // Whatever said otherwise above, a refund, a card reader's change and a void of an entry in the
+  // books wait for a person.
   if (decision === "auto" && input.actionKind && ALWAYS_REVIEWED_KINDS.has(input.actionKind.tag)) {
     decision = "review";
   }

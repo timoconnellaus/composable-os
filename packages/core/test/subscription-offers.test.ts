@@ -960,3 +960,41 @@ describe("review of step 4", () => {
     expect(started.freeUntil).toBe(`${dateIn(20)}T00:00:00.000Z`);
   });
 });
+
+describe("the report's bound variables", () => {
+  it("lists a full page of untaken offers within D1's 100 bound variables a statement", async () => {
+    // More untaken offers, each its own Person's, than one statement may bind: the report reads
+    // their running subscriptions in one statement.
+    const now = new Date().toISOString();
+    const freeUntil = new Date(Date.now() + 20 * DAY).toISOString();
+    const people = Array.from({ length: 120 }, () => unique("bulk"));
+    await env.DB.batch(
+      people.flatMap((id) => [
+        env.DB.prepare(
+          "INSERT INTO core_person (id, display_name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+        ).bind(id, "Bulk member", now, now),
+        env.DB.prepare(
+          `INSERT INTO core_subscription_offer
+             (id, plan_object, plan_id, email, person_id, free_until, imported_by, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ).bind(
+          `sof_${id}`,
+          PLAN,
+          plan,
+          `${id}@bulk.example.com`.toLowerCase(),
+          id,
+          freeUntil,
+          admin.id,
+          now,
+          now,
+        ),
+      ]),
+    );
+    const page = await run<{ items: { personId: string | null }[] }>(
+      "subscription.offer.list",
+      { status: "open", limit: 200 },
+      staff(),
+    );
+    expect(page.items.filter((i) => i.personId && people.includes(i.personId))).toHaveLength(120);
+  });
+});

@@ -5,8 +5,9 @@
 // queue, never from the message.
 //
 // It keeps the host's mail apart from everyone else's:
-// - idempotency keys are remembered per class and kind, so a key another caller used never
-//   answers the host's send (and the host's never answers theirs);
+// - idempotency keys are remembered per class, so a key another caller used never answers the
+//   host's send (and the host's never answers theirs); and an ordinary caller's per caller
+//   (`keySpaceOf`, issue #286), so one caller never pre-claims another's key;
 // - `listSent()` shows the host's agreements, sign-in and orders mail only to that same queue.
 //
 // No imports: cos-runner's fake outbox uses this same module.
@@ -47,6 +48,23 @@ export async function queueClassOf(queue: unknown): Promise<QueueClass> {
   if (routine && typeof routine === "object") return "routine";
   if ((await answers(queue, "isHostOrders")) === true) return "orders";
   return "caller";
+}
+
+/**
+ * Where a send's idempotency keys are kept (ADR 0574, issue #286): the host's own classes each in
+ * one space; an ordinary caller in its own, named by the host (`callerKeySpace`: who is calling,
+ * from how it opened the queue, never from the message), so a person, an MCP app, the assistant,
+ * an automation or an extension never answers, nor pre-claims, another's key. Hashed, so any id
+ * makes one storage segment. A queue that names no caller (a host older than this) keeps its
+ * callers in one shared space, as before.
+ */
+export async function keySpaceOf(queue: unknown, queueClass: QueueClass): Promise<string> {
+  if (queueClass !== "caller") return queueClass;
+  const caller = await answers(queue, "callerKeySpace");
+  if (typeof caller !== "string" || caller === "") return "caller";
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(caller));
+  const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `caller-${hex.slice(0, 32)}`;
 }
 
 /** The copy's idempotency keys are the host's agreements mail's alone. */

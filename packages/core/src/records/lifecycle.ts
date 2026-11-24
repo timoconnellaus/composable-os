@@ -8,6 +8,8 @@ import { waitlistMove } from "../capacity/waitlist.ts";
 import { ForbiddenError, ValidationError } from "../errors.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
+import { watchLow } from "../stock/low.ts";
+import { assertStockMovesKept, stockMovesOnMove } from "../stock/moves.ts";
 import { type StageCache, stagesLifecycle } from "./stages.ts";
 import { statesLifecycle } from "./states.ts";
 import {
@@ -29,6 +31,8 @@ export interface TransitionOptions {
   by: Mover;
   /** Stage reads shared across one operation (an import touches the same few stages). */
   cache?: StageCache | undefined;
+  /** The record import (`record.import`, a person's door) is writing it: someone moving over. */
+  imported?: boolean | undefined;
 }
 
 /**
@@ -152,6 +156,7 @@ export async function applyTransition(
       before,
       { ...(before ?? {}), ...written, ...outcome.values },
       options.by,
+      options.imported === true,
     );
     // A capacity claimant's states hold and give back its place (ADR 0501), in this batch.
     // Its waitlist (ADR 0520): a promotion's hold given back before its place is claimed; a
@@ -161,6 +166,11 @@ export async function applyTransition(
       await waitlistMove(ctx, object, id, before, after, options.by, "before");
       await claimantMove(ctx, object, id, before, after);
       await waitlistMove(ctx, object, id, before, after, options.by, "after");
+    }
+    // A state that moves stock (ADR 0681): its own record's, or its lines', in this batch.
+    if (outcome.moved) {
+      const after = { ...(before ?? {}), ...written, ...outcome.values };
+      await stockMovesOnMove(ctx, object, id, after, outcome.moved.id);
     }
     const hooks = outcome.moved
       ? [...(moveHooks.get(object.name) ?? []), ...everyMoveHooks]
@@ -179,6 +189,19 @@ export async function applyTransition(
     }
     return outcome;
   };
+  // What moved stock stays as it moved (ADR 0681), for an object with a lifecycle or without (a
+  // count's lines).
+  await assertStockMovesKept(ctx, object, before, written);
+  // A changed reorder level may put a record at or below it, or above (ADR 0681).
+  const level = object.stock?.reorderAt;
+  if (
+    level &&
+    before !== null &&
+    Object.hasOwn(written, level) &&
+    (written[level] ?? null) !== (before[level] ?? null)
+  ) {
+    watchLow(ctx, object.name, [id]);
+  }
   if (object.states) return run(statesLifecycle(object, object.states));
   if (object.stages) return run(stagesLifecycle(object, object.stages, options.cache));
   return NO_TRANSITION;

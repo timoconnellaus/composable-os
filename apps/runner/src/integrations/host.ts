@@ -14,17 +14,21 @@
 // D1 holds only the mirror (core_integration_connection) the UI and operations read.
 import { DurableObject, RpcTarget } from "cloudflare:workers";
 import {
+  ACCOUNTING_HOST_ONLY,
   type ActingUser,
   applyStoredPaymentEvent,
+  applyTextEvent,
   type BoundResource,
   type ConnectRedeemed,
   type ConnectStart,
   catalogueEntry,
   claimRoutineMail,
+  claimRoutineText,
   errorForLog,
   type IntegrationCaller,
   type IntegrationCallResult,
-  invokeByName,
+  invoke,
+  keepsBooks,
   loadRoutineMailSettings,
   ROLES,
   type Role,
@@ -35,7 +39,10 @@ import {
   SYNC_BATCH_MAX,
   SYSTEM_USER,
   type SyncConfig,
+  type SyncItem,
   settleRoutineMail,
+  settleRoutineText,
+  sha256Hex,
   siteOriginOf,
   syncedInWindow,
   syncKindOf,
@@ -97,7 +104,7 @@ interface FacetRecord {
 interface HookRecord {
   id: string;
   facetKey: string;
-  purpose: "sync" | "webhook" | "payments" | "agent";
+  purpose: "sync" | "webhook" | "payments" | "text-events" | "agent";
   title: string;
   description: string;
   enabled: boolean;
@@ -138,11 +145,6 @@ export function syncErrorText(error: unknown): string {
     .slice(0, SYNC_ERROR_MAX);
 }
 
-async function sha256(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
 function token(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(24));
   return btoa(String.fromCharCode(...bytes))
@@ -173,6 +175,11 @@ async function toJson(value: unknown, depth = 0): Promise<unknown> {
     return out;
   }
   return value;
+}
+
+/** A method name a caller may name on a session or a configurator (never `constructor`). */
+function isCallableName(method: string): boolean {
+  return /^[a-zA-Z][a-zA-Z0-9]{0,60}$/.test(method) && method !== "constructor";
 }
 
 async function loadUser(env: Env, id: string): Promise<ActingUser> {
@@ -274,6 +281,23 @@ export class PaymentSink extends RpcTarget {
   }
 }
 
+/**
+ * The text gatekeeper's verified receipts and replies (stage 30, ADR 0672): a receipt settles its
+ * routine message's row, a STOP stops every text to the number, a START lifts it. Applied at once;
+ * a failure is thrown, so the gatekeeper's delivery queue tries again.
+ */
+export class TextSink extends RpcTarget {
+  readonly #env: Env;
+  constructor(env: Env) {
+    super();
+    this.#env = env;
+  }
+  async receiveEvent(event: unknown): Promise<void> {
+    const done = await applyTextEvent(createCrmDb(this.#env.DB).query, event);
+    if (done === "ignored") console.warn("text: a delivered event was not one this host applies");
+  }
+}
+
 export class IntegrationHost extends DurableObject<Env> {
   /** Configurator `ui` capabilities by resource pattern, for this isolate's lifetime. */
   #configurators = new Map<string, Stub>();
@@ -367,7 +391,7 @@ export class IntegrationHost extends DurableObject<Env> {
     await this.ctx.storage.put<PendingConnect>("connect", {
       vendor,
       userId,
-      nonceHash: await sha256(nonce),
+      nonceHash: await sha256Hex(nonce),
       appOrigin: new URL(origin).origin,
       mode,
       startedAt: Date.now(),
@@ -403,7 +427,7 @@ export class IntegrationHost extends DurableObject<Env> {
     await this.ctx.storage.put("staged-account", account);
     await this.ctx.storage.put<Staged>("staged", {
       vendor,
-      ticketHash: await sha256(ticket),
+      ticketHash: await sha256Hex(ticket),
       expiresAt: Date.now() + STAGE_TTL_MS,
       mode: pending.mode,
     });
@@ -425,7 +449,7 @@ export class IntegrationHost extends DurableObject<Env> {
     const ticket = `${meta.connectionId}.${token()}`;
     await this.ctx.storage.put<Staged>("staged", {
       vendor,
-      ticketHash: await sha256(ticket),
+      ticketHash: await sha256Hex(ticket),
       expiresAt: Date.now() + STAGE_TTL_MS,
       mode: "reconnect",
       stageId,
@@ -448,6 +472,8 @@ export class IntegrationHost extends DurableObject<Env> {
         { connectionId: meta.connectionId },
         { reason: `${meta.title}'s credentials expired`, by: null },
       );
+    } else {
+      await this.#resumeSync();
     }
   }
 
@@ -464,14 +490,18 @@ export class IntegrationHost extends DurableObject<Env> {
     if (staged.expiresAt < Date.now()) return fail("This connect flow expired. Start again.");
     if (input.userId !== pending.userId)
       return fail("Only the user who started this flow can finish it");
-    if ((await sha256(input.nonce)) !== pending.nonceHash)
+    if ((await sha256Hex(input.nonce)) !== pending.nonceHash)
       return fail("This handoff is not for this window");
-    if ((await sha256(input.ticket)) !== staged.ticketHash) return fail("Unknown or used ticket");
+    if ((await sha256Hex(input.ticket)) !== staged.ticketHash)
+      return fail("Unknown or used ticket");
 
     await this.ctx.storage.delete(["connect", "staged"]);
     let label: string | null = null;
     if (staged.mode === "reconnect") {
       await (await this.#account(staged.vendor)).commitReconnect(staged.stageId ?? "");
+      // An expired connection's sync stopped (#syncPass): it carries on from its cursors once
+      // `connection.completeConnect` has marked the connection active again.
+      await this.#resumeSync();
     } else {
       const account = await this.ctx.storage.get<Stub>("staged-account");
       await this.ctx.storage.delete("staged-account");
@@ -558,16 +588,9 @@ export class IntegrationHost extends DurableObject<Env> {
   }
 
   async disconnect(): Promise<void> {
-    const sync = await this.ctx.storage.get<SyncState>("sync");
-    if (sync) await this.ctx.storage.delete("sync");
-    for (const [key, hook] of await this.ctx.storage.list<HookRecord>({ prefix: "hook:" })) {
-      const controller = await this.ctx.storage.get<Stub>(`controller:${hook.id}`);
-      if (hook.enabled && controller) {
-        try {
-          await controller.disable();
-        } catch {}
-      }
-      await this.ctx.storage.delete([key, `controller:${hook.id}`]);
+    await this.ctx.storage.delete("sync");
+    for (const hook of (await this.ctx.storage.list<HookRecord>({ prefix: "hook:" })).values()) {
+      await this.#dropHook(hook);
     }
     for (const key of [
       "account",
@@ -582,12 +605,8 @@ export class IntegrationHost extends DurableObject<Env> {
         }
       }
     }
-    for (const [key, record] of await this.ctx.storage.list<FacetRecord>({ prefix: "facet:" })) {
-      try {
-        this.ctx.facets.delete(`f-${record.key}`);
-      } catch {}
-      await this.ctx.storage.delete([key, `class:${record.key}`]);
-    }
+    const facets = await this.ctx.storage.list<FacetRecord>({ prefix: "facet:" });
+    for (const record of facets.values()) await this.#dropFacet(record.key);
     await this.#dropStaged();
     await this.ctx.storage.delete(["account", "meta"]);
     await this.ctx.storage.deleteAlarm();
@@ -622,7 +641,7 @@ export class IntegrationHost extends DurableObject<Env> {
 
   async bindResource(url: string): Promise<BoundResource> {
     const meta = await this.#meta();
-    const key = (await sha256(url)).slice(0, 16);
+    const key = (await sha256Hex(url)).slice(0, 16);
     const existing = await this.ctx.storage.get<FacetRecord>(`facet:${key}`);
     if (existing) return this.#bound(existing);
     let vendor = meta.vendor;
@@ -658,6 +677,18 @@ export class IntegrationHost extends DurableObject<Env> {
         (s) => s.subscribe(new PaymentSink(this.env, meta.connectionId)),
       );
     }
+    // The text sender delivers its verified receipts and replies from the moment it is bound.
+    if (meta.vendor === "text") {
+      await this.#withSession(
+        key,
+        {
+          kind: "system",
+          purpose: "text-events",
+          user: await loadUser(this.env, meta.ownerUserId),
+        },
+        (s) => s.subscribe(new TextSink(this.env)),
+      );
+    }
     // A webhook endpoint delivers into the CRM's event log from the moment it is bound.
     if (meta.vendor === "webhook") {
       await this.#withSession(
@@ -670,20 +701,10 @@ export class IntegrationHost extends DurableObject<Env> {
   }
 
   async unbindResource(key: string): Promise<void> {
-    for (const [hookKey, hook] of await this.ctx.storage.list<HookRecord>({ prefix: "hook:" })) {
-      if (hook.facetKey !== key) continue;
-      const controller = await this.ctx.storage.get<Stub>(`controller:${hook.id}`);
-      if (hook.enabled && controller) {
-        try {
-          await controller.disable();
-        } catch {}
-      }
-      await this.ctx.storage.delete([hookKey, `controller:${hook.id}`]);
+    for (const hook of (await this.ctx.storage.list<HookRecord>({ prefix: "hook:" })).values()) {
+      if (hook.facetKey === key) await this.#dropHook(hook);
     }
-    try {
-      this.ctx.facets.delete(`f-${key}`);
-    } catch {}
-    await this.ctx.storage.delete([`facet:${key}`, `class:${key}`]);
+    await this.#dropFacet(key);
     const sync = await this.ctx.storage.get<SyncState>("sync");
     if (sync && (sync.config.mail === key || sync.config.calendar === key)) {
       await this.setSync({
@@ -694,10 +715,12 @@ export class IntegrationHost extends DurableObject<Env> {
     }
   }
 
-  async resources(): Promise<BoundResource[]> {
-    return [...(await this.ctx.storage.list<FacetRecord>({ prefix: "facet:" })).values()].map((r) =>
-      this.#bound(r),
-    );
+  /** Stops a facet and forgets it and its class. */
+  async #dropFacet(key: string): Promise<void> {
+    try {
+      this.ctx.facets.delete(`f-${key}`);
+    } catch {}
+    await this.ctx.storage.delete([`facet:${key}`, `class:${key}`]);
   }
 
   async supportedResources(): Promise<
@@ -742,7 +765,7 @@ export class IntegrationHost extends DurableObject<Env> {
       ui = frame.ui;
       this.#configurators.set(pattern, ui);
     }
-    if (!/^[a-zA-Z][a-zA-Z0-9]{0,60}$/.test(method) || method === "constructor") {
+    if (!isCallableName(method)) {
       throw new Error("Not a configurator method");
     }
     return toJson(await ui[method](...args));
@@ -787,6 +810,22 @@ export class IntegrationHost extends DurableObject<Env> {
     };
   }
 
+  /**
+   * The host-only rule (stage 61, ADR 0881): the books a connection's gatekeeper keeps are opened
+   * only by the host's accounting call, and that call opens nothing else. Checked for every
+   * session, whoever opens it, so no person, AI, MCP client or extension reaches the books.
+   */
+  #assertBooksCaller(meta: Meta, record: FacetRecord, caller: QueueCaller | null): void {
+    const books = keepsBooks(meta.vendor) || keepsBooks(record.vendor);
+    const accounting = caller?.kind === "system" && caller.purpose === "accounting";
+    if (books && !accounting) {
+      throw new Error(
+        `${ACCOUNTING_HOST_ONLY}: the accounting connection is the host's alone; only the accounting sync calls it`,
+      );
+    }
+    if (accounting && !books) throw new Error("The host's accounting call reaches books only");
+  }
+
   async #withSession<T>(
     key: string,
     caller: QueueCaller,
@@ -794,6 +833,7 @@ export class IntegrationHost extends DurableObject<Env> {
   ): Promise<{ value: T; queue: HostQueue }> {
     const meta = await this.#meta();
     const { facet, record } = await this.#facetFor(key);
+    this.#assertBooksCaller(meta, record, caller);
     const queue = new HostQueue(this.#queueHost(meta, record), caller);
     const session = await facet.startSession(queue);
     try {
@@ -817,7 +857,7 @@ export class IntegrationHost extends DurableObject<Env> {
     if (meta.scope === "personal" && input.caller.userId !== meta.ownerUserId) {
       throw new Error("A personal connection is used only by its owner's actors");
     }
-    if (!/^[a-zA-Z][a-zA-Z0-9]{0,60}$/.test(input.method) || input.method === "constructor") {
+    if (!isCallableName(input.method)) {
       throw new Error("Not a session method");
     }
     const user = await loadUser(this.env, input.caller.userId);
@@ -831,14 +871,15 @@ export class IntegrationHost extends DurableObject<Env> {
 
   /**
    * A session call the host makes for itself (stage 25, ADR 0429): an order's checkout and its
-   * confirmation email. Only platform code reaches it (`IntegrationRuntime.callAsHost`); an
-   * outbound action it submits is the host's own message. Org connections only.
+   * confirmation email, or the accounting sync's reads and entries (ADR 0881). Only platform code
+   * reaches it (`IntegrationRuntime.callAsHost`); an outbound action it submits is the host's own
+   * message. Org connections only.
    */
   async callAsHost(input: {
     resource: string;
     method: string;
     args: unknown[];
-    purpose: "orders" | "sign-in" | "agreements";
+    purpose: "orders" | "sign-in" | "agreements" | "accounting" | "phone-check";
     origin?: string;
   }): Promise<IntegrationCallResult> {
     const meta = await this.#meta();
@@ -846,11 +887,13 @@ export class IntegrationHost extends DurableObject<Env> {
     if (
       input.purpose !== "orders" &&
       input.purpose !== "sign-in" &&
-      input.purpose !== "agreements"
+      input.purpose !== "agreements" &&
+      input.purpose !== "accounting" &&
+      input.purpose !== "phone-check"
     ) {
       throw new Error("Not a purpose the host calls for");
     }
-    if (!/^[a-zA-Z][a-zA-Z0-9]{0,60}$/.test(input.method) || input.method === "constructor") {
+    if (!isCallableName(input.method)) {
       throw new Error("Not a session method");
     }
     let caller: QueueCaller;
@@ -870,6 +913,19 @@ export class IntegrationHost extends DurableObject<Env> {
         throw new Error("Agreements mail is one send, or the scrub of one copy");
       }
       caller = { kind: "system", purpose: "agreements", user: SYSTEM_USER };
+    } else if (input.purpose === "accounting") {
+      // The accounting sync (ADR 0881): reads of the books and entries host code composed from
+      // host records, by the system user. Its posts apply at once unless the floor denies them; a
+      // void always waits for an admin (ALWAYS_REVIEWED_KINDS).
+      caller = { kind: "system", purpose: "accounting", user: SYSTEM_USER };
+    } else if (input.purpose === "phone-check") {
+      // A member's number checked by code (ADR 0673): one code sent, or one checked, by the
+      // system user. The text gatekeeper takes either from this queue only.
+      if (input.method !== "startCheck" && input.method !== "check") {
+        throw new Error("A phone check sends a code or checks one");
+      }
+      if (meta.vendor !== "text") throw new Error("A phone check goes through the text connection");
+      caller = { kind: "system", purpose: "phone-check", user: SYSTEM_USER };
     } else {
       caller = {
         kind: "system",
@@ -965,6 +1021,128 @@ export class IntegrationHost extends DurableObject<Env> {
     return { status: "waiting" };
   }
 
+  /**
+   * Sends one routine text (ADR 0672): the text row of core_routine_mail `id`, claimed here (its
+   * kind and text still on, its number not stopped, its cost within the month's limit, its
+   * number's day) and sent with the row's own words, never a caller's, through the routine-mail
+   * queue, which tells the gate and the text gatekeeper whether the host decided it routine. A held
+   * one is put to a person. Only the runner's send step calls this. The text connection only.
+   */
+  async sendRoutineText(input: { id: string; resource: string }): Promise<{
+    status:
+      | "sent"
+      | "waiting"
+      | "denied"
+      | "failed"
+      | "skipped"
+      | "off"
+      | "stopped"
+      | "over_limit"
+      | "expired"
+      | "held";
+    pendingActionId?: string;
+    error?: string;
+  }> {
+    const meta = await this.#meta();
+    if (meta.scope !== "org" || meta.vendor !== "text") {
+      throw new Error("Routine texts go out through the org text connection only");
+    }
+    const db = createCrmDb(this.env.DB).query;
+    const claimed = await claimRoutineText(db, input.id, meta.connectionId);
+    if (!claimed) return { status: "skipped" };
+    if (claimed.status !== "send") return { status: claimed.status };
+    const row = claimed.row;
+    const settings = await loadRoutineMailSettings(db);
+    const caller: QueueCaller = {
+      kind: "system",
+      purpose: "routine-mail",
+      user: await loadUser(this.env, meta.ownerUserId),
+      routine: {
+        id: row.id,
+        kind: row.kind,
+        routine: row.routine,
+        ordinary: false,
+        heldReason: row.heldReason,
+        automationId: row.automationId,
+        runId: row.runId,
+        extensionId: row.extensionId,
+        siteOrigin: siteOriginOf(settings.siteOrigin),
+        channel: "text",
+      },
+    };
+    let queue: HostQueue;
+    let receipt: unknown;
+    try {
+      ({ queue, value: receipt } = await this.#withSession(
+        input.resource,
+        caller,
+        async (session) =>
+          toJson(
+            await session.send({
+              to: row.to,
+              text: row.text,
+              business: row.business,
+              idempotencyKey: `routine:${row.id}`,
+            }),
+          ),
+      ));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // The gatekeeper refused the text itself (its shape, a STOP): it never goes, so it is not
+      // tried again every minute (the review of PR #435).
+      if (/^(Invalid text|Refused)/.test(message)) {
+        await settleRoutineText(db, row, { status: "failed", error: message, refund: true });
+        return { status: "failed", error: message };
+      }
+      // Not handed over (a full pending pool, a failure on the way): back as it was, to retry.
+      await settleRoutineText(db, row, { status: "back", error: message });
+      throw error;
+    }
+    const pending = queue.pending[0];
+    if (pending) {
+      await settleRoutineText(db, row, { status: "waiting", pendingActionId: pending.actionId });
+      return { status: "waiting", pendingActionId: pending.actionId };
+    }
+    const failed = queue.failed[0];
+    if (failed) {
+      await settleRoutineText(db, row, { status: "failed", error: failed.message });
+      return { status: "failed", error: failed.message };
+    }
+    if (queue.denied.length) {
+      await settleRoutineText(db, row, { status: "denied" });
+      return { status: "denied" };
+    }
+    const sent =
+      queue.applied.length > 0 || (receipt as { status?: unknown } | null)?.status === "sent";
+    if (sent) {
+      await settleRoutineText(db, row, { status: "sent" });
+      return { status: "sent" };
+    }
+    // The gatekeeper answered with an earlier try's send (its key), still waiting: that try's
+    // approval, which the row did not record when the host stopped (the review of PR #435).
+    const action = (receipt as { id?: unknown } | null)?.id;
+    const earlier =
+      typeof action === "number"
+        ? await db
+            .selectFrom("core_pending_action")
+            .select("id")
+            .where("connection_id", "=", meta.connectionId)
+            .where("gk_action", "=", action)
+            .where("status", "=", "pending")
+            .executeTakeFirst()
+        : undefined;
+    if (earlier) {
+      await settleRoutineText(db, row, { status: "waiting", pendingActionId: earlier.id });
+      return { status: "waiting", pendingActionId: earlier.id };
+    }
+    // Decided since without being sent (turned down, or expired): it does not go.
+    await settleRoutineText(db, row, {
+      status: "failed",
+      error: "an earlier try of this text was turned down or expired",
+    });
+    return { status: "failed", error: "an earlier try of this text was turned down or expired" };
+  }
+
   /** A session stub for code (Code Mode, extension tools) acting as `caller`. */
   async openSession(input: { resource: string; caller: IntegrationCaller }): Promise<Stub> {
     const meta = await this.#meta();
@@ -972,6 +1150,7 @@ export class IntegrationHost extends DurableObject<Env> {
       throw new Error("A personal connection is used only by its owner's actors");
     }
     const { facet, record } = await this.#facetFor(input.resource);
+    this.#assertBooksCaller(meta, record, null);
     const user = await loadUser(this.env, input.caller.userId);
     return facet.startSession(
       new HostQueue(this.#queueHost(meta, record), { kind: "actor", caller: input.caller, user }),
@@ -999,7 +1178,7 @@ export class IntegrationHost extends DurableObject<Env> {
   async #enableHook(
     id: string,
     facetKey: string,
-    purpose: "sync" | "webhook" | "payments",
+    purpose: "sync" | "webhook" | "payments" | "text-events",
     d: { title: string; description: string },
   ): Promise<void> {
     const meta = await this.#meta();
@@ -1026,19 +1205,30 @@ export class IntegrationHost extends DurableObject<Env> {
     const { record } = await this.#facetFor(hook.facetKey);
     const user = await loadUser(this.env, meta.ownerUserId);
     const purpose =
-      hook.purpose === "webhook" || hook.purpose === "payments" ? hook.purpose : "sync";
+      hook.purpose === "webhook" || hook.purpose === "payments" || hook.purpose === "text-events"
+        ? hook.purpose
+        : "sync";
     const queue = new HostQueue(this.#queueHost(meta, record), { kind: "system", purpose, user });
     const callback =
       hook.purpose === "webhook"
         ? new WebhookSink(this.env, meta.connectionId)
         : hook.purpose === "payments"
           ? new PaymentSink(this.env, meta.connectionId)
-          : new SyncHookTarget(() => this.syncSoon());
+          : hook.purpose === "text-events"
+            ? new TextSink(this.env)
+            : new SyncHookTarget(() => this.syncSoon());
     return { callback, approvalQueue: queue };
   }
 
-  async hooks(): Promise<HookRecord[]> {
-    return [...(await this.ctx.storage.list<HookRecord>({ prefix: "hook:" })).values()];
+  /** Disables an enabled hook (best effort) and forgets it and its controller. */
+  async #dropHook(hook: HookRecord): Promise<void> {
+    const controller = await this.ctx.storage.get<Stub>(`controller:${hook.id}`);
+    if (hook.enabled && controller) {
+      try {
+        await controller.disable();
+      } catch {}
+    }
+    await this.ctx.storage.delete([`hook:${hook.id}`, `controller:${hook.id}`]);
   }
 
   // --- Sync -----------------------------------------------------------------------------------
@@ -1095,12 +1285,13 @@ export class IntegrationHost extends DurableObject<Env> {
     await this.#scheduleAlarm(Date.now() + SYNC_SOON_MS, true);
   }
 
-  async syncNow(): Promise<void> {
-    await this.#syncPass();
+  /** Restarts the sync loop an expired connection stopped, if this connection syncs. */
+  async #resumeSync(): Promise<void> {
+    if (await this.ctx.storage.get<SyncState>("sync")) await this.syncSoon();
   }
 
-  async syncState(): Promise<SyncState | null> {
-    return (await this.ctx.storage.get<SyncState>("sync")) ?? null;
+  async syncNow(): Promise<void> {
+    await this.#syncPass();
   }
 
   async #scheduleAlarm(at: number, onlyIfEarlier = true): Promise<void> {
@@ -1128,13 +1319,22 @@ export class IntegrationHost extends DurableObject<Env> {
     )
       .bind(meta.connectionId)
       .first<{ sharing_level: string; status: string }>();
-    if (!row || row.status === "disconnected") return;
+    // Expired credentials fail every pull until someone reconnects, so the loop stops here, with
+    // no alarm, rather than waking every 15 minutes to fail (docs/cloudflare-costs.md). A
+    // reconnect or the provider's "restored" starts it again (#resumeSync).
+    if (!row || row.status === "disconnected" || row.status === "expired") return;
+    // The owner is read once per pass, for every kind (a failure is each kind's error).
+    let owner: Promise<ActingUser> | undefined;
+    const user = () => {
+      owner ??= loadUser(this.env, meta.ownerUserId);
+      return owner;
+    };
     let more = false;
     for (const kind of ["mail", "calendar"] as const) {
       const kindState = state[kind];
       if (!kindState) continue;
       try {
-        more = (await this.#pullKind(meta, kind, kindState, row.sharing_level)) || more;
+        more = (await this.#pullKind(meta, kind, kindState, row.sharing_level, user)) || more;
         kindState.lastError = null;
       } catch (error) {
         kindState.lastError = syncErrorText(error);
@@ -1146,10 +1346,16 @@ export class IntegrationHost extends DurableObject<Env> {
     await this.ctx.storage.setAlarm(Date.now() + (more ? BACKFILL_STEP_MS : CATCH_UP_MS));
   }
 
-  async #pullKind(meta: Meta, kind: SyncKind, state: KindState, sharing: string): Promise<boolean> {
+  async #pullKind(
+    meta: Meta,
+    kind: SyncKind,
+    state: KindState,
+    sharing: string,
+    owner: () => Promise<ActingUser>,
+  ): Promise<boolean> {
     const adapter = adapterFor(meta.vendor, kind);
     if (!adapter) return false;
-    const user = await loadUser(this.env, meta.ownerUserId);
+    const user = await owner();
     const { value: result } = await this.#withSession(
       state.resource,
       { kind: "system", purpose: "sync", user },
@@ -1168,28 +1374,11 @@ export class IntegrationHost extends DurableObject<Env> {
       // sync.jobChange (ADR 0236): a changed signature of a known person may ask the judge.
       const judge = runnerJudge(this.env);
       for (let i = 0; i < result.items.length; i += SYNC_BATCH_MAX) {
-        const out = (await invokeByName(
-          "sync.ingest",
-          { connectionId: meta.connectionId, items: result.items.slice(i, i + SYNC_BATCH_MAX) },
-          {
-            actor: "automation",
-            user,
-            origin: { surface: "automation", automationId: `sync:${meta.connectionId}` },
-            db,
-            judge,
-          },
-        )) as {
-          created: number;
-          bodies: { externalKey: string; key: string }[];
-          removedBodies: string[];
-        };
+        const out = await this.#ingest(meta, user, db, result.items.slice(i, i + SYNC_BATCH_MAX), {
+          judge,
+          bodies: result.bodies,
+        });
         state.created = (state.created ?? 0) + out.created;
-        for (const body of out.bodies) {
-          const text = result.bodies.get(body.externalKey);
-          if (text && this.env.BLOBS) await this.env.BLOBS.put(body.key, text);
-        }
-        if (out.removedBodies.length && this.env.BLOBS)
-          await this.env.BLOBS.delete(out.removedBodies);
       }
     }
     state.cursor = result.cursor;
@@ -1227,35 +1416,58 @@ export class IntegrationHost extends DurableObject<Env> {
     if (!listed.complete) return;
     const present = new Set(listed.ids);
     const db = createCrmDb(this.env.DB);
+    const itemKind = kind === "mail" ? "email" : "meeting";
     const synced = await syncedInWindow(db.query, {
       connectionId: meta.connectionId,
-      kind: kind === "mail" ? "email" : "meeting",
+      kind: itemKind,
       from: from.toISOString(),
       to: to.toISOString(),
     });
     const gone = synced.filter((id) => !present.has(id));
     for (let i = 0; i < gone.length; i += SYNC_BATCH_MAX) {
-      const out = (await invokeByName(
-        "sync.ingest",
-        {
-          connectionId: meta.connectionId,
-          items: gone.slice(i, i + SYNC_BATCH_MAX).map((providerId) => ({
-            kind: kind === "mail" ? "email" : "meeting",
-            op: "delete",
-            providerId,
-          })),
-        },
-        {
-          actor: "automation",
-          user,
-          origin: { surface: "automation", automationId: `sync:${meta.connectionId}` },
-          db,
-        },
-      )) as { deleted: number; removedBodies: string[] };
+      const out = await this.#ingest(
+        meta,
+        user,
+        db,
+        gone
+          .slice(i, i + SYNC_BATCH_MAX)
+          .map((providerId) => ({ kind: itemKind, op: "delete", providerId })),
+      );
       state.deleted = (state.deleted ?? 0) + out.deleted;
-      if (out.removedBodies.length && this.env.BLOBS)
-        await this.env.BLOBS.delete(out.removedBodies);
     }
+  }
+
+  /**
+   * One sync.ingest batch as the connection's owner: the bodies it stored go to R2 (from `bodies`,
+   * by external key), then the bodies it sent to Trash leave it.
+   */
+  async #ingest(
+    meta: Meta,
+    user: ActingUser,
+    db: ReturnType<typeof createCrmDb>,
+    items: SyncItem[],
+    {
+      judge,
+      bodies,
+    }: { judge?: ReturnType<typeof runnerJudge>; bodies?: Map<string, string> } = {},
+  ) {
+    const out = await invoke(
+      "sync.ingest",
+      { connectionId: meta.connectionId, items },
+      {
+        actor: "automation",
+        user,
+        origin: { surface: "automation", automationId: `sync:${meta.connectionId}` },
+        db,
+        ...(judge ? { judge } : {}),
+      },
+    );
+    for (const body of out.bodies) {
+      const text = bodies?.get(body.externalKey);
+      if (text && this.env.BLOBS) await this.env.BLOBS.put(body.key, text);
+    }
+    if (out.removedBodies.length && this.env.BLOBS) await this.env.BLOBS.delete(out.removedBodies);
+    return out;
   }
 
   async #mirrorSync(state: SyncState): Promise<void> {

@@ -27,7 +27,9 @@ import {
   signatureSchema,
   typedNameSchema,
 } from "../agreements/capture.ts";
-import { sendCopiesNow } from "../agreements/copy.ts";
+import { businessName, localTime, sendCopiesNow } from "../agreements/copy.ts";
+import { deskWords } from "../agreements/desk.ts";
+import { DESK_MARKS, deskMarks } from "../agreements/desk-marks.ts";
 import { type Question, versionIntact } from "../agreements/documents.ts";
 import {
   acceptanceKey,
@@ -37,13 +39,16 @@ import {
   countingAcceptance,
   type DueReason,
   isMinor,
+  NO_PERSON,
   type PersonFacts,
+  peopleFacts,
   personFacts,
 } from "../agreements/due.ts";
 import { healthListOf } from "../agreements/health-list.ts";
 import { ForbiddenError, NotFoundError, OperationError, ValidationError } from "../errors.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { type CustomerPrincipal, holdsPermission } from "../principals.ts";
+import { jsonList } from "../records/common.ts";
 import { isLiveDependant } from "../visibility/guardians.ts";
 import { requireVisible } from "./agreement-copy.ts";
 
@@ -56,7 +61,7 @@ const REASONS = ["never", "agree_again", "ask_again", "guardian"] as const;
 const questionOut = z.object({ key: z.string(), text: z.string(), noteOnYes: z.boolean() });
 
 /** A version as a person reads it before agreeing. */
-const versionOut = z.object({
+export const versionOut = z.object({
   id: z.string(),
   documentId: z.string(),
   number: z.number(),
@@ -101,6 +106,8 @@ interface AcceptanceRow {
   agent_person_id: string | null;
   recorded_by: string | null;
   signed_on: string | null;
+  desk_session_id?: string | null;
+  email?: string | null;
   title: string;
   kind: string;
   number: number;
@@ -124,6 +131,8 @@ function acceptanceRows(ctx: HandlerContext) {
       "a.agent_person_id",
       "a.recorded_by",
       "a.signed_on",
+      "a.desk_session_id",
+      "a.email",
       "v.title",
       "v.number",
       "d.kind",
@@ -151,7 +160,7 @@ function summary(row: AcceptanceRow, counting: ReadonlySet<string>): AcceptanceS
 }
 
 /** A version's content as a person is shown it, checked intact. */
-async function versionsById(
+export async function versionsById(
   ctx: HandlerContext,
   ids: string[],
 ): Promise<Map<string, z.infer<typeof versionOut>>> {
@@ -162,7 +171,7 @@ async function versionsById(
     .innerJoin("core_agreement_document as d", "d.id", "v.document_id")
     .selectAll("v")
     .select("d.kind")
-    .where("v.id", "in", [...new Set(ids)])
+    .where("v.id", "in", jsonList([...new Set(ids)]))
     .execute();
   for (const v of rows) {
     // A version whose stored text does not match its hash is never shown to agree to.
@@ -199,41 +208,67 @@ const documentStatus = z.object({
 });
 type DocumentStatus = z.infer<typeof documentStatus>;
 
+interface Standing {
+  documents: DocumentStatus[];
+  counting: Set<string>;
+}
+
 /** Where one Person stands on every document attached anywhere (spec 44, the Person tab). */
-async function standing(
+export async function standing(
   ctx: HandlerContext,
   personId: string,
   facts: PersonFacts,
-): Promise<{ documents: DocumentStatus[]; counting: Set<string> }> {
-  const docs = (await attachedDocuments(ctx.db, null)).filter((d) => appliesTo(d, facts));
+): Promise<Standing> {
+  const one = (await standings(ctx, new Map([[personId, facts]]))).get(personId);
+  return one ?? { documents: [], counting: new Set() };
+}
+
+/** `standing` for many People at once: the documents and the acceptances are read once. */
+async function standings(
+  ctx: HandlerContext,
+  people: ReadonlyMap<string, PersonFacts>,
+): Promise<Map<string, Standing>> {
+  const attached = await attachedDocuments(ctx.db, null);
   const accepted = await acceptancesOf(
     ctx.db,
-    [personId],
-    docs.map((d) => d.id),
+    [...people.keys()],
+    attached.map((d) => d.id),
   );
-  const counting = new Set<string>();
-  const documents = docs.map((doc) => {
-    const { acceptance, reason } = countingAcceptance(
-      doc,
-      facts,
-      accepted.get(acceptanceKey(personId, doc.id)) ?? [],
-      ctx.now,
-    );
-    if (acceptance) counting.add(acceptance.id);
-    return {
-      documentId: doc.id,
-      kind: doc.kind,
-      title: doc.title,
-      points: doc.points,
-      versionId: doc.current.id,
-      versionNumber: doc.current.number,
-      status: acceptance ? ("current" as const) : ("due" as const),
-      reason: acceptance ? null : (reason as DueReason),
-      acceptanceId: acceptance?.id ?? null,
-      acceptedAt: acceptance?.acceptedAt ?? null,
-    };
-  });
-  return { documents, counting };
+  const out = new Map<string, Standing>();
+  for (const [personId, facts] of people) {
+    const counting = new Set<string>();
+    const documents = attached
+      .filter((d) => appliesTo(d, facts))
+      .map((doc) => {
+        const { acceptance, reason } = countingAcceptance(
+          doc,
+          facts,
+          accepted.get(acceptanceKey(personId, doc.id)) ?? [],
+          ctx.now,
+        );
+        if (acceptance) counting.add(acceptance.id);
+        return {
+          documentId: doc.id,
+          kind: doc.kind,
+          title: doc.title,
+          points: doc.points,
+          versionId: doc.current.id,
+          versionNumber: doc.current.number,
+          status: acceptance ? ("current" as const) : ("due" as const),
+          reason: acceptance ? null : (reason as DueReason),
+          acceptanceId: acceptance?.id ?? null,
+          acceptedAt: acceptance?.acceptedAt ?? null,
+        };
+      });
+    out.set(personId, { documents, counting });
+  }
+  return out;
+}
+
+/** Every acceptance that counts now for any of these People. */
+async function countingOf(ctx: HandlerContext, personIds: readonly string[]): Promise<Set<string>> {
+  const all = await standings(ctx, await peopleFacts(ctx.db, personIds));
+  return new Set([...all.values()].flatMap((one) => [...one.counting]));
 }
 
 /** Whose current health acceptance holds a yes (decision 18): a mark, no content. */
@@ -247,13 +282,13 @@ async function healthYes(ctx: HandlerContext, personIds: string[]): Promise<Set<
     personIds,
     health.map((d) => d.id),
   );
+  const facts = await peopleFacts(ctx.db, personIds);
   const counting: string[] = [];
   for (const personId of personIds) {
-    const facts = await personFacts(ctx.db, personId);
     for (const doc of health) {
       const { acceptance } = countingAcceptance(
         doc,
-        facts,
+        facts.get(personId) ?? NO_PERSON,
         accepted.get(acceptanceKey(personId, doc.id)) ?? [],
         ctx.now,
       );
@@ -265,7 +300,7 @@ async function healthYes(ctx: HandlerContext, personIds: string[]): Promise<Set<
     .selectFrom("core_agreement_answer as n")
     .innerJoin("core_agreement_acceptance as a", "a.id", "n.acceptance_id")
     .select("a.person_id")
-    .where("n.acceptance_id", "in", counting)
+    .where("n.acceptance_id", "in", jsonList(counting))
     .where("n.any_yes", "=", 1)
     .execute();
   for (const row of yes) if (row.person_id) out.add(row.person_id);
@@ -278,7 +313,7 @@ async function namesOf(ctx: HandlerContext, ids: string[]): Promise<Map<string, 
   const rows = await ctx.db
     .selectFrom("core_person")
     .select(["id", "display_name"])
-    .where("id", "in", wanted)
+    .where("id", "in", jsonList(wanted))
     .execute();
   return new Map(rows.map((r) => [r.id, r.display_name]));
 }
@@ -289,7 +324,7 @@ async function userNames(ctx: HandlerContext, ids: string[]): Promise<Map<string
   const rows = await ctx.db
     .selectFrom("core_user")
     .select(["id", "name"])
-    .where("id", "in", wanted)
+    .where("id", "in", jsonList(wanted))
     .execute();
   return new Map(rows.map((r) => [r.id, r.name]));
 }
@@ -404,11 +439,10 @@ export const meAgreementsList = defineOperation({
   mcp: { expose: false },
   async handler(_input, ctx) {
     const people = await myPeople(ctx);
-    const counting = new Set<string>();
-    for (const person of people) {
-      const facts = await personFacts(ctx.db, person.personId);
-      for (const id of (await standing(ctx, person.personId, facts)).counting) counting.add(id);
-    }
+    const counting = await countingOf(
+      ctx,
+      people.map((p) => p.personId),
+    );
     const rows = (await acceptanceRows(ctx)
       .where(
         "a.person_id",
@@ -639,6 +673,85 @@ export const agreementGuestVersions = defineOperation({
 
 // --- Staff -------------------------------------------------------------------------------------
 
+/** By mark: desk acceptances are read this many at a time, and at most MARK_SCAN_ROWS a call. */
+const MARK_CHUNK = 200;
+const MARK_SCAN_ROWS = 1_000;
+
+/** What an acceptance made at the desk says of its session (ADR 0649), and its marks. */
+const deskOut = z.object({
+  sessionId: z.string(),
+  device: z.object({ id: z.string().nullable(), name: z.string() }),
+  startedBy: z.object({ id: z.string(), name: z.string() }),
+  startedAt: z.string(),
+  words: z.string().describe("How it was made, as every screen and the PDF say it"),
+  marks: z.array(
+    z.object({
+      kind: z.enum(DESK_MARKS),
+      at: z.string().optional(),
+      by: z.string().optional(),
+      how: z.string().optional(),
+    }),
+  ),
+});
+
+/** The desk part of each acceptance on a page made at the desk: two reads, then the marks. */
+async function deskOf(
+  ctx: HandlerContext,
+  page: readonly AcceptanceRow[],
+): Promise<Map<string, z.infer<typeof deskOut>>> {
+  const out = new Map<string, z.infer<typeof deskOut>>();
+  const atDesk = page.filter((r) => r.channel === "desk" && r.desk_session_id);
+  if (!atDesk.length) return out;
+  const sessions = jsonList([...new Set(atDesk.map((r) => r.desk_session_id as string))]);
+  const rows = await ctx.db
+    .selectFrom("core_agreement_desk_session as s")
+    .leftJoin("core_device as d", "d.id", "s.claimed_device_id")
+    .leftJoin("core_user as e", "e.id", "d.enrolled_by")
+    .leftJoin("core_user as u", "u.id", "s.started_by")
+    .select([
+      "s.id",
+      "s.started_by",
+      "s.started_at",
+      "s.claimed_device_id",
+      "d.name as device",
+      "d.enrolled_at",
+      "e.name as enrolled_by",
+      "u.name as started_by_name",
+    ])
+    .where("s.id", "in", sessions)
+    .execute();
+  const { timezone } = await businessName(ctx.db);
+  const marks = await deskMarks(
+    ctx.db,
+    atDesk.map((r) => ({
+      id: r.id,
+      personId: r.person_id,
+      email: r.email ?? null,
+      acceptedAt: r.accepted_at,
+    })),
+  );
+  for (const row of atDesk) {
+    const s = rows.find((x) => x.id === row.desk_session_id);
+    if (!s) continue;
+    const evidence = {
+      device: s.device ?? "a device",
+      enrolledBy: s.enrolled_by ?? "an admin",
+      enrolledOn: (s.enrolled_at ?? "").slice(0, 10),
+      startedBy: s.started_by_name ?? "a member of staff",
+      startedAt: s.started_at,
+    };
+    out.set(row.id, {
+      sessionId: s.id,
+      device: { id: s.claimed_device_id, name: evidence.device },
+      startedBy: { id: s.started_by, name: evidence.startedBy },
+      startedAt: s.started_at,
+      words: deskWords(evidence, (iso) => `${localTime(iso, timezone)} (${timezone})`),
+      marks: marks.get(row.id) ?? [],
+    });
+  }
+  return out;
+}
+
 export const agreementPerson = defineOperation({
   name: "agreement.person",
   description:
@@ -660,6 +773,7 @@ export const agreementPerson = defineOperation({
       acceptanceSummary.extend({
         agentName: z.string().nullable(),
         recordedByName: z.string().nullable(),
+        desk: deskOut.nullable().describe("At the desk: its session, the device and the marks"),
       }),
     ),
     healthNote: z
@@ -670,6 +784,7 @@ export const agreementPerson = defineOperation({
       recordPaper: z.boolean(),
       setMinor: z.boolean(),
       readAnswers: z.boolean(),
+      signAtDesk: z.boolean().describe("May start a desk signing session for them"),
     }),
   }),
   permission: "records:read",
@@ -700,8 +815,10 @@ export const agreementPerson = defineOperation({
         .executeTakeFirst(),
     ]);
     const person = isPerson(ctx);
-    const holds = (p: "agreements:paper" | "people:link" | "agreements:health") =>
-      person && holdsPermission(ctx.user, ctx.permissionGrants, p);
+    const holds = (
+      p: "agreements:paper" | "people:link" | "agreements:health" | "agreements:desk",
+    ) => person && holdsPermission(ctx.user, ctx.permissionGrants, p);
+    const desk = await deskOf(ctx, rows);
     return {
       personId: input.personId,
       minor: {
@@ -715,6 +832,7 @@ export const agreementPerson = defineOperation({
         ...summary(row, counting),
         agentName: row.agent_person_id ? (people.get(row.agent_person_id) ?? null) : null,
         recordedByName: row.recorded_by ? (users.get(row.recorded_by) ?? null) : null,
+        desk: desk.get(row.id) ?? null,
       })),
       // A health mark is for a person on the staff who may read health answers, never an AI's.
       healthNote: holds("agreements:health")
@@ -724,6 +842,7 @@ export const agreementPerson = defineOperation({
         recordPaper: holds("agreements:paper"),
         setMinor: holds("people:link"),
         readAnswers: holds("agreements:health"),
+        signAtDesk: holds("agreements:desk"),
       },
     };
   },
@@ -739,13 +858,19 @@ export const agreementAcceptances = defineOperation({
     documentId: id("Only this document's").optional(),
     versionId: id("Only this version's").optional(),
     by: z.enum(BY).optional(),
+    channel: z.enum(CHANNEL).optional().describe("Only those made this way: desk is at the desk"),
+    deviceId: id("At the desk: only those made on this enrolled device (dev_…)").optional(),
+    startedBy: id("At the desk: only those in sessions this staff user started (usr_…)").optional(),
+    mark: z.enum(DESK_MARKS).optional().describe("At the desk: only those with this mark"),
     from: z.string().datetime({ offset: true }).optional(),
     to: z.string().datetime({ offset: true }).optional(),
     limit: z.number().int().min(1).max(200).default(50),
     before: z.string().optional().describe("Paging: the acceptedAt of the last item seen"),
   }),
   output: z.object({
-    items: z.array(acceptanceSummary.extend({ personName: z.string().nullable() })),
+    items: z.array(
+      acceptanceSummary.extend({ personName: z.string().nullable(), desk: deskOut.nullable() }),
+    ),
     next: z.string().nullable(),
   }),
   permission: "records:read",
@@ -756,34 +881,89 @@ export const agreementAcceptances = defineOperation({
     if (input.documentId) query = query.where("a.document_id", "=", input.documentId);
     if (input.versionId) query = query.where("a.version_id", "=", input.versionId);
     if (input.by) query = query.where("a.by", "=", input.by);
+    const deskOnly = input.channel === "desk" || input.deviceId || input.startedBy || input.mark;
+    if (input.channel) query = query.where("a.channel", "=", input.channel);
+    if (deskOnly) query = query.where("a.channel", "=", "desk");
+    if (input.deviceId || input.startedBy) {
+      query = query.where((eb) =>
+        eb.exists(
+          eb
+            .selectFrom("core_agreement_desk_session as s")
+            .select("s.id")
+            .whereRef("s.id", "=", "a.desk_session_id")
+            .$if(Boolean(input.deviceId), (q) =>
+              q.where("s.claimed_device_id", "=", input.deviceId ?? ""),
+            )
+            .$if(Boolean(input.startedBy), (q) =>
+              q.where("s.started_by", "=", input.startedBy ?? ""),
+            ),
+        ),
+      );
+    }
     if (input.from) query = query.where("a.accepted_at", ">=", new Date(input.from).toISOString());
     if (input.to) query = query.where("a.accepted_at", "<", new Date(input.to).toISOString());
     if (input.before) query = query.where("a.accepted_at", "<", input.before);
     // A guest's, before their order settles, is nobody's yet (step 3).
     query = query.where("a.person_id", "is not", null);
-    const rows = (await query
-      .orderBy("a.accepted_at", "desc")
-      .orderBy("a.id", "desc")
-      .limit(input.limit + 1)
-      .execute()) as AcceptanceRow[];
+    // By mark (after the review of PR #390): marks are worked out from the records, not stored,
+    // so the list reads desk acceptances in chunks until it has a page of marked ones, or has read
+    // MARK_SCAN_ROWS; `next` then continues from the last one read.
+    let rows: AcceptanceRow[];
+    let next: string | null;
+    if (input.mark) {
+      rows = [];
+      next = null;
+      let before = input.before;
+      for (let read = 0; read < MARK_SCAN_ROWS && rows.length <= input.limit; ) {
+        const chunk = (await (before ? query.where("a.accepted_at", "<", before) : query)
+          .orderBy("a.accepted_at", "desc")
+          .orderBy("a.id", "desc")
+          .limit(MARK_CHUNK)
+          .execute()) as AcceptanceRow[];
+        read += chunk.length;
+        const marks = await deskMarks(
+          ctx.db,
+          chunk.map((r) => ({
+            id: r.id,
+            personId: r.person_id,
+            email: r.email ?? null,
+            acceptedAt: r.accepted_at,
+          })),
+        );
+        for (const row of chunk) {
+          if (rows.length > input.limit) break;
+          before = row.accepted_at;
+          if (marks.get(row.id)?.some((m) => m.kind === input.mark)) rows.push(row);
+        }
+        if (chunk.length < MARK_CHUNK) {
+          before = undefined;
+          break;
+        }
+      }
+      next =
+        rows.length > input.limit ? (rows[input.limit - 1]?.accepted_at ?? null) : (before ?? null);
+    } else {
+      rows = (await query
+        .orderBy("a.accepted_at", "desc")
+        .orderBy("a.id", "desc")
+        .limit(input.limit + 1)
+        .execute()) as AcceptanceRow[];
+      next = rows.length > input.limit ? (rows[input.limit - 1]?.accepted_at ?? null) : null;
+    }
     const page = rows.slice(0, input.limit);
     const names = await namesOf(
       ctx,
       page.map((r) => r.person_id ?? ""),
     );
     // Whether each counts now, per Person.
-    const counting = new Set<string>();
-    for (const personId of new Set(page.map((r) => r.person_id as string))) {
-      const facts = await personFacts(ctx.db, personId);
-      for (const one of (await standing(ctx, personId, facts)).counting) counting.add(one);
-    }
-    return {
-      items: page.map((row) => ({
-        ...summary(row, counting),
-        personName: row.person_id ? (names.get(row.person_id) ?? null) : null,
-      })),
-      next: rows.length > input.limit ? (page.at(-1)?.accepted_at ?? null) : null,
-    };
+    const counting = await countingOf(ctx, [...new Set(page.map((r) => r.person_id as string))]);
+    const desk = await deskOf(ctx, page);
+    const items = page.map((row) => ({
+      ...summary(row, counting),
+      personName: row.person_id ? (names.get(row.person_id) ?? null) : null,
+      desk: desk.get(row.id) ?? null,
+    }));
+    return { items, next };
   },
 });
 
@@ -840,10 +1020,14 @@ export const agreementDueList = defineOperation({
       rows.map((r) => r.id),
       docs.map((d) => d.id),
     );
+    const people = await peopleFacts(
+      ctx.db,
+      rows.map((r) => r.id),
+    );
     const items = [];
     let more = false;
     for (const row of rows) {
-      const facts = await personFacts(ctx.db, row.id);
+      const facts = people.get(row.id) ?? NO_PERSON;
       const due = docs
         .filter((d) => appliesTo(d, facts))
         .flatMap((doc) => {

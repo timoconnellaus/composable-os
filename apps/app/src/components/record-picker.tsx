@@ -13,8 +13,9 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@composable-os/ui/components/popover";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronsUpDownIcon, XIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { callOp } from "#/lib/operations";
+import { useDebounced } from "#/lib/use-debounced";
 
 export type PickableObject = "person" | "organisation";
 
@@ -22,15 +23,6 @@ export interface PickedRecord {
   id: string;
   title: string;
   subtitle: string | null;
-}
-
-function useDebounced<T>(value: T, ms: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(value), ms);
-    return () => clearTimeout(timer);
-  }, [value, ms]);
-  return debounced;
 }
 
 /** Live records matching `query` (name, email or domain), at most `limit`. */

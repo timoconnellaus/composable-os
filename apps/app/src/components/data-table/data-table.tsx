@@ -22,6 +22,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon, SearchXIcon } from "lucide-react";
 import {
   type CSSProperties,
+  memo,
   type ReactNode,
   useCallback,
   useEffect,
@@ -33,7 +34,11 @@ import { toast } from "sonner";
 import { useHotkey } from "#/lib/hotkeys";
 import { errorMessage } from "#/lib/query";
 import { recallScroll, useScrollKey, useScrollMemory } from "#/lib/scroll-memory";
-import { PendingPopover, usePendingForRows } from "../approvals/pending-badge.tsx";
+import {
+  type PendingItem,
+  PendingPopover,
+  usePendingForRows,
+} from "../approvals/pending-badge.tsx";
 import { AskAboutSelected } from "../assistant/ask-buttons.tsx";
 import { usePublishSelection } from "../assistant/assistant-provider.tsx";
 import { EmptyState, ErrorState } from "../empty-state.tsx";
@@ -71,6 +76,8 @@ const PREFETCH_ROWS = 25;
 /** The sticky header row: h-10 plus its bottom border. */
 const HEADER_HEIGHT = 41;
 const DEFAULT_PAGE_SIZE = 50;
+/** The default `renderCell`: one object, so it never defeats DataTableRow's memo. */
+const NO_RENDERERS: Partial<Record<string, never>> = {};
 
 /** The fields a list fetches: the visible columns it can return plus `extraFields`. */
 export function listFields(
@@ -178,6 +185,9 @@ function track(field: FieldDefinition, first: boolean): { min: number; css: stri
 }
 
 const SELECT_WIDTH = 44;
+// Sticky cells need an opaque background that follows the row's state.
+const STICKY_CELL =
+  "sticky z-[1] bg-background group-hover/row:bg-muted group-data-[state=selected]/row:bg-muted group-data-[active]/row:bg-accent";
 
 export function DataTable<Row extends { id: string }>({
   object,
@@ -191,7 +201,7 @@ export function DataTable<Row extends { id: string }>({
   onSortChange,
   filter,
   total,
-  renderCell = {},
+  renderCell = NO_RENDERERS,
   onOpen,
   bulkActions,
   empty,
@@ -289,7 +299,8 @@ export function DataTable<Row extends { id: string }>({
     { enabled: keyboard && active >= 0 && Boolean(bulkActions) },
   );
 
-  function toggle(id: string) {
+  // Stable, so a scroll step re-renders only the rows coming into view (DataTableRow is memoised).
+  const toggle = useCallback((id: string) => {
     setAllMatching(false);
     setSelected((current) => {
       const next = new Set(current);
@@ -297,7 +308,7 @@ export function DataTable<Row extends { id: string }>({
       else next.add(id);
       return next;
     });
-  }
+  }, []);
 
   /** Selects every matching record (up to SELECT_ALL_CAP) by paging ids from the operation. */
   async function selectAllMatching() {
@@ -355,9 +366,6 @@ export function DataTable<Row extends { id: string }>({
   ].join(" ");
   const minWidth = tracks.reduce((sum, t) => sum + t.min, selectable ? SELECT_WIDTH : 0);
   const rowStyle: CSSProperties = { gridTemplateColumns };
-  // Sticky cells need an opaque background that follows the row's state.
-  const stickyCell =
-    "sticky z-[1] bg-background group-hover/row:bg-muted group-data-[state=selected]/row:bg-muted group-data-[active]/row:bg-accent";
   const firstLeft = selectable ? SELECT_WIDTH : 0;
 
   const showEmpty = query.isSuccess && rows.length === 0;
@@ -533,58 +541,25 @@ export function DataTable<Row extends { id: string }>({
                     </tr>
                   );
                 }
-                const isSelected = selected.has(row.id);
-                const isActive = item.index === active;
                 return (
-                  <tr
+                  <DataTableRow<Row>
                     key={item.key}
-                    ref={virtualizer.measureElement}
-                    data-index={item.index}
-                    data-active={isActive || undefined}
-                    data-state={isSelected ? "selected" : undefined}
-                    aria-selected={selectable ? isSelected : undefined}
-                    aria-rowindex={item.index + 2}
-                    className="group/row absolute inset-x-0 top-0 grid border-b hover:bg-muted data-[active]:bg-accent data-[active]:outline-2 data-[active]:-outline-offset-2 data-[active]:outline-ring/50 data-[state=selected]:bg-muted"
-                    style={style}
-                    onClick={() => setActive(item.index)}
-                    onDoubleClick={() => onOpen?.(row)}
-                  >
-                    {selectable && (
-                      <td className={cn("left-0 flex min-h-10 items-center pl-4", stickyCell)}>
-                        <Checkbox
-                          aria-label="Select row"
-                          checked={isSelected}
-                          onCheckedChange={() => toggle(row.id)}
-                          onClick={(event) => event.stopPropagation()}
-                        />
-                      </td>
-                    )}
-                    {visible.map((field, column) => {
-                      const content = renderCell[field.name]?.(row) ?? (
-                        <DefaultCell
-                          field={field}
-                          value={(row as Record<string, unknown>)[field.name]}
-                        />
-                      );
-                      const waiting = column === 0 ? pending.get(row.id) : undefined;
-                      return (
-                        <td
-                          key={field.name}
-                          className={cn(
-                            "flex min-h-10 min-w-0 items-center px-3 py-2",
-                            column === 0 && [stickyCell, "shadow-[1px_0_0_var(--border)]"],
-                            column === 0 && !selectable && "pl-4 sm:pl-6",
-                          )}
-                          style={column === 0 ? { left: firstLeft } : undefined}
-                        >
-                          <div className="flex min-w-0 items-center gap-2">
-                            <div className="min-w-0 truncate">{content}</div>
-                            {waiting && <PendingPopover items={waiting} compact />}
-                          </div>
-                        </td>
-                      );
-                    })}
-                  </tr>
+                    row={row}
+                    index={item.index}
+                    offset={item.start - HEADER_HEIGHT}
+                    gridTemplateColumns={gridTemplateColumns}
+                    selected={selected.has(row.id)}
+                    active={item.index === active}
+                    selectable={selectable}
+                    visible={visible}
+                    renderCell={renderCell}
+                    waiting={pending.get(row.id)}
+                    firstLeft={firstLeft}
+                    measure={virtualizer.measureElement}
+                    onActivate={setActive}
+                    onToggle={toggle}
+                    onOpen={onOpen}
+                  />
                 );
               })}
             </tbody>
@@ -641,3 +616,96 @@ export function DataTable<Row extends { id: string }>({
     </div>
   );
 }
+
+interface DataTableRowProps<Row extends { id: string }> {
+  row: Row;
+  index: number;
+  /** Where the row sits in the body, in px (it is absolutely positioned). */
+  offset: number;
+  gridTemplateColumns: string;
+  selected: boolean;
+  active: boolean;
+  selectable: boolean;
+  visible: FieldDefinition[];
+  renderCell: Partial<Record<string, (row: Row) => ReactNode>>;
+  /** Changes waiting for approval on this row, badged in the first column. */
+  waiting: PendingItem[] | undefined;
+  firstLeft: number;
+  measure: (element: Element | null) => void;
+  onActivate: (index: number) => void;
+  onToggle: (id: string) => void;
+  onOpen: ((row: Row) => void) | undefined;
+}
+
+/**
+ * One loaded row. Memoised: every scroll step re-renders the table, and without it each step
+ * rendered all ~40 rows in the window rather than the few coming into view (issue #305).
+ */
+function DataTableRowImpl<Row extends { id: string }>({
+  row,
+  index,
+  offset,
+  gridTemplateColumns,
+  selected,
+  active,
+  selectable,
+  visible,
+  renderCell,
+  waiting,
+  firstLeft,
+  measure,
+  onActivate,
+  onToggle,
+  onOpen,
+}: DataTableRowProps<Row>) {
+  return (
+    <tr
+      ref={measure}
+      data-index={index}
+      data-active={active || undefined}
+      data-state={selected ? "selected" : undefined}
+      aria-selected={selectable ? selected : undefined}
+      aria-rowindex={index + 2}
+      className="group/row absolute inset-x-0 top-0 grid border-b hover:bg-muted data-[active]:bg-accent data-[active]:outline-2 data-[active]:-outline-offset-2 data-[active]:outline-ring/50 data-[state=selected]:bg-muted"
+      style={{ gridTemplateColumns, transform: `translateY(${offset}px)` }}
+      onClick={() => onActivate(index)}
+      onDoubleClick={() => onOpen?.(row)}
+    >
+      {selectable && (
+        <td className={cn("left-0 flex min-h-10 items-center pl-4", STICKY_CELL)}>
+          <Checkbox
+            aria-label="Select row"
+            checked={selected}
+            onCheckedChange={() => onToggle(row.id)}
+            onClick={(event) => event.stopPropagation()}
+          />
+        </td>
+      )}
+      {visible.map((field, column) => {
+        const content = renderCell[field.name]?.(row) ?? (
+          <DefaultCell field={field} value={(row as Record<string, unknown>)[field.name]} />
+        );
+        const pendingHere = column === 0 ? waiting : undefined;
+        return (
+          <td
+            key={field.name}
+            className={cn(
+              "flex min-h-10 min-w-0 items-center px-3 py-2",
+              column === 0 && [STICKY_CELL, "shadow-[1px_0_0_var(--border)]"],
+              column === 0 && !selectable && "pl-4 sm:pl-6",
+            )}
+            style={column === 0 ? { left: firstLeft } : undefined}
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="min-w-0 truncate">{content}</div>
+              {pendingHere && <PendingPopover items={pendingHere} compact />}
+            </div>
+          </td>
+        );
+      })}
+    </tr>
+  );
+}
+
+// memo drops the type parameter; the cast puts it back.
+const DataTableRow = memo(DataTableRowImpl) as typeof DataTableRowImpl;

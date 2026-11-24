@@ -7,6 +7,8 @@
 //   agreement.kept.hold     the same person holds one (or releases it): the purge passes it by
 //   agreement.purgeKept     the daily cron's host step: deletes what is past the period
 //   agreement.mergePlan     what a merge would move: the merge preview's counts
+//   agreement.erasePreview  what erasing a Person would do to their agreements: the erase
+//                           screen's counts
 //
 // None of these returns a name typed, an address, a signature or an answer: a kept acceptance is
 // opened with agreement.acceptance.pdf (agreements:manage, audited). No AI reads a kept one.
@@ -29,8 +31,10 @@ import {
   purgeCutoff,
 } from "../agreements/retention.ts";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
+import { escapeLike } from "../filter.ts";
 import { defineOperation } from "../operation.ts";
 import { holdsPermission } from "../principals.ts";
+import { jsonList } from "../records/common.ts";
 import { withMergedRecords } from "../records/erase.ts";
 import { customerAddresses } from "../records/erase-stores.ts";
 import { personSubject } from "../records/erase-subject.ts";
@@ -113,7 +117,12 @@ export const agreementSetRetention = defineOperation({
     // A period that makes more kept records due than now (shorter, or the setting was unreadable,
     // when nothing is purged): the person types how many the next daily run will delete.
     const purgeable = await keptPastPeriod(ctx.db, ctx.now, input.years);
-    const dueNow = before === null ? 0 : await keptPastPeriod(ctx.db, ctx.now, before);
+    const dueNow =
+      before === null
+        ? 0
+        : before === input.years
+          ? purgeable
+          : await keptPastPeriod(ctx.db, ctx.now, before);
     if (purgeable > dueNow && input.confirmPurgeable !== purgeable) {
       throw new ConflictError(
         `This period makes ${purgeable} kept agreement${purgeable === 1 ? "" : "s"} due for ` +
@@ -203,7 +212,7 @@ export const agreementKeptFind = defineOperation({
       .where("a.erased_at", "is not", null);
     if (input.email) query = query.where(sql<boolean>`lower(a.email) = ${input.email}`);
     if (input.name) {
-      const pattern = `%${input.name.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+      const pattern = `%${escapeLike(input.name.toLowerCase())}%`;
       query = query.where(sql<boolean>`lower(a.typed_name) LIKE ${pattern} ESCAPE '\\'`);
     }
     const rows = await query.orderBy("a.erased_at", "desc").limit(input.limit).execute();
@@ -315,7 +324,7 @@ export const agreementPurgeKept = defineOperation({
       d.unscrubbed ? [{ acceptanceId: d.id, gatekeepers: d.unscrubbed }] : [],
     );
     if (ids.length) {
-      const list = sql`(SELECT value FROM json_each(${JSON.stringify(ids)}))`;
+      const list = jsonList(ids);
       // What sits beside each one first: the acceptance's own trigger refuses while any is left.
       ctx.write(
         sql`DELETE FROM core_agreement_copy WHERE acceptance_id IN ${list}`.compile(ctx.db),
@@ -403,7 +412,7 @@ export const agreementErasePreview = defineOperation({
       ...(await customerAddresses(ctx, ids)),
       ...(await agreementAddresses(ctx, ids)),
     ];
-    const people = sql`(SELECT value FROM json_each(${JSON.stringify(ids)}))`;
+    const people = jsonList(ids);
     const { rows } = await sql<{ kept: number; answers: number }>`SELECT
         (SELECT count(*) FROM core_agreement_acceptance WHERE erased_at IS NULL
           AND (person_id IN ${people} OR agent_person_id IN ${people})) AS kept,

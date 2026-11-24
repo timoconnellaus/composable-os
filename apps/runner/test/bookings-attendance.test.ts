@@ -5,7 +5,8 @@
 // second is told who was first; the list opens an hour before the class; a booking cancelled (by
 // the member or with its class) cannot be ticked; 30 minutes after a class ends its still-booked
 // bookings become no-shows only if its attendance was taken, the use kept; a late correction. The
-// coach role holds the day, the list and ticking, and nothing else.
+// coach role holds the day, the list and ticking, and nothing else; a coach's tool run is held to
+// the day of the call that started it (#290).
 //
 // Moves (criterion 11): staff move a member to another class with their use in one batch, refused
 // whole when the new class is full (its waitlist's held places included) or the use cannot be
@@ -19,7 +20,8 @@
 // Emails (step 9) and drop-in refunds (step 8) are not here yet.
 //
 // Clocks: a tool's own calls read the real clock, so classes are placed from now; the timed-move
-// sweep is run with a clock past the classes' ends.
+// sweep is run with a clock past the classes' ends. A coach's calls on a class minutes away run at
+// its start, so its day is the coach's today even when the run crosses local midnight (#290).
 import { env } from "cloudflare:workers";
 import {
   type ActingUser,
@@ -187,7 +189,8 @@ async function coach(name: string): Promise<ActingUser> {
   await run("user.setPackRole", { id, role: "bookings.coach" }, staff());
   return { id, email, name, role: "viewer" };
 }
-const asCoach = (user: ActingUser) => staff({ user });
+const asCoach = (user: ActingUser, clock?: () => Date) =>
+  staff({ user, ...(clock ? { clock } : {}) });
 
 /** A pass of `uses` given by staff (a person) to a member; its id. */
 async function givePass(who: CustomerPrincipal, uses = 5, validDays = 60): Promise<string> {
@@ -206,6 +209,11 @@ async function givePass(who: CustomerPrincipal, uses = 5, validDays = 60): Promi
   return given.passId;
 }
 const left = async (pass: string) => (await get(PASS, pass)).left;
+/** A clock stopped at a class's start: the class is on that clock's today in any zone. */
+const startOf = async (classId: string) => {
+  const at = new Date(String((await get(CLASS, classId)).startsAt));
+  return () => at;
+};
 
 /** A one-off class starting `in` ms from now, an hour long. */
 async function klass(type: string, inMs: number, places = 10): Promise<string> {
@@ -236,6 +244,22 @@ async function counter(id: string) {
     .bind(CLASS, id)
     .first();
 }
+/** A Person's journey signals (stage 53): which, about what record, and who stood behind it. */
+async function signalsOf(personId: string) {
+  const { results } = await env.DB.prepare(
+    "SELECT signal, object_type, standing, bulk, last_at FROM core_person_signal WHERE person_id = ? ORDER BY signal",
+  )
+    .bind(personId)
+    .all<{
+      signal: string;
+      object_type: string;
+      standing: string;
+      bulk: number;
+      last_at: string;
+    }>();
+  return results;
+}
+
 /** How many times a booking entered a state (its state history). */
 async function entered(booking: string, state: string) {
   const row = await env.DB.prepare(
@@ -268,12 +292,13 @@ describe("attendance (criterion 7)", () => {
   it("two coaches ticking one name at once mark it once, and the second is told who was first", async () => {
     const [kim, sam] = await Promise.all([coach("Coach Kim"), coach("Coach Sam")]);
     const k = await klass(type, 2 * MINUTE);
+    const clock = await startOf(k);
     const who = await member("tick");
     const pass = await givePass(who);
     const booking = await booked(who, k);
     const [a, b] = await Promise.all([
-      run<Out>("x.bookings.markAttended", { bookingId: booking }, asCoach(kim)),
-      run<Out>("x.bookings.markAttended", { bookingId: booking }, asCoach(sam)),
+      run<Out>("x.bookings.markAttended", { bookingId: booking }, asCoach(kim, clock)),
+      run<Out>("x.bookings.markAttended", { bookingId: booking }, asCoach(sam, clock)),
     ]);
     const results = [a, b].map((r) => r.result).sort();
     expect(results).toEqual(["already", "attended"]);
@@ -295,7 +320,7 @@ describe("attendance (criterion 7)", () => {
     const many = await booked(other, k);
     const ticks = await Promise.all(
       Array.from({ length: 8 }, (_, i) =>
-        run<Out>("x.bookings.markAttended", { bookingId: many }, asCoach(i % 2 ? kim : sam)),
+        run<Out>("x.bookings.markAttended", { bookingId: many }, asCoach(i % 2 ? kim : sam, clock)),
       ),
     );
     expect(ticks.filter((t) => t.result === "attended")).toHaveLength(1);
@@ -371,6 +396,16 @@ describe("attendance (criterion 7)", () => {
     expect(await run<Out>("x.bookings.markAttended", { bookingId: came }, staff())).toMatchObject({
       result: "attended",
     });
+    // Each is a journey signal of the member's, written in the batch that made it (stage 53,
+    // ADR 0802): the pass given, the class booked, the class attended.
+    // The member's own booking stands as theirs; the pass and the tick, made through the pack's
+    // tools by a person, as the host's (ADR 0590's marks).
+    const ticked = await signalsOf(p1.personId);
+    expect(ticked.map((r) => [r.signal, r.object_type, r.standing, r.bulk])).toEqual([
+      ["bookings.attended", BOOKING, "host", 0],
+      ["bookings.booked", BOOKING, "customer", 0],
+      ["memberships.passStarted", PASS, "host", 0],
+    ]);
 
     // Not yet: the class ends in 90 minutes, and the host waits 30 minutes more.
     const before = await runTimedMovesDue(db, { clock: () => new Date(Date.now() + 100 * MINUTE) });
@@ -406,6 +441,8 @@ describe("attendance (criterion 7)", () => {
     });
     await runTimedMovesDue(db, { clock: () => new Date(Date.now() + 2 * HOUR + MINUTE) });
     expect(await stateOf(came)).toBe("no_show");
+    // A tick taken back is not a new booking: the signals are as they were.
+    expect(await signalsOf(p1.personId)).toEqual(ticked);
     expect(await left(passes[0] as string)).toBe(4);
 
     // The sweep's step is the host's: refused from any origin the host did not set.
@@ -487,51 +524,84 @@ describe("attendance (criterion 7)", () => {
     );
   });
 
+  it("a tool run is held to the day of the call that started it, not the clock its own calls read (#290)", async () => {
+    const kim = await coach("Coach Day");
+    const k = await klass(type, 2 * MINUTE);
+    const atStart = await startOf(k);
+    const dayBefore = () => new Date(atStart().getTime() - DAY);
+    const who = await member("runday");
+    await givePass(who);
+    const booking = await booked(who, k);
+    // Started on the day before: the run's nested reads hold to that day, so the class is not
+    // today's, whatever the real clock reads when they are made.
+    expect(
+      JSON.stringify(
+        await refusal(run("x.bookings.roster", { classId: k }, asCoach(kim, dayBefore))),
+      ),
+    ).toContain("not_found");
+    expect(
+      await run<Out>("x.bookings.markAttended", { bookingId: booking }, asCoach(kim, dayBefore)),
+    ).toMatchObject({ result: "refused", reason: "not_found" });
+    // Started on the class's day: the same run reaches it.
+    expect(
+      (
+        await run<{ bookings: unknown[] }>(
+          "x.bookings.roster",
+          { classId: k },
+          asCoach(kim, atStart),
+        )
+      ).bookings,
+    ).toHaveLength(1);
+    expect(
+      await run<Out>("x.bookings.markAttended", { bookingId: booking }, asCoach(kim, atStart)),
+    ).toMatchObject({ result: "attended" });
+  });
+
   it("the coach role: the day, the list and ticking; nothing else", async () => {
     const kim = await coach("Coach Kim");
     const k = await klass(type, 2 * MINUTE);
+    const clock = await startOf(k);
+    const asKim = asCoach(kim, clock);
     const who = await member("roster");
     const pass = await givePass(who);
     const booking = await booked(who, k);
-    const date = new Intl.DateTimeFormat("en-CA", { timeZone: ZONE }).format(
-      new Date(Date.now() + 2 * MINUTE),
-    );
+    const date = new Intl.DateTimeFormat("en-CA", { timeZone: ZONE }).format(clock());
     const day = await run<{ classes: { id: string }[] }>(
       "x.bookings.day",
       { date, timeZone: ZONE },
-      asCoach(kim),
+      asKim,
     );
     expect(day.classes.map((c) => c.id)).toContain(k);
     const list = await run<{ bookings: Record<string, unknown>[] }>(
       "x.bookings.roster",
       { classId: k },
-      asCoach(kim),
+      asKim,
     );
     expect(list.bookings).toEqual([
       expect.objectContaining({ id: booking, state: "booked", person: expect.any(Object) }),
     ]);
     // Nothing of what anyone paid with.
     expect(JSON.stringify(list)).not.toContain(pass);
-    expect(
-      await run<Out>("x.bookings.markAttended", { bookingId: booking }, asCoach(kim)),
-    ).toMatchObject({ result: "attended" });
+    expect(await run<Out>("x.bookings.markAttended", { bookingId: booking }, asKim)).toMatchObject({
+      result: "attended",
+    });
     // Its own class records it may read, today's only; nothing else.
-    await run("record.get", { object: CLASS, id: k }, asCoach(kim));
+    await run("record.get", { object: CLASS, id: k }, asKim);
     const ahead = await klass(type, 5 * DAY);
     const later = await booked(who, ahead);
-    expect(
-      (await refusal(run("record.get", { object: CLASS, id: ahead }, asCoach(kim)))).code,
-    ).toBe("not_found");
+    expect((await refusal(run("record.get", { object: CLASS, id: ahead }, asKim))).code).toBe(
+      "not_found",
+    );
     const listed = await run<{ items: { id: string }[] }>(
       "record.list",
       { object: CLASS, filter: { field: "id", op: "in", value: [k, ahead] }, limit: 10 },
-      asCoach(kim),
+      asKim,
     );
     expect(listed.items.map((c) => c.id)).toContain(k);
     expect(listed.items.map((c) => c.id)).not.toContain(ahead);
     // Through its tools too: not another day's list, its classes or its names.
     expect(
-      JSON.stringify(await refusal(run("x.bookings.roster", { classId: ahead }, asCoach(kim)))),
+      JSON.stringify(await refusal(run("x.bookings.roster", { classId: ahead }, asKim))),
     ).toContain("not_found");
     const aheadDate = new Intl.DateTimeFormat("en-CA", { timeZone: ZONE }).format(
       new Date(Date.now() + 5 * DAY),
@@ -539,12 +609,13 @@ describe("attendance (criterion 7)", () => {
     const aheadDay = await run<{ classes: { id: string }[] }>(
       "x.bookings.day",
       { date: aheadDate, timeZone: ZONE },
-      asCoach(kim),
+      asKim,
     );
     expect(aheadDay.classes).toEqual([]);
-    expect(
-      await run<Out>("x.bookings.markAttended", { bookingId: later }, asCoach(kim)),
-    ).toMatchObject({ result: "refused", reason: "not_found" });
+    expect(await run<Out>("x.bookings.markAttended", { bookingId: later }, asKim)).toMatchObject({
+      result: "refused",
+      reason: "not_found",
+    });
     // A list's limit is in its query: a page of one, newest first, is today's class, with no
     // cursor pointing at another day's; a projection without the date still finds it.
     const page = await run<{ items: { id: string }[]; nextCursor: string | null }>(
@@ -555,14 +626,14 @@ describe("attendance (criterion 7)", () => {
         sort: { field: "startsAt", direction: "desc" },
         limit: 1,
       },
-      asCoach(kim),
+      asKim,
     );
     expect(page.items.map((c) => c.id)).toEqual([k]);
     expect(page.nextCursor).toBeNull();
     const projected = await run<{ items: { id: string }[] }>(
       "record.list",
       { object: CLASS, filter: { field: "id", op: "in", value: [k, ahead] }, fields: ["title"] },
-      asCoach(kim),
+      asKim,
     );
     expect(projected.items.map((c) => c.id)).toEqual([k]);
     // The limit follows a tool run into the tools it calls, and refuses what it cannot check.
@@ -574,14 +645,14 @@ describe("attendance (criterion 7)", () => {
     await refreshSchemaRegistry(db.query);
     expect(
       JSON.stringify(
-        await refusal(run("x.relay.relay", { classId: ahead }, staff({ roleToday: limit }))),
+        await refusal(run("x.relay.relay", { classId: ahead }, staff({ roleToday: limit, clock }))),
       ),
     ).toContain("not_found");
     expect(
       await run<{ bookings: unknown[] }>(
         "x.relay.relay",
         { classId: k },
-        staff({ roleToday: limit }),
+        staff({ roleToday: limit, clock }),
       ),
     ).toMatchObject({ bookings: [expect.anything()] });
     // Without the limit the same nested call reaches it (staff are not limited).
@@ -589,7 +660,8 @@ describe("attendance (criterion 7)", () => {
       (await run<{ bookings: unknown[] }>("x.relay.relay", { classId: ahead }, staff())).bookings,
     ).toHaveLength(1);
     expect(
-      (await refusal(run("record.count", { object: CLASS }, staff({ roleToday: limit })))).code,
+      (await refusal(run("record.count", { object: CLASS }, staff({ roleToday: limit, clock }))))
+        .code,
     ).toBe("forbidden");
     // Other staff are not limited.
     expect(
@@ -615,7 +687,7 @@ describe("attendance (criterion 7)", () => {
       ["extensionSettings.update", { extension: "bookings", values: { lateMinutes: 5 } }],
       ["query.sql", { sql: "SELECT 1" }],
     ] as const) {
-      const error = await refusal(run(name, input, asCoach(kim)));
+      const error = await refusal(run(name, input, asKim));
       expect([name, error.code]).toEqual([
         name,
         expect.stringMatching(/forbidden|unknown_operation/),

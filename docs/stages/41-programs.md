@@ -256,3 +256,115 @@ refusal is gone; the coaches' grants are unchanged. The pack changes no code: `u
 `usePublishOffered` are a person's controls. Proof: `apps/runner/test/programs-authoring.test.ts`
 (the assistant's draft, its request, a person's approval) and `apps/runner/test/programs.test.ts`
 (the assistant acting for a coach without the permission cannot even ask).
+
+## As built: the coach role and class types for a member's client (2026-11-24)
+- **The coach role** ([ADR 0889](../adr/0889-a-pack-role-limited-to-the-people-its-holder-looks-after.md)):
+  `programs.coach`, declared in the pack: the tools `today`, `sessionGet`, `logAdd`, `logUpdate`,
+  `sessionComplete`, `history` and `progress` (permission `programs:coach`), and reads of
+  assignments and sessions, all limited to the People an active assignment names the account
+  coach of (`coach` on the assignment, a person's choice (`personApproves`), the object's `team`). The
+  platform gained a role's `looksAfter` and an object's `team`, held by the host on the role's
+  reads and inside its tools. Its client (`roles.json`) backs `programs-native-coach-client` and
+  the session screen for a client. Tests of what it must not reach: `apps/runner/test/programs-coach.test.ts`.
+- **Class types for a member's client:** `useClassTypes` reads with `my.list` on a customer's
+  client and `record.list` on staff's (a hook may name alternatives, `anyOf`, ADR 0453 amended), so
+  `programs-native-class-today` is wired in a member's app as shipped.
+- No migration (the coach field comes from the reconciler). ADR 0889, the last of the numbers 0870 to 0889 this work was given (they overlap blocks BV's and BW's ADR ranges).
+
+## As built: past sessions in the app (2026-11-24)
+- **The history blocks** (found while putting the first client's app on the platform: Progress
+  showed each exercise's history, but nothing listed a person's past sessions): `programs-history`
+  (web, `SessionHistory`) and `programs-native-history` (native, `HistoryScreen`) list a person's
+  own sessions dated on or before `until` (their local today), newest first, 20 a page, each with
+  its date, name and sets done of planned; one opened is read-only set by set (target beside what
+  was done, who recorded it) and a logged set is corrected through `x.programs.logUpdate`, the
+  rule the host already had (the numbers done, effort and the note; a member their own sets only;
+  the target, the exercise and who recorded it never). The logic is in the pack's client
+  (`loadPastSessions`, `sessionSets`, `plannedSets`, `correctionOf`; hooks `usePastSessions` over
+  the member's `my.list`, `useClientPastSessions` over the staff's `record.list`); no new tool or
+  permission. A page is at most 15 statements and 25 bound variables for a member or a coach
+  (`apps/runner/test/programs-history.test.ts`); the member's e2e journey now corrects its set in
+  the history. Only personal sessions are listed: a class session a member logged on is not
+  (ADR 0448, amended).
+
+## As built: a safe, repeatable import (2026-11-24)
+Found while moving the first client's programs onto the platform, before step 7 (ADR 0448 and ADR
+0470, amended; no migration, no new ADR number).
+- **`cos programs import <folder> --host <url> [--dry-run]`**
+  (`packages/create-composable-os/src/programs-import/`), shaped as `cos courses import`: reads
+  `exercises.csv`, `classtypes.csv`, `programs/*.txt` (the shorthand) and `training.csv`, checks
+  them before signing in, finds each training row's person by email, dry-runs every batch on the
+  host, then writes class types, exercises, their easier and harder versions, programs (working
+  copies), past sessions and their sets with `record.import`, import keys swapped for ids batch by
+  batch. A shorthand line it cannot read stops the run with its file and line. Format:
+  `docs/importing.md`, Programs; the order: `skills/import-programs/SKILL.md` (listed in
+  `AGENTS.md`).
+- **`x.programs.importText`** takes a `key` (one program per key, a declared unique rule; updated
+  while it holds what the import last wrote, unchanged when the text is the same, a coach's edit
+  kept and reported as a conflict) and `dryRun` (reads and checks against the layout schema,
+  writes nothing, returns `faults` by path). A `Kind:` line names the kind.
+- **`readProgramText`** (and the layout's types and schema) are exported from the pack's public
+  entry, so the command reads programs with the tool's own reader.
+- **Past sessions and their sets** can be imported: a session's assignment is no longer required
+  (`requireOneOf` assignment or `source`); an imported session is done with no assignment or plan,
+  and it and its sets say `source: import`. Whatever `record.import` writes starts no automation
+  (not even an `includeBulk` one) and sends no notification (`origin.imported`).
+- **An item with an exercise for everyone and levels**: the `levels` item takes optional
+  `exercises`; logging one needs no level and keeps the level taken when given; the builder, the
+  session blocks (web and native) and the hooks show and edit it; the shorthand reads it.
+- **Proof:** `apps/app/test/programs-import.test.ts` (the command's engine against cos-app's real
+  surface: a bad folder, a dry run, the import, a member's own reads, a re-run, a coach's edit
+  kept, nothing started by an import, 25 sets in one batch of 105 statements and at most 20 bound
+  values a statement), `apps/runner/test/programs-authoring.test.ts` (importText with a key and a
+  dry run on the real host), `packs/programs/test/` (the reader, the schema, logging an item with
+  both), `packages/create-composable-os/test/programs-import.test.ts` (the folder's problems by
+  line) and `packages/core/test/automations.test.ts` (the imported origin).
+- **Fixed at review:**
+  - Set numbers and duplicates are now worked out by the identity a set's key is made from, so one
+    set is never written over another.
+  - A key that is too long, or the same key twice, is a problem with its line.
+  - Session names are at most 100 characters.
+  - Erase deletes the import door's kept keys and values that name the subject (ADR 0470).
+  - A member cannot move an imported session back to planned.
+  - `importText`'s read-then-write window is stated in ADR 0448, not closed.
+- **Merged with past sessions in the app:**
+  - The history blocks list imported sessions too: `kind` personal, or `source` import.
+  - A session with no plan lists the sets logged on it.
+  - An item with exercises for everyone lists theirs before the level's (`sessionSets`).
+
+## As built: fast, lossless logging on a phone (2026-11-24)
+Branch `feat/programs-fast-logging`; no migration, no new ADR number (ADRs 0414 and 0448 amended).
+- **The session log** (`packs/programs/client/logging.ts`, exported from the headless entry):
+  a pure reducer and one queue per session and person (`useSessionLog`, `useUnsavedSets`). One
+  tap on a set's tick logs the numbers its row shows, a number still being typed included (every
+  key press is a change); a tick of a done set takes it back; typing over a done set updates it.
+  Saves go one at a time in order, a set changed meanwhile is sent again with its latest numbers,
+  an answer or a read of the session never undoes a newer change, a failed save is kept, said and
+  retried (the same idempotency key while the set is unchanged), a refused one is kept with the
+  host's reason, and `flush` sends everything when the screen is left, the app goes to the
+  background or the session is finished, saying when it could not. Carry forward: a set not done
+  and not edited suggests (greyed) last time's numbers for the first set, else its target, and the
+  set before's for a later one, so a change flows down; a field whose planned target differs from
+  the set before's suggests its own target; an edited set is never overwritten. Unit tests:
+  `packs/programs/test/logging.test.ts`.
+- **The blocks:** `programs-native-session` and `programs-session` (web) are the workout logger
+  on that logic: a tick per set, an optional effort tap, a rest timer from the set's rest (else
+  `defaultRest`, 90 s), a start/stop timer on a timed set that fills its seconds and ticks it, an
+  exercise folded when its last set is ticked, sets done of planned at the top, and finishing that
+  says what was not ticked. `programs-native-today` says how many sets are not saved yet and
+  flushes them when the app changes state. The native base `Screen` lets a tap land with the
+  keyboard open (`keyboardShouldPersistTaps="handled"`). **Nothing was tried on a phone.**
+- **The host:** `x.programs.logAdd` is idempotent per set (`setKey`, `unique` on person and set,
+  ADR 0448 amended): a set saved again changes its row, and two saves at once leave one.
+  `x.programs.logRemove` takes a set back (a retry changes nothing); a member's goes through
+  the new tool-only `my.delete`, opened by `customer.delete: true` on the log (ADR 0414
+  amended); a coach's is `record.delete`, which the approval policy may hold (`waiting`).
+  The coach role (ADR 0889, amended) holds `logRemove`; its limit now checks a delete as it
+  checks an update (a client's set, else not found) rather than refusing it.
+  Proof: `apps/runner/test/programs-logging.test.ts` (once per set, at once too, taking back,
+  and the session log driven against the host with a lost answer).
+- **Changed from the brief:** "edited" is per set: the first edit of a set freezes every field
+  it showed. A coach's un-tick under Balanced waits for a person's approval, because an
+  extension's delete for staff is `destructive` and the policy is not this step's to loosen.
+  What waits to be saved lives in memory: closing the app before it is sent loses it, and the
+  app is told (`useUnsavedSets`) so it can say so.

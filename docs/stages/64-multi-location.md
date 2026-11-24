@@ -34,6 +34,22 @@ data), [0621](../adr/0621-the-staffed-behaviour-and-the-time-claim.md) and
 Status: **spec agreed** (owner interviewed 2026-11-24: decision 1; the other points were decided
 as best practice without asking, below). Build may start.
 
+## Status
+
+- **Step 1, `core_location`, its operations, the main location and the public reads**
+  (`feat/stage-64-locations`; migration 1390, ADRs 0910 and 0916, which amend ADRs 0001 and 0610):
+  the base record `location` (`fields/location.ts`, in the registry's base objects; `core_location`
+  and `rec_location`), with name (unique whatever the case), short name, address, zone, public,
+  drop-in price, open or closed, notes; the main location made by the migration from `org_name`
+  and `org_timezone` (else "Main location" in UTC), re-runnable without change, which keeps the
+  organisation's zone (`settings.update`) and its name while it has the one it was given;
+  `location.list`, `location.get`, `location.create` and `location.update` (an AI's waits for a
+  person), `location.close` and `location.reopen` (a person only), the last open location refused
+  closing by the handler and a trigger; the `public` declaration (name, short name, address, zone
+  of a public open location, through `public.list` and `public.get` from a pack's tool; no new
+  open operation). Not yet: the coverage choices in `location.create` (step 4), a closed location
+  refusing new classes (step 2), what a pack-role account reads of locations (step 5), screens.
+
 ## Goal
 
 A business with two or three locations (a gym with a second studio across town; later, a trades

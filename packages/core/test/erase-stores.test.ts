@@ -414,15 +414,15 @@ describe("person.erase reaches every store", () => {
       ).bind(`ver_${unique("v")}`, `sign-in-otp-${email}`, now, now, now),
     ]);
     await invoke("customer.invite", { email: oldEmail }, context(admin));
+    const principal = { kind: "customer" as const, customerId, personId: person.id };
+    const preview = (await invokeByName("me.deleteAccount", {}, { principal, db })) as {
+      expect: string;
+    };
     await invokeByName(
       "me.deleteAccount",
-      {},
-      {
-        principal: { kind: "customer", customerId, personId: person.id },
-        db,
-        // Deleting the account needs a sign-in within 15 minutes (ADR 0712): this one, just now.
-        origin: { surface: "client", sessionId },
-      },
+      { confirm: true, expect: preview.expect },
+      // Deleting the account needs a sign-in within 15 minutes (ADR 0712): this one, just now.
+      { principal, db, origin: { surface: "client", sessionId } },
     );
 
     const result = await invoke("person.erase", { id: person.id }, context(admin, { blobs }));

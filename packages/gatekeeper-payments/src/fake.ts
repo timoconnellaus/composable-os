@@ -1,6 +1,8 @@
 // The fake provider, for development and tests: a ledger Durable Object standing in for the
 // provider's books, a hosted page with Pay and Cancel buttons, and signed webhook deliveries to the
 // gatekeeper's own `/in/fake` route. It is on only when PAYMENTS_FAKE_PROVIDER is "true".
+// Fake card readers (stage 50, ADR 0774) stand in for the provider's server-driven readers: a page
+// per reader with Tap card, Decline and Cancel, delivering signed events the same way.
 //
 // It never asks for card details: its page has no card fields, and it stores nothing a customer
 // typed.
@@ -21,6 +23,10 @@ import type {
   PaymentsPauseSubscriptionInput,
   PaymentsPayment,
   PaymentsPortalInput,
+  PaymentsPresentInput,
+  PaymentsReader,
+  PaymentsRegisterReaderInput,
+  PaymentsRemoveReaderInput,
   PaymentsResumeSubscriptionInput,
   PaymentsSubscription,
   PaymentsSubscriptionCheckoutInput,
@@ -100,7 +106,26 @@ export type FakeCheckout = {
   taxReport?: PaymentsTaxReport;
   /** A subscription checkout (ADR 0485): what the page starts. Absent: one payment. */
   subscription?: FakeSubscriptionCheckout;
+  /**
+   * A card-present payment (stage 50, ADR 0774): presented on this reader, with no hosted page.
+   * Its `ref` is the payment's own reference, which becomes `paymentRef` once paid.
+   */
+  inPerson?: { readerRef: string };
 };
+
+/** A fake card reader, registered to the fake account. */
+export type FakeReader = {
+  ref: string;
+  readerId: string;
+  label: string;
+  locationRef: string;
+  createdAt: string;
+  /** The payment on the reader now, waiting for a card, or null. */
+  action: { paymentRef: string } | null;
+};
+
+/** What a test or a person does at a fake reader. */
+export type FakeReaderOutcome = "tap" | "decline" | "cancel";
 
 /** What a subscription checkout starts once the page is submitted. */
 export type FakeSubscriptionCheckout = {
@@ -209,6 +234,7 @@ export type FakeLedgerState = {
   subscriptions: FakeSubscription[];
   /** Each customer's email, as the host last gave it (stage 48), by customer ref. */
   customerEmails: Record<string, string>;
+  readers: FakeReader[];
 };
 
 /** What `pay()` did. */
@@ -236,6 +262,14 @@ const REFUND_BY_ID = "refund-id:";
 const SUBSCRIPTION = "subscription:";
 const CUSTOMER_EMAIL = "customer-email:";
 const EVENT_COUNTER = "event-counter";
+const READER = "reader:";
+const READER_BY_ID = "reader-id:";
+const READER_CODE = "reader-code:";
+const LOCATION = "location:";
+/** A presented payment waits for its card this long before it reads as expired. */
+const PRESENTATION_LIFETIME_MS = 24 * 60 * 60 * 1000;
+/** Readers the fake account holds at most, as `listReaders` answers at most 100. */
+const MAX_READERS = 100;
 const CLOCK = "clock";
 
 /** A fake subscription as a read of it at `observedAt`. */
@@ -424,7 +458,7 @@ export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
     return { ok: true, refund, created: true };
   }
 
-  /** Everything the ledger holds, for the dev `/fake/state` route and tests. */
+  /** Everything the ledger holds, for tests (no route serves it). */
   async state(): Promise<FakeLedgerState> {
     const kv = this.ctx.storage.kv;
     return {
@@ -437,6 +471,7 @@ export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
           email,
         ]),
       ),
+      readers: this.#readers(),
     };
   }
 
@@ -452,6 +487,204 @@ export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
     }
     this.ctx.storage.kv.put(CUSTOMER_EMAIL + input.customerRef, input.email);
     return { ok: true };
+  }
+
+  // --- Card readers (stage 50, ADR 0774) ------------------------------------------------------
+
+  /**
+   * Registers a reader at a location made once per address. The same host id returns the reader
+   * registered before; a code already used is refused, as the provider's codes are single-use.
+   */
+  async registerReader(
+    input: PaymentsRegisterReaderInput,
+  ): Promise<{ ok: true; reader: FakeReader } | { ok: false; reason: string }> {
+    const kv = this.ctx.storage.kv;
+    const priorRef = kv.get<string>(READER_BY_ID + input.readerId);
+    const prior = priorRef === undefined ? undefined : kv.get<FakeReader>(READER + priorRef);
+    if (prior) return { ok: true, reader: prior };
+    if (kv.get<string>(READER_CODE + input.registrationCode) !== undefined) {
+      return { ok: false, reason: "that registration code has been used" };
+    }
+    if (this.#readers().length >= MAX_READERS) {
+      return { ok: false, reason: `the account has ${MAX_READERS} readers` };
+    }
+    const { address } = input;
+    const place =
+      LOCATION +
+      JSON.stringify([
+        input.locationName,
+        address.country,
+        address.line1,
+        address.city,
+        address.postcode,
+        address.region ?? null,
+      ]);
+    let locationRef = kv.get<string>(place);
+    if (locationRef === undefined) {
+      locationRef = randomId("floc_");
+      kv.put(place, locationRef);
+    }
+    const reader: FakeReader = {
+      ref: randomId("frd_"),
+      readerId: input.readerId,
+      label: input.label,
+      locationRef,
+      createdAt: new Date().toISOString(),
+      action: null,
+    };
+    kv.put(READER + reader.ref, reader);
+    kv.put(READER_BY_ID + input.readerId, reader.ref);
+    kv.put(READER_CODE + input.registrationCode, reader.ref);
+    return { ok: true, reader };
+  }
+
+  async listReaders(): Promise<FakeReader[]> {
+    return this.#readers();
+  }
+
+  async getReader(ref: string): Promise<FakeReader | null> {
+    return this.ctx.storage.kv.get<FakeReader>(READER + ref) ?? null;
+  }
+
+  /**
+   * Takes a reader off the account, clearing what was on it. One already gone is not an error; a
+   * reader that is not the host's reader of that id is refused, and nothing is removed.
+   */
+  async removeReader(
+    input: PaymentsRemoveReaderInput,
+  ): Promise<{ ok: true } | { ok: false; reason: string }> {
+    const kv = this.ctx.storage.kv;
+    const reader = kv.get<FakeReader>(READER + input.readerRef);
+    if (!reader) return { ok: true };
+    if (reader.readerId !== input.readerId) {
+      return { ok: false, reason: `that reader is not reader ${input.readerId}` };
+    }
+    kv.delete(READER + reader.ref);
+    kv.delete(READER_BY_ID + reader.readerId);
+    return { ok: true };
+  }
+
+  /**
+   * Puts a card-present payment on a reader. The same idempotency key is the same payment: paid,
+   * it is answered `paid` and not presented again; unpaid, it goes back on its reader (a retry
+   * after a timeout, or after a decline). A reader with another payment on it refuses.
+   */
+  async present(
+    input: PaymentsPresentInput,
+  ): Promise<
+    | { ok: true; checkout: FakeCheckout; status: "presented" | "paid" }
+    | { ok: false; reason: string }
+  > {
+    const kv = this.ctx.storage.kv;
+    const existingRef = kv.get<string>(IDEMPOTENCY + input.idempotencyKey);
+    let checkout =
+      existingRef === undefined ? undefined : kv.get<FakeCheckout>(CHECKOUT + existingRef);
+    if (checkout && !checkout.inPerson) {
+      return { ok: false, reason: "that idempotency key opened a checkout, not a presentation" };
+    }
+    // As the provider refuses a key sent again with other details: a host bug, never hidden.
+    if (
+      checkout &&
+      (checkout.orderId !== input.orderId ||
+        checkout.amount !== input.amount ||
+        checkout.currency !== input.currency)
+    ) {
+      return { ok: false, reason: "that idempotency key was presented with other details" };
+    }
+    if (checkout?.status === "paid") return { ok: true, checkout, status: "paid" };
+    if (checkout && checkout.inPerson?.readerRef !== input.readerRef) {
+      return { ok: false, reason: "that idempotency key was presented on another reader" };
+    }
+    const reader = kv.get<FakeReader>(READER + input.readerRef);
+    if (!reader) return { ok: false, reason: "no reader has that reference" };
+    if (reader.action && reader.action.paymentRef !== checkout?.ref) {
+      return { ok: false, reason: "the reader is busy with another payment" };
+    }
+    if (!checkout) {
+      const now = Date.now();
+      checkout = {
+        ref: randomId("fpi_"),
+        orderId: input.orderId,
+        amount: input.amount,
+        currency: input.currency,
+        description: input.description,
+        returnUrl: "",
+        status: "open",
+        paymentRef: null,
+        idempotencyKey: input.idempotencyKey,
+        createdAt: new Date(now).toISOString(),
+        expiresAt: new Date(now + PRESENTATION_LIFETIME_MS).toISOString(),
+        paidAmount: null,
+        inPerson: { readerRef: reader.ref },
+      };
+      kv.put(CHECKOUT + checkout.ref, checkout);
+      kv.put(IDEMPOTENCY + input.idempotencyKey, checkout.ref);
+      this.#prune<FakeCheckout>(CHECKOUT, MAX_CHECKOUTS, (row) =>
+        kv.delete(IDEMPOTENCY + row.idempotencyKey),
+      );
+    }
+    kv.put<FakeReader>(READER + reader.ref, { ...reader, action: { paymentRef: checkout.ref } });
+    return { ok: true, checkout, status: "presented" };
+  }
+
+  /**
+   * What happens at the reader: the card is tapped (the payment is paid), declined, or the action
+   * is cancelled (on the reader or by the host). Returns the delivery the provider would send, or
+   * null when nothing was on the reader.
+   */
+  async readerOutcome(
+    readerRef: string,
+    outcome: FakeReaderOutcome,
+  ): Promise<{ found: false } | { found: true; delivery: FakeWebhookBody | null }> {
+    const kv = this.ctx.storage.kv;
+    const reader = kv.get<FakeReader>(READER + readerRef);
+    if (!reader) return { found: false };
+    const checkout = reader.action
+      ? kv.get<FakeCheckout>(CHECKOUT + reader.action.paymentRef)
+      : undefined;
+    kv.put<FakeReader>(READER + reader.ref, { ...reader, action: null });
+    if (!checkout || checkout.status === "paid") return { found: true, delivery: null };
+    const created = Math.floor(Date.now() / 1000);
+    if (outcome === "tap") {
+      const paid: FakeCheckout = { ...checkout, status: "paid", paymentRef: checkout.ref };
+      kv.put(CHECKOUT + checkout.ref, paid);
+      return {
+        found: true,
+        delivery: {
+          // One id per payment, as for a checkout: confirmed once, however often it is delivered.
+          id: `fevt_pay_${paid.ref}`,
+          type: "payment.succeeded",
+          created,
+          data: {
+            orderId: paid.orderId,
+            checkoutRef: paid.ref,
+            amount: paid.amount,
+            currency: paid.currency,
+            paymentRef: paid.ref,
+          },
+        },
+      };
+    }
+    const n = (kv.get<number>(EVENT_COUNTER) ?? 0) + 1;
+    kv.put(EVENT_COUNTER, n);
+    return {
+      found: true,
+      delivery: {
+        id: `fevt_reader_${n}_${reader.ref}`,
+        type: "reader.action_failed",
+        created,
+        data: {
+          readerRef: reader.ref,
+          paymentRef: checkout.ref,
+          outcome: outcome === "decline" ? "failed" : "cancelled",
+          failureCode: outcome === "decline" ? "card_declined" : null,
+        },
+      },
+    };
+  }
+
+  #readers(): FakeReader[] {
+    return [...this.ctx.storage.kv.list<FakeReader>({ prefix: READER })].map(([, row]) => row);
   }
 
   // --- Subscriptions (stage 32a, ADR 0485) ----------------------------------------------------
@@ -963,6 +1196,18 @@ export type FakeWebhookBody =
       };
     }
   | {
+      /** A reader's action that took no payment (stage 50, ADR 0774). */
+      id: string;
+      type: "reader.action_failed";
+      created: number;
+      data: {
+        readerRef: string;
+        paymentRef: string | null;
+        outcome: "failed" | "cancelled";
+        failureCode: string | null;
+      };
+    }
+  | {
       id: string;
       type: "subscription.event";
       created: number;
@@ -1105,6 +1350,56 @@ export class FakeProvider implements PaymentProvider {
     }
   }
 
+  async registerReader(input: PaymentsRegisterReaderInput): Promise<PaymentsReader> {
+    const result = await this.#options.ledger.registerReader(input);
+    if (!result.ok) {
+      throw new ActionApplyError(
+        `The fake provider refused the reader, so nothing was registered: ${result.reason}.`,
+      );
+    }
+    return fakeReaderRead(result.reader);
+  }
+
+  async listReaders(): Promise<PaymentsReader[]> {
+    return (await this.#options.ledger.listReaders()).map(fakeReaderRead);
+  }
+
+  async removeReader(input: PaymentsRemoveReaderInput): Promise<void> {
+    const result = await this.#options.ledger.removeReader(input);
+    if (!result.ok) {
+      throw new ActionApplyError(
+        `The fake provider refused the removal, so nothing was removed: ${result.reason}.`,
+      );
+    }
+  }
+
+  async presentPayment(
+    input: PaymentsPresentInput,
+  ): Promise<{ ref: string; readerRef: string; status: "presented" | "paid" }> {
+    const result = await this.#options.ledger.present(input);
+    if (!result.ok) {
+      throw new Error(`The fake provider refused the payment on the reader: ${result.reason}.`);
+    }
+    return {
+      ref: result.checkout.ref,
+      readerRef: result.checkout.inPerson?.readerRef ?? input.readerRef,
+      status: result.status,
+    };
+  }
+
+  /** Clears the reader, then reports the cancelled action by webhook once this call returns. */
+  async cancelPresented(readerRef: string): Promise<void> {
+    const result = await this.#options.ledger.readerOutcome(readerRef, "cancel");
+    if (!result.found) throw new Error("The fake provider has no reader with that reference.");
+    if (result.delivery) {
+      this.#options.defer(
+        this.#options
+          .deliver(result.delivery)
+          .catch(() => console.warn("payments: the fake reader webhook was not accepted")),
+      );
+    }
+  }
+
   /** Changes the subscription, then confirms it by webhook once this call has returned. */
   async #change(ref: string, change: "period_end" | "now" | "resume"): Promise<void> {
     await this.#send(await this.#options.ledger.changeSubscription(ref, change));
@@ -1135,6 +1430,24 @@ export class FakeProvider implements PaymentProvider {
   ): Promise<VerifiedWebhook> {
     return verifyFakeWebhook(this.#options.webhookSecret, headers, body, nowSeconds);
   }
+}
+
+/** A fake reader as the provider-neutral read of it. */
+export function fakeReaderRead(reader: FakeReader): PaymentsReader {
+  return {
+    provider: "fake",
+    ref: reader.ref,
+    readerId: reader.readerId,
+    label: reader.label,
+    locationRef: reader.locationRef,
+    status: "online",
+    deviceType: "fake_reader",
+  };
+}
+
+/** The fake reader's page, standing in for the device on the desk. */
+export function fakeReaderUrl(baseUrl: string, readerRef: string): string {
+  return `${baseUrl}/fake/reader/${readerRef}`;
 }
 
 export function fakePayUrl(baseUrl: string, ref: string): string {
@@ -1213,6 +1526,34 @@ export function mapFakeEvent(value: unknown): PaymentsEvent | null {
   const data = body.data;
   if (!eventId || !data || typeof data !== "object" || Array.isArray(data)) return null;
   const fields = data as Record<string, unknown>;
+  if (body.type === "reader.action_failed") {
+    const readerRef = idOrNull(fields.readerRef);
+    const checkoutRef = idOrNull(fields.paymentRef ?? null);
+    const failureCode = fields.failureCode ?? null;
+    const outcome = fields.outcome;
+    if (!readerRef || checkoutRef === undefined) return null;
+    if (outcome !== "failed" && outcome !== "cancelled") return null;
+    if (
+      failureCode !== null &&
+      (typeof failureCode !== "string" || !/^[a-z_]{1,60}$/.test(failureCode))
+    ) {
+      return null;
+    }
+    const created =
+      typeof body.created === "number" && Number.isSafeInteger(body.created) && body.created >= 0
+        ? body.created * 1000
+        : Date.now();
+    return {
+      kind: "reader",
+      provider: "fake",
+      eventId,
+      readerRef,
+      checkoutRef,
+      outcome,
+      failureCode,
+      occurredAt: new Date(created).toISOString(),
+    };
+  }
   if (body.type === "subscription.event") {
     const created =
       typeof body.created === "number" && Number.isSafeInteger(body.created) && body.created >= 0
@@ -1337,6 +1678,56 @@ export function fakePayPage(checkout: FakeCheckout, formattedAmount: string): st
     </form>
   </div>
   <p class="note">A development stand-in for a payment provider. No card details are asked for or stored.</p>
+</main>
+</body>
+</html>`;
+}
+
+/**
+ * The fake reader's page (stage 50, ADR 0774): what the device on the desk would show, and the
+ * buyer's three moves. Self-contained, no external assets, no card fields.
+ */
+export function fakeReaderPage(
+  reader: FakeReader,
+  payment: { description: string; amount: string } | null,
+): string {
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fake card reader</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 2rem 1rem; background: #f6f6f4; color: #1d1d1b; }
+  main { max-width: 26rem; margin: 0 auto; background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 1.5rem; }
+  h1 { font-size: 1.1rem; margin: 0 0 1rem; }
+  .amount { font-size: 2rem; font-weight: 600; margin: 0.5rem 0 1rem; }
+  .note { color: #666; font-size: 0.85rem; }
+  .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
+  button { font: inherit; padding: 0.6rem 1.2rem; border-radius: 6px; border: 1px solid #1d1d1b; cursor: pointer; background: #fff; color: #1d1d1b; }
+  button.tap { background: #1d1d1b; color: #fff; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Fake card reader: ${escapeHtml(reader.label)}</h1>
+  ${
+    payment
+      ? `<p>${escapeHtml(payment.description)}</p>
+  <p class="amount">${escapeHtml(payment.amount)}</p>
+  <div class="actions">
+    ${(["tap", "decline", "cancel"] as const)
+      .map(
+        (outcome) => `<form method="post">
+      <input type="hidden" name="outcome" value="${outcome}">
+      <button type="submit" class="${outcome}">${outcome === "tap" ? "Tap card" : outcome === "decline" ? "Decline" : "Cancel"}</button>
+    </form>`,
+      )
+      .join("\n    ")}
+  </div>`
+      : '<p class="note">Waiting for a payment.</p>'
+  }
+  <p class="note">A development stand-in for a card reader. No card details are asked for or stored.</p>
 </main>
 </body>
 </html>`;

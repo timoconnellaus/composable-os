@@ -27,9 +27,12 @@ import {
   subjectMatcher,
   mentionsSql as termsMentioned,
 } from "./erase-subject.ts";
+import { queueEraseRestricted } from "./restricted.ts";
 
 export interface StoreSubject {
   object: "person" | "organisation";
+  /** The record the erase was asked for: redaction markers name it. */
+  recordId?: string | undefined;
   recordIds: readonly string[];
   /** Ids plus identifying terms, lower-cased, 6+ characters. */
   terms: readonly string[];
@@ -245,6 +248,10 @@ export async function queueEraseExtensions(ctx: HandlerContext, s: StoreSubject)
   const exec = (query: Compiled) => ctx.db.executeQuery<Record<string, unknown>>(query);
   const handled = new Set<string>();
 
+  // 0. Restricted values (ADR 0811) of the records a Person wrote as their customer: read before
+  // step 2 clears or deletes those records, and gone whatever becomes of them.
+  if (s.object === "person") rows += await queueEraseRestricted(ctx, s.recordIds);
+
   // 1. Side tables: extensions' fields on the erased records themselves.
   const sideTables = [
     ...new Set(
@@ -396,6 +403,19 @@ export async function queueEraseExtensions(ctx: HandlerContext, s: StoreSubject)
         .where("record_id", "=", record.id),
     );
   }
+  // A deleted record's restricted values (ADR 0811), whoever wrote them: one statement per object.
+  const deletedIds = new Map<string, string[]>();
+  for (const record of deleted) {
+    deletedIds.set(record.object, [...(deletedIds.get(record.object) ?? []), record.id]);
+  }
+  for (const [object, ids] of deletedIds) {
+    ctx.write(
+      CompiledQuery.raw(
+        "DELETE FROM core_restricted_value WHERE object_type = ? AND record_id IN (SELECT value FROM json_each(?))",
+        [object, JSON.stringify(ids)],
+      ),
+    );
+  }
 
   // 3. Free text in any extension table that mentions a term (not names: not known to be about
   // them). Linear in the extension tables' size; erase is rare and admin-run.
@@ -435,6 +455,36 @@ export async function queueEraseExtensions(ctx: HandlerContext, s: StoreSubject)
             ]),
           );
         }
+      }
+    }
+    // Restricted values (ADR 0811) that mention a term, as free text is: someone else's words
+    // about the subject lose them, and one that is their address or id alone goes.
+    const restricted = await ctx.db
+      .selectFrom("core_restricted_value")
+      .select(["object_type", "record_id", "field", "value"])
+      .where(mentionsSql(termsJson, sql`value`))
+      .execute();
+    for (const row of restricted) {
+      const next = scrubField(row.value, "text", m, termOnly);
+      if (next === row.value) continue;
+      rows += 1;
+      if (next === null) {
+        ctx.write(
+          ctx.db
+            .deleteFrom("core_restricted_value")
+            .where("object_type", "=", row.object_type)
+            .where("record_id", "=", row.record_id)
+            .where("field", "=", row.field),
+        );
+      } else {
+        ctx.write(
+          ctx.db
+            .updateTable("core_restricted_value")
+            .set({ value: next })
+            .where("object_type", "=", row.object_type)
+            .where("record_id", "=", row.record_id)
+            .where("field", "=", row.field),
+        );
       }
     }
     // Published versions (ADR 0446) are snapshots of records' content: one that mentions a term
@@ -842,8 +892,8 @@ export async function customerAddresses(
 /**
  * A person's customer account (stage 22, ADR 0402): the accounts linked to them or signed up with
  * one of their addresses (one waiting for a merge included; an address another identified Person
- * holds now is not theirs, #302), every session and address change of those accounts,
- * one-time sign-in codes sent to their addresses, invites for their addresses, and their erase
+ * holds now is not theirs, #302), every session and address change of those accounts, their
+ * calendar links, one-time sign-in codes sent to their addresses, invites for their addresses, and their erase
  * requests. All deleted, so nothing is left but the audit trail; an open request is closed as
  * `erased` in the audit first. Returns how many requests were closed.
  */
@@ -885,6 +935,8 @@ export async function queueEraseCustomers(ctx: HandlerContext, s: StoreSubject):
       ctx.db.deleteFrom("core_customer_session").where("customer_id", "in", part),
       // Their sign-in address changes (stage 48): the subject already read their old addresses.
       ctx.db.deleteFrom("core_customer_email_change").where("customer_id", "in", part),
+      // Their calendar link (ADR 0890), before the account (the cascade would too).
+      ctx.db.deleteFrom("core_customer_feed").where("customer_id", "in", part),
       ctx.db.deleteFrom("core_customer").where("id", "in", part),
     );
   }
@@ -981,6 +1033,9 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
         ]),
       ),
   );
+  // The codes sent to their numbers (stage 30, ADR 0673): deleted. A number that replied STOP
+  // stays a salted hash in core_text_stop, tied to nobody, so it is not texted if entered again.
+  ctx.write(ctx.db.deleteFrom("core_phone_check").where("person_id", "in", ids));
   // Their continuation offers (stage 32a, ADR 0491): an address and a date, nothing the books
   // need. Deleted, by Person or by address.
   ctx.write(
@@ -999,6 +1054,66 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
       ),
   );
   const orders = await ctx.db.selectFrom("core_order").selectAll().where(theirOrder).execute();
+  // Their orders' adjustments (stage 34, ADR 0690) keep their amounts, kinds and sources (the
+  // order is a financial record); a staff reason, which may say something about them, is blanked,
+  // and so is the audit log's copy of it: the input of each order.adjust and order.unadjust on
+  // their orders is redacted through the sanctioned path (core_audit_redactions). Their input
+  // names only the order, so the erase's own term match never finds them. The same holds for
+  // payments taken another way (ADR 0694): a recorded payment's reference (a bank reference
+  // naming the payer, say) and a reversal's reason are blanked, with the audit's copies of
+  // order.recordPayment, order.reversePayment (which names the payment) and order.recordRefund.
+  if (orders.length) {
+    const orderIds = jsonList(orders.map((row) => row.id));
+    ctx.write(
+      ctx.db
+        .updateTable("core_order_adjustment")
+        .set({ reason: null })
+        .where("reason", "is not", null)
+        .where("order_id", "in", orderIds),
+      ctx.db
+        .insertInto("core_audit_redactions")
+        .orIgnore()
+        .columns([
+          "audit_id",
+          "change_id",
+          "object_type",
+          "record_id",
+          "operation",
+          "user_id",
+          "at",
+        ])
+        .expression(
+          ctx.db
+            .selectFrom("core_audit as a")
+            .select([
+              "a.id as audit_id",
+              sql<number | null>`NULL`.as("change_id"),
+              sql<string>`${s.object}`.as("object_type"),
+              sql<string>`${s.recordId ?? s.recordIds[0] ?? ""}`.as("record_id"),
+              sql<string>`${ctx.operation}`.as("operation"),
+              sql<string>`${ctx.user.id}`.as("user_id"),
+              sql<string>`${ctx.now}`.as("at"),
+            ])
+            .where((eb) =>
+              eb.or([
+                eb.and([
+                  eb("a.operation", "in", [
+                    "order.adjust",
+                    "order.unadjust",
+                    "order.recordPayment",
+                    "order.recordRefund",
+                  ]),
+                  sql<SqlBool>`json_extract(a.input, '$.id') IN ${orderIds}`,
+                ]),
+                eb.and([
+                  eb("a.operation", "=", "order.reversePayment"),
+                  sql<SqlBool>`json_extract(a.input, '$.paymentId') IN (SELECT event_id FROM core_order_payment WHERE provider = 'host' AND order_id IN ${orderIds})`,
+                ]),
+              ]),
+            ),
+        ),
+    );
+  }
   // Their purchases still open (stage 44 step 8, ADR 0646): an order nothing was paid on is
   // cancelled by the host, so a payment that comes after the erase never makes it paid (a
   // drop-in's is owed back automatically, `oweLateRefund`, ADR 0429; another's is on the paid-late
@@ -1044,8 +1159,17 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
           updated_at: ctx.now,
         })
         .where("id", "in", part),
-      // Staff's words about a refund may name the person (migration 0422).
-      ctx.db.updateTable("core_order_refund").set({ reason: null }).where("order_id", "in", part),
+      // Staff's words about a refund may name the person (migration 0422), and so may a
+      // reference given with a payment or a refund taken another way (migration 0952).
+      ctx.db
+        .updateTable("core_order_refund")
+        .set({ reason: null, reference: null })
+        .where("order_id", "in", part),
+      ctx.db
+        .updateTable("core_order_payment")
+        .set({ reference: null, reason: null })
+        .where("order_id", "in", part)
+        .where((eb) => eb.or([eb("reference", "is not", null), eb("reason", "is not", null)])),
     );
   }
   return orders.length;

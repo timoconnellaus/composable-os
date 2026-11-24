@@ -1,28 +1,19 @@
 // What the Programs tests share: the pack installed as shipped, callers, and a small layout.
-import { env } from "cloudflare:workers";
 import {
   type ActingUser,
   type CustomerPrincipal,
   type ExtensionHost,
   type InvocationContext,
-  invokeByName,
   type OutsideInvocationContext,
   refreshSchemaRegistry,
 } from "@composable-os/core";
 import type { Layout } from "../../../packs/programs/layout.ts";
-import { db, host, unique } from "./helpers.ts";
+import { db, host, newCustomer, run } from "./helpers.ts";
+import { packFiles } from "./pack-files.ts";
 
-const files = Object.fromEntries(
-  Object.entries(
-    import.meta.glob<string>("../../../packs/programs/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  )
-    .map(([path, text]) => [path.split("/").pop() as string, text] as const)
-    .filter(([name]) => name !== "vitest.config.ts"),
-);
+export { run };
+
+const files = packFiles("programs");
 
 /** The extension host of a deployment whose product lists Programs. */
 export const shippedHost: ExtensionHost = {
@@ -64,14 +55,6 @@ export const as = (principal: CustomerPrincipal): OutsideInvocationContext => ({
   extensionHost: shippedHost,
 });
 
-export function run<T = Record<string, unknown>>(
-  name: string,
-  input: unknown,
-  ctx: InvocationContext | OutsideInvocationContext,
-): Promise<T> {
-  return invokeByName(name, input, ctx) as Promise<T>;
-}
-
 /** What a call was refused with: its code, message and the inner code of a tool's refusal. */
 export async function refusal(call: Promise<unknown>) {
   try {
@@ -102,21 +85,7 @@ export async function createCustomer(
   label: string,
   name = `Given-${label}`,
 ): Promise<CustomerPrincipal> {
-  const tag = unique(label).toLowerCase();
-  const email = `${tag}@members.test`;
-  const person = await run<{ id: string }>(
-    "person.create",
-    { givenName: name, emails: [{ email }] },
-    staff(admin),
-  );
-  const customerId = `cus_${tag}`;
-  const now = new Date().toISOString();
-  await env.DB.prepare(
-    "INSERT INTO core_customer (id, person_id, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
-  )
-    .bind(customerId, person.id, email, now, now)
-    .run();
-  return { kind: "customer", customerId, personId: person.id };
+  return (await newCustomer(staff(admin), label, { givenName: name })).principal;
 }
 
 /** Two weeks, a session on Monday (a row, a pike with levels) and one on Thursday. */

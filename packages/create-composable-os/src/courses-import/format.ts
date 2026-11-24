@@ -16,8 +16,8 @@
 // The host checks every record again (`record.import`'s dry run): its outline against the course's
 // schema, its prices, its references. This checks what only the folder can say: files that are
 // there, keys used once, CSV rows that name a course or lesson the folder has.
-import { MEDIA_CAPTION_MAX_BYTES, mediaProblem, sniffFileType } from "@composable-os/sdk";
-import type { Problem } from "../import-door/records.ts";
+import { MEDIA_CAPTION_MAX_BYTES, mediaProblem, slugify, sniffFileType } from "@composable-os/sdk";
+import { isObject, type Problem, replaceMarked } from "../import-door/records.ts";
 
 export const FORMAT_VERSION = 1;
 export const COURSE = "courses.course";
@@ -116,9 +116,6 @@ export interface CoursesFolder {
   progress: string | null;
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> =>
-  typeof v === "object" && v !== null && !Array.isArray(v);
-
 /** RFC 4180 CSV: quoted fields, doubled quotes, CRLF or LF. Rows with their 1-based line. */
 export function parseCsv(text: string): { line: number; cells: string[] }[] {
   const rows: { line: number; cells: string[] }[] = [];
@@ -169,14 +166,6 @@ export function srtToVtt(srt: string): string {
     .replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, "$1.$2");
   return `WEBVTT\n\n${body.trim()}\n`;
 }
-
-const slugify = (text: string) =>
-  text
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 120);
 
 /** The folder as an import, with every problem and the file (and line) it is in. */
 export function readCoursesFolder(folder: CoursesFolder): CoursesPlan {
@@ -396,6 +385,8 @@ export function readCoursesFolder(folder: CoursesFolder): CoursesPlan {
     });
   }
 
+  // A bundle's key may be a course's: they are records of different objects.
+  const bundleFiles = new Map<string, string>();
   for (const [file, text] of [...folder.bundles].sort(([a], [b]) => a.localeCompare(b))) {
     const path = `bundles/${file}`;
     const fault = (message: string) => problems.push({ file: path, message });
@@ -411,6 +402,9 @@ export function readCoursesFolder(folder: CoursesFolder): CoursesPlan {
       continue;
     }
     const key = typeof raw.key === "string" ? raw.key : file.replace(/\.json$/i, "");
+    if (!KEY_RE.test(key)) fault(`The key "${key}" is not 1 to 100 letters, digits or ._:-`);
+    if (bundleFiles.has(key)) fault(`The key "${key}" is ${bundleFiles.get(key)}'s too`);
+    bundleFiles.set(key, path);
     const values: Record<string, unknown> = {};
     for (const name of ["title", "slug", "summary", "price"] as const) {
       if (raw[name] !== undefined) values[name] = raw[name];
@@ -542,8 +536,5 @@ export function readCoursesFolder(folder: CoursesFolder): CoursesPlan {
 
 /** Every `{ $media: ref }` in a value replaced by `id(ref)`. */
 export function withMedia(value: unknown, id: (ref: string) => string): unknown {
-  if (Array.isArray(value)) return value.map((v) => withMedia(v, id));
-  if (!isObject(value)) return value;
-  if (typeof value[MEDIA] === "string" && Object.keys(value).length === 1) return id(value[MEDIA]);
-  return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, withMedia(v, id)]));
+  return replaceMarked(value, MEDIA, id);
 }

@@ -13,7 +13,7 @@
 //
 // Item titles and the assistant's words carry record content, so hosted deployments force this
 // placement off (settings.ts) until TypeSafe has agreed zero retention.
-import { choice } from "../questions.ts";
+import { choice, clip } from "../questions.ts";
 import { failureOf, type Judge, type JudgeUnavailableReason } from "../types.ts";
 
 export const APPROVAL_INTENT_PLACEMENT = "approval.intent" as const;
@@ -85,11 +85,6 @@ export interface ApprovalPhraseState {
   said: string;
   phrase: string;
 }
-
-const clip = (text: string, max: number) => {
-  const flat = text.replace(/\s+/g, " ").trim();
-  return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`;
-};
 
 export function approvalIntentState(input: {
   said: string;

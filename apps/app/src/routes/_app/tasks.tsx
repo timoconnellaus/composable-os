@@ -44,6 +44,7 @@ import { countQueryOptions } from "#/lib/count";
 import { callOp } from "#/lib/operations";
 import { errorMessage, useOp } from "#/lib/query";
 import { useObjectInfo } from "#/lib/schema";
+import { browserTimeZone } from "#/lib/time-zones";
 import { useUserLabel, useUsers } from "#/lib/users-adapter";
 
 type TasksTab = "mine" | "all";
@@ -56,14 +57,6 @@ export const Route = createFileRoute("/_app/tasks")({
   }),
   component: TasksPage,
 });
-
-function browserTimeZone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  } catch {
-    return "UTC";
-  }
-}
 
 function TasksPage() {
   const search = Route.useSearch();
@@ -78,7 +71,8 @@ function TasksPage() {
   const all = useAllTasksFilters(view);
   const { object: info } = useObjectInfo("task");
   const timezone = useMemo(browserTimeZone, []);
-  const mine = useOp("task.listMine", { timezone });
+  // Only the My tasks tab shows its count (MyTasks reads the same query).
+  const mine = useOp("task.listMine", { timezone }, { enabled: tab !== "all" });
   const allCount = useQuery({ ...countQueryOptions("task", all.combined), enabled: tab === "all" });
   const mineCount = mine.data
     ? BUCKETS.reduce((n, b) => n + (mine.data?.counts[b.key] ?? 0), 0)

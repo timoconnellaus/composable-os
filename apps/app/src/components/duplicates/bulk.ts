@@ -3,6 +3,7 @@
 // a Worker's limits; every merge inside still runs through person.merge / organisation.merge.
 import type { CoreOutput } from "@composable-os/core";
 import { callOp } from "#/lib/operations";
+import { errorMessage } from "#/lib/query";
 import { type MergeGroup, mergeBatches } from "./merge-batches.ts";
 
 export type { MergeGroup };
@@ -47,7 +48,7 @@ export async function runBulkMerge(
     try {
       addOutcome(result, await callOp("duplicate.mergeMany", { object, groups: batch }));
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Something went wrong";
+      const message = errorMessage(error);
       for (const id of batch.flatMap((g) => g.mergedIds)) result.failed.push({ id, message });
     }
     done += batch.reduce((n, g) => n + g.mergedIds.length, 0);

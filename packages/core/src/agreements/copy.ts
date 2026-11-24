@@ -31,9 +31,12 @@ import type { IntegrationRuntime } from "../integrations/runtime.ts";
 import { resolveChannelTarget } from "../notifications/channels.ts";
 import { loadDeliverySettings } from "../notifications/preferences.ts";
 import { notifyStatements } from "../notifications/send.ts";
+import { jsonList } from "../records/common.ts";
+import { ERASED } from "../records/erase-subject.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import { GUARDIAN_LINK } from "../visibility/guardians.ts";
 import type { Signature } from "./capture.ts";
+import { deskEvidence, deskWords } from "./desk.ts";
 import { type Question, versionIntact } from "./documents.ts";
 import { isMinor, personFacts } from "./due.ts";
 
@@ -66,7 +69,7 @@ export interface AgreementDocument {
 export const copyKey = (acceptanceId: string) => `agreement-copy:${acceptanceId}`;
 
 /** The business's name, as its copies and files say it. */
-async function businessName(db: Db): Promise<{ name: string; timezone: string }> {
+export async function businessName(db: Db): Promise<{ name: string; timezone: string }> {
   const settings = await loadGeneralSettings(db);
   return { name: settings.orgName ?? productName(product), timezone: settings.timezone };
 }
@@ -276,6 +279,23 @@ export async function acceptanceDocument(
     });
     if (view.kind === "staff" && view.freeText && a.signed_by)
       record.push({ label: "Signed by", value: a.signed_by });
+  } else if (a.channel === "desk") {
+    // At the desk (ADR 0649): what the session records, and no more.
+    const guardian = a.by === "guardian" && theirs ? nameOf(a.agent_person_id) : null;
+    const evidence = await deskEvidence(db, a.desk_session_id);
+    record.push({
+      label: "Agreed by",
+      value:
+        a.by === "guardian"
+          ? `A parent or guardian${guardian ? `, ${guardian}` : ""}`
+          : "Themselves",
+    });
+    if (evidence) {
+      record.push({
+        label: "How it was made",
+        value: deskWords(evidence, (iso) => `${localTime(iso, timezone)} (${timezone})`),
+      });
+    }
   } else if (a.by === "guardian") {
     const guardian = theirs ? nameOf(a.agent_person_id) : null;
     record.push({
@@ -373,7 +393,16 @@ export async function copyMessage(
 ): Promise<{ subject: string; text: string; agreement: AgreementDocument & { summary: string } }> {
   const a = await db
     .selectFrom("core_agreement_acceptance")
-    .select(["id", "by", "person_id", "agent_person_id", "accepted_at", "signed_on"])
+    .select([
+      "id",
+      "by",
+      "person_id",
+      "agent_person_id",
+      "accepted_at",
+      "signed_on",
+      "channel",
+      "desk_session_id",
+    ])
     .where("id", "=", acceptanceId)
     .executeTakeFirst();
   if (!a) throw new NotFoundError("acceptance", acceptanceId);
@@ -403,6 +432,34 @@ export async function copyMessage(
     a.by === "paper" && a.signed_on
       ? `It was recorded from a paper form signed on ${a.signed_on}`
       : "It was recorded from a paper form";
+  // At the desk (ADR 0649): what was accepted, where, on which device, in whose session; and that
+  // they should say so if it was not them. Neither the copy nor the file claims the email proves
+  // who signed: it is the deterrent against staff signing for a member, not proof of presence.
+  const desk = a.channel === "desk" ? await deskEvidence(db, a.desk_session_id) : null;
+  if (desk) {
+    const started = `${localTime(desk.startedAt, timezone)} (${timezone})`;
+    const deskLines = [
+      `Version ${document.versionNumber} of "${document.title}" was accepted ${a.by === "guardian" ? "by you as a parent or guardian, for someone linked to you (the attached file names who it is for)," : "for you"} at ${document.business}'s desk, on the device enrolled as ${desk.device}, in a session started by ${desk.startedBy} at ${started}.`,
+      `Accepted: ${when}.`,
+      "",
+      "The signed agreement is attached as a PDF. You can see it at any time under My agreements, in the app or on the website.",
+    ];
+    if (document.questions) {
+      deskLines.push(
+        "",
+        "The answers to the health questions are not in this email or the attached file: they are in the app.",
+      );
+    }
+    deskLines.push("", `If this was not you, reply to this email or tell ${document.business}.`);
+    return {
+      subject: `${document.business}: your copy of ${document.title}`.replace(/[\r\n]+/g, " "),
+      text: deskLines.join("\n"),
+      agreement: {
+        ...document,
+        summary: `agreed ${a.by === "guardian" ? "by a parent or guardian" : "by the person"} at the desk, ${utcTime(a.accepted_at)}`,
+      },
+    };
+  }
   const lines = [
     // The guardian's copy never says they agreed (the review of PR #301): it is a copy of a form
     // recorded from paper for a child linked to them.
@@ -1031,12 +1088,12 @@ export async function cancelUnlinkedGuardianCopies(
   ids: readonly string[],
 ): Promise<void> {
   if (!ids.length) return;
-  const these = sql`(SELECT value FROM json_each(${JSON.stringify(ids)}))`;
+  const these = jsonList(ids);
   const open = sql`c.guardian_id IS NOT NULL AND c.state IN ('queued', 'sending', 'waiting')
     AND c.acceptance_id IN ${these} AND NOT ${liveGuardianLink("c")}`;
   await db.executeQuery(
     sql`UPDATE core_pending_action SET
-        input = ${JSON.stringify("[erased]")}, reason = ${"[erased]"}, preview = '[]',
+        input = ${JSON.stringify(ERASED)}, reason = ${ERASED}, preview = '[]',
         simulated = ${JSON.stringify({ output: null, records: [] })},
         status_reason = CASE WHEN status = 'pending'
           THEN 'Rejected: the parent or guardian it was for is no longer linked to the child'
@@ -1121,7 +1178,12 @@ async function paperCopyGuardians(db: Db, childId: string): Promise<PaperCopyGua
 }
 
 /** The address the host holds for a Person: their sign-in address, or their primary one. */
-async function paperCopyAddress(db: Db, personId: string): Promise<string | null> {
+/**
+ * The address the host holds for a Person, as a copy is sent to it: their active, linked customer
+ * account's sign-in address, else their primary address (a paper form's copy, and the address a
+ * desk session pins at its start, ADR 0649).
+ */
+export async function paperCopyAddress(db: Db, personId: string): Promise<string | null> {
   const account = await db
     .selectFrom("core_customer")
     .select("email")

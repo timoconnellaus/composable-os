@@ -84,9 +84,17 @@ describe("audiences on operations", () => {
   it("refuses an empty list, an unknown audience and a repeated one", () => {
     const problems = (audiences: unknown) =>
       operationProblems({ ...unmarked, audiences } as unknown as AnyOperation);
-    expect(problems([])).toEqual(["audiences must list at least one of staff, customer, public"]);
-    expect(problems(["admin"])).toEqual(["audiences must be a subset of staff, customer, public"]);
+    expect(problems([])).toEqual([
+      "audiences must list at least one of staff, customer, public, device",
+    ]);
+    expect(problems(["admin"])).toEqual([
+      "audiences must be a subset of staff, customer, public, device",
+    ]);
     expect(problems(["staff", "staff"])).toEqual(["audiences lists one twice"]);
+    // A device's operations are its own (ADR 0781).
+    expect(problems(["device", "staff"])).toEqual([
+      "an operation open to device is open to nobody else",
+    ]);
     for (const audience of AUDIENCES) expect(problems([audience])).toEqual([]);
     expect(() => defineOperation({ ...base, name: "fixture.none", audiences: [] })).toThrow(
       /audiences must list at least one/,

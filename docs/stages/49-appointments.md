@@ -32,6 +32,29 @@ stages [31](31-bookings.md) (its 31b section, which this stage replaces), [32](3
 Status: **spec agreed** (owner interviewed 2026-11-24; the other points decided the same day by the
 coordinator as best practice, below). Build may start with step 1.
 
+- **Step 1 built** (`feat/stage-49-claim-margins`; migration 1091, ADRs 0760 and 0761): claim
+  margins on `staffed` (`claimBefore`, `claimAfter`, kept on the claim as `margin_before` and
+  `margin_after`, followed on the kind's table for shifts not yet ended), `account: "required"`
+  (refused at write and by triggers on the shift's and the profile's tables), and `private`
+  (the roster shows the kind to anyone but the provider and rosterers, clash answers name the kind,
+  never offered; the feed already showed no title). Platform only: no Bookings object declares them
+  yet (step 5). The spec's ADR "0764" part about the roster and the feed is ADR 0761.
+- **Step 4 built** (`feat/stage-49-free-times`; migration 1092, ADR 0763, ADR 0762 amended): free
+  times and the customer's check. `staffed.open` (the kind's length, step and rooms, the client,
+  the closures, `customer: true`); `freeTimes` (`staffing/free.ts`) worked out at read time from
+  open hours less time off, claims with margins (the batch's queued ones counted), taken rooms (the
+  first free in the kind's order), closures and the client's own, on the step from local midnight,
+  inside the create rules' window for a customer or the public; only qualified, active providers;
+  at most 31 days and 20 providers in a fixed number of reads. The tool-only `staffing.free`, open
+  to staff, customers and the public through a shipped pack's tool, keyed by the shift's person
+  value (a coach profile) rather than an account (the spec's `accounts?`). The customer's check
+  (`not_free_time`) in the transition engine's place and in `assertCreateRules` (the held door),
+  with exactly one of the kind's free rooms or none, and the client's own bookings guarded at
+  commit (`core_client_guard`, migration 1092; a visitor paying is step 8's);
+  staff warnings `outside_hours` and `client_busy`. A customer's booking of such a shift is not a
+  rosterer's act (ADR 0626 amended) and carries no staff warnings or roster notices. Platform only:
+  no Bookings object declares `open` yet (step 5), so nothing calls `staffing.free` outside tests.
+
 This stage was drafted as "31b". It **replaces stage 31's 31b section** and widens it: stage 31's
 decision 1 agreed appointments "booked by staff" and left members booking their own to #239; a gym
 needs members booking one-to-one sessions themselves on day one, so this stage takes #239 in. Stage
@@ -548,6 +571,8 @@ written until built):
 was given migrations from 1095 and ADRs from 0765 for parallel work: it used migration **1095**
 (`core_thing_time`) and ADR **0765** (`occupies`, listed above as 0761). So the ADR listed above as
 0765 (appointments in the Bookings pack) takes the lowest free number when step 5 builds it.
+Step 4 (free times and the customer's check) used migration **1092** (`core_client_guard`) and
+ADR **0763**, and amended 0762.
 
 ## Suggested build order
 

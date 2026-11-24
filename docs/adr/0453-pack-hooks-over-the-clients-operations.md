@@ -57,3 +57,11 @@ role (`useEventsOnSale`, `useStartOrder`) fails to compile (`@ts-expect-error`, 
 error when unused). Checked not vacuous: with the block taking the full `TicketingHooks`, the test
 fails. `packs/ticketing/test/client.test.ts`: a client of the door's operations gets exactly those
 three hooks at run time.
+
+## Amendment, 2026-11-24 (ADR 0889): a hook that reads each audience's way
+A hook's entry in `*_HOOKS_CALL` may be `{ anyOf: [["record.list"], ["my.list"]] }`: the hook is
+there for a client holding all of one of the lists, and the pack's `make` is given `holds(name)`
+to pick the read (the first held list wins). Programs' `useClassTypes` uses it, so a member's client
+reads the class types with `my.list` and staff's with `record.list`. `hookOperations` and
+`hooksOperations` (`@composable-os/client`) list every operation a hook or a pack's hooks may call,
+for a client that holds them all (the admin's screen client).

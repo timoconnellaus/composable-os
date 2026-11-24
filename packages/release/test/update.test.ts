@@ -475,4 +475,20 @@ describe("preflight", () => {
     });
     expect(result.blockers.map((b) => b.code).sort()).toEqual(["database_newer", "not_newer"]);
   });
+
+  it("warns that an installed gatekeeper no longer ships, under its own code", async () => {
+    const current = (await buildFixtureRelease({ version: "1.0.0", clientGatekeepers: true }))
+      .manifest;
+    const target = (await buildFixtureRelease({ version: "1.1.0" })).manifest;
+    const result = preflight({
+      currentVersion: "1.0.0",
+      current,
+      target,
+      appliedMigrations: current.migrations.map((m) => m.name),
+      extensions: [],
+      installedGatekeepers: ["demo-gatekeeper-email-send"],
+    });
+    expect(result.gatekeepers.removed).toContain("demo-gatekeeper-email-send");
+    expect(result.warnings.map((w) => w.code)).toEqual(["gatekeeper_removed"]);
+  });
 });

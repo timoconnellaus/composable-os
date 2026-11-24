@@ -10,7 +10,10 @@
 //   - a visitor's drop-in carries their acceptances in x.bookings.buy, recorded with the order and
 //     no Person, theirs once the verified payment matches the address (criterion 6);
 //   - after "agree again" the host still promotes a waiter, an existing booking stays booked and a
-//     coach unticks a name; the next booking asks (criterion 3).
+//     coach unticks a name; the next booking asks (criterion 3);
+//   - an enrolment staff give (x.courses.enrol, record.create) and a ticket made by hand ask as
+//     buying one does; undoing a check-in asks nobody; the courses import's enrolments are
+//     students moving over and are not asked (issue #281).
 // The generic rules (the race, every bump, HTTP, the assistant and MCP) are in
 // packages/core/test/agreement-enforcement.test.ts. All text is fixture text.
 import { env, exports } from "cloudflare:workers";
@@ -24,7 +27,7 @@ import {
   refreshSchemaRegistry,
   runWaitlistDue,
 } from "@composable-os/core";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
 import { createAdmin, db, host, unique } from "./helpers.ts";
@@ -59,6 +62,13 @@ const files: Record<string, Record<string, string>> = {
   ),
   ticketing: packFiles(
     import.meta.glob<string>("../../../packs/ticketing/*.ts", {
+      query: "?raw",
+      import: "default",
+      eager: true,
+    }),
+  ),
+  content: packFiles(
+    import.meta.glob<string>("../../../packs/content/*.ts", {
       query: "?raw",
       import: "default",
       eager: true,
@@ -281,7 +291,7 @@ beforeAll(async () => {
   admin = await createAdmin();
   await setPreset("balanced");
   await refreshSchemaRegistry(db.query);
-  for (const id of ["programs", "bookings", "memberships", "ticketing", "courses"]) {
+  for (const id of ["programs", "bookings", "memberships", "ticketing", "content", "courses"]) {
     await run("extension.install", { id, shipped: true }, staff());
   }
   await refreshSchemaRegistry(db.query);
@@ -326,13 +336,22 @@ describe("the points the packs declare", () => {
     const at = (point: string) => [...(items.find((p) => p.point === point)?.objects ?? [])].sort();
     expect(at("membership")).toEqual(["memberships.pass", PASSTYPE, PLAN].sort());
     expect(at("booking")).toEqual([BOOKING]);
-    expect(at("event")).toEqual(["ticketing.tickettype"]);
-    expect(at("course")).toEqual(["courses.bundle", "courses.course", "courses.plan"]);
-    // Stage 44 step 5: Memberships' and Bookings' screens let a person agree on the way;
-    // Ticketing's and Courses' do not yet, so the admin is warned when attaching there.
+    expect(at("event")).toEqual(["ticketing.ticket", "ticketing.tickettype"]);
+    expect(at("course")).toEqual([
+      "courses.bundle",
+      "courses.course",
+      "courses.enrolment",
+      "courses.plan",
+    ]);
+    // Stage 44 step 5 and issue #292: every shipped pack's screens let a person agree on the way,
+    // so the admin is warned at none of these points.
     const inline = (point: string) => items.find((p) => p.point === point)?.inlineStep;
-    expect([inline("membership"), inline("booking")]).toEqual([true, true]);
-    expect([inline("event"), inline("course")]).toEqual([false, false]);
+    expect(["membership", "booking", "event", "course"].map(inline)).toEqual([
+      true,
+      true,
+      true,
+      true,
+    ]);
   });
 });
 
@@ -378,6 +397,28 @@ describe("Ticketing and Courses sell as before with nothing attached (criterion 
       expect(audit.results).toEqual([]);
     } finally {
       await run("agreement.retire", { documentId: eventWaiver.id }, staff());
+    }
+  });
+
+  it("terms on `course` make a visitor's course purchase need them, carried in x.courses.buy (issue #292)", async () => {
+    const course = await create("courses.course", { title: unique("Terms"), price: 40 });
+    await run("record.publish", { object: "courses.course", id: course }, staff());
+    const buyCourse = (extra: Record<string, unknown> = {}) =>
+      run<{ id: string }>("x.courses.buy", { courseId: course, email: visitor(), ...extra }, guest);
+    const courseTerms = await publish("terms", ["course"]);
+    try {
+      const refused = await refusal(buyCourse());
+      expect(refused.details.rule).toBe("agreements_due");
+      expect(dueIds(refused)).toEqual([courseTerms.id]);
+      const bought = await buyCourse({ agreements: guestAgrees([courseTerms]) });
+      const rows = await env.DB.prepare(
+        "SELECT by, person_id FROM core_agreement_acceptance WHERE order_id = ?",
+      )
+        .bind(bought.id)
+        .all<{ by: string; person_id: string | null }>();
+      expect(rows.results).toEqual([{ by: "guest", person_id: null }]);
+    } finally {
+      await run("agreement.retire", { documentId: courseTerms.id }, staff());
     }
   });
 });
@@ -712,5 +753,174 @@ describe("agree again is not retroactive (criterion 3)", () => {
     expect(
       dueIds(await refusal(run("x.bookings.book", { classId: next }, as(b.principal)))),
     ).toEqual([waiver.id]);
+  });
+});
+
+describe("staff-given enrolments and hand-made tickets (issue #281)", () => {
+  let courseTerms: Doc;
+  let eventWaiver: Doc;
+  let course: string;
+  let event: string;
+  let ticketType: string;
+  beforeAll(async () => {
+    course = await create("courses.course", { title: unique("Given"), price: 30 });
+    event = await create("ticketing.event", { name: unique("Hand day"), places: 50 });
+    ticketType = await create("ticketing.tickettype", { event, name: unique("Door"), price: 5 });
+    courseTerms = await publish("terms", ["course"]);
+    eventWaiver = await publish("waiver", ["event"]);
+  }, 60_000);
+  afterAll(async () => {
+    for (const doc of [courseTerms, eventWaiver]) {
+      await run("agreement.retire", { documentId: doc.id }, staff());
+    }
+  });
+  const paper = async (who: Member, docs: Doc[]) => {
+    for (const doc of docs) {
+      await run(
+        "agreement.recordPaper",
+        {
+          personId: who.principal.personId,
+          versionId: doc.versionId,
+          signedOn: new Date().toISOString().slice(0, 10),
+          typedName: "Fixture Name",
+          ...answersFor(doc),
+        },
+        staff(),
+      );
+    }
+  };
+  const enrolment = (who: Member, extra: Record<string, unknown> = {}) =>
+    run<{ id: string }>(
+      "record.create",
+      {
+        object: "courses.enrolment",
+        values: { holder: who.principal.personId, course, source: "staff", ...extra },
+      },
+      staff(),
+    );
+  const ticket = (who: Member, state?: string) =>
+    run<{ id: string }>(
+      "record.create",
+      {
+        object: "ticketing.ticket",
+        values: {
+          name: "Fixture ticket",
+          tickettype: ticketType,
+          event,
+          holder: who.principal.personId,
+          ...(state ? { state } : {}),
+        },
+      },
+      staff(),
+    );
+
+  it("an enrolment staff give asks for the course's documents; the courses import does not", async () => {
+    const m = await member("enrolled");
+    const enrol = () =>
+      run<{ enrolmentId: string }>(
+        "x.courses.enrol",
+        { personId: m.principal.personId, courseId: course, reason: "Fixture reason" },
+        staff(),
+      );
+    const given = await refusal(enrol());
+    expect(given.details.rule).toBe("agreements_due");
+    expect(dueIds(given)).toEqual([courseTerms.id]);
+    // No way round by hand, nor by calling it imported.
+    for (const extra of [{}, { source: "import" }]) {
+      expect((await refusal(enrolment(m, extra))).details.rule).toBe("agreements_due");
+    }
+    // The courses import (record.import, a person's door) is a student moving over.
+    const key = unique("old-platform");
+    const importOne = (values: Record<string, unknown>) =>
+      run<{ results: { id: string | null; outcome: string }[] }>(
+        "record.import",
+        {
+          object: "courses.enrolment",
+          records: [
+            {
+              key,
+              values: {
+                course,
+                source: "import",
+                reason: "Imported from the old platform",
+                ...values,
+              },
+            },
+          ],
+        },
+        staff(),
+      );
+    const imported = await importOne({ holder: m.principal.personId });
+    expect(imported.results[0]?.outcome).toBe("created");
+    // Only the record it makes: imported again for someone else, or ended and made active again,
+    // it is asked (the review of PR #357).
+    const other = await member("importedother");
+    expect((await refusal(importOne({ holder: other.principal.personId }))).details.rule).toBe(
+      "agreements_due",
+    );
+    expect(
+      (await importOne({ holder: m.principal.personId, status: "ended" })).results[0]?.outcome,
+    ).toBe("updated");
+    expect(
+      (await refusal(importOne({ holder: m.principal.personId, status: "active" }))).details.rule,
+    ).toBe("agreements_due");
+
+    await paper(m, [courseTerms]);
+    const ok = await enrol();
+    expect((await get("courses.enrolment", ok.enrolmentId)).status).toBe("active");
+    await run(
+      "x.courses.endEnrolment",
+      { enrolmentId: ok.enrolmentId, reason: "Fixture reason" },
+      staff(),
+    );
+    // Giving access again after "agree again" asks again; ending it asks nobody.
+    await agreeAgain(courseTerms);
+    const again = await refusal(
+      run(
+        "record.update",
+        { object: "courses.enrolment", id: ok.enrolmentId, values: { status: "active" } },
+        staff(),
+      ),
+    );
+    expect(again.details.rule).toBe("agreements_due");
+    expect((await get("courses.enrolment", ok.enrolmentId)).status).toBe("ended");
+  });
+
+  it("a ticket made by hand asks for its holder; undoing a check-in asks nobody", async () => {
+    const m = await member("handticket");
+    const other = await member("otherholder");
+    for (const state of [undefined, "used"]) {
+      const refused = await refusal(ticket(m, state));
+      expect(refused.details.rule).toBe("agreements_due");
+      expect(dueIds(refused)).toEqual([eventWaiver.id]);
+    }
+    await paper(m, [eventWaiver]);
+    const made = await ticket(m);
+    await run(
+      "record.update",
+      { object: "ticketing.ticket", id: made.id, values: { state: "used" } },
+      staff(),
+    );
+    await agreeAgain(eventWaiver);
+    // The same ticket: back to valid without anyone agreeing again.
+    await run(
+      "record.update",
+      { object: "ticketing.ticket", id: made.id, values: { state: "valid" } },
+      staff(),
+    );
+    expect((await get("ticketing.ticket", made.id)).state).toBe("valid");
+    // Given to another holder, it is theirs from then and asks for them.
+    const handed = await refusal(
+      run(
+        "record.update",
+        {
+          object: "ticketing.ticket",
+          id: made.id,
+          values: { holder: other.principal.personId },
+        },
+        staff(),
+      ),
+    );
+    expect(handed.details.rule).toBe("agreements_due");
   });
 });

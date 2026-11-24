@@ -1,9 +1,19 @@
 // activity.* operations: log notes, emails, calls and meetings on any records' timelines, edit and
 // soft-delete them, and read a record's timeline. `system` activities are written only by the
 // pipeline (field changes, job changes, task completion), never through activity.log.
+//
+// A note has a level (stage 56, ADR 0830): `staff` (every staff account, as every activity was),
+// `coaches` or `sensitive`. The seam leaves out of every read here the notes the caller may not
+// read (`visibleTable(ctx, "activity")`, visibility/notes.ts); a sensitive one is listed as a
+// locked row, its text read by `note.open`. Who may change, delete or lower a note is decided here
+// (ADR 0832): its author, or `notes:manage` (with `notes:sensitive` for a sensitive one), and a
+// level is changed and a note deleted by a person only.
 import type { CoreDatabase } from "@composable-os/db";
-import { type Kysely, type Selectable, sql } from "kysely";
+import { type Compilable, type CompiledQuery, type Kysely, type Selectable, sql } from "kysely";
 import { z } from "zod";
+import { enqueueEmbeddings } from "../ai/embedding.ts";
+import { deleteSummariesStatement } from "../ai/summaries.ts";
+import { diffRecords } from "../diff.ts";
 import { ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
 import { activityObject } from "../fields/activity.ts";
 import { getObject } from "../fields/index.ts";
@@ -16,7 +26,7 @@ import {
   runListQuery,
   selectFields,
 } from "../list.ts";
-import { defineOperation, type HandlerContext } from "../operation.ts";
+import { defineOperation, type HandlerContext, type RecordChange } from "../operation.ts";
 import { jsonList } from "../records/common.ts";
 import {
   assertLinkTargets,
@@ -26,7 +36,29 @@ import {
   recordRefSchema,
   uniqueRefs,
 } from "../records/links.ts";
-import { type Reader, visibleTable } from "../visibility/index.ts";
+import {
+  NOTE_LEVELS,
+  type NoteLevel,
+  type NoteViewer,
+  noteLevelGuard,
+  noteRights,
+  type Reader,
+  visibleTable,
+} from "../visibility/index.ts";
+import {
+  assertKindLevel,
+  assertNoRequiredSections,
+  DEFAULT_NOTE_KIND,
+  type FilledSection,
+  filledSectionInput,
+  filledSectionSchema,
+  fillTemplate,
+  LEVEL_RANK,
+  loadNoteKind,
+  MAX_NOTE_BODY,
+  type NoteKind,
+  requireUsableKind,
+} from "./note-kind.ts";
 import { TRASH_RETENTION_DAYS } from "./person.ts";
 
 // --- Schemas -----------------------------------------------------------------------------------
@@ -88,7 +120,11 @@ export const ACTIVITY_TYPES = ["note", "email", "call", "meeting", "system"] as 
 
 const commonLogFields = {
   subject: z.string().trim().max(500).nullish().describe("Headline: email subject, call topic"),
-  body: z.string().max(100_000).nullish().describe("Markdown body: the note, email text, notes"),
+  body: z
+    .string()
+    .max(MAX_NOTE_BODY)
+    .nullish()
+    .describe("Markdown body: the note, email text, notes"),
   occurredAt: isoDateTime.optional().describe("When it happened. Defaults to now."),
   links: z
     .array(recordRefSchema)
@@ -97,11 +133,40 @@ const commonLogFields = {
     .describe("Records whose timelines show this activity (people, organisations, tasks)"),
 };
 
+const levelSchema = z
+  .enum(NOTE_LEVELS)
+  .describe(
+    "Who may read the note: staff (every staff account, the default), coaches (its author, the " +
+      "staff who look after the one Person it is about, and managers) or sensitive (its author " +
+      "and the people the business named one by one; every opening is recorded). A note at " +
+      "coaches or sensitive is about exactly one Person. Notes only.",
+  );
+
+const kindIdSchema = z
+  .string()
+  .startsWith("nkd_")
+  .max(64)
+  .describe("The kind of note (note.kinds.list). Default: Note");
+const sectionsSchema = z
+  .array(filledSectionInput)
+  .max(12)
+  .describe(
+    "A note from its kind's template: each section's key and text. The body is made from them; " +
+      "give one or the other. A kind with a required section takes its sections.",
+  );
+
 const logInputSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("note"),
     ...commonLogFields,
     payload: activityPayloadSchemas.note.default({}),
+    kindId: kindIdSchema.optional(),
+    sections: sectionsSchema.optional(),
+    level: levelSchema
+      .optional()
+      .describe(
+        `${levelSchema.description} Default: the kind's own; never below the kind's lowest.`,
+      ),
   }),
   z.object({ type: z.literal("email"), ...commonLogFields, payload: activityPayloadSchemas.email }),
   z.object({
@@ -140,6 +205,14 @@ export const activitySchema = z.object({
   hasFullBody: z.boolean().optional(),
   /** The email conversation it belongs to. */
   threadKey: z.string().nullable().optional(),
+  /** A note kept from the whole staff (stage 56): its level. Absent: `staff`. */
+  level: z.enum(["coaches", "sensitive"]).optional(),
+  /** A sensitive note listed without its text: open it with note.open (every opening recorded). */
+  locked: z.boolean().optional(),
+  /** A note's kind (stage 56, ADR 0833). */
+  kind: z.object({ id: z.string(), name: z.string() }).optional(),
+  /** A note written from its kind's template: the sections filled in, as their labels were. */
+  sections: z.array(filledSectionSchema).nullable().optional(),
 });
 export type Activity = z.infer<typeof activitySchema>;
 
@@ -163,6 +236,10 @@ type ActivityRow = {
   body_ref: string | null;
   disclosure: "full" | "metadata" | null;
   thread_key: string | null;
+  level: NoteLevel;
+  kind_id: string | null;
+  kind_name: string | null;
+  sections: string | null;
 };
 
 /** Private activities are visible only to the user they were made private for. */
@@ -171,37 +248,69 @@ export function visibleTo(userId: string) {
 }
 
 function activityQuery(reader: Reader) {
-  return reader.db
-    .selectFrom(visibleTable(reader, "activity", "a"))
-    .leftJoin("core_user as u", "u.id", "a.author_user_id")
-    .select([
-      "a.id",
-      "a.type",
-      "a.subject",
-      "a.body",
-      "a.payload",
-      "a.occurred_at",
-      "a.author_user_id",
-      "a.author_actor",
-      "u.name as author_name",
-      "a.created_at",
-      "a.updated_at",
-      "a.deleted_at",
-      "a.external_key",
-      "a.private_to",
-      "a.body_ref",
-      "a.disclosure",
-      "a.thread_key",
-    ]);
+  return (
+    reader.db
+      .selectFrom(visibleTable(reader, "activity", "a"))
+      .leftJoin("core_user as u", "u.id", "a.author_user_id")
+      // A note held from before kinds, or written by a path that names none, is a Note.
+      .leftJoin("core_note_kind as k", (join) =>
+        join.on(
+          "k.id",
+          "=",
+          sql<string>`coalesce(a.kind_id, CASE WHEN a.type = 'note' THEN ${DEFAULT_NOTE_KIND} END)`,
+        ),
+      )
+      .select([
+        "a.id",
+        "a.type",
+        "a.subject",
+        "a.body",
+        "a.payload",
+        "a.occurred_at",
+        "a.author_user_id",
+        "a.author_actor",
+        "u.name as author_name",
+        "a.created_at",
+        "a.updated_at",
+        "a.deleted_at",
+        "a.external_key",
+        "a.private_to",
+        "a.body_ref",
+        "a.disclosure",
+        "a.thread_key",
+        "a.level",
+        "k.id as kind_id",
+        "k.name as kind_name",
+        "a.sections",
+      ])
+  );
 }
 
-async function toActivities(db: Kysely<CoreDatabase>, rows: ActivityRow[]): Promise<Activity[]> {
+/**
+ * Activities from rows the seam returned. A sensitive note is a locked row (its kind, author and
+ * date, no text) unless `unlock`: only `note.open` and a write reading its own snapshot pass it.
+ */
+async function toActivities(
+  db: Kysely<CoreDatabase>,
+  rows: ActivityRow[],
+  { unlock = false } = {},
+): Promise<Activity[]> {
   const links = await loadLinks(
     db,
     "core_activity_links",
     rows.map((r) => r.id),
   );
-  return rows.map((row) => ({
+  return rows.map((row) => {
+    const locked = row.level === "sensitive" && !unlock;
+    return {
+      ...activityOf(row, links.get(row.id) ?? []),
+      ...(locked ? { subject: null, body: null, payload: {}, sections: null, locked: true } : {}),
+    };
+  });
+}
+
+function activityOf(row: ActivityRow, links: Activity["links"]): Activity {
+  return {
     id: row.id,
     type: row.type,
     subject: row.subject,
@@ -211,7 +320,7 @@ async function toActivities(db: Kysely<CoreDatabase>, rows: ActivityRow[]): Prom
     authorUserId: row.author_user_id,
     authorName: row.author_name,
     authorActor: row.author_actor,
-    links: links.get(row.id) ?? [],
+    links,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at,
@@ -220,26 +329,36 @@ async function toActivities(db: Kysely<CoreDatabase>, rows: ActivityRow[]): Prom
     disclosure: row.disclosure,
     hasFullBody: row.body_ref !== null,
     threadKey: row.thread_key,
-  }));
+    ...(row.level !== "staff" ? { level: row.level } : {}),
+    ...(row.kind_id && row.kind_name ? { kind: { id: row.kind_id, name: row.kind_name } } : {}),
+    ...(row.type === "note"
+      ? { sections: row.sections ? (JSON.parse(row.sections) as FilledSection[]) : null }
+      : {}),
+  };
+}
+
+/** A note's level: absent on the activity means `staff`. */
+export function levelOf(activity: Pick<Activity, "level">): NoteLevel {
+  return activity.level ?? "staff";
 }
 
 export async function loadActivity(
   reader: Reader,
   id: string,
-  { includeDeleted = false } = {},
+  { includeDeleted = false, unlock = false } = {},
 ): Promise<Activity | null> {
   let query = activityQuery(reader).where("a.id", "=", id);
   if (!includeDeleted) query = query.where("a.deleted_at", "is", null);
   const row = await query.executeTakeFirst();
   if (!row) return null;
-  const [activity] = await toActivities(reader.db, [row]);
+  const [activity] = await toActivities(reader.db, [row], { unlock });
   return activity ?? null;
 }
 
 async function requireActivity(
   reader: Reader,
   id: string,
-  options?: { includeDeleted?: boolean },
+  options?: { includeDeleted?: boolean; unlock?: boolean },
 ): Promise<Activity> {
   const activity = await loadActivity(reader, id, options);
   if (!activity) throw new NotFoundError("activity", id);
@@ -257,6 +376,103 @@ function activitySnapshot(
     occurredAt: a.occurredAt,
     links,
   };
+}
+
+/**
+ * A read that returned the text of `coaches` notes is audited, one row per call naming their ids
+ * and no text (stage 56, ADR 0830). Sensitive notes are locked here; `note.open` audits those.
+ */
+export function auditNoteReads(ctx: HandlerContext, activities: readonly Activity[]): void {
+  const notes = activities.filter((a) => a.level === "coaches").map((a) => a.id);
+  if (notes.length) ctx.auditRead?.({ notes });
+}
+
+const REDACTED = "[redacted]";
+const TEXT_FIELDS = ["subject", "body"] as const;
+
+/**
+ * The audit diff of a change to a note kept from the whole staff: the fields that changed, never
+ * their text (ADR 0019's redaction at write). Null for a `staff` note: the pipeline diffs it.
+ */
+function restrictedChange(
+  levels: readonly NoteLevel[],
+  before: Record<string, unknown> | null,
+  after: Record<string, unknown> | null,
+): Pick<RecordChange, "diff" | "restricted"> | null {
+  if (levels.every((level) => level === "staff")) return null;
+  const diff = diffRecords(before, after);
+  for (const field of TEXT_FIELDS) {
+    const entry = diff[field];
+    if (!entry) continue;
+    diff[field] = {
+      before: entry.before === null ? null : REDACTED,
+      after: entry.after === null ? null : REDACTED,
+    };
+  }
+  return { diff, restricted: true };
+}
+
+/** A note at `coaches` or `sensitive` is about exactly one Person, so "whose" has one answer. */
+function assertOnePerson(level: NoteLevel, links: readonly { object: string }[]): void {
+  if (level === "staff") return;
+  if (links.filter((link) => link.object === "person").length !== 1) {
+    throw new ValidationError(
+      "A note kept to a client's coaches, or sensitive, is about exactly one person: link it to one",
+      { field: "links", rule: "note_one_person" },
+    );
+  }
+}
+
+/**
+ * Who may change or delete a note (ADR 0832): its author, or `notes:manage` (and, for a sensitive
+ * note, `notes:sensitive`), which give an AI actor nothing. Other activity types are unchanged.
+ */
+function assertMayChange(ctx: HandlerContext, activity: Activity): void {
+  if (activity.type !== "note" || activity.authorUserId === ctx.user.id) return;
+  const rights = noteRights(ctx as NoteViewer);
+  if (rights?.manage && (levelOf(activity) !== "sensitive" || rights.sensitive)) return;
+  throw new ForbiddenError(
+    "Only the note's author, or someone allowed to manage notes, can change or delete it",
+    { permission: "notes:manage", rule: "note_author" },
+  );
+}
+
+/**
+ * What a level change takes with it (ADR 0830). Its vector is queued to be dropped or made again
+ * (a kept note has none), whatever path embeds: a kept note's change is no record event. Raised
+ * from `staff`, the copies of its text made while every staff account read it go: the cached
+ * summaries built from it, and its text in the audit log, by ADR 0019's sanctioned redaction
+ * (a marker per row, naming this operation, which keeps the field names).
+ */
+function levelChangeStatements(
+  ctx: HandlerContext,
+  id: string,
+  beforeLevel: NoteLevel,
+): (Compilable | CompiledQuery)[] {
+  const out: (Compilable | CompiledQuery)[] = [];
+  const queued = enqueueEmbeddings(ctx.db, [{ object: "activity", id }], ctx.now);
+  if (queued) out.push(queued);
+  if (beforeLevel !== "staff") return out;
+  out.push(
+    deleteSummariesStatement(ctx.db, [id]),
+    sql`INSERT INTO core_audit_redactions (change_id, object_type, record_id, operation, user_id, at)
+      SELECT c.id, 'activity', ${id}, ${ctx.operation}, ${ctx.user.id}, ${ctx.now}
+      FROM core_audit_changes c
+      WHERE c.object_type = 'activity' AND c.record_id = ${id}
+        AND NOT EXISTS (SELECT 1 FROM core_audit_redactions r WHERE r.change_id = c.id)`.compile(
+      ctx.db,
+    ),
+    sql`INSERT INTO core_audit_redactions (audit_id, object_type, record_id, operation, user_id, at)
+      SELECT a.id, 'activity', ${id}, ${ctx.operation}, ${ctx.user.id}, ${ctx.now}
+      FROM core_audit a
+      WHERE a.id IN (SELECT c.audit_id FROM core_audit_changes c
+                     WHERE c.object_type = 'activity' AND c.record_id = ${id})
+        AND a.operation IN ('activity.log', 'activity.update', 'activity.proposeNote')
+        AND NOT EXISTS (SELECT 1 FROM core_audit_redactions r WHERE r.audit_id = a.id)`.compile(
+      ctx.db,
+    ),
+  );
+  return out;
 }
 
 function queueLinks(
@@ -287,6 +503,42 @@ function requireContent(type: string, subject: string | null, body: string | nul
   }
 }
 
+/**
+ * A note's kind, level and text from what was given (ADR 0833): the kind given (or Note), a level
+ * given or the kind's own and never below its lowest, and the body made from the template's
+ * sections when they are given. A kind with a required section takes its sections.
+ */
+async function noteOfKind(
+  ctx: HandlerContext,
+  input: {
+    kindId?: string | undefined;
+    level?: NoteLevel | undefined;
+    sections?: { key: string; text: string }[] | undefined;
+    body?: string | null | undefined;
+  },
+): Promise<{
+  kind: NoteKind;
+  level: NoteLevel;
+  sections: FilledSection[] | null;
+  body: string | null;
+}> {
+  const kind = await requireUsableKind(ctx, input.kindId ?? DEFAULT_NOTE_KIND);
+  const level = input.level ?? kind.defaultLevel;
+  assertKindLevel(kind, level);
+  if (input.sections) {
+    if (input.body?.trim()) {
+      throw new ValidationError("A note from a template is written in its sections, not a body", {
+        field: "body",
+        rule: "note_sections_or_body",
+      });
+    }
+    const filled = fillTemplate(kind, input.sections);
+    return { kind, level, sections: filled.sections, body: filled.body || null };
+  }
+  assertNoRequiredSections(kind);
+  return { kind, level, sections: null, body: input.body?.trim() ? input.body : null };
+}
+
 // --- Operations --------------------------------------------------------------------------------
 
 export const activityLog = defineOperation({
@@ -295,19 +547,35 @@ export const activityLog = defineOperation({
     "Log a note, email, call or meeting on one or more records' timelines (people, " +
     "organisations, tasks). Each type takes a typed payload: email needs a direction and " +
     "optional from/to/cc; call takes direction, durationSeconds and outcome; meeting takes " +
-    "startsAt/endsAt, location, url and attendees; note takes none. Notes need a body. " +
-    "occurredAt defaults to now. System activities cannot be logged; the CRM posts them itself. " +
-    "Returns the activity with its links.",
+    "startsAt/endsAt, location, url and attendees; note takes none. A note has a kind " +
+    "(note.kinds.list; default Note) and a level (default the kind's, never below its lowest); " +
+    "a kind with a template takes its sections instead of a body. Notes need a body or " +
+    "sections. occurredAt defaults to now. System activities cannot be logged; the CRM posts " +
+    "them itself. Returns the activity with its links.",
   input: logInputSchema,
   output: activitySchema,
   permission: "records:write",
   risk: "write",
+  // The text is in the change's diff for a staff note, and in no audit row for any other level.
+  auditRedact: ["subject", "body", "sections"],
   mcp: { curated: true },
   async handler(input, ctx) {
     const subject = input.subject?.trim() || null;
-    const body = input.body?.trim() ? input.body : null;
+    const note = input.type === "note" ? await noteOfKind(ctx, input) : null;
+    const body = note ? note.body : input.body?.trim() ? input.body : null;
     requireContent(input.type, subject, body);
     const links = uniqueRefs(input.links);
+    const level: NoteLevel = note?.level ?? "staff";
+    if (level !== "staff" && ctx.actor !== "human") {
+      // An AI drafts a note with activity.proposeNote; a note kept from the staff is a person's.
+      throw new ForbiddenError(
+        "Only a person writes a note kept to a client's coaches or sensitive",
+        {
+          rule: "note_level_person",
+        },
+      );
+    }
+    assertOnePerson(level, links);
     await assertLinkTargets(ctx.db, links, ctx.simulation);
 
     const id = newId("activity");
@@ -323,19 +591,30 @@ export const activityLog = defineOperation({
         occurred_at: occurredAt,
         author_user_id: ctx.user.id,
         author_actor: ctx.actor === "extension" ? "system" : ctx.actor,
+        level,
+        ...(note
+          ? {
+              kind_id: note.kind.id,
+              sections: note.sections ? JSON.stringify(note.sections) : null,
+              evidence: note.kind.evidence ? 1 : 0,
+            }
+          : {}),
         created_at: ctx.now,
         updated_at: ctx.now,
       }),
     );
     queueLinks(ctx, id, links);
+    const after = {
+      type: input.type,
+      ...activitySnapshot({ subject, body, payload, occurredAt }, linkKeys(links)),
+      ...(note ? { kind: note.kind.id } : {}),
+      ...(level !== "staff" ? { level } : {}),
+    };
     ctx.recordChange({
       object: "activity",
       id,
       action: "create",
-      after: {
-        type: input.type,
-        ...activitySnapshot({ subject, body, payload, occurredAt }, linkKeys(links)),
-      },
+      ...(restrictedChange([level], null, after) ?? { after }),
     });
     return ctx.afterCommit(() => requireActivity(ctx, id));
   },
@@ -375,6 +654,8 @@ export const activityGet = defineOperation({
   output: activitySchema,
   permission: "records:read",
   risk: "read",
+  // Its rows name notes kept from the staff: they are for people (stage 56, ADR 0830).
+  auditForPeople: true,
   mcp: { idempotent: true },
   async handler(input, ctx) {
     const activity = await requireActivity(ctx, input.id, {
@@ -383,6 +664,7 @@ export const activityGet = defineOperation({
     if (activity.private && activity.authorUserId !== ctx.user.id) {
       throw new NotFoundError("activity", input.id);
     }
+    auditNoteReads(ctx, [activity]);
     return activity;
   },
 });
@@ -391,8 +673,11 @@ export const activityUpdate = defineOperation({
   name: "activity.update",
   description:
     "Edit a note, email, call or meeting: subject, body, occurredAt, payload (validated for the " +
-    "activity's type, replacing the old payload) or links (replacing the list). The type cannot " +
-    "change. System activities cannot be edited. Returns the updated activity.",
+    "activity's type, replacing the old payload), links (replacing the list), or a note's level, " +
+    "kind (kindId) and template sections (which remake its body). The type cannot change. " +
+    "System activities cannot be edited. A note is changed by its author or someone allowed to " +
+    "manage notes; lowering a level is a person's, with that permission, and never below the " +
+    "kind's lowest. Returns the updated activity.",
   input: z.object({
     id: activityId,
     subject: commonLogFields.subject,
@@ -400,17 +685,95 @@ export const activityUpdate = defineOperation({
     occurredAt: isoDateTime.optional(),
     payload: z.record(z.string(), z.unknown()).optional().describe("Typed by the activity's type"),
     links: commonLogFields.links.optional(),
+    level: levelSchema.optional(),
+    kindId: kindIdSchema.optional(),
+    sections: sectionsSchema.optional(),
   }),
   output: activitySchema,
   permission: "records:write",
   risk: "write",
+  auditRedact: ["subject", "body", "sections"],
   async handler(input, ctx) {
-    const before = await requireActivity(ctx, input.id);
+    const before = await requireActivity(ctx, input.id, { unlock: true });
     if (before.type === "system") {
       throw new ValidationError("System activities are written by the CRM and cannot be edited");
     }
+    assertMayChange(ctx, before);
+    const beforeLevel = levelOf(before);
+    const level = input.level ?? beforeLevel;
+    if (level !== beforeLevel) {
+      if (before.type !== "note") {
+        throw new ValidationError("Only a note has a level", { field: "level" });
+      }
+      if (ctx.actor !== "human") {
+        throw new ForbiddenError("Only a person changes a note's level", {
+          rule: "note_level_person",
+        });
+      }
+      const rights = noteRights(ctx as NoteViewer);
+      if (
+        LEVEL_RANK[level] < LEVEL_RANK[beforeLevel] &&
+        !(rights?.manage && (beforeLevel !== "sensitive" || rights.sensitive))
+      ) {
+        throw new ForbiddenError("Lowering a note's level needs permission to manage notes", {
+          permission: "notes:manage",
+          rule: "note_level_lower",
+        });
+      }
+    }
+    if (before.type !== "note" && (input.kindId !== undefined || input.sections !== undefined)) {
+      throw new ValidationError("Only a note has a kind and sections", { field: "kindId" });
+    }
+    // A note is held to its kind (ADR 0833): a kind it moves to is one in use, its level never
+    // below the kind's lowest, and sections given remake its body from the kind's template.
+    const beforeKindId = before.kind?.id ?? DEFAULT_NOTE_KIND;
+    const kindId = input.kindId ?? beforeKindId;
+    if (kindId !== beforeKindId && ctx.actor !== "human") {
+      // A kind decides where a note starts and, with stage 56 step 7, whether an erase keeps it
+      // as evidence: moving a note to another is a person's act, as changing its level is.
+      throw new ForbiddenError("Only a person moves a note to another kind", {
+        rule: "note_kind_person",
+      });
+    }
+    const kind =
+      before.type !== "note"
+        ? null
+        : kindId !== beforeKindId
+          ? await requireUsableKind(ctx, kindId)
+          : level !== beforeLevel || input.sections !== undefined
+            ? await loadNoteKind(ctx, kindId)
+            : null;
+    if (kind && (kindId !== beforeKindId || level !== beforeLevel)) assertKindLevel(kind, level);
+    let sections: FilledSection[] | null | undefined;
+    let templateBody: string | null | undefined;
+    if (input.sections !== undefined && kind) {
+      if (input.body?.trim()) {
+        throw new ValidationError("A note from a template is written in its sections, not a body", {
+          field: "body",
+          rule: "note_sections_or_body",
+        });
+      }
+      const filled = fillTemplate(kind, input.sections);
+      sections = filled.sections;
+      templateBody = filled.body || null;
+    } else {
+      // Moved to another kind with no sections given: held to that kind's template as a new
+      // note is, and the old kind's sections leave it (its body stays the note).
+      if (kind && kindId !== beforeKindId) assertNoRequiredSections(kind);
+      if (before.sections?.length && (input.body !== undefined || kindId !== beforeKindId)) {
+        // A body written over a template note is the note now: its sections no longer say it.
+        sections = null;
+      }
+    }
     const subject = input.subject === undefined ? before.subject : input.subject?.trim() || null;
-    const body = input.body === undefined ? before.body : input.body?.trim() ? input.body : null;
+    const body =
+      templateBody !== undefined
+        ? templateBody
+        : input.body === undefined
+          ? before.body
+          : input.body?.trim()
+            ? input.body
+            : null;
     requireContent(before.type, subject, body);
     let payload = before.payload;
     if (input.payload !== undefined) {
@@ -427,11 +790,17 @@ export const activityUpdate = defineOperation({
     let afterLinks = beforeLinks;
     if (input.links !== undefined) {
       const links = uniqueRefs(input.links);
+      assertOnePerson(level, links);
       await assertLinkTargets(ctx.db, links, ctx.simulation);
       queueLinks(ctx, input.id, links);
       afterLinks = linkKeys(links);
+    } else {
+      assertOnePerson(level, before.links);
     }
     ctx.write(
+      // Planned from the level read above: a level changed meanwhile fails the batch whole, so a
+      // stale edit never puts back a level someone raised, nor lowers one it was not judged on.
+      noteLevelGuard(input.id, beforeLevel).compile(ctx.db),
       ctx.db
         .updateTable("core_activity")
         .set({
@@ -439,16 +808,37 @@ export const activityUpdate = defineOperation({
           body,
           payload: JSON.stringify(payload),
           occurred_at: occurredAt,
+          ...(level !== beforeLevel ? { level } : {}),
+          ...(kind && kindId !== beforeKindId
+            ? // Evidence is copied from the kind at write and never taken away (step 7).
+              { kind_id: kindId, evidence: sql<0 | 1>`max(evidence, ${kind.evidence ? 1 : 0})` }
+            : {}),
+          ...(sections !== undefined
+            ? { sections: sections ? JSON.stringify(sections) : null }
+            : {}),
           updated_at: ctx.now,
         })
         .where("id", "=", input.id),
     );
+    if (level !== beforeLevel) ctx.write(...levelChangeStatements(ctx, input.id, beforeLevel));
+    const beforeSnapshot = {
+      ...activitySnapshot(before, beforeLinks),
+      ...(before.type === "note" ? { kind: beforeKindId } : {}),
+      ...(beforeLevel !== "staff" ? { level: beforeLevel } : {}),
+    };
+    const afterSnapshot = {
+      ...activitySnapshot({ subject, body, payload, occurredAt }, afterLinks),
+      ...(before.type === "note" ? { kind: kindId } : {}),
+      ...(level !== "staff" ? { level } : {}),
+    };
     ctx.recordChange({
       object: "activity",
       id: input.id,
       action: "update",
-      before: activitySnapshot(before, beforeLinks),
-      after: activitySnapshot({ subject, body, payload, occurredAt }, afterLinks),
+      ...(restrictedChange([beforeLevel, level], beforeSnapshot, afterSnapshot) ?? {
+        before: beforeSnapshot,
+        after: afterSnapshot,
+      }),
     });
     return ctx.afterCommit(() => requireActivity(ctx, input.id));
   },
@@ -464,7 +854,12 @@ export const activityDelete = defineOperation({
   permission: "records:write",
   risk: "destructive",
   async handler(input, ctx) {
-    await requireActivity(ctx, input.id);
+    const activity = await requireActivity(ctx, input.id);
+    if (activity.type === "note" && ctx.actor !== "human") {
+      // An AI never deletes a note (stage 56, ADR 0832), whoever approves.
+      throw new ForbiddenError("Only a person deletes a note", { rule: "note_delete_person" });
+    }
+    assertMayChange(ctx, activity);
     ctx.write(
       ctx.db
         .updateTable("core_activity")
@@ -476,6 +871,7 @@ export const activityDelete = defineOperation({
       id: input.id,
       action: "delete",
       diff: { deletedAt: { before: null, after: ctx.now } },
+      ...(levelOf(activity) !== "staff" ? { restricted: true as const } : {}),
     });
     const until = new Date(Date.parse(ctx.now) + TRASH_RETENTION_DAYS * 86_400_000);
     return { id: input.id, deletedAt: ctx.now, restorableUntil: until.toISOString() };
@@ -494,6 +890,7 @@ export const activityRestore = defineOperation({
   async handler(input, ctx) {
     const activity = await requireActivity(ctx, input.id, { includeDeleted: true });
     if (!activity.deletedAt) throw new ValidationError("This activity is not in Trash");
+    assertMayChange(ctx, activity);
     ctx.write(
       ctx.db
         .updateTable("core_activity")
@@ -505,6 +902,7 @@ export const activityRestore = defineOperation({
       id: input.id,
       action: "restore",
       diff: { deletedAt: { before: activity.deletedAt, after: null } },
+      ...(levelOf(activity) !== "staff" ? { restricted: true as const } : {}),
     });
     return ctx.afterCommit(() => requireActivity(ctx, input.id));
   },
@@ -528,6 +926,7 @@ export const activityListForRecord = defineOperation({
   output: pageSchema(activitySchema),
   permission: "records:read",
   risk: "read",
+  auditForPeople: true,
   mcp: { curated: true, idempotent: true },
   async handler(input, ctx) {
     let query = activityQuery(ctx)
@@ -554,8 +953,10 @@ export const activityListForRecord = defineOperation({
       .execute();
     const page = rows.slice(0, input.limit);
     const last = page.at(-1);
+    const items = await toActivities(ctx.db, page);
+    auditNoteReads(ctx, items);
     return {
-      items: await toActivities(ctx.db, page),
+      items,
       nextCursor:
         rows.length > input.limit && last
           ? encodeCursor({ f: TIMELINE_SORT.field, d: "desc", v: last.occurred_at, id: last.id })
@@ -659,16 +1060,20 @@ export const activityGetBody = defineOperation({
   output: z.object({ id: z.string(), body: z.string().nullable(), full: z.boolean() }),
   permission: "records:read",
   risk: "read",
+  auditForPeople: true,
   mcp: { idempotent: true },
   async handler(input, ctx) {
     const row = await ctx.db
       .selectFrom(visibleTable(ctx, "activity", "a"))
-      .select(["a.id", "a.body", "a.body_ref"])
+      .select(["a.id", "a.body", "a.body_ref", "a.level"])
       .where("a.id", "=", input.id)
       .where("a.deleted_at", "is", null)
       .where(visibleTo(ctx.user.id))
       .executeTakeFirst();
     if (!row) throw new NotFoundError("activity", input.id);
+    // A sensitive note's text is read with note.open, each opening recorded.
+    if (row.level === "sensitive") return { id: row.id, body: null, full: false };
+    if (row.level === "coaches") ctx.auditRead?.({ notes: [row.id] });
     if (row.body_ref && ctx.blobs) {
       const body = await ctx.blobs.get(row.body_ref);
       if (body !== null) return { id: row.id, body, full: true };

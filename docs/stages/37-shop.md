@@ -35,6 +35,49 @@ checkout), [0646](../adr/0646-erase-merge-and-retention-for-agreements.md) (eras
 Status: **spec agreed** (owner interviewed 2026-11-24: decisions 1 to 13). Build may start. The
 questions at the end refine later steps and block none of the first ones.
 
+## Status
+
+- **Step 1, the `stock` behaviour** (`feat/stage-37-shop-step-1`; migration 0930, ADR 0680, which
+  amends ADRs 0431 and 0433): the SDK declaration `stock: { reorderAt?, reorderQty?, show?, lowAt? }`
+  and its checks (not beside a capacity; no `sellable.deposit`, `recurring` or `moves`; refused in a
+  runtime extension); the ledger `core_stock_movement` with a place on every row (`default`),
+  append-only by triggers, one opening per record, and `rec_stock_movement`; the count on
+  capacity's counter (a counter for every record, on hand `places − taken`, read-only `onHand`,
+  `held`, `available`); `stock.opening` and `stock.adjust` (a new core permission, `stock:adjust`,
+  grantable; an AI's call waits for a person who holds it), `stock.get` (staff numbers, reorder
+  level; outsiders by `show`, opened to customers and the public) and `stock.movements`; an order's
+  stock lines held on start, `sold` movements written in the paid batch (one statement), given back
+  on cancel or expiry, never on a refund. Deviations: the reads use `records:read` and the writes
+  `stock:adjust` instead of `shop:read` and `shop:stock` (a core operation cannot name a pack's
+  permission, and a pack role never holds a core one: the stockroom role moves stock through the
+  pack's records, by step 2's `stockMoves`; a direct correction is for admins and accounts granted
+  `stock:adjust`); "sellable with `goods` or
+  used by `stockMoves`" is checked when steps 2 and 3 add those. After review: the reconciler
+  refuses adding `stock` to an object with records, or taking it off one (`stock_change`), and
+  `stock.get` gives staff the last five movements.
+- **Step 2, `stockMoves` and low stock** (`feat/stage-37-stock-moves`; migration 0931, ADR 0681,
+  which amends ADR 0680): the SDK declaration `stockMoves: { move: add | remove | set, on,
+  quantity, when, through?, kind?, unitCost?, note? }` and its checks (a target with stock in the
+  same extension, a state no move leaves, `through` a relation to an object with states; refused
+  in a runtime extension), run by the transition engine for every actor in the move's batch
+  (`stock/moves.ts`): add (`received`, with unit cost and note), remove (`written_off` or `used`),
+  set (`counted`, the difference from on hand at the commit; refused below what unpaid orders hold
+  with the numbers); `through` moves all of a record's lines at once (a count applied, up to 500
+  lines, three statements whatever the number); what moved stock cannot change, and a moved
+  record's lines cannot be added or changed. Low stock (`stock/low.ts`, `core_stock_low`): the
+  holders of the pack's `stock.notify` permission (else the admins) told once per crossing of the
+  reorder level, by opening, adjust, `stockMoves`, a paid order's sale or a changed level, in the
+  write's batch. Deviations: who is told is the permission the pack names in `stock.notify`
+  (core cannot name `shop:stock`); a stock object is "sellable, or moved by a `stockMoves`" until
+  step 3 adds `goods`; a `stockMoves` target must be in the same extension (stage 39 widens it for
+  Jobs). The over-receipt warning and notice, and a count's "differences over a threshold" notice,
+  are the pack's step 6 (they need the purchase line). After review: a move into a stock-moving
+  state is the host's through the pack's person tools (`humanOnly`/`personApproves`), never a
+  plain staff, customer or `create.in` move, so an AI's waits for a person; guards close the race
+  of a count's apply with its lines both ways; a line cannot be restored under an applied count; a
+  crossing is marked told (it outlives the notices' purge); a fixed role is told only of objects
+  it reads. Left: steps 3 to 14.
+
 Vocabulary: "product" is the platform's word for a composition (ADR 0400) and is avoided for what
 a business sells. This spec says **item** (a thing in the shop: "Club hoodie") and **variant** (one
 version of it that is bought and counted: "Club hoodie, large, black").

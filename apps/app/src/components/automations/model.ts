@@ -12,25 +12,53 @@ import type {
   RunStatus,
   RunStepRecord,
 } from "@composable-os/core";
+import { recordHref } from "#/lib/schema";
 
 export type AutomationStatus = AutomationListItem["status"];
 
 export const STATUS_LABELS: Record<AutomationStatus, string> = {
   active: "Active",
   disabled: "Disabled",
+  waiting: "Waiting",
+  broken: "Needs a fix",
   paused: "Paused",
   killed: "Killed",
   removed: "Removed",
 };
 
-/** Pill colours: active green, paused/disabled amber, killed red, removed grey. */
+/**
+ * Pill colours: active green, paused/disabled amber, killed and broken red, waiting and removed
+ * grey.
+ */
 export type Tone = "ok" | "fail" | "pause" | "muted";
+
+/**
+ * What an automation that runs only with other extensions waits for (ADR 0812), e.g. "Runs only
+ * with bookings, which is not installed and on"; null when it waits for none.
+ */
+export function waitingText(waitingFor: readonly string[]): string | null {
+  if (!waitingFor.length) return null;
+  const names = joinNames(waitingFor);
+  return `Runs only with ${names}, which ${waitingFor.length > 1 ? "are" : "is"} not installed and on`;
+}
+
+/**
+ * What an automation names of an installed extension it runs only with that does not exist
+ * (ADR 0812), e.g. "Names bookings.bookng, which does not exist: correct the extension and install
+ * it again"; null when it names none.
+ */
+export function unknownObjectsText(objects: readonly string[]): string | null {
+  if (!objects.length) return null;
+  const one = objects.length === 1;
+  return `Names ${joinNames(objects)}, which ${one ? "does" : "do"} not exist: correct the extension and install it again`;
+}
 
 export function statusTone(status: AutomationStatus): Tone {
   switch (status) {
     case "active":
       return "ok";
     case "killed":
+    case "broken":
       return "fail";
     case "paused":
     case "disabled":
@@ -63,7 +91,8 @@ export type RunOutcomeInput = Pick<RunItem, "status" | "statusReason" | "outcome
   steps: readonly unknown[];
 };
 
-function stepsOf(run: { steps: readonly unknown[] }): RunStepRecord[] {
+/** A run's steps, leaving out anything that is not a step record. */
+export function stepsOf(run: { steps: readonly unknown[] }): RunStepRecord[] {
   return run.steps.filter(
     (s): s is RunStepRecord =>
       Boolean(s) && typeof s === "object" && typeof (s as RunStepRecord).name === "string",
@@ -194,7 +223,6 @@ export function compactRelative(value: string | null | undefined, now: number = 
   const at = Date.parse(value);
   if (Number.isNaN(at)) return value;
   const seconds = Math.round((now - at) / 1000);
-  if (seconds < 0) return "just now";
   if (seconds < 60) return "just now";
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
   if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h ago`;
@@ -414,18 +442,7 @@ export function testReportLines(report: AutomationTestReport): ReportLine[] {
 export function linkHref(link: NotificationLink): string {
   switch (link.kind) {
     case "record":
-      switch (link.object) {
-        case "person":
-          return `/people/${link.id}`;
-        case "organisation":
-          return `/organisations/${link.id}`;
-        case "task":
-          return "/tasks";
-        case "activity":
-          return "/activity";
-        default:
-          return `/x/${link.object}/${link.id}`;
-      }
+      return recordHref(link.object, link.id);
     case "approval":
       return `/approvals?set=${encodeURIComponent(link.changeSetId)}`;
     case "automationRun":

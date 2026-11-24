@@ -7,14 +7,26 @@
 // person.update runs (the writer registered in operations/person.ts), so uniqueness, search, the
 // audit diff and timeline tracking hold as for staff.
 //
+// The birthday operations (stage 53, ADR 0803) are `hostInternal` too: a birthday is kept beside
+// the Person's row, in no `rec_*` view the seam reads, and they touch only the caller's own Person
+// (the principal's, never an input's). What the member sets is marked theirs (`customer`).
+//
 // The session operations, changing the sign-in address and me.deleteAccount are account
 // bookkeeping, not records, so they are `hostInternal`: they keep `ctx.db` and touch only the
 // caller's own account (taken from the principal, never from input), its sessions, its address
-// change and its erase request. A session token never leaves them.
+// change and its erase request. A session token never leaves them. me.deleteAccount also ends the
+// subscriptions the caller pays at their period's end and cancels their unpaid orders, with the
+// code their own subscription.cancel and order.cancel run (customers/account-delete.ts, ADR 0713).
 //
-// Changing the sign-in address and deleting the account need a sign-in within the last 15
-// minutes (`sign_in_again` otherwise, stage 48, ADR 0712).
+// Changing the sign-in address and deleting the account (its confirm, not the preview) need a
+// sign-in within the last 15 minutes (`sign_in_again` otherwise, stage 48, ADR 0712).
 import { z } from "zod";
+import {
+  applyDeletePreview,
+  deletePreview,
+  leftForStaffSentences,
+} from "../customers/account-delete.ts";
+import { revokeCustomerFeed } from "../customers/calendar-feed.ts";
 import {
   afterEmailChanged,
   confirmEmailChange,
@@ -28,10 +40,11 @@ import {
 } from "../customers/erase-requests.ts";
 import { requireRecentSignIn } from "../customers/recent-sign-in.ts";
 import { loadEraseDueDays } from "../customers/settings.ts";
-import { NotFoundError, OperationError } from "../errors.ts";
+import { ConflictError, NotFoundError, OperationError, ValidationError } from "../errors.ts";
 import { personObject } from "../fields/person.ts";
 import { endCustomerDeviceSessions } from "../http/tokens.ts";
-import { defineOperation, type HandlerContext } from "../operation.ts";
+import { birthdayOf, birthdaySchema, queueSetBirthday } from "../journeys/birthday.ts";
+import { defineOperation, type HandlerContext, recordHostChange } from "../operation.ts";
 import type { CustomerPrincipal } from "../principals.ts";
 
 /** The caller, who is always a customer here (every operation in this file is customer-only). */
@@ -138,6 +151,64 @@ export const meUpdate = defineOperation({
     );
     if (Object.keys(values).length) await ctx.records.update("person", personId, values);
     return ctx.afterCommit(() => myPerson(ctx));
+  },
+});
+
+// --- Birthday ---------------------------------------------------------------------------------
+
+const meBirthdaySchema = z.object({
+  birthday: birthdaySchema.nullable().describe("Day and month; null when none is recorded"),
+});
+
+/** The caller's own live Person's birthday. */
+async function myBirthday(ctx: HandlerContext) {
+  const { personId } = customerOf(ctx);
+  const row = await ctx.db
+    .selectFrom("core_person")
+    .select(["birth_day", "birth_month"])
+    .where("id", "=", personId)
+    .where("deleted_at", "is", null)
+    .executeTakeFirst();
+  if (!row) throw new NotFoundError("person", personId);
+  return birthdayOf(row);
+}
+
+export const meBirthdayGet = defineOperation({
+  name: "me.birthday.get",
+  description:
+    "Your birthday as the business has it, as a signed-in customer: day and month only, or null " +
+    "when none is recorded. Read-only.",
+  input: z.object({}).strict(),
+  output: meBirthdaySchema,
+  permission: "records:read",
+  risk: "read",
+  audiences: ["customer"],
+  hostInternal: true,
+  mcp: { expose: false },
+  async handler(_input, ctx) {
+    return { birthday: await myBirthday(ctx) };
+  },
+});
+
+export const meBirthdaySet = defineOperation({
+  name: "me.birthday.set",
+  description:
+    "Give your birthday, as a signed-in customer: day and month only, never a year; null " +
+    "removes it. The business may send you a message on the day. Returns your birthday.",
+  input: meBirthdaySchema.strict(),
+  output: meBirthdaySchema,
+  permission: "records:write",
+  risk: "write",
+  audiences: ["customer"],
+  hostInternal: true,
+  mcp: { expose: false },
+  async handler(input, ctx) {
+    const { personId } = customerOf(ctx);
+    const before = await myBirthday(ctx);
+    // The host writes the caller's own Person, named by the principal: not judged against the
+    // seam's customer fields, which hold no birthday (it is in no view).
+    queueSetBirthday(ctx, (c) => recordHostChange(ctx, c), personId, before, input.birthday);
+    return { birthday: input.birthday };
   },
 });
 
@@ -357,25 +428,115 @@ export const meEmailConfirm = defineOperation({
 
 // --- Deleting the account ----------------------------------------------------------------------
 
+const money = { amount: z.number().int(), currency: z.string() };
+
+/** What deleting the account will do (ADR 0713): the preview, and what a confirm must echo. */
+const deletePreviewSchema = z.object({
+  subscriptions: z
+    .array(
+      z.object({
+        id: z.string(),
+        title: z.string(),
+        ...money,
+        interval: z.string(),
+        endsAt: z
+          .string()
+          .nullable()
+          .describe("When it stops: the end of the period paid for, or an earlier end already set"),
+        ending: z
+          .enum(["period_end", "already", "cooling_off"])
+          .describe(
+            "period_end: it will be set to end then. already: it already ends by then. " +
+              "cooling_off: the cooling off you asked for ends it, with its refund",
+          ),
+      }),
+    )
+    .describe(
+      "Subscriptions you pay that will end when the period already paid for ends. Nothing is " +
+        "refunded and nothing more is charged",
+    ),
+  orders: z
+    .array(
+      z.object({
+        id: z.string(),
+        total: z.number().int(),
+        currency: z.string(),
+        createdAt: z.string(),
+        lines: z.array(z.string()),
+      }),
+    )
+    .describe("Your unpaid orders, which will be cancelled"),
+  leftForStaff: z
+    .object({
+      records: z.array(z.object({ object: z.string(), label: z.string(), count: z.number() })),
+      partPaidOrders: z.number(),
+      moreUnpaidOrders: z.number(),
+      subscriptions: z
+        .array(
+          z.object({
+            id: z.string(),
+            title: z.string(),
+            state: z.string(),
+            why: z.enum(["end_date_later", "state", "more"]),
+          }),
+        )
+        .describe(
+          "Subscriptions you pay that deleting does not end, which may still charge until staff " +
+            "end them: an end date set after the period paid for (end_date_later), waiting for " +
+            "a first payment, unpaid or paused (state), or more than one deletion ends (more)",
+        ),
+      dependantsWithoutGuardian: z.number(),
+    })
+    .describe(
+      "What stays for staff to decide when they erase your data: your bookings, tickets and " +
+        "other open records by kind, part-paid orders, and children with no other guardian",
+    ),
+  eraseDueAt: z.string().describe("When staff must have erased your data or said why not"),
+  expect: z.string().describe("Pass back with confirm: true to do exactly this"),
+});
+
 export const meDeleteAccount = defineOperation({
   name: "me.deleteAccount",
   description:
-    "Delete your customer account and ask for your personal data to be erased, as a signed-in " +
-    "customer who signed in within the last 15 minutes (else sign_in_again). You are signed " +
-    "out everywhere at once and can no longer sign in. Staff then erase your data, or tell you " +
-    "by email why some of it must be kept, by the due date returned. Asking again changes nothing.",
-  input: z.object({}).strict(),
-  output: z.object({
-    disabled: z.literal(true),
-    sessionsEnded: z.number(),
-    eraseRequest: z.object({ requestedAt: z.string(), dueAt: z.string() }),
-  }),
+    "Delete your customer account and ask for your personal data to be erased. Without " +
+    "`confirm` it changes nothing and says what will happen: each subscription you pay ends when " +
+    "the period already paid for ends (nothing refunded, nothing more charged), or with a " +
+    "cooling off you asked for; one that cannot be ended that way (an end date set later, or " +
+    "waiting for payment, unpaid or paused) is left for staff and may charge until they end it. " +
+    "Your unpaid orders are cancelled, and your bookings, tickets and other records stay for " +
+    "staff to decide when they erase your data. With `confirm: true` and the preview's `expect`, " +
+    "signed in within the last 15 minutes (else sign_in_again), it does that: you are signed out everywhere at once and can no longer sign in, and staff " +
+    "erase your data, or tell you by email why some of it must be kept, by the due date " +
+    "returned. A preview that changed meanwhile is a conflict: ask for it again.",
+  input: z
+    .object({
+      confirm: z.boolean().default(false).describe("Delete now, as the preview said"),
+      expect: z
+        .string()
+        .max(64)
+        .optional()
+        .describe("The preview's `expect`; required with confirm: true"),
+    })
+    .strict(),
+  output: z.discriminatedUnion("deleted", [
+    deletePreviewSchema.extend({ deleted: z.literal(false) }),
+    z.object({
+      deleted: z.literal(true),
+      disabled: z.literal(true),
+      sessionsEnded: z.number(),
+      subscriptionsEnding: z.number(),
+      ordersCancelled: z.number(),
+      eraseRequest: z.object({ requestedAt: z.string(), dueAt: z.string() }),
+    }),
+  ]),
   permission: "records:write",
   risk: "write",
   audiences: ["customer"],
+  // It ends subscriptions, which subscription.cancel keeps to a person: never a pack's tool.
+  actors: ["human"],
   hostInternal: true,
   mcp: { expose: false },
-  async handler(_input, ctx) {
+  async handler(input, ctx) {
     const { customerId, personId } = customerOf(ctx);
     // Only the caller's own account, and only while it is linked to the caller's Person.
     const account = await ctx.db
@@ -385,14 +546,30 @@ export const meDeleteAccount = defineOperation({
       .where("person_id", "=", personId)
       .executeTakeFirst();
     if (!account) throw new NotFoundError("customer account", customerId);
+    const preview = await deletePreview(ctx, personId);
+    const open = await openEraseRequest(ctx.db, personId);
+    const dueAt = open?.dueAt ?? eraseRequestDueAt(ctx.now, await loadEraseDueDays(ctx.db));
+    if (!input.confirm) return { deleted: false as const, ...preview, eraseDueAt: dueAt };
+    // The preview changes nothing; deleting needs a recent sign-in (ADR 0712).
     await requireRecentSignIn(ctx);
+    if (input.expect === undefined) {
+      throw new ValidationError("Confirm with the preview's expect", { field: "expect" });
+    }
+    if (input.expect !== preview.expect) {
+      throw new ConflictError("What deleting your account will do has changed: look again", {
+        rule: "preview_changed",
+      });
+    }
     const sessions = await ctx.db
       .selectFrom("core_customer_session")
       .select((eb) => eb.fn.countAll<number>().as("n"))
       .where("customer_id", "=", customerId)
       .executeTakeFirst();
 
-    // One batch (with the audit row): disabled, signed out everywhere, and the request made.
+    // The provider is asked first: a refusal there leaves the account as it was. Then one batch
+    // (with the audit row): the orders cancelled, disabled, signed out everywhere, the calendar
+    // link revoked, the request.
+    await applyDeletePreview(ctx, preview);
     ctx.write(
       ctx.db
         .updateTable("core_customer")
@@ -400,21 +577,27 @@ export const meDeleteAccount = defineOperation({
         .where("id", "=", customerId),
       ctx.db.deleteFrom("core_customer_session").where("customer_id", "=", customerId),
       ...endCustomerDeviceSessions(ctx.db, [customerId]),
+      // Their calendar link (ADR 0890): dead at once, and never back if the account is enabled.
+      revokeCustomerFeed(ctx.db, customerId),
     );
-    let request = await openEraseRequest(ctx.db, personId);
+    let request = open;
     if (!request) {
       const created = await createEraseRequestStatements(ctx.db, {
         personId,
         customerId,
         requestedAt: ctx.now,
-        dueAt: eraseRequestDueAt(ctx.now, await loadEraseDueDays(ctx.db)),
+        dueAt,
+        left: leftForStaffSentences(preview),
       });
       ctx.write(...created.statements);
       request = created.request;
     }
     return {
+      deleted: true as const,
       disabled: true as const,
       sessionsEnded: Number(sessions?.n ?? 0),
+      subscriptionsEnding: preview.subscriptions.length,
+      ordersCancelled: preview.orders.length,
       eraseRequest: { requestedAt: request.requestedAt, dueAt: request.dueAt },
     };
   },
@@ -423,6 +606,8 @@ export const meDeleteAccount = defineOperation({
 export const meOperations = [
   meGet,
   meUpdate,
+  meBirthdayGet,
+  meBirthdaySet,
   meSessionsList,
   meSessionsRevoke,
   meSignOut,

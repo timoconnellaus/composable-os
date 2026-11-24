@@ -35,6 +35,28 @@ who choose to connect their own calendar, and does it inside stage 49's line "tw
 someone's own calendar" is out of scope: nothing here is two-way. Busy times are read, and the
 host's own feeds are written; the host never writes into anyone's calendar in this stage.
 
+## Status
+
+- **Step 1, the shared feed module, `calendarEntry` and the customer's feed** (branch
+  `feat/stage-62-feed`): built. Migration 1350 (`core_customer_feed`), ADRs 0890 and 0891 (ADR
+  0628 amended with a dated note). The staff feed's token code and route are one module
+  (`packages/core/src/feeds/token.ts`, `apps/app/src/server/http/calendar-feed.ts`); the staff
+  feed's tests pass unchanged on it. `calendarEntry` in the SDK
+  (`packages/sdk/src/calendar-entry.ts`), checked within a pack by `cos ext check` and into other
+  packs' objects by the host (`customers/calendar-entry-check.ts`), refused to a runtime extension.
+  `GET /api/v1/me/feed/<token>.ics` with its own bindings (`CUSTOMER_FEED_RATE_LIMIT`,
+  `CUSTOMER_FEED_ADDRESS_RATE_LIMIT`), read as the customer through the visibility seam (their own
+  and live dependants' records, a child's first name, "Booking at <business>" for an event with no
+  name). `me.calendarFeed.status`, `.rotate` (`actors: ["human"]`, `redactResult`), `.revoke`
+  opened to customers; `customer.revokeCalendarFeed` for staff (`users:manage`: the spec's
+  `people:write` does not exist). Revoked in the batch of `customer.disable`, `me.deleteAccount`,
+  an erase and a merge that deletes the account. Left for step 2: packs declaring
+  `calendarEntry`, the "Your calendar" section and the names setting (until then names always
+  show). Not tried in real calendar apps or on a live host. After the review of PR #433: a title or
+  place past its first field must be public or signedIn on the related object (checked, and held by
+  the read); a child's prefix is their given name and never drops an event; rotate refuses an
+  account no longer active.
+
 ## Goal
 
 A member adds one private link to their phone's calendar and sees every class, one-to-one session

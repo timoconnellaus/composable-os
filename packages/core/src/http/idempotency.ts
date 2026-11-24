@@ -15,6 +15,7 @@
 // - Rows are purged by the daily maintenance cron after 24 hours.
 import type { CrmDb } from "@composable-os/db";
 import { type Compilable, sql } from "kysely";
+import { sha256Hex } from "../digest.ts";
 import { ConflictError, ValidationError } from "../errors.ts";
 import { canonicalJson } from "../judge/calibration.ts";
 import type { BatchOutcome, InBatch } from "../pipeline.ts";
@@ -48,9 +49,7 @@ export function parseIdempotencyKey(value: string | null): string {
 }
 
 export async function inputHash(operation: string, input: unknown): Promise<string> {
-  const bytes = new TextEncoder().encode(`${operation}\n${canonicalJson(input)}`);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return sha256Hex(`${operation}\n${canonicalJson(input)}`);
 }
 
 export interface IdempotentCall {

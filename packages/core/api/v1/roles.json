@@ -10,6 +10,9 @@
       "operations": [
         "ack.confirm",
         "ack.mine",
+        "content.search",
+        "content.staffGet",
+        "content.staffList",
         "record.get",
         "record.list",
         "screens.mine",
@@ -18,7 +21,40 @@
         "x.bookings.markAttended",
         "x.bookings.markNoShow",
         "x.bookings.roster",
-        "x.bookings.undoAttended"
+        "x.bookings.undoAttended",
+        "x.dailychecks.day",
+        "x.dailychecks.done",
+        "x.dailychecks.tick",
+        "x.dailychecks.today"
+      ]
+    },
+    {
+      "name": "programs.coach",
+      "pack": "programs",
+      "label": "Coach",
+      "description": "Sees the clients they coach (an active program naming them their coach): their sessions, sets, history and progress, and logs sets and marks sessions for them. Nothing else: no other clients, no class sessions, no programs, no assigning, no people.",
+      "read": ["programs.assignment", "programs.session"],
+      "operations": [
+        "ack.confirm",
+        "ack.mine",
+        "content.search",
+        "content.staffGet",
+        "content.staffList",
+        "record.get",
+        "record.list",
+        "screens.mine",
+        "x.dailychecks.day",
+        "x.dailychecks.done",
+        "x.dailychecks.tick",
+        "x.dailychecks.today",
+        "x.programs.history",
+        "x.programs.logAdd",
+        "x.programs.logRemove",
+        "x.programs.logUpdate",
+        "x.programs.progress",
+        "x.programs.sessionComplete",
+        "x.programs.sessionGet",
+        "x.programs.today"
       ]
     },
     {
@@ -30,7 +66,14 @@
       "operations": [
         "ack.confirm",
         "ack.mine",
+        "content.search",
+        "content.staffGet",
+        "content.staffList",
         "screens.mine",
+        "x.dailychecks.day",
+        "x.dailychecks.done",
+        "x.dailychecks.tick",
+        "x.dailychecks.today",
         "x.rostering.away",
         "x.rostering.back",
         "x.rostering.checklist",
@@ -60,9 +103,16 @@
       "operations": [
         "ack.confirm",
         "ack.mine",
+        "content.search",
+        "content.staffGet",
+        "content.staffList",
         "record.get",
         "record.list",
         "screens.mine",
+        "x.dailychecks.day",
+        "x.dailychecks.done",
+        "x.dailychecks.tick",
+        "x.dailychecks.today",
         "x.ticketing.checkIn",
         "x.ticketing.undoCheckIn"
       ]
@@ -163,5 +213,109 @@
         "x.rostering.withdraw"
       ]
     }
-  ]
+  ],
+  "requires": {
+    "bookings": ["programs"],
+    "courses": ["programs", "content"],
+    "memberships": ["programs"]
+  },
+  "owner": {
+    "operations": [
+      "approval.approve",
+      "approval.get",
+      "approval.list",
+      "approval.reject",
+      "notification.list",
+      "notification.markRead",
+      "notification.unreadCount",
+      "user.me"
+    ]
+  },
+  "portal": {
+    "bookings": {
+      "hooks": "createBookingsHooks",
+      "sections": {
+        "bookings": {
+          "label": "Bookings",
+          "order": 10,
+          "web": {
+            "block": "bookings-timetable",
+            "export": "Timetable"
+          },
+          "native": {
+            "block": "bookings-native-timetable",
+            "export": "TimetableScreen"
+          }
+        }
+      }
+    },
+    "courses": {
+      "hooks": "createCoursesHooks",
+      "sections": {
+        "courses": {
+          "label": "My courses",
+          "order": 30,
+          "web": {
+            "block": "courses-my-courses",
+            "export": "MyCourses"
+          },
+          "native": {
+            "block": "courses-native-my-courses",
+            "export": "MyCoursesScreen"
+          }
+        }
+      }
+    },
+    "memberships": {
+      "hooks": "createMembershipsHooks",
+      "sections": {
+        "memberships": {
+          "label": "Memberships and passes",
+          "order": 20,
+          "web": {
+            "block": "memberships-mine",
+            "export": "MyMemberships"
+          },
+          "native": {
+            "block": "memberships-native-mine",
+            "export": "MyMembershipsScreen"
+          }
+        }
+      }
+    },
+    "programs": {
+      "hooks": "createProgramsHooks",
+      "sections": {
+        "training": {
+          "label": "Training",
+          "order": 50,
+          "web": {
+            "block": "programs-progress",
+            "export": "Progress"
+          },
+          "native": {
+            "block": "programs-native-progress",
+            "export": "ProgressScreen"
+          }
+        }
+      }
+    },
+    "ticketing": {
+      "hooks": "createTicketingHooks",
+      "sections": {
+        "tickets": {
+          "label": "My tickets",
+          "order": 40,
+          "web": {
+            "block": "ticketing-my-tickets",
+            "export": "MyTickets"
+          },
+          "native": {
+            "block": "ticketing-native-my-tickets",
+            "export": "MyTicketsScreen"
+          }
+        }
+      }
+    }
+  }
 }

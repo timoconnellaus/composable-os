@@ -15,17 +15,12 @@
 import type { CoreDatabase } from "@composable-os/db";
 import { CompiledQuery, type Kysely, type RawBuilder, sql } from "kysely";
 import { listObjects } from "../fields/index.ts";
-import type { GuardiansDeclaration, ObjectDefinition } from "../fields/types.ts";
+import type { ObjectDefinition } from "../fields/types.ts";
 import type { Principal } from "../principals.ts";
 import { viewColumnOf } from "../records/columns.ts";
 
 /** The one kind of link today. */
 export const GUARDIAN_LINK = "guardian";
-
-/** An object's guardians declaration, or null when it does not opt in. */
-export function guardiansOf(object: ObjectDefinition): GuardiansDeclaration | null {
-  return object.customer?.guardians ?? null;
-}
 
 /** What is wrong with an object's `customer.guardians` (empty when nothing is). */
 export function guardianProblems(object: ObjectDefinition): string[] {
@@ -134,23 +129,26 @@ export async function familyOf(reader: {
   const principal = reader.principal;
   if (principal.kind !== "customer") return { self: null, dependants: [], guardians: [] };
   const me = principal.personId;
-  const own = await sql<{
-    name: string;
-  }>`SELECT display_name AS name FROM core_person WHERE id = ${me} AND deleted_at IS NULL`.execute(
-    reader.db,
-  );
-  const dependants = await sql<{
-    id: string;
-    name: string;
-  }>`SELECT p.id AS id, p.display_name AS name FROM core_person p WHERE p.id IN (${dependantsSql(me)}) ORDER BY p.display_name, p.id`.execute(
-    reader.db,
-  );
-  const guardians = await sql<{
-    id: string;
-    name: string;
-  }>`SELECT p.id AS id, p.display_name AS name FROM core_person_link l JOIN core_person p ON p.id = l.guardian_id AND p.deleted_at IS NULL JOIN core_person me ON me.id = l.dependant_id AND me.deleted_at IS NULL WHERE l.dependant_id = ${me} AND l.kind = ${GUARDIAN_LINK} AND l.ended_at IS NULL ORDER BY p.display_name, p.id`.execute(
-    reader.db,
-  );
+  // Three independent reads, sent together.
+  const [own, dependants, guardians] = await Promise.all([
+    sql<{
+      name: string;
+    }>`SELECT display_name AS name FROM core_person WHERE id = ${me} AND deleted_at IS NULL`.execute(
+      reader.db,
+    ),
+    sql<{
+      id: string;
+      name: string;
+    }>`SELECT p.id AS id, p.display_name AS name FROM core_person p WHERE p.id IN (${dependantsSql(me)}) ORDER BY p.display_name, p.id`.execute(
+      reader.db,
+    ),
+    sql<{
+      id: string;
+      name: string;
+    }>`SELECT p.id AS id, p.display_name AS name FROM core_person_link l JOIN core_person p ON p.id = l.guardian_id AND p.deleted_at IS NULL JOIN core_person me ON me.id = l.dependant_id AND me.deleted_at IS NULL WHERE l.dependant_id = ${me} AND l.kind = ${GUARDIAN_LINK} AND l.ended_at IS NULL ORDER BY p.display_name, p.id`.execute(
+      reader.db,
+    ),
+  ]);
   const shown = (rows: { id: string; name: string }[]) =>
     rows.map((row) => ({ personId: String(row.id), name: String(row.name) }));
   return {
@@ -158,6 +156,34 @@ export async function familyOf(reader: {
     dependants: shown(dependants.rows),
     guardians: shown(guardians.rows),
   };
+}
+
+/**
+ * The caller's live dependants by id, each with what a parent calls them: their given name, else
+ * the first word of their display name, else their display name; "Child" when all are blank. For
+ * a customer only (empty for anyone else); one statement, the caller's id bound. The calendar feed
+ * (ADR 0890) puts it before a child's event so a parent tells two children's apart.
+ */
+export async function dependantFirstNames(reader: {
+  readonly db: Kysely<CoreDatabase>;
+  readonly principal: Principal;
+}): Promise<Map<string, string>> {
+  const principal = reader.principal;
+  if (principal.kind !== "customer") return new Map();
+  const { rows } = await sql<{
+    id: string;
+    given: string | null;
+    name: string | null;
+  }>`SELECT p.id AS id, p.given_name AS given, p.display_name AS name FROM core_person p WHERE p.id IN (${dependantsSql(principal.personId)})`.execute(
+    reader.db,
+  );
+  return new Map(
+    rows.map((row) => {
+      const given = (row.given ?? "").trim();
+      const display = (row.name ?? "").trim();
+      return [String(row.id), given || display.split(/\s+/)[0] || display || "Child"];
+    }),
+  );
 }
 
 /**

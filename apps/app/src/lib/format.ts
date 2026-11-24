@@ -11,6 +11,18 @@ export function initials(name: string): string {
   );
 }
 
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/** A moment's local calendar day, `YYYY-MM-DD`: today's when none is given. */
+export function localDay(date: Date = new Date()): string {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+/** A moment as a `datetime-local` input's value (`YYYY-MM-DDTHH:mm`), in local time. */
+export function localDateTimeInput(date: Date): string {
+  return `${localDay(date)}T${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+}
+
 const dateTime = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" });
 const dateOnly = new Intl.DateTimeFormat("en", { dateStyle: "medium" });
 
@@ -20,10 +32,32 @@ export function formatDateTime(value: string | null | undefined): string {
   return Number.isNaN(date.getTime()) ? value : dateTime.format(date);
 }
 
+/** A date, or an instant's local day. A date-only value (YYYY-MM-DD) is that calendar day. */
 export function formatDate(value: string | null | undefined): string {
   if (!value) return "";
-  const date = new Date(value);
+  // Parsed as local midnight: as an instant it would be midnight UTC, the day before west of UTC.
+  const date = new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00` : value);
   return Number.isNaN(date.getTime()) ? value : dateOnly.format(date);
+}
+
+const utcDateOnly = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeZone: "UTC" });
+
+/**
+ * Whether a moment is the host's marker for a whole day (its last millisecond in UTC): a
+ * date-only deadline such as a deposit's balance due, or one the order page extended to a day.
+ */
+export function isEndOfUtcDay(value: string): boolean {
+  return /T23:59:59\.999Z$/.test(value);
+}
+
+/**
+ * The day a deadline falls on: the UTC day for a whole-day marker (in local time it would be the
+ * day after east of UTC), else the moment's local day, as any other instant.
+ */
+export function formatDueDay(value: string | null | undefined): string {
+  if (!value || !isEndOfUtcDay(value)) return formatDate(value);
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : utcDateOnly.format(date);
 }
 
 /** A display string for any field value (arrays joined, booleans as Yes/No). */

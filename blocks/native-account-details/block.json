@@ -2,7 +2,7 @@
   "name": "native-account-details",
   "pack": null,
   "skin": "native",
-  "operations": ["me.get", "me.update"],
+  "operations": ["me.get", "me.update", "me.birthday.get", "me.birthday.set"],
   "files": ["details.tsx", "LICENSE"],
   "dependsOn": ["native-base"],
   "packages": {

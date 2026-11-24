@@ -70,6 +70,7 @@ import {
   type OperationsEnv,
   staffContext,
 } from "../operations.ts";
+import { personCodeKeysEntry } from "../person-codes.ts";
 import { staffCookieAllowed, staffCrossOrigin } from "../staff-origin.ts";
 import { type SupportEnv, supportPrincipal } from "../support.ts";
 
@@ -147,6 +148,8 @@ export async function outsideContext(
     ...(extensionHost ? { extensionHost } : {}),
     // Only a hostInternal core operation's handler gets it: order.checkout (stage 25, ADR 0429).
     ...(integrations ? { integrations } : {}),
+    // Likewise: me.code and me.pin.set (stage 51, ADR 0783).
+    ...personCodeKeysEntry(env),
   };
 }
 
@@ -178,7 +181,8 @@ async function deviceContext(env: ApiEnv, db: CrmDb, token: string, url: URL) {
     env,
     // A device session is its user's; roles come from core_user, as for any staff call.
     { userId: user.id, email: user.email, name: user.name, roles: [] },
-    { surface: "client" },
+    // A device session, not a browser (ADR 0872): no setup change is made or approved from it.
+    { surface: "client", staffDevice: true },
     url.origin,
   );
 }

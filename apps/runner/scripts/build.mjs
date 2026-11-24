@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 // cos-runner's shipped build (ADR 0043 as amended 2026-11-23): wrangler bundles the Worker
-// (`wrangler deploy --dry-run`, for the product COS_PRODUCT names, as scripts/wrangler-build.mjs
-// does for every other Worker), then the main module is minified for whitespace only. Nothing is
-// renamed and no syntax is rewritten: identifiers, `keep_names`, function and class names, string
-// and template contents (the Dynamic Workers' entry modules among them) and error stacks' function
-// names are as wrangler emitted them. The Text modules (checker.txt, sdk-bundle.txt, shipped.txt)
-// are copied untouched. The source map is chained through to the original sources and written next
-// to the module as index.js.map.
+// (`wrangler deploy --dry-run`, for the product COS_PRODUCT names), then the main module is
+// minified for whitespace only. Nothing is renamed and no syntax is rewritten: identifiers,
+// `keep_names`, function and class names, string and template contents (the Dynamic Workers'
+// entry modules among them) and error stacks' function names are as wrangler emitted them. The
+// Text modules (checker.txt, sdk-bundle.txt, shipped.txt) are copied untouched. The source map is
+// chained through to the original sources and written next to the module as index.js.map.
 //
 // Every path that ships the runner builds it here: `pnpm build` (the release, ADR 0160),
 // scripts/deploy.mjs (which then uploads this output with --no-bundle) and the bundle budget.
