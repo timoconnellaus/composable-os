@@ -804,7 +804,7 @@ async function tellAdmins(
     ],
     finish: [
       "Finishing a cooling off could not be done",
-      "lapsed, and staff asked to finish it, but the payment provider has not ended the membership (it refused, the cancel was turned down at the gatekeeper, or no end was confirmed within a day). Nothing is owed as cooled off yet and it may still be billing. End it from the subscription's page (End it now) or finish it again: once the provider confirms the end, the cooling off is finished and the period's payments are owed.",
+      "lapsed, and staff asked to finish it, but the payment provider has not ended the membership (it refused, the cancel was turned down at the gatekeeper, or no end was confirmed within a day). Nothing is owed as cooled off yet and it may still be billing. Finish it again from the subscription's page (Cooling off): once the provider confirms the end, the cooling off is finished and the period's payments are owed. A later end of the membership on its own does not finish it.",
     ],
     release: [
       "Bookings ahead of a cooled-off membership were not all cancelled",
@@ -932,8 +932,9 @@ async function endedAtProvider(
 }
 
 /**
- * What came of a cancel, from the gatekeeper's typed outcome. A `retryable` failure left the
- * action pending again at the gatekeeper, which may still apply it: `pending`, never `refused`.
+ * What came of a cancel, from the gatekeeper's typed outcome. A `retryable` failure sent nothing
+ * and leaves no approval for anyone to give: `unknown`, so the host reads the provider and asks
+ * again with the same key (never `refused`, never `pending`, which means a person must approve).
  */
 function cancelOutcome(result: {
   pending: { actionId?: string }[];
@@ -945,7 +946,6 @@ function cancelOutcome(result: {
     return { outcome: "pending", actionId: result.pending[0]?.actionId ?? null };
   }
   const failed = result.failed?.[0];
-  if (failed?.outcome === "retryable") return { outcome: "pending", actionId: null };
   if (failed?.outcome === "refused") return { outcome: "refused", actionId: null };
   return { outcome: "unknown", actionId: null };
 }
@@ -1072,7 +1072,9 @@ export async function followCoolOff(ctx: HandlerContext, row: SubscriptionRow): 
     .executeTakeFirst();
   if (!own) return;
   if (own.state === "lapsed") {
-    if (own.finish_state === null) return;
+    // Only a finish still under way: a stuck one (admins told) is not finished by a later end,
+    // months on, until staff finish it again.
+    if (own.finish_state === null || own.finish_state === "stuck") return;
     const end = row.ended_at ?? ctx.now;
     if (await holderUsed(ctx.db, row.holder_person_id, row.id)) {
       ctx.write(
@@ -1577,7 +1579,8 @@ async function retried(
  *   - the provider shows it ended: sent, left for its event;
  *   - not ended: asked again with the same key at most every `RETRY_EVERY_MS`;
  *   - not confirmed a day after it was asked (or its cancel approved): stuck, admins told once.
- * A stuck one is not visited again; staff finish it again, or end it as usual (its end finishes it).
+ * A stuck one is not visited again, and a later end does not finish it: staff finish it again
+ * (a membership that has ended by then is finished at once).
  */
 async function sweepFinish(
   ctx: Pick<HandlerContext, "db" | "integrations" | "operation" | "now">,

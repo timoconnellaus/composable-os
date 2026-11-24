@@ -5,7 +5,9 @@ of PR #299: "The rule" (A to G) replaces the earlier "whose end is it" and "what
 amended again 2026-11-24 after the fourth review: one waiting cancel at a time, a finish recorded
 as ended only once the provider confirms, one release step a minute, a day's bound on an end
 the provider shows but never sends, the provider's own time for "paid", and a holder who used
-theirs elsewhere (each marked "(fourth review)" below).
+theirs elsewhere (each marked "(fourth review)" below); and after the fifth review: a `retryable`
+answer is recorded as `unknown` and asked again, and a stuck finish is not finished by a later
+end (each marked "(fifth review)").
 Builds on
 [ADR 0429](0429-payments-gatekeeper-verified-events-and-refunds.md) (refunds through the payments
 gatekeeper, approved by a person with `orders:refund`),
@@ -127,11 +129,16 @@ allowance after the latest ask and an inside-the-window test, and is withdrawn):
   at most hourly, and waits while a cancel waits for approval. It marks the finish `stuck` and
   tells admins once when it cannot be done: the provider refused, its cancel was turned down or
   expired, or no end was confirmed a day after the request (or its approval). A stuck one is not
-  visited again. The provider's verified event that shows the membership ended finishes it in
-  its own batch, however it ended (the finish, a retry, or staff's ordinary "end it now"): stored
+  visited again, and a later end does not finish it (fifth review): an end months on, an
+  ordinary cancel at period end say, would otherwise owe the window's payments and tell the
+  member it ended in its cooling-off period. While a finish is under way (asked, sent, pending,
+  unknown: at most a day, or until its approval is given or expires), the provider's verified
+  event that shows the membership ended finishes it in its own batch, however it ended (the
+  finish, a retry, or staff's ordinary "end it now"): stored
   as `ended`, finished, with the window's bounds; later events never add to it. Until then nothing
   is owed, released or emailed, and the operation answers `state: "lapsed"` with what came of the
-  call. Staff may finish a stuck one again (a new request).
+  call. Staff may finish a stuck one again (a new request; a membership that has ended by then is
+  finished at once).
 - **F. Once per member**: an ended or finished cooling off counts; a lapsed one, or one refused and
   never finished, does not. The ask, the finish and the end's batch check this before writing
   (migration 0856's triggers hold it too: a second row for a subscription is refused, an
@@ -154,17 +161,17 @@ allowance after the latest ask and an inside-the-window test, and is withdrawn):
 | `lapsed` (`deadline`, `action`, `end_time`) | the sweep at the deadline (or a day after it, when the provider shows it ended and its event never came); the latest waiting cancel rejected or expired with none still waiting; an end outside the bounds | the ordinary cancel (and staff's end-now) work again; staff may finish it (E) | nothing, until finished |
 | `lapsed` (`used`) | an end while the holder had used theirs; the sweep, once the holder used theirs on another | none needed, or the ordinary cancel; the end is recorded as any other | nothing |
 | `lapsed`, finishing (`finish_state` asked, sent, pending, unknown) | staff finish a lapsed one whose membership still runs | none needed: the host asks the provider (retried, the approval waited for); the provider's end finishes it | nothing yet |
-| `lapsed`, finish `stuck` | the finish refused, turned down, or not confirmed in a day: admins told once | staff end it as usual (its end finishes it) or finish it again | nothing yet |
+| `lapsed`, finish `stuck` | the finish refused, turned down, or not confirmed in a day: admins told once | staff finish it again (ended by then: finished at once); a later end on its own does not finish it (fifth review) | nothing yet |
 | `ended`, finished | the provider's event shows the membership ended after staff asked to finish (holder not used) | none needed | the window's payments only |
 
 While one is open (`asked` and before its deadline), `subscription.cancel` is refused for the
 member and staff (`rule: "cooling_off_open"`); the deadline bounds that wait.
 
 **What came of a call** is written on the row (`call_outcome`, or `finish_state` for a finish)
-with an audit row of the host's: `sent`; `pending` (the cancel waits at the gatekeeper, for a
-person, its id kept; or a `retryable` failure it holds, with no approval to wait for, so a person
-may ask again: never recorded as refused; admins told after an hour); `unknown` (the call failed
-or its answer was lost; admins told once); `refused` (the provider's read first: one it shows ended
+with an audit row of the host's: `sent`; `pending` (the cancel waits at the gatekeeper for a
+person, its id kept; admins told after an hour); `unknown` (the call failed, its answer was lost,
+or the gatekeeper answered `retryable`, which sent nothing and leaves no approval to give (fifth
+review): never recorded as refused or pending; admins told once); `refused` (the provider's read first: one it shows ended
 counts as sent; admins told once; a finish refused is stuck). A crash between the commit and the
 call (`call_outcome` null) and a lost answer are resolved by the sweep after five minutes from the
 provider's own read, else asked again (the same ask, its key) at most hourly (`last_asked_at`)
@@ -268,8 +275,15 @@ window before its deadline, and finish a lapsed one.
   the ask is open"; it stays, recorded here (fourth review, finding 7).
 - A finish whose provider shows the membership ended but never sends the event stays `lapsed`
   (stuck, admins told): the host owes nothing it has not seen end (fourth review).
-- A `retryable` answer leaves no approval to wait for: the row reads `pending`, admins are told
-  after an hour, and a person may ask again; the sweep does not retry it by itself.
+- A `retryable` answer leaves no approval to wait for, so it is `unknown`: the sweep reads the
+  provider and asks again with the same key at most hourly (fifth review; it was `pending`, which
+  waited for an approval that did not exist).
+- One release step a minute for the whole host releases bookings slowly when many end at once:
+  200 members with 15 ahead each are all released in about 200 minutes, with 60 each in about 13
+  hours. The queue is oldest first, so none starves; until a member's step runs, their places
+  stay held, waiters are not moved in, and their summary email waits. That is acceptable for the
+  numbers a business on this host sees; a busier one would want a statement budget per tick
+  instead of one step (fifth review).
 
 ## The owner's decisions (interview of 2026-11-24)
 1. When a member cools off, classes booked for later are cancelled and their places freed, waiting

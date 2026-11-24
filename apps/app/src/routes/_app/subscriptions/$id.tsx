@@ -307,7 +307,7 @@ function CoolingOff({ subscription: s }: { subscription: SubscriptionData }) {
       ? own.lapsedBecause === "used"
         ? "Asked in its cooling-off period, but the member had already cooled off another membership: this one did not count, and nothing is owed as cooled off."
         : own.finishing === "stuck"
-          ? "Its cooling off lapsed, and finishing it could not be done: the payment provider has not ended the membership (it refused, the cancel was turned down, or no end was confirmed). Finish it again, or end it as usual: once the provider confirms the end, the cooling off is finished and what was paid in the period is owed."
+          ? "Its cooling off lapsed, and finishing it could not be done: the payment provider has not ended the membership (it refused, the cancel was turned down, or no end was confirmed). Finish it again: once the provider confirms the end, the cooling off is finished and what was paid in the period is owed. Ending the membership as usual does not finish it."
           : own.finishing === "pending"
             ? "Its cooling off lapsed, and finishing it waits for approval at the payments gatekeeper: once the payment provider ends the membership, what was paid in the period is owed."
             : own.finishing

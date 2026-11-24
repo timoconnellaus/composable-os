@@ -1426,10 +1426,10 @@ describe("the provider and the sweep", () => {
     expect(cancels(id).map((c) => c.request.askKey)).toEqual(["cool-off-1"]);
   });
 
-  it("a retryable failure is pending, never refused; two asks again at once share one key", async () => {
+  it("a retryable failure is unknown (asked again), never refused; two asks again at once share one key", async () => {
     const r = await member("retryable");
     gw.nextCancel = "retryable";
-    expect(await coolOff(r.buyer, r.id, day(3))).toMatchObject({ asked: "pending" });
+    expect(await coolOff(r.buyer, r.id, day(3))).toMatchObject({ asked: "unknown" });
     const { buyer, id } = await member("p5");
     gw.nextCancel = "refused";
     await refusal(coolOff(buyer, id, day(2)));
@@ -2009,12 +2009,17 @@ describe("the fourth review: waiting cancels (rule D)", () => {
     gw.providerReads.set(`fsub_${id}`, { ...read(id) });
     gw.nextCancel = "retryable";
     expect(await run("subscription.coolOff", { id }, staff({ clock: day(3) }))).toMatchObject({
-      asked: "pending",
+      asked: "unknown",
     });
     expect((await actionsOf(id)).map((a) => a.action_id)).toEqual([first?.action_id]);
-    // The latest ask has no cancel waiting for a person: it is not lapsed for the older one.
+    // Nothing waits for a person: not lapsed for the older one; asked again with its own key.
     await tick(day(3.1));
-    expect((await coolOffRow(id))?.state).toBe("asked");
+    expect(await coolOffRow(id)).toMatchObject({ state: "asked", call_outcome: "sent" });
+    expect(cancels(id).map((c) => c.request.askKey)).toEqual([
+      "cool-off-1",
+      "cool-off-2",
+      "cool-off-2",
+    ]);
   });
 });
 
@@ -2068,9 +2073,16 @@ describe("the fourth review: staff finishing a lapsed one (rule E)", () => {
     });
     // A renewal the provider takes meanwhile is not the window's.
     await renew(id, 1);
-    // Staff end it as usual; its end finishes the cooling off: the window's payments only.
+    // Staff end it as usual: a stuck finish is not finished by that end on its own.
     await run("subscription.cancel", { id, now: true, reason: "Asked" }, staff({ clock: day(31) }));
     await ended(id, { endedAt: day(31)().toISOString() });
+    expect(await coolOffRow(id)).toMatchObject({ state: "lapsed", finish_state: "stuck" });
+    expect(await owed(id)).toEqual([]);
+    // Staff finish it again: ended now, so finished at once, the window's payments only.
+    expect(await run("subscription.coolOff", { id }, staff({ clock: day(32) }))).toMatchObject({
+      state: "ended",
+      refund: 3000,
+    });
     expect(await coolOffRow(id)).toMatchObject({
       state: "ended",
       finished: 1,
@@ -2260,6 +2272,47 @@ describe("the fourth review: a lost answer is asked again hourly, with its key",
     gw.nextCancel = "throw";
     await tick(at(day(3)().toISOString(), 70 * 60_000));
     expect(cancels(id).map((c) => c.request.askKey)).toEqual(["cool-off-1", "cool-off-1"]);
+  });
+});
+
+describe("the fifth review", () => {
+  it("R5-N1: a retryable answer is not 'waiting for approval': the host asks again with its key, and its end is the cooling off's", async () => {
+    const { buyer, id } = await member("r5-retryable");
+    gw.nextCancel = "retryable";
+    expect(await coolOff(buyer, id, day(3))).toMatchObject({ asked: "unknown" });
+    expect(await actionsOf(id)).toEqual([]);
+    expect(await noticeCount(`subscription.cool_off:pending:${id}`)).toBe(0);
+    gw.providerReads.set(`fsub_${id}`, { ...read(id) });
+    await tick(day(3.1));
+    expect(cancels(id).map((c) => c.request.askKey)).toEqual(["cool-off-1", "cool-off-1"]);
+    expect((await coolOffRow(id))?.call_outcome).toBe("sent");
+    expect(await noticeCount(`subscription.cool_off:pending:${id}`)).toBe(0);
+    await ended(id, { endedAt: day(3.11)().toISOString() });
+    expect((await coolOffRow(id))?.state).toBe("ended");
+    expect(sumOf(await owed(id))).toBe(3000);
+  });
+
+  it("R5-N2: a stuck finish is not finished by an end months later: nothing owed, nothing emailed, no bookings released", async () => {
+    const { buyer, id } = await member("r5-stuck-later");
+    gw.nextCancel = "pending";
+    await coolOff(buyer, id, day(3));
+    gw.providerReads.set(`fsub_${id}`, { ...read(id) });
+    await tick(at(START, 3 * DAY + DEADLINE_MS + 60_000));
+    gw.nextCancel = "refused";
+    await refusal(run("subscription.coolOff", { id }, staff({ clock: day(12) })));
+    expect((await coolOffRow(id))?.finish_state).toBe("stuck");
+    for (let n = 1; n <= 4; n += 1) await renew(id, n);
+    await run("subscription.cancel", { id }, as(buyer, day(140)));
+    await ended(id, { endedAt: day(150)().toISOString() });
+    expect(await subscriptionState(id)).toBe("ended");
+    expect(await coolOffRow(id)).toMatchObject({
+      state: "lapsed",
+      finished: 0,
+      finish_state: "stuck",
+      release_left: 0,
+      mail_state: null,
+    });
+    expect(await owed(id)).toEqual([]);
   });
 });
 

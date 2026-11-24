@@ -1954,6 +1954,16 @@ Also: the sweep's hourly re-ask of a lost answer now times itself by `last_asked
 Statements, measured: `subscription.coolingOff` 9, `subscription.coolOff` 14, the provider's end
 35 whatever is booked ahead.
 
+### Step 7: after the fifth review of PR #299 (2026-11-24)
+
+1. **A `retryable` answer is `unknown`, not `pending`**: it sent nothing and leaves no approval,
+   so the sweep reads the provider and asks again with the same key hourly (it used to wait for an
+   approval that did not exist and lapse with nothing owed).
+2. **A stuck finish is not finished by a later end**: only a finish under way (at most a day, or
+   until its approval is given or expires) is finished by the provider's end; staff finish a
+   stuck one again.
+3. **Release speed** (information): one step of 15 a minute for the host; recorded in ADR 0647.
+
 ## Step 8: build notes (`feat/stage-44-erase`, 2026-11-23)
 
 Built: migration 0855 (`core_agreement_hold`; the acceptance's update trigger made again with one
