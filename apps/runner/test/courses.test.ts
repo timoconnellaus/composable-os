@@ -51,6 +51,13 @@ const files = {
       eager: true,
     }),
   ),
+  content: packFiles(
+    import.meta.glob<string>("../../../packs/content/*.ts", {
+      query: "?raw",
+      import: "default",
+      eager: true,
+    }),
+  ),
   courses: packFiles(
     import.meta.glob<string>("../../../packs/courses/*.ts", {
       query: "?raw",
@@ -60,16 +67,17 @@ const files = {
   ),
 };
 
-/** The extension host of a deployment whose product lists Programs and Courses. */
+/** The extension host of a deployment whose product lists Programs, Content and Courses. */
 const shippedHost: ExtensionHost = {
   ...host,
   shipped: async () => [
     ...(await host.shipped()),
+    { id: "content", version: "0.1.0" },
     { id: "courses", version: "0.1.0" },
     { id: "programs", version: "0.1.0" },
   ],
   commitShipped: (id) =>
-    id === "programs" || id === "courses"
+    id === "programs" || id === "content" || id === "courses"
       ? host.commit({
           id,
           files: files[id],

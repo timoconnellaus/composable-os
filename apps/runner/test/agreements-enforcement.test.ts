@@ -64,6 +64,13 @@ const files: Record<string, Record<string, string>> = {
       eager: true,
     }),
   ),
+  content: packFiles(
+    import.meta.glob<string>("../../../packs/content/*.ts", {
+      query: "?raw",
+      import: "default",
+      eager: true,
+    }),
+  ),
   courses: packFiles(
     import.meta.glob<string>("../../../packs/courses/*.ts", {
       query: "?raw",
