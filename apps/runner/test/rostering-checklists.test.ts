@@ -24,21 +24,10 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
 import { createAdmin, db, host, unique } from "./helpers.ts";
+import { packFiles } from "./pack-files.ts";
 
-const packFiles = (glob: Record<string, string>) =>
-  Object.fromEntries(
-    Object.entries(glob)
-      .map(([path, text]) => [path.split("/").pop() as string, text] as const)
-      .filter(([name]) => name !== "vitest.config.ts"),
-  );
 const files: Record<string, Record<string, string>> = {
-  rostering: packFiles(
-    import.meta.glob<string>("../../../packs/rostering/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
+  rostering: packFiles("rostering"),
 };
 // A shipped fixture pack whose tools call the host's checklist operations directly: one set open to
 // anyone (no person at the screen), one a person's own (`humanOnly`) but with no Rostering

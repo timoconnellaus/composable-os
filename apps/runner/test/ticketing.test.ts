@@ -46,19 +46,9 @@ import { fakeProviderStub } from "../src/integrations/fake.ts";
 import { blobStore, integrationRuntime } from "../src/integrations/runtime.ts";
 import { runWorkflows, setPreset } from "./automation-fixture.ts";
 import { createAdmin, db, host, unique } from "./helpers.ts";
+import { packFiles } from "./pack-files.ts";
 
-const files = Object.fromEntries(
-  Object.entries(
-    import.meta.glob<string>("../../../packs/ticketing/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  )
-    .map(([path, text]) => [path.split("/").pop() as string, text] as const)
-    // The pack's extension files, as a release carries them (not its config or tests).
-    .filter(([name]) => name !== "vitest.config.ts"),
-);
+const files = packFiles("ticketing");
 
 /** The extension host of a deployment whose product lists Ticketing. */
 const shippedHost: ExtensionHost = {

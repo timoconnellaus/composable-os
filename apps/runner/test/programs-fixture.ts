@@ -11,18 +11,9 @@ import {
 } from "@composable-os/core";
 import type { Layout } from "../../../packs/programs/layout.ts";
 import { db, host, unique } from "./helpers.ts";
+import { packFiles } from "./pack-files.ts";
 
-const files = Object.fromEntries(
-  Object.entries(
-    import.meta.glob<string>("../../../packs/programs/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  )
-    .map(([path, text]) => [path.split("/").pop() as string, text] as const)
-    .filter(([name]) => name !== "vitest.config.ts"),
-);
+const files = packFiles("programs");
 
 /** The extension host of a deployment whose product lists Programs. */
 export const shippedHost: ExtensionHost = {

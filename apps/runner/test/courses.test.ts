@@ -36,35 +36,12 @@ import { automationHost } from "../src/automations/host.ts";
 import { blobStore, integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
 import { createAdmin, db, host, unique } from "./helpers.ts";
+import { packFiles } from "./pack-files.ts";
 
-const packFiles = (glob: Record<string, string>) =>
-  Object.fromEntries(
-    Object.entries(glob)
-      .map(([path, text]) => [path.split("/").pop() as string, text] as const)
-      .filter(([name]) => name !== "vitest.config.ts"),
-  );
 const files = {
-  programs: packFiles(
-    import.meta.glob<string>("../../../packs/programs/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-  content: packFiles(
-    import.meta.glob<string>("../../../packs/content/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-  courses: packFiles(
-    import.meta.glob<string>("../../../packs/courses/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
+  programs: packFiles("programs"),
+  content: packFiles("content"),
+  courses: packFiles("courses"),
 };
 
 /** The extension host of a deployment whose product lists Programs, Content and Courses. */

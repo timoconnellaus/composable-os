@@ -26,35 +26,12 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
 import { createAdmin, db, host } from "./helpers.ts";
+import { packFiles } from "./pack-files.ts";
 
-const packFiles = (glob: Record<string, string>) =>
-  Object.fromEntries(
-    Object.entries(glob)
-      .map(([path, text]) => [path.split("/").pop() as string, text] as const)
-      .filter(([name]) => name !== "vitest.config.ts"),
-  );
 const files: Record<string, Record<string, string>> = {
-  programs: packFiles(
-    import.meta.glob<string>("../../../packs/programs/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-  bookings: packFiles(
-    import.meta.glob<string>("../../../packs/bookings/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-  memberships: packFiles(
-    import.meta.glob<string>("../../../packs/memberships/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
+  programs: packFiles("programs"),
+  bookings: packFiles("bookings"),
+  memberships: packFiles("memberships"),
 };
 const OURS = new Set(Object.keys(files));
 const shippedHost: ExtensionHost = {

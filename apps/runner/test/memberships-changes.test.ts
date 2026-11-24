@@ -26,29 +26,12 @@ import { signatureHeader } from "../../../packages/gatekeeper-payments/src/signa
 import { integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
 import { createAdmin, db, host, unique } from "./helpers.ts";
+import { filesByName, packFiles } from "./pack-files.ts";
 
-const packFiles = (glob: Record<string, string>) =>
-  Object.fromEntries(
-    Object.entries(glob)
-      .map(([path, text]) => [path.split("/").pop() as string, text] as const)
-      .filter(([name]) => name !== "vitest.config.ts"),
-  );
 const files: Record<string, Record<string, string>> = {
-  programs: packFiles(
-    import.meta.glob<string>("../../../packs/programs/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-  memberships: packFiles(
-    import.meta.glob<string>("../../../packs/memberships/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-  bookings: packFiles(
+  programs: packFiles("programs"),
+  memberships: packFiles("memberships"),
+  bookings: filesByName(
     import.meta.glob<string>("../../../packs/memberships/test/fixtures/bookings/*.ts", {
       query: "?raw",
       import: "default",

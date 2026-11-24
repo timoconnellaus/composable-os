@@ -39,30 +39,11 @@ import {
 import { beforeAll, describe, expect, it } from "vitest";
 import { setPreset } from "./automation-fixture.ts";
 import { createAdmin, db, host, source, unique } from "./helpers.ts";
+import { packFiles } from "./pack-files.ts";
 
-const packFiles = (glob: Record<string, string>) =>
-  Object.fromEntries(
-    Object.entries(glob)
-      .map(([path, text]) => [path.split("/").pop() as string, text] as const)
-      .filter(([name]) => name !== "vitest.config.ts"),
-  );
 const files = {
-  programs: packFiles(
-    import.meta.glob<string>("../../../packs/programs/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-  bookings: testVariant(
-    packFiles(
-      import.meta.glob<string>("../../../packs/bookings/*.ts", {
-        query: "?raw",
-        import: "default",
-        eager: true,
-      }),
-    ),
-  ),
+  programs: packFiles("programs"),
+  bookings: testVariant(packFiles("bookings")),
 };
 
 /** The pack as shipped, with the fixture holder added to `paidBy` (tests only). */

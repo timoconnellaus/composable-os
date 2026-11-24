@@ -15,18 +15,9 @@ import {
 import { beforeAll, describe, expect, it } from "vitest";
 import { CONTENT_HOOKS_CALL, createContentHooks } from "../../../packs/content/client/index.ts";
 import { createAdmin, db, host, unique } from "./helpers.ts";
+import { packFiles } from "./pack-files.ts";
 
-const files = Object.fromEntries(
-  Object.entries(
-    import.meta.glob<string>("../../../packs/content/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  )
-    .map(([path, text]) => [path.split("/").pop() as string, text] as const)
-    .filter(([name]) => name !== "vitest.config.ts"),
-);
+const files = packFiles("content");
 
 const shippedHost: ExtensionHost = {
   ...host,
