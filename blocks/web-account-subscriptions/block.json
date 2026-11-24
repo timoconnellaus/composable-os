@@ -1,0 +1,11 @@
+{
+  "name": "web-account-subscriptions",
+  "pack": null,
+  "skin": "web",
+  "operations": ["subscription.list", "subscription.cancel", "subscription.resume"],
+  "files": ["subscriptions.tsx", "LICENSE"],
+  "dependsOn": ["ui-button", "ui-card"],
+  "packages": {
+    "@composable-os/client": "*"
+  }
+}

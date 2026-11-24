@@ -1027,6 +1027,14 @@ of its own. Never a `core_user`, never a role. A human who is both staff and a c
 accounts and nothing links them (stage 22).
 _Avoid_: user (a user is staff), login
 
+**My account**
+The customer's own area on the business's website and in its app (stage 48): one shell copied
+into the client app (`web-account`, `native-account`) with base sections (orders, agreements,
+family, payment method, details, sign-in and devices) and each installed pack's section. What each
+shows is the host's answer; in the app, money opens the website (ADR 0714). "Portal" is only the
+name of the manifest key and the operation (`portal`, `me.portal`).
+_Avoid_: customer portal, dashboard
+
 **Erase request**
 What deleting a customer account leaves for staff: the Person, when it was asked and when it is
 due. Staff erase the person or decline with a reason; either closes it (stage 22).
@@ -1116,7 +1124,8 @@ One declared email of a pack (`bookings.reminder`), with its messages: what an a
 off in Settings → Routine email.
 
 **Headless entry**
-A pack's functions and hooks over the typed client, with no markup (`<package>/headless`). Blocks
+A pack's functions and hooks over the typed client, with no markup (`<package>/headless`); the
+base layer's are in the client runtime itself (`@composable-os/client`: agreements, My account). Blocks
 render what it returns (ADR 0418).
 
 **Capacity**
