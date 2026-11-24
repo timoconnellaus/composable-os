@@ -254,6 +254,8 @@ export interface At {
   block?: number;
   item?: number;
   level?: number;
+  /** An item with levels: its exercises for everyone, beside the levels. */
+  everyone?: boolean;
   exercise?: number;
   set?: number;
 }
@@ -315,11 +317,11 @@ function itemAt(layout: Layout, at: At): Item {
   return item;
 }
 
-/** The prescription at `at`: an "all" item's `exercise`, or a level's. */
+/** The prescription at `at`: an "all" item's `exercise`, everyone's beside levels, or a level's. */
 export function prescriptionAt(layout: Layout, at: At): Prescription {
   const item = itemAt(layout, at);
-  if (item.kind === "all") {
-    const p = item.exercises[at.exercise ?? 0];
+  if (item.kind === "all" || at.everyone) {
+    const p = (item.kind === "all" ? item.exercises : (item.exercises ?? []))[at.exercise ?? 0];
     if (!p) throw new Error("No exercise there");
     return p;
   }
@@ -503,11 +505,16 @@ export const layoutEdits = {
           ...(item.notes ? { notes: item.notes } : {}),
         };
       } else if (kind === "all" && item.kind === "levels") {
+        // Everyone's exercises stay everyone's; with none, level 1's become everyone's.
         const first = item.levels[0];
         b.items[index] = {
           kind: "all",
           label: item.label,
-          exercises: first ? levelExercises(first) : [],
+          exercises: item.exercises?.length
+            ? item.exercises
+            : first
+              ? levelExercises(first)
+              : [],
           ...(item.notes ? { notes: item.notes } : {}),
         };
       }
@@ -553,13 +560,17 @@ export const layoutEdits = {
           ? { mode, level: level.level, exercise: exercises[0] as Prescription }
           : { mode, level: level.level, exercises };
     }),
-  /** Another exercise beside the ones at `at` (an "all" item's, or a level's). */
+  /** Another exercise beside the ones at `at` (an "all" item's, everyone's, or a level's). */
   addExercise: (layout: Layout, at: At, exercise: string, measure?: string | null) =>
     edit(layout, (l) => {
       const item = itemAt(l, at);
       const p = newPrescription(exercise, measure);
       if (item.kind === "all") {
         item.exercises.push(p);
+        return;
+      }
+      if (at.everyone) {
+        item.exercises = [...(item.exercises ?? []), p];
         return;
       }
       const index = at.level ?? -1;
@@ -576,6 +587,12 @@ export const layoutEdits = {
       const index = at.exercise ?? -1;
       if (item.kind === "all") {
         item.exercises.splice(index, 1);
+        return;
+      }
+      if (at.everyone) {
+        const rest = (item.exercises ?? []).filter((_, i) => i !== index);
+        if (rest.length) item.exercises = rest;
+        else delete item.exercises;
         return;
       }
       const li = at.level ?? -1;
@@ -682,7 +699,10 @@ export function exercisesIn(layout: Layout): string[] {
       for (const p of s.warmup?.exercises ?? []) ids.add(p.exercise);
       for (const b of s.blocks) {
         for (const i of b.items) {
-          const all = i.kind === "all" ? i.exercises : i.levels.flatMap(levelExercises);
+          const all =
+            i.kind === "all"
+              ? i.exercises
+              : [...(i.exercises ?? []), ...i.levels.flatMap(levelExercises)];
           for (const p of all) ids.add(p.exercise);
         }
       }

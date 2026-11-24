@@ -54,7 +54,17 @@ export function recordEventChange(change: RecordChange): RecordEventChange | nul
 
 /** Is this operation a bulk one (imports, *Many, backfills): its events skip most automations. */
 export function isBulkOperation(name: string, bulkSize: number): boolean {
-  return bulkSize > 1 || name.endsWith("Many") || name.startsWith("import.");
+  return (
+    bulkSize > 1 || name.endsWith("Many") || name.startsWith("import.") || isImportOperation(name)
+  );
+}
+
+/**
+ * Is this the import door (`record.import`, ADR 0470): what it writes was done before, elsewhere,
+ * so its events start no automation (not even one that takes bulk changes) and send no message.
+ */
+export function isImportOperation(name: string): boolean {
+  return name === "record.import";
 }
 
 export function eventOriginOf(input: {
@@ -78,6 +88,7 @@ export function eventOriginOf(input: {
     ...(o.runId ? { runId: o.runId } : {}),
     ...(o.sessionId ? { sessionId: o.sessionId } : {}),
     bulk: input.bulk,
+    ...(isImportOperation(input.operation) ? { imported: true as const } : {}),
   };
 }
 

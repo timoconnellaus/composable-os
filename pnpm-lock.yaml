@@ -807,6 +807,9 @@ importers:
       '@composable-os/extension-check':
         specifier: workspace:*
         version: link:../extension-check
+      '@composable-os/pack-programs':
+        specifier: workspace:*
+        version: link:../../packs/programs
       '@composable-os/product':
         specifier: workspace:*
         version: link:../product

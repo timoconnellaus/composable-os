@@ -7,7 +7,9 @@ checked and audited as theirs. `cos courses import` is the same door for a cours
 courses, videos and students' access ([below](#courses-cos-courses-import), ADR 0495), and `cos
 subscriptions offers import` for subscribers moving from another platform
 ([below](#subscribers-cos-subscriptions-offers-import), ADR 0491), and `cos rostering import` for
-duties and who works them ([below](#the-roster-cos-rostering-import), ADR 0629).
+duties and who works them ([below](#the-roster-cos-rostering-import), ADR 0629), and `cos programs
+import` for a gym's exercises, programs and past training ([below](#programs-cos-programs-import),
+stage 41).
 
 ```bash
 cos content import ./export --host https://admin.example.com              # by the browser
@@ -473,4 +475,102 @@ A CSV with a header row; columns in any order, extra ones ignored. Each row is a
 - The Rostering pack installed, and the staff invited.
 - You roster: an admin, or granted Rostering's "rosters others" permission, signed in as yourself
   (the check reads people's time off, so it is a person's own call, never an assistant's).
+
+## Programs: `cos programs import`
+
+A gym's programming usually lives in documents and spreadsheets. This command brings the Programs
+pack's records in (stage 41, [ADR 0448](adr/0448-programs-the-layout-assignments-and-the-log.md),
+amended): the **exercise bank**, the **class types**, **programs** written in the pack's shorthand
+(the same text `x.programs.importText` reads, read by the same code), and **past training**, each
+set someone did before, with the session it was done in. The same door as the others: the folder is
+checked before anyone signs in, the sign-in lasts for the run, every record is written with
+`record.import` and its import key, and a person's edit since is a conflict, never overwritten.
+
+```bash
+cos programs import ./programs --host https://admin.example.com --dry-run   # checks, writes nothing
+cos programs import ./programs --host https://admin.example.com             # writes
+```
+
+`--email` works as for content. It exits 0 when everything is in (conflicts and rows that matched
+no person are reported, not failures), 1 on a problem (nothing written), and 2 on a wrong command
+line.
+
+### The folder
+
+Every file is optional. A **key** is what a record is found by on a re-run: keep it the same between
+runs (the old system's id, or a name that will not change).
+
+```
+programs/
+  exercises.csv      the bank
+  classtypes.csv     the kinds of class
+  programs/          one .txt file of shorthand per program; its name (without .txt) is its key
+  training.csv       past training, one row per set
+```
+
+**`exercises.csv`**: `name` (required), `key` (the name when left out), `measure` (`weight_reps`,
+`reps`, `time` or `hold`; `reps` when left out), `video` (a link), `cues`, `theme`, `level`,
+`equipment` and `body_areas` (lists split by `;`, the pack's options), and `easier` and `harder`
+(other rows' keys, split by `;`).
+
+**`classtypes.csv`**: `name` (required), `key` (the name when left out), `order`.
+
+**`programs/*.txt`**: the shorthand coaches type, as `x.programs.importText` documents it
+(`packs/programs/authoring.ts`): `Title:`, `Kind:` (`class`, `client` or `course`; `class` when
+left out), `Guidance:`, `Week:`, `Session:`, `Focus:`, `Warm-up:`, `Block A:`, items `A1:` with an
+exercise (for everyone), level lines `1:` to `5:`, or both (an exercise for everyone with levels
+beside it), `*` notes for coaches and `TV:` notes for members. Exercises are matched by name to the
+folder's and the host's bank. **Every line the reader cannot use is a problem** that stops the run,
+named with its file and line (a warm-up line it keeps as words is a note, not a problem): change
+the line, or make it a `*` note, rather than lose it.
+
+**`training.csv`**: one row per set. `email`, `date` (`YYYY-MM-DD`, today or before) and
+`exercise` (a key of `exercises.csv`, or the exact name of an exercise in the folder or on the
+host) are required. Optional: `session` (its name; `Training` when left out), `set` (counted in
+the order of the rows when left out), `reps`, `seconds`, `load` (kilograms), `rpe` (1 to 10 in
+halves), `note`, `item` (`A1`), `level`, `program` (a file of `programs/`, without `.txt`), and
+`target_reps`, `target_seconds` and `target_load`. A row says what was done: reps, seconds or load.
+
+### What it does
+
+1. Reads the folder and checks it. Any problem stops the run before signing in, named with its file
+   and, for a CSV row, its line (`training.csv:7`).
+2. Signs you in for the run. Reads the host's bank and finds each training row's person: the one
+   live Person with that email. A row whose address no person has (or more than one) is listed with
+   its line and left out: import the people first (Settings → Import), never by this command.
+3. Checks every record on the host as it would be written (`record.import` with `dryRun`), records
+   not yet made standing in as placeholders, and reads every program's shorthand. A problem stops
+   the run with nothing written. `--dry-run` stops here and says what would happen.
+4. Writes, in order, each batch naming what the one before made by its id: the class types, the
+   exercises, their easier and harder versions, the programs (working copies: a person with the
+   publish permission publishes them), the past sessions and their sets.
+
+**Past training.** Each person's sets on one day under one session name become one **session**,
+done, with no assignment, marked `source: import`, and the program it names (if any). Each row is
+one **logged set** against that session, marked `source: import`, with its exercise as a relation,
+so history, progress, the Training dashboard and the `rec_*` views read imported sets as they read
+logged ones. The dashboard's planned and done sessions leave imported sessions out (they have no
+kind: they were never planned here). A member sees their own imported sessions and sets in the app as they see the rest of
+their training; they cannot log more sets on an imported session (it has no plan).
+
+**What it brings in starts nothing.** Everything `record.import` writes was done before, somewhere
+else, so its events are marked `imported`: no automation starts from them (not even one that takes
+bulk changes) and no notification is sent. Nobody gets a "well done" message for a session they
+did last year.
+
+**A re-run makes nothing twice.** Every record is found by its key: a class type and an exercise by
+theirs, a program by its file's name, a session by its person, day and name, a set by its session,
+item, exercise and set number. What the source changed is updated while the record still holds
+what the import last wrote; one someone has changed since is reported as a conflict, with its
+fields, and left as it is.
+
+**Not imported:** assignments of programs to people or class types (a coach assigns a published
+version, and the sessions follow from it), class attendance and bookings (the booking import),
+people (the people import).
+
+### What the host needs
+
+- The Programs pack in `product.ts`'s `packs`, and installed.
+- The people the training names, imported first.
+- You are staff, signed in as yourself.
 

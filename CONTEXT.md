@@ -1901,7 +1901,8 @@ _Avoid_: permalink, path, handle
 The name a record has in the system it was imported from (an old post's file name), kept by the
 host with what the import last wrote (`record.import`, ADR 0470). A re-run of the import finds the
 record by it: it updates only what the source changed, and reports a record someone changed since
-as a conflict instead of overwriting it.
+as a conflict instead of overwriting it. What the import writes starts no automation and sends no
+notification. (`x.programs.importText` keeps a key of its own on the program, to the same rule.)
 _Avoid_: external id (a synced email's), source id
 
 **Media** (a media item; the **media library**)
@@ -2008,13 +2009,16 @@ _Avoid_: enrolment (stage 42), subscription
 
 **Session** (Programs)
 One dated session of an assignment, carrying its plan as the assigned version had it (blocks,
-items, levels, typed targets) and whether it was done or skipped.
+items, levels, typed targets) and whether it was done or skipped. An **imported session** is one
+done before the platform, brought in by `cos programs import`: done, with no assignment and no
+plan, `source: import`.
 _Avoid_: workout, class (a class is the timetable's, stage 31)
 
 **Log** (Programs; a **logged set**)
 One set someone did: the exercise, the item and level taken, the target from the plan and what
 was done (load, reps, seconds), effort (RPE), and who recorded it (the person, or a coach for
-them). One row per set: the table a gym's training data comes from.
+them). One row per set: the table a gym's training data comes from. An imported set
+(`source: import`) is one done before the platform, on an imported session.
 _Avoid_: entry, result
 
 **Allowance**

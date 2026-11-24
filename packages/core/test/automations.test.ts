@@ -13,7 +13,9 @@ import {
   approvalTriggerSource,
   coreRegistry,
   cronMatches,
+  eventOriginOf,
   type InvocationContext,
+  isBulkOperation,
   invoke,
   memoryEventSink,
   OperationError,
@@ -127,6 +129,21 @@ describe("trigger sources", () => {
       "a.bulky",
     ]);
     expect(recordTriggerSource.match(m, [onCreate])[0]?.idempotencyKey).toBe("aud_1:0:per_1");
+  });
+
+  it("record: what the import door brings in starts nothing, not even with includeBulk", () => {
+    const origin = eventOriginOf({
+      actor: "human",
+      userId: "u",
+      origin: { surface: "api" },
+      operation: "record.import",
+      auditId: "aud_1",
+      bulk: isBulkOperation("record.import", 1),
+    });
+    expect(origin).toMatchObject({ bulk: true, imported: true });
+    expect(eventOriginOf({ ...origin, origin: { surface: "ui" }, operation: "record.create", auditId: "a", bulk: false }).imported).toBeUndefined();
+    const imported = { ...message([{ object: "person", id: "per_1", action: "created" }]), origin };
+    expect(recordTriggerSource.match(imported, [onCreate, bulky])).toEqual([]);
   });
 
   it("fieldChanged: from / to values", () => {

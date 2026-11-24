@@ -1532,6 +1532,13 @@ writes only the courses whose videos are ready. It writes access as `courses.enr
 with source `import` (never orders), finding each student by email, and progress by the lesson's
 `sourceId`. A student's own progress is reported as a conflict and kept.
 
+`cos programs import <folder>` (stage 41, ADR 0448 amended, `src/programs-import/`) is the door
+for a gym's exercise bank, class types, programs in the Programs pack's shorthand (read by the
+pack's own `readProgramText`) and past training: sessions done before, with no assignment, and
+their sets, both `source: import`. Every batch is dry-run, then written in order, each naming the
+records the ones before made by id. Whatever the door writes starts no automation and sends no
+notification: its events are always bulk and carry `origin.imported` (ADR 0470, amended).
+
 **The editor** (`apps/app/src/components/fields/rich-text-editor.tsx`). Rich text fields are
 edited with Tiptap, whose schema is the platform's blocks and marks; `toRichText`
 (`apps/app/src/lib/rich-text-map.ts`) maps its document to `RICH_TEXT_SCHEMA` at its edge and is
@@ -1545,7 +1552,9 @@ class type that pin a version and make dated sessions carrying their own plans, 
 set against its target. Its tools compose the host's operations: `assign`, `today`, `sessionGet`,
 `classToday`, `logAdd`, `logUpdate`, `sessionComplete`, `history`, `progress`, and, for staff,
 `draft` (a working copy from a brief, with the `extract` model role) and `importText` (coaches'
-shorthand into structured targets, unread lines listed). The staff side is declarations: the
+shorthand into structured targets, unread lines listed; with a key, one program per key and a
+coach's edit never overwritten; with `dryRun`, nothing written). An item of the layout is for
+everyone, has levels, or both. The staff side is declarations: the
 Training dashboard, saved views, the Person page's Training tab and panels. Its headless entry
 (`@composable-os/pack-programs/client`) holds the layout's pure edits and a self-saving working
 copy; twelve blocks (the program builder, the exercise bank, today and session, class today,
@@ -1999,7 +2008,7 @@ and the mobile Account tab are plain pages over the same entry.
 | Deals | `stages` | exists |
 | Leads, lifecycle | fields, tools | exists |
 | Ticketing | `states`, `capacity`, `sellable`, `customer`, `public`, `customerVia`, a `timezone` field, a pack role, payments | stage 27: objects, tools, check-in and the door role built |
-| Programs | `document`, `publishable` (no public half), `states`, `customer`, `signedIn` | stage 41: steps 1 to 6 built (the spine, the dashboard, views and Person tab, hooks and blocks, draft and import); Ghetto's app is step 7 |
+| Programs | `document`, `publishable` (no public half), `states`, `customer`, `signedIn`, `unique` | stage 41: steps 1 to 6 built (the spine, the dashboard, views and Person tab, hooks and blocks, draft and import), and a repeatable import (`cos programs import`); Ghetto's app is step 7 |
 | Content | `publishable`, rich text, slugs, media | stage 28: steps 1 to 6 built (rich text, `publishable` completed, public reads, media, the editor, the pack: posts and categories, hooks, web and native renderers); the first client's import and blog routes are its own repository's |
 | Courses | `publishable`, `sellable` (grants and a tax code), `access` and holders' parts, `states`, `customer` with `requireAccess`, `requires: ["programs"]`, video media and `media.play` | stage 42: steps 1 to 4, 6, 7 and the draft built ([ADR 0478](adr/0478-the-courses-pack.md)); the import and the first client to come |
 | Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `staffed` (a class is its coach's shift, stage 45), `occupies` (a class takes a room marked "one booking at a time", stage 49 step 2, [ADR 0765](adr/0765-occupies-the-claim-on-a-thing.md)), `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer` with `guardians`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 6 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md); parents booking for their children, [ADR 0540](adr/0540-the-family-link.md)); step 7, attendance, moves and cancelling a class; step 8, drop-ins with `sellable.moves`, [ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md)); step 9, messages, the reminder, the dashboard and the coach's app screen, [ADR 0572](adr/0572-bookings-messages-the-dashboard-and-the-coachs-app-screen.md); step 10 to come |

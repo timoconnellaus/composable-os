@@ -130,6 +130,12 @@ A client repo (stage 24)
   cos subscriptions offers report --host <url> [--status taken] [--out <file.csv>]
                                          who has taken their offer and when they are charged from,
                                          so you end exactly those old subscriptions
+  cos programs import <folder> --host <url> [--email <you>] [--dry-run]
+                                         load exercises, class types, programs in the pack's
+                                         shorthand and past training (sessions and their sets), as
+                                         you; checks everything first, a re-run makes nothing
+                                         twice, an edit since is kept; what it brings in starts no
+                                         automation and sends no message (docs/importing.md)
   cos rostering import <roster.csv> --host <url> [--email <you>] [--apply]
                                          duties and who works them (weekly patterns, one-off
                                          shifts); the host checks every date for someone on two
@@ -1470,6 +1476,38 @@ async function courses(argv: string[], deps: Deps): Promise<number> {
   }
 }
 
+/** `cos programs import <folder>` (stage 41): exercises, class types, programs, past training. */
+async function programsCommand(argv: string[], deps: Deps): Promise<number> {
+  const { PROGRAMS_USAGE, programsImport } = await import("./programs-import/run.ts");
+  if (argv[0] !== "import") {
+    deps.io.err(PROGRAMS_USAGE);
+    return 2;
+  }
+  const rest = argv.slice(1);
+  const positional = rest[0] && !rest[0].startsWith("-") ? [rest[0]] : [];
+  let parsed: ReturnType<typeof parseArgs>;
+  try {
+    parsed = parseArgs(["import", ...rest.slice(positional.length)]);
+  } catch (error) {
+    deps.io.err((error as Error).message);
+    return 2;
+  }
+  try {
+    return await programsImport(
+      positional,
+      {
+        ...(str(parsed.flags, "host") ? { host: str(parsed.flags, "host") } : {}),
+        ...(str(parsed.flags, "email") ? { email: str(parsed.flags, "email") } : {}),
+        dryRun: Boolean(parsed.flags["dry-run"]),
+      },
+      deps.io,
+    );
+  } catch (error) {
+    deps.io.err(`Error: ${(error as Error).message}`);
+    return 1;
+  }
+}
+
 /**
  * `cos rostering import <roster.csv>` (stage 45 step 7): duties and who works them, as weekly
  * patterns and one-off shifts, checked by the host's own dry run; a dry run unless --apply.
@@ -1559,6 +1597,7 @@ export async function runCli(argv: string[], input: Deps): Promise<number> {
   if (argv[0] === "courses") return courses(argv.slice(1), deps);
   if (argv[0] === "subscriptions") return subscriptions(argv.slice(1), deps);
   if (argv[0] === "rostering") return rostering(argv.slice(1), deps);
+  if (argv[0] === "programs") return programsCommand(argv.slice(1), deps);
   if (argv[0] === "ext") return ext(argv.slice(1), deps);
   if (argv[0] === "client") return client(argv.slice(1), deps);
   // Commands that take one argument before their flags (stage 24).
