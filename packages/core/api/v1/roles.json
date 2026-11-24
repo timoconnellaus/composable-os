@@ -43,6 +43,7 @@
         "x.dailychecks.today",
         "x.programs.history",
         "x.programs.logAdd",
+        "x.programs.logRemove",
         "x.programs.logUpdate",
         "x.programs.progress",
         "x.programs.sessionComplete",

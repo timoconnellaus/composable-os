@@ -27,6 +27,8 @@ import {
   type HostModuleName,
   STAGE_TYPES,
   SUPPORTED_CONTRACT_VERSIONS,
+  TODAY_ITEM_COMPARES,
+  TODAY_ITEM_FORMATS,
   TOOL_AUDIENCES,
   TOOL_RISKS,
 } from "./contract.ts";
@@ -44,6 +46,7 @@ import { journeySignalIssues, journeySignalsManifestSchema } from "./journey-sig
 import { checkObjectOccupies, occupiesManifestSchema } from "./occupies.ts";
 import { checkObjectRecurring, recurringManifestSchema } from "./recurring.ts";
 import { renamedMessage } from "./renamed.ts";
+import { checkRestrictedFields, isRestrictedField } from "./restricted-fields.ts";
 import { routineMailIssues, routineMailManifestSchema } from "./routine-mail.ts";
 import { checkObjectSellable, sellableManifestSchema } from "./sellable.ts";
 import { checkObjectStaffed, staffedManifestSchema } from "./staffed.ts";
@@ -124,6 +127,8 @@ export const fieldManifestSchema = z.object({
   default: z.union([z.string().max(1000), z.number(), z.boolean()]).optional(),
   defaultSetting: z.string().max(40).optional(),
   personApproves: z.boolean().optional(),
+  // Stage 54 step 2 (ADR 0811): only those granted this restricted permission of the pack read it.
+  restricted: z.string().max(80).optional(),
   to: z.string().max(80).optional(),
   many: z.boolean().optional(),
   expression: z.string().max(2000).optional(),
@@ -239,6 +244,7 @@ export const objectManifestSchema = z.object({
       write: z.array(z.string().max(40)).max(100),
       requireAccess: z.array(z.string().max(40)).max(10).optional(),
       createOnly: z.array(z.string().max(40)).max(100).optional(),
+      delete: z.boolean().optional(),
       guardians: z
         .object({ write: z.boolean().optional(), madeBy: z.string().max(40).optional() })
         .strict()
@@ -540,6 +546,46 @@ export const screenManifestSchema = z
   .strict();
 export type ScreenManifest = z.infer<typeof screenManifestSchema>;
 
+/** A shipped pack's number on Today (stage 60, ADR 0870): see `TodayItemSpec`. */
+export const todayItemManifestSchema = z
+  .object({
+    label: z.string().min(1).max(60),
+    order: z.number().int().min(0).max(1000).optional(),
+    // A string, not an enum: a money format is refused by the contract with the reason.
+    format: z.string().min(1).max(20),
+    sql: z.string().min(1).max(20_000),
+    compare: z.enum(TODAY_ITEM_COMPARES).optional(),
+    attention: z
+      .union([
+        z.object({ above: z.number().finite() }).strict(),
+        z.object({ below: z.number().finite() }).strict(),
+      ])
+      .optional(),
+    rows: z
+      .object({
+        sql: z.string().min(1).max(20_000),
+        label: z.string().min(1).max(63),
+        detail: z.string().min(1).max(63).optional(),
+        record: z
+          .object({ object: z.string().min(1).max(81), id: z.string().min(1).max(63) })
+          .strict(),
+      })
+      .strict()
+      .optional(),
+    opens: z.array(z.string().max(80)).max(10),
+    web: z
+      .object({ screen: z.string().min(1).max(40) })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type TodayItemManifest = z.infer<typeof todayItemManifestSchema>;
+
+/** At most this many Today items per pack (stage 60). */
+export const MAX_TODAY_ITEMS = 8;
+/** A result column a Today item's rows name: `member`, `person_id`. */
+const COLUMN_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
+
 /** A screen's key, as a tool's: `desk`, `classList`. */
 export const SCREEN_NAME_RE = /^[a-z][a-zA-Z0-9]{0,39}$/;
 /** A block's name: lowercase words joined by hyphens (`bookings-desk`). */
@@ -612,6 +658,8 @@ export const manifestSchema = z.object({
     .optional(),
   /** A shipped pack's staff screens in the product's admin (stage 47, ADR 0660). */
   screens: z.record(z.string(), screenManifestSchema).optional(),
+  /** A shipped pack's numbers on the owner's Today (stage 60, ADR 0870). */
+  todayItems: z.record(z.string(), todayItemManifestSchema).optional(),
 });
 export type ExtensionManifest = z.infer<typeof manifestSchema>;
 
@@ -887,6 +935,35 @@ export function toManifest(extension: Extension): ExtensionManifest {
           ),
         }
       : {}),
+    ...(extension.todayItems && Object.keys(extension.todayItems).length
+      ? {
+          todayItems: Object.fromEntries(
+            Object.entries(extension.todayItems).map(([name, item]) => [
+              name,
+              {
+                label: item.label,
+                ...(item.order !== undefined ? { order: item.order } : {}),
+                format: item.format,
+                sql: item.sql,
+                ...(item.compare ? { compare: item.compare } : {}),
+                ...(item.attention ? { attention: { ...item.attention } } : {}),
+                ...(item.rows
+                  ? {
+                      rows: {
+                        sql: item.rows.sql,
+                        label: item.rows.label,
+                        ...(item.rows.detail ? { detail: item.rows.detail } : {}),
+                        record: { object: item.rows.record.object, id: item.rows.record.id },
+                      },
+                    }
+                  : {}),
+                opens: [...item.opens],
+                ...(item.web ? { web: { screen: item.web.screen } } : {}),
+              },
+            ]),
+          ),
+        }
+      : {}),
     ...(extension.requires?.length ? { requires: [...extension.requires] } : {}),
     ...(extension.routineMail && Object.keys(extension.routineMail).length
       ? { routineMail: extension.routineMail }
@@ -1013,6 +1090,8 @@ export function formulaFields(
 ): Record<string, FormulaFieldRef> {
   const env: Record<string, FormulaFieldRef> = {};
   for (const [name, field] of Object.entries(fields)) {
+    // A restricted value is in no view, so no formula reads it (ADR 0811).
+    if (isRestrictedField(field)) continue;
     if (field.type === "formula") {
       env[name] = { expression: field.expression ?? "" };
       continue;
@@ -1193,9 +1272,110 @@ export function deviceRoleIssues(m: ExtensionManifest): { path: string; message:
 }
 
 /**
+ * A shipped pack's Today items (stage 60, ADR 0870), against its own manifest: at most 8, keys
+ * camelCase, a count or a percent (never money: that is the host's, through Finance reports), gated
+ * by this pack's own tools as a screen is (at least one for staff only), rows that open one of
+ * this pack's objects or a base one, and a web screen this pack declares. What the SQL reads,
+ * that it writes nothing and that it returns `value` is the host's check (it has the SQL guards);
+ * so is that only a shipped pack declares items (`cos ext check` and install refuse a runtime one).
+ */
+export function todayItemIssues(m: ExtensionManifest): { path: string; message: string }[] {
+  const issues: { path: string; message: string }[] = [];
+  const add = (path: string, message: string) => issues.push({ path, message });
+  const items = Object.entries(m.todayItems ?? {});
+  if (items.length > MAX_TODAY_ITEMS) {
+    add("todayItems", `A pack declares at most ${MAX_TODAY_ITEMS} Today items`);
+  }
+  for (const [name, item] of items) {
+    const path = `todayItems.${name}`;
+    if (!SCREEN_NAME_RE.test(name)) add(path, `Today item name "${name}" must be camelCase`);
+    if (!(TODAY_ITEM_FORMATS as readonly string[]).includes(item.format)) {
+      add(
+        `${path}.format`,
+        /money|currency|amount/i.test(item.format)
+          ? "A pack declares no money item: money on Today is the host's, from Finance reports (stage 52)"
+          : `"${item.format}" must be one of ${TODAY_ITEM_FORMATS.join(", ")}`,
+      );
+    }
+    const seen = new Set<string>();
+    let staffOnly = false;
+    item.opens.forEach((tool, i) => {
+      const at = `${path}.opens.${i}`;
+      if (seen.has(tool)) add(at, `"${tool}" is named twice`);
+      seen.add(tool);
+      const spec = Object.hasOwn(m.tools, tool) ? m.tools[tool] : undefined;
+      if (!spec) {
+        add(
+          at,
+          `"${tool}" is not a tool of this pack: a Today item is gated by its own pack's tools`,
+        );
+        return;
+      }
+      const audiences = spec.audiences ?? ["staff"];
+      if (!audiences.includes("staff")) {
+        add(at, `"${tool}" is not for staff, so no member of staff could see this item`);
+      }
+      if (audiences.every((a) => a === "staff")) staffOnly = true;
+    });
+    if (!item.opens.length) {
+      add(`${path}.opens`, "A Today item names at least one of this pack's tools that gates it");
+    } else if (!staffOnly) {
+      add(
+        `${path}.opens`,
+        "A Today item's gate names at least one tool for staff only: a tool open to customers or the public is never the only gate",
+      );
+    }
+    if (item.rows) {
+      const { label, detail, record } = item.rows;
+      for (const [key, column] of [
+        ["label", label],
+        ["detail", detail],
+        ["record.id", record.id],
+      ] as const) {
+        if (column !== undefined && !COLUMN_NAME_RE.test(column)) {
+          add(`${path}.rows.${key}`, `"${column}" must be the name of a column the rows return`);
+        }
+      }
+      const local = record.object.startsWith(`${m.id}.`)
+        ? record.object.slice(m.id.length + 1)
+        : null;
+      const own = local !== null && Object.hasOwn(m.objects, local);
+      if (!own && record.object !== "person" && record.object !== "organisation") {
+        add(
+          `${path}.rows.record.object`,
+          `"${record.object}" must be an object of this pack (${m.id}.<object>), person or organisation`,
+        );
+      }
+    }
+    if (item.web && !Object.hasOwn(m.screens ?? {}, item.web.screen)) {
+      add(`${path}.web.screen`, `"${item.web.screen}" is not a screen this pack declares`);
+    }
+  }
+  return issues;
+}
+
+/**
  * The contract check: structure (zod), names, references, permissions and formulas. Returns
  * every issue found (empty when the manifest is valid) and the parsed manifest when it parsed.
  */
+/** Every property name of a JSON schema, at any depth (objects, arrays, unions). */
+function schemaKeys(schema: unknown, into: Set<string> = new Set()): Set<string> {
+  if (!schema || typeof schema !== "object") return into;
+  const node = schema as Record<string, unknown>;
+  const properties = node.properties;
+  if (properties && typeof properties === "object") {
+    for (const [key, value] of Object.entries(properties as Record<string, unknown>)) {
+      into.add(key);
+      schemaKeys(value, into);
+    }
+  }
+  for (const key of ["items", "additionalProperties"]) schemaKeys(node[key], into);
+  for (const key of ["anyOf", "oneOf", "allOf"]) {
+    if (Array.isArray(node[key])) for (const part of node[key] as unknown[]) schemaKeys(part, into);
+  }
+  return into;
+}
+
 export function validateManifest(
   input: unknown,
   options: ValidateOptions = {},
@@ -1770,6 +1950,9 @@ export function validateManifest(
     }
   }
 
+  // Restricted fields (ADR 0811): an author's words only a named grant reads.
+  checkRestrictedFields(m, contract);
+
   // Fields a customer sets only when they make the record (ADR 0507): each one of its write list.
   for (const [name, object] of Object.entries(m.objects)) {
     for (const fieldName of object.customer?.createOnly ?? []) {
@@ -2067,11 +2250,25 @@ export function validateManifest(
         );
       }
     }
-    // Input fields the audit log never keeps (ADR 0626): each a field of the tool's input.
+    // Input fields the audit log never keeps (ADR 0626): each a field of the tool's input, at any
+    // depth (the audit's redaction is deep).
+    const inputKeys = schemaKeys(tool.inputSchema);
     for (const field of tool.redact ?? []) {
-      const properties = (tool.inputSchema.properties ?? {}) as Record<string, unknown>;
-      if (!Object.hasOwn(properties, field)) {
+      if (!inputKeys.has(field)) {
         contract(`tools.${name}.redact`, `"${field}" is not a field of the tool's input`);
+      }
+    }
+    // A tool that takes a restricted field's value by its name, at any depth of its input, keeps it
+    // out of the audit (ADR 0811): it lists it in `redact`.
+    for (const field of inputKeys) {
+      const restrictedField = Object.values(m.objects).some((object) =>
+        Object.entries(object.fields).some(([n, f]) => n === field && isRestrictedField(f)),
+      );
+      if (restrictedField && !(tool.redact ?? []).includes(field)) {
+        contract(
+          `tools.${name}.redact`,
+          `"${field}" is a restricted field's name: list it in redact, so no audit row keeps it`,
+        );
       }
     }
     // Answer keys the host never keeps (ADR 0628): each a key of the tool's answer.
@@ -2341,6 +2538,7 @@ export function validateManifest(
   for (const issue of deviceRoleIssues(m)) contract(issue.path, issue.message);
 
   for (const issue of screenIssues(m)) contract(issue.path, issue.message);
+  for (const issue of todayItemIssues(m)) contract(issue.path, issue.message);
 
   for (const [name, view] of Object.entries(m.views)) {
     if (!FIELD_NAME_RE.test(name)) contract(`views.${name}`, "View names must be camelCase");

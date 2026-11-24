@@ -134,6 +134,7 @@ import type { RateLimitBinding } from "./rate-limit.ts";
 import type { MediaStore } from "./records/media.ts";
 import { touchesPersonApproves } from "./records/person-approves.ts";
 import { ALWAYS_REVIEWED_PUBLISHERS } from "./records/publish.ts";
+import { restrictedInputKeys } from "./records/restricted.ts";
 import { resolveInputFilter } from "./relative.ts";
 import { type MarkedChange, markStatements, type Standing } from "./routine-mail/marks.ts";
 import { loadApprovalPolicy } from "./settings.ts";
@@ -144,6 +145,7 @@ import { recordAccess } from "./visibility/records.ts";
 import {
   assertVisibleWrites,
   createVisible,
+  deleteVisible,
   type SeamWriter,
   updateVisible,
 } from "./visibility/writes.ts";
@@ -185,6 +187,12 @@ export interface InvocationContext {
    * caller's pack role limit to today, held on this call as on the account's own.
    */
   roleToday?: TodayLimits | undefined;
+  /**
+   * Set by platform code only, with `roleToday` (a tool run): the moment of the call that took the
+   * limit, whose local day the limit holds to. A run's calls stay on the day the run was started
+   * on, whatever the clock reads by then (issue #290).
+   */
+  roleTodayAt?: string | undefined;
   /**
    * Set by platform code only (a tool run, for the staff account that started it, ADR 0889): the
    * caller's pack role limit to the People they look after, held on this call as on the account's.
@@ -393,11 +401,6 @@ export function redactInput(value: unknown, extra: readonly string[] = []): unkn
   return value;
 }
 
-/** The input keys an operation's audit row leaves out. */
-function auditRedactions(op: AnyOperation): readonly string[] {
-  return op.auditRedact ? [...(op.redact ?? []), ...op.auditRedact] : (op.redact ?? []);
-}
-
 /** Two read-audit summaries as one: lists under the same key are joined, without repeats. */
 function mergeReadAudit(
   into: Record<string, unknown> | null,
@@ -410,6 +413,16 @@ function mergeReadAudit(
       Array.isArray(before) && Array.isArray(value) ? [...new Set([...before, ...value])] : value;
   }
   return out;
+}
+
+/**
+ * The input keys an audit row leaves out: the operation's own `redact` and `auditRedact`, and the
+ * restricted fields of the object it names (ADR 0811), so no row holds an author's restricted
+ * words, even a refused write's.
+ */
+function auditRedactions(op: AnyOperation, input: unknown): readonly string[] {
+  const extra = [...(op.auditRedact ?? []), ...restrictedInputKeys(input)];
+  return extra.length ? [...(op.redact ?? []), ...extra] : (op.redact ?? []);
 }
 
 /**
@@ -512,7 +525,7 @@ function auditInsert(db: CrmDb, row: AuditRow): Compilable {
     actor: row.ctx.actor,
     user_id: row.ctx.user.id,
     origin: JSON.stringify(originSchema.parse(row.ctx.origin)),
-    input: JSON.stringify(redactInput(row.input, auditRedactions(row.op)) ?? null),
+    input: JSON.stringify(redactInput(row.input, auditRedactions(row.op, row.input)) ?? null),
     result:
       row.result === undefined
         ? null
@@ -780,6 +793,8 @@ async function invokeOnce<O extends AnyOperation>(
   // The limit to today: the account's pack role's when the role is what allows this call (not a
   // pack permission granted to it, ADR 0600), or one a tool run carries for its caller.
   const roleToday: TodayLimits | undefined = roleLimitsFor(rights, op) ?? ctx.roleToday;
+  // The day it holds to: a tool run's, carried from the call that started it; else this call's.
+  const roleTodayAt = ctx.roleTodayAt ?? now;
   // The limit to the People the account looks after (ADR 0889), the same way.
   const roleLooksAfter: LooksAfterLimit | undefined =
     roleLooksAfterFor(rights, op, ctx.user.id) ?? ctx.roleLooksAfter;
@@ -970,7 +985,7 @@ async function invokeOnce<O extends AnyOperation>(
     grantedPermissions: ctx.grantedPermissions,
     permissionGrants: packRole ? [] : grants,
     ...(ctx.followerBudget ? { followerBudget: ctx.followerBudget } : {}),
-    ...(roleToday ? { roleToday } : {}),
+    ...(roleToday ? { roleToday, roleTodayAt } : {}),
     ...(roleLooksAfter ? { roleLooksAfter } : {}),
     ...(ctx.markStanding ? { markStanding: ctx.markStanding } : {}),
     ...(ctx.markGiven ? { markGiven: ctx.markGiven } : {}),
@@ -1324,7 +1339,7 @@ async function invokeOnce<O extends AnyOperation>(
     // A pack role limited to today reaches only today's records of its objects (ADR 0553):
     // held before the operation runs, a list's in its own query.
     const limited = roleToday
-      ? await holdRoleToday(ctx.db.query, roleToday, op.name, input, Date.parse(now))
+      ? await holdRoleToday(ctx.db.query, roleToday, op.name, input, Date.parse(roleTodayAt))
       : input;
     result = await op.handler(limited as typeof input, handlerCtx);
     // What the handler's helpers gathered over the whole call (one notice per person, not one per
@@ -2136,7 +2151,7 @@ function outsideAuditInsert(db: CrmDb, row: OutsideAudit): Compilable {
     actor: row.actor,
     user_id: row.subjectId,
     origin: JSON.stringify(row.origin),
-    input: JSON.stringify(redactInput(row.input, auditRedactions(row.op)) ?? null),
+    input: JSON.stringify(redactInput(row.input, auditRedactions(row.op, row.input)) ?? null),
     result:
       row.result === undefined
         ? null
@@ -2383,6 +2398,7 @@ async function invokeOutside<O extends AnyOperation>(
   const records = recordAccess(reader, {
     create: (object, values, options) => createVisible(seam, object, values, options),
     update: (object, id, values, options) => updateVisible(seam, object, id, values, options),
+    delete: (object, id) => deleteVisible(seam, object, id),
   });
   // The caller's own account's sign-in address: read for the verified principal, never for an
   // id from the input, so no handler can learn another account's.

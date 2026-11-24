@@ -24,6 +24,7 @@ import type {
   InvocationContext,
 } from "../src/index.ts";
 import { memoryEventSink, newId } from "../src/index.ts";
+import { publishAgreement } from "./agreement-fixtures.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
 import { context, createUser, db, unique } from "./helpers.ts";
 import { CURRENCY, createBuyer, outside, PUBLIC, refusal, run } from "./order-fixtures.ts";
@@ -178,10 +179,6 @@ const staff = (user: ActingUser = admin, extra: Partial<InvocationContext> = {})
 const as = (principal: CustomerPrincipal | { kind: "public" }) =>
   outside(principal as CustomerPrincipal, { integrations: mail.runtime, events });
 
-const body = (text: string) => ({
-  blocks: [{ type: "paragraph", content: [{ type: "text", text }] }],
-});
-
 interface Doc {
   id: string;
   versionId: string;
@@ -192,30 +189,12 @@ async function publish(
   kind: "waiver" | "health" | "guardian",
   options: { how?: "typed" | "drawn"; forWhom?: "everyone" | "dependants" } = {},
 ): Promise<Doc> {
-  const { id } = await run<{ id: string }>(
-    "agreement.create",
-    { title: unique(`Fixture ${kind}`), kind },
-    staff(),
-  );
-  const saved = await run<{ hash: string; rev: number }>(
-    "agreement.draft.save",
-    {
-      id,
-      body: body("Fixture text: not a real document."),
-      tickLabel: "I have read this fixture",
-      ...(options.how ? { how: options.how } : {}),
-      ...(options.forWhom ? { forWhom: options.forWhom } : {}),
-      ...(kind === "health" ? { questions: QUESTIONS } : {}),
-    },
-    staff(),
-  );
-  const { version } = await run<{ version: { id: string } }>(
-    "agreement.publish",
-    { documentId: id, draftHash: saved.hash, draftRev: saved.rev, number: 1, change: "small" },
-    staff(),
-  );
-  await run("agreement.attach", { documentId: id, points: [POINT] }, staff());
-  return { id, versionId: version.id, kind };
+  const doc = await publishAgreement((name, input) => run(name, input, staff()), kind, {
+    points: [POINT],
+    ...options,
+    ...(kind === "health" ? { questions: QUESTIONS } : {}),
+  });
+  return { ...doc, kind };
 }
 
 const accept = (principal: CustomerPrincipal, doc: Doc, extra: Record<string, unknown> = {}) =>

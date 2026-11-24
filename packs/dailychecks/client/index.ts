@@ -8,7 +8,14 @@
 // shows the host's answer (`canTick`, `mayDo`, `youManage`) and its refusals, never works one out.
 // What someone writes on a step, why it was not done and why it was ticked for them are on screen
 // only: read with `gcTime: 0`, sent through `forgetAfter`, never in a query's key.
-import { type ClientHolding, forgetAfter, type PackClient, packHooks } from "@composable-os/client";
+import {
+  type ClientHolding,
+  forgetAfter,
+  type PackClient,
+  packHooks,
+  type UseMutation,
+  type UseQuery,
+} from "@composable-os/client";
 import type { z } from "@composable-os/sdk";
 import type { checklistDay, done, history, tickStep, today } from "../tools.ts";
 
@@ -126,34 +133,8 @@ export function finishedLabel(item: DayItem, locale = "en-AU", zone = "UTC"): st
 
 // --- Refusals -----------------------------------------------------------------------------------
 
-export type DayRefusalKind =
-  | "checklist_window"
-  | "checklist_closed"
-  | "checklist_not_your_tick"
-  | "checklist_nothing_to_clear"
-  | "checklist_too_many_ticks"
-  | "checklist_for_why"
-  | "checklist_for_whom"
-  | "checklist_for_someone"
-  | "checklist_not_theirs"
-  | "checklist_note_needed"
-  | "checklist_why"
-  | "checklist_incomplete"
-  | "checklists_manage"
-  | "human_only"
-  | "forbidden"
-  | "not_found"
-  | "invalid"
-  | "network"
-  | "other";
-
-export interface DayRefusal {
-  kind: DayRefusalKind;
-  /** The host's words, or ours for a network failure or a refusal with none. */
-  message: string;
-}
-
-const KNOWN: ReadonlySet<string> = new Set<DayRefusalKind>([
+/** The rules a refusal of the day's checklists names, each with its own designed state. */
+const HOST_RULES = [
   "checklist_window",
   "checklist_closed",
   "checklist_not_your_tick",
@@ -168,7 +149,24 @@ const KNOWN: ReadonlySet<string> = new Set<DayRefusalKind>([
   "checklist_incomplete",
   "checklists_manage",
   "human_only",
-]);
+] as const;
+
+export type DayRefusalKind =
+  | (typeof HOST_RULES)[number]
+  | "forbidden"
+  | "not_found"
+  | "invalid"
+  | "network"
+  | "other";
+
+export interface DayRefusal {
+  kind: DayRefusalKind;
+  /** The host's words, or ours for a network failure or a refusal with none. */
+  message: string;
+}
+
+const KNOWN: ReadonlySet<string> = new Set(HOST_RULES);
+const isHostRule = (rule: string): rule is (typeof HOST_RULES)[number] => KNOWN.has(rule);
 
 const record = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === "object" ? (value as Record<string, unknown>) : null;
@@ -191,8 +189,8 @@ export function dayRefusal(error: unknown): DayRefusal {
         ? inner.rule
         : null;
   const message = typeof e?.message === "string" && e.message ? e.message : null;
-  if (rule && KNOWN.has(rule)) {
-    return { kind: rule as DayRefusalKind, message: message ?? "That did not work. Try again." };
+  if (rule && isHostRule(rule)) {
+    return { kind: rule, message: message ?? "That did not work. Try again." };
   }
   const code =
     typeof details?.code === "string" ? details.code : typeof e?.code === "string" ? e.code : null;
@@ -210,28 +208,7 @@ export function dayRefusal(error: unknown): DayRefusal {
 
 // --- Hooks ---------------------------------------------------------------------------------------
 
-/** The app's `useQuery`, as far as these hooks use it. */
-export type UseQuery = <T>(options: {
-  queryKey: readonly unknown[];
-  queryFn: () => Promise<T>;
-  enabled?: boolean;
-  gcTime?: number;
-}) => { data: T | undefined; isPending: boolean; error: unknown; refetch?: () => unknown };
-
-/** The app's `useMutation`, as far as these hooks use it. */
-export type UseMutation = <I, O>(options: {
-  mutationKey: readonly unknown[];
-  mutationFn: (input: I) => Promise<O>;
-  gcTime?: number;
-}) => {
-  mutate(input: I): void;
-  mutateAsync(input: I): Promise<O>;
-  data: O | undefined;
-  isPending: boolean;
-  error: unknown;
-  /** Forgets the call: its variables and its answer (TanStack Query's `reset`). */
-  reset?: () => void;
-};
+export type { UseMutation, UseQuery } from "@composable-os/client";
 
 /**
  * The operations each hook calls (ADR 0453). Every staff client and every role client holds the

@@ -22,6 +22,7 @@ import {
   type ProviderSubscription,
   updateRecordAsHost,
 } from "../src/index.ts";
+import { agreementBody as body, publishAgreement } from "./agreement-fixtures.ts";
 import { fixtureOperations } from "./customer-fixtures.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
 import { context, createUser, setPreset, unique } from "./helpers.ts";
@@ -93,9 +94,6 @@ const staff = (extra: Partial<InvocationContext> = {}) =>
 const as = (principal: CustomerPrincipal | { kind: "public" }) =>
   outside(principal, { integrations: runtime, events });
 
-const body = (text: string) => ({
-  blocks: [{ type: "paragraph", content: [{ type: "text", text }] }],
-});
 const QUESTIONS = [{ key: "q1", text: "Fixture question?", noteOnYes: false }];
 
 interface Doc {
@@ -105,28 +103,11 @@ interface Doc {
 }
 
 async function publish(kind: "terms" | "waiver" | "health", points: string[]): Promise<Doc> {
-  const { id } = await run<{ id: string }>(
-    "agreement.create",
-    { title: unique(`Fixture ${kind}`), kind },
-    staff(),
-  );
-  const saved = await run<{ hash: string; rev: number }>(
-    "agreement.draft.save",
-    {
-      id,
-      body: body("Fixture text: not a real document."),
-      tickLabel: "I have read this fixture",
-      ...(kind === "health" ? { questions: QUESTIONS } : {}),
-    },
-    staff(),
-  );
-  const { version } = await run<{ version: { id: string } }>(
-    "agreement.publish",
-    { documentId: id, draftHash: saved.hash, draftRev: saved.rev, number: 1, change: "small" },
-    staff(),
-  );
-  await run("agreement.attach", { documentId: id, points }, staff());
-  return { id, versionId: version.id, kind };
+  const doc = await publishAgreement((name, input) => run(name, input, staff()), kind, {
+    points,
+    ...(kind === "health" ? { questions: QUESTIONS } : {}),
+  });
+  return { ...doc, kind };
 }
 
 /** A new version of `doc`: "agree again" (everyone asked again) or a small change. */
