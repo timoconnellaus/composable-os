@@ -16,12 +16,7 @@
 // The host checks every record again (`record.import`'s dry run): its outline against the course's
 // schema, its prices, its references. This checks what only the folder can say: files that are
 // there, keys used once, CSV rows that name a course or lesson the folder has.
-import {
-  MEDIA_CAPTION_MAX_BYTES,
-  mediaProblem,
-  slugify,
-  sniffFileType,
-} from "@composable-os/sdk";
+import { MEDIA_CAPTION_MAX_BYTES, mediaProblem, slugify, sniffFileType } from "@composable-os/sdk";
 import { isObject, type Problem, replaceMarked } from "../import-door/records.ts";
 
 export const FORMAT_VERSION = 1;
@@ -390,6 +385,8 @@ export function readCoursesFolder(folder: CoursesFolder): CoursesPlan {
     });
   }
 
+  // A bundle's key may be a course's: they are records of different objects.
+  const bundleFiles = new Map<string, string>();
   for (const [file, text] of [...folder.bundles].sort(([a], [b]) => a.localeCompare(b))) {
     const path = `bundles/${file}`;
     const fault = (message: string) => problems.push({ file: path, message });
@@ -405,6 +402,9 @@ export function readCoursesFolder(folder: CoursesFolder): CoursesPlan {
       continue;
     }
     const key = typeof raw.key === "string" ? raw.key : file.replace(/\.json$/i, "");
+    if (!KEY_RE.test(key)) fault(`The key "${key}" is not 1 to 100 letters, digits or ._:-`);
+    if (bundleFiles.has(key)) fault(`The key "${key}" is ${bundleFiles.get(key)}'s too`);
+    bundleFiles.set(key, path);
     const values: Record<string, unknown> = {};
     for (const name of ["title", "slug", "summary", "price"] as const) {
       if (raw[name] !== undefined) values[name] = raw[name];

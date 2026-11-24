@@ -109,6 +109,25 @@ describe("the courses folder", () => {
     expect(plan.bundles[0]?.values.slug).toBe("a".repeat(79));
   });
 
+  it("checks a bundle's key as a course's: its shape, and used once", () => {
+    const plan = readCoursesFolder(
+      folder((f) => {
+        f.bundles.set("b.json", JSON.stringify({ key: "all", title: "B", price: 1, courses: [] }));
+        f.bundles.set(
+          "c.json",
+          JSON.stringify({ key: "no spaces", title: "C", price: 1, courses: [] }),
+        );
+      }),
+    );
+    expect(plan.problems).toEqual([
+      { file: "bundles/b.json", message: 'The key "all" is bundles/all.json\'s too' },
+      {
+        file: "bundles/c.json",
+        message: 'The key "no spaces" is not 1 to 100 letters, digits or ._:-',
+      },
+    ]);
+  });
+
   it("names every problem with its file and line", () => {
     const plan = readCoursesFolder(
       folder((f) => {
