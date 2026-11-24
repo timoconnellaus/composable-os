@@ -252,7 +252,7 @@ export const staffingCandidates = defineOperation({
       : null;
     const claims = claimSpan
       ? await claimsOf(ctx, accounts, claimSpan.starts, claimSpan.ends)
-      : new Map();
+      : new Map<string, HeldClaim[]>();
     // Who is away is a person's to read (ADR 0629): an assistant acting for a rosterer learns
     // clashes and qualifications, never who is away.
     const person = ctx.extension?.tool?.calledBy?.actor === "human";
@@ -830,8 +830,8 @@ export const staffingPlanCheck = defineOperation({
     const all = dated.flat();
     const lo = Math.min(...all.map((o) => o.starts), now);
     const hi = Math.max(...all.map((o) => o.ends), now);
-    const held = accounts.length ? await claimsOf(ctx, accounts, lo, hi) : new Map();
-    const awayRows = accounts.length ? await awayRowsOf(ctx, accounts, lo, hi) : new Map();
+    const held = await claimsOf(ctx, accounts, lo, hi);
+    const awayRows = await awayRowsOf(ctx, accounts, lo, hi);
     const kinds = input.plans.flatMap((p) => (p.account && p.kind ? [p.kind] : []));
     const notQualifiedFor = kinds.length ? await notQualifiedOf(ctx, accounts, kinds) : null;
     // Claims bucketed by day, so each date is checked against only its neighbours.
@@ -862,7 +862,7 @@ export const staffingPlanCheck = defineOperation({
     };
     const heldBuckets: Bucketed = new Map();
     for (const [account, list] of held) {
-      for (const c of list as HeldClaim[])
+      for (const c of list)
         bucket(heldBuckets, account, { starts: c.starts, ends: c.ends, ref: c });
     }
     const planned: Bucketed = new Map();
