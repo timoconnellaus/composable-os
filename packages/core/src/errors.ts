@@ -305,6 +305,29 @@ export function toOperationError(error: unknown): OperationError {
       { reason: "published_meanwhile" },
     );
   }
+  // A confirmation (ADR 0702, migration 0971): of one version, once; of the current one only; by
+  // a live person; and never changed or deleted.
+  if (message.includes("UNIQUE constraint failed: core_publish_ack")) {
+    return new ConflictError("You have already confirmed this version", {
+      reason: "already_confirmed",
+    });
+  }
+  if (message.includes("core_publish_ack_not_current")) {
+    return new ConflictError(
+      "A newer version was published meanwhile: read it again and confirm that one",
+      { reason: "not_current" },
+    );
+  }
+  if (message.includes("core_publish_ack_not_a_person")) {
+    return new ForbiddenError("Only a person's own live account confirms", {
+      reason: "not_a_person",
+    });
+  }
+  if (message.includes("core_publish_ack_immutable")) {
+    return new ForbiddenError("A confirmation is never changed or deleted", {
+      reason: "immutable",
+    });
+  }
   // A batch planned from a read that changed before it committed (migration 0560's guard): a
   // series changed under a run, or a class was booked under a change to its series.
   if (message.includes("core_recurrence_stale")) {
@@ -321,6 +344,14 @@ export function toOperationError(error: unknown): OperationError {
       "This person is already on another shift at that time, so nothing was changed.",
       { rule: "double_booked" },
     );
+  }
+  // Two live records in one thing at once (a room marked "one booking at a time", migration
+  // 1095, ADR 0765): refused by the database for every writer, naming no other record (who else
+  // is in the room is not the writer's to know).
+  if (message.includes("core_thing_double_booked")) {
+    return new ConflictError("That room is already taken at that time, so nothing was changed.", {
+      rule: "room_taken",
+    });
   }
   // An offer of a shift left `open` meanwhile (migration 0812, ADR 0623): taken by someone else a
   // moment before, withdrawn, cancelled or lapsed. Of the writes racing for it exactly one landed.
@@ -420,6 +451,29 @@ export function toOperationError(error: unknown): OperationError {
       rule: "staffed_time",
     });
   }
+  // A live record in a claimed room, or a live shift, with a time the database cannot read
+  // (ADRs 0765 and 0621), written by a path that does not check first.
+  if (message.includes("core_thing_time_unreadable")) {
+    return new ValidationError(
+      "A booking of a room needs a start and an end that are real times, so nothing was changed.",
+      { rule: "occupies_time" },
+    );
+  }
+  if (message.includes("core_staff_time_unreadable")) {
+    return new ValidationError(
+      "A shift's start and end must be real times, so nothing was changed.",
+      { rule: "staffed_time" },
+    );
+  }
+  // A live record in a room whose end is not after its start (ADR 0765).
+  if (message.includes("core_thing_time_backwards")) {
+    return new ValidationError(
+      "A booking of a room must end after it starts, so nothing was changed.",
+      {
+        rule: "occupies_time",
+      },
+    );
+  }
   // A claimant took a place after it was read as holding none (ADR 0501).
   if (message.includes("core_claim_live")) {
     return new ConflictError(
@@ -439,6 +493,26 @@ export function toOperationError(error: unknown): OperationError {
   // answer as a buyer over their own limit, whatever the cause.
   if (message.includes("core_holds_capped")) {
     return new RateLimitedError(TRY_LATER, { rule: "try_later" });
+  }
+  // A holder who cooled off another membership meanwhile (migration 0856, ADR 0647): once per
+  // member. The words name nobody.
+  if (message.includes("core_cool_off_used")) {
+    return new ConflictError(
+      "Cooling off has been used for this member before: it is once per member.",
+      { rule: "cooling_off", reason: "used" },
+    );
+  }
+  if (message.includes("core_cool_off_exists")) {
+    return new ConflictError(
+      "A cooling off was asked for this membership a moment ago, so nothing more was asked.",
+      { rule: "cooling_off", reason: "asked" },
+    );
+  }
+  if (message.includes("core_cool_off_final")) {
+    return new ConflictError("This cooling off has already ended, so nothing was changed.", {
+      rule: "cooling_off",
+      reason: "ended",
+    });
   }
   // A waiter joining a waitlist after a place came free (migration 0610, ADR 0520).
   if (message.includes("core_waitlist_not_full")) {

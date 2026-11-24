@@ -248,6 +248,12 @@ export interface PaymentsCancelSubscriptionInput {
   when: "period_end" | "now";
   /** 1 to 500 characters, shown to the approver. */
   reason: string;
+  /**
+   * A caller's key for this one ask (a cooling off's ask, stage 44 step 7): each new key is a new
+   * request to the provider, the same key a retry of it. Left out, one key per subscription and
+   * `when` (staff's "end it now").
+   */
+  askKey?: string;
 }
 
 /** What `resumeSubscription()` takes: undo a cancellation at the period's end before it happens. */
