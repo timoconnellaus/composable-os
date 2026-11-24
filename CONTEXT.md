@@ -1212,6 +1212,13 @@ write and whether it was a bulk one; readable only as the Person is, in no view 
 with an erase (stage 53, ADR 0802).
 _Avoid_: event (Ticketing's), trigger (an automation's)
 
+**Birthday**
+A Person's day and month of birth, never a year: optional, given by the member in My account or
+recorded by staff, and the day a birthday journey starts on, in the business's time zone. It says
+nothing of age; a minor is still what the family link or the Minor mark says. In no view or export,
+gone with an erase; a merge keeps the survivor's unless it has none (stage 53, ADR 0803).
+_Avoid_: date of birth, DOB, age
+
 **Headless entry**
 A pack's functions and hooks over the typed client, with no markup (`<package>/headless`); the
 base layer's are in the client runtime itself (`@composable-os/client`: agreements, My account). Blocks

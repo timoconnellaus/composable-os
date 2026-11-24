@@ -37,6 +37,12 @@ export interface AccountDetailsInput {
   primaryPhone?: string | null;
 }
 
+/** A birthday: day and month only, never a year (`me.birthday.get`, stage 53). */
+export interface AccountBirthday {
+  day: number;
+  month: number;
+}
+
 /** One place the customer is signed in (`me.sessions.list`). */
 export interface AccountSession {
   id: string;
@@ -142,6 +148,16 @@ export type AccountOperations = {
     kind: "mutation";
     input: AccountDetailsInput;
     output: Omit<AccountMe, "signInEmail" | "signInEmailVerified">;
+  };
+  "me.birthday.get": {
+    kind: "query";
+    input: Record<string, never>;
+    output: { birthday: AccountBirthday | null };
+  };
+  "me.birthday.set": {
+    kind: "mutation";
+    input: { birthday: AccountBirthday | null };
+    output: { birthday: AccountBirthday | null };
   };
   "me.sessions.list": {
     kind: "query";
@@ -494,6 +510,56 @@ export function detailsInput(
   return Object.keys(input).length ? input : null;
 }
 
+// --- Birthday ----------------------------------------------------------------------------------------
+
+/** The birthday form: a day and a month as chosen, "" for none. */
+export interface BirthdayForm {
+  day: string;
+  month: string;
+}
+
+/** The most days each month has (29 for February). The host checks again. */
+const DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+/** The days a month can have, for a day picker: 1 to 31 until a month is chosen. */
+export function birthdayDays(month: string): number[] {
+  const most = DAYS_IN_MONTH[Number(month) - 1] ?? 31;
+  return Array.from({ length: most }, (_, i) => i + 1);
+}
+
+/** The twelve months' names in `locale`, January first, with their numbers. */
+export function birthdayMonths(locale?: string): { value: string; label: string }[] {
+  const format = new Intl.DateTimeFormat(locale, { month: "long", timeZone: "UTC" });
+  return DAYS_IN_MONTH.map((_, i) => ({
+    value: String(i + 1),
+    label: format.format(Date.UTC(2000, i, 1)),
+  }));
+}
+
+export function birthdayForm(birthday: AccountBirthday | null): BirthdayForm {
+  return birthday
+    ? { day: String(birthday.day), month: String(birthday.month) }
+    : { day: "", month: "" };
+}
+
+/** What is wrong before saving (the host checks again): both or neither, a day the month has. */
+export function birthdayProblem(form: BirthdayForm): string | null {
+  if (!form.day && !form.month) return null;
+  if (!form.day || !form.month) return "Choose a day and a month, or neither";
+  if (!birthdayDays(form.month).includes(Number(form.day))) return "That month has no such day";
+  return null;
+}
+
+/** The `me.birthday.set` input when the form changed it (none chosen clears it), else null. */
+export function birthdayInput(
+  current: AccountBirthday | null,
+  form: BirthdayForm,
+): { birthday: AccountBirthday | null } | null {
+  const next = form.day && form.month ? { day: Number(form.day), month: Number(form.month) } : null;
+  const same = next?.day === current?.day && next?.month === current?.month;
+  return same ? null : { birthday: next };
+}
+
 // --- Orders ------------------------------------------------------------------------------------------
 
 /**
@@ -631,6 +697,8 @@ export type AccountUseMutation = <I, O>(options: {
 export const ACCOUNT_HOOKS_CALL = {
   useMe: ["me.get"],
   useUpdateMe: ["me.update"],
+  useBirthday: ["me.birthday.get"],
+  useSetBirthday: ["me.birthday.set"],
   useSessions: ["me.sessions.list"],
   useRevokeSession: ["me.sessions.revoke"],
   useFamily: ["me.family"],
@@ -666,6 +734,14 @@ function allAccountHooks(
     /** Change their name or phone: pass only what changed (`detailsInput`). */
     useUpdateMe() {
       return useMutation(api.mutation("me.update"));
+    },
+    /** Their birthday, day and month, or null (stage 53). */
+    useBirthday() {
+      return useQuery(api.query("me.birthday.get", {}));
+    },
+    /** Give, change or remove their birthday (`birthdayInput`). */
+    useSetBirthday() {
+      return useMutation(api.mutation("me.birthday.set"));
     },
     /** The places they are signed in. */
     useSessions() {

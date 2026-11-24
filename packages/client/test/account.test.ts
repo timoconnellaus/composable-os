@@ -9,6 +9,11 @@ import {
   type AccountOrder,
   type AccountSubscription,
   accountSections,
+  birthdayDays,
+  birthdayForm,
+  birthdayInput,
+  birthdayMonths,
+  birthdayProblem,
   createAccountHooks,
   detailsInput,
   detailsProblems,
@@ -200,6 +205,32 @@ describe("details", () => {
       primaryPhone: "",
     });
     expect(problems.map((p) => p.field)).toEqual(["displayName", "givenName"]);
+  });
+});
+
+describe("birthday", () => {
+  it("is a day and a month, both or neither, a day the month has", () => {
+    expect(birthdayDays("2")).toHaveLength(29);
+    expect(birthdayDays("4")).toHaveLength(30);
+    expect(birthdayDays("")).toHaveLength(31);
+    expect(birthdayMonths("en").map((m) => m.label)[0]).toBe("January");
+    expect(birthdayMonths("en")).toHaveLength(12);
+    expect(birthdayProblem({ day: "", month: "" })).toBeNull();
+    expect(birthdayProblem({ day: "3", month: "" })).toMatch(/day and a month/);
+    expect(birthdayProblem({ day: "31", month: "6" })).toMatch(/no such day/);
+    expect(birthdayProblem({ day: "29", month: "2" })).toBeNull();
+  });
+
+  it("sends only a change; choosing neither removes it", () => {
+    const saved = { day: 4, month: 7 };
+    expect(birthdayForm(saved)).toEqual({ day: "4", month: "7" });
+    expect(birthdayForm(null)).toEqual({ day: "", month: "" });
+    expect(birthdayInput(saved, { day: "4", month: "7" })).toBeNull();
+    expect(birthdayInput(null, { day: "", month: "" })).toBeNull();
+    expect(birthdayInput(saved, { day: "5", month: "7" })).toEqual({
+      birthday: { day: 5, month: 7 },
+    });
+    expect(birthdayInput(saved, { day: "", month: "" })).toEqual({ birthday: null });
   });
 });
 

@@ -59,6 +59,19 @@ Built so far:
   organisation reply-to address confirmed by a code (it needs a send, step 4); merge moving entries
   (step 4's exits, with step 7's merge rules); a plan's or class type's name as a slot (with step
   2's declarations).
+- **Step 7, birthday** (2026-11-24, [ADR 0803](../adr/0803-a-birthday-as-day-and-month-on-person.md),
+  migration 1171): `core_person.birth_day` and `birth_month` (both or neither, a day the month has,
+  in no `rec_*` view) and an index for the entry rule; `person.setBirthday` (staff,
+  `records:write`) and `me.birthday.set` with `me.birthday.get` (customer, `hostInternal`, the
+  caller's own Person: the get is an addition, for My account to show it); `birthday` on
+  `person.get`; each change recorded under `birthday` with its value mark, and an AI refused when
+  the member gave the current one. Merge keeps the survivor's birthday unless it has none (with the
+  duplicate's mark); erase deletes it. The entry rule's query (`birthdayPeople`,
+  `packages/core/src/journeys/birthday.ts`): the live People whose birthday is today in the
+  business's zone, 29 February on the 28th in other years, one indexed statement per page of 500.
+  The Your details blocks (web and native) and `@composable-os/client`'s account entry show and
+  set it. Not in this step: the daily scan entering them and sending (step 4), the staff screen
+  (step 5).
 
 ## Goal
 

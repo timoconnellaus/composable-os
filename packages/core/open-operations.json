@@ -155,6 +155,18 @@
       "hostInternal": true
     },
     {
+      "name": "me.birthday.get",
+      "audiences": ["customer"],
+      "risk": "read",
+      "hostInternal": true
+    },
+    {
+      "name": "me.birthday.set",
+      "audiences": ["customer"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
       "name": "me.code",
       "audiences": ["customer"],
       "risk": "write",

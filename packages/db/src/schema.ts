@@ -144,6 +144,12 @@ export interface CorePersonTable extends RecordColumns {
    * writer sets it; null for a name that has nothing to compare (an email standing in for one).
    */
   name_key: ColumnType<string | null, string | null, string | null>;
+  /**
+   * Migration 1171 (stage 53, ADR 0803): a birthday, day and month only (no year): both null or
+   * both set, a day the month has. Set by `person.setBirthday` and `me.birthday.set` only.
+   */
+  birth_day: Defaulted<number | null>;
+  birth_month: Defaulted<number | null>;
 }
 
 export interface CorePersonEmailsTable {

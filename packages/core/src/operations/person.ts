@@ -22,6 +22,14 @@ import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from ".
 import { getObject } from "../fields/index.ts";
 import { personObject } from "../fields/person.ts";
 import { newId } from "../ids.ts";
+import {
+  assertMayChangeBirthday,
+  BIRTHDAY_FIELD,
+  birthdayOf,
+  birthdaySchema,
+  mergedBirthday,
+  queueSetBirthday,
+} from "../journeys/birthday.ts";
 import { queueMergeSignals } from "../journeys/signals.ts";
 import { listInputSchema, pageSchema, runListQuery, selectFields } from "../list.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
@@ -140,6 +148,8 @@ export const personSchema = z.object({
   ownerId: z.string().nullable(),
   description: z.string().nullable(),
   tags: z.array(z.string()),
+  /** Day and month only (stage 53, ADR 0803); null when none is recorded. */
+  birthday: birthdaySchema.nullable(),
   /** Derived from the primary affiliation. */
   jobTitle: z.string().nullable(),
   primaryAffiliation: z
@@ -232,6 +242,7 @@ export async function loadPerson(
     ownerId: row.owner_id,
     description: row.description,
     tags: tags.get(id) ?? [],
+    birthday: birthdayOf(row),
     jobTitle: affiliation?.title ?? null,
     primaryAffiliation: affiliation
       ? {
@@ -480,6 +491,7 @@ export const personCreate = defineOperation({
       ownerId: row.owner_id,
       description: row.description,
       tags,
+      birthday: null,
       jobTitle: null,
       primaryAffiliation: null,
       createdAt: ctx.now,
@@ -1089,7 +1101,8 @@ export const personMerge = defineOperation({
   description:
     "Merge a duplicate person (mergedId) into another (survivorId). The survivor keeps its own " +
     "values unless fields says to take the duplicate's (per field: 'survivor' or 'merged'); " +
-    "empty survivor fields are filled from the duplicate. Emails, phones, social profiles and " +
+    "empty survivor fields are filled from the duplicate (the birthday too: the survivor's is " +
+    "kept unless it has none). Emails, phones, social profiles and " +
     "tags are combined, and the duplicate's affiliations, activity links and task links move " +
     "to the survivor (the survivor keeps its primary affiliation if it has one). The " +
     "duplicate goes to Trash pointing at the survivor, and can be restored from there " +
@@ -1138,6 +1151,9 @@ export const personMerge = defineOperation({
       if (take) (after as Record<PersonMergeField, unknown>)[field] = merged[field];
     }
     if (after.ownerId) await assertUserExists(ctx.db, after.ownerId);
+    // A birthday: the survivor's, unless it has none (stage 53, ADR 0803).
+    after.birthday = mergedBirthday(survivor.birthday, merged.birthday);
+    const birthdayMoved = after.birthday !== survivor.birthday;
     // Customer accounts move to the survivor; refused while both people have an active one.
     await queueMergeCustomers(ctx, survivor.id, merged.id, [
       ...new Set([...survivor.emails, ...merged.emails].map((e) => e.email)),
@@ -1264,6 +1280,8 @@ export const personMerge = defineOperation({
           owner_id: after.ownerId,
           description: after.description,
           social_profiles: JSON.stringify(after.socialProfiles),
+          birth_day: after.birthday?.day ?? null,
+          birth_month: after.birthday?.month ?? null,
           updated_at: ctx.now,
         })
         .where("id", "=", survivor.id),
@@ -1283,23 +1301,44 @@ export const personMerge = defineOperation({
       // Family links (ADR 0540): before, the two People's live links as read; after, what the
       // merge does to them. Shown in the approval card, and an approval is held to the before: a
       // link made or ended after the preview makes applying it a conflict, never a surprise.
-      before: { ...personSnapshot(survivor), familyLinks: plan.live },
+      before: { ...personSnapshot(survivor), familyLinks: plan.live, birthday: survivor.birthday },
       after: {
         ...personSnapshot(after),
+        birthday: after.birthday,
         absorbedId: merged.id,
         familyLinks: `${plan.moved} moved, ${plan.ended} ended, ${plan.deleted} deleted${plan.history ? `, ${plan.history} past moved` : ""}`,
       },
       // ADR 0590: the merged addresses and name carry both People's marks, never a fresh one.
       marks: {
-        copied: Object.fromEntries(
-          (["emails", "displayName", "givenName", "familyName"] as const).map((field) => [
-            field,
-            [
-              { object: "person", id: survivor.id, field, value: personSnapshot(survivor)[field] },
-              { object: "person", id: merged.id, field, value: personSnapshot(merged)[field] },
-            ],
-          ]),
-        ),
+        copied: {
+          ...Object.fromEntries(
+            (["emails", "displayName", "givenName", "familyName"] as const).map((field) => [
+              field,
+              [
+                {
+                  object: "person",
+                  id: survivor.id,
+                  field,
+                  value: personSnapshot(survivor)[field],
+                },
+                { object: "person", id: merged.id, field, value: personSnapshot(merged)[field] },
+              ],
+            ]),
+          ),
+          // A birthday taken from the duplicate keeps the mark of whoever gave it there.
+          ...(birthdayMoved
+            ? {
+                [BIRTHDAY_FIELD]: [
+                  {
+                    object: "person",
+                    id: merged.id,
+                    field: BIRTHDAY_FIELD,
+                    value: merged.birthday,
+                  },
+                ],
+              }
+            : {}),
+        },
       },
     });
     ctx.recordChange({
@@ -1336,6 +1375,29 @@ export const personMerge = defineOperation({
   },
 });
 
+// --- Birthday ----------------------------------------------------------------------------------
+
+export const personSetBirthday = defineOperation({
+  name: "person.setBirthday",
+  description:
+    "Record a person's birthday: day and month only, never a year (null removes it). A " +
+    "birthday journey starts on it, in the business's time zone. Only a person on the staff may " +
+    "change a birthday the member gave themselves. Returns the person.",
+  input: z.object({
+    id: personId,
+    birthday: birthdaySchema.nullable().describe("Day and month, or null to remove it"),
+  }),
+  output: personSchema,
+  permission: "records:write",
+  risk: "write",
+  async handler(input, ctx) {
+    const person = await requirePerson(ctx, input.id);
+    await assertMayChangeBirthday(ctx, person.id, person.birthday);
+    queueSetBirthday(ctx, (c) => ctx.recordChange(c), person.id, person.birthday, input.birthday);
+    return ctx.afterCommit(() => requirePerson(ctx, input.id));
+  },
+});
+
 // --- Erase -------------------------------------------------------------------------------------
 
 export const personErase = defineOperation({
@@ -1354,7 +1416,7 @@ export const personErase = defineOperation({
     "them are deleted or redacted, and their addresses are added to the erased-address list so " +
     "mail sync does not collect them again. Their customer account, its sessions and sign-in " +
     "codes, invites for their addresses and their erase requests are deleted (an open request " +
-    "is closed as erased). Their health answers and minor mark are deleted; what they agreed to is " +
+    "is closed as erased). Their birthday, health answers and minor mark are deleted; what they agreed to is " +
     "kept, no longer theirs, as the business's evidence until the retention period ends " +
     "(agreement.retention, counted from the erase), then deleted: agreementsKept says how many " +
     "and until when. Cannot be undone; use person.delete for a " +
@@ -1426,5 +1488,6 @@ export const personOperations = [
   personUpdateMany,
   personDeleteMany,
   personMerge,
+  personSetBirthday,
   personErase,
 ] as const;
