@@ -173,3 +173,17 @@ must read and has confirmed) and `ack.confirm` (confirming it read the current v
 it is asked to read). Each acts only for the calling person, so they open nothing of anyone else's.
 `PACK_ROLE_OWN` in `pack-roles.ts`; the API contract's `roles.json` lists them for each role. See
 [ADR 0702](0702-acknowledgements-read-again-and-a-confirmation-nobody-changes.md).
+
+## Amendment, 2026-11-24 (stage 41, ADR 0881)
+A role may also declare `looksAfter: { <object>: <relation to person> }`: its holder reaches those
+objects' records only for the People it looks after, through a `team` its pack declares on an
+object (the staff named on a live record about a Person), on the role's reads and inside its tools.
+Programs declares the third pack role, `programs.coach`, which does. See
+[ADR 0881](0881-a-pack-role-limited-to-the-people-its-holder-looks-after.md).
+
+## Amendment, 2026-11-24 (checklists on their own, ADR 0652)
+A pack role also reaches a shipped pack's tools declared `anyStaff` (any pack's, wherever it is
+installed): Daily checklists' `today`, `day`, `tick` and `done`, whose host operations answer with
+only the checklists the account may do (ADR 0651). Nothing else is opened: the registry walk in
+`packages/core/test/screens.test.ts` lists exactly these beside each role's own tools, its reads
+and `screens.mine`, and `api/v1/roles.json` lists them for each role's client.

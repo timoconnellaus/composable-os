@@ -1,0 +1,21 @@
+// cos-gatekeeper-booking-system-fake: the fake booking system as a gatekeeper (stage 65, ADR 0920),
+// for development and tests only. Named wrangler.fake.jsonc so no release or deployment reads it
+// (scripts/release/manifest-lib.ts reads wrangler.jsonc): only the CRM's dev server
+// (apps/app/vite.config.ts) and cos-runner's tests (apps/runner/vitest.config.ts) run it, bound to
+// cos-runner as GATEKEEPER_BOOKING_SYSTEM_FAKE. It holds no secrets and reaches nothing outside.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cos-gatekeeper-booking-system-fake",
+  "main": "src/fake-worker.ts",
+  "compatibility_date": "2026-09-04",
+  "compatibility_flags": ["allow_irrevocable_stub_storage"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "rules": [{ "type": "Text", "globs": ["**/*.txt"], "fallthrough": false }],
+  "durable_objects": {
+    "bindings": [{ "name": "FAKE_BOOKING_SITE", "class_name": "FakeBookingSite" }]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["FakeBookingSite", "FakeBookingSystemGatekeeper"] }
+  ]
+}

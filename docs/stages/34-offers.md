@@ -40,6 +40,17 @@ interview settles its shape (the first question at the end). The shared platform
 paid another way" (step 3) is shared with stage 35 (invoices and quotes) and the point of sale
 module (the till): whichever is built first builds it once, to this design.
 
+## Status
+
+- **Step 2, folding plus addresses** (branch `feat/stage-34-address-folding`, issue #225;
+  migration 0955, ADR 0692, amending 0489 and 0512): `core_person_emails.folded` kept by triggers
+  (the `+tag` dropped on every domain, dots kept), `foldAddress` and `samePeople` in
+  `customers/accounts.ts`; free trials (`subscriptions/trial.ts`) and things sold once per Person
+  (`orders/once.ts`) count every live Person sharing a folded address, and two triggers refuse the
+  second of two holds at once by such People. A pass given by hand stays per Person (a person's
+  override). Left for later steps: per-person codes and the new-customer check (step 4) and
+  referrals (step 9) read `samePeople`; migrations 0956 and 0957 of this step's range are unused.
+
 ## Goal
 
 A business can give money off, and say why, everywhere it sells: a promo code typed at checkout on

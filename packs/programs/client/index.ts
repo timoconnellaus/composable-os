@@ -84,6 +84,8 @@ export type ProgramsOperations = {
   "x.programs.importText": { kind: "mutation" } & Io<typeof importText>;
   "record.get": { kind: "query"; input: { object: string; id: string }; output: RecordOut };
   "record.list": { kind: "query"; input: ListInput; output: Page };
+  /** A customer's read of what they may see (the class types, ADR 0447). */
+  "my.list": { kind: "query"; input: ListInput; output: Page };
   "record.create": {
     kind: "mutation";
     input: { object: string; values: Record<string, unknown> };
@@ -207,6 +209,259 @@ export function numberFrom(text: string): number | undefined {
   if (text.trim() === "") return undefined;
   const value = Number(text.replace(",", "."));
   return Number.isFinite(value) ? value : undefined;
+}
+
+// --- Past sessions ---------------------------------------------------------------------------------
+
+/** One past session as the history lists it: when, what, and how many of its sets were logged. */
+export interface PastSession {
+  id: string;
+  date: string | null;
+  name: string | null;
+  programTitle: string | null;
+  focus: string | null;
+  state: string | null;
+  /** Sets logged on it. */
+  setsDone: number;
+  /** Sets its plan asks of this person (for an item with levels, the level they took). */
+  setsPlanned: number;
+}
+
+/** A page of past sessions, newest first: pass `nextCursor` back for older ones. */
+export interface PastSessionsPage {
+  sessions: PastSession[];
+  nextCursor: string | null;
+}
+
+/** Sessions a page of the history lists. Their ids go in one `in` filter on the sets. */
+export const PAST_SESSIONS_PAGE = 20;
+/** The most pages of sets read for one page of sessions (200 a page). */
+const PAST_SETS_CALLS = 5;
+
+/** What a set logged on a session says about where it was, as `sessionSets` reads it. */
+export interface SetPlace {
+  item: string | null;
+  exercise: string | null;
+  level: number | null;
+  setNumber?: number | null;
+}
+
+/** One set of a session as its history shows it: the plan's target and what was logged. */
+export interface SessionSet<L extends SetPlace> {
+  block: string;
+  item: string;
+  exercise: string;
+  level: number | null;
+  setNumber: number;
+  /** The plan's target, or null for a set logged beyond the plan's. */
+  target: SetTarget | null;
+  logged: L | undefined;
+}
+
+/**
+ * The sets of a session for one person, in the plan's order, each with what they logged. An item
+ * for everyone has every exercise's sets; an item with levels the level they logged at (or its
+ * first level when they logged none of it); alternatives the one they did (or the first, when
+ * they did none). A set logged beyond the plan's sets follows its exercise's, with no target.
+ * Warm-ups are not logged and not listed.
+ */
+export function sessionSets<L extends SetPlace>(
+  plan: Session | null | undefined,
+  logged: readonly L[],
+): SessionSet<L>[] {
+  const out: SessionSet<L>[] = [];
+  for (const block of plan?.blocks ?? []) {
+    for (const item of block.items) {
+      const mine = logged.filter((l) => l.item === item.label);
+      let level: number | null = null;
+      let list: Prescription[];
+      if (item.kind === "all") list = item.exercises;
+      else {
+        const takenLevel = mine.find((l) => l.level !== null)?.level;
+        const chosen = item.levels.find((l) => l.level === takenLevel) ?? item.levels[0];
+        if (!chosen) continue;
+        level = chosen.level;
+        list = levelExercises(chosen);
+        if (chosen.mode === "alternatives") {
+          const did = list.filter((p) => mine.some((l) => l.exercise === p.exercise));
+          list = did.length ? did : list.slice(0, 1);
+        }
+      }
+      for (const p of list) {
+        const sets = mine.filter((l) => l.exercise === p.exercise);
+        const most = Math.max(p.sets.length, ...sets.map((l) => l.setNumber ?? 0));
+        for (let n = 1; n <= most; n += 1) {
+          out.push({
+            block: block.label,
+            item: item.label,
+            exercise: p.exercise,
+            level,
+            setNumber: n,
+            target: p.sets[n - 1] ?? null,
+            logged: sets.find((l) => l.setNumber === n),
+          });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/** How many sets a session's plan asks of one person, given what they logged (`sessionSets`). */
+export function plannedSets(plan: Session | null | undefined, logged: readonly SetPlace[]): number {
+  return sessionSets(plan, logged).filter((s) => s.target !== null).length;
+}
+
+/** Past sessions from their records and the sets logged on them (any order). */
+export function pastSessionsOf(
+  sessions: readonly RecordOut[],
+  sets: readonly RecordOut[],
+): PastSession[] {
+  const bySession = new Map<string, SetPlace[]>();
+  for (const set of sets) {
+    const session = str(set.values.session);
+    if (!session) continue;
+    const list = bySession.get(session) ?? [];
+    list.push({
+      item: str(set.values.item),
+      exercise: str(set.values.exercise),
+      level: typeof set.values.level === "number" ? set.values.level : null,
+      setNumber: typeof set.values.setNumber === "number" ? set.values.setNumber : null,
+    });
+    bySession.set(session, list);
+  }
+  return sessions.map((s) => {
+    const logged = bySession.get(s.id) ?? [];
+    return {
+      id: s.id,
+      date: str(s.values.date),
+      name: str(s.values.name),
+      programTitle: str(s.values.programTitle),
+      focus: str(s.values.focus),
+      state: str(s.values.state),
+      setsDone: logged.length,
+      setsPlanned: plannedSets(s.values.plan as Session | null, logged),
+    };
+  });
+}
+
+const str = (value: unknown): string | null =>
+  value === null || value === undefined ? null : String(value);
+
+/**
+ * One page of a person's past sessions (their own, dated `until` or before), newest first, each
+ * with its sets logged and planned. A member reads their own through the seam (`my.list`: never a
+ * class's sessions, never another person's sets); a coach names the client (`record.list`). Two
+ * reads for a page of sessions, and a few more only for a page with very many sets.
+ */
+export async function loadPastSessions(
+  read: (input: ListInput) => Promise<Page>,
+  options: { personId?: string; until: string; cursor?: string },
+): Promise<PastSessionsPage> {
+  const person = options.personId ? [{ field: "person", op: "eq", value: options.personId }] : [];
+  const page = await read({
+    object: SESSION,
+    filter: {
+      and: [
+        { field: "kind", op: "eq", value: "personal" },
+        { field: "date", op: "lte", value: options.until },
+        ...person,
+      ],
+    },
+    sort: { field: "date", direction: "desc" },
+    limit: PAST_SESSIONS_PAGE,
+    ...(options.cursor ? { cursor: options.cursor } : {}),
+  });
+  const ids = page.items.map((s) => s.id);
+  const sets: RecordOut[] = [];
+  let next: string | null = null;
+  for (let calls = 0; ids.length && calls < PAST_SETS_CALLS; calls += 1) {
+    const found: Page = await read({
+      object: LOG,
+      filter: {
+        and: [{ field: "session", op: "in", value: ids }, ...person],
+      },
+      sort: { field: "date", direction: "desc" },
+      limit: 200,
+      ...(next ? { cursor: next } : {}),
+    });
+    sets.push(...found.items);
+    next = found.nextCursor;
+    if (!next) break;
+  }
+  return { sessions: pastSessionsOf(page.items, sets), nextCursor: page.nextCursor };
+}
+
+/** What was done in a logged set, in words: "8 reps @ 20 kg · RPE 7". */
+export function describeDone(set: LoggedSet): string {
+  const parts: string[] = [];
+  if (set.actual.reps !== null) parts.push(`${set.actual.reps} reps`);
+  if (set.actual.seconds !== null) parts.push(`${set.actual.seconds} s`);
+  if (set.actual.load !== null) {
+    parts[0] = parts[0] ? `${parts[0]} @ ${set.actual.load} kg` : `${set.actual.load} kg`;
+  }
+  if (set.rpe !== null) parts.push(`RPE ${set.rpe}`);
+  return parts.join(" · ") || "Logged";
+}
+
+/**
+ * A correction to a logged set from what was typed: only what changed, as `x.programs.logUpdate`
+ * takes it (the numbers done, effort, the note), or null when nothing did. An emptied note clears
+ * it; an emptied number is left as it was. The target, the exercise and who recorded it are not
+ * the person's to change; the host keeps them and bounds the numbers.
+ */
+export function correctionOf(
+  set: LoggedSet,
+  typed: { count: string; load: string; rpe: string; note: string },
+  timed: boolean,
+): {
+  logId: string;
+  actual?: { reps?: number; seconds?: number; load?: number };
+  rpe?: number;
+  note?: string | null;
+} | null {
+  const count = numberFrom(typed.count);
+  const load = numberFrom(typed.load);
+  const rpe = numberFrom(typed.rpe);
+  const note = typed.note.trim() ? typed.note.trim() : null;
+  const actual: { reps?: number; seconds?: number; load?: number } = {};
+  if (count !== undefined && count !== (timed ? set.actual.seconds : set.actual.reps)) {
+    if (timed) actual.seconds = count;
+    else actual.reps = count;
+  }
+  if (load !== undefined && load !== set.actual.load) actual.load = load;
+  const out = {
+    logId: set.id,
+    ...(Object.keys(actual).length ? { actual } : {}),
+    ...(rpe !== undefined && rpe !== set.rpe ? { rpe } : {}),
+    ...(note !== (set.note ?? null) ? { note } : {}),
+  };
+  return Object.keys(out).length > 1 ? out : null;
+}
+
+/** The hooks a history block may be given: a member's (`usePastSessions`) or a coach's. */
+export type PastSessionsHooks = Partial<
+  Pick<ProgramsHooks, "usePastSessions" | "useClientPastSessions">
+>;
+
+/**
+ * The hook a history block lists past sessions with: a coach's client's when `personId` is given
+ * (the staff client's `useClientPastSessions`), else the member's own (`usePastSessions`). A
+ * block's hooks and person are fixed for its life, so the hook it calls never changes between
+ * renders: `const usePage = pastSessionsHook(programs, personId); const page = usePage({})`.
+ */
+export function pastSessionsHook(
+  programs: PastSessionsHooks,
+  personId: string | undefined,
+): (options: { until?: string; cursor?: string }) => ReturnType<ProgramsHooks["usePastSessions"]> {
+  if (personId) {
+    const hook = programs.useClientPastSessions;
+    if (!hook) throw new Error("A client's history needs the staff client's useClientPastSessions");
+    return (options) => hook(personId, options);
+  }
+  const hook = programs.usePastSessions;
+  if (!hook) throw new Error("A member's history needs the customer client's usePastSessions");
+  return hook;
 }
 
 // --- Faults from the host, where they are ---------------------------------------------------------
@@ -740,8 +995,11 @@ export const PROGRAMS_HOOKS_CALL = {
   useHistory: ["x.programs.history"],
   useProgress: ["x.programs.progress"],
   useClientSessions: ["record.list"],
+  usePastSessions: ["my.list"],
+  useClientPastSessions: ["record.list"],
   usePeople: ["person.list"],
-  useClassTypes: ["record.list"],
+  // Staff read them with record.list, a member with my.list (every signed-in member reads them).
+  useClassTypes: { anyOf: [["record.list"], ["my.list"]] },
   useBank: ["record.list"],
   useExercises: ["record.list"],
   useCreateExercise: ["record.create"],
@@ -772,12 +1030,16 @@ type ProgramsReact = {
  * not compile.
  */
 export function createProgramsHooks<C extends ClientHolding>(react: ProgramsReact, client: C) {
-  return packHooks(client, PROGRAMS_HOOKS_CALL, (api: ProgramsClient) =>
-    allProgramsHooks(react, api),
+  return packHooks(client, PROGRAMS_HOOKS_CALL, (api: ProgramsClient, holds) =>
+    allProgramsHooks(react, api, holds),
   );
 }
 
-function allProgramsHooks(react: ProgramsReact, api: ProgramsClient) {
+function allProgramsHooks(
+  react: ProgramsReact,
+  api: ProgramsClient,
+  holds: (operation: Name) => boolean = () => true,
+) {
   const { useQuery, useMutation, useState } = react;
   const useEffect: UseEffect = react.useEffect ?? (() => undefined);
   return {
@@ -817,6 +1079,42 @@ function allProgramsHooks(react: ProgramsReact, api: ProgramsClient) {
         }),
       );
     },
+    /**
+     * A member's own past sessions, newest first (`loadPastSessions`): dated `until` (the
+     * person's local date; default today, UTC) or before. Pass a page's `nextCursor` for older.
+     */
+    usePastSessions(options: { until?: string; cursor?: string } = {}) {
+      const until = options.until ?? new Date().toISOString().slice(0, 10);
+      return useQuery({
+        // The client's own key for the page of sessions (under my.list, and under a screen's
+        // scope where the app gives one), so what makes those stale or forgets them does here too.
+        queryKey: [
+          ...api.query("my.list", { object: SESSION }).queryKey,
+          { past: true, until, cursor: options.cursor ?? null },
+        ],
+        queryFn: () =>
+          loadPastSessions((input) => api.query("my.list", input).queryFn(), {
+            until,
+            ...(options.cursor ? { cursor: options.cursor } : {}),
+          }),
+      });
+    },
+    /** A client's past sessions, newest first (staff): as `usePastSessions`, naming the client. */
+    useClientPastSessions(personId: string, options: { until?: string; cursor?: string } = {}) {
+      const until = options.until ?? new Date().toISOString().slice(0, 10);
+      return useQuery({
+        queryKey: [
+          ...api.query("record.list", { object: SESSION }).queryKey,
+          { past: true, personId, until, cursor: options.cursor ?? null },
+        ],
+        queryFn: () =>
+          loadPastSessions((input) => api.query("record.list", input).queryFn(), {
+            personId,
+            until,
+            ...(options.cursor ? { cursor: options.cursor } : {}),
+          }),
+      });
+    },
     /** People whose name contains `search` (staff): whom to assign a program to. */
     usePeople(search: string) {
       return useQuery({
@@ -827,14 +1125,16 @@ function allProgramsHooks(react: ProgramsReact, api: ProgramsClient) {
         enabled: search.trim().length > 1,
       });
     },
-    /** The class types, for a member choosing their class. */
+    /**
+     * The class types, for a member choosing their class (`my.list`) or a coach assigning one
+     * (`record.list`): whichever read the client holds, staff's first.
+     */
     useClassTypes() {
-      return useQuery(
-        api.query("record.list", {
-          object: "programs.classtype",
-          sort: { field: "order", direction: "asc" },
-        }),
-      );
+      const input: ListInput = {
+        object: "programs.classtype",
+        sort: { field: "order", direction: "asc" },
+      };
+      return useQuery(api.query(holds("record.list") ? "record.list" : "my.list", input));
     },
 
     // The bank.
