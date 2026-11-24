@@ -375,6 +375,9 @@ export const myTickets = defineTool({
 
 // --- Sales ----------------------------------------------------------------------------------------
 
+/** Ticket types per revenue query: with the object type, 100 bound values, query.sql's most. */
+export const REVENUE_IDS_PER_QUERY = 99;
+
 export const salesSummary = defineTool({
   description:
     "How one event is selling, per ticket type: places sold (taken), held by orders being paid, " +
@@ -419,19 +422,21 @@ export const salesSummary = defineTool({
       }),
       ctx.ops.call<{ currency: string | null }>("order.settings.get", {}),
     ]);
+    // Revenue from the order lines the host snapshotted: paid in full, or by deposit. query.sql
+    // binds at most 100 values (and D1 no more), so the ticket types are asked in parts.
     const revenue = new Map<string, number>();
-    if (types.items.length) {
-      // Revenue from the order lines the host snapshotted: paid in full, or by deposit.
-      const ids = types.items.map((t) => t.id);
+    const ids = types.items.map((t) => t.id);
+    for (let at = 0; at < ids.length; at += REVENUE_IDS_PER_QUERY) {
+      const part = ids.slice(at, at + REVENUE_IDS_PER_QUERY);
       const result = await ctx.ops.call<{ rows: { id: string; revenue: number | null }[] }>(
         "query.sql",
         {
           sql:
             "SELECT l.record_id AS id, SUM(l.line_total) AS revenue FROM rec_order_line l " +
             "JOIN rec_order o ON o.id = l.order_id WHERE l.object_type = ? " +
-            `AND o.state IN ('paid', 'part_paid') AND l.record_id IN (${ids.map(() => "?").join(", ")}) ` +
+            `AND o.state IN ('paid', 'part_paid') AND l.record_id IN (${part.map(() => "?").join(", ")}) ` +
             "GROUP BY l.record_id",
-          params: [TICKET_TYPE, ...ids],
+          params: [TICKET_TYPE, ...part],
         },
       );
       for (const row of result.rows) revenue.set(row.id, Number(row.revenue ?? 0));
