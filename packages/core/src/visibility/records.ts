@@ -271,6 +271,11 @@ export interface RecordAccess {
     options?: { from?: string | undefined },
   ): Promise<void>;
   /**
+   * Moves one of the caller's own records to Trash, where the object lets its customer remove
+   * their own (`customer.delete`, ADR 0414, amended). Customers only.
+   */
+  delete(object: string, id: string): Promise<void>;
+  /**
    * The caller's family (ADR 0540): the dependants they act for and the guardians who act for
    * them, by name. Empty for anyone but a customer.
    */
@@ -280,7 +285,7 @@ export interface RecordAccess {
 /** `ctx.records` over `reader`, with the given writes (none: reads only). */
 export function recordAccess(
   reader: Reader,
-  writes?: Pick<RecordAccess, "create" | "update">,
+  writes?: Pick<RecordAccess, "create" | "update" | "delete">,
 ): RecordAccess {
   const none = (): never => {
     throw new OperationError(
@@ -297,6 +302,7 @@ export function recordAccess(
     stock: (object, id) => readStock(reader, object, id),
     create: writes?.create ?? none,
     update: writes?.update ?? none,
+    delete: writes?.delete ?? none,
     family: () => familyOf(reader),
   };
 }

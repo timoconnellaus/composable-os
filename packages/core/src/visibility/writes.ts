@@ -89,6 +89,12 @@ export async function assertVisibleWrites(
     if (!object) throw unknownObject(change.object);
     const scope: Scope = scopeOf(ctx.principal, object);
     if (scope.kind !== "customer") throw unknownObject(change.object);
+    // A record of an object that lets its customer remove their own (`customer.delete`): only
+    // whose it is matters, checked with the updates below.
+    if (change.action === "delete" && object.customer?.delete) {
+      existing.set(object.name, [...(existing.get(object.name) ?? []), change.id]);
+      continue;
+    }
     if (change.action !== "create" && change.action !== "update") {
       throw new ForbiddenError(`A customer cannot ${change.action} a ${object.name}`);
     }
@@ -169,6 +175,8 @@ export interface RecordWriter {
     values: Record<string, unknown>,
     options?: { from?: string | undefined },
   ): Promise<boolean>;
+  /** Moves a record to Trash with every rule `record.delete` holds. */
+  delete(ctx: HandlerContext, object: ObjectDefinition, id: string): Promise<void>;
 }
 
 let recordWriter: RecordWriter | null = null;
@@ -440,4 +448,25 @@ export async function updateVisible(
   // `from` is passed by the tool and judged by the record code: a move made from a current read.
   const from = options.from === undefined ? {} : { from: options.from };
   await recording(writer, (host) => update(host, object, id, plain, from));
+}
+
+/**
+ * Moves one of the caller's own records to Trash, where its object lets its customer remove their
+ * own (`customer.delete`, ADR 0414, amended): a logged set ticked by mistake. Any other object, and a
+ * record that is not theirs, is answered as a record that is not there.
+ */
+export async function deleteVisible(writer: SeamWriter, name: string, id: string): Promise<void> {
+  const { object } = customerScopeFor(writer, name);
+  if (!object.customer?.delete || isCoreObject(object.name) || !recordWriter) {
+    throw new ForbiddenError(`A customer cannot delete a ${object.name}`);
+  }
+  // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
+  const row = (await (writer.reader.db as any)
+    .selectFrom(ownedSource(writer.reader, object))
+    .select("id")
+    .where("id", "=", id)
+    .executeTakeFirst()) as AnyRow | undefined;
+  if (!row) throw new NotFoundError(object.name, id);
+  const trash = recordWriter.delete;
+  await recording(writer, (host) => trash(host, object, id));
 }

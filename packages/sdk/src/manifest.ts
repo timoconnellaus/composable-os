@@ -244,6 +244,7 @@ export const objectManifestSchema = z.object({
       write: z.array(z.string().max(40)).max(100),
       requireAccess: z.array(z.string().max(40)).max(10).optional(),
       createOnly: z.array(z.string().max(40)).max(100).optional(),
+      delete: z.boolean().optional(),
       guardians: z
         .object({ write: z.boolean().optional(), madeBy: z.string().max(40).optional() })
         .strict()

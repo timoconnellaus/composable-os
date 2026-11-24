@@ -116,6 +116,7 @@ export interface ObjectDefinitionJson {
     write: string[];
     requireAccess?: string[] | undefined;
     createOnly?: string[] | undefined;
+    delete?: boolean | undefined;
     guardians?: { write?: boolean | undefined; madeBy?: string | undefined } | undefined;
   };
   /** What the public may read (ADR 0438), as declared. */

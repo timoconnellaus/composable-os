@@ -5,7 +5,7 @@
   "operations": [
     "x.programs.sessionGet",
     "x.programs.logAdd",
-    "x.programs.logUpdate",
+    "x.programs.logRemove",
     "x.programs.sessionComplete"
   ],
   "files": ["session-view.tsx", "LICENSE"],

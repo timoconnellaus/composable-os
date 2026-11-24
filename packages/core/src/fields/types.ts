@@ -299,6 +299,8 @@ export interface CustomerDeclaration {
   readonly requireAccess?: readonly string[] | undefined;
   /** Fields of `write` a customer sets only on create (ADR 0507). */
   readonly createOnly?: readonly string[] | undefined;
+  /** A customer may put their own records in the Trash through `my.delete` (ADR 0414, amended). */
+  readonly delete?: boolean | undefined;
   /**
    * The family link (ADR 0540): a customer's scope on this object is their own Person's records
    * or a live dependant's. Left out, a guardian reads nothing of a dependant's here.

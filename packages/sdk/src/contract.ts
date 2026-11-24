@@ -933,6 +933,12 @@ export interface CustomerSpec {
    */
   createOnly?: readonly string[];
   /**
+   * Whether a customer may put one of their own records in the Trash, through a pack tool's
+   * `my.delete` (ADR 0414, amended 2026-11-24): a logged set ticked by mistake. Left out, they
+   * cannot. A reviewed change, as `customer` is.
+   */
+  delete?: boolean;
+  /**
    * The family link (ADR 0540): a signed-in guardian also reads their live dependants' records of
    * this object (a child's bookings), with the same `read` fields. With `write: true` they also
    * make records for a dependant (`my.create`'s `forPersonId`) and change the dependant's, with
