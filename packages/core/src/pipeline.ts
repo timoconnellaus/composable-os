@@ -173,7 +173,7 @@ export interface InvocationContext {
    */
   roleToday?: TodayLimits | undefined;
   /**
-   * Set by platform code only (a tool run, for the staff account that started it, ADR 0881): the
+   * Set by platform code only (a tool run, for the staff account that started it, ADR 0889): the
    * caller's pack role limit to the People they look after, held on this call as on the account's.
    */
   roleLooksAfter?: LooksAfterLimit | undefined;
@@ -729,7 +729,7 @@ async function invokeOnce<O extends AnyOperation>(
   // The limit to today: the account's pack role's when the role is what allows this call (not a
   // pack permission granted to it, ADR 0600), or one a tool run carries for its caller.
   const roleToday: TodayLimits | undefined = roleLimitsFor(rights, op) ?? ctx.roleToday;
-  // The limit to the People the account looks after (ADR 0881), the same way.
+  // The limit to the People the account looks after (ADR 0889), the same way.
   const roleLooksAfter: LooksAfterLimit | undefined =
     roleLooksAfterFor(rights, op, ctx.user.id) ?? ctx.roleLooksAfter;
   if (packRole && !staffRightsReach(rights, op)) {
@@ -1100,7 +1100,7 @@ async function invokeOnce<O extends AnyOperation>(
     throw typed;
   };
 
-  // A pack role limited to the People its holder looks after (ADR 0881): a record of someone
+  // A pack role limited to the People its holder looks after (ADR 0889): a record of someone
   // else's is not found and an operation it cannot check is refused, before anything runs (queued,
   // simulated or overlaid included); a list holds it in its own query (record.list).
   try {

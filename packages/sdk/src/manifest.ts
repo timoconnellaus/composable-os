@@ -387,7 +387,7 @@ export const roleManifestSchema = z.object({
       ]),
     )
     .optional(),
-  /** Objects whose records the role reaches only for the People its holder looks after (ADR 0881). */
+  /** Objects whose records the role reaches only for the People its holder looks after (ADR 0889). */
   looksAfter: z.record(z.string().max(80), z.string().max(40)).optional(),
 });
 export type RoleManifest = z.infer<typeof roleManifestSchema>;
@@ -2100,7 +2100,7 @@ export function validateManifest(
         }
       }
     }
-    // A role limited to the People its holder looks after (ADR 0881): each object its own, each
+    // A role limited to the People its holder looks after (ADR 0889): each object its own, each
     // path its relation to person, and a team of this extension's to say who looks after whom.
     const looksAfter = Object.entries(role.looksAfter ?? {});
     if (looksAfter.length && !Object.values(m.objects).some((o) => o.team)) {

@@ -30,7 +30,7 @@ const ASSIGNMENT = "programs.assignment";
 const SESSION = "programs.session";
 const LOG = "programs.log";
 /**
- * The coach role's tools (ADR 0881): a client's training, read and logged for them. Any member of
+ * The coach role's tools (ADR 0889): a client's training, read and logged for them. Any member of
  * staff calls them as before; the coach role holds them for the People it looks after only.
  */
 const COACH = "programs:coach";
@@ -147,11 +147,6 @@ export const assign = defineTool({
       personId: id.optional().describe("A person: a client program"),
       classTypeId: id.optional().describe("A class type: a class program"),
       startDate: date,
-      coachId: id
-        .optional()
-        .describe(
-          "A staff account (usr_…): the client's coach on it, who with the coach role sees and logs their training",
-        ),
     })
     .refine((v) => Boolean(v.personId) !== Boolean(v.classTypeId), {
       message: "Name a person or a class type, not both",
@@ -235,7 +230,6 @@ export const assign = defineTool({
             [who.field]: who.value,
             startDate: input.startDate,
             endDate,
-            ...(input.coachId ? { coach: input.coachId } : {}),
             ...(ctx.caller?.kind === "staff"
               ? { assignedBy: ctx.caller.userId, assignedByName: ctx.caller.name }
               : {}),

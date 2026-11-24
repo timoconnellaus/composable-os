@@ -77,7 +77,7 @@ export function screenGateFingerprint(m: Partial<ExtensionManifest>): string | n
             permissions: sorted(r.permissions),
             read: sorted(r.read),
             today: r.today ?? null,
-            // Left out when absent, so a role without it keeps its fingerprint (ADR 0881).
+            // Left out when absent, so a role without it keeps its fingerprint (ADR 0889).
             looksAfter: r.looksAfter,
           },
         ]),

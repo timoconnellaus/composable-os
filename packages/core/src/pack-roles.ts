@@ -20,7 +20,7 @@
 // permissions a pack declares grantable (Bookings' `bookings:desk`), never a core permission.
 // Each call is allowed by one authority, decided here (`staffAuthority`): a grant that opens the
 // tool, else the pack role. The role's limits (today's records only, ADR 0553; the People its
-// holder looks after, ADR 0881) bind what the role gives and nothing else, and the pipeline
+// holder looks after, ADR 0889) bind what the role gives and nothing else, and the pipeline
 // carries them only on a call the role allowed.
 import type { CoreDatabase, CrmDb } from "@composable-os/db";
 import type { ExtensionManifest, RoleManifest } from "@composable-os/sdk";
@@ -41,7 +41,7 @@ export interface HeldPackRole {
   readonly read: readonly string[];
   /** Objects reached only on the organisation's local today, by the datetime path (ADR 0553). */
   readonly today?: import("./pack-role-today.ts").TodayLimits;
-  /** Objects reached only for the People the holder looks after, and the teams saying so (ADR 0881). */
+  /** Objects reached only for the People the holder looks after, and the teams saying so (ADR 0889). */
   readonly looksAfter?: LooksAfter;
 }
 
@@ -289,7 +289,7 @@ export function roleLimitsFor(
 }
 
 /**
- * The pack role's limit to the People its holder looks after a call of `op` holds (ADR 0881): as
+ * The pack role's limit to the People its holder looks after a call of `op` holds (ADR 0889): as
  * for today's (`roleLimitsFor`), the role's unless a grant opens the operation. `userId` is the
  * account itself, whose People they are.
  */

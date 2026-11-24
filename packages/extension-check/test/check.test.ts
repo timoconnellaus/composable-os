@@ -141,7 +141,7 @@ describe("the staff roles an extension declares (stage 27, ADR 0436)", () => {
     ]);
   });
 
-  it("says which objects a role reaches only for the people its holder looks after (ADR 0881)", () => {
+  it("says which objects a role reaches only for the people its holder looks after (ADR 0889)", () => {
     expect(
       rolesSummary({
         id: "programs",

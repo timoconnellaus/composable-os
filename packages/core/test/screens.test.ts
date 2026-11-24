@@ -179,7 +179,7 @@ describe("screens.mine (ADR 0660)", () => {
     expect(await mine(payer)).toEqual([...TEAM, "rostering/pay"].sort());
   });
 
-  it("a Programs coach passes the client tab's gate only (ADR 0881); its work is in the app", async () => {
+  it("a Programs coach passes the client tab's gate only (ADR 0889); its work is in the app", async () => {
     // A tab on a Person's page, which the role never opens (it reads no Person): no bank, no
     // builder.
     const coach = await account("viewer", "programs.coach");

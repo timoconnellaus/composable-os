@@ -309,7 +309,7 @@ export interface ObjectSpec {
   /**
    * Who on the staff looks after the Person a record is about (see TeamSpec, ADR 0831): the
    * accounts in its user fields while it is live. A pack role's `looksAfter` reaches records
-   * only for those People (ADR 0881). Only shipped extensions and an org's own may declare it.
+   * only for those People (ADR 0889). Only shipped extensions and an org's own may declare it.
    */
   team?: TeamSpec;
   /**
@@ -729,7 +729,7 @@ export interface RoleSpec {
   today?: Readonly<Record<string, string | { at: string; until?: string; zone?: string }>>;
   /**
    * Objects whose records the role reaches only for the People its holder looks after (ADR
-   * 0881), by object: its relation (one record) to `person`. Its holder looks after a Person
+   * 0889), by object: its relation (one record) to `person`. Its holder looks after a Person
    * when a live record of one of this extension's objects that declares a `team` names them in
    * its staff fields (a client's assignment naming the coach). The host holds it on every call
    * the account makes and every call of a tool run it started: a list holds only those People's
