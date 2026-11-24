@@ -6,5 +6,6 @@ export * from "./client.ts";
 export * from "./errors.ts";
 export * from "./hooks.ts";
 export * from "./notes.ts";
+export * from "./owner.ts";
 export * from "./session.ts";
 export type * from "./types.ts";
