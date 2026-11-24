@@ -19,7 +19,14 @@
 // call is over (`forgetAfter`).
 // A checklist (step 4b, ADR 0650) is the same: what someone wrote on a step, why it was not done
 // and why it was ticked for them are on screen only, and never sent in a query's key.
-import { type ClientHolding, forgetAfter, type PackClient, packHooks } from "@composable-os/client";
+import {
+  type ClientHolding,
+  forgetAfter,
+  type PackClient,
+  packHooks,
+  type UseMutation,
+  type UseQuery,
+} from "@composable-os/client";
 import type { z } from "@composable-os/sdk";
 import type {
   assign,
@@ -591,28 +598,7 @@ export function refusalNext(kind: RosterRefusalKind, rosters: boolean): string |
 
 // --- Hooks ---------------------------------------------------------------------------------------
 
-/** The app's `useQuery`, as far as these hooks use it. */
-export type UseQuery = <T>(options: {
-  queryKey: readonly unknown[];
-  queryFn: () => Promise<T>;
-  enabled?: boolean;
-  gcTime?: number;
-}) => { data: T | undefined; isPending: boolean; error: unknown; refetch?: () => unknown };
-
-/** The app's `useMutation`, as far as these hooks use it. */
-export type UseMutation = <I, O>(options: {
-  mutationKey: readonly unknown[];
-  mutationFn: (input: I) => Promise<O>;
-  gcTime?: number;
-}) => {
-  mutate(input: I): void;
-  mutateAsync(input: I): Promise<O>;
-  data: O | undefined;
-  isPending: boolean;
-  error: unknown;
-  /** Forgets the call: its variables and its answer (TanStack Query's `reset`). */
-  reset?: () => void;
-};
+export type { UseMutation, UseQuery } from "@composable-os/client";
 
 /**
  * The operations each hook calls (ADR 0453). A `rostering.team` role's client gets the team's
