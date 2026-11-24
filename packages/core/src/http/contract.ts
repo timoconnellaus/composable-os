@@ -107,9 +107,12 @@ function staleGroup(name: string): string {
   return first ?? name;
 }
 
-/** Operations a client can call: tool-only ones (reached only from inside a tool) are left out. */
+/**
+ * Operations a client can call: tool-only ones (reached only from inside a tool) and the desk
+ * origin's own calls (reached only through its handler, ADR 0649) are left out.
+ */
 export function buildContract(operations: readonly AnyOperation[]): ApiContract {
-  const callable = operations.filter((op) => !op.toolOnly);
+  const callable = operations.filter((op) => !op.toolOnly && !op.deskOnly);
   const queries = callable.filter((op) => op.risk === "read");
   const entries = callable.map((op): ContractOperation => {
     const kind = op.risk === "read" ? "query" : "mutation";

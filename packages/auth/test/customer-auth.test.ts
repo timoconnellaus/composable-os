@@ -487,6 +487,12 @@ describe("no client address is stored (criterion 14)", () => {
     }
   });
 
+  const DEVICE_COLUMNS = new Set([
+    "claim_user_agent",
+    "claim_address",
+    "last_user_agent",
+    "last_address",
+  ]);
   it("no table anywhere has a client-address column or a row holding the client's address", async () => {
     // Except the staff session table: staff sign-in (better-auth.ts) keeps Better Auth's session
     // columns, and a customer never reaches it.
@@ -499,6 +505,10 @@ describe("no client address is stored (criterion 14)", () => {
         `SELECT name FROM pragma_table_info('${name}')`,
       ).all<{ name: string }>();
       for (const column of columns) {
+        // Except the enrolled device's own browser and network (stage 51 step 1, ADR 0780): they
+        // describe the business's tablet and premises, never a customer's device (stage 44,
+        // decision 3), and are shown to admins only. Its rows are still checked below.
+        if (name === "core_device" && DEVICE_COLUMNS.has(column.name)) continue;
         expect(`${name}.${column.name}`).not.toMatch(
           /(^|[._])ip($|_)|ip_?address|client_?addr|remote_?addr|forwarded|user_?agent/i,
         );

@@ -1291,6 +1291,77 @@ export interface CoreAgreementMinorTable {
 }
 
 /**
+ * Migration 0858 (stage 44 step 6, ADR 0649): one Person signing on the business's enrolled
+ * tablet, in a session a person on the staff started. The code and the token as HMACs only.
+ */
+export interface CoreAgreementDeskSessionTable {
+  id: string;
+  person_id: string | null;
+  /** A JSON list of the live dependants' Person ids the signer agrees for. */
+  dependant_ids: Defaulted<string>;
+  device_id: string;
+  claimed_device_id: Defaulted<string | null>;
+  started_by: string;
+  started_at: string;
+  email: string | null;
+  code_hash: string | null;
+  code_expires_at: string;
+  token_hash: Defaulted<string | null>;
+  claimed_at: Defaulted<string | null>;
+  last_activity_at: Defaulted<string | null>;
+  last_heartbeat_at: Defaulted<string | null>;
+  ended_at: Defaulted<string | null>;
+  end_reason: Defaulted<
+    | "finished"
+    | "staff"
+    | "unclaimed"
+    | "idle"
+    | "limit"
+    | "replaced"
+    | "wrong_device"
+    | "failed_claim"
+    | "revoked"
+    | "device_changed"
+    | "erased"
+    | null
+  >;
+  erased_at: Defaulted<string | null>;
+}
+
+/**
+ * Migration 1130 (stage 51 step 1, ADR 0780): a device a human admin enrolled as the business's
+ * own, for one use. Its enrolment code and credentials as HMACs only.
+ */
+export interface CoreDeviceTable {
+  id: string;
+  name: string;
+  use: "signing" | "role" | "till";
+  role: string | null;
+  enrolled_by: string;
+  enrolled_at: string;
+  enrol_code_hash: string | null;
+  enrol_expires_at: string;
+  claimed_at: Defaulted<string | null>;
+  credential_hash: Defaulted<string | null>;
+  pending_credential_hash: Defaulted<string | null>;
+  previous_credential_hash: Defaulted<string | null>;
+  rotated_at: Defaulted<string | null>;
+  last_seen_at: Defaulted<string | null>;
+  claim_user_agent: Defaulted<string | null>;
+  claim_address: Defaulted<string | null>;
+  last_user_agent: Defaulted<string | null>;
+  last_address: Defaulted<string | null>;
+  /** A JSON list of { kind: "browser" | "network", at }. */
+  flags: Defaulted<string>;
+  bad_codes: Defaulted<number>;
+  bad_codes_since: Defaulted<string | null>;
+  locked_until: Defaulted<string | null>;
+  revoked_at: Defaulted<string | null>;
+  revoked_by: Defaulted<string | null>;
+  revoke_reason: Defaulted<"admin" | "clone" | "lapsed" | null>;
+}
+
+/**
  * Migration 0854 (stage 44 step 4, ADR 0645): the copy of one acceptance, the host's own mail,
  * kept beside it so the acceptance itself never changes. Made by trigger when a person agrees (and
  * when a guest's acceptance settles), or by `agreement.copy.send` for paper. Who it goes to never
@@ -3489,6 +3560,10 @@ export interface CoreDatabase {
   core_agreement_signature: CoreAgreementSignatureTable;
   core_agreement_answer: CoreAgreementAnswerTable;
   core_agreement_minor: CoreAgreementMinorTable;
+  core_agreement_desk_session: CoreAgreementDeskSessionTable;
+  core_device: CoreDeviceTable;
+  core_device_guard: { device_id: string; credential_hash: string };
+  core_agreement_desk_guard: { session_id: string; device_id: string };
   core_agreement_copy: CoreAgreementCopyTable;
   core_agreement_hold: CoreAgreementHoldTable;
   core_person_link_guard: CorePersonLinkGuardTable;

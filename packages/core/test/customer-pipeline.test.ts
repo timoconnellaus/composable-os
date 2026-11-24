@@ -58,9 +58,25 @@ describe("default closed (criterion 1)", () => {
       name: string;
       audiences: readonly string[];
       toolOnly?: boolean;
+      deskOnly?: boolean;
     }[];
     const openTo = (kind: string) =>
-      new Set(listed.filter((e) => e.audiences.includes(kind) && !e.toolOnly).map((e) => e.name));
+      new Set(
+        listed
+          .filter((e) => e.audiences.includes(kind) && !e.toolOnly && !e.deskOnly)
+          .map((e) => e.name),
+      );
+    // Stage 44 step 6 (ADR 0649): the desk origin's own calls, public but reached only from its
+    // handler (`deskOnly`): any other public caller is refused them below, as a closed operation.
+    expect(listed.filter((e) => e.deskOnly).map((e) => e.name)).toEqual([
+      "desk.accept",
+      "desk.claim",
+      "desk.documents",
+      "desk.finish",
+      "desk.heartbeat",
+      "desk.status",
+      "device.claim",
+    ]);
     expect([...openTo("customer")].sort()).toEqual([
       // Stage 44 step 5 (ADR 0644 amended): the words of what a visitor is asked, no Person read.
       "agreement.guestVersions",
@@ -430,6 +446,16 @@ describe("the closed handler context (ADR 0413)", () => {
       "content.preview",
       // Stage 38 (ADR 0700): published words, searched as the public reads them.
       "content.search",
+      // Stage 44 step 6 (ADR 0649): the desk origin's calls keep the database: an enrolled
+      // device, a desk session and its acceptances are core tables, read for the request's own
+      // credential and token only.
+      "desk.accept",
+      "desk.claim",
+      "desk.documents",
+      "desk.finish",
+      "desk.heartbeat",
+      "desk.status",
+      "device.claim",
       "fixture.bookkeeping",
       // Stage 29 step 2 (ADR 0720): the door reads a form past the caller's scope and makes the
       // submission, the Person and a destination as the host's own change.

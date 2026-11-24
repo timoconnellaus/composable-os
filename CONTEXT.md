@@ -1482,14 +1482,35 @@ A Person who is a dependant of a live family link, or whom staff have marked as 
 holds no date of birth; `agreement.setMinor`, a person with `people:link`). Only a guardian's
 acceptance or a paper form counts for them, never their own, and the database refuses their own.
 
-**Desk signing session** (stage 44, proposed)
-A short session a person on the staff starts, from their own signed-in account, for one named Person
-(and the children they will sign for) on the enrolled tablet they choose: a one-time code opens it
-only there (a device an admin enrolled as the business's, every admin told, holding a revocable
-device credential that alone opens nothing). The tablet is signed in as nobody, uses the desk's own
-origin, shows only that Person's due documents, and locks on limits the host keeps. The record says
-"on the device enrolled as [name] by [admin]", never "in person".
+**Desk signing session** (stage 44, built in step 6: ADR 0649)
+A short session a person on the staff (`agreements:desk`: admins, and anyone granted it, a coach
+with a fixed role included) starts, from their own signed-in account, for one named Person (and
+the live children they sign for) on the enrolled tablet they choose: a one-time 8-character code,
+good for 2 minutes, opens it only on that device. The tablet is signed in as nobody, uses the desk
+origin, shows only that Person's due documents, and is refused on limits the host keeps (3 minutes
+idle, 20 in all). An acceptance made in it is the member's own (`channel: "desk"`), naming the
+session; the record says "Agreed at the desk on the device enrolled as [name] by [admin] on
+[date]; session started by [staff] at [time]", never "in person".
 _Avoid_: kiosk (a standing sign-in on a shared device, which this is not)
+
+**Enrolled device** (stage 51 step 1, built with stage 44 step 6: ADR 0780)
+A tablet or other browser a human admin enrolled as the business's own (`core_device`), for one
+**use**: desk signing, a **device role** a pack declares (stage 51's check-in tablet, not built
+yet), or a till (stage 50, not built yet). It holds one credential, a cookie on the desk origin
+that alone opens almost nothing, rotated at least daily (and on every signing claim): the next
+one is issued and the current one stays good until the device presents it, then the old one is
+accepted 60 seconds more; a credential rotated away and used later revokes it as a clone, and 30
+days unused lapse it. Every admin is told when one is enrolled, changed or revoked (Settings, Devices).
+Not a **Device session**, which is a person's own app sign-in.
+_Avoid_: kiosk, terminal, registered device
+
+**Desk origin** (stage 44 step 6: ADR 0649)
+The host's second hostname, `desk.` before its name (`DESK_HOSTNAME`, set by `cos deploy` on a
+custom domain), served by the same Worker: the enrolled tablet's two pages (`/desk`, `/enrol`) and
+its calls (`/api/desk/*`), and nothing else, while the staff origin serves none of them. Its
+cookies are its own, every call checks `Origin`, and a call with a staff session is refused. A
+deployment without the hostname has no desk signing and no enrolled devices.
+_Avoid_: kiosk mode, desk mode on the staff origin
 
 **Cooling off** (stage 44, built in step 7: ADR 0647)
 The days (a Memberships setting, `coolingOffDays`; 0, the default, turns it off; a person's to

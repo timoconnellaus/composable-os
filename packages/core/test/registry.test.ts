@@ -50,11 +50,13 @@ describe("core registry", () => {
         // (agreement.kept.find, ADR 0646). A person's check-in cards are listed only with
         // people:cards (personCode.list, ADR 0783). Journeys are read with journeys:read (stage
         // 53, ADR 0800): members hold it, viewers do not; their settings (staff addresses) with
-        // journeys:manage.
+        // journeys:manage. Who may be signed at the desk, and on which tablet, is read by whoever
+        // may start a desk session, agreements:desk (ADR 0649).
         if (op.risk === "read") {
           expect([
             "journeys:read",
             "journeys:manage",
+            "agreements:desk",
             "agreements:health",
             "people:cards",
             "agreements:manage",

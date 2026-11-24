@@ -114,3 +114,10 @@ preview, and with `confirm: true` and the preview's `expect` it also sets each s
 member pays to end at its period's end (nothing refunded) and cancels their unpaid orders before
 disabling the account and opening the request. Admins' notice says what was left for staff
 ([ADR 0713](0713-deleting-an-account-the-preview-and-its-consequences.md)).
+
+**Amended 2026-11-24** (stage 44 step 6, [ADR 0649](0649-signing-at-the-desk.md)): an operation open
+to the public may be marked `deskOnly`: it is reached only from the desk origin's own handler,
+which gives it the enrolled device's credential and the desk session's token from the request
+(`ctx.desk.request`), never from an input. Any other caller is told no such operation exists; it is
+left out of the HTTP contract and the manifest, and listed in `open-operations.json` as `deskOnly`.
+It must be `hostInternal`, and a desk request reaches no other operation.

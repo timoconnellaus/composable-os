@@ -19,7 +19,9 @@
 // An unknown role, or one whose pack is not installed, active and shipped, holds nothing.
 //
 // Roles and grants add up (ADR 0600): an account holding a pack role may also be granted pack
-// permissions a pack declares grantable (Bookings' `bookings:desk`), never a core permission.
+// permissions a pack declares grantable (Bookings' `bookings:desk`), and the few core permissions
+// core declares grantable to such an account (`FIXED_ROLE_CORE_GRANTS`: `people:cards`,
+// `agreements:desk`), never another core permission.
 // Each call is allowed by one authority, decided here (`staffAuthority`): a grant that opens the
 // tool, else the pack role. The role's limits (today's records only, ADR 0553; the People its
 // holder looks after, ADR 0889) bind what the role gives and nothing else, and the pipeline
@@ -224,12 +226,12 @@ export function packRoleReaches(role: HeldPackRole, op: AnyOperation): boolean {
 /**
  * Whether a permission granted to the account opens the pack tool `op`: one of the tool's
  * permissions its installed pack still declares grantable (ADR 0449), or a core operation whose
- * permission is one of FIXED_ROLE_CORE_GRANTS (ADR 0783). So for an account holding a pack role a
+ * permission is one of FIXED_ROLE_CORE_GRANTS (ADRs 0783 and 0649). So for an account holding a pack role a
  * grant opens exactly the tools naming the granted permission and those few core operations, and
  * no record read, list, search or setting (ADR 0600).
  */
 export function grantOpens(grants: readonly string[], op: AnyOperation): boolean {
-  // The few core permissions a fixed role's account may be granted (ADR 0783): `people:cards`.
+  // The few core permissions a fixed role's account may be granted (ADRs 0783 and 0649).
   if (FIXED_ROLE_CORE_GRANTS.includes(op.permission) && grants.includes(op.permission)) return true;
   return (op.packGrantable ?? []).some((p) => grants.includes(p));
 }
