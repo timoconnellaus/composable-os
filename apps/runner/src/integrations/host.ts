@@ -1064,8 +1064,14 @@ export class IntegrationHost extends DurableObject<Env> {
           ),
       ));
     } catch (error) {
-      // Not handed over (a full pending pool, the gatekeeper refused): back as it was, to retry.
       const message = error instanceof Error ? error.message : String(error);
+      // The gatekeeper refused the text itself (its shape, a STOP): it never goes, so it is not
+      // tried again every minute (the review of PR #435).
+      if (/^(Invalid text|Refused)/.test(message)) {
+        await settleRoutineText(db, row, { status: "failed", error: message, refund: true });
+        return { status: "failed", error: message };
+      }
+      // Not handed over (a full pending pool, a failure on the way): back as it was, to retry.
       await settleRoutineText(db, row, { status: "back", error: message });
       throw error;
     }
@@ -1089,8 +1095,29 @@ export class IntegrationHost extends DurableObject<Env> {
       await settleRoutineText(db, row, { status: "sent" });
       return { status: "sent" };
     }
-    // Waiting since an earlier try (its pending action was recorded then), as an email's.
-    return { status: "waiting" };
+    // The gatekeeper answered with an earlier try's send (its key), still waiting: that try's
+    // approval, which the row did not record when the host stopped (the review of PR #435).
+    const action = (receipt as { id?: unknown } | null)?.id;
+    const earlier =
+      typeof action === "number"
+        ? await db
+            .selectFrom("core_pending_action")
+            .select("id")
+            .where("connection_id", "=", meta.connectionId)
+            .where("gk_action", "=", action)
+            .where("status", "=", "pending")
+            .executeTakeFirst()
+        : undefined;
+    if (earlier) {
+      await settleRoutineText(db, row, { status: "waiting", pendingActionId: earlier.id });
+      return { status: "waiting", pendingActionId: earlier.id };
+    }
+    // Decided since without being sent (turned down, or expired): it does not go.
+    await settleRoutineText(db, row, {
+      status: "failed",
+      error: "an earlier try of this text was turned down or expired",
+    });
+    return { status: "failed", error: "an earlier try of this text was turned down or expired" };
   }
 
   /** A session stub for code (Code Mode, extension tools) acting as `caller`. */

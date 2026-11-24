@@ -11,6 +11,7 @@
 //     START lifts it, HELP is answered once a day; other replies are not passed on (criterion 9);
 //   - the fake is refused without its own secret off localhost, and no provider is no text; a
 //     second provider module behind the same interface gives the host the same events (criterion 8).
+import { runInDurableObject } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { eventsStub } from "../src/events";
@@ -276,6 +277,35 @@ describe("receipts and replies", () => {
     expect(received[0]).toMatchObject({ kind: "reply", keyword: "help", answeredSegments: 1 });
     expect(received[1]).toMatchObject({ kind: "reply", keyword: "help" });
     expect(received[1]).not.toHaveProperty("answeredSegments");
+  });
+});
+
+describe("the review of PR #435", () => {
+  it("finding 7: a STOP that came while no host hook was bound reaches the host once one is", async () => {
+    await eventsStub(env).setHook(null);
+    const to = number();
+    await webhook([{ type: "reply", from: to, text: "STOP" }]);
+    expect(received).toEqual([]);
+    const events = await host("text-events");
+    await events.bindAndEnable();
+    await vi.waitFor(() => expect(received).toHaveLength(1), { timeout: 5_000 });
+    expect(received[0]).toMatchObject({ kind: "reply", from: to, keyword: "stop" });
+  });
+
+  it("finding 6: a stopped number is kept under this deployment's salt, not as a bare hash", async () => {
+    const to = number();
+    await webhook([{ type: "reply", from: to, text: "STOP" }]);
+    expect(await eventsStub(env).isStopped(to)).toBe(true);
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(to));
+    const bare = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    const stored = await runInDurableObject(eventsStub(env), async (_instance, state) =>
+      state.storage.sql
+        .exec<{ number_hash: string }>("SELECT number_hash FROM stops")
+        .toArray()
+        .map((r) => r.number_hash),
+    );
+    expect(stored.length).toBeGreaterThan(0);
+    expect(stored).not.toContain(bare);
   });
 });
 

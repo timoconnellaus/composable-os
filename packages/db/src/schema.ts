@@ -1539,6 +1539,7 @@ export interface CorePhoneCheckTable {
   how: Defaulted<"code">;
   started_at: string;
   checked_at: Defaulted<string | null>;
+  tries: Defaulted<number>;
 }
 
 /** Migration 0911 (ADR 0672): a number that replied STOP, as a salted hash; START deletes it. */

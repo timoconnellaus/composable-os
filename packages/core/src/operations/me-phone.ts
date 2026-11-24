@@ -21,6 +21,7 @@ import { phoneDigits, phoneField, valueHash } from "../routine-mail/marks.ts";
 import { mobileInCountries } from "../routine-mail/numbers.ts";
 import {
   claimCodeSpend,
+  countCodeTry,
   numberHash,
   refundCodeSpend,
   startPhoneCheck,
@@ -163,6 +164,8 @@ export const mePhoneCheck = defineOperation({
         .executeTakeFirst();
       const target = await textTarget(ctx.db);
       if (!open || !target || !integrations?.callAsHost) return { checked: false };
+      // Three tries a code, counted here whatever the provider allows (the review of PR #435).
+      if (!(await countCodeTry(ctx.db, open.id))) return { checked: false };
       const result = await integrations.callAsHost({
         ...target,
         method: "check",

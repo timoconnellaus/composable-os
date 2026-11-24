@@ -2,11 +2,13 @@
 // gatekeeper's PaymentsEvents (ADR 0672). It
 // - remembers the provider event ids it has seen (replay dedupe);
 // - knows which host key each sent text had (`providerRef → ref`), so a receipt names its row;
-// - keeps the numbers that replied STOP (a SHA-256 of each, never the number) and refuses a text
-//   to one even if the host asks, until START;
+// - keeps the numbers that replied STOP (a SHA-256 under this deployment's own salt, never the
+//   number) and refuses a text to one even if the host asks, until START;
+// - counts the codes sent to each number in a day;
 // - answers HELP with a fixed text, at most once a day per number;
 // - holds the hook's initiator and delivers each event to the host through the kit's hook
-//   delivery queue, retried from its alarm.
+//   delivery queue, retried from its alarm. Events that arrive while no hook is bound are kept
+//   (at most 1,000) and delivered once one is, so the host never misses a STOP.
 // Any other reply is not read or stored (stage 36 adds a receiver).
 
 import { DurableObject } from "cloudflare:workers";
@@ -41,10 +43,22 @@ export type StoredInitiator = { startHook(): Promise<StartedHook> } & Partial<Di
 type HookRecord = { key: string; target: HookTargetMetadata; enabledAt: number };
 type Queued = { event: TextEvent };
 
-export async function numberHash(number: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(number));
+/** A number as this gatekeeper keeps it: SHA-256 under `salt`, never the number itself. */
+export async function numberHash(salt: string, number: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`${salt}:${number}`),
+  );
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
+
+const SALT = "salt";
+/** Events kept while no hook is bound, delivered once one is: at most this many. */
+const MAX_HELD = 1_000;
+const HELD_PREFIX = "held:";
+/** Codes sent to one number in a day (ADR 0673), counted here for every session. */
+const CODES_PER_NUMBER_DAY = 3;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** The observation recorded before each delivery: what happened, never a number or words. */
 export function describeEvent(event: TextEvent): ObservationDescription {
@@ -100,9 +114,33 @@ export class TextEvents extends DurableObject<Cloudflare.Env> {
     }
   }
 
+  /** This deployment's salt for number hashes, made once. */
+  #salt(): string {
+    const kv = this.ctx.storage.kv;
+    let salt = kv.get<string>(SALT);
+    if (!salt) {
+      salt = [...crypto.getRandomValues(new Uint8Array(16))]
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+      kv.put(SALT, salt);
+    }
+    return salt;
+  }
+
+  /** Counts a code to `number` today; false when it has had its day's codes. */
+  async countCode(number: string): Promise<boolean> {
+    const kv = this.ctx.storage.kv;
+    const slot = `codes:${await numberHash(this.#salt(), number)}`;
+    const now = Date.now();
+    const recent = (kv.get<number[]>(slot) ?? []).filter((at) => now - at < DAY_MS);
+    if (recent.length >= CODES_PER_NUMBER_DAY) return false;
+    kv.put(slot, [...recent, now]);
+    return true;
+  }
+
   /** Whether `number` replied STOP (and not START since). */
   async isStopped(number: string): Promise<boolean> {
-    const hash = await numberHash(number);
+    const hash = await numberHash(this.#salt(), number);
     return (
       this.ctx.storage.sql.exec("SELECT 1 FROM stops WHERE number_hash = ?", hash).toArray()
         .length > 0
@@ -155,7 +193,7 @@ export class TextEvents extends DurableObject<Cloudflare.Env> {
       const keyword = keywordOf(e.body);
       // Not a keyword: not read further, not stored, not passed on (stage 36 adds a receiver).
       if (!keyword || !/^\+[1-9]\d{7,14}$/.test(e.from)) continue;
-      const hash = await numberHash(e.from);
+      const hash = await numberHash(this.#salt(), e.from);
       if (keyword === "stop") {
         sql.exec("INSERT OR REPLACE INTO stops (number_hash, at) VALUES (?, ?)", hash, now);
       } else if (keyword === "start") {
@@ -177,8 +215,16 @@ export class TextEvents extends DurableObject<Cloudflare.Env> {
     if (hook) {
       for (const event of out) this.#queue.enqueue(hook.key, event.eventId, { event }, now);
       if (out.length) await this.ctx.storage.setAlarm(now);
+    } else {
+      // No hook yet (or between a disable and an enable): kept for the next one.
+      const kv = this.ctx.storage.kv;
+      for (const event of out) {
+        kv.put(`${HELD_PREFIX}${String(now).padStart(15, "0")}:${event.eventId}`, event);
+      }
+      const held = [...kv.list({ prefix: HELD_PREFIX })].map(([key]) => key);
+      for (const key of held.slice(0, Math.max(0, held.length - MAX_HELD))) kv.delete(key);
     }
-    return { duplicate: false, queued: hook ? out.length : 0 };
+    return { duplicate: false, queued: out.length };
   }
 
   /** HELP's fixed answer, once a day per number; its segments, or undefined when none went. */
@@ -209,12 +255,21 @@ export class TextEvents extends DurableObject<Cloudflare.Env> {
       }
       return;
     }
-    this.ctx.storage.kv.put(HOOK_INITIATOR, initiator);
-    this.ctx.storage.kv.put<HookRecord>(HOOK, {
+    const kv = this.ctx.storage.kv;
+    kv.put(HOOK_INITIATOR, initiator);
+    const hook: HookRecord = {
       key: existing?.key ?? crypto.randomUUID(),
       target: target ?? { workspaceId: "" },
       enabledAt: Date.now(),
-    });
+    };
+    kv.put<HookRecord>(HOOK, hook);
+    // What arrived while no hook was bound goes now, oldest first.
+    const held = [...kv.list<TextEvent>({ prefix: HELD_PREFIX })];
+    for (const [key, event] of held) {
+      this.#queue.enqueue(hook.key, event.eventId, { event }, hook.enabledAt);
+      kv.delete(key);
+    }
+    if (held.length) await this.ctx.storage.setAlarm(hook.enabledAt);
   }
 
   async hookEnabled(): Promise<boolean> {

@@ -124,3 +124,20 @@ queue for it and settles it. An idle minute reads one partial index (`core_routi
   here first because STOP had to work in this step.
 - A held text a person approves during quiet hours goes when approved; a held one is put to a
   person only once its quiet hours are over.
+
+## Amendment, 2026-11-24 (the review of PR #435)
+
+- **The claim takes the row first, then the spend.** Two claims of one row near the limit sent
+  nothing and marked it `over_limit`; now one claim wins the row and only it reserves the cost.
+- **A limit of 0 is texts off**: a row is `off`, and admins are not told the limit was reached.
+- **A text left `sending`** by a host that stopped before it settled it is claimed again after 15
+  minutes, with the spend it already reserved; the gatekeeper's key answers it with what the first
+  try made. When that answer is an earlier try still waiting for a person, the host records that
+  try's pending approval; one turned down since is `failed`. Either way its words and number are
+  cleared.
+- **A text the gatekeeper refuses** (its shape, a STOP) is `failed`, its spend given back, and not
+  tried again every minute; only a full pool or a failure on the way puts it back.
+- **The gatekeeper's hashes are salted**: the stops, HELP's once a day and the per-number code
+  count use a salt the `TextEvents` object makes once for the deployment, never a bare SHA-256.
+- **Events are never lost for want of a hook**: a STOP (or any event) that arrives while no host
+  hook is bound is kept (at most 1,000) and delivered once one is.

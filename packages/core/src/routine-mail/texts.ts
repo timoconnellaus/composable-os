@@ -315,13 +315,19 @@ export type ClaimedText =
   | { status: "send"; row: RoutineTextRow }
   | { status: "off" | "stopped" | "over_limit" | "expired" | "failed" | "held" };
 
+/** A text left `sending` this long was cut off (the host stopped before it settled): tried again. */
+export const STALE_SENDING_MS = 15 * 60_000;
+
 /**
  * Claims a text row to send through `connectionId` now; null when it is not one to send (sent
  * already, claimed by another run, waiting for a person). Decided again first, as an email is
- * when claimed: its kind, its pack's routine messages and its text switched off since: `off`; its
- * moment passed: `expired`; its number replied STOP since: `stopped`. Then its cost is reserved
- * against the month's limit (`over_limit` past it) and the row claimed within its number's day
- * (over it, held for a person).
+ * when claimed: its kind, its pack's routine messages and its text switched off since, or the
+ * month's limit at 0: `off`; its moment passed: `expired`; its number replied STOP since:
+ * `stopped`. Then the row is claimed within its number's day (over it, held for a person), and
+ * only then its cost reserved against the month's limit (`over_limit` past it), so two claims of
+ * one row never spend twice nor mark it over the limit (the review of PR #435). A row left
+ * `sending` longer than `STALE_SENDING_MS` is claimed again with the spend it already reserved;
+ * the gatekeeper's idempotency key answers it with what the first try made.
  */
 export async function claimRoutineText(
   db: Db,
@@ -335,16 +341,27 @@ export async function claimRoutineText(
     .where("id", "=", id)
     .executeTakeFirst();
   if (!row || row.channel !== "text") return null;
-  if (row.status !== "ready" && !(row.status === "held" && row.pending_action_id === null)) {
+  const stale =
+    row.status === "sending" && Date.parse(row.updated_at) <= Date.parse(now) - STALE_SENDING_MS;
+  if (
+    row.status !== "ready" &&
+    !(row.status === "held" && row.pending_action_id === null) &&
+    !stale
+  ) {
     return null;
   }
   if (row.body === null || !row.recipient) return null;
-  const from = row.status;
+  const current = row.status;
+  /** Where the row goes back to when it is not handed over now. */
+  const from: "ready" | "held" =
+    current === "ready" || (current === "sending" && row.routine === 1) ? "ready" : "held";
+  const settings = await loadRoutineMailSettings(db);
+  const reservedMonth = row.claimed_at ? textMonth(row.claimed_at, settings.quietZone) : null;
   const settle = async (
     status: "off" | "stopped" | "over_limit" | "expired" | "failed",
     error?: string,
   ) => {
-    await db
+    const done = await db
       .updateTable("core_routine_mail")
       .set({
         status,
@@ -352,18 +369,26 @@ export async function claimRoutineText(
         subject: null,
         body: null,
         recipient: "",
+        cost_minor: null,
         ...(status === "off" ? { routine: 0 } : {}),
         ...(error ? { error } : {}),
       })
       .where("id", "=", id)
-      .where("status", "=", from)
-      .execute();
+      .where("status", "=", current)
+      .where("updated_at", "=", row.updated_at)
+      .executeTakeFirst();
+    // A stale row's reservation goes back once it is decided without sending.
+    if (stale && Number(done.numUpdatedRows) && row.cost_minor && reservedMonth) {
+      await refundSpend(db, reservedMonth, Math.max(1, row.segments ?? 1), row.cost_minor, now);
+    }
     return { status } as const;
   };
   if (row.until_at !== null && row.until_at <= now) return settle("expired");
-  const settings = await loadRoutineMailSettings(db);
   const kind = (await routineKinds(db)).find((k) => k.id === row.kind);
   if (!kind?.on || !kind.packOn || !kind.channels.text) return settle("off");
+  const limit = settings.textLimitMinor;
+  // A limit of 0 is texts switched off, not used up: no notice (the review of PR #435).
+  if (limit <= 0) return settle("off", "the month's text limit is 0, so texts are off");
   const key = row.recipient_key.startsWith("text:") ? row.recipient_key.slice(5) : "";
   const stop = key
     ? await db
@@ -381,31 +406,41 @@ export async function claimRoutineText(
     return settle("failed", "set the price of one text segment (Settings → Routine email)");
   }
   const segments = Math.max(1, row.segments ?? 1);
+  const send = (spend: RoutineTextRow["spend"]): ClaimedText => ({
+    status: "send",
+    row: {
+      id: row.id,
+      kind: row.kind,
+      routine: from === "ready" && row.routine === 1,
+      heldReason: row.held_reason,
+      automationId: row.automation_id,
+      runId: row.run_id,
+      extensionId: row.extension_id,
+      to: row.recipient,
+      text: row.body as string,
+      business,
+      spend,
+      from,
+    },
+  });
+  if (stale) {
+    // Claimed again, with what the first try reserved; one claim of it wins.
+    const again = await db
+      .updateTable("core_routine_mail")
+      .set({ updated_at: now, connection_id: connectionId })
+      .where("id", "=", id)
+      .where("status", "=", "sending")
+      .where("updated_at", "=", row.updated_at)
+      .executeTakeFirst();
+    if (!Number(again.numUpdatedRows)) return null;
+    return send({
+      month: reservedMonth ?? textMonth(now, settings.quietZone),
+      segments,
+      cost: row.cost_minor ?? 0,
+    });
+  }
   const cost = segments * price;
   const month = textMonth(now, settings.quietZone);
-  const limit = settings.textLimitMinor;
-  const spent = await reserveSpend(db, month, segments, cost, limit, now);
-  if (spent === null) {
-    const out = await settle("over_limit", "this month's text limit is reached");
-    await tellAdmins(
-      db,
-      "Texts reached this month's limit",
-      `This month's texts have reached the limit set in Settings → Routine email. Texts stop until the month turns or the limit is raised; emails carry on.`,
-      `routine-text.limit:${now.slice(0, 10)}`,
-      now,
-    );
-    return out;
-  }
-  // At 80%: told once a month (the notice's key), however the spend got there.
-  if (limit > 0 && spent >= limit * 0.8) {
-    await tellAdmins(
-      db,
-      "Texts are at 80% of this month's limit",
-      "This month's texts have used 80% of the limit set in Settings → Routine email. At the limit, texts stop until the month turns; emails carry on.",
-      `routine-text.80:${month}`,
-      now,
-    );
-  }
   const day = new Date(Date.parse(now) - DAY_MS).toISOString();
   let claim = db
     .updateTable("core_routine_mail")
@@ -417,8 +452,8 @@ export async function claimRoutineText(
       updated_at: now,
     })
     .where("id", "=", id)
-    .where("status", "=", from);
-  if (from === "ready") {
+    .where("status", "=", current);
+  if (current === "ready") {
     // Within the number's day: five texts, counted in the statement that claims it.
     claim = claim.where((eb) =>
       eb(
@@ -438,8 +473,7 @@ export async function claimRoutineText(
   }
   const claimed = await claim.executeTakeFirst();
   if (Number(claimed.numUpdatedRows) === 0) {
-    await refundSpend(db, month, segments, cost, now);
-    if (from !== "ready") return null;
+    if (current !== "ready") return null;
     // Still ready, so over the number's day: held for a person, as an email over its cap is.
     const held = await db
       .updateTable("core_routine_mail")
@@ -454,23 +488,43 @@ export async function claimRoutineText(
       .executeTakeFirst();
     return Number(held.numUpdatedRows) ? { status: "held" } : null;
   }
-  return {
-    status: "send",
-    row: {
-      id: row.id,
-      kind: row.kind,
-      routine: from === "ready" && row.routine === 1,
-      heldReason: row.held_reason,
-      automationId: row.automation_id,
-      runId: row.run_id,
-      extensionId: row.extension_id,
-      to: row.recipient,
-      text: row.body,
-      business,
-      spend: { month, segments, cost },
-      from,
-    },
-  };
+  // The row is this claim's alone now: its cost against the month's limit, in one statement.
+  const spent = await reserveSpend(db, month, segments, cost, limit, now);
+  if (spent === null) {
+    await db
+      .updateTable("core_routine_mail")
+      .set({
+        status: "over_limit",
+        updated_at: now,
+        subject: null,
+        body: null,
+        recipient: "",
+        cost_minor: null,
+        error: "this month's text limit is reached",
+      })
+      .where("id", "=", id)
+      .where("status", "=", "sending")
+      .execute();
+    await tellAdmins(
+      db,
+      "Texts reached this month's limit",
+      `This month's texts have reached the limit set in Settings → Routine email. Texts stop until the month turns or the limit is raised; emails carry on.`,
+      `routine-text.limit:${now.slice(0, 10)}`,
+      now,
+    );
+    return { status: "over_limit" };
+  }
+  // At 80%: told once a month (the notice's key), however the spend got there.
+  if (spent >= limit * 0.8) {
+    await tellAdmins(
+      db,
+      "Texts are at 80% of this month's limit",
+      "This month's texts have used 80% of the limit set in Settings → Routine email. At the limit, texts stop until the month turns; emails carry on.",
+      `routine-text.80:${month}`,
+      now,
+    );
+  }
+  return send({ month, segments, cost });
 }
 
 /** Records what became of a claimed text; its words and number are cleared once it is decided. */
@@ -480,12 +534,17 @@ export async function settleRoutineText(
   outcome:
     | { status: "sent" | "denied" }
     | { status: "waiting"; pendingActionId: string }
-    | { status: "failed"; error: string }
+    /** `refund`: refused before anything was sent, so its reservation goes back. */
+    | { status: "failed"; error: string; refund?: boolean }
     /** Not handed over (a full pending pool, the gatekeeper refused): back as it was, to retry. */
     | { status: "back"; error: string },
   now = new Date().toISOString(),
 ): Promise<void> {
-  if (outcome.status === "back" || outcome.status === "denied") {
+  const refund =
+    outcome.status === "back" ||
+    outcome.status === "denied" ||
+    (outcome.status === "failed" && outcome.refund === true);
+  if (refund) {
     await refundSpend(db, row.spend.month, row.spend.segments, row.spend.cost, now);
   }
   if (outcome.status === "back") {
@@ -511,7 +570,7 @@ export async function settleRoutineText(
       subject: null,
       body: null,
       recipient: "",
-      ...(outcome.status === "denied" ? { cost_minor: null } : {}),
+      ...(refund ? { cost_minor: null } : {}),
       ...("pendingActionId" in outcome ? { pending_action_id: outcome.pendingActionId } : {}),
       ...("error" in outcome ? { error: outcome.error.slice(0, 1000) } : {}),
     })
@@ -710,6 +769,17 @@ export async function sendReadyTexts(
     .limit(SEND_BATCH);
   if (options.ids) query = query.where("id", "in", options.ids.slice(0, SEND_BATCH));
   const rows = await query.execute();
+  // And texts a host left sending when it stopped (the review of PR #435).
+  const cutoff = new Date(Date.parse(now) - STALE_SENDING_MS).toISOString();
+  let stale = deps.db
+    .selectFrom("core_routine_mail")
+    .select("id")
+    .where(sql<boolean>`channel = 'text' AND status = 'sending'`)
+    .where("updated_at", "<=", cutoff)
+    .orderBy("updated_at")
+    .limit(SEND_BATCH);
+  if (options.ids) stale = stale.where("id", "in", options.ids.slice(0, SEND_BATCH));
+  rows.push(...(await stale.execute()));
   if (!rows.length) return out;
   const target = await textTarget(deps.db);
   if (!target) return out;
@@ -734,7 +804,8 @@ export async function sendReadyTexts(
 
 /**
  * Whether a code may be sent to `number` for `personId` now: at most three a day for the Person
- * and three a day for the number, whoever asks. Writes the check's row when it may.
+ * and three a day for the number, whoever asks. Counted and written in one statement, so calls at
+ * once cannot pass either (the review of PR #435).
  */
 export async function startPhoneCheck(
   db: Db,
@@ -743,29 +814,45 @@ export async function startPhoneCheck(
   now: string,
 ): Promise<{ id: string; hash: string } | { refused: string }> {
   const hash = await numberHash(db, number);
-  const day = new Date(Date.parse(now) - DAY_MS).toISOString();
-  const counts = await db
-    .selectFrom("core_phone_check")
-    .select([
-      sql<number>`SUM(CASE WHEN person_id = ${personId} THEN 1 ELSE 0 END)`.as("mine"),
-      sql<number>`SUM(CASE WHEN number_hash = ${hash} THEN 1 ELSE 0 END)`.as("number"),
-    ])
-    .where((eb) => eb.or([eb("person_id", "=", personId), eb("number_hash", "=", hash)]))
-    .where("started_at", ">", day)
-    .executeTakeFirst();
-  if (Number(counts?.mine ?? 0) >= CODES_PER_DAY || Number(counts?.number ?? 0) >= CODES_PER_DAY) {
-    return { refused: `at most ${CODES_PER_DAY} codes a day` };
-  }
   const stop = await db
     .selectFrom("core_text_stop")
     .select("at")
     .where("number_hash", "=", hash)
     .executeTakeFirst();
   if (stop) return { refused: "this number replied STOP to our texts: reply START from it first" };
+  const day = new Date(Date.parse(now) - DAY_MS).toISOString();
   const id = newId("phoneCheck");
-  await db
+  const written = await db
     .insertInto("core_phone_check")
-    .values({ id, person_id: personId, number, number_hash: hash, started_at: now })
-    .execute();
+    .columns(["id", "person_id", "number", "number_hash", "started_at"])
+    .expression(
+      sql`SELECT ${id}, ${personId}, ${number}, ${hash}, ${now}
+        WHERE (SELECT COUNT(*) FROM core_phone_check
+                WHERE person_id = ${personId} AND started_at > ${day}) < ${CODES_PER_DAY}
+          AND (SELECT COUNT(*) FROM core_phone_check
+                WHERE number_hash = ${hash} AND started_at > ${day}) < ${CODES_PER_DAY}`,
+    )
+    .returning("id")
+    .executeTakeFirst();
+  if (!written) {
+    return { refused: `at most ${CODES_PER_DAY} codes a day` };
+  }
   return { id, hash };
+}
+
+/** Tries a code may be typed for one check, here whatever the provider allows. */
+export const CODE_TRIES = 3;
+
+/**
+ * Counts one try at the open check `id`; false once it has had its tries, so a code cannot be
+ * guessed at the host whatever the provider allows.
+ */
+export async function countCodeTry(db: Db, id: string): Promise<boolean> {
+  const counted = await db
+    .updateTable("core_phone_check")
+    .set({ tries: sql`tries + 1` })
+    .where("id", "=", id)
+    .where("tries", "<", CODE_TRIES)
+    .executeTakeFirst();
+  return Number(counted.numUpdatedRows) > 0;
 }

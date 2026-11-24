@@ -624,6 +624,140 @@ describe("back-pressure (criterion 12)", { timeout: 60_000 }, () => {
   });
 });
 
+describe("the review of PR #435", { timeout: 60_000 }, () => {
+  it("finding 1: three codes a day for a member, even asked for at once", async () => {
+    const [a, b, c] = [mobile(), mobile(), mobile()];
+    const who = await member("codes-at-once");
+    await run(
+      "person.update",
+      {
+        id: who.personId,
+        phones: [
+          { number: a.typed, primary: true },
+          { number: b.typed, primary: false },
+          { number: c.typed, primary: false },
+        ],
+      },
+      staff(),
+    );
+    const outcomes = await Promise.allSettled(
+      [a, a, b, b, c, c].map((n) => run("me.phone.startCheck", { number: n.typed }, as(who))),
+    );
+    expect(outcomes.filter((o) => o.status === "fulfilled")).toHaveLength(3);
+    const rows = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM core_phone_check WHERE person_id = ?",
+    )
+      .bind(who.personId)
+      .first<{ n: number }>();
+    expect(rows?.n).toBe(3);
+  });
+
+  it("finding 2a: a text left sending by a host that stopped is sent again, its spend counted once", async () => {
+    const phone = mobile();
+    const who = await member("stale", phone);
+    const bookingId = await booking(who);
+    const text = await textOf(bookingId, await confirm(bookingId));
+    const before = await spend();
+    expect((await claimRoutineText(db.query, text.id, textConnection))?.status).toBe("send");
+    // The host stopped before it handed the text over: the row is left sending.
+    await env.DB.prepare("UPDATE core_routine_mail SET updated_at = ? WHERE id = ?")
+      .bind(new Date(Date.now() - HOUR).toISOString(), text.id)
+      .run();
+    await sendReadyTexts({ db: db.query, integrations }, { ids: [text.id] });
+    expect(await rowById(text.id)).toMatchObject({ status: "sent", recipient: "", body: null });
+    expect(await sentTo(phone.to)).toHaveLength(1);
+    expect((await spend()).estimatedMinor).toBe(before.estimatedMinor + PRICE);
+  });
+
+  it("finding 2b: a held text whose first submission was not recorded waits for that same approval", async () => {
+    const phone = mobile();
+    const who = await member("resubmit", phone);
+    const k = await klass();
+    const bookingId = await booking(who, k);
+    await run(
+      "record.update",
+      { object: "bookings.class", id: k, values: { title: "Power" } },
+      mcp(),
+    );
+    const text = await textOf(bookingId, await confirm(bookingId));
+    await sendReadyTexts({ db: db.query, integrations }, { ids: [text.id] });
+    const first = await rowById(text.id);
+    expect(first.status).toBe("waiting");
+    // As if the host stopped after the gatekeeper took it, before the row said so.
+    await env.DB.prepare(
+      "UPDATE core_routine_mail SET status = 'held', pending_action_id = NULL, recipient = ?, body = ?, cost_minor = NULL, claimed_at = NULL WHERE id = ?",
+    )
+      .bind(phone.to, "Example Gym: words Reply STOP to stop", text.id)
+      .run();
+    await sendReadyTexts({ db: db.query, integrations }, { ids: [text.id] });
+    expect(await rowById(text.id)).toMatchObject({
+      status: "waiting",
+      pending_action_id: first.pending_action_id,
+      recipient: "",
+      body: null,
+    });
+  });
+
+  it("finding 3: with the limit at 0 texts are off, and admins are not told the limit was reached", async () => {
+    await run("routineMail.settings.update", { textLimitMinor: 0 }, staff());
+    const since = new Date().toISOString();
+    try {
+      const who = await member("limit-zero", mobile());
+      const bookingId = await booking(who);
+      const runId = await confirm(bookingId);
+      const text = await textOf(bookingId, runId);
+      await sendReadyTexts({ db: db.query, integrations }, { ids: [text.id] });
+      expect(await rowById(text.id)).toMatchObject({ status: "off" });
+      const told = await env.DB.prepare(
+        "SELECT COUNT(*) AS n FROM core_notifications WHERE user_id = ? AND title LIKE 'Texts reached%' AND created_at >= ?",
+      )
+        .bind(admin.id, since)
+        .first<{ n: number }>();
+      expect(told?.n).toBe(0);
+    } finally {
+      await run("routineMail.settings.update", { textLimitMinor: 1_000_000 }, staff());
+    }
+  });
+
+  it("finding 5: two claims of one text near the limit send it once and never mark it over_limit", async () => {
+    const who = await member("same-row", mobile());
+    const bookingId = await booking(who);
+    const text = await textOf(bookingId, await confirm(bookingId));
+    await roomFor(1);
+    try {
+      const claims = await Promise.all([
+        claimRoutineText(db.query, text.id, textConnection),
+        claimRoutineText(db.query, text.id, textConnection),
+      ]);
+      expect(claims.filter((c) => c?.status === "send")).toHaveLength(1);
+      expect((await rowById(text.id)).status).toBe("sending");
+      for (const claim of claims) {
+        if (claim?.status === "send") {
+          await settleRoutineText(db.query, claim.row, { status: "back", error: "test" });
+        }
+      }
+    } finally {
+      await run("routineMail.settings.update", { textLimitMinor: 1_000_000 }, staff());
+    }
+  });
+
+  it("finding 8: after three wrong guesses a code no longer checks, even the right one", async () => {
+    const phone = mobile();
+    const who = await member("guesses", phone);
+    await run("me.phone.startCheck", { number: phone.typed }, as(who));
+    const code = (await env.TEST_TEXT_PHONES.codeFor(phone.to)) as string;
+    const wrong = code === "111111" ? "222222" : "111111";
+    for (let i = 0; i < 3; i += 1) {
+      expect(await run("me.phone.check", { number: phone.typed, code: wrong }, as(who))).toEqual({
+        checked: false,
+      });
+    }
+    expect(await run("me.phone.check", { number: phone.typed, code }, as(who))).toEqual({
+      checked: false,
+    });
+  });
+});
+
 describe("the cost of a text (criterion 21)", { timeout: 60_000 }, () => {
   function counting() {
     let n = 0;

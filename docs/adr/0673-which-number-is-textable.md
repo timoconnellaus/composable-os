@@ -61,3 +61,15 @@ An erase deletes a Person's checks; their stops stay as salted hashes tied to no
 - The customer screens (checking a number in Your details) are the base-layer blocks of stage 30
   step 5; the operations are here.
 - A country the table does not know cannot be chosen; adding one is a line in `numbers.ts`.
+
+## Amendment, 2026-11-24 (the review of PR #435)
+
+- **The three codes a day are counted in the statement that writes the check**
+  (`INSERT … SELECT … WHERE` both counts are under three), so calls at once cannot pass them.
+- **Three tries a code at the host**, counted before the provider is asked, whatever the provider
+  allows: a real provider module need not be trusted to limit guesses.
+- **A residual risk, accepted:** each code counts against the month's text limit, and any signed-in
+  member can put a mobile on their own record, so many accounts asking for codes (three a day
+  each) can bring the month to its limit, after which routine texts are `over_limit` until it turns.
+  The per-Person, per-number and limit caps are the mitigation the spec names; admins are told at
+  80%. A separate allowance for codes is left until a business needs one.

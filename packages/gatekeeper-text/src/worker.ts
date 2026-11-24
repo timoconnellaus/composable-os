@@ -85,9 +85,6 @@ const SENDER_RESOURCE: SupportedResource = {
 
 const TOO_MANY_PENDING =
   "Too many pending actions; approve or reject some in the approval queue first.";
-/** Codes sent to one number in a day, here as well as at the host (ADR 0673). */
-const CODES_PER_NUMBER_DAY = 3;
-const DAY_MS = 86_400_000;
 
 const IDEMPOTENCY_PREFIX = "idem:";
 const IDEMPOTENCY_ORDER = "idemorder:";
@@ -341,16 +338,6 @@ export class TextGatekeeper extends DurableObject<Env> implements Gatekeeper<Tex
     }
   }
 
-  async #countCode(number: string): Promise<boolean> {
-    const kv = this.ctx.storage.kv;
-    const slot = `codes:${await hashOf(number)}`;
-    const now = Date.now();
-    const recent = (kv.get<number[]>(slot) ?? []).filter((at) => now - at < DAY_MS);
-    if (recent.length >= CODES_PER_NUMBER_DAY) return false;
-    kv.put(slot, [...recent, now]);
-    return true;
-  }
-
   async describe(): Promise<ResourceDescription> {
     return {
       url: SENDER_URL,
@@ -380,7 +367,7 @@ export class TextGatekeeper extends DurableObject<Env> implements Gatekeeper<Tex
       pending: () => this.#journal.listPending().length,
       recall: (space, key) => this.#recall(space, key),
       remember: (space, key, id) => this.#remember(space, key, id),
-      countCode: (number) => this.#countCode(number),
+      countCode: (number) => eventsStub(this.env).countCode(number),
       subscribe: (queue, hook) => this.#subscribe(queue, hook),
     };
     // The queue is disposed when this call returns, so the session keeps its own copy.
@@ -430,11 +417,6 @@ export class TextGatekeeper extends DurableObject<Env> implements Gatekeeper<Tex
   revertAction(_action: number): Promise<void> {
     throw new Error("A sent text cannot be unsent.");
   }
-}
-
-async function hashOf(number: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(number));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 function requireActionId(action: unknown): number {

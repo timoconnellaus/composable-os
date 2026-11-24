@@ -35,7 +35,9 @@ CREATE TABLE core_phone_check (
   number_hash TEXT NOT NULL,
   how TEXT NOT NULL DEFAULT 'code' CHECK (how IN ('code')),
   started_at TEXT NOT NULL,
-  checked_at TEXT
+  checked_at TEXT,
+  -- Tries at typing this code back: three, whatever the provider allows.
+  tries INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX core_phone_check_person_idx ON core_phone_check (person_id, started_at);
 CREATE INDEX core_phone_check_number_idx ON core_phone_check (number_hash, started_at);
@@ -53,3 +55,6 @@ CREATE TABLE core_text_stop (
 -- pending pool), and the held ones not yet put to a person: the minute cron's send step.
 CREATE INDEX core_routine_mail_texts_idx ON core_routine_mail (status, updated_at)
   WHERE channel = 'text' AND status IN ('ready', 'held');
+-- Texts left `sending` by a host that stopped before it settled them: tried again after a while.
+CREATE INDEX core_routine_mail_texts_sending_idx ON core_routine_mail (updated_at)
+  WHERE channel = 'text' AND status = 'sending';
