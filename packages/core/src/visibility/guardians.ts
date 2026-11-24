@@ -59,7 +59,7 @@ export function guardianProblems(object: ObjectDefinition): string[] {
  * The live dependants of `personId`, as a subquery of ids: links not ended, of kind guardian,
  * whose guardian and dependant are both out of the Trash. The id is a bound parameter.
  */
-function dependantsSql(personId: string): RawBuilder<unknown> {
+export function dependantsSql(personId: string): RawBuilder<unknown> {
   return sql`SELECT l.dependant_id FROM core_person_link l JOIN core_person d ON d.id = l.dependant_id AND d.deleted_at IS NULL JOIN core_person g ON g.id = l.guardian_id AND g.deleted_at IS NULL WHERE l.guardian_id = ${personId} AND l.kind = ${GUARDIAN_LINK} AND l.ended_at IS NULL`;
 }
 

@@ -482,7 +482,12 @@ describe("sync", () => {
     await op(member, "connection.syncNow", { id: connection.id });
     const stub = hostFor(env, connection.id);
     const alarm = () => runInDurableObject(stub, (_host, state) => state.storage.getAlarm());
-    const lastRun = async () => (await stub.syncState())?.mail?.lastRunAt;
+    const lastRun = () =>
+      runInDurableObject(
+        stub,
+        async (_host, state) =>
+          (await state.storage.get<{ mail?: { lastRunAt?: string } }>("sync"))?.mail?.lastRunAt,
+      );
     expect(await alarm()).not.toBeNull();
 
     // The provider says the credentials expired: the next pass pulls nothing and sets no alarm,
