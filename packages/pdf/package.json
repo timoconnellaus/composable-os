@@ -4,9 +4,9 @@
   "license": "FSL-1.1-ALv2",
   "private": true,
   "type": "module",
-  "description": "The signed agreement as a PDF (stage 44, ADR 0645): the writer the email gatekeeper and the host's downloads share, and a cheap page estimate the host's core asks at publish. No dependencies.",
+  "description": "The platform's PDF writer (ADR 0645, generalised by stage 35, ADR 0737): a safe core of standard fonts and hex-string text, a table layout, and renderers for a signed agreement, a quote, an invoice, a credit note and a receipt, shared by the email gatekeeper and the host's downloads; and a cheap page estimate the host's core asks at publish. No dependencies.",
   "exports": {
-    ".": "./src/writer.ts",
+    ".": "./src/index.ts",
     "./estimate": "./src/estimate.ts"
   },
   "scripts": {

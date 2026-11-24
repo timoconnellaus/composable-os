@@ -1,6 +1,6 @@
 // Documents to draw in the PDF tests: seeded random agreements of every block, mark, width and
 // nesting (the page estimate's test and the agreements golden test share them). Fixture text only.
-import type { AgreementPdf, PdfBlock, PdfInline, PdfList } from "../src/writer.ts";
+import type { AgreementPdf, PdfBlock, PdfInline, PdfList } from "../src/agreement.ts";
 
 /** Mulberry32: the same documents every run. */
 export function rng(seed: number) {

@@ -14,7 +14,7 @@
 // have no place in them at all (decision 21: the copy says "your answers are in the app").
 //
 // No imports but types: cos-runner's fake outbox uses this same module.
-import type { AgreementPdf } from "@composable-os/agreement-pdf";
+import type { AgreementPdf } from "@composable-os/pdf";
 
 export const AGREEMENT_KIND = {
   tag: "email.agreement",

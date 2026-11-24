@@ -7,7 +7,7 @@
 // what a download and the emailed copy share), print `hashes()` and replace the file in the same
 // PR, saying why in an ADR.
 import { describe, expect, it } from "vitest";
-import { type AgreementPdf, agreementPdf } from "../src/writer.ts";
+import { type AgreementPdf, agreementPdf } from "../src/agreement.ts";
 import { randomAgreement, rng } from "./fixtures.ts";
 import golden from "./golden/agreement.json";
 

@@ -4,7 +4,7 @@
 // writer is deterministic and turns nothing it is given into PDF structure. All text here is
 // fixture text, not wording anyone should use.
 import { env } from "cloudflare:workers";
-import { type AgreementPdf, agreementPdf } from "@composable-os/agreement-pdf";
+import { type AgreementPdf, agreementPdf } from "@composable-os/pdf";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { EmailSendReceipt } from "../src/types";
 import { resetFakes, sentEmails, submissions } from "./fakes";

@@ -3,12 +3,12 @@
 // Checked against the writer itself, over seeded random documents of every block, mark, width and
 // nesting, and over documents built to sit just past the page limit.
 import { describe, expect, it } from "vitest";
+import { AGREEMENT_PDF_MAX_PAGES, type AgreementPdf, agreementPdfPages } from "../src/agreement.ts";
 import {
   AGREEMENT_PDF_PAGE_LIMIT,
   estimateAgreementPdfPages,
   fitsAgreementPdf,
 } from "../src/estimate.ts";
-import { AGREEMENT_PDF_MAX_PAGES, type AgreementPdf, agreementPdfPages } from "../src/writer.ts";
 import { randomAgreement as doc, rng } from "./fixtures.ts";
 
 /** The writer's page count, or null when it refuses the document. */
