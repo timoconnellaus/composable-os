@@ -55797,6 +55797,9 @@
               "maxLength": 50
             },
             "description": "Tag names. Unknown tags are created. Replaces the record's tags."
+          },
+          "birthday": {
+            "description": "Not set here: use person.setBirthday"
           }
         },
         "required": [

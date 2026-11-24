@@ -790,6 +790,7 @@ Update a person's fields. Only the fields you pass change; pass null to clear a 
 | `ownerId` | string or null |   |   | The user who owns this person |
 | `description` | string or null |   |   | Markdown |
 | `tags` | array of string |   | at most 50 | Tag names. Unknown tags are created. Replaces the record's tags. |
+| `birthday` | any |   |   | Not set here: use person.setBirthday |
 
 ### Output
 
