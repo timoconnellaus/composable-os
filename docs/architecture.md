@@ -120,7 +120,8 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   ([ADR 0019](adr/0019-audit-redaction-for-erasure.md)).
 - **What it costs** ([`cloudflare-costs.md`](cloudflare-costs.md)): an idle host's minute cron
   writes nothing. Each host step reads whether it has work before it calls its operation, so a
-  quiet minute leaves no audit row, and its reads walk indexes
+  quiet minute leaves no audit row. Its every-minute reads use indexes that hold only what is due;
+  the few reads no index holds run once an hour
   ([ADR 0130](adr/0130-automation-runtime.md), amended 2026-11-24). Cost tests count statements,
   rows read and rows written (`apps/runner/test/idle-minute-cost.test.ts`).
 - **Duplicates** ([ADR 0247](adr/0247-duplicate-rules-and-scan.md)): plain rules in code with a

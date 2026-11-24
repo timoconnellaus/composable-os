@@ -928,12 +928,14 @@ export const STALE_CHECKOUT_MS = 3 * 86_400_000;
 
 /** Live documents with a version that has taken effect and is newer than the current one. */
 function dueDocuments(now: string) {
-  return sql`SELECT d.* FROM core_agreement_document d
-    WHERE d.state = 'live' AND EXISTS (
+  // No alias: a query plan names the table itself (apps/runner/test/idle-minute-cost.test.ts).
+  return sql`SELECT core_agreement_document.* FROM core_agreement_document
+    WHERE core_agreement_document.state = 'live' AND EXISTS (
       SELECT 1 FROM core_agreement_version v
-      WHERE v.document_id = d.id AND v.effective_from <= ${now}
+      WHERE v.document_id = core_agreement_document.id AND v.effective_from <= ${now}
         AND v.number > COALESCE(
-          (SELECT c.number FROM core_agreement_version c WHERE c.id = d.current_version_id), 0)
+          (SELECT c.number FROM core_agreement_version c
+           WHERE c.id = core_agreement_document.current_version_id), 0)
     )`;
 }
 
@@ -947,14 +949,21 @@ function unconfirmedAcceptances(now: string) {
 }
 
 /**
- * Whether `agreement.takeEffect` has anything to do now: two indexed reads of one row at most,
- * outside any operation, so the minute cron's quiet minute writes nothing, not even an audit row.
+ * Whether `agreement.takeEffect` has anything to do now, read outside any operation so the minute
+ * cron's quiet minute writes nothing, not even an audit row. Versions taking effect: one indexed
+ * read. A visitor's unconfirmed acceptances (`stale`): no index holds that read (it walks every
+ * acceptance with no person, guests' and erased ones alike), so the cron asks it once an hour.
  */
-export async function agreementWorkDue(db: Kysely<CoreDatabase>, now: string): Promise<boolean> {
+export async function agreementWorkDue(
+  db: Kysely<CoreDatabase>,
+  now: string,
+  { stale = true }: { stale?: boolean } = {},
+): Promise<boolean> {
   const due = await sql`SELECT 1 FROM (${dueDocuments(now)} LIMIT 1)`.execute(db);
   if (due.rows.length) return true;
-  const stale = await sql`${unconfirmedAcceptances(now)} LIMIT 1`.execute(db);
-  return stale.rows.length > 0;
+  if (!stale) return false;
+  const unconfirmed = await sql`${unconfirmedAcceptances(now)} LIMIT 1`.execute(db);
+  return unconfirmed.rows.length > 0;
 }
 
 export const agreementTakeEffect = defineOperation({
