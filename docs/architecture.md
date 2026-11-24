@@ -2074,9 +2074,11 @@ open offer on a plan object, or a subscription from one that has not ended, gets
 (`subscription.offer.list`, `.export`; the Subscriptions section's Continuation offers) lists who
 took theirs and when they are charged from.
 
-**Finance** (stage 52, step 1 built: ADRs [0790](adr/0790-finance-periods-the-business-day-and-the-monthly-close.md),
-[0791](adr/0791-the-figures-for-the-books-book-entries.md) and
-[0794](adr/0794-finance-read-and-finance-close.md), `packages/core/src/finance/`, migration 1150).
+**Finance** (stage 52, steps 1 to 3 built: ADRs [0790](adr/0790-finance-periods-the-business-day-and-the-monthly-close.md),
+[0791](adr/0791-the-figures-for-the-books-book-entries.md),
+[0794](adr/0794-finance-read-and-finance-close.md) and
+[0796](adr/0796-day-summaries-and-the-first-reports.md), `packages/core/src/finance/`, migrations
+1150 and 1153).
 Core, not a pack: the figures for the books are read from orders, payments, refunds, payouts and
 stored value. Every date is a business day, local in the organisation's zone (`finance/day.ts`). The
 business closes each calendar month (`finance.close`, a person with `finance:close`) once it has
@@ -2092,8 +2094,18 @@ counted in the first open month, marked as belonging to it. Reopening (`finance.
 keeps the version; closing again writes the next. A month keeps the zone it was closed in. The
 tables are in no `rec_*` view. `finance:read` and `finance:close` are admins' and grantable; an AI
 reads figures and never closes, reopens or changes the settings (`finance.settings.update`, a human
-admin's). The reports, the files (`csvText`, shared in `packages/core/src/csv.ts` with the pay
-export), payouts and the screens are the stage's later steps.
+admin's). **Day summaries, Sales, Tax and Refunds** (`finance/book.ts`): a month's applied
+payments (by `received_at`), late payments staff honoured (by `resolved_at`) and confirmed refunds
+(by `confirmed_at`, migration 1153 indexes the three) are each split over the order's lines by their
+net (`splitInProportion`), their tax over the lines by the tax each carries; a refund the provider
+gave no tax for carries an estimate in proportion, marked (`tax_estimated:`). One `day` entry per
+business day money moved (`money_in:provider` and `money_out:provider` against `sales:`,
+`refunds:` and `tax:` lines), and the report rows, are made from the same shares, so the entries
+add up to the reports. `finance.report` reads a closed version's rows or previews an open month or
+any span of days; `finance.entries` lists a closed version's entries, paged (never a preview's);
+`finance.export` (a person only) is one CSV per report (`finance/files.ts`, `csvText` shared in
+`packages/core/src/csv.ts` with the pay export). Payouts, Money owed, Unearned, Members, held
+balances and the screens are the stage's later steps.
 
 **`capacity`** (stage 26, ADRs 0430 to 0433). An object names its places field and, optionally, a
 pool (a relation to a parent object with a capacity, one level). The host keeps a counter per record
