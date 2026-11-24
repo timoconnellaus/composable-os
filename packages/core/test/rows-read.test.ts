@@ -66,8 +66,9 @@ describe("rows read on hot paths", () => {
     // stage 45's checklists (migration 0815: five tables, seven indexes, ten triggers) to about 1,124;
     // a child's paper copy to the guardian (migration 0857: an index, four triggers) to about 1,140;
     // stage 44 step 7's cooling off (migration 0856: a column, a table, four indexes and its key's
-    // autoindex, three triggers): 1,138 measured on the merged tree.
-    expect(await read("person.list", { limit: 50 })).toBeLessThan(1_155);
+    // autoindex, three triggers): 1,138 measured on the merged tree; stage 38's text index acks
+    // and stage 49's room claim (migration 1095) took it to 1,163 on main (2026-11-24).
+    expect(await read("person.list", { limit: 50 })).toBeLessThan(1_180);
     expect(await read("organisation.list", { limit: 50 })).toBeLessThan(1_050);
     expect(await read("activity.list", { limit: 50 })).toBeLessThan(1_500);
     expect(await read("task.list", { limit: 50 })).toBeLessThan(1_050);
