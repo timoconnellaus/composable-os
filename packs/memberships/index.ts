@@ -663,7 +663,7 @@ export default defineExtension({
       label: "Memberships",
       block: "memberships-staff-holdings",
       export: "PersonMemberships",
-      opens: ["holdings", "givePass", "voidPass"],
+      opens: ["holdings", "givePass"],
       record: { object: "person", as: "personId" },
     },
   },

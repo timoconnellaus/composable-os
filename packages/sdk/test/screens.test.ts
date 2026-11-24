@@ -4,7 +4,14 @@
 // one. That the block and the export exist is the admin's build's check; that only a shipped pack
 // declares screens is the host's (core's checkManifest).
 import { describe, expect, it } from "vitest";
-import { defineExtension, defineTool, toManifest, validateManifest, z } from "../src/index.ts";
+import {
+  defineExtension,
+  defineTool,
+  screenGateFingerprint,
+  toManifest,
+  validateManifest,
+  z,
+} from "../src/index.ts";
 
 const tool = (extra: Record<string, unknown> = {}) =>
   defineTool({
@@ -68,7 +75,7 @@ describe("a pack's screens (ADR 0660)", () => {
 
   it("refuses an empty gate, another pack's tool, and an unknown one", () => {
     expect(issues({ front: { ...ok, opens: [] } })).toEqual([
-      "screens.front.opens: Too small: expected array to have >=1 items",
+      "screens.front.opens: A screen names at least one tool (opens) or object (writes) that gates it",
     ]);
     expect(issues({ front: { ...ok, opens: ["x.other.book"] } })).toEqual([
       'screens.front.opens.0: "x.other.book" is not a tool of this pack: a screen is gated by its own pack\'s tools',
@@ -112,6 +119,62 @@ describe("a pack's screens (ADR 0660)", () => {
     expect(issues({ front: { ...ok, record: { object: "desk.visit", as: "visit-id" } } })).toEqual([
       'screens.front.record.as: "visit-id" must be a camelCase prop',
     ]);
+  });
+
+  it("may be gated by an object of this pack it writes, instead of or beside tools", () => {
+    const { opens: _opens, ...noTools } = ok;
+    expect(issues({ front: { ...noTools, writes: ["desk.visit"] } })).toEqual([]);
+    expect(issues({ front: { ...noTools, writes: ["person"] } })).toEqual([
+      'screens.front.writes.0: "person" must be an object of this pack (desk.<object>)',
+    ]);
+    // A write gates it as staff's, so a shared tool beside it is fine.
+    expect(issues({ front: { ...ok, opens: ["both"], writes: ["desk.visit"] } })).toEqual([]);
+    expect(
+      toManifest(pack({ front: { ...noTools, writes: ["desk.visit"] } })).screens?.front,
+    ).toEqual({
+      ...noTools,
+      opens: [],
+      writes: ["desk.visit"],
+    });
+  });
+
+  it("a record screen may be gated by tools staff share with customers (a staff record page)", () => {
+    const record = { object: "desk.visit", as: "visitId" };
+    expect(issues({ front: { ...ok, opens: ["both"], record } })).toEqual([]);
+    // A tool staff cannot call is never a gate, on a record page either.
+    expect(issues({ front: { ...ok, opens: ["timetable"], record } })).toEqual([
+      'screens.front.opens.0: "timetable" is not for staff, so no member of staff could open this screen',
+    ]);
+  });
+
+  it("a manifest's gate fingerprint changes with anything a gate is judged by", () => {
+    const m = toManifest(pack({ front: ok }));
+    const base = screenGateFingerprint(m);
+    expect(base).toBeTypeOf("string");
+    expect(screenGateFingerprint(toManifest(pack({})))).toBeNull();
+    // The same manifest, keys in another order: the same.
+    expect(screenGateFingerprint(JSON.parse(JSON.stringify(m)))).toBe(base);
+    const changed = (change: (c: typeof m) => void) => {
+      const copy = structuredClone(m);
+      change(copy);
+      return screenGateFingerprint(copy);
+    };
+    expect(changed((c) => (c.id = "other"))).not.toBe(base);
+    expect(
+      changed((c) => {
+        if (c.screens?.front) c.screens.front.opens = ["day"];
+      }),
+    ).not.toBe(base);
+    expect(
+      changed((c) => ((c.tools.book as { permission?: string }).permission = "desk:x")),
+    ).not.toBe(base);
+    expect(
+      changed((c) => ((c.tools.day as { audiences?: string[] }).audiences = ["public"])),
+    ).not.toBe(base);
+    expect(changed((c) => (c.restricted = ["desk:x"]))).not.toBe(base);
+    // A tool no gate names, or a description, changes nothing.
+    expect(changed((c) => ((c.tools.both as { risk: string }).risk = "write"))).toBe(base);
+    expect(changed((c) => (c.description = "Another description"))).toBe(base);
   });
 
   it("refuses a bad key and fields it does not know", () => {

@@ -6,19 +6,23 @@
 // reads two statements whatever is installed.
 import { env } from "cloudflare:workers";
 import { createCrmDb } from "@composable-os/db";
-import { toManifest } from "@composable-os/sdk";
+import { screenGateFingerprint, toManifest } from "@composable-os/sdk";
 import { beforeAll, describe, expect, it } from "vitest";
+import { z } from "zod";
 import {
   type ActingUser,
   type AnyOperation,
   checkManifest,
   coreRegistry,
+  defineOperation,
   type HeldPackRole,
   invoke,
   invokeByName,
   loadPackRole,
   PACK_ROLE_READS,
   packRoleReaches,
+  personMayCall,
+  setBuiltScreens,
 } from "../src/index.ts";
 import { screensMine } from "../src/operations/screens.ts";
 import { context, createUser, db } from "./helpers.ts";
@@ -93,7 +97,16 @@ const MEMBER_ELSE = [
 ];
 
 let owner: ActingUser;
+/** What the admin's build holds: each repository pack's gate fingerprint (screens-plugin.ts). */
+const BUILT = Object.fromEntries(
+  manifests.flatMap((m) => {
+    const fingerprint = screenGateFingerprint(m);
+    return fingerprint ? [[m.id, fingerprint]] : [];
+  }),
+);
+
 beforeAll(async () => {
+  setBuiltScreens(BUILT);
   owner = await createUser("admin");
   for (const id of ["programs", "bookings", "memberships", "courses", "rostering", "ticketing"]) {
     await install(id);
@@ -227,6 +240,134 @@ describe("screens.mine (ADR 0660)", () => {
     const out = (await screensMine.handler({}, ctx as never)) as { screens: { key: string }[] };
     expect(out.screens.map((s) => s.key).sort()).toEqual(["classList", "desk"]);
     expect(statements).toBe(2);
+  });
+});
+
+describe("what the admin's build holds (review of PR #303)", () => {
+  it("lists nothing when the host has no admin build to show", async () => {
+    const admin = await createUser("admin");
+    setBuiltScreens(null);
+    try {
+      expect(await mine(admin)).toEqual([]);
+    } finally {
+      setBuiltScreens(BUILT);
+    }
+  });
+
+  it("a row holding a pack's id with another manifest borrows none of its screens", async () => {
+    // An org's own extension squatting Courses' id, declaring Courses' builder under Bookings'
+    // tools (the review's probe): its gate fingerprint is not the build's, so nothing is listed.
+    const base = JSON.parse(
+      JSON.stringify(manifestOf("bookings")).replaceAll("bookings", "courses"),
+    ) as ReturnType<typeof manifestOf>;
+    const squat = {
+      ...base,
+      id: "courses",
+      screens: {
+        builder: {
+          label: "Builder",
+          block: "courses-builder",
+          export: "CourseBuilder",
+          opens: ["day"],
+          record: { object: "courses.course", as: "courseId" },
+        },
+      },
+    };
+    await env.DB.prepare("DELETE FROM core_extensions WHERE id = 'courses'").run();
+    await db.query
+      .insertInto("core_extensions")
+      .values({
+        id: "courses",
+        source: "shipped",
+        status: "active",
+        version: "9.9.9",
+        commit_oid: "org",
+        manifest: JSON.stringify(squat),
+        user_id: owner.id,
+        installed_at: NOW,
+        updated_at: NOW,
+      } as never)
+      .execute();
+    try {
+      for (const role of ["viewer", "member", "admin"] as const) {
+        const screens = await mine(await createUser(role));
+        expect(
+          screens.filter((s) => s.startsWith("courses/")),
+          role,
+        ).toEqual([]);
+      }
+    } finally {
+      await install("courses");
+    }
+    expect(await mine(await createUser("admin"))).toContain("courses/builder");
+  });
+
+  it("one unreadable installed manifest never takes the others' screens away", async () => {
+    const warn = console.warn;
+    const said: string[] = [];
+    console.warn = (...args: unknown[]) => {
+      said.push(args.join(" "));
+    };
+    await env.DB.prepare(
+      `UPDATE core_extensions SET manifest = '{"id":"memberships","screens":{"holdings":null}}' WHERE id = 'memberships'`,
+    ).run();
+    try {
+      const admin = await createUser("admin");
+      const screens = await mine(admin);
+      expect(screens.filter((s) => s.startsWith("memberships/"))).toEqual([]);
+      expect(screens).toEqual(expect.arrayContaining(BOOKINGS));
+      await mine(admin);
+      // Said once, not on every call.
+      expect(said.filter((line) => line.includes("memberships"))).toHaveLength(1);
+    } finally {
+      console.warn = warn;
+      await install("memberships");
+    }
+  });
+
+  it("a record screen is listed with its object, for staff who may use it (criterion 5)", async () => {
+    const member = await createUser("member");
+    const viewer = await createUser("viewer");
+    const tab = (out: Awaited<ReturnType<typeof invoke<"screens.mine">>>) =>
+      out.screens.find((s) => s.pack === "memberships" && s.key === "holdings");
+    expect(tab(await invoke("screens.mine", {}, context(member)))).toEqual({
+      pack: "memberships",
+      key: "holdings",
+      label: "Memberships",
+      nav: null,
+      route: "/s/memberships/holdings",
+      record: { object: "person", as: "personId" },
+    });
+    expect(tab(await invoke("screens.mine", {}, context(viewer)))).toBeUndefined();
+    // A screen gated by a write of its object: any member, never a viewer or a pack role.
+    expect(await mine(member)).toContain("courses/builder");
+    expect(await mine(viewer)).not.toContain("courses/builder");
+    expect(await mine(await account("viewer", "bookings.coach"))).not.toContain("courses/builder");
+  });
+});
+
+describe("a gate tool's audience and actors (personMayCall)", () => {
+  const staffRights = { packRole: null, grants: [] };
+  const tool = (extra: Record<string, unknown>) =>
+    defineOperation({
+      name: "x.fixture.tool",
+      description: "Fixture: a gate tool with a narrowed audience or actors.",
+      input: z.object({}),
+      output: z.object({}),
+      permission: "records:read",
+      risk: "read",
+      handler: async () => ({}),
+      ...extra,
+    } as never) as unknown as AnyOperation;
+
+  it("refuses a tool a person may not call, or one open only to customers", async () => {
+    const admin = await createUser("admin");
+    expect(personMayCall(tool({}), admin, staffRights)).toBe(true);
+    expect(personMayCall(tool({ actors: ["assistant", "mcp"] }), admin, staffRights)).toBe(false);
+    expect(personMayCall(tool({ audiences: ["customer"] }), admin, staffRights)).toBe(false);
+    expect(personMayCall(tool({ audiences: ["staff", "customer"] }), admin, staffRights)).toBe(
+      true,
+    );
   });
 });
 

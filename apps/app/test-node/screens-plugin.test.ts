@@ -12,9 +12,12 @@ import { build, type Rollup } from "vite";
 import { afterAll, describe, expect, it } from "vitest";
 import { packBlocks } from "../pack-blocks-plugin.ts";
 import {
+  builtSource,
+  bundleProblems,
   declaredScreens,
   exportsName,
   packScreens,
+  readPackScreens,
   registrySource,
   resolveScreen,
   resolveScreens,
@@ -152,6 +155,52 @@ describe("the screens registry (ADR 0660)", () => {
     expect(exportsName("function A() {}\nexport { A as Desk, B };", "Desk")).toBe(true);
     expect(exportsName("export function DeskTwo() {}", "Desk")).toBe(false);
     expect(exportsName("// export function Desk() {}", "Desk")).toBe(false);
+  });
+
+  it("hands the host each pack's gate fingerprint, from the same reading of the packs", async () => {
+    const { screens, fingerprints } = await readPackScreens(ROOT);
+    expect(Object.keys(fingerprints).sort()).toEqual(
+      [...new Set(screens.map((s) => s.pack))].sort(),
+    );
+    const source = builtSource(fingerprints);
+    expect(source).toMatch(/^export const BUILT_SCREENS = \{/);
+    // No code: data only, no import.
+    expect(source).not.toMatch(/^import |import\(/m);
+  });
+
+  it("the bundle check refuses a block loaded first, a missing one, and any in the server", async () => {
+    const screens = await resolveScreens(ROOT);
+    const [first] = screens;
+    if (!first) throw new Error("no screens");
+    const entry = (imports: string[], modules: string[] = []) => ({
+      type: "chunk" as const,
+      fileName: "entry.js",
+      isEntry: true,
+      imports,
+      dynamicImports: ["screen.js"],
+      moduleIds: modules,
+    });
+    const lazy = {
+      type: "chunk" as const,
+      fileName: "screen.js",
+      moduleIds: screens.map((s) => s.file),
+    };
+    expect(bundleProblems("client", [entry([]), lazy], screens)).toEqual([]);
+    // The screen's chunk imported statically by the entry: it loads with the first page.
+    expect(bundleProblems("client", [entry(["screen.js"]), lazy], screens)[0]).toMatch(
+      /loads with the first page/,
+    );
+    // A block's code in the entry itself.
+    expect(
+      bundleProblems("client", [entry([], [first.file]), lazy], screens).some((p) =>
+        p.includes("loaded first, holds a block's code"),
+      ),
+    ).toBe(true);
+    expect(bundleProblems("client", [entry([])], screens)[0]).toMatch(/its block is in no chunk/);
+    expect(bundleProblems("server", [entry([], [first.file])], screens)).toEqual([
+      "the server's entry.js holds a block's code",
+    ]);
+    expect(bundleProblems("server", [entry([])], screens)).toEqual([]);
   });
 
   it("a production build gives each screen its own lazy chunk, none in the entry (criterion 11)", async () => {

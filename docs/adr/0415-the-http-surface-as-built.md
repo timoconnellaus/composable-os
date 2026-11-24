@@ -83,3 +83,10 @@ envelope uses.
 - The adapter may add routes under the version (`routes`): cos-app's are `/auth/token` and
   `/auth/refresh`.
 - The origin of a customer's call names the session it came with (`origin.sessionId`).
+
+## Amendment, 2026-11-24 (stage 47 review, ADR 0660)
+An origin `API_ALLOWED_ORIGINS` lets in (the company's website) gets a credentialed answer for a
+customer's session and the public only. A staff cookie session (Better Auth's, Cloudflare Access's,
+hosted support's) on a request whose `Origin` is not the host's own is refused (`403`,
+`staff_cross_origin`), so no script on that site can act as the staff browser it runs in. A native
+app's bearer token is unchanged. See [ADR 0660](0660-pack-screens-in-the-admin.md).

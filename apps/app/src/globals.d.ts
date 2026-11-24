@@ -23,3 +23,9 @@ declare module "virtual:cos-screens" {
     >
   >;
 }
+
+// Each shipped pack's screen gate fingerprint, as the build read the repository's packs
+// (screens-plugin.ts): the host lists a pack's screens only when its installed manifest matches.
+declare module "virtual:cos-screens-built" {
+  export const BUILT_SCREENS: Readonly<Record<string, string>>;
+}

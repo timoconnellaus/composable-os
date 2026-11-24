@@ -68,7 +68,17 @@ export const screenKey = (scope: string) => ["screen", scope] as const;
  * A client holding every operation `calls` names (a pack's `*_HOOKS_CALL`), for the pack's hooks.
  * `scope` keys its queries and mutations (`<pack>/<screen>`, or `blocks` on the development page).
  */
-export function staffClient<C>(calls: Record<string, readonly string[]>, scope: string): C {
+export function staffClient<C>(
+  calls: Record<string, readonly string[]>,
+  scope: string,
+  /** Told of a call the host refused as forbidden (a right taken away while the screen is open). */
+  onForbidden?: () => void,
+): C {
+  const send = (name: string, input: unknown, key: string | null) =>
+    call(name, input, key).catch((error: unknown) => {
+      if (error instanceof SurfaceError && error.code === "forbidden") onForbidden?.();
+      throw error;
+    });
   const operations = Object.fromEntries(
     Object.values(calls)
       .flat()
@@ -85,7 +95,7 @@ export function staffClient<C>(calls: Record<string, readonly string[]>, scope: 
     },
     query: (name: string, input: unknown) => ({
       queryKey: [...screenKey(scope), name, input],
-      queryFn: () => call(name, input, null),
+      queryFn: () => send(name, input, null),
     }),
     mutation: (name: string) => ({
       mutationKey: [...screenKey(scope), name],
@@ -96,7 +106,7 @@ export function staffClient<C>(calls: Record<string, readonly string[]>, scope: 
           key = crypto.randomUUID();
           if (holder) keys.set(holder, key);
         }
-        return call(name, input, key);
+        return send(name, input, key);
       },
     }),
   } as C;

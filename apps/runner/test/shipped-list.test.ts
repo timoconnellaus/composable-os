@@ -135,6 +135,23 @@ describe("the org's own extensions", () => {
     ).rejects.toThrow(/has a pack's id/);
   });
 
+  it("may not take the id of a pack the release carries, even one not listed (ADR 0660)", async () => {
+    // Bookings is carried by every release and listed by no product's COS_PACKS here: an org
+    // extension holding its id would be keyed as Bookings (its built-in screens, its roles).
+    const hash = await putOrg([{ ...renewals, id: "bookings" }]);
+    await expect(
+      shippedExtensions({ COS_PACKS: "deals", COS_ORG_EXTENSIONS: hash, BLOBS: env.BLOBS }),
+    ).rejects.toThrow(/bookings has a pack's id/);
+    // Local development alone delivers unlisted packs as org extensions (dev-setup.mjs).
+    const dev = await shippedExtensions({
+      COS_PACKS: "deals",
+      COS_ORG_EXTENSIONS: hash,
+      COS_DEV_ORG_PACKS: "1",
+      BLOBS: env.BLOBS,
+    });
+    expect(dev.map((e) => e.id)).toEqual(["deals", "bookings"]);
+  });
+
   it("are none when nothing is pinned", async () => {
     expect((await shippedExtensions({ COS_PACKS: "" })).length).toBe(0);
   });

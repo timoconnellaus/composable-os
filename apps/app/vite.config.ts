@@ -105,6 +105,9 @@ export default defineConfig(({ command }) => ({
                   vars: {
                     ...runner.vars,
                     COS_ORG_EXTENSIONS: devOrgExtensions(),
+                    // Local dev delivers some packs as org extensions (dev-setup.mjs); no deploy
+                    // sets this, so there an org extension never takes a pack's id.
+                    COS_DEV_ORG_PACKS: "1",
                     // A client-shaped local runner (COS_DEV_PACKS, scripts/dev-setup.mjs).
                     ...(devPacks() ? { COS_PACKS: devPacks() } : {}),
                   },

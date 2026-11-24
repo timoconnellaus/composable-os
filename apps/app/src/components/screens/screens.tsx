@@ -12,6 +12,7 @@
 import { SCREENS } from "virtual:cos-screens";
 import { Skeleton } from "@composable-os/ui/components/skeleton";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRouteContext } from "@tanstack/react-router";
 import { TriangleAlertIcon } from "lucide-react";
 import {
   Component,
@@ -26,16 +27,29 @@ import { EmptyState } from "#/components/empty-state";
 
 export { NotFoundPage } from "#/components/not-found";
 
-import { useOp } from "#/lib/query";
+import type { CoreOutput } from "@composable-os/core";
+import { callOp } from "#/lib/operations";
 import { forgetScreen, staffClient } from "#/lib/staff-client";
 
-type MyScreens = NonNullable<ReturnType<typeof useOp<"screens.mine">>["data"]>["screens"];
+type MyScreens = CoreOutput<"screens.mine">["screens"];
 export type MyScreen = MyScreens[number];
 
 /** The screens the host lets the signed-in person open (`screens.mine`). */
+/**
+ * The screens the host lets the signed-in person open (`screens.mine`), keyed by the account, so
+ * another account signed in on the same page never sees this one's list.
+ */
 export function useMyScreens() {
-  return useOp("screens.mine", {}, { staleTime: 60_000 });
+  const { user } = useRouteContext({ from: "/_app" });
+  return useQuery({
+    queryKey: [...MY_SCREENS_KEY, user.id],
+    queryFn: () => callOp("screens.mine", {}),
+    staleTime: 60_000,
+  });
 }
+
+/** Every account's `screens.mine` (the key's prefix). */
+export const MY_SCREENS_KEY = ["op", "screens.mine"] as const;
 
 /** One screen's failure, kept to the screen: the shell and the navigation stay. */
 class ScreenBoundary extends Component<
@@ -124,10 +138,14 @@ export function ScreenView({
       loaded
         ? loaded.createHooks(
             { useQuery, useMutation, useState, useEffect },
-            staffClient(loaded.calls as Record<string, readonly string[]>, scope),
+            staffClient(loaded.calls as Record<string, readonly string[]>, scope, () => {
+              // A refusal can mean a right was taken away: ask the host again at once, so a
+              // screen that is no longer theirs goes now, not when the cached list goes stale.
+              void queryClient.invalidateQueries({ queryKey: MY_SCREENS_KEY });
+            }),
           )
         : null,
-    [loaded, scope],
+    [loaded, scope, queryClient],
   );
   if (failed) {
     return (

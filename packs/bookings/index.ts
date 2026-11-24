@@ -1180,23 +1180,23 @@ export default defineExtension({
   dashboards: bookingsDashboards,
   // Staff screens in the product's admin (stage 47, ADR 0660): the front desk, and a class's list
   // (a tab on the class, and in the navigation for a coach, who opens today's classes there). Each
-  // is gated by every tool it calls, so exactly who the host lets work it sees it: the desk, any
-  // member of staff or a coach granted `bookings:desk`; the list, the coach role or any member
-  // (a viewer cannot tick). Never a customer's tool.
+  // is gated by the tools that decide who may work it (its main read and the write it is for; the
+  // host refuses the rest): the desk, any member of staff or a coach granted `bookings:desk`; the
+  // list, the coach role or any member (a viewer cannot tick). Never a customer's tool.
   screens: {
     desk: {
       label: "Front desk",
       block: "bookings-desk",
       export: "FrontDesk",
       nav: { group: "Bookings", order: 10 },
-      opens: ["day", "findPeople", "bookFor"],
+      opens: ["findPeople", "bookFor"],
     },
     classList: {
       label: "Class list",
       block: "bookings-class-list",
       export: "TodayClassList",
       nav: { group: "Bookings", order: 20 },
-      opens: ["day", "roster", "markAttended", "undoAttended"],
+      opens: ["roster", "markAttended"],
       record: { object: "bookings.class", as: "classId" },
     },
   },

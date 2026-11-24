@@ -2,22 +2,30 @@
 // navigation and record tabs render this answer and nothing else; a screen opened by URL that is
 // not in it renders "not found", and the block's own calls are the host's to refuse anyway.
 //
-// A screen is listed when its pack is installed, active and shipped, and the caller passes the
-// pipeline's own authority check (`staffAuthority`: their role, pack role, grants and restricted
-// permissions) for every tool its `opens` names, as a person. The answer names nothing else: no
-// counts, nothing greyed out. Screens are for people, so any other actor gets an empty list (an
-// assistant has the tools). Staff only: a customer or the public is told no such operation exists.
+// A screen is listed when its pack is installed, active and shipped; the admin's build holds that
+// pack's screens as this row declares them (`setBuiltScreens`: the build's gate fingerprint of each
+// pack in the repository, so a row holding a pack's id with another manifest lists nothing); and
+// the caller passes the pipeline's own authority check (`staffAuthority`: their role, pack role,
+// grants and restricted permissions) for every tool its gate names, as a person, and may write
+// every object it `writes`. The answer names nothing else: no counts, nothing greyed out. Screens
+// are for people, so any other actor gets an empty list (an assistant has the tools). Staff only:
+// a customer or the public is told no such operation exists.
 //
 // Two statements whatever is installed: the account's rights (with its pack role's manifest) and
 // the shipped manifests. A pack role reaches this one core read beside its own tools
 // (`PACK_ROLE_CORE_READS`), so a coach's or a door account's admin can ask it.
-import type { ExtensionManifest, ScreenManifest } from "@composable-os/sdk";
+import {
+  type ExtensionManifest,
+  type ScreenManifest,
+  screenGateFingerprint,
+} from "@composable-os/sdk";
 import { z } from "zod";
 import { allowsAudience } from "../audiences.ts";
 import { toolOperation } from "../extensions/tools.ts";
-import { defineOperation } from "../operation.ts";
-import { loadStaffRights, staffAuthority } from "../pack-roles.ts";
-import { staffPrincipal } from "../principals.ts";
+import { type AnyOperation, defineOperation } from "../operation.ts";
+import { loadStaffRights, type StaffRights, staffAuthority } from "../pack-roles.ts";
+import { type Role, staffPrincipal } from "../principals.ts";
+import { recordUpdate } from "./record.ts";
 
 const screenOut = z.object({
   pack: z.string(),
@@ -33,6 +41,19 @@ export type MyScreen = z.infer<typeof screenOut>;
 
 /** The route of a screen in the admin. */
 export const screenRoute = (pack: string, key: string) => `/s/${pack}/${key}`;
+
+/**
+ * The screens the admin's build holds: each repository pack's gate fingerprint
+ * (`screenGateFingerprint`), set once by the host that serves the admin. Unset, no screen is
+ * listed (fail closed): a host without the admin's build has no screens to show.
+ */
+let built: ReadonlyMap<string, string> | null = null;
+export function setBuiltScreens(fingerprints: Readonly<Record<string, string>> | null): void {
+  built = fingerprints ? new Map(Object.entries(fingerprints)) : null;
+}
+
+/** Packs whose installed manifest could not be read, said once each per isolate. */
+const unreadable = new Set<string>();
 
 export const screensMine = defineOperation({
   name: "screens.mine",
@@ -50,7 +71,7 @@ export const screensMine = defineOperation({
   async handler(_input, ctx) {
     // Screens are for people (ADR 0660): an assistant, MCP client, automation or extension code
     // has the tools themselves, and no screen.
-    if (ctx.actor !== "human" || ctx.principal.kind !== "staff") return { screens: [] };
+    if (ctx.actor !== "human" || ctx.principal.kind !== "staff" || !built) return { screens: [] };
     const [rights, rows] = await Promise.all([
       loadStaffRights(ctx.db, ctx.user.id),
       ctx.db
@@ -61,56 +82,75 @@ export const screensMine = defineOperation({
         .orderBy("id")
         .execute(),
     ]);
-    const principal = staffPrincipal(ctx.user);
     const screens: MyScreen[] = [];
     for (const row of rows) {
-      let manifest: ExtensionManifest;
+      const fingerprint = built.get(row.id);
+      if (!fingerprint) continue;
+      const theirs: MyScreen[] = [];
       try {
-        manifest = JSON.parse(row.manifest) as ExtensionManifest;
+        const manifest = JSON.parse(row.manifest) as ExtensionManifest;
+        // Another manifest under this pack's id contributes nothing.
+        if (screenGateFingerprint(manifest) !== fingerprint) continue;
+        for (const [key, screen] of Object.entries(manifest.screens ?? {})) {
+          if (!mayOpen(manifest, screen, ctx.user, rights)) continue;
+          theirs.push({
+            pack: row.id,
+            key,
+            label: screen.label,
+            nav: screen.nav ? { group: screen.nav.group, order: screen.nav.order ?? 100 } : null,
+            route: screenRoute(row.id, key),
+            record: screen.record ? { object: screen.record.object, as: screen.record.as } : null,
+          });
+        }
       } catch {
+        // One unreadable row never takes the others' screens away: it lists nothing.
+        if (!unreadable.has(row.id)) {
+          unreadable.add(row.id);
+          console.warn(`screens.mine: the installed manifest of ${row.id} could not be read`);
+        }
         continue;
       }
-      for (const [key, screen] of Object.entries(manifest.screens ?? {})) {
-        if (!mayOpen(manifest, screen, (op) => allowsAudience(op, principal), rights, ctx.user)) {
-          continue;
-        }
-        screens.push({
-          pack: row.id,
-          key,
-          label: screen.label,
-          nav: screen.nav ? { group: screen.nav.group, order: screen.nav.order ?? 100 } : null,
-          route: screenRoute(row.id, key),
-          record: screen.record ? { object: screen.record.object, as: screen.record.as } : null,
-        });
-      }
+      screens.push(...theirs);
     }
     return { screens };
   },
 });
 
 /**
- * Whether the caller could call every tool the screen names as its gate, by the pipeline's own
- * decision for a person's call (`staffAuthority`). A gate naming no tool, or a tool the installed
- * pack does not have, opens nothing (fail closed).
+ * Whether a person with these rights could call `op` (with `input`), by the pipeline's own
+ * checks for a person's call: the operation's audience, its actors and `staffAuthority`.
+ */
+export function personMayCall(
+  op: AnyOperation,
+  user: { id: string; role: Role },
+  rights: StaffRights,
+  input: unknown = {},
+): boolean {
+  if (!allowsAudience(op, staffPrincipal(user))) return false;
+  if (op.actors && !op.actors.includes("human")) return false;
+  return staffAuthority(user, rights, op, input) !== null;
+}
+
+/**
+ * Whether the caller passes the screen's gate: every tool in `opens` (an unknown one opens
+ * nothing) and a write of every object in `writes`. A gate naming nothing opens nothing.
  */
 function mayOpen(
   manifest: ExtensionManifest,
   screen: ScreenManifest,
-  audienceAllows: (op: ReturnType<typeof toolOperation>) => boolean,
-  rights: Awaited<ReturnType<typeof loadStaffRights>>,
-  user: Parameters<typeof staffAuthority>[0],
+  user: { id: string; role: Role },
+  rights: StaffRights,
 ): boolean {
-  if (!screen.opens.length) return false;
-  return screen.opens.every((name) => {
+  const opens = screen.opens ?? [];
+  const writes = screen.writes ?? [];
+  if (!opens.length && !writes.length) return false;
+  const tools = opens.every((name) => {
     const tool = Object.hasOwn(manifest.tools ?? {}, name) ? manifest.tools[name] : undefined;
     if (!tool) return false;
-    const op = toolOperation(manifest, name, tool, "shipped");
-    if (!audienceAllows(op)) return false;
-    if (op.actors && !op.actors.includes("human")) return false;
-    // A tool's input never decides whether a tool may be called by an account: only the reads
-    // `record.get` and `record.list` look at theirs, and no screen is gated by those.
-    return staffAuthority(user, rights, op, {}) !== null;
+    // A tool's input never decides whether it may be called: only the record reads look at theirs.
+    return personMayCall(toolOperation(manifest, name, tool, "shipped"), user, rights);
   });
+  return tools && writes.every((object) => personMayCall(recordUpdate, user, rights, { object }));
 }
 
 export const screenOperations = [screensMine] as const;

@@ -494,7 +494,8 @@ export const screenManifestSchema = z
       })
       .strict()
       .optional(),
-    opens: z.array(z.string().max(80)).min(1).max(10),
+    opens: z.array(z.string().max(80)).max(10).default([]),
+    writes: z.array(z.string().max(81)).max(10).optional(),
     record: z
       .object({ object: z.string().min(1).max(81), as: z.string().min(1).max(40) })
       .strict()
@@ -813,7 +814,8 @@ export function toManifest(extension: Extension): ExtensionManifest {
                       },
                     }
                   : {}),
-                opens: [...screen.opens],
+                opens: [...(screen.opens ?? [])],
+                ...(screen.writes?.length ? { writes: [...screen.writes] } : {}),
                 ...(screen.record
                   ? { record: { object: screen.record.object, as: screen.record.as } }
                   : {}),
@@ -997,7 +999,23 @@ export function screenIssues(m: ExtensionManifest): { path: string; message: str
       }
       if (audiences.every((a) => a === "staff")) staffOnly = true;
     });
-    if (screen.opens.length && !staffOnly) {
+    const writes = screen.writes ?? [];
+    writes.forEach((object, i) => {
+      const local = object.startsWith(`${m.id}.`) ? object.slice(m.id.length + 1) : null;
+      if (local === null || !Object.hasOwn(m.objects, local)) {
+        add(`${path}.writes.${i}`, `"${object}" must be an object of this pack (${m.id}.<object>)`);
+      }
+    });
+    if (!screen.opens.length && !writes.length) {
+      add(
+        `${path}.opens`,
+        "A screen names at least one tool (opens) or object (writes) that gates it",
+      );
+    }
+    // A record screen is a tab on a staff record page, about that one record: a gate of tools staff
+    // share with customers (a coach logging a client's sets) is staff's there. Any other screen
+    // names a tool for staff only, or writes an object, so no customer's screen becomes a staff one.
+    if (screen.opens.length && !staffOnly && !writes.length && !screen.record) {
       add(
         `${path}.opens`,
         "A screen's gate names at least one tool for staff only: a tool open to customers or the public is never the only gate",

@@ -368,12 +368,14 @@ permissions are `records:publish` (a coach who is a member publishing programs) 
 A **shipped pack** (in `packs/<id>/`, never one written in the app) may show its staff web blocks
 in the product's admin by declaring **screens** (`screens`, `ScreenSpec` in `contract.ts`, ADR
 0660): `screens: { desk: { label: "Front desk", block: "<id>-desk", export: "FrontDesk", nav:
-{ group: "Bookings", order: 10 }, opens: ["day", "findPeople", "bookFor"] } }`. `block` is a web
+{ group: "Bookings", order: 10 }, opens: ["findPeople", "bookFor"] } }`. `block` is a web
 block of the same pack and `export` a component one of its files exports; the admin's build fails
-if either is missing. `opens` names the pack's own tools the screen calls (at least one for staff
-only): the host lists the screen for exactly the people who could call every one of them, so pick
-them so that who sees it is who may use it (a restricted permission's tool for pay, the team's read
-for the roster). A record screen adds `record: { object: "person", as: "personId" }` (one of the
+if either is missing. `opens` names the pack's own tools that decide who may open it, its main read and the write its
+main action makes (at least one for staff only), not every tool it calls: the host lists the screen
+for exactly the people who could call every one of them, and refuses the rest of what the screen
+calls, so the block shows its own state for that. A screen that saves through the host's record
+writes rather than a tool (a course builder) is gated by `writes: ["<id>.<object>"]` instead: the
+viewer must be able to write that object. A record screen adds `record: { object: "person", as: "personId" }` (one of the
 pack's objects, `person` or `organisation`) and is a tab on that record page, given the record's id
 as that prop; with `nav` too it is also in the navigation, opened without a record. The block gets
 the pack's hooks as the prop named for the pack and nothing else, so a screen whose block needs

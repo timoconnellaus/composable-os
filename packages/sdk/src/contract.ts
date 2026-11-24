@@ -1020,11 +1020,21 @@ export interface ScreenSpec {
    */
   nav?: { group: string; order?: number };
   /**
-   * This pack's own tools, every one of which the viewer must be able to call for the screen to
-   * be theirs: "could call these tools" is the screen's gate, not a separate permission. At least
-   * one is for staff only (never a customer's or the public's tool as the only gate).
+   * The tools that decide who may open the screen: this pack's own, every one of which the viewer
+   * must be able to call. Name those that decide (the screen's main read and the write its main
+   * action makes), not every tool it calls: the host refuses the rest, and the block shows its own
+   * state for that. "Could call these tools" is the gate, not a separate permission. At least one
+   * is for staff only (never a customer's or the public's tool as the only gate), unless `writes`
+   * gates the screen.
    */
-  opens: readonly string[];
+  opens?: readonly string[];
+  /**
+   * Objects of this pack the screen writes through the host's record operations rather than a
+   * tool (a builder saving a course): the viewer must be able to write them (`record.update`), so
+   * a viewer or a pack role never gets the screen. Gates beside `opens`; one of the two names
+   * something.
+   */
+  writes?: readonly string[];
   /**
    * A record screen: a tab on this object's record page (one of this pack's objects, `person` or
    * `organisation`), given the record's id as the prop `as`. With `nav` too, it is also listed in

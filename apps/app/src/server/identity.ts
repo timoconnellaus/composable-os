@@ -53,7 +53,12 @@ export async function authorize(
 
   const provider = createIdentityProvider(env);
   const principal = await provider.resolve(request);
-  if (principal) return { ok: true, principal };
+  if (principal) {
+    if (!packRoleMayReach(kind, new URL(request.url).pathname)) {
+      if (await holdsPackRole(env.DB, principal)) return { ok: false, response: forbidden() };
+    }
+    return { ok: true, principal };
+  }
 
   const url = new URL(request.url);
   if (kind.handlerType === "serverFn") {
@@ -73,6 +78,39 @@ export async function authorize(
   // Cloudflare Access sits in front of the Worker, so a request without a valid JWT got past
   // Access some other way (e.g. the workers.dev URL). Never serve it.
   return { ok: false, response: unauthorized() };
+}
+
+/**
+ * What an account holding a pack role (a coach, the door, a rostered cleaner; ADR 0436) may reach
+ * here besides the admin's pages, whose layout shows it only its screens (stage 47, ADR 0660): its
+ * session (`session.public.ts`), operations (`call-operation.ts`, which the pipeline holds to the
+ * role: its tools, its reads and `screens.mine`), sign-in and sign-out (`/api/auth/*`) and the
+ * health check. Every other server function and `/api/*` route (the assistant's, system status, the
+ * hello workflow) is refused, in this one place, before its handler runs.
+ */
+const PACK_ROLE_SERVER_FN = /(?:^|\/)src\/server\/(?:session\.public|call-operation)\.ts(?:\?|$)/;
+const PACK_ROLE_API = ["/api/auth/", "/api/health"];
+
+export function packRoleMayReach(kind: RequestKind, pathname: string): boolean {
+  if (kind.handlerType === "serverFn") return PACK_ROLE_SERVER_FN.test(kind.serverFnFile ?? "");
+  if (pathname.startsWith("/api/")) return PACK_ROLE_API.some((p) => pathname.startsWith(p));
+  return true;
+}
+
+/** Whether the signed-in account holds a pack role: one read, only for what a role may not reach. */
+async function holdsPackRole(db: D1Database, principal: Principal): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `SELECT pack_role FROM core_user WHERE kind = 'human' AND (id = ?1 OR lower(email) = ?2)
+       ORDER BY CASE WHEN id = ?1 THEN 0 ELSE 1 END LIMIT 1`,
+    )
+    .bind(principal.userId, principal.email.trim().toLowerCase())
+    .first<{ pack_role: string | null }>();
+  return Boolean(row?.pack_role);
+}
+
+function forbidden(): Response {
+  return Response.json({ error: "forbidden" }, { status: 403 });
 }
 
 function unauthorized(): Response {

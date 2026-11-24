@@ -287,10 +287,36 @@ One build session may take all four; step 4 must not land without 1 to 3.
   answers (each class's own zone, the coach's today) still decide.
 - Courses' builder builds one course, so it is a record screen (a tab on the course), not a nav
   screen.
-- Gates name every tool the screen calls (plus, for Programs, whose tools declare no permission, a
-  staff write). A member holds the team's Rostering tools, so a member sees the team's screens;
+- A gate names the tools that decide who may open the screen (its main read and the write its
+  main action makes), not every tool it calls: the host refuses the rest and the block shows its
+  state. A screen that saves through the host's record writes (Courses' builder, Programs' bank and
+  builder) is gated by `writes` (the viewer must pass `record.update` on that object). A record
+  screen may be gated by tools staff share with customers (Programs' client view: `logAdd`). A
+  member holds the team's Rostering tools, so a member sees the team's screens;
   criterion 4's "no Rostering section" holds for an account with none of the rights (a coach
   without the grant, a door account, `packages/core/test/screens.test.ts`).
 - `/blocks` stays for blocks that are not screens and for the specs that mount a block with props
   (the members' blocks, and the time-away and not-a-rosterer journeys, which show the blocks' own
   refusal states that the admin never reaches).
+
+### Changed after the security review of PR #303 (2026-11-24)
+- **A staff cookie only from the host's own pages**: the HTTP surface refuses a staff cookie session
+  whose request's `Origin` is not the host's own, even an `API_ALLOWED_ORIGINS` one (ADR 0415
+  amended); customers' cookies, native bearer tokens and the no-Origin content-type check unchanged
+  (`apps/app/test/staff-cross-origin.test.ts`).
+- **Only what the build holds**: the admin's build hands the host each pack's gate fingerprint
+  (`virtual:cos-screens-built`, `setBuiltScreens`); `screens.mine` lists a pack's screens only when
+  the installed manifest matches, so a row with a pack's id and another manifest lists nothing. An
+  org extension may not take the id of any pack the release carries (`shipped-list.ts`), except in
+  local development (`COS_DEV_ORG_PACKS`).
+- **Pack roles and the other server routes**: one guard in `authorize` refuses a pack-role account
+  every server function and `/api/*` route but its session, operations, sign-in and sign-out and
+  the health check (`apps/app/test/pack-role-surfaces.test.ts` walks them all); the hello workflow
+  needs an admin.
+- **Gates** as above (`writes`), and the gates trimmed to the deciding tools.
+- **Tests**: a gate tool's audience and actors (`personMayCall`), the record tab gate, a malformed
+  manifest (skipped, logged once), the squatter; every real admin build now checks its own output
+  (`bundleProblems` in `generateBundle`: each screen's block in a lazy chunk the first load does not
+  fetch, no block code in the server's build), and fails if not.
+- **The cached list**: keyed by the signed-in account, and asked again at once when a screen's call
+  is refused as forbidden.

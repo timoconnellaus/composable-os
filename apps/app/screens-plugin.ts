@@ -17,14 +17,25 @@
 //
 // The blocks' base-layer sibling imports (`../ui-button/button.tsx`) are joined to `blocks/` by
 // pack-blocks-plugin.ts, which runs in the build as well as in development.
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Plugin } from "vite";
 
 export const SCREENS_MODULE = "virtual:cos-screens";
 const RESOLVED = `\0${SCREENS_MODULE}`;
+/** The host's view: each pack's gate fingerprint (screens.mine lists only what the build holds). */
+export const BUILT_MODULE = "virtual:cos-screens-built";
+const RESOLVED_BUILT = `\0${BUILT_MODULE}`;
 
 /** One screen as a pack's manifest declares it (the parts the build needs). */
 export interface DeclaredScreen {
@@ -65,18 +76,37 @@ function packIds(root: string): string[] {
 
 type ScreensOf = Record<string, { block?: unknown; export?: unknown }>;
 
+/** The SDK the build reads manifests with: this repository's, wherever the packs are. */
+const SDK_ENTRY = fileURLToPath(new URL("../../packages/sdk/src/index.ts", import.meta.url));
+
+/** What the build reads of the packs: their declared screens and each one's gate fingerprint. */
+export interface PackScreens {
+  screens: DeclaredScreen[];
+  /** `screenGateFingerprint` of each pack that declares screens, by pack id. */
+  fingerprints: Record<string, string>;
+}
+
 /**
- * Every screen the repository's packs declare, read from each pack's extension (bundled with
- * esbuild in one build and imported). Sorted by pack, then key.
+ * Every screen the repository's packs declare, and each pack's gate fingerprint, read from each
+ * pack's extension (bundled with esbuild in one build, with the SDK, and imported). Sorted by
+ * pack, then key.
  */
-export async function declaredScreens(root: string): Promise<DeclaredScreen[]> {
+export async function readPackScreens(root: string): Promise<PackScreens> {
   const ids = packIds(root);
-  if (!ids.length) return [];
+  if (!ids.length) return { screens: [], fingerprints: {} };
   const { build } = await import("esbuild");
   const out = mkdtempSync(join(tmpdir(), "cos-screens-"));
   try {
+    const sdkEntry = join(out, "sdk-entry.ts");
+    writeFileSync(
+      sdkEntry,
+      `export { screenGateFingerprint, toManifest } from ${JSON.stringify(SDK_ENTRY)};\n`,
+    );
     await build({
-      entryPoints: ids.map((id) => ({ in: join(root, "packs", id, "index.ts"), out: id })),
+      entryPoints: [
+        ...ids.map((id) => ({ in: join(root, "packs", id, "index.ts"), out: id })),
+        { in: sdkEntry, out: "cos-sdk" },
+      ],
       outdir: out,
       bundle: true,
       splitting: true,
@@ -85,7 +115,12 @@ export async function declaredScreens(root: string): Promise<DeclaredScreen[]> {
       outExtension: { ".js": ".mjs" },
       logLevel: "error",
     });
+    const sdk = (await import(pathToFileURL(join(out, "cos-sdk.mjs")).href)) as {
+      toManifest: (extension: unknown) => unknown;
+      screenGateFingerprint: (manifest: unknown) => string | null;
+    };
     const screens: DeclaredScreen[] = [];
+    const fingerprints: Record<string, string> = {};
     for (const id of ids) {
       const module = (await import(pathToFileURL(join(out, `${id}.mjs`)).href)) as {
         default?: { id?: string; screens?: ScreensOf };
@@ -100,11 +135,19 @@ export async function declaredScreens(root: string): Promise<DeclaredScreen[]> {
           export: String(screen.export ?? ""),
         });
       }
+      const fingerprint = sdk.screenGateFingerprint(sdk.toManifest(extension));
+      if (fingerprint) fingerprints[id] = fingerprint;
     }
-    return screens.sort((a, b) => `${a.pack}/${a.key}`.localeCompare(`${b.pack}/${b.key}`));
+    screens.sort((a, b) => `${a.pack}/${a.key}`.localeCompare(`${b.pack}/${b.key}`));
+    return { screens, fingerprints };
   } finally {
     rmSync(out, { recursive: true, force: true });
   }
+}
+
+/** Every screen the repository's packs declare. */
+export async function declaredScreens(root: string): Promise<DeclaredScreen[]> {
+  return (await readPackScreens(root)).screens;
 }
 
 /** Whether `source` exports a binding named `name` (a function, const or class, or a list). */
@@ -209,24 +252,101 @@ export async function resolveScreens(root: string): Promise<ResolvedScreen[]> {
   return (await declaredScreens(root)).map((screen) => resolveScreen(root, screen));
 }
 
+/** The host's module: each pack's gate fingerprint, for `setBuiltScreens` (no screen's code). */
+export function builtSource(fingerprints: Record<string, string>): string {
+  return `export const BUILT_SCREENS = ${JSON.stringify(fingerprints)};\n`;
+}
+
+/** A chunk of a build, as far as the bundle check reads one (Rollup's and Rolldown's shape). */
+export interface BuiltChunk {
+  type: "chunk" | "asset";
+  fileName: string;
+  isEntry?: boolean;
+  imports?: readonly string[];
+  dynamicImports?: readonly string[];
+  moduleIds?: readonly string[];
+  modules?: Record<string, unknown>;
+}
+
+const isBlockModule = (id: string) => /[\\/]packs[\\/][^\\/]+[\\/]blocks[\\/]/.test(id);
+
+/**
+ * What is wrong with a build's output, or nothing: the browser's build holds each screen's block
+ * in a chunk of its own that no entry imports statically (so the first load downloads none), and
+ * the server's holds no block code at all. Checked on every real build of the admin.
+ */
+export function bundleProblems(
+  consumer: "client" | "server",
+  chunks: readonly BuiltChunk[],
+  screens: readonly ResolvedScreen[],
+): string[] {
+  const list = chunks.filter((c) => c.type === "chunk");
+  const ids = (c: BuiltChunk) => [...(c.moduleIds ?? []), ...Object.keys(c.modules ?? {})];
+  if (consumer === "server") {
+    return list.flatMap((c) =>
+      ids(c).some(isBlockModule) ? [`the server's ${c.fileName} holds a block's code`] : [],
+    );
+  }
+  const byName = new Map(list.map((c) => [c.fileName, c]));
+  // Everything an entry loads before the page can run: the entries and what they import statically.
+  const eager = new Set<string>();
+  const visit = (name: string) => {
+    if (eager.has(name)) return;
+    eager.add(name);
+    for (const next of byName.get(name)?.imports ?? []) visit(next);
+  };
+  for (const c of list) if (c.isEntry) visit(c.fileName);
+  const problems: string[] = [];
+  for (const s of screens) {
+    const home = list.find((c) => ids(c).includes(s.file));
+    if (!home) problems.push(`screen ${s.pack}/${s.key}: its block is in no chunk`);
+    else if (eager.has(home.fileName)) {
+      problems.push(
+        `screen ${s.pack}/${s.key}: its block loads with the first page (${home.fileName})`,
+      );
+    }
+  }
+  for (const name of eager) {
+    const c = byName.get(name);
+    if (c && ids(c).some(isBlockModule))
+      problems.push(`${name}, loaded first, holds a block's code`);
+  }
+  return problems;
+}
+
 /** The Vite plugin. `root` is the repository's root. */
 export function packScreens(root: string): Plugin {
-  let registry: Promise<string> | null = null;
+  let read: Promise<{ screens: ResolvedScreen[]; fingerprints: Record<string, string> }> | null =
+    null;
+  const resolved = () =>
+    (read ??= readPackScreens(root).then(({ screens, fingerprints }) => ({
+      screens: screens.map((screen) => resolveScreen(root, screen)),
+      fingerprints,
+    })));
   return {
     name: "cos-pack-screens",
     resolveId(id) {
-      return id === SCREENS_MODULE ? RESOLVED : null;
+      if (id === SCREENS_MODULE) return RESOLVED;
+      if (id === BUILT_MODULE) return RESOLVED_BUILT;
+      return null;
     },
     async load(id) {
+      if (id === RESOLVED_BUILT) return builtSource((await resolved()).fingerprints);
       if (id !== RESOLVED) return null;
       // No screen renders on the server: its build holds none of their code.
       if (this.environment?.config.consumer === "server") {
         return "export const SCREENS = {};\nexport const PACK_HOOKS = {};\n";
       }
-      registry ??= resolveScreens(root).then(
-        (screens) => registrySource(screens) + packHooksSource(allPackHooks(root)),
+      return registrySource((await resolved()).screens) + packHooksSource(allPackHooks(root));
+    },
+    async generateBundle(_options, bundle) {
+      const consumer = this.environment?.config.consumer === "server" ? "server" : "client";
+      const problems = bundleProblems(
+        consumer,
+        Object.values(bundle) as unknown as BuiltChunk[],
+        (await resolved()).screens,
       );
-      return registry;
+      if (problems.length) this.error(`The admin's screens: ${problems.join("; ")}`);
     },
   };
 }

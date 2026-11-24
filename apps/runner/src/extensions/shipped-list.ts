@@ -21,6 +21,8 @@ export type ShippedSource = (typeof SHIPPED_EXTENSIONS)[number];
 export interface ShippedListEnv {
   COS_PACKS?: string;
   COS_ORG_EXTENSIONS?: string;
+  /** Local development only ("1", apps/app/vite.config.ts): org extensions may hold unlisted packs' ids. */
+  COS_DEV_ORG_PACKS?: string;
   BLOBS?: R2Bucket;
 }
 
@@ -119,7 +121,14 @@ export async function orgExtensions(env: ShippedListEnv): Promise<ShippedSource[
 export async function shippedExtensions(env: ShippedListEnv): Promise<ShippedSource[]> {
   const packs = listedPacks(env.COS_PACKS);
   const own = await orgExtensions(env);
-  const taken = new Set(packs.map((p) => p.id));
+  // An org's extension never takes the id of a pack this release carries, listed or not: a
+  // pack's id is what the admin's built-in screens and pack roles are keyed by (stage 47, ADR
+  // 0660), so an org extension holding an unlisted pack's id could borrow them. Local development
+  // alone delivers some packs as org extensions (scripts/dev-setup.mjs: optional, and Bookings'
+  // test variant), which its Vite config says with COS_DEV_ORG_PACKS; no deploy sets it.
+  const taken = new Set(
+    env.COS_DEV_ORG_PACKS === "1" ? packs.map((p) => p.id) : SHIPPED_EXTENSIONS.map((p) => p.id),
+  );
   for (const extension of own) {
     if (taken.has(extension.id)) {
       throw new Error(`The org's extension ${extension.id} has a pack's id`);
