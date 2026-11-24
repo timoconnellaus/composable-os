@@ -962,13 +962,15 @@ As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
   `me.email.change`, `me.email.confirm`, `me.deleteAccount`, `my.list`, `my.get`, and for tools
   only `my.create`, `my.update`.
 - **A recent sign-in** (stage 48, [ADR 0712](adr/0712-changing-the-sign-in-address-and-a-recent-sign-in.md)):
-  changing the sign-in address and deleting the account need a sign-in within 15 minutes, read
+  asking for or confirming an address change and deleting the account need a sign-in within 15
+  minutes, read
   from the calling session's own row (`customers/recent-sign-in.ts`); otherwise `sign_in_again`.
   A device session exchanged from a browser session starts at that sign-in.
 - **Changing the sign-in address** (ADR 0712, `customers/email-change.ts`,
   `core_customer_email_change`, migration 0990): `me.email.change` emails a code to the new
-  address as the host's sign-in mail, answering the same for any address; `me.email.confirm`
-  with the code, refused while another Person, account or the erased list holds the address,
+  address as the host's sign-in mail, answering the same for any address and reserving its row
+  under the limits before sending; `me.email.confirm` with the code (a closed change never
+  changes again, so racing calls apply once), refused while another Person, account or the erased list holds the address,
   moves the account's address and the Person's primary email in one batch, ends the other
   sessions, and after the commit tells the old address and gives the payment provider the new one
   (`payments.customer.email`, the host's own call). Staff (`customer.changeEmail`,
@@ -988,7 +990,7 @@ As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
   people have an active one, and links a `needs_merge` account the merge resolves.
 - **Limits:** a customer's calls per account and operation, and code requests per address asked
   for (`customers/limits.ts`, Workers Rate Limiting); address changes per account and per mailbox,
-  counted from their rows. Per client address only at the edge, and no
+  reserved by one conditional insert of their row. Per client address only at the edge, and no
   address is stored.
 
 The HTTP routes that mount customer sign-in and carry these calls are stage 23's.

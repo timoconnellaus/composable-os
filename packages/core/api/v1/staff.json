@@ -23875,7 +23875,7 @@
     },
     {
       "name": "customer.changeEmail",
-      "description": "Start changing a customer account's sign-in address, for a member who asks (by phone, at the desk). A code is emailed to the new address; nothing changes until the member, signed in to their account, enters it on the website or in the app within 15 minutes. You never see the code. Replaces a change already waiting. Admins only, humans only.",
+      "description": "Start changing a customer account's sign-in address, for a member who asks (by phone, at the desk). A code is emailed to the new address; nothing changes until the member, signed in to their account within the last 15 minutes, enters it on the website or in the app within 15 minutes. You never see the code. Replaces a change already waiting. Admins only, humans only.",
       "risk": "write",
       "audiences": [
         "staff"

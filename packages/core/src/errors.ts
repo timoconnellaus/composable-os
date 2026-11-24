@@ -328,6 +328,18 @@ export function toOperationError(error: unknown): OperationError {
       reason: "immutable",
     });
   }
+  // An address change confirmed, cancelled or replaced by another call while this one was being
+  // planned (migration 0990's trigger and its one-open-change index, ADR 0712): nothing applied.
+  if (
+    message.includes("core_email_change_closed") ||
+    message.includes("UNIQUE constraint failed: core_customer_email_change.customer_id")
+  ) {
+    return new ConflictError(
+      "This address change was confirmed, cancelled or replaced meanwhile, so nothing was " +
+        "changed. Look at the account again.",
+      { rule: "email_change_closed" },
+    );
+  }
   // A batch planned from a read that changed before it committed (migration 0560's guard): a
   // series changed under a run, or a class was booked under a change to its series.
   if (message.includes("core_recurrence_stale")) {

@@ -325,7 +325,8 @@ export const meEmailConfirm = defineOperation({
   name: "me.email.confirm",
   description:
     "Finish changing your sign-in address with the code emailed to the new address, as the " +
-    "signed-in customer it was asked for (by you, or by staff for you). From then on you sign " +
+    "signed-in customer it was asked for (by you, or by staff for you), signed in within the " +
+    "last 15 minutes (else sign_in_again; the code keeps working). From then on you sign " +
     "in with the new address, which is also your primary email; the old one is removed from " +
     "your details and told of the change; every other place you are signed in is signed out. " +
     "A wrong code five times ends the request. Refused, changing nothing, when the new address " +
@@ -344,6 +345,8 @@ export const meEmailConfirm = defineOperation({
   redact: ["code"],
   async handler(input, ctx) {
     const { customerId, personId } = customerOf(ctx);
+    // Owner decision 4: entered by someone signed in within the last 15 minutes, whoever asked.
+    await requireRecentSignIn(ctx);
     const done = await confirmEmailChange(ctx, { customerId, personId }, input.code);
     return ctx.afterCommit(async () => {
       await afterEmailChanged(ctx, personId, done.change);

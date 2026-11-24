@@ -6,6 +6,7 @@
 // templates from its sign-in queue (the email gatekeeper's own rule, imported), and the host's
 // own provider calls.
 import { env } from "cloudflare:workers";
+import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
 import { isSignInCodeMessage } from "../../gatekeeper-email-send/src/sign-in.ts";
 import {
@@ -424,12 +425,10 @@ describe("changing the sign-in address (criterion 6)", () => {
       const next = address("held");
       expect(await refusal(ask(m, next))).toMatchObject({ code: "integration_error" });
       expect(lastTo(next)).toBeUndefined();
-      const open = await env.DB.prepare(
-        "SELECT count(*) AS n FROM core_customer_email_change WHERE customer_id = ?",
-      )
-        .bind(m.principal.customerId)
-        .first<{ n: number }>();
-      expect(open?.n).toBe(0);
+      // Only its reservation, never open, so its code can never be confirmed.
+      expect(
+        (await changeRows(m.principal.customerId)).map((r) => [r.new_email, r.end_reason]),
+      ).toEqual([[next, "unsent"]]);
     } finally {
       mailMode = "apply";
     }
@@ -506,6 +505,10 @@ describe("wrong codes (criterion 8)", () => {
     const next = address("late");
     await ask(m, next);
     const later = new Date(Date.now() + 16 * 60_000);
+    // Signed in again just before, so only the code's age is in question.
+    await env.DB.prepare("UPDATE core_customer_session SET created_at = ? WHERE id = ?")
+      .bind(iso(later.getTime() - 60_000), m.fresh)
+      .run();
     expect(await refusal(confirm(m, codeIn(lastTo(next)), m.fresh, () => later))).toMatchObject({
       code: "invalid_input",
     });
@@ -521,6 +524,231 @@ describe("wrong codes (criterion 8)", () => {
     const [local, domain] = box.split("@");
     for (let n = 0; n < 3; n += 1) await ask(await newMember(), `${local}+${n}@${domain}`);
     expect(await refusal(ask(await newMember(), box))).toMatchObject({ code: "rate_limited" });
+  });
+});
+
+// --- Races and limits (the review of PR #384) -----------------------------------------------------
+
+const changeRows = async (customerId: string) =>
+  (
+    await env.DB.prepare(
+      "SELECT id, old_email, new_email, confirmed_at, end_reason FROM core_customer_email_change WHERE customer_id = ? ORDER BY created_at, id",
+    )
+      .bind(customerId)
+      .all<{
+        id: string;
+        old_email: string;
+        new_email: string;
+        confirmed_at: string | null;
+        end_reason: string | null;
+      }>()
+  ).results;
+
+describe("races (criteria 6, 8 and 9)", () => {
+  it("a confirm racing a staff cancel: one of them wins, and a cancel that answers true held", async () => {
+    for (let run = 0; run < 6; run += 1) {
+      const m = await newMember();
+      const next = address("race");
+      await ask(m, next);
+      const code = codeIn(lastTo(next));
+      const [confirmed, cancelled] = await Promise.allSettled([
+        confirm(m, code),
+        invoke("customer.cancelEmailChange", { id: m.principal.customerId }, staff()),
+      ]);
+      const changed = (await accountEmail(m.principal.customerId)) === next;
+      const [row] = await changeRows(m.principal.customerId);
+      const saidCancelled =
+        cancelled.status === "fulfilled" && (cancelled.value as { cancelled: boolean }).cancelled;
+      if (changed) {
+        expect(confirmed.status, `run ${run}`).toBe("fulfilled");
+        expect(saidCancelled, `run ${run}`).toBe(false);
+        expect(row?.confirmed_at, `run ${run}`).not.toBeNull();
+      } else {
+        expect(confirmed.status, `run ${run}`).toBe("rejected");
+        expect(saidCancelled, `run ${run}`).toBe(true);
+        expect(row?.end_reason, `run ${run}`).toBe("cancelled");
+        expect((await personEmails(m.principal.personId))[0]?.email).toBe(m.email);
+      }
+    }
+  });
+
+  it("a confirm racing a newer request never leaves an open change planned from an old address", async () => {
+    for (let run = 0; run < 6; run += 1) {
+      const m = await newMember();
+      const first = address("first");
+      await ask(m, first);
+      const code = codeIn(lastTo(first));
+      await Promise.allSettled([confirm(m, code), ask(m, address("second"))]);
+      const current = await accountEmail(m.principal.customerId);
+      const rows = await changeRows(m.principal.customerId);
+      const confirmed = rows.filter((r) => r.confirmed_at);
+      // The address changed only by a confirmed change, and any change still open replaces the
+      // address the account has now.
+      expect(current === first, `run ${run}`).toBe(confirmed.length === 1);
+      for (const open of rows.filter((r) => !r.confirmed_at && !r.end_reason)) {
+        expect(open.old_email, `run ${run}`).toBe(current);
+      }
+      if (current === first) expect(confirmed[0]?.new_email).toBe(first);
+    }
+  });
+
+  it("two right codes at once, on the web and in the app: one change, one notice, one session left", async () => {
+    for (let run = 0; run < 4; run += 1) {
+      const m = await newMember();
+      const next = address("twice");
+      await ask(m, next);
+      const code = codeIn(lastTo(next));
+      const before = sent.filter((x) => x.to === m.email).length;
+      const results = await Promise.allSettled([
+        confirm(m, code, m.fresh),
+        confirm(m, code, m.device),
+      ]);
+      expect(
+        results.filter((r) => r.status === "fulfilled"),
+        `run ${run}`,
+      ).toHaveLength(1);
+      expect(await accountEmail(m.principal.customerId)).toBe(next);
+      expect((await sessionIds(m.principal.customerId)).length, `run ${run}`).toBe(1);
+      expect(sent.filter((x) => x.to === m.email).length - before, `run ${run}`).toBe(1);
+      const activities = await env.DB.prepare(
+        `SELECT count(*) AS n FROM core_activity a JOIN core_activity_links l ON l.activity_id = a.id
+         WHERE l.object_type = 'person' AND l.record_id = ? AND a.subject = 'Sign-in address changed'`,
+      )
+        .bind(m.principal.personId)
+        .first<{ n: number }>();
+      expect(activities?.n, `run ${run}`).toBe(1);
+    }
+  });
+
+  it("parallel requests cannot pass the per-mailbox or per-account limit", async () => {
+    const box = address("crowd");
+    const members = await Promise.all(Array.from({ length: 10 }, () => newMember()));
+    const before = sent.filter((x) => x.to === box).length;
+    const outcomes = await Promise.allSettled(members.map((m) => ask(m, box)));
+    expect(outcomes.filter((o) => o.status === "fulfilled")).toHaveLength(3);
+    expect(sent.filter((x) => x.to === box).length - before).toBe(3);
+
+    const one = await newMember();
+    const targets = Array.from({ length: 12 }, (_, n) => address(`many${n}`));
+    await Promise.allSettled(targets.map((t) => ask(one, t)));
+    // At most five codes go out for one account in an hour, however the requests arrive.
+    expect(sent.filter((x) => targets.includes(x.to)).length).toBeLessThanOrEqual(5);
+    expect((await changeRows(one.principal.customerId)).length).toBeLessThanOrEqual(5);
+    expect(await refusal(ask(one, address("later")))).toMatchObject({ code: "rate_limited" });
+  });
+
+  it("a code that did not go out still counts towards the limit", async () => {
+    const m = await newMember();
+    mailMode = "review";
+    try {
+      for (let n = 0; n < 5; n += 1) {
+        expect(await refusal(ask(m, address(`held${n}`)))).toMatchObject({
+          code: "integration_error",
+        });
+      }
+    } finally {
+      mailMode = "apply";
+    }
+    expect(await refusal(ask(m, address("after")))).toMatchObject({ code: "rate_limited" });
+    // None of them can be confirmed: there is no open change.
+    expect(await refusal(confirm(m, "123456"))).toMatchObject({ code: "invalid_input" });
+  });
+});
+
+describe("a recent sign-in at confirm (criterion 8, decision 4)", () => {
+  it("a member's own request is confirmed only from a session signed in within 15 minutes", async () => {
+    const m = await newMember();
+    const next = address("stale");
+    await ask(m, next);
+    const code = codeIn(lastTo(next));
+    for (const sessionId of [m.old, null]) {
+      expect(await refusal(confirm(m, code, sessionId))).toMatchObject({ code: "sign_in_again" });
+    }
+    expect(await accountEmail(m.principal.customerId)).toBe(m.email);
+    await expect(confirm(m, code, m.device)).resolves.toMatchObject({ signInEmail: next });
+  });
+});
+
+describe("the Person's addresses (D1's limits)", () => {
+  /** env.DB, noting each statement's bound variables. */
+  const bound: number[] = [];
+  const counted = new Proxy(env.DB, {
+    get(target, key) {
+      if (key === "prepare") {
+        return (query: string) => {
+          const statement = target.prepare(query);
+          return new Proxy(statement, {
+            get(inner, name) {
+              if (name === "bind") {
+                return (...values: unknown[]) => {
+                  bound.push(values.length);
+                  return inner.bind(...values);
+                };
+              }
+              const value = Reflect.get(inner, name);
+              return typeof value === "function" ? value.bind(inner) : value;
+            },
+          });
+        };
+      }
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+
+  it("a Person with twenty addresses changes theirs with every statement under 100 variables", async () => {
+    const m = await newMember();
+    // Twenty in all: the sign-in address, the work one and eighteen more.
+    const more = Array.from({ length: 18 }, (_, n) => ({ email: address(`extra${n}`) }));
+    await invoke(
+      "person.update",
+      {
+        id: m.principal.personId,
+        emails: [{ email: m.email, primary: true }, { email: m.work }, ...more],
+      },
+      staff(),
+    );
+    const next = address("wide");
+    await ask(m, next);
+    const code = codeIn(lastTo(next));
+    bound.length = 0;
+    await invokeByName("me.email.confirm", { code }, { ...as(m), db: createCrmDb(counted) });
+    expect(await accountEmail(m.principal.customerId)).toBe(next);
+    expect((await personEmails(m.principal.personId)).length).toBe(20);
+    expect(Math.max(...bound)).toBeLessThan(100);
+  });
+
+  it("refuses, before a try is spent, a change that would give the Person a 21st address", async () => {
+    const m = await newMember();
+    // Staff moved the Person's addresses on: the sign-in address is not among their twenty.
+    const twenty = Array.from({ length: 20 }, (_, n) => ({ email: address(`full${n}`) }));
+    await invoke("person.update", { id: m.principal.personId, emails: twenty }, staff());
+    const next = address("one-more");
+    await ask(m, next);
+    expect(await refusal(confirm(m, codeIn(lastTo(next))))).toMatchObject({
+      code: "conflict",
+      details: { rule: "too_many_emails" },
+    });
+    const [row] = await env.DB.prepare(
+      "SELECT tries_left FROM core_customer_email_change WHERE customer_id = ? AND end_reason IS NULL",
+    )
+      .bind(m.principal.customerId)
+      .all<{ tries_left: number }>()
+      .then((r) => r.results);
+    expect(row?.tries_left).toBe(5);
+  });
+
+  it("a change the account moved on from is said so, not that the address is in use", async () => {
+    const m = await newMember();
+    const next = address("moved-on");
+    await ask(m, next);
+    await env.DB.prepare("UPDATE core_customer SET email = ? WHERE id = ?")
+      .bind(address("elsewhere"), m.principal.customerId)
+      .run();
+    expect(await refusal(confirm(m, codeIn(lastTo(next))))).toMatchObject({
+      code: "conflict",
+      details: { rule: "change_stale" },
+    });
   });
 });
 
@@ -560,8 +788,11 @@ describe("staff start a change (criterion 9)", () => {
       .bind(admin.id)
       .all<{ input: string; result: string }>();
     expect(JSON.stringify(audit.results)).not.toContain(code);
-    // Only the member's own signed-in session finishes it (no recent sign-in needed for that).
-    await expect(confirm(m, code, m.old)).resolves.toMatchObject({ signInEmail: next });
+    // Only the member's own session finishes it, signed in within 15 minutes (decision 4): an
+    // older one is sent to sign in again, and the code keeps working.
+    expect(await refusal(confirm(m, code, m.old))).toMatchObject({ code: "sign_in_again" });
+    expect(await accountEmail(m.principal.customerId)).toBe(m.email);
+    await expect(confirm(m, code, m.fresh)).resolves.toMatchObject({ signInEmail: next });
     expect(lastTo(m.email)?.subject).toMatch(/sign-in address was changed$/);
   });
 
@@ -671,6 +902,27 @@ describe("erase and a former sign-in address (criterion 16, #302)", () => {
       invoke("erasure.addressStatus", { email }, staff()) as Promise<{ erased: boolean }>;
     expect((await status(moved)).erased).toBe(false);
     expect((await status(other)).erased).toBe(true);
+  });
+
+  it("an account signed up with A's old address and not linked yet is not A's either", async () => {
+    const a = await newMember();
+    const moved = a.email;
+    const next = address("moved");
+    await ask(a, next);
+    await confirm(a, codeIn(lastTo(next)));
+    const unlinked = newId("customer");
+    await env.DB.prepare(
+      `INSERT INTO core_customer (id, person_id, email, email_verified, status, link_state, created_at, updated_at)
+       VALUES (?, NULL, ?, 1, 'active', 'needs_merge', ?, ?)`,
+    )
+      .bind(unlinked, moved, iso(), iso())
+      .run();
+    await invoke(
+      "person.erase",
+      { id: a.principal.personId },
+      staff(admin, { blobs: memoryBlobs() }),
+    );
+    expect(await accountEmail(unlinked)).toBe(moved);
   });
 
   it("an address A moved away from that nobody took is erased with A", async () => {

@@ -24,7 +24,7 @@
 import type { CoreDatabase } from "@composable-os/db";
 import { productName } from "@composable-os/product";
 import { product } from "@composable-os/products/active";
-import type { Kysely } from "kysely";
+import { type Kysely, sql } from "kysely";
 import {
   ConfigError,
   ConflictError,
@@ -48,6 +48,8 @@ export const EMAIL_CHANGE_TRIES = 5;
 /** Requests per account in a rolling hour, and per mailbox in a code's lifetime. */
 export const EMAIL_CHANGE_ACCOUNT_LIMIT = 5;
 export const EMAIL_CHANGE_MAILBOX_LIMIT = 3;
+/** A Person's addresses at most (person.update's input allows 20). */
+const PERSON_EMAILS_MAX = 20;
 /** Provider customers given the new address at most (one per subscription a guest started). */
 const PROVIDER_CUSTOMERS_MAX = 20;
 
@@ -183,40 +185,35 @@ async function sendHostMail(
   }
 }
 
-/** Refuses a request over the per-account or per-mailbox limit. The same for every address. */
-async function checkRequestLimits(
+/** The windows the limits count in, from `now`. */
+function limitWindows(now: string) {
+  const at = Date.parse(now);
+  return {
+    hourAgo: new Date(at - 3_600_000).toISOString(),
+    windowAgo: new Date(at - EMAIL_CHANGE_CODE_MINUTES * 60_000).toISOString(),
+  };
+}
+
+/** The refusal for a request over a limit: which one, read after the reservation was refused. */
+async function overLimit(
   db: Kysely<CoreDatabase>,
   customerId: string,
-  mailbox: string,
   now: string,
-): Promise<void> {
-  const at = Date.parse(now);
-  const hourAgo = new Date(at - 3_600_000).toISOString();
-  const windowAgo = new Date(at - EMAIL_CHANGE_CODE_MINUTES * 60_000).toISOString();
-  const [account, box] = await Promise.all([
-    db
-      .selectFrom("core_customer_email_change")
-      .select((eb) => eb.fn.countAll<number>().as("n"))
-      .where("customer_id", "=", customerId)
-      .where("created_at", ">", hourAgo)
-      .executeTakeFirst(),
-    db
-      .selectFrom("core_customer_email_change")
-      .select((eb) => eb.fn.countAll<number>().as("n"))
-      .where("new_mailbox", "=", mailbox)
-      .where("created_at", ">", windowAgo)
-      .executeTakeFirst(),
-  ]);
-  if (Number(account?.n ?? 0) >= EMAIL_CHANGE_ACCOUNT_LIMIT) {
-    throw new RateLimitedError("Too many address changes asked for: try again in an hour", {
-      retryAfterSeconds: 3600,
-    });
-  }
-  if (Number(box?.n ?? 0) >= EMAIL_CHANGE_MAILBOX_LIMIT) {
-    throw new RateLimitedError("Too many codes asked for this address: try again shortly", {
-      retryAfterSeconds: EMAIL_CHANGE_CODE_MINUTES * 60,
-    });
-  }
+): Promise<RateLimitedError> {
+  const { hourAgo } = limitWindows(now);
+  const account = await db
+    .selectFrom("core_customer_email_change")
+    .select((eb) => eb.fn.countAll<number>().as("n"))
+    .where("customer_id", "=", customerId)
+    .where("created_at", ">", hourAgo)
+    .executeTakeFirst();
+  return Number(account?.n ?? 0) >= EMAIL_CHANGE_ACCOUNT_LIMIT
+    ? new RateLimitedError("Too many address changes asked for: try again in an hour", {
+        retryAfterSeconds: 3600,
+      })
+    : new RateLimitedError("Too many codes asked for this address: try again shortly", {
+        retryAfterSeconds: EMAIL_CHANGE_CODE_MINUTES * 60,
+      });
 }
 
 export interface StartedEmailChange {
@@ -227,9 +224,17 @@ export interface StartedEmailChange {
 }
 
 /**
- * Starts a change of account `customerId`'s sign-in address to `email`: the code is emailed to
- * it, and the open change (if any) is replaced, in the caller's batch. Whether the address is in
+ * Starts a change of account `customerId`'s sign-in address to `email`. Whether the address is in
  * use is never looked at here. `startedBy` is `customer` or the staff user's id.
+ *
+ * 1. The request is reserved at once, on its own: one insert of the row, ended `unsent`, that
+ *    runs only while the account's rows in the last hour and the mailbox's in the last 15 minutes
+ *    are under their limits. D1 runs one statement at a time, so parallel requests cannot pass.
+ * 2. The code is sent. If it does not go out, the row stays `unsent` (still counted) and nothing
+ *    else is written; its code can never be confirmed.
+ * 3. In the caller's batch the row is reopened and the open change read in step 1 (if any) is
+ *    ended `replaced`. A change closed meanwhile (confirmed by a racing call) fails the batch
+ *    (migration 0990's trigger), so a request is never planned from an address no longer held.
  */
 export async function startEmailChange(
   ctx: HandlerContext,
@@ -250,40 +255,53 @@ export async function startEmailChange(
     throw new ValidationError("This is already the sign-in address", { field: "email" });
   }
   const mailbox = mailboxKey(address);
-  await checkRequestLimits(ctx.db, customerId, mailbox, ctx.now);
-
-  const id = newId("emailChange");
-  const code = newCode();
+  const open = await openEmailChange(ctx.db, customerId);
   const expiresAt = new Date(
     Date.parse(ctx.now) + EMAIL_CHANGE_CODE_MINUTES * 60_000,
   ).toISOString();
-  // Sent before anything is written: a code that did not go out is never stored. One sent whose
-  // batch then fails is a code that works for nothing.
+  // A dry run for the approval queue reserves and sends nothing.
+  if (ctx.simulation) return { newEmail: address, expiresAt };
+
+  const id = newId("emailChange");
+  const code = newCode();
+  const { hourAgo, windowAgo } = limitWindows(ctx.now);
+  const hash = await codeHash(id, code);
+  const reserved = await sql`
+    INSERT INTO core_customer_email_change (id, customer_id, new_email, new_mailbox, old_email,
+      started_by, code_hash, expires_at, tries_left, created_at, ended_at, end_reason)
+    SELECT ${id}, ${customerId}, ${address}, ${mailbox}, ${account.email}, ${startedBy}, ${hash},
+      ${expiresAt}, ${EMAIL_CHANGE_TRIES}, ${ctx.now}, ${ctx.now}, 'unsent'
+    WHERE (SELECT count(*) FROM core_customer_email_change
+        WHERE customer_id = ${customerId} AND created_at > ${hourAgo}) < ${EMAIL_CHANGE_ACCOUNT_LIMIT}
+      AND (SELECT count(*) FROM core_customer_email_change
+        WHERE new_mailbox = ${mailbox} AND created_at > ${windowAgo}) < ${EMAIL_CHANGE_MAILBOX_LIMIT}
+  `.execute(ctx.db);
+  if (!Number(reserved.numAffectedRows ?? 0)) throw await overLimit(ctx.db, customerId, ctx.now);
+
+  // A code that did not go out leaves only the reservation, which can never be confirmed.
   await sendHostMail(ctx, { to: address, ...emailChangeCodeEmail(code) });
   ctx.write(
+    ...(open
+      ? [
+          ctx.db
+            .updateTable("core_customer_email_change")
+            .set({ ended_at: ctx.now, end_reason: "replaced" })
+            .where("id", "=", open.id),
+        ]
+      : []),
     ctx.db
       .updateTable("core_customer_email_change")
-      .set({ ended_at: ctx.now, end_reason: "replaced" })
-      .where("customer_id", "=", customerId)
-      .where("confirmed_at", "is", null)
-      .where("ended_at", "is", null),
-    ctx.db.insertInto("core_customer_email_change").values({
-      id,
-      customer_id: customerId,
-      new_email: address,
-      new_mailbox: mailbox,
-      old_email: account.email,
-      started_by: startedBy,
-      code_hash: await codeHash(id, code),
-      expires_at: expiresAt,
-      tries_left: EMAIL_CHANGE_TRIES,
-      created_at: ctx.now,
-    }),
+      .set({ ended_at: null, end_reason: null })
+      .where("id", "=", id),
   );
   return { newEmail: address, expiresAt };
 }
 
-/** Ends the account's open change as `cancelled`, in the caller's batch. Null when none. */
+/**
+ * Ends the account's open change as `cancelled`, in the caller's batch. Null when none. If it was
+ * confirmed or ended meanwhile, the batch fails (migration 0990's trigger): a cancel never reports
+ * success for a change that went through.
+ */
 export async function cancelEmailChange(
   ctx: HandlerContext,
   customerId: string,
@@ -294,9 +312,7 @@ export async function cancelEmailChange(
     ctx.db
       .updateTable("core_customer_email_change")
       .set({ ended_at: ctx.now, end_reason: "cancelled" })
-      .where("id", "=", open.id)
-      .where("confirmed_at", "is", null)
-      .where("ended_at", "is", null),
+      .where("id", "=", open.id),
   );
   return open;
 }
@@ -345,6 +361,20 @@ export async function confirmEmailChange(
 ): Promise<ConfirmedEmailChange> {
   const open = await openEmailChange(ctx.db, own.customerId);
   if (!open) throw new ValidationError(NOT_RIGHT, { rule: "code" });
+  // The Person keeps at most 20 addresses (person.update's rule): said before a try is spent.
+  const emails = await ctx.db
+    .selectFrom("core_person_emails")
+    .select(["email", "label"])
+    .where("person_id", "=", own.personId)
+    .orderBy("position")
+    .execute();
+  const kept = emails.filter((e) => e.email !== open.oldEmail && e.email !== open.newEmail);
+  if (kept.length + 1 > PERSON_EMAILS_MAX) {
+    throw new ConflictError(
+      "Your details hold too many email addresses: ask the business to remove one first",
+      { rule: "too_many_emails" },
+    );
+  }
   const spent = await ctx.db
     .updateTable("core_customer_email_change")
     .set((eb) => ({ tries_left: eb("tries_left", "-", 1) }))
@@ -374,35 +404,45 @@ export async function confirmEmailChange(
     throw new ValidationError(NOT_RIGHT, { rule: "code", triesLeft: spent.tries_left });
   }
 
-  // The mailbox is proved: only now is its holder told the address is taken.
+  // The mailbox is proved: only now is its holder told the address is taken. A change the
+  // account has moved on from (disabled, relinked, its address changed) is ended, said as such.
+  const endAs = (reason: "in_use") =>
+    ctx.db
+      .updateTable("core_customer_email_change")
+      .set({ ended_at: ctx.now, end_reason: reason })
+      .where("id", "=", open.id)
+      .where("ended_at", "is", null)
+      .where("confirmed_at", "is", null)
+      .execute();
   const account = await changeableAccount(ctx.db, own.customerId);
   if (
     !account ||
     account.status !== "active" ||
     account.person_id !== own.personId ||
-    account.email !== open.oldEmail ||
-    (await addressInUse(ctx.db, open.newEmail, own))
+    account.email !== open.oldEmail
   ) {
-    await ctx.db
-      .updateTable("core_customer_email_change")
-      .set({ ended_at: ctx.now, end_reason: "in_use" })
-      .where("id", "=", open.id)
-      .where("ended_at", "is", null)
-      .where("confirmed_at", "is", null)
-      .execute();
+    await endAs("in_use");
+    throw new ConflictError("This change no longer applies to your account: ask for a new one", {
+      rule: "change_stale",
+    });
+  }
+  if (await addressInUse(ctx.db, open.newEmail, own)) {
+    await endAs("in_use");
     throw new ConflictError("This address is already in use at the business", {
       rule: "address_in_use",
     });
   }
 
+  // First in the batch, by id alone: if a racing confirm, a cancel or a newer request closed this
+  // change meanwhile, migration 0990's trigger fails the whole batch and nothing here applies.
+  ctx.write(
+    ctx.db
+      .updateTable("core_customer_email_change")
+      .set({ confirmed_at: ctx.now })
+      .where("id", "=", open.id),
+  );
+
   // The Person: the new address first and primary, the old sign-in address gone, the rest kept.
-  const emails = await ctx.db
-    .selectFrom("core_person_emails")
-    .select(["email", "label"])
-    .where("person_id", "=", own.personId)
-    .orderBy("position")
-    .execute();
-  const kept = emails.filter((e) => e.email !== open.oldEmail && e.email !== open.newEmail);
   const label = emails.find((e) => e.email === open.oldEmail)?.label ?? null;
   // The Person writer is the host's here (ADR 0428): it reads org-wide, as the seam's own writes
   // do, and what it records is the host's own change, for the customer. Object.create, not a
@@ -447,12 +487,6 @@ export async function confirmEmailChange(
       .set({ email: open.newEmail, email_verified: 1, updated_at: ctx.now })
       .where("id", "=", own.customerId)
       .where("email", "=", open.oldEmail),
-    ctx.db
-      .updateTable("core_customer_email_change")
-      .set({ confirmed_at: ctx.now })
-      .where("id", "=", open.id)
-      .where("confirmed_at", "is", null)
-      .where("ended_at", "is", null),
     ctx.db
       .deleteFrom("core_customer_session")
       .where("customer_id", "=", own.customerId)

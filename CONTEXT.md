@@ -1803,8 +1803,8 @@ and the payment provider is given the new address. The record keeps the old addr
 _Avoid_: email update, login change
 
 **Recent sign-in**
-A sign-in made within the last 15 minutes, read from the session's own row, which changing the
-sign-in address and deleting the account need; otherwise the call is refused `sign_in_again` and
+A sign-in made within the last 15 minutes, read from the session's own row, which asking for and
+confirming an address change and deleting the account need; otherwise the call is refused `sign_in_again` and
 the member signs in again (ADR 0712).
 _Avoid_: re-authentication, step-up (the staff approvals' second step)
 

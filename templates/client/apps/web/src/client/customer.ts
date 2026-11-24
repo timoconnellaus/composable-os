@@ -125,7 +125,7 @@ export type Operations = {
     output: { newEmail: string; expiresAt: string };
   };
   /**
-   * Finish changing your sign-in address with the code emailed to the new address, as the signed-in customer it was asked for (by you, or by staff for you). From then on you sign in with the new address, which is also your primary email; the old one is removed from your details and told of the change; every other place you are signed in is signed out. A wrong code five times ends the request. Refused, changing nothing, when the new address is already in use at the business.
+   * Finish changing your sign-in address with the code emailed to the new address, as the signed-in customer it was asked for (by you, or by staff for you), signed in within the last 15 minutes (else sign_in_again; the code keeps working). From then on you sign in with the new address, which is also your primary email; the old one is removed from your details and told of the change; every other place you are signed in is signed out. A wrong code five times ends the request. Refused, changing nothing, when the new address is already in use at the business.
    */
   "me.email.confirm": {
     kind: "mutation";

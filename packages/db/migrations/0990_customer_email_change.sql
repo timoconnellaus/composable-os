@@ -13,6 +13,14 @@
 --   one of the Person's former sign-in addresses (issue #302) before the account and its rows go.
 -- - `new_mailbox` is the new address with a `+tag` (and Gmail's dots) folded away (`mailboxKey`):
 --   requests are counted per mailbox, as sign-in codes are (ADR 0459). Never an identity.
+-- - A request is reserved before its code is sent, as a row ended `unsent`, by one conditional
+--   insert that counts the account's and the mailbox's earlier rows: parallel requests cannot pass
+--   the limits. Once the code went out, the request's batch reopens it; a code that did not go
+--   out leaves it `unsent`, still counted.
+-- - A change that is confirmed or ended never changes again (the trigger below): a batch planned
+--   from an open change (a confirm, a cancel, a newer request ending it) fails whole if another
+--   one closed it first, so a cancel never reports success for a change that went through, and
+--   two confirms at once never both apply.
 CREATE TABLE core_customer_email_change (
   -- ech_… (ids.ts).
   id TEXT PRIMARY KEY NOT NULL,
@@ -29,9 +37,11 @@ CREATE TABLE core_customer_email_change (
   created_at TEXT NOT NULL,
   confirmed_at TEXT,
   -- When it ended without taking effect, and why: a newer request, staff cancelled it, five wrong
-  -- codes, or the address proved to be in use at the business when the code was entered.
+  -- codes, the address proved to be in use at the business (or the account changed) when the code
+  -- was entered, or (`unsent`) its code has not gone out, or never did.
   ended_at TEXT,
-  end_reason TEXT CHECK (end_reason IN ('replaced', 'cancelled', 'tries', 'in_use')),
+  end_reason TEXT
+    CHECK (end_reason IN ('replaced', 'cancelled', 'tries', 'in_use', 'unsent')),
   CHECK ((ended_at IS NULL) = (end_reason IS NULL)),
   CHECK (confirmed_at IS NULL OR ended_at IS NULL),
   CHECK (new_email <> old_email)
@@ -42,3 +52,14 @@ CREATE INDEX core_customer_email_change_customer_idx
   ON core_customer_email_change (customer_id, created_at);
 CREATE INDEX core_customer_email_change_mailbox_idx
   ON core_customer_email_change (new_mailbox, created_at);
+
+-- Closed is final: only an `unsent` row may be reopened (its code went out), and nothing else
+-- about a confirmed or ended row may change.
+CREATE TRIGGER core_customer_email_change_closed
+BEFORE UPDATE ON core_customer_email_change
+WHEN OLD.confirmed_at IS NOT NULL
+  OR (OLD.ended_at IS NOT NULL AND NOT (OLD.end_reason = 'unsent' AND NEW.ended_at IS NULL
+    AND NEW.end_reason IS NULL AND NEW.confirmed_at IS NULL))
+BEGIN
+  SELECT RAISE(ABORT, 'core_email_change_closed');
+END;

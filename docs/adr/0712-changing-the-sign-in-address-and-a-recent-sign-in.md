@@ -27,7 +27,7 @@ another Person has since taken (#302): erasing the first deleted the second's ac
 ### A recent sign-in (`sign_in_again`)
 
 - **Acts that could hand an account to someone else need a sign-in within the last 15 minutes:**
-  `me.email.change` and `me.deleteAccount`. Otherwise the call is refused with the new error code
+  `me.email.change`, `me.email.confirm` and `me.deleteAccount`. Otherwise the call is refused with the new error code
   `sign_in_again` (HTTP 403, not 401: the session is good for everything else and a client must
   not drop it; `details.withinMinutes`). The blocks send the member through the code sign-in and
   back.
@@ -46,31 +46,46 @@ another Person has since taken (#302): erasing the first deleted the second's ac
   address (and its mailbox key, for counting), the address it replaces, who started it
   (`customer` or the staff user's id), the code's hash (salted with the row's id) and its expiry
   (15 minutes), tries left (5), when it was made, confirmed or ended and why (`replaced`,
-  `cancelled`, `tries`, `in_use`). One open per account, by a partial unique index; a newer
-  request ends the open one as `replaced` in the same batch.
+  `cancelled`, `tries`, `in_use`, `unsent`). One open per account, by a partial unique index; a
+  newer request ends the open one as `replaced` in the same batch.
+- **Closed is final, in the database.** A trigger refuses any update to a confirmed or ended row
+  (except reopening an `unsent` one). Every batch planned from an open change writes to it by id
+  alone: a confirm sets `confirmed_at` first in its batch, a cancel or a newer request sets
+  `ended_at`. Whichever commits second fails whole (`conflict`, `rule: email_change_closed`), so a
+  cancel never answers `cancelled: true` for a change that went through, a request is never
+  planned from an address the account no longer has, and two right codes at once apply once.
 - **`me.email.change` (customer, `hostInternal`, recent sign-in):** emails a six-digit code to the
   new address and answers `{ newEmail, expiresAt }` the same whether the address is free, held by
   another Person or account, or erased. Whether it can be used is never looked at here.
-- **`me.email.confirm` (customer, `hostInternal`):** for the account's own session, with the code.
+- **`me.email.confirm` (customer, `hostInternal`, recent sign-in):** for the account's own
+  session, signed in within 15 minutes whoever started the change (owner decision 4), with the
+  code.
   A try is spent first, at once and on its own, so racing guesses still count; a wrong code says
   how many tries are left and the fifth ends the change. A right code for an address another
   Person, another account or the erased-address list holds is refused (`conflict`, "This address
   is already in use at the business", `rule: address_in_use`), ends the change and changes
-  nothing: only the person who proved the mailbox learns it is in use. Otherwise, in one batch
+  nothing: only the person who proved the mailbox learns it is in use. A change the account has
+  moved on from (disabled, relinked, its address changed) is ended and said so (`change_stale`).
+  A change that would give the Person more than 20 addresses is refused before a try is spent.
+  Otherwise, in one batch
   with the audit row: the account's address; the Person's emails (the new address first and
   primary, the old sign-in address removed, every other address kept), written by the Person
   writer as a host change for the customer (ADR 0428); every other session of the account ended,
   web and app (the confirming one stays); a sign-in code still waiting for the old address
   deleted; a timeline activity "Sign-in address changed" naming no address. The code is redacted
-  from the audit (`redact: ["code"]`). No recent sign-in is asked at confirm: a staff-started
-  change is for a member who may be signed in only on an old session, and the code at the new
-  address is the proof.
+  from the audit (`redact: ["code"]`). The Person's addresses are inserted at most 14 rows per
+  statement, under D1's 100 bound variables (`person.update` shares the code).
 - **After the commit,** never undoing the change and logged when it fails: the notice to the old
   address, whoever started the change, naming the new one only in part (`a•••@example.com`); and
   the payment provider given the new address (below).
 - **Limits** are counted from these rows in D1, the same for every address: 5 requests per account
-  in a rolling hour, 3 per mailbox (`mailboxKey`, ADR 0459) within a code's 15 minutes. The
-  per-account, per-operation limit of every customer call (ADR 0402) applies on top.
+  in a rolling hour, 3 per mailbox (`mailboxKey`, ADR 0459) within a code's 15 minutes. A request
+  is reserved before its code is sent: one conditional insert of its row, ended `unsent`, runs
+  only while both counts are under their limits, and D1 runs one statement at a time, so parallel
+  requests cannot pass them. The request's batch reopens the row once the code went out; one that
+  did not go out stays `unsent`, still counted and never confirmable. The per-account,
+  per-operation limit of every customer call (ADR 0402) applies on top. A refusal for a mailbox
+  says that others asked for it lately, nothing about accounts.
 - **Staff start a change, never finish one.** `customer.changeEmail` and
   `customer.cancelEmailChange` are admins' (`users:manage`), humans only, outside MCP: identity is
   not AI-configurable. The code goes to the new address and the member enters it, signed in to
@@ -120,8 +135,9 @@ another Person has since taken (#302): erasing the first deleted the second's ac
 
 - Clients get one new error code to handle (`sign_in_again`); `packages/client` passes codes
   through as strings, so nothing breaks.
-- A member signed in for more than 15 minutes is asked to sign in again before changing their
-  address or deleting their account, in the browser and in the app.
+- A member signed in for more than 15 minutes is asked to sign in again before asking for or
+  confirming an address change, or deleting their account, in the browser and in the app. The
+  code keeps working meanwhile.
 - An address change ends the member's other sessions, including their other devices.
 - The notice and the provider update can fail after the change committed; both are logged, not
   retried. A failed provider update leaves the provider's receipts going to the old address until
@@ -140,4 +156,9 @@ another Person has since taken (#302): erasing the first deleted the second's ac
   customer.
 - **The limits on the Workers rate-limit bindings:** they are per isolate window and not reachable
   from an operation's context; the rows are already there, and counting them is exact.
-- **A recent sign-in at confirm:** it would stop the staff-started change for the member it is for.
+- **No recent sign-in at confirm for a staff-started change** (the first build): it helps a member
+  who kept only an old session, but lets a stolen long-lived app session finish a change staff
+  were talked into starting. Decision 4 asks for a recent sign-in, so it holds for every confirm;
+  a member who cannot sign in at all asks staff to change it another way.
+- **Counting first and inserting after the send** (the first build): parallel requests all passed
+  the count before any row existed (review of PR #384).

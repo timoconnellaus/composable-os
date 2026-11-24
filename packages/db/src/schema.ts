@@ -902,7 +902,7 @@ export interface CoreCustomerEmailChangeTable {
   ended_at: Defaulted<string | null>;
   end_reason: Defaulted<CustomerEmailChangeEnd | null>;
 }
-export type CustomerEmailChangeEnd = "replaced" | "cancelled" | "tries" | "in_use";
+export type CustomerEmailChangeEnd = "replaced" | "cancelled" | "tries" | "in_use" | "unsent";
 
 /** Migration 0401: an address staff invited to sign up. */
 export interface CoreCustomerInviteTable {

@@ -102,7 +102,7 @@ async function formerValues(
 
 /**
  * Of `addresses`, the ones another identified Person holds now: a live email of a Person outside
- * `ids`, or the sign-in address of a customer account linked to a Person outside `ids`.
+ * `ids`, or the sign-in address of a customer account not linked to a Person in `ids`.
  */
 export async function addressesHeldByOthers(
   db: Kysely<CoreDatabase>,
@@ -120,12 +120,13 @@ export async function addressesHeldByOthers(
       .where("email", "in", list)
       .where("person_id", "not in", subject)
       .execute(),
+    // An account not linked to the subject, linked to someone else or to nobody yet (a sign-up
+    // whose link failed, one waiting for a merge): not the subject's to take.
     db
       .selectFrom("core_customer")
       .select("email")
       .where("email", "in", list)
-      .where("person_id", "is not", null)
-      .where("person_id", "not in", subject)
+      .where((eb) => eb.or([eb("person_id", "is", null), eb("person_id", "not in", subject)]))
       .execute(),
   ]);
   return new Set([...people, ...accounts].map((row) => row.email));

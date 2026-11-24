@@ -39,8 +39,9 @@ native link to the website is built).
   minutes ago (`sign_in_again`, HTTP 403), read from the session's own row; an app session
   exchanged from a browser sign-in keeps its age. Changing the sign-in address:
   `core_customer_email_change`, `me.email.change` (a code to the new address as the host's sign-in
-  mail, the same answer for any address, limited per account and per mailbox), `me.email.confirm`
-  (five tries; refused while another Person, account or the erased list holds the address; else
+  mail, the same answer for any address, limited per account and per mailbox by a reservation
+  before the send), `me.email.confirm` (after a recent sign-in; five tries; a change closed by a
+  racing confirm, cancel or newer request fails whole, migration 0990's trigger; refused while another Person, account or the erased list holds the address; else
   the account's address and the Person's primary email in one batch, other sessions ended, a
   timeline activity naming no address; after the commit the notice to the old address and the
   provider given the new one), staff `customer.changeEmail` and `customer.cancelEmailChange`
