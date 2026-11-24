@@ -4,6 +4,10 @@ Each stage runs as: **interview** (agree how it works) → **spec** in `docs/sta
 **build session** in its own worktree → review → merge. Stages are usable on their own and reduce
 risk for the next.
 
+A stage's row gives its state at the time its spec was agreed. Step-by-step progress is in the
+spec's Status section (`docs/stages/NN-*.md`), which each build step updates; build steps do not
+edit the rows here, so parallel PRs do not conflict on them.
+
 | # | Stage | Scope | Status |
 | --- | --- | --- | --- |
 | 0 | Scaffold | Monorepo, `cos-app` + `cos-runner`, D1 + migrations, identity adapters, CI, Deploy button; spike of `@cloudflare/computer` + Worker Loader | done (PR #2) |
@@ -165,7 +169,7 @@ gets its interview and spec when a client needs it, and not before.
 | 57 | Events and venue hire | Hiring out a space without double booking; run sheets and crew shifts for the business's own events ([spec](stages/57-events-venue-hire.md)) | spec agreed (2026-11-24); not on the first client's day-one list |
 | 58 | Timesheets and leave | One time-entry record for hours worked at the business or on a job; approval; leave types and balances; pay from approved recorded hours ([spec](stages/58-timesheets-leave.md)) | spec agreed (owner interviewed 2026-11-24) |
 | 60 | Owner's Today | The owner's day at a glance on phone and web, with alerts; money figures from stage 52 ([spec](stages/60-owners-today.md)) | spec agreed (2026-11-24); step 1 built (`fix/dashboards-business-day`: every dashboard's date presets and `:today` in the organisation's time zone, `localDay`, the zone in the widget cache key; closes #306; ADR 0871, no migration); steps 2 to 8 not yet |
-| 61 | Accounting sync | Daily summaries, payouts and invoices sent to an accounting system through a gatekeeper; a person approves at first ([spec](stages/61-accounting-sync.md)) | spec agreed (owner interviewed 2026-11-24) |
+| 61 | Accounting sync | Daily summaries, payouts and invoices sent to an accounting system through a gatekeeper; a person approves at first ([spec](stages/61-accounting-sync.md)) | spec agreed (owner interviewed 2026-11-24); step 1, the contract, the fake and the conformance suite, built (`feat/stage-61-accounting-contract`: `packages/gatekeeper-accounting`, the fake books bound to cos-runner in development and tests, the catalogue's `implements: "accounting"`; ADR 0880, no migration) |
 | 63 | App publishing | A client's iPhone and Android apps in the stores under the client's own accounts, and keeping them updated ([spec](stages/63-app-publishing.md)) | spec agreed (owner interviewed 2026-11-24) |
 | 59, 62, 64 | Equipment, Calendar sync, More than one location | Drafted; specs not yet written | not specced |
 
