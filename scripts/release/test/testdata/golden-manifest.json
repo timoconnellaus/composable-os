@@ -28,7 +28,7 @@
   },
   "channel": "stable",
   "commit": "0123456789abcdef0123456789abcdef01234567",
-  "coreSchemaVersion": 910,
+  "coreSchemaVersion": 1090,
   "extensionContract": {
     "supported": [
       1
@@ -618,6 +618,10 @@
     {
       "name": "0910_routine_messages.sql",
       "sha256": "126d1dd0a77d56ebb8818aa70cb07bd1285f3f42d15c4031445f838b2fd3c67a"
+    },
+    {
+      "name": "1090_staff_hours.sql",
+      "sha256": "0480b60eb82006572545fc8963478f1de13fbfc82e956332d941a009046bae48"
     }
   ],
   "product": "crm",
