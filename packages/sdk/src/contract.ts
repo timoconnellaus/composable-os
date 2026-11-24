@@ -10,6 +10,7 @@ import type { ChecklistsSpec } from "./checklists.ts";
 import type { DocumentPathSpec, DocumentSchema } from "./document.ts";
 import type { FieldTypeName } from "./field-types.ts";
 import type { IntakeSpec } from "./intake.ts";
+import type { OccupiesSpec } from "./occupies.ts";
 import type { RecurringScheduleSpec } from "./recurring.ts";
 import type { RoutineMailModule, RoutineMailSpec } from "./routine-mail.ts";
 import type { SellableSpec } from "./sellable.ts";
@@ -305,6 +306,12 @@ export interface ObjectSpec {
    * write with its warnings (away, not qualified, no one on it).
    */
   staffed?: StaffedSpec;
+  /**
+   * A claim on a thing (see OccupiesSpec, ADR 0765): while live, the record takes the room (or
+   * chair, or hall) it names for its time. The host refuses, in the database, a second live
+   * record on the same thing at an overlapping time, whatever object it is.
+   */
+  occupies?: OccupiesSpec;
   /**
    * The public-write door (see IntakeSpec, ADR 0720): a form the public answers, the submission
    * the host makes from the answers, or another pack's record a form may also make. Only the

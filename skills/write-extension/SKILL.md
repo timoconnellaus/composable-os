@@ -191,6 +191,16 @@ extension declares it; it never implements it. Each behaviour the platform has i
   sets who rosters and the numbers (ADR 0626), each number setting `personApproves`. With such
   a pack installed, only a rosterer writes who works a shift (its person, a series' regular person,
   a profile's account), by any path; never set one in a tool or an automation.
+- **`occupies`** on an object whose records take a room, chair or hall for their time (a class in
+  a private room): `occupies: { thing: "<relation to another of your objects, one or many>",
+  starts, ends (both required datetime fields), live: [<states in which it takes it>], before?: { field }, after?: { field },
+  only?: "<a boolean field of the thing>" }`. The host refuses, in the database, two live records
+  on one thing at an overlapping time, across every object that declares it, for every writer
+  (`conflict`, `rule: "room_taken"`, naming no other record). `before` and `after` are minutes
+  kept free (a number field, or `relation.field`: a service's buffer). With `only`, just the
+  things with that flag set are claimed (a room marked "one booking at a time"; a shared floor
+  never). Never check whether a room is free in a tool. See `OccupiesSpec` in
+  `packages/sdk/src/occupies.ts` and ADR 0765.
 - **`intake`** when the public or customers send answers (a form, its submissions, a record a
   form may also make): `intake: { role: "form", questions: "<document field with
   QUESTIONS_SCHEMA, in publishable.content>", answeredBy: "<select: public, customers, links,
