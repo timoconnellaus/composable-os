@@ -202,3 +202,10 @@ Rostering's team tools name the team role's permission and the grantable `roster
 `grantLiftsRoleLimits` (the team role has no limits to lift). See
 [ADR 0625](0625-restricted-pack-permissions.md) and
 [ADR 0626](0626-the-rostering-pack-and-bookings-additions.md).
+
+**Amended 2026-11-24** (stage 44 step 6, [ADR 0649](0649-signing-at-the-desk.md)): core declares
+one permission of its own grantable to an account holding a pack role, `agreements:desk`
+(`FIXED_ROLE_GRANTABLE` in `principals.ts`), so a coach at the desk may start a desk signing
+session. A grant of it opens exactly the core operations whose permission it is (the
+`agreement.desk.*` staff operations) and nothing else; every other core grant still counts for
+nothing beside a pack role, and enrolling or revoking a device stays an admin's.

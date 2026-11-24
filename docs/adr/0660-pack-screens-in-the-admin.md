@@ -195,3 +195,10 @@ with `back`, a publish without `records:publish`) shows the host's words.
   `/api/assistant/*` and `system.ts` calls.
 - A screen's code is a static asset anyone who knows its address can download; it holds the
   repository's open-source block code and no data, which the spec accepts.
+
+**Amended 2026-11-24** (stage 44 step 6, [ADR 0649](0649-signing-at-the-desk.md)): `screens.mine`
+also lists core's own staff screens (`CORE_SCREENS`, `pack: "core"`, route `/s/core/<key>`), each
+declared in stage 47's shape and listed by the same rule: a person who could call every core
+operation its gate names. The admin's build holds their components (`#/components/screens`). The
+first is Sign at the desk (gated by `agreement.desk.start` and `agreement.desk.find`), so a coach
+granted `agreements:desk` finds it in their small shell.

@@ -454,6 +454,12 @@ A deploy-time **identity adapter** ([ADR 0008](adr/0008-identity-adapters.md)): 
 default) or Cloudflare Access, selected by env var. The MCP OAuth 2.1 server sits on top and delegates
 login to the active adapter. Identity is never runtime-pluggable.
 
+**The desk origin** ([ADR 0649](adr/0649-signing-at-the-desk.md)). A request to the host's second
+hostname (`DESK_HOSTNAME`, `desk.` before its name) is answered first, by its own handler, and
+serves only the enrolled tablet's two pages and its calls: no admin page, server function, HTTP
+surface, MCP or sign-in. The staff origin answers the desk's paths as not found. The tablet holds
+no sign-in, only an enrolled device's credential ([ADR 0780](adr/0780-the-enrolled-device.md)).
+
 In `cos-app`, one TanStack Start request middleware resolves the **Principal** for every page
 route, server route and server function call. Everything is private by default: only `/sign-in`,
 `/api/health`, the adapter's own routes (`/api/auth/*`) and server functions in `*.public.ts` files
@@ -1845,8 +1851,26 @@ email gatekeeper owes a **scrub** (`scrub_due_at`): the host asks each email-sen
 reached (`via`), through its own agreements queue only (`callAsHost`, method `scrubAgreementCopy`), to drop the copy's journal
 records, refuse any later send under its key and blank its history lines; a send in flight during
 the erase is scrubbed after it. Merge moves acceptances unchanged (`agreement.mergePlan` counts
-them for the preview). Signing at the desk and cooling off are the later steps
-(`docs/stages/44-agreements.md`).
+them for the preview). Step 6 (migration 0858, [ADR 0649](adr/0649-signing-at-the-desk.md)),
+built with stage 51's step 1 (migration 1130, [ADR 0780](adr/0780-the-enrolled-device.md)), is
+**signing at the desk**: a member signs on the business's own **enrolled device**
+(`core_device`, `packages/core/src/devices/`): a tablet a human admin enrolled for one use
+(`device.enrol`, `device.setUse`, `device.revoke`, users:manage and a person; every admin told),
+whose credential (a cookie on the desk origin, an HMAC under `DESK_SECRET` in the host) rotates
+at least daily with a 60-second grace and revokes the device as a clone when a rotated-away one
+comes back, and lapses after 30 days unused. A person with `agreements:desk` (a core permission
+grantable even to a fixed-role account, ADR 0600 amended; a core screen in `screens.mine` for
+them) starts a **desk signing session** (`core_agreement_desk_session`, `agreements/desk.ts`) for
+one Person on a chosen device; the tablet claims it with a one-time code and gets a session token
+that reaches only the five desk calls (`desk.claim`, `desk.documents`, `desk.accept`,
+`desk.heartbeat`, `desk.finish`), each a public `deskOnly` operation: reached only from the
+**desk origin**'s own handler (`apps/app/src/server/http/desk.ts`, its own hostname `desk.` before
+the host's, set by `cos deploy`), never from the HTTP surface. The host keeps the limits (3
+minutes idle, 20 in all, a bounded heartbeat, wrong-code lock-outs, one session per device) and
+migration 0858 holds every desk acceptance to a claimed, open session for its Person. The
+Acceptances list and the Person tab show how one was made and its **marks** (address changed
+recently, created that day, a staff account's address; `agreements/desk-marks.ts`). Cooling off is
+the later step (`docs/stages/44-agreements.md`).
 
 Two reasons this is the centre of the design. Extension tools cannot run several writes as one
 transaction, so anything that must be atomic (take the last place and create the order) has to be

@@ -37,6 +37,8 @@ there (in your fork) to switch adapter. Everything else is a **secret** on `crm-
 | `APPROVAL_FLOOR` | var | optional | Approval-policy floor the org's preset can never loosen (ADR 0011/0018). JSON keyed by actor (`human`, `assistant`, `mcp`, `automation`, `extension` or `*`) then risk class (or `*`), with `auto`, `review`, `deny` or `{"autoUpTo": n, "above": "review"}`. Example: `{"*":{"destructive":"review"}}`. Empty: no floor. Malformed: every operation is refused |
 | `APPROVAL_EXPIRY_DAYS` | var | optional | Days before a pending action (an AI change waiting for approval) expires. Default `7` |
 | `API_ALLOWED_ORIGINS` | var | optional | Origins a browser may call the HTTP surface (`/api/v1`) from, comma separated, such as a client app's site, for its customers and the public only: a staff session from it is refused. Phones and servers send no origin and are not affected. Empty (default): none but the app's own |
+| `DESK_HOSTNAME` | var | for desk signing | The desk origin's hostname, `desk.` before the host's (stage 44 step 6, ADR 0649): the business's enrolled tablet runs there, on the same Worker, which serves it only the tablet's pages and calls. `cos deploy` and the installer set it, and add the hostname as a custom domain, when the host is on a custom domain; empty (workers.dev, a hosted tenant): no desk signing and no enrolled devices. Locally `pnpm dev` sets `desk.localhost` |
+| `DESK_SECRET` | secret | for desk signing | The key enrolment codes, enrolled devices' credentials, desk codes and desk session tokens are kept under (HMAC, ADR 0780). At least 32 random characters, different from every other secret; the installer and `cos deploy` make it once on a custom domain (a host updated only from Settings → Updates gets it at its next `cos deploy`, or by `wrangler secret put DESK_SECRET`). Changing it revokes every enrolled device in effect (their credentials no longer match): enrol them again |
 | `CUSTOMER_AUTH_SECRET` | secret | for customers | Signs customer sessions (stage 22). Must differ from `BETTER_AUTH_SECRET`. Unset: no customer session exists, and every caller of the HTTP surface who is not staff is the public |
 | `MCP_ACCESS_TOKEN_TTL` | var | optional | MCP access token lifetime in seconds. Default `3600`; refresh tokens last 30 days |
 | `MCP_RESOURCE` | var | optional | The public `/mcp` URL tokens are bound to, e.g. `https://crm.example.com/mcp`. Default: the request's origin + `/mcp`. Set it when the app answers on several hostnames |
@@ -1029,6 +1031,12 @@ Every request is then admitted only with a valid `Cf-Access-Jwt-Assertion` heade
 `CF_Authorization` cookie) signed by your team, for your application. Protect every hostname the
 Worker answers on (including `workers.dev`, or turn it off), since requests without the JWT are
 rejected but should never get that far.
+
+The desk origin (`desk.` before the host's name, ADR 0649) is a hostname of its own: leave it out
+of the Access application. The tablet holds no Access sign-in, and the desk origin's own handler
+serves only the tablet's two pages and its calls (an enrolled device's credential and a session a
+person on the staff started), never an admin page, and refuses a call that carries a staff
+session.
 
 ### What stays behind Access, and what is bypassed
 

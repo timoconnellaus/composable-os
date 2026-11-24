@@ -101,3 +101,10 @@ buyer's address of an order a verified payment was applied to. `invite_only` sta
 dependant's records ([ADR 0540](0540-the-family-link.md)). The link is a core record made only by a
 person on the staff with `people:link`; the seam alone decides what it gives, per object that opts
 in (`customer.guardians`), and nothing else a customer reads or writes changed.
+
+**Amended 2026-11-24** (stage 44 step 6, [ADR 0649](0649-signing-at-the-desk.md)): an operation open
+to the public may be marked `deskOnly`: it is reached only from the desk origin's own handler,
+which gives it the enrolled device's credential and the desk session's token from the request
+(`ctx.desk.request`), never from an input. Any other caller is told no such operation exists; it is
+left out of the HTTP contract and the manifest, and listed in `open-operations.json` as `deskOnly`.
+It must be `hostInternal`, and a desk request reaches no other operation.
