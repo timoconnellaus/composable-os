@@ -41,6 +41,7 @@ export type {
 } from "../fields/types.ts";
 
 import { viewColumnOf } from "../records/columns.ts";
+import { jsonList } from "../records/common.ts";
 import type { Reader } from "./index.ts";
 
 /** What a source of one kind is asked. */
@@ -241,9 +242,7 @@ function pointersSql(
     sql`${sql.ref(resolved.pointer)} IS NOT NULL`,
   ];
   if (resolved.state) {
-    conditions.push(
-      sql`${sql.ref(resolved.state.column)} IN (${sql.join(resolved.state.values.map((v) => sql`${v}`))})`,
-    );
+    conditions.push(sql`${sql.ref(resolved.state.column)} IN ${jsonList(resolved.state.values)}`);
   }
   if (resolved.until) {
     // A date's last day still gives access; a datetime until its moment.
@@ -270,9 +269,9 @@ const RECORD_KIND: AccessSourceKind = {
     if (typeof resolved === "string") return new Set();
     const pointers = pointersSql(resolved, query);
     if (!resolved.through) {
-      const rows = await sql<{ id: string }>`SELECT id FROM (${pointers}) WHERE id IN (${sql.join(
-        query.ids.map((id) => sql`${id}`),
-      )})`.execute(query.db);
+      const rows = await sql<{ id: string }>`SELECT id FROM (${pointers}) WHERE id IN ${jsonList(
+        query.ids,
+      )}`.execute(query.db);
       return new Set(rows.rows.map((r) => String(r.id)));
     }
     // Through a record that lists them (a bundle): read what each one the caller holds lists.
