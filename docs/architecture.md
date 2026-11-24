@@ -861,6 +861,7 @@ apps/
   app/                 TanStack Start + shadcn UI, server functions, /mcp       → Worker "cos-app"
   runner/              extension runtime, automations, Workflows, Queues         → Worker "cos-runner"
   marketing/           the Composable OS site, composableos.dev                  → Worker "cos-site"
+  docs/                the technical docs, docs.composableos.dev, generated from the code (ADR 0930) → Worker "cos-docs"
 packages/
   core/                operations registry, risk classes, policy types, model role registry (ai/), the judge (judge/), schema reconciler
   db/                  core D1 migrations (incl. core_base_* views), typed core schema
@@ -894,7 +895,8 @@ skills/                agent skills for building on the platform (stage 21, ADR 
 templates/client/      the client repo `cos create` writes (stage 24): apps/web, apps/mobile, product.ts
 blocks/                the platform's blocks (stage 24, MIT): ui-* (web base layer), native-base, sign-in
 packs/                 shipped extensions with their client parts (stage 24): <id>/index.ts and its
-                       files (the extension), client/ (headless hooks), blocks/ (screens)
+                       files (the extension), client/ (headless hooks), blocks/ (screens), and
+                       docs/overview.md (its overview on the docs site, ADR 0930)
   deals/               (stage 4) Deals: pipelines, stages, deals, participants (ADR 0026, 0100)
   leads/               (stage 15) Leads: inbox, conversion to deals (ADR 0246)
   lifecycle/           (stage 15) opt-in lifecycle stage on people (ADR 0246)
@@ -905,6 +907,7 @@ docs/
   stages/              per-stage agreed spec + acceptance criteria
   spikes/              time-boxed experiments and their findings
   deploying.md         install, secrets, Deploy button, upgrades
+  guides/              cross-cutting guides, published on the docs site (ADR 0930)
 scripts/
   deploy.mjs           deploy both Workers and apply migrations (`pnpm run deploy`)
   dev-setup.mjs        local .dev.vars + local migrations (runs before `pnpm dev`)

@@ -1,0 +1,338 @@
+# Composable OS
+
+> A platform for composing products on a trusted host on Cloudflare. These docs follow the main branch: reference pages are generated from the code, and guides and overviews are written beside it.
+
+## Start
+
+- [Composable OS documentation](https://docs.composableos.dev/): Technical documentation for Composable OS: a platform for composing products on a trusted host on Cloudflare.
+- [Planned](https://docs.composableos.dev/planned/): Stages with a spec and no pack or capability pages here yet.
+- [Versions](https://docs.composableos.dev/versions/): These docs follow the main branch of the repository.
+
+## Guides
+
+- [Approvals and AI](https://docs.composableos.dev/guides/approvals-and-ai/): The approval pipeline, the policy adjudicator, model roles, and what an AI may and may not do.
+- [Architecture](https://docs.composableos.dev/guides/architecture/): The host, operations, data, extensions, gatekeepers and the release, in one page.
+- [Audiences and the visibility seam](https://docs.composableos.dev/guides/audiences-and-visibility/): Who may call an operation (staff, customers, the public) and how the host limits what each one sees.
+- [Client apps and blocks](https://docs.composableos.dev/guides/client-apps-and-blocks/): A company's own web and mobile apps, the typed client, and blocks copied with cos add.
+- [Deploying](https://docs.composableos.dev/guides/deploying/): Installing a product, a company's own repository and cos deploy, upgrades and rollback.
+- [Extensions and packs](https://docs.composableos.dev/guides/extensions/): What an extension declares, how a pack is made, and how both are checked.
+
+## Packs
+
+- [Bookings: data model](https://docs.composableos.dev/packs/bookings/data-model/)
+- [Bookings: decisions](https://docs.composableos.dev/packs/bookings/decisions/)
+- [Bookings](https://docs.composableos.dev/packs/bookings/): A gym's or studio's timetable and the bookings members make on it, with places, waitlists, spending a membership's uses, attendance and drop-ins.
+- [Bookings: messages](https://docs.composableos.dev/packs/bookings/messages/)
+- [Bookings: permissions and roles](https://docs.composableos.dev/packs/bookings/permissions/)
+- [Bookings: screens](https://docs.composableos.dev/packs/bookings/screens/)
+- [Bookings: settings](https://docs.composableos.dev/packs/bookings/settings/)
+- [Bookings: operations and tools](https://docs.composableos.dev/packs/bookings/tools/)
+- [Content: data model](https://docs.composableos.dev/packs/content/data-model/)
+- [Content: decisions](https://docs.composableos.dev/packs/content/decisions/)
+- [Content](https://docs.composableos.dev/packs/content/): Blog posts and their categories: staff write and schedule them, a person publishes them, and the public reads what was published, on the web and in the app.
+- [Content: messages](https://docs.composableos.dev/packs/content/messages/)
+- [Content: permissions and roles](https://docs.composableos.dev/packs/content/permissions/)
+- [Content: screens](https://docs.composableos.dev/packs/content/screens/)
+- [Content: settings](https://docs.composableos.dev/packs/content/settings/)
+- [Content: operations and tools](https://docs.composableos.dev/packs/content/tools/)
+- [Courses: data model](https://docs.composableos.dev/packs/courses/data-model/)
+- [Courses: decisions](https://docs.composableos.dev/packs/courses/decisions/)
+- [Courses](https://docs.composableos.dev/packs/courses/): Video courses sold one at a time or in bundles, watched lesson by lesson, with progress. A lesson can be a training session from Programs.
+- [Courses: messages](https://docs.composableos.dev/packs/courses/messages/)
+- [Courses: permissions and roles](https://docs.composableos.dev/packs/courses/permissions/)
+- [Courses: screens](https://docs.composableos.dev/packs/courses/screens/)
+- [Courses: settings](https://docs.composableos.dev/packs/courses/settings/)
+- [Courses: operations and tools](https://docs.composableos.dev/packs/courses/tools/)
+- [Daily checklists: data model](https://docs.composableos.dev/packs/dailychecks/data-model/)
+- [Daily checklists: decisions](https://docs.composableos.dev/packs/dailychecks/decisions/)
+- [Daily checklists](https://docs.composableos.dev/packs/dailychecks/): Checklists done on their own: opening, closing and cleaning, due on set days by a set time, ticked off by whoever may do them, with how each day went for those who manage them.
+- [Daily checklists: messages](https://docs.composableos.dev/packs/dailychecks/messages/)
+- [Daily checklists: permissions and roles](https://docs.composableos.dev/packs/dailychecks/permissions/)
+- [Daily checklists: screens](https://docs.composableos.dev/packs/dailychecks/screens/)
+- [Daily checklists: settings](https://docs.composableos.dev/packs/dailychecks/settings/)
+- [Daily checklists: operations and tools](https://docs.composableos.dev/packs/dailychecks/tools/)
+- [Deals: data model](https://docs.composableos.dev/packs/deals/data-model/)
+- [Deals: decisions](https://docs.composableos.dev/packs/deals/decisions/)
+- [Deals](https://docs.composableos.dev/packs/deals/): Deals moving through pipelines of stages, with stage rules, probabilities, stage history and the people involved.
+- [Deals: messages](https://docs.composableos.dev/packs/deals/messages/)
+- [Deals: permissions and roles](https://docs.composableos.dev/packs/deals/permissions/)
+- [Deals: screens](https://docs.composableos.dev/packs/deals/screens/)
+- [Deals: settings](https://docs.composableos.dev/packs/deals/settings/)
+- [Deals: operations and tools](https://docs.composableos.dev/packs/deals/tools/)
+- [Packs](https://docs.composableos.dev/packs/)
+- [Leads: data model](https://docs.composableos.dev/packs/leads/data-model/)
+- [Leads: decisions](https://docs.composableos.dev/packs/leads/decisions/)
+- [Leads](https://docs.composableos.dev/packs/leads/): Inbound interest linked to a person and an organisation, worked from a leads inbox, qualified or disqualified, and converted into deals. Requires Deals.
+- [Leads: messages](https://docs.composableos.dev/packs/leads/messages/)
+- [Leads: permissions and roles](https://docs.composableos.dev/packs/leads/permissions/)
+- [Leads: screens](https://docs.composableos.dev/packs/leads/screens/)
+- [Leads: settings](https://docs.composableos.dev/packs/leads/settings/)
+- [Leads: operations and tools](https://docs.composableos.dev/packs/leads/tools/)
+- [Lifecycle stage: data model](https://docs.composableos.dev/packs/lifecycle/data-model/)
+- [Lifecycle stage: decisions](https://docs.composableos.dev/packs/lifecycle/decisions/)
+- [Lifecycle stage](https://docs.composableos.dev/packs/lifecycle/): A lifecycle stage on every person (subscriber, lead, marketing qualified, sales qualified, opportunity, customer, evangelist, other), tracked on the timeline, with a board of people by stage.
+- [Lifecycle stage: messages](https://docs.composableos.dev/packs/lifecycle/messages/)
+- [Lifecycle stage: permissions and roles](https://docs.composableos.dev/packs/lifecycle/permissions/)
+- [Lifecycle stage: screens](https://docs.composableos.dev/packs/lifecycle/screens/)
+- [Lifecycle stage: settings](https://docs.composableos.dev/packs/lifecycle/settings/)
+- [Lifecycle stage: operations and tools](https://docs.composableos.dev/packs/lifecycle/tools/)
+- [Memberships: data model](https://docs.composableos.dev/packs/memberships/data-model/)
+- [Memberships: decisions](https://docs.composableos.dev/packs/memberships/decisions/)
+- [Memberships](https://docs.composableos.dev/packs/memberships/): Membership plans paid every month and class passes bought once, with what each allows and what a member has left.
+- [Memberships: messages](https://docs.composableos.dev/packs/memberships/messages/)
+- [Memberships: permissions and roles](https://docs.composableos.dev/packs/memberships/permissions/)
+- [Memberships: screens](https://docs.composableos.dev/packs/memberships/screens/)
+- [Memberships: settings](https://docs.composableos.dev/packs/memberships/settings/)
+- [Memberships: operations and tools](https://docs.composableos.dev/packs/memberships/tools/)
+- [Programs: data model](https://docs.composableos.dev/packs/programs/data-model/)
+- [Programs: decisions](https://docs.composableos.dev/packs/programs/decisions/)
+- [Programs](https://docs.composableos.dev/packs/programs/): An exercise bank, programs built from it as one layout (weeks, sessions, blocks, items, levels, typed sets), published versions, assignments to a person or a class type as dated sessions, and a log of every set against its target.
+- [Programs: messages](https://docs.composableos.dev/packs/programs/messages/)
+- [Programs: permissions and roles](https://docs.composableos.dev/packs/programs/permissions/)
+- [Programs: screens](https://docs.composableos.dev/packs/programs/screens/)
+- [Programs: settings](https://docs.composableos.dev/packs/programs/settings/)
+- [Programs: operations and tools](https://docs.composableos.dev/packs/programs/tools/)
+- [Rostering: data model](https://docs.composableos.dev/packs/rostering/data-model/)
+- [Rostering: decisions](https://docs.composableos.dev/packs/rostering/decisions/)
+- [Rostering](https://docs.composableos.dev/packs/rostering/): Who works when. Duties that are not classes, their weekly patterns and dated shifts, and the roster of every shift, with offers, takes, time off, checklists and pay-period totals.
+- [Rostering: messages](https://docs.composableos.dev/packs/rostering/messages/)
+- [Rostering: permissions and roles](https://docs.composableos.dev/packs/rostering/permissions/)
+- [Rostering: screens](https://docs.composableos.dev/packs/rostering/screens/)
+- [Rostering: settings](https://docs.composableos.dev/packs/rostering/settings/)
+- [Rostering: operations and tools](https://docs.composableos.dev/packs/rostering/tools/)
+- [Ticketing: data model](https://docs.composableos.dev/packs/ticketing/data-model/)
+- [Ticketing: decisions](https://docs.composableos.dev/packs/ticketing/decisions/)
+- [Ticketing](https://docs.composableos.dev/packs/ticketing/): Events, ticket types for sale and the tickets a paid order grants, with check-in at the door. Buyers are people; tickets are theirs to see.
+- [Ticketing: messages](https://docs.composableos.dev/packs/ticketing/messages/)
+- [Ticketing: permissions and roles](https://docs.composableos.dev/packs/ticketing/permissions/)
+- [Ticketing: screens](https://docs.composableos.dev/packs/ticketing/screens/)
+- [Ticketing: settings](https://docs.composableos.dev/packs/ticketing/settings/)
+- [Ticketing: operations and tools](https://docs.composableos.dev/packs/ticketing/tools/)
+
+## Capabilities
+
+- [Agreements: behaviours](https://docs.composableos.dev/capabilities/agreements/behaviours/)
+- [Agreements: decisions](https://docs.composableos.dev/capabilities/agreements/decisions/)
+- [Agreements](https://docs.composableos.dev/capabilities/agreements/): Documents a person agrees to or signs (terms, a waiver, health questions, a parent's consent), kept word for word for good, and enforced so nobody pays or books without what is due.
+- [Agreements: operations](https://docs.composableos.dev/capabilities/agreements/operations/)
+- [Agreements: permissions](https://docs.composableos.dev/capabilities/agreements/permissions/)
+- [Agreements: screens](https://docs.composableos.dev/capabilities/agreements/screens/)
+- [Capabilities](https://docs.composableos.dev/capabilities/)
+
+## Solutions
+
+- [A company's own product](https://docs.composableos.dev/solutions/client/): A client repository's product definition and the packs it can turn on.
+- [CRM](https://docs.composableos.dev/solutions/crm/): The CRM product: the packs it is made of.
+- [Solutions](https://docs.composableos.dev/solutions/)
+
+## Reference
+
+- [Behaviours](https://docs.composableos.dev/reference/behaviours/): What an object may declare, enforced by the host in the write's own batch.
+- [bookings-class-list](https://docs.composableos.dev/reference/blocks/bookings-class-list/): A class's list, for its coach (stage 31a step 7): who is booked, ticked, not come and waiting, and a button to tick each name.
+- [bookings-desk](https://docs.composableos.dev/reference/blocks/bookings-desk/): The front desk, for staff (stage 31a): one day's classes, and booking someone into one, a member on file or a walk-in.
+- [bookings-drop-in](https://docs.composableos.dev/reference/blocks/bookings-drop-in/): Paying for one class on a gym's site (stage 31a step 8, a drop-in): the week's classes for a visitor, each with \"Pay for this class\".
+- [bookings-native-class-list](https://docs.composableos.dev/reference/blocks/bookings-native-class-list/): The coach's class list in the gym's app (stage 31a step 9, decision 10): today's classes, and for the one picked, who is booked, ticked, not come and waiting, with a button to tick each name, untick it, or mark them as not come.
+- [bookings-native-timetable](https://docs.composableos.dev/reference/blocks/bookings-native-timetable/): The timetable in the gym's app (stage 31a, decision 9): book and cancel with the membership or pass a member already holds.
+- [bookings-timetable](https://docs.composableos.dev/reference/blocks/bookings-timetable/): The timetable for a gym's site (stage 31a): the week's classes, and for a signed-in member a Book or Cancel button on each.
+- [content-native-post](https://docs.composableos.dev/reference/blocks/content-native-post/): One post, for the mobile app (stage 28): its title, date, cover and body as the public reads it (`usePost`: the published version only).
+- [content-native-rich-text](https://docs.composableos.dev/reference/blocks/content-native-rich-text/): Rich text for the mobile app (stage 28, ADR 0440): a post's body drawn block by block with React Native's own components, from the same structured data the web block draws.
+- [content-post-list](https://docs.composableos.dev/reference/blocks/content-post-list/): The published posts, newest first, for a site's /blog page (stage 28): each with its cover, title, date and excerpt, and a link to it.
+- [content-post](https://docs.composableos.dev/reference/blocks/content-post/): One post, for a site's /blog/&lt;slug&gt; page (stage 28): its title, date, cover and body, as the public reads it (`usePost`: the published version only, ADR 0442).
+- [content-rich-text](https://docs.composableos.dev/reference/blocks/content-rich-text/): Rich text for the web (stage 28, ADR 0440): a post's body drawn block by block with React elements, never as HTML.
+- [courses-builder](https://docs.composableos.dev/reference/blocks/courses-builder/): The course builder (stage 42), a staff block in the company's web app: sections and lessons in order (moved by buttons, so by keyboard too), each lesson's kind, video from the media library, session from a published Programs program, text, preview flag and minutes; save, then publish.
+- [courses-catalogue](https://docs.composableos.dev/reference/blocks/courses-catalogue/): The course catalogue for a studio's site (stage 42): courses by theme and level, and bundles, with their prices.
+- [courses-course](https://docs.composableos.dev/reference/blocks/courses-course/): A course's page on a studio's site (stage 42): its description, trailer and outline with lesson titles and minutes, the free previews, and either \"buy\" or \"open\".
+- [courses-my-courses](https://docs.composableos.dev/reference/blocks/courses-my-courses/): What a signed-in student holds (stage 42), with how far they are and where to carry on.
+- [courses-native-catalogue](https://docs.composableos.dev/reference/blocks/courses-native-catalogue/): The course catalogue in the studio's app (stage 42).
+- [courses-native-course](https://docs.composableos.dev/reference/blocks/courses-native-course/): A course in the studio's app (stage 42): its summary and outline with lesson titles and minutes; \"open\" for a holder and for a free preview.
+- [courses-native-my-courses](https://docs.composableos.dev/reference/blocks/courses-native-my-courses/): The courses a signed-in student holds, in the studio's app (stage 42), with how far they are.
+- [courses-native-player](https://docs.composableos.dev/reference/blocks/courses-native-player/): One lesson in the studio's app (stage 42).
+- [courses-native-subscription](https://docs.composableos.dev/reference/blocks/courses-native-subscription/): A member's course subscription in the studio's app (stage 32a), read only: its state, the next charge date or when it ends, and that it gives every course; and a continuation offer they have not taken yet (moving from another platform), in words, to take on the web.
+- [courses-player](https://docs.composableos.dev/reference/blocks/courses-player/): One lesson, for a holder (stage 42): a video with its captions that resumes where it was left, a page of text, a download, or a training session from Programs; mark done; the next lesson.
+- [courses-subscribe](https://docs.composableos.dev/reference/blocks/courses-subscribe/): Subscribing to every course on a studio's site (stage 32a): the course plans with the host's price per month and trial days, and a button that opens the payment provider's page.
+- [courses-subscription](https://docs.composableos.dev/reference/blocks/courses-subscription/): A member's own course subscription on the studio's site (stage 32a): its state in words, the next charge or when it ends, and what they can do: cancel at the period's end, keep it going, confirm a payment that waits on them, or open the payment provider's portal for their card and past invoices.
+- [dailychecks-history](https://docs.composableos.dev/reference/blocks/dailychecks-history/): How each day went (ADR 0651), for those who manage checklists: every checklist done on its own, day by day, done (by whom, for whom, when, and whether after its due time) or missed (with the steps nobody ticked).
+- [dailychecks-native-today](https://docs.composableos.dev/reference/blocks/dailychecks-native-today/): Today's checklists in the app (ADR 0651): the same as the web's, over the native base.
+- [dailychecks-today](https://docs.composableos.dev/reference/blocks/dailychecks-today/): Today's checklists (ADR 0651): the checklists done on their own (opening, closing, cleaning) that are due today and that the viewer may do, each with when it is due by and its steps.
+- [Blocks](https://docs.composableos.dev/reference/blocks/)
+- [memberships-mine](https://docs.composableos.dev/reference/blocks/memberships-mine/): A member's memberships and passes on the gym's site (stage 32b): what each allows, when it stops or expires, and what is left this week, this month or in all, from the host's count (`x.memberships.mine`, `allowance.get`); and their membership subscriptions, with what they can do: cancel at the period's end, keep it going, change plan (the host decides: an upgrade now, its prorated charge on the card, or a downgrade from the next period), confirm a payment that waits on them, or open the payment provider's portal for their card and invoices.
+- [memberships-native-mine](https://docs.composableos.dev/reference/blocks/memberships-native-mine/): A member's memberships and passes in the gym's app (stage 32b), read only: what each allows, what is left this week, this month or in all (the host's count), when it stops or expires, and their membership's billing state in words, with a plan change or a pause waiting.
+- [memberships-passes](https://docs.composableos.dev/reference/blocks/memberships-passes/): Buying a pass on a gym's site (stage 32b): the pass types on sale (class packs, drop-ins, an intro offer) with the host's price, what each gives and how long it is valid, and a button that starts the order and opens the payment provider's page.
+- [memberships-plans](https://docs.composableos.dev/reference/blocks/memberships-plans/): Joining a gym on its site (stage 32b): the membership plans on sale with the host's price per month, what each allows and its trial, and a button that opens the payment provider's page.
+- [memberships-staff-holdings](https://docs.composableos.dev/reference/blocks/memberships-staff-holdings/): For staff (stage 32b): one person's memberships and passes, with what each allows and what is left, as the host counts it; giving a pass by hand or voiding one given by hand, with a reason; and pausing their membership for a set time or ending a pause (stage 32b, decision 10: the host holds the plan's shortest and longest pause and asks the provider; the membership shows paused once the provider confirms).
+- [native-account-details](https://docs.composableos.dev/reference/blocks/native-account-details/): Your details (stage 48), for the mobile app: the signed-in customer's name and phone, to change, and the address they sign in with.
+- [native-account-devices](https://docs.composableos.dev/reference/blocks/native-account-devices/): Sign-in and devices (stage 48), for the mobile app: every place the signed-in customer is signed in, when each began and was last used, and signing one out.
+- [native-account-family](https://docs.composableos.dev/reference/blocks/native-account-family/): Family (stage 48), for the mobile app: who the signed-in customer acts for and who acts for them.
+- [native-account-orders](https://docs.composableos.dev/reference/blocks/native-account-orders/): Orders (stage 48), for the mobile app: the signed-in customer's orders, newest first, each with its state, its lines, tax, deposit, what was paid, what is still to pay and by when, and what was refunded.
+- [native-account-payment](https://docs.composableos.dev/reference/blocks/native-account-payment/): Payment method (stage 48), for the mobile app: the card is kept by the payment provider and changed on the website (ADR 0490, ADR 0714), so this says so and opens the business's website account page in the browser (`onManage`).
+- [native-account-subscriptions](https://docs.composableos.dev/reference/blocks/native-account-subscriptions/): The subscriptions part of My account (stage 48), for the mobile app, read only: the subscriptions the signed-in customer pays, each with its state in words (trial until, next charge on, ending on, a payment to confirm), and \"Manage on the website\", which opens the business's website account page in the browser (`onManage`).
+- [native-account](https://docs.composableos.dev/reference/blocks/native-account/): My account (stage 48), for the mobile app's Account tab: the signed-in customer's own area, a list of sections, each opening on its own screen.
+- [native-agree](https://docs.composableos.dev/reference/blocks/native-agree/): Agree to one document (stage 44 step 5), for the mobile app: the version the host gave, its words, a health form's questions, the tick label and its box, the typed name and, for a document agreed to by drawing, the signature pad.
+- [native-agreements-due](https://docs.composableos.dev/reference/blocks/native-agreements-due/): \"Before you go on\" (stage 44 step 5), for the mobile app: after sign-in, when the host says something is due (me.agreements.due), each due document in turn, the member's own first, then each child's; \"Not now\" goes on to the app.
+- [native-base](https://docs.composableos.dev/reference/blocks/native-base/): The native base layer's look, in one place: change these to the company's brand.
+- [native-my-agreements](https://docs.composableos.dev/reference/blocks/native-my-agreements/): My agreements (stage 44 step 5), for the mobile app: what the signed-in member and each child linked to them has agreed to (the document, the version, when, how and by whom), what is due (with a notice when a document changed), the signed PDF, and a health form's answers to update.
+- [native-sign-in](https://docs.composableos.dev/reference/blocks/native-sign-in/): Sign-in with a code by email, for the mobile app.
+- [programs-bank](https://docs.composableos.dev/reference/blocks/programs-bank/): The exercise bank (stage 41): browse and search the gym's exercises, add one, and edit one with its easier and harder versions.
+- [programs-builder](https://docs.composableos.dev/reference/blocks/programs-builder/): The coach's program builder (stage 41): weeks, sessions, blocks and items, by drag and by keyboard; exercises picked from the bank; typed sets; levels; notes, for coaches or shown to members; copying a week or a session; the working copy saved as the coach goes, with the host's faults shown where they are; versions, restoring one, publishing, and assigning.
+- [programs-class-today](https://docs.composableos.dev/reference/blocks/programs-class-today/): A class type's session for a day (stage 41): its plan with every level, for a member to choose the level they take and log their numbers, or for a coach running the class.
+- [programs-coach-client](https://docs.composableos.dev/reference/blocks/programs-coach-client/): The coach's view of one client (stage 41): their sessions, newest first, each opened to see what was logged and to log on their behalf, and their progress.
+- [programs-history](https://docs.composableos.dev/reference/blocks/programs-history/): A person's past sessions (stage 41): newest first, each with its date, its name and how many of its sets were logged; one opened shows it set by set, read-only, with the target beside what was done, and a logged set can be corrected.
+- [programs-native-class-today](https://docs.composableos.dev/reference/blocks/programs-native-class-today/): A class type's sessions for a day, for the mobile app (stage 41): pick the class, open its session to choose the level taken and log (`onOpen`, the app's navigation, to the session screen).
+- [programs-native-coach-client](https://docs.composableos.dev/reference/blocks/programs-native-coach-client/): The coach's view of one client, for the staff app (stage 41): their sessions, newest first; pressing one opens it to log on their behalf (`onOpen`, to the session screen with `personId`).
+- [programs-native-history](https://docs.composableos.dev/reference/blocks/programs-native-history/): A person's past sessions, for the mobile app (stage 41): newest first, each with its date, its name and how many of its sets were logged; pressing one shows it set by set, read-only, and a logged set can be corrected.
+- [programs-native-progress](https://docs.composableos.dev/reference/blocks/programs-native-progress/): History and progress, for the mobile app (stage 41): sessions done per program, and per exercise the sets and bests the host worked out; pressing an exercise shows its sets.
+- [programs-native-session](https://docs.composableos.dev/reference/blocks/programs-native-session/): One session to do, for the mobile app (stage 41): targets, last time's numbers, a row per set to log what was done and how hard it felt, a rest timer, and marking it done.
+- [programs-native-today](https://docs.composableos.dev/reference/blocks/programs-native-today/): A member's day, for the mobile app (stage 41): their own sessions on a date; pressing one opens it (the app's navigation, `onOpen`).
+- [programs-progress](https://docs.composableos.dev/reference/blocks/programs-progress/): History and progress (stage 41): per exercise, a person's sets over time and their bests; per program, sessions done against planned.
+- [programs-session](https://docs.composableos.dev/reference/blocks/programs-session/): One session to do (stage 41): its plan with every target, last time's numbers at each exercise, a row per set to log what was done and how hard it felt, a rest timer after each set, and marking the session done.
+- [programs-today](https://docs.composableos.dev/reference/blocks/programs-today/): A member's day (stage 41): their own sessions on a date, each opened to do it.
+- [rostering-away](https://docs.composableos.dev/reference/blocks/rostering-away/): Everyone's time off (stage 45 step 7), for someone who rosters: by week, who said they cannot work, with their notes, and adding or ending someone's time off for them.
+- [rostering-checklist](https://docs.composableos.dev/reference/blocks/rostering-checklist/): A shift's checklist (stage 45 step 4b, ADR 0650), for the `shiftExtra` slot under a shift (my shifts; a rosterer's week).
+- [rostering-checklists](https://docs.composableos.dev/reference/blocks/rostering-checklists/): How checklists went (stage 45 step 4b, ADR 0650), for whoever rosters: every checklist run in a range of dates, by checklist and then by date, each with its shift, its person, whether it is open, done, missed or cancelled, how many steps were ticked, how many were ticked for the person by someone else, and the steps nobody ticked when it was missed.
+- [rostering-my-availability](https://docs.composableos.dev/reference/blocks/rostering-my-availability/): My availability (stage 45 step 7), for every rostered person: the times I said I cannot work (leave and other one-off times, and regular time off such as every Wednesday afternoon), to add and to end.
+- [rostering-my-calendar](https://docs.composableos.dev/reference/blocks/rostering-my-calendar/): My calendar (stage 45 step 7, over step 5's feed, ADR 0628), for every rostered person: whether I have a private calendar address for my own shifts, making one (or a new one, which stops the old), and switching it off.
+- [rostering-my-shifts](https://docs.composableos.dev/reference/blocks/rostering-my-shifts/): My shifts (stage 45 step 7), for every rostered person: my shifts over the next weeks, day by day, each with its time in the business's zone, its place, and a button to offer it to everyone who could take it, or to withdraw my open offer.
+- [rostering-native-checklist](https://docs.composableos.dev/reference/blocks/rostering-native-checklist/): A shift's checklist in the app (stage 45 step 4b, ADR 0650), for the native my-shifts' `shiftExtra` slot: the same as the web's, over the native base.
+- [rostering-native-my-availability](https://docs.composableos.dev/reference/blocks/rostering-native-my-availability/): My availability in the app (stage 45 step 7): the times I said I cannot work, adding leave or another one-off time, or a regular time off (every week on chosen days), and ending one.
+- [rostering-native-my-calendar](https://docs.composableos.dev/reference/blocks/rostering-native-my-calendar/): My calendar in the app (stage 45 step 7, over step 5's feed, ADR 0628): whether I have a private calendar address for my own shifts, making one (or a new one, which stops the old), and switching it off.
+- [rostering-native-my-shifts](https://docs.composableos.dev/reference/blocks/rostering-native-my-shifts/): My shifts in the app (stage 45 step 7), for every rostered person: a cleaner with the `rostering.team` role (its role client), a coach whose role client was generated with the grant `rostering:roster`, or anyone else on the roster.
+- [rostering-native-offers](https://docs.composableos.dev/reference/blocks/rostering-native-offers/): Offered to me, in the app (stage 45 step 7): the shifts the host says I could take now, soonest first, and taking one.
+- [rostering-native-roster](https://docs.composableos.dev/reference/blocks/rostering-native-roster/): The roster in the app (stage 45 step 7), for every rostered person: the week as a day-by-day list on a phone, each day's shifts in order of start with the kind of work, the place and who is on it, shifts with nobody on them marked and my own marked as mine.
+- [rostering-offers](https://docs.composableos.dev/reference/blocks/rostering-offers/): Offered to me (stage 45 step 7), for every rostered person: the shifts others offered that the host says I could take now (I am qualified for the kind of work, free then, and it is before the cut-off), soonest first, and a button to take each.
+- [rostering-patterns](https://docs.composableos.dev/reference/blocks/rostering-patterns/): The regular week (stage 45 step 7), for someone who rosters: every class series' coach and duty series' regular person, day by day, and changing who works one from a date.
+- [rostering-pay](https://docs.composableos.dev/reference/blocks/rostering-pay/): Pay (stage 45 step 7), for someone who handles pay, a person only: the pay periods, who is counted and how, a period's hours and shifts per person and kind of work with each shift's evidence (its class list taken, by whom, flagged when not by its person), locking a period that has ended, reopening one with why, and its CSV for payroll.
+- [rostering-qualifications](https://docs.composableos.dev/reference/blocks/rostering-qualifications/): Qualifications (stage 45 step 7), for someone who rosters: people down, kinds of work across (each class type, each duty), a tick each.
+- [rostering-week](https://docs.composableos.dev/reference/blocks/rostering-week/): The roster week (stage 45 step 7): a week grid, days across on a wide screen and one under another on a phone, each day's shifts in order of start with the kind of work, the place and who is on it; shifts with nobody on them marked, my own highlighted, an open offer shown.
+- [ticketing-checkout](https://docs.composableos.dev/reference/blocks/ticketing-checkout/): Choosing tickets and paying, for a site (stage 27): quantities per ticket type, pay in full or by deposit when every chosen type offers one, then the payment provider's page.
+- [ticketing-events](https://docs.composableos.dev/reference/blocks/ticketing-events/): The events on sale, and one event's details, for a site's events page (stage 27).
+- [ticketing-my-tickets](https://docs.composableos.dev/reference/blocks/ticketing-my-tickets/): A signed-in customer's tickets, for a site (stage 27).
+- [ticketing-native-my-tickets](https://docs.composableos.dev/reference/blocks/ticketing-native-my-tickets/): A signed-in customer's tickets, for the mobile app's Tickets tab (stage 27).
+- [ticketing-native-scanner](https://docs.composableos.dev/reference/blocks/ticketing-native-scanner/): The door scanner, for the staff app (stage 27): the camera reads a code, the host checks it in, and the screen says clearly let in or not and why, with a haptic, and counts who was let in on this device.
+- [ticketing-native-ticket](https://docs.composableos.dev/reference/blocks/ticketing-native-ticket/): One ticket with its code, for the mobile app (stage 27): a QR carrying the code alone, large on a white card, with the screen at full brightness while it is shown and as it was afterwards.
+- [ticketing-order](https://docs.composableos.dev/reference/blocks/ticketing-order/): The page the buyer comes back to from the payment provider (stage 27).
+- [ui-button](https://docs.composableos.dev/reference/blocks/ui-button/)
+- [ui-card](https://docs.composableos.dev/reference/blocks/ui-card/)
+- [ui-input](https://docs.composableos.dev/reference/blocks/ui-input/)
+- [ui-label](https://docs.composableos.dev/reference/blocks/ui-label/)
+- [ui-utils](https://docs.composableos.dev/reference/blocks/ui-utils/)
+- [web-account-details](https://docs.composableos.dev/reference/blocks/web-account-details/): Your details (stage 48), for the web: the signed-in customer's name and phone, to change, and the address they sign in with.
+- [web-account-devices](https://docs.composableos.dev/reference/blocks/web-account-devices/): Sign-in and devices (stage 48), for the web: every place the signed-in customer is signed in (browsers and the app on their devices), when each began and was last used, and signing one out.
+- [web-account-family](https://docs.composableos.dev/reference/blocks/web-account-family/): Family (stage 48), for the web: who the signed-in customer acts for (a child linked to them) and who acts for them (a parent or guardian).
+- [web-account-orders](https://docs.composableos.dev/reference/blocks/web-account-orders/): Orders (stage 48), for the web: the one list of the signed-in customer's orders, newest first, each with its state, its lines, tax, deposit, what was paid, what is still to pay and by when, and what was refunded.
+- [web-account-payment](https://docs.composableos.dev/reference/blocks/web-account-payment/): Payment method (stage 48), for the web: the card the signed-in customer pays their subscriptions with is kept by the payment provider, and changed on the provider's page, with their past invoices (subscription.portal).
+- [web-account-subscriptions](https://docs.composableos.dev/reference/blocks/web-account-subscriptions/): The subscriptions part of My account (stage 48), for the web: the subscriptions the signed-in customer pays, each with its state in words, the price per period and the next charge or when it ends, and what they can do: cancel at the period's end, keep a cancelled one going, confirm a payment that waits for them.
+- [web-account](https://docs.composableos.dev/reference/blocks/web-account/): My account (stage 48), for the web: the signed-in customer's own area, one page of sections.
+- [web-agree](https://docs.composableos.dev/reference/blocks/web-agree/): Agree to one document (stage 44 step 5), for the web: the version the host gave, its words, a health form's questions, the tick label and its box, the typed name and, for a document agreed to by drawing, the signature pad.
+- [web-agreements-due](https://docs.composableos.dev/reference/blocks/web-agreements-due/): \"Before you go on\" (stage 44 step 5), for the web: shown after sign-in when the host says something is due (me.agreements.due).
+- [web-my-agreements](https://docs.composableos.dev/reference/blocks/web-my-agreements/): My agreements (stage 44 step 5), for the web: what the signed-in member, and each child linked to them, has agreed to (each document, the version, when, how and by whom), what is due (with a notice when a document changed and must be agreed to again), the signed PDF, and a health form's answers to update.
+- [web-sign-in](https://docs.composableos.dev/reference/blocks/web-sign-in/): Sign-in with a code by email, for the web app, built on the web base layer.
+- [The cos command](https://docs.composableos.dev/reference/cli/): Every command of the cos CLI, as its own help gives them.
+- [accounting](https://docs.composableos.dev/reference/gatekeepers/accounting/): The accounting contract every accounting gatekeeper implements: its types, input checks, action descriptions, the shared session, a fake accounting system and the conformance suite.
+- [booking-system](https://docs.composableos.dev/reference/gatekeepers/booking-system/): The read-only booking-system contract every booking-system gatekeeper implements: its types, input checks, the shared session, a fake booking system and the conformance suite.
+- [configurator-ui](https://docs.composableos.dev/reference/gatekeepers/configurator-ui/): The authoring API gatekeeper resource-configurator modules import (type-only stubs from cloudflare-os packages/configurator-ui). The upstream sandbox runtime and frame build are not vendored.
+- [email-send](https://docs.composableos.dev/reference/gatekeepers/email-send/): Gatekeeper Worker that sends email through Cloudflare Email Service, each send an approval-queue action.
+- [email](https://docs.composableos.dev/reference/gatekeepers/email/): Gatekeeper Worker that receives inbound email (Cloudflare Email Routing) and delivers it to hooks. Vendored from cloudflare-os.
+- [google](https://docs.composableos.dev/reference/gatekeepers/google/): Gatekeeper Worker for Google Workspace (Gmail, Calendar, Drive, Docs, Sheets, Slides, Chat, BigQuery). Vendored from cloudflare-os.
+- [Gatekeepers](https://docs.composableos.dev/reference/gatekeepers/)
+- [interface](https://docs.composableos.dev/reference/gatekeepers/interface/): The Cloudflare OS gatekeeper RPC interface (vendored from workshop-shared/src/gatekeeper.ts).
+- [kit](https://docs.composableos.dev/reference/gatekeepers/kit/): Building blocks for gatekeepers: connect-flow, credential, action, observation, and simulation primitives. Vendored from cloudflare-os. Not a deployable Worker.
+- [mcp](https://docs.composableos.dev/reference/gatekeepers/mcp/): Gatekeeper Worker that connects any MCP server an admin supplies. Vendored from cloudflare-os.
+- [microsoft](https://docs.composableos.dev/reference/gatekeepers/microsoft/): Gatekeeper Worker for Microsoft 365 (SharePoint and OneDrive, Outlook mail, Outlook Calendar). Vendored from cloudflare-os.
+- [observability](https://docs.composableos.dev/reference/gatekeepers/observability/): The structured Worker logger the vendored gatekeepers log through (a subset of cloudflare-os packages/observability).
+- [payments](https://docs.composableos.dev/reference/gatekeepers/payments/): Gatekeeper Worker for payments: opens the provider's hosted checkout, submits refunds as approval-queue actions and delivers verified payment events to a bound hook.
+- [slack-post](https://docs.composableos.dev/reference/gatekeepers/slack-post/): Gatekeeper Worker that posts Slack messages and DMs with a bot token, each post an approval-queue action. Shares the Slack app with the vendored read-only Slack gatekeeper.
+- [slack](https://docs.composableos.dev/reference/gatekeepers/slack/): Gatekeeper Worker for Slack (workspaces, conversations and threads). Vendored from cloudflare-os.
+- [webhook](https://docs.composableos.dev/reference/gatekeepers/webhook/): Gatekeeper Worker for inbound webhooks: verifies provider signatures and delivers typed events to a bound hook.
+- [websearch](https://docs.composableos.dev/reference/gatekeepers/websearch/): Gatekeeper Worker for web search through Workers AI's websearch() and AI Gateway. Vendored from cloudflare-os.
+- [zoominfo](https://docs.composableos.dev/reference/gatekeepers/zoominfo/): Gatekeeper Worker for ZoomInfo (GTM API: lookup, search, enrich, Copilot, usage). Vendored from cloudflare-os.
+- [Glossary](https://docs.composableos.dev/reference/glossary/): The words Composable OS uses, from CONTEXT.md.
+- [a2ui.* operations](https://docs.composableos.dev/reference/operations/a2ui/): The core operations named a2ui.*
+- [access.* operations](https://docs.composableos.dev/reference/operations/access/): The core operations named access.*
+- [ack.* operations](https://docs.composableos.dev/reference/operations/ack/): The core operations named ack.*
+- [activity.* operations](https://docs.composableos.dev/reference/operations/activity/): The core operations named activity.*
+- [adjudicator.* operations](https://docs.composableos.dev/reference/operations/adjudicator/): The core operations named adjudicator.*
+- [affiliation.* operations](https://docs.composableos.dev/reference/operations/affiliation/): The core operations named affiliation.*
+- [agent.* operations](https://docs.composableos.dev/reference/operations/agent/): The core operations named agent.*
+- [agentProfile.* operations](https://docs.composableos.dev/reference/operations/agentprofile/): The core operations named agentProfile.*
+- [agreement.* operations](https://docs.composableos.dev/reference/operations/agreement/): The core operations named agreement.*
+- [ai.* operations](https://docs.composableos.dev/reference/operations/ai/): The core operations named ai.*
+- [allowance.* operations](https://docs.composableos.dev/reference/operations/allowance/): The core operations named allowance.*
+- [approval.* operations](https://docs.composableos.dev/reference/operations/approval/): The core operations named approval.*
+- [assignment.* operations](https://docs.composableos.dev/reference/operations/assignment/): The core operations named assignment.*
+- [audit.* operations](https://docs.composableos.dev/reference/operations/audit/): The core operations named audit.*
+- [automation.* operations](https://docs.composableos.dev/reference/operations/automation/): The core operations named automation.*
+- [capacity.* operations](https://docs.composableos.dev/reference/operations/capacity/): The core operations named capacity.*
+- [carer.* operations](https://docs.composableos.dev/reference/operations/carer/): The core operations named carer.*
+- [changeset.* operations](https://docs.composableos.dev/reference/operations/changeset/): The core operations named changeset.*
+- [checklist.* operations](https://docs.composableos.dev/reference/operations/checklist/): The core operations named checklist.*
+- [code.* operations](https://docs.composableos.dev/reference/operations/code/): The core operations named code.*
+- [connectedApp.* operations](https://docs.composableos.dev/reference/operations/connectedapp/): The core operations named connectedApp.*
+- [connection.* operations](https://docs.composableos.dev/reference/operations/connection/): The core operations named connection.*
+- [content.* operations](https://docs.composableos.dev/reference/operations/content/): The core operations named content.*
+- [customer.* operations](https://docs.composableos.dev/reference/operations/customer/): The core operations named customer.*
+- [dashboard.* operations](https://docs.composableos.dev/reference/operations/dashboard/): The core operations named dashboard.*
+- [desk.* operations](https://docs.composableos.dev/reference/operations/desk/): The core operations named desk.*
+- [device.* operations](https://docs.composableos.dev/reference/operations/device/): The core operations named device.*
+- [deviceSession.* operations](https://docs.composableos.dev/reference/operations/devicesession/): The core operations named deviceSession.*
+- [dictation.* operations](https://docs.composableos.dev/reference/operations/dictation/): The core operations named dictation.*
+- [duplicate.* operations](https://docs.composableos.dev/reference/operations/duplicate/): The core operations named duplicate.*
+- [enrichment.* operations](https://docs.composableos.dev/reference/operations/enrichment/): The core operations named enrichment.*
+- [eraseRequest.* operations](https://docs.composableos.dev/reference/operations/eraserequest/): The core operations named eraseRequest.*
+- [erasure.* operations](https://docs.composableos.dev/reference/operations/erasure/): The core operations named erasure.*
+- [export.* operations](https://docs.composableos.dev/reference/operations/export/): The core operations named export.*
+- [extension.* operations](https://docs.composableos.dev/reference/operations/extension/): The core operations named extension.*
+- [extensionSettings.* operations](https://docs.composableos.dev/reference/operations/extensionsettings/): The core operations named extensionSettings.*
+- [fieldOptions.* operations](https://docs.composableos.dev/reference/operations/fieldoptions/): The core operations named fieldOptions.*
+- [finance.* operations](https://docs.composableos.dev/reference/operations/finance/): The core operations named finance.*
+- [import.* operations](https://docs.composableos.dev/reference/operations/import/): The core operations named import.*
+- [Core operations](https://docs.composableos.dev/reference/operations/)
+- [intake.* operations](https://docs.composableos.dev/reference/operations/intake/): The core operations named intake.*
+- [integration.* operations](https://docs.composableos.dev/reference/operations/integration/): The core operations named integration.*
+- [integrationEvent.* operations](https://docs.composableos.dev/reference/operations/integrationevent/): The core operations named integrationEvent.*
+- [jobChange.* operations](https://docs.composableos.dev/reference/operations/jobchange/): The core operations named jobChange.*
+- [journey.* operations](https://docs.composableos.dev/reference/operations/journey/): The core operations named journey.*
+- [judge.* operations](https://docs.composableos.dev/reference/operations/judge/): The core operations named judge.*
+- [me.* operations](https://docs.composableos.dev/reference/operations/me/): The core operations named me.*
+- [media.* operations](https://docs.composableos.dev/reference/operations/media/): The core operations named media.*
+- [memory.* operations](https://docs.composableos.dev/reference/operations/memory/): The core operations named memory.*
+- [my.* operations](https://docs.composableos.dev/reference/operations/my/): The core operations named my.*
+- [note.* operations](https://docs.composableos.dev/reference/operations/note/): The core operations named note.*
+- [notification.* operations](https://docs.composableos.dev/reference/operations/notification/): The core operations named notification.*
+- [order.* operations](https://docs.composableos.dev/reference/operations/order/): The core operations named order.*
+- [organisation.* operations](https://docs.composableos.dev/reference/operations/organisation/): The core operations named organisation.*
+- [outbound.* operations](https://docs.composableos.dev/reference/operations/outbound/): The core operations named outbound.*
+- [person.* operations](https://docs.composableos.dev/reference/operations/person/): The core operations named person.*
+- [personCode.* operations](https://docs.composableos.dev/reference/operations/personcode/): The core operations named personCode.*
+- [plan.* operations](https://docs.composableos.dev/reference/operations/plan/): The core operations named plan.*
+- [policy.* operations](https://docs.composableos.dev/reference/operations/policy/): The core operations named policy.*
+- [public.* operations](https://docs.composableos.dev/reference/operations/public/): The core operations named public.*
+- [query.* operations](https://docs.composableos.dev/reference/operations/query/): The core operations named query.*
+- [record.* operations](https://docs.composableos.dev/reference/operations/record/): The core operations named record.*
+- [recurring.* operations](https://docs.composableos.dev/reference/operations/recurring/): The core operations named recurring.*
+- [routine.* operations](https://docs.composableos.dev/reference/operations/routine/): The core operations named routine.*
+- [routineMail.* operations](https://docs.composableos.dev/reference/operations/routinemail/): The core operations named routineMail.*
+- [sample.* operations](https://docs.composableos.dev/reference/operations/sample/): The core operations named sample.*
+- [schema.* operations](https://docs.composableos.dev/reference/operations/schema/): The core operations named schema.*
+- [screens.* operations](https://docs.composableos.dev/reference/operations/screens/): The core operations named screens.*
+- [search.* operations](https://docs.composableos.dev/reference/operations/search/): The core operations named search.*
+- [settings.* operations](https://docs.composableos.dev/reference/operations/settings/): The core operations named settings.*
+- [setup.* operations](https://docs.composableos.dev/reference/operations/setup/): The core operations named setup.*
+- [staffing.* operations](https://docs.composableos.dev/reference/operations/staffing/): The core operations named staffing.*
+- [state.* operations](https://docs.composableos.dev/reference/operations/state/): The core operations named state.*
+- [stock.* operations](https://docs.composableos.dev/reference/operations/stock/): The core operations named stock.*
+- [storage.* operations](https://docs.composableos.dev/reference/operations/storage/): The core operations named storage.*
+- [subscription.* operations](https://docs.composableos.dev/reference/operations/subscription/): The core operations named subscription.*
+- [suggestedContact.* operations](https://docs.composableos.dev/reference/operations/suggestedcontact/): The core operations named suggestedContact.*
+- [summary.* operations](https://docs.composableos.dev/reference/operations/summary/): The core operations named summary.*
+- [support.* operations](https://docs.composableos.dev/reference/operations/support/): The core operations named support.*
+- [sync.* operations](https://docs.composableos.dev/reference/operations/sync/): The core operations named sync.*
+- [task.* operations](https://docs.composableos.dev/reference/operations/task/): The core operations named task.*
+- [teamMemory.* operations](https://docs.composableos.dev/reference/operations/teammemory/): The core operations named teamMemory.*
+- [thread.* operations](https://docs.composableos.dev/reference/operations/thread/): The core operations named thread.*
+- [trash.* operations](https://docs.composableos.dev/reference/operations/trash/): The core operations named trash.*
+- [update.* operations](https://docs.composableos.dev/reference/operations/update/): The core operations named update.*
+- [user.* operations](https://docs.composableos.dev/reference/operations/user/): The core operations named user.*
+- [view.* operations](https://docs.composableos.dev/reference/operations/view/): The core operations named view.*
+- [voice.* operations](https://docs.composableos.dev/reference/operations/voice/): The core operations named voice.*
+- [waitlist.* operations](https://docs.composableos.dev/reference/operations/waitlist/): The core operations named waitlist.*
+- [widget.* operations](https://docs.composableos.dev/reference/operations/widget/): The core operations named widget.*
