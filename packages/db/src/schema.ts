@@ -1064,6 +1064,17 @@ export interface CoreStockMovementTable {
   /** Minor units, for what was received. */
   unit_cost: number | null;
 }
+/**
+ * Migration 0931 (stage 37, ADR 0681): a stock record at or below its reorder level now, and the
+ * crossing its low-stock notice was told for.
+ */
+export interface CoreStockLowTable {
+  object_type: string;
+  record_id: string;
+  crossing: string;
+  since: string;
+  told_at: string | null;
+}
 export type StockMovementKind =
   | "opening"
   | "received"
@@ -3788,6 +3799,7 @@ export interface CoreDatabase {
   core_capacity: CoreCapacityTable;
   core_capacity_claim: CoreCapacityClaimTable;
   core_stock_movement: CoreStockMovementTable;
+  core_stock_low: CoreStockLowTable;
   core_person_link: CorePersonLinkTable;
   core_person_carer: CorePersonCarerTable;
   core_note_kind: CoreNoteKindTable;

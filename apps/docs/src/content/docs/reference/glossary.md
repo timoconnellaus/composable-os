@@ -1526,6 +1526,24 @@ One row of the stock ledger: a record, a place (one default place until stock is
 a signed quantity, a kind (opening, received, sold, returned, written off, counted, adjusted, used),
 what made it (an order line, a record or a person), who and when. Never changed or deleted.
 
+### Stock move
+
+(`stockMoves`)
+
+A record's state moving stock: a receipt entering received adds its quantity, a write-off removes
+it, a count line sets on hand to what was counted when its count is applied. Written by the host in
+the batch of the move, for every actor; what moved stock cannot change afterwards (stage 37,
+ADR 0681).
+
+### Reorder level
+
+and **low stock**
+
+The number at or below which a stock record is low (the field `stock.reorderAt` names). When a
+write takes it there, the staff who keep stock (the pack's `stock.notify` permission, else the
+admins) are told once; again only after it has risen above and fallen again (one **crossing**)
+(ADR 0681).
+
 ### Series
 
 (of a recurring schedule)

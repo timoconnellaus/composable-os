@@ -17,7 +17,7 @@ import type { RoutineMailModule, RoutineMailSpec } from "./routine-mail.ts";
 import type { SellableSpec } from "./sellable.ts";
 import type { StaffedSpec } from "./staffed.ts";
 import type { StatesSpec } from "./states.ts";
-import type { StockSpec } from "./stock.ts";
+import type { StockMovesSpec, StockSpec } from "./stock.ts";
 import type { TeamSpec } from "./team.ts";
 import type { UniqueSpec } from "./unique.ts";
 import type { WorkedOnSpec } from "./worked-on.ts";
@@ -274,6 +274,8 @@ export interface ObjectSpec {
   sellable?: SellableSpec;
   /** Things counted on a shelf, sold from a ledger the host keeps (see StockSpec, ADR 0680). */
   stock?: StockSpec;
+  /** A record's state moves stock: received adds, a write-off removes, a count sets (see StockMovesSpec, ADR 0681). */
+  stockMoves?: StockMovesSpec;
   /**
    * Uses a record holds (a pass, a membership), or a record that spends one (a booking): see
    * AllowanceSpec, ADRs 0493 and 0494. The host counts and refuses a spend past the limit.

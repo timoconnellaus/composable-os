@@ -209,6 +209,15 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   // A paid order's `sold` movements (stage 37, ADR 0680): the order's own lines, joined to its
   // claims in the statement that writes them, in the host's paid batch.
   "stock/index.ts": [1, WHY.host],
+  // A paid order's stock lines, for the low-stock check of its sale (stage 37 step 2, ADR 0681).
+  "stock/sold.ts": [1, WHY.host],
+  // The low-stock check (ADR 0681): each touched record's reorder level and title, joined in the
+  // host's own statements at the end of the write's batch.
+  "stock/low.ts": [1, WHY.write],
+  // stockMoves (ADR 0681): a moved record's lines (a count's), and whether the record a line is
+  // added to, or restored onto, has already moved stock, read by the write that moves or changes
+  // them; and the guard in the apply's batch counting its lines again at the commit.
+  "stock/moves.ts": [7, WHY.write],
   // Whether an object gaining or losing `stock` has any record or counter (ADR 0680, the review
   // of #370): one row at most, read by the reconcile that would change it.
   "extensions/reconciler.ts": [1, WHY.write],

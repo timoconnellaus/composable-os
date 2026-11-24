@@ -141,7 +141,21 @@ extension declares it; it never implements it. Each behaviour the platform has i
   read-only `onHand`, `held` and `available`, so don't declare fields with those names, and never
   write a count field of your own: an order's line holds and sells in its batch, and staff record
   opening stock and corrections with `stock.opening` and `stock.adjust`. A shipped pack only. See
-  `StockSpec` in `packages/sdk/src/stock.ts` and ADR 0680.
+  `StockSpec` in `packages/sdk/src/stock.ts` and ADR 0680. `stock.notify: "<ext>:<word>"` (a
+  permission of one of your tools, with `reorderAt`) names who the host tells when a record falls
+  to its reorder level, once per crossing; without it the admins are told. Never send that notice
+  from a tool or an automation. The object must be sellable, or moved by a `stockMoves`.
+- **`stockMoves`** on an object whose records move stock (a receipt, a write-off, a count line):
+  `stockMoves: { move: "add" | "remove" | "set", on: "<relation to a stock object>", quantity:
+  "<number field>", when: "<state>", through?: "<relation to the record whose state it is>",
+  kind?, unitCost?, note? }`. Entering `when` (a state no move leaves) writes the movement in that
+  write's batch; with `through`, a count's `applied` moves all its lines at once (`set`: on hand
+  becomes the number counted). Declare every move into `when` as `by: ["host"], tools: [...]`
+  with the pack's `humanOnly` or `personApproves` tools carrying its stock permission, and never
+  `create.in` the state (make the record, then move it through the tool): moving stock is a
+  person's act, and an AI's waits for one. Never change stock from a tool otherwise: move the
+  record. What moved stock cannot be edited afterwards. A shipped pack only. See
+  `StockMovesSpec` and ADR 0681.
 - **`unique`** on an object: `unique: [{ fields: [<up to 4 fields>], states?: [<states>] }]`, no
   two live records in those states share the fields (one active booking per Person per class).
   The database refuses the second, however many write at once (`conflict`, `rule: "unique"`).
