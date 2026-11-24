@@ -82,3 +82,17 @@ changes once more and records the block as merged up to the kit of the version `
 that version and the kit's content hashes. The copy here is not touched. It refuses `--version` of
 any other release (upgrade first), so the lock never claims a version the repo is not on. Test:
 `packages/create-composable-os/test/client-repo.test.ts`.
+
+## Amendment, 2026-11-24: a release ships every pack and every block
+Found while putting the first client's app on the platform: `v0.1.0-beta.11` had no
+`@composable-os/pack-rostering` and none of the account, agreement, rostering blocks or
+`bookings-native-class-list`. Nothing dropped them: the bundle's kit holds exactly the blocks at
+its tag, and every one of them was merged after it. A release is complete for its commit by
+construction (every `packs/<id>/` with a package.json, every folder with a `block.json`), but a
+folder missing either would have dropped out without a word. **`scripts/release/test/release-completeness.test.ts`**
+(run in CI and before every release build) fails when a folder under `packs/` is not carried and
+built as `@composable-os/pack-<id>`, or a folder under `blocks/` or `packs/*/blocks/` is not a
+block in the client kit with its licence, unless an allow-list there names it with the reason it
+is not released (empty today). A new pack is also not on npm until a person publishes it once
+(docs/deploying.md, "Publishing to npm"): the release workflow now checks that before the release
+goes public.
