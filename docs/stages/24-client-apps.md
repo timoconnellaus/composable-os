@@ -284,3 +284,9 @@ Status: built, in review. ADRs [0420](../adr/0420-packs-as-packages-as-built.md)
     account pages, `/setup` and the customer mail connection, that an app without a tsconfig is
     not type-checked, `git init`, the sign-in blocks' actions, or how to wire a block. They do now.
   Not re-run after the fixes.
+- **Fixed 2026-11-24, from the first client's app** (ADR 0424 amended): every native block's text
+  and spinner takes its colour from `native-base/theme.ts` (the themed `Text` in
+  `native-base/text.tsx`), held by the block lint; `native-sign-in` says why a sign-in failed
+  (not switched on, too many tries, offline) and lets the person try again, as do the other
+  native blocks' calls that failed silently; the Courses players bring Content's rich text block,
+  and Courses requires Content (ADR 0478 amended).

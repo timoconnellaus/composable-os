@@ -17,11 +17,12 @@ import {
   weekOf,
 } from "@composable-os/pack-rostering/client";
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { Button } from "../native-base/button.tsx";
 import { List } from "../native-base/list.tsx";
 import { Row } from "../native-base/row.tsx";
 import { Screen } from "../native-base/screen.tsx";
+import { Text } from "../native-base/text.tsx";
 
 type Hooks = Pick<RosteringHooks, "useMe" | "useWeek">;
 
@@ -57,7 +58,9 @@ export function RosterScreen({
         />
       </View>
       {me.isPending || week.isPending ? (
-        <Text accessibilityRole="progressbar">Loading the roster…</Text>
+        <Text tone="muted" accessibilityRole="progressbar">
+          Loading the roster…
+        </Text>
       ) : null}
       {me.error || week.error ? (
         <Text accessibilityRole="alert">{rosterRefusal(me.error ?? week.error).message}</Text>

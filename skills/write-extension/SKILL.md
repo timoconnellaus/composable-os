@@ -342,8 +342,11 @@ extension declares it; it never implements it. Each behaviour the platform has i
   the host makes it when the provider first reports the subscription running and moves it with
   every verified event, its `until` when it stops giving. It is not the `recurring` behaviour
   above. See Memberships' `plan` (ADR 0510).
-- **An extension built on another** declares `requires: ["<id>"]` (Courses requires Programs): the
-  host refuses to install it until that one is installed and on.
+- **An extension built on another** declares `requires: ["<id>"]` (Courses requires Programs and
+  Content): the host refuses to install it until that one is installed and on, and `cos deploy`
+  installs a required pack the product does not list. Require a pack whose blocks yours need too
+  (Courses' player draws text lessons with Content's rich text, and its block.json `dependsOn`
+  names that block).
 
 ### Roles
 

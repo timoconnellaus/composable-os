@@ -1248,12 +1248,22 @@ export async function deploy(flags: Flags, deps: Deps): Promise<number> {
   const { bundle } = await verified(source, product.platform.version, scoped);
   const manifest = bundle.manifest;
   const inRelease = kitPacks(bundle.clientFiles);
-  const missing = product.packs.filter((pack) => !inRelease.has(pack));
+  // A listed pack brings the packs it requires (Courses: Programs and Content): the host installs
+  // them too, as the pack cannot install without them.
+  const brought = requiredPacks(bundle.clientFiles, product.packs);
+  const missing = [...product.packs, ...brought].filter((pack) => !inRelease.has(pack));
   if (missing.length) {
     io.err(
-      `${release.label} ${product.platform.version} does not carry the pack${missing.length > 1 ? "s" : ""} ${missing.join(", ")} that product.ts lists (it carries ${[...inRelease].sort().join(", ") || "none"}): the platform needs it in a release first. Nothing was deployed.`,
+      `${release.label} ${product.platform.version} does not carry the pack${missing.length > 1 ? "s" : ""} ${missing.join(", ")} that product.ts lists${brought.some((p) => missing.includes(p)) ? " or its packs require" : ""} (it carries ${[...inRelease].sort().join(", ") || "none"}): the platform needs it in a release first. Nothing was deployed.`,
     );
     return 1;
+  }
+  if (brought.length) {
+    hostFlags.packs = [...product.packs, ...brought].join(",");
+    const them = brought.length > 1 ? "them" : "it";
+    io.out(
+      `Installing ${brought.join(", ")} too: a pack product.ts lists requires ${them}. Add ${them} to packs in product.ts to say so there.`,
+    );
   }
   // The gatekeepers product.ts turns on here and their settings, checked against what each
   // declares in this release before anything changes (ADR 0452).
@@ -1485,6 +1495,28 @@ export function kitPacks(kit: ClientKit): Set<string> {
   const listed = kit.get("packs.json");
   if (!listed) return new Set();
   return new Set(JSON.parse(decode(listed)) as string[]);
+}
+
+/**
+ * The packs a product's packs require and it does not list, from the release's roles.json (each
+ * pack's `requires`, ADR 0478), followed to the end: Courses brings Programs and Content. A kit
+ * older than the list brings none.
+ */
+export function requiredPacks(kit: ClientKit, packs: readonly string[]): string[] {
+  const file = kit.get(`${KIT.contract}roles.json`);
+  const requires = file
+    ? ((JSON.parse(decode(file)) as { requires?: Record<string, string[]> }).requires ?? {})
+    : {};
+  const brought: string[] = [];
+  const visit = (pack: string) => {
+    for (const needed of requires[pack] ?? []) {
+      if (packs.includes(needed) || brought.includes(needed)) continue;
+      brought.push(needed);
+      visit(needed);
+    }
+  };
+  for (const pack of packs) visit(pack);
+  return brought;
 }
 
 /** `cos client generate` in a client repo: each app's typed client from its release, again. */

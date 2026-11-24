@@ -47,8 +47,10 @@ export default defineExtension({
   description:
     "Video courses sold one at a time or in bundles, watched lesson by lesson, with progress. " +
     "A lesson can be a training session from Programs.",
-  // A session lesson is a Programs program: the host installs Courses only beside Programs.
-  requires: ["programs"],
+  // A session lesson is a Programs program, and a text lesson (and a video's notes) is drawn by
+  // Content's rich text blocks (`content-rich-text`, `content-native-rich-text`) in the player:
+  // the host installs Courses only beside both, and `cos add` brings Content's block with it.
+  requires: ["programs", "content"],
   permissions: {
     // person.get: a student's name in the stats. programs.*: a session lesson's program, its
     // assignment and dated sessions, made by x.programs.assign for the student (step 6).

@@ -28,9 +28,10 @@ import {
   TYPED_NAME_MAX,
 } from "@composable-os/client";
 import { type ReactNode, useRef, useState } from "react";
-import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, StyleSheet, View } from "react-native";
 import { Button } from "../native-base/button.tsx";
 import { Field } from "../native-base/field.tsx";
+import { Text } from "../native-base/text.tsx";
 import { theme } from "../native-base/theme.ts";
 import { SignaturePad } from "./signature-pad.tsx";
 

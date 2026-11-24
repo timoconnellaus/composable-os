@@ -9,7 +9,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { type ClientKit, fetchKit, loadClientProduct } from "./client-repo.ts";
+import { type ClientKit, fetchKit, loadClientProduct, requiredPacks } from "./client-repo.ts";
 import { lineDiff } from "./diff.ts";
 import { CliError, type Deps, type Flags, str } from "./main.ts";
 
@@ -117,6 +117,9 @@ export async function add(argv: string[], flags: Flags, deps: Deps): Promise<num
     return 0;
   }
   const lock = readLock(root);
+  // The packs product.ts lists and those they bring (Courses: Content, whose rich text its
+  // player draws with): `cos deploy` installs both, so a block may be either's.
+  const packs = [...product.packs, ...requiredPacks(kit, product.packs)];
   const added: string[] = [];
   const needs = new Map<string, string>();
   const visit = (block: string, trail: string[]) => {
@@ -130,7 +133,7 @@ export async function add(argv: string[], flags: Flags, deps: Deps): Promise<num
         `${block} is a ${manifest.skin} block and this repo has no ${manifest.skin === "web" ? "web" : "mobile"} app in product.ts.`,
       );
     }
-    if (manifest.pack && !product.packs.includes(manifest.pack)) {
+    if (manifest.pack && !packs.includes(manifest.pack)) {
       throw new CliError(
         `${block} is a block of the ${manifest.pack} pack, which product.ts does not list.`,
       );

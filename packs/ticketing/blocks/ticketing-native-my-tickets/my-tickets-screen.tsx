@@ -2,10 +2,10 @@
 // theirs, and what of them they may see, is the host's (`useMyTickets` reads through the seam).
 import type { TicketingHooks } from "@composable-os/pack-ticketing/client";
 import { eventTime } from "@composable-os/pack-ticketing/client";
-import { Text } from "react-native";
 import { List } from "../native-base/list.tsx";
 import { Row } from "../native-base/row.tsx";
 import { Screen } from "../native-base/screen.tsx";
+import { Text } from "../native-base/text.tsx";
 
 const STATE = { valid: "Valid", used: "Used", void: "Cancelled" } as const;
 
@@ -20,7 +20,11 @@ export function MyTicketsScreen({
   const { data, isPending, error } = ticketing.useMyTickets();
   return (
     <Screen title="Tickets">
-      {isPending ? <Text accessibilityRole="progressbar">Loading your tickets…</Text> : null}
+      {isPending ? (
+        <Text tone="muted" accessibilityRole="progressbar">
+          Loading your tickets…
+        </Text>
+      ) : null}
       {error ? <Text accessibilityRole="alert">We could not load your tickets.</Text> : null}
       {data ? (
         <List empty="You have no tickets yet.">
