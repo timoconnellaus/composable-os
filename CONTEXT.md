@@ -590,6 +590,9 @@ each with the host's **reference** (`cos:…`) so it is found again and never wr
 only a document the host posted, always approved by a person. No delete, no edit of a posted
 entry. Each accounting system is its own gatekeeper Worker that passes the contract's
 **conformance suite**; the fake books (`accounting-fake`) are for development and tests only.
+The connection is **the host's alone** (ADR 0881): only the host's own call (`callAsHost`,
+purpose `accounting`) reaches it, never a person, an AI, Code Mode or an extension
+(`accounting_host_only`).
 _Avoid_: connector, sync adapter
 
 **Booking system contract**
