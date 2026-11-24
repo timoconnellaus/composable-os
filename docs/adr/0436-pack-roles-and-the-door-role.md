@@ -195,3 +195,11 @@ declares `publishable.staffRead` (a procedure). They read the current published 
 and slug, never a working copy, and through them a role reaches no other object.
 `PACK_ROLE_STAFF_READS` in `pack-roles.ts`; `roles.json` lists them for each role. See
 [ADR 0701](0701-staff-read-of-published-versions-and-its-reach-for-pack-roles.md).
+
+## Amendment, 2026-11-24 (stage 51 step 2, ADR 0781)
+A pack may also declare **device roles** (`deviceRoles`), held by an enrolled device rather than a
+staff account: the role's tools (each open to the new `device` audience only) and
+`device.heartbeat` are all the device may do, decided by the pipeline from the device's row and
+the pack's manifest as this ADR decides a pack role's (`loadDeviceRole`, `deviceRoleReaches` in
+`pack-roles.ts`). `ctx.caller` gains `{ kind: "device", deviceId, name }`; the tool's own calls run
+as the extension. See [ADR 0781](0781-a-device-as-a-caller-the-device-audience-and-device-roles.md).

@@ -107,6 +107,7 @@ import {
   staffDiscountWithinLimit,
 } from "../orders/staff-discounts.ts";
 import { taxCodeOf } from "../orders/tax.ts";
+import { placedAs } from "../principals.ts";
 import { callerMover } from "../records/lifecycle.ts";
 import type { VisibleRecord } from "../visibility/records.ts";
 
@@ -424,7 +425,7 @@ export const orderStart = defineOperation({
       lines: input.lines,
       personId,
       email,
-      placedAs: caller.kind,
+      placedAs: placedAs(caller),
       pay: input.pay,
       accessHash: token ? await hashOrderToken(token) : null,
       agreements: input.agreements,

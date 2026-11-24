@@ -394,6 +394,16 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
       message: `A runtime extension cannot declare a staff role. ${why}`,
     });
   }
+  // A device role is standing authority on the business's own device (ADR 0781): identity and
+  // access, so only a shipped pack's reviewed declaration says what one may do.
+  for (const name of Object.keys(manifest.deviceRoles ?? {})) {
+    issues.push({
+      stage: "contract",
+      code: "outside_audience",
+      path: `deviceRoles.${name}`,
+      message: `A runtime extension cannot declare a device role. ${why}`,
+    });
+  }
   for (const [name, object] of Object.entries(manifest.objects)) {
     if (object.customer) {
       issues.push({

@@ -1,5 +1,5 @@
 {
-  "$comment": "Generated. Every operation customers or the public may call, with its risk class (ADR 0402, ADR 0411). Do not edit: run `pnpm --filter @composable-os/core open-operations`. A new line here opens the host to people outside the org, so review it as such.",
+  "$comment": "Generated. Every operation customers, the public or an enrolled device may call, with its risk class (ADR 0402, ADR 0411, ADR 0781). Do not edit: run `pnpm --filter @composable-os/core open-operations`. A new line here opens the host to people outside the org, so review it as such.",
   "operations": [
     {
       "name": "access.check",
@@ -103,6 +103,11 @@
       "risk": "write",
       "hostInternal": true,
       "deskOnly": true
+    },
+    {
+      "name": "device.heartbeat",
+      "audiences": ["device"],
+      "risk": "read"
     },
     {
       "name": "intake.open",

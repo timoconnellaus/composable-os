@@ -11,7 +11,7 @@
 //
 // A missing binding allows the call (rateLimit logs a warning once), as everywhere else.
 import { RateLimitedError } from "../errors.ts";
-import type { OutsidePrincipal } from "../principals.ts";
+import type { DevicePrincipal, OutsidePrincipal } from "../principals.ts";
 import { type RateLimitBinding, rateLimit } from "../rate-limit.ts";
 import { normaliseCustomerEmail } from "./accounts.ts";
 
@@ -22,17 +22,22 @@ function refuse(what: string, retryAfterSeconds: number): never {
 }
 
 /**
- * Counts one call by a customer or the public. A customer over their limit for this operation
- * gets a RateLimitedError. A public call has no account to key on: it is limited per client
- * address at the edge, and passes here.
+ * Counts one call by a customer, the public or an enrolled device. A customer over their limit
+ * for this operation gets a RateLimitedError, and so does a device (ADR 0781: per device and
+ * operation, beside the desk origin's own limit per address). A public call has no account to
+ * key on: it is limited per client address at the edge, and passes here.
  */
 export async function checkOutsideRateLimit(
   binding: RateLimitBinding | undefined,
-  principal: OutsidePrincipal,
+  principal: OutsidePrincipal | DevicePrincipal,
   operation: string,
 ): Promise<void> {
-  if (principal.kind !== "customer") return;
-  const result = await rateLimit(binding, `customer:${principal.customerId}:${operation}`);
+  if (principal.kind === "public") return;
+  const key =
+    principal.kind === "customer"
+      ? `customer:${principal.customerId}:${operation}`
+      : `device:${principal.deviceId}:${operation}`;
+  const result = await rateLimit(binding, key);
   if (!result.ok) refuse("calls", result.retryAfterSeconds);
 }
 

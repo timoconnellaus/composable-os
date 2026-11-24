@@ -90,7 +90,8 @@ export type TaskStatus = "open" | "done";
 /** Who a staff-side call is made by: the actors the approval policy and the queue know. */
 export type StaffActor = "human" | "assistant" | "mcp" | "automation" | "extension";
 /** Every actor the audit log records: staff-side actors, customers and the public (migration 0400). */
-export type AuditActor = StaffActor | "customer" | "public";
+/** `device`: an enrolled device holding a device role (stage 51, ADR 0781). */
+export type AuditActor = StaffActor | "customer" | "public" | "device";
 export type AuditRisk =
   | "read"
   | "write"
