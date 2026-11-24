@@ -76,15 +76,17 @@ out of records. "Not open" already has a home: time off (`core_staff_away`).
   open hours is never offered.
 - **The bounds.** At most 31 days of start times and 20 providers a call, in a fixed number of
   reads however many hours, claims, time off or times there are (the kind, the providers, hours,
-  time off, claims, closures, the client's shifts, the rooms and their claims, the settings: 15
-  statements for 31 days of 20 busy coaches with the pipeline's own, `staffing-free.test.ts`).
+  time off, claims, closures, the client's shifts, the rooms and their claims, the settings:
+  `staffing-free.test.ts` holds 31 days of 20 busy coaches to the same count as one quiet coach,
+  at most 20 statements with the pipeline's own; 15 when this was written).
   Every list is passed as one JSON value, so no statement nears D1's bound-variable limit.
 - **The operation.** `staffing.free { object, kind, from?, to?, providers?, client? }` is
   tool-only and `hostInternal` (it reads core tables), open to staff, customers and the public
   through a shipped pack's tool (Bookings' freeTimes, step 6; listed in `open-operations.json`).
   The kind must be one the caller may read (the public only a public one). `providers` are the
   shift's person values (coach profiles), never accounts, so a customer's tool never handles a
-  staff account id; the spec's `accounts?` is this. A customer's `client` is themselves (the
+  staff account id; the spec's `accounts?` is this. Where the person is a staff account itself
+  (a user field, not a profile), a customer or visitor is answered the times with no providers. A customer's `client` is themselves (the
   default) or a live dependant; the public names nobody. It answers each free time with who is
   free and the first free room, never why another is not. A rate limit per address is the pack
   tool's call (the pipeline limits a tool's outside call, not the operations inside it).

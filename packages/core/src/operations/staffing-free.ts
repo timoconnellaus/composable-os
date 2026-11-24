@@ -109,12 +109,16 @@ export const staffingFree = defineOperation({
       client,
       customerRules: outside,
     });
+    // Who is free is named by the shift's person value: a coach profile. Where the person is a
+    // staff account itself (a user field), a customer or visitor is told the times only, never
+    // an account id (the review of PR #430).
+    const named = !outside || object.staffed.who.account !== undefined;
     const iso = (s: number) => new Date(s * 1000).toISOString();
     return {
       times: times.map((t) => ({
         startsAt: iso(t.starts),
         endsAt: iso(t.ends),
-        providers: t.providers.map((p) => p.who),
+        providers: named ? t.providers.map((p) => p.who) : [],
         room: t.rooms[0] ?? null,
       })),
     };

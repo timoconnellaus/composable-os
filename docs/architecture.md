@@ -1349,14 +1349,15 @@ does not touch it, its claim with the kind's margins overlaps none of theirs (wh
 queued counted), the first of the kind's rooms is free (an unclaimed room always is), no closure
 covers its dates, the client has no live shift of the object over it, and for a customer or the
 public the create rules' window and staff-only flag allow it. Bounded to 31 days and 20 providers,
-in a fixed number of reads (15 for 31 days of 20 busy coaches); answered by the tool-only
+in a fixed number of reads (the same for 31 days of 20 busy coaches as for one); answered by the tool-only
 `staffing.free`, open through a shipped pack's tool to staff, customers and the public (a
 customer's client is themselves or a live dependant; the public names nobody), never saying why a
 time is not free. **The customer's check** (`staffed.open.customer`): a customer's or the public's
 create or move of such a shift, by every door (the transition engine's place, and
 `assertCreateRules` for a record the host makes for them), must be on a time `freeTimes` answers
-for its provider, with the kind's length and one of its free rooms (`conflict`,
-`rule: "not_free_time"`); the triggers still decide a race. Staff writes are made with
+for its provider, with the kind's length and exactly one of its free rooms, or none when it needs
+none (`conflict`, `rule: "not_free_time"`); the triggers still decide a race, and the client's own
+bookings are guarded at commit (`core_client_guard`, migration 1092). Staff writes are made with
 `outside_hours` and `client_busy` warnings instead. A customer's write of such a shift names its
 provider without being a rosterer's, and is answered with no staff warnings and tells the roster
 nobody.

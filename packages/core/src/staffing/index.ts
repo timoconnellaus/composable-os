@@ -622,10 +622,10 @@ export async function staffedWritten(
     if (clash) throw await doubleBooked(ctx, object.name, id, claim, clash);
   }
   noteClaim(ctx, object.name, id, claim);
-  // A customer's or the public's write (their booking, on a free time, ADR 0763) is answered
+  // A customer's or the public's booking of a shift booked at free times (ADR 0763) is answered
   // with no staff warnings, and tells the roster nobody: a booked shift is never offered, and
   // its provider hears from the pack's own messages.
-  const outside = callerOf(ctx).kind !== "staff";
+  const outside = callerOf(ctx).kind !== "staff" && object.staffed.open !== undefined;
   const changes = changesStaffing(object, before, after);
   const warnings = changes && !outside ? await warningsFor(ctx, object, id, shift) : [];
   batchOf(ctx).warnings.set(key(object.name, id), warnings);

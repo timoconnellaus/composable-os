@@ -12,9 +12,9 @@
 // one is not.
 //
 // Bounded: at most 31 days and 20 providers a call, in a fixed number of reads however many
-// times, claims or hours there are (a statement count holds it, staffing-free-cost.test.ts).
+// times, claims or hours there are (a statement count holds it, staffing-free.test.ts).
 // The database still decides a race: the claims' triggers refuse whichever batch commits second.
-import { type Kysely, sql } from "kysely";
+import { CompiledQuery, type Kysely, sql } from "kysely";
 import { addDaysToDate } from "../automations/cron.ts";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { fieldStorage, objectTableOf } from "../extensions/schema.ts";
@@ -593,11 +593,43 @@ export async function assertOnFreeTime(
       def.ends,
     );
   }
+  // The room: exactly one of the kind's, free then; none at all when the kind needs none (a
+  // customer never takes a room the service does not use, the review of PR #430).
   const thing = object.occupies?.thing;
-  if (time.rooms.length && thing) {
+  if (thing) {
     const chosen = ids(after[thing]);
-    if (!chosen.length || chosen.some((r) => !time.rooms.includes(r))) {
-      throw notFree("That room is not free then. Nothing was changed.", thing);
-    }
+    const ok = time.rooms.length
+      ? chosen.length === 1 && time.rooms.includes(chosen[0] as string)
+      : chosen.length === 0;
+    if (!ok) throw notFree("That room is not free then. Nothing was changed.", thing);
   }
+  // The client's other bookings, again inside the batch: the read above cannot see one another
+  // batch commits meanwhile (migration 1092).
+  const client = open.client ? text(after[open.client]) : null;
+  if (client && !ctx.simulation) ctx.write(clientGuard(object, id, client, starts, ends));
+}
+
+/**
+ * The statement that fails the batch when the client holds another live shift of `object`
+ * overlapping `starts`..`ends` once the batch runs (migration 1092): one client's bookings racing
+ * each other commit one at most.
+ */
+function clientGuard(
+  object: ObjectDefinition,
+  id: string | null,
+  client: string,
+  starts: number,
+  ends: number,
+): CompiledQuery {
+  const def = object.staffed as NonNullable<ObjectDefinition["staffed"]>;
+  const table = objectTableOf(object.name) as string;
+  const col = (f: string | undefined) => columnOf(object, f) as string;
+  const s = `CAST(strftime('%s', ${col(def.starts)}) AS INTEGER)`;
+  const e = `CAST(strftime('%s', ${col(def.ends)}) AS INTEGER)`;
+  return CompiledQuery.raw(
+    `INSERT INTO core_client_guard (object_type, record_id, clashes) SELECT ?, ?, count(*) FROM ${table} ` +
+      `WHERE ${col(def.open?.client)} = ? AND deleted_at IS NULL AND ${col(object.states?.field)} IN (SELECT value FROM json_each(?)) ` +
+      `AND id != ? AND ${s} < ? AND ${e} > ?`,
+    [object.name, id ?? "", client, JSON.stringify(def.live), id ?? "", ends, starts],
+  );
 }

@@ -383,7 +383,11 @@ export async function queueNotice(ctx: HandlerContext, notice: StaffNotice): Pro
       link: notice.link ?? null,
       ...(notice.dedupeKey ? { dedupeKey: notice.dedupeKey } : {}),
       ...(notice.humanOnly ? { humanOnly: true } : {}),
-      source: { actor: ctx.actor, userId: me },
+      // The host writing for a customer or the public has no actor to read (ADR 0426).
+      source: {
+        actor: ctx.onBehalfOf && ctx.onBehalfOf.kind !== "staff" ? ctx.onBehalfOf.kind : ctx.actor,
+        userId: me,
+      },
     },
     ctx.now,
   );

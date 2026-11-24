@@ -723,6 +723,78 @@ describe("the customer's check", () => {
     ).toMatchObject({ ok: true });
   });
 
+  it("a room the service does not list is never a customer's to take (review of PR #430)", async () => {
+    const n = await coach("NoRoom");
+    const t = await service();
+    await qualify(n.user.id, t);
+    await hours(n.user, {
+      kind: "extra",
+      startsAt: "2031-06-02T09:00",
+      endsAt: "2031-06-02T10:00",
+    });
+    const other = (await create(ROOM, { name: unique("Other"), exclusive: true })).id;
+    // The service needs no room: naming one, exclusive or not, is refused, and the room stays
+    // free for a class.
+    expect(
+      await book({
+        service: t,
+        coach: n.id,
+        room: other,
+        startsAt: T["09:00"],
+        endsAt: T["10:00"],
+      }),
+    ).toMatchObject({ ok: false, error: { details: { rule: "not_free_time", field: "room" } } });
+    await create(KLASS, {
+      name: "In Other",
+      room: other,
+      startsAt: T["09:00"],
+      endsAt: T["10:00"],
+    });
+    // A service with rooms: a room it does not list is refused too.
+    expect(
+      await book({
+        service: roomed,
+        coach: m.id,
+        room: other,
+        startsAt: T["10:00"],
+        endsAt: T["11:00"],
+      }),
+    ).toMatchObject({ ok: false, error: { details: { rule: "not_free_time", field: "room" } } });
+  });
+
+  it("one client's bookings at once with different coaches: exactly one commits (review of PR #430)", async () => {
+    const t = await service();
+    const coaches = await Promise.all(Array.from({ length: 5 }, (_, i) => coach(`Many${i}`)));
+    for (const c of coaches) {
+      await qualify(c.user.id, t);
+      await hours(c.user, {
+        kind: "extra",
+        startsAt: "2031-06-05T09:00",
+        endsAt: "2031-06-05T10:00",
+      });
+    }
+    const client: CustomerPrincipal = {
+      kind: "customer",
+      customerId: `cus_${unique("one")}`,
+      personId: await person("one"),
+    };
+    // Thursday 5 June 09:00 in Sydney (Tuesday is closed).
+    const at = "2031-06-04T23:00:00.000Z";
+    const results = await Promise.all(
+      coaches.map((c) =>
+        call(
+          "fixture.myCreate",
+          { object: APPT, values: { service: t, coach: c.id, startsAt: at, endsAt: plus(at, 60) } },
+          outside(client, { clock: () => new Date(NOW) }),
+        ),
+      ),
+    );
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    for (const r of results.filter((r) => !r.ok)) {
+      expect(r).toMatchObject({ ok: false, error: { code: "conflict" } });
+    }
+  });
+
   it("a record the host makes for a customer meets the same check (a held booking)", async () => {
     const registry = createRegistry([
       ...fixtureRegistry.list(),

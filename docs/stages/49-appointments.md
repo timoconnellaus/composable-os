@@ -39,7 +39,7 @@ coordinator as best practice, below). Build may start with step 1.
   (the roster shows the kind to anyone but the provider and rosterers, clash answers name the kind,
   never offered; the feed already showed no title). Platform only: no Bookings object declares them
   yet (step 5). The spec's ADR "0764" part about the roster and the feed is ADR 0761.
-- **Step 4 built** (`feat/stage-49-free-times`; no migration, ADR 0763, ADR 0762 amended): free
+- **Step 4 built** (`feat/stage-49-free-times`; migration 1092, ADR 0763, ADR 0762 amended): free
   times and the customer's check. `staffed.open` (the kind's length, step and rooms, the client,
   the closures, `customer: true`); `freeTimes` (`staffing/free.ts`) worked out at read time from
   open hours less time off, claims with margins (the batch's queued ones counted), taken rooms (the
@@ -48,7 +48,9 @@ coordinator as best practice, below). Build may start with step 1.
   at most 31 days and 20 providers in a fixed number of reads. The tool-only `staffing.free`, open
   to staff, customers and the public through a shipped pack's tool, keyed by the shift's person
   value (a coach profile) rather than an account (the spec's `accounts?`). The customer's check
-  (`not_free_time`) in the transition engine's place and in `assertCreateRules` (the held door);
+  (`not_free_time`) in the transition engine's place and in `assertCreateRules` (the held door),
+  with exactly one of the kind's free rooms or none, and the client's own bookings guarded at
+  commit (`core_client_guard`, migration 1092; a visitor paying is step 8's);
   staff warnings `outside_hours` and `client_busy`. A customer's booking of such a shift is not a
   rosterer's act (ADR 0626 amended) and carries no staff warnings or roster notices. Platform only:
   no Bookings object declares `open` yet (step 5), so nothing calls `staffing.free` outside tests.
@@ -569,8 +571,8 @@ written until built):
 was given migrations from 1095 and ADRs from 0765 for parallel work: it used migration **1095**
 (`core_thing_time`) and ADR **0765** (`occupies`, listed above as 0761). So the ADR listed above as
 0765 (appointments in the Bookings pack) takes the lowest free number when step 5 builds it.
-Step 4 (free times and the customer's check) used ADR **0763** and amended 0762; it needed no
-migration.
+Step 4 (free times and the customer's check) used migration **1092** (`core_client_guard`) and
+ADR **0763**, and amended 0762.
 
 ## Suggested build order
 
