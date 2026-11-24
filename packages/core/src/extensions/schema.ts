@@ -933,6 +933,9 @@ function staffedDefinition(
   const holder = declared.who.account
     ? own.find((f) => f.localName === declared.who.field)?.definition.to
     : undefined;
+  const timesFromObject = declared.timesFrom
+    ? own.find((f) => f.localName === declared.timesFrom)?.definition.to
+    : undefined;
   return {
     staffed: {
       ...declared,
@@ -949,6 +952,7 @@ function staffedDefinition(
             },
           }
         : {}),
+      ...(timesFromObject ? { timesFromObject } : {}),
     },
   };
 }

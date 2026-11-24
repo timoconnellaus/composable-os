@@ -190,11 +190,15 @@ extension declares it; it never implements it. Each behaviour the platform has i
   duty shift): `staffed: { who: { field: "<user field>" } | { field: "<relation to another of
   your objects>", account: "<its user field>" }, starts, ends, zone?, kind: "<relation: what
   qualifications are for>", live: [<states in which it is a shift>], place?, pattern?: { link,
-  who }, claimBefore?, claimAfter?, account?: "required", private? }`. `claimBefore`/`claimAfter`
+  who }, claimBefore?, claimAfter?, account?: "required", private?, timesFrom? }`. `claimBefore`/`claimAfter`
   (`{ field: "<kind>.<number field>" }`, minutes; the kind one of your objects) are a buffer the
   claim keeps free around the shift (ADR 0760); `account: "required"` refuses a shift whose profile
   holds no account; `private: true` when the title can name a client: the roster shows the kind
-  instead to other staff, and it is never offered (ADR 0761). The host refuses one staff account on two overlapping shifts in the database, across
+  instead to other staff, and it is never offered (ADR 0761); `timesFrom: "<required relation to
+  another of your objects>"` when the shift's time is that record's (a crew member's place on a
+  visit): the record has the shift's `starts`, `ends`, `zone` and `kind` fields under the same
+  names, the shift's own copies are `readOnly`, and the host copies them whenever the record
+  changes, refusing a move that double-books anyone (ADR 0751). Never copy them in a tool. The host refuses one staff account on two overlapping shifts in the database, across
   every staffed object, for every writer (`conflict`, `rule: "double_booked"`), and answers each
   write with its warnings (away, not qualified, nobody on it). Shipped packs and the org's own
   extensions only. Never check for a clash, or work out who may take a shift, in a tool. See

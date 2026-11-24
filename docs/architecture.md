@@ -1264,6 +1264,14 @@ and by triggers on the shift's and the profile's tables (`rule: "staffed_account
 stays allowed. `private: true` ([ADR 0761](adr/0761-a-shift-that-names-a-client-kept-off-the-roster-and-the-feed.md))
 marks a shift whose title may name a client (an appointment): the roster shows it as its kind to
 anyone but its person and rosterers, clash answers name it by its kind, and it is never offered.
+**Times that follow** (stage 39 step 2, [ADR 0751](adr/0751-times-that-follow.md)): `timesFrom`
+names a required relation to another of the extension's objects (a crew place's visit) whose
+`starts`, `ends`, `zone` and `kind` fields, under the same names, the host copies onto the shift,
+whose own copies are read-only and written by nobody else. Triggers on the record's table copy them
+onto every shift naming it in the same statement, and on the shift's table copy them back on any
+other write, so the claims follow and `core_staff_time` refuses a move that would double-book
+anyone, whole; the record code reads each following shift first (at most 25), naming the person,
+with each shift's warnings and notices. Not with a series making the shift.
 
 **`occupies`** ([ADR 0765](adr/0765-occupies-the-claim-on-a-thing.md), `packages/core/src/occupies/`;
 stage 49 step 2). The time claim's twin for things: a record that declares

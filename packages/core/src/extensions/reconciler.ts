@@ -46,6 +46,7 @@ import {
   dropStaffedTriggers,
   resyncClaims,
   type StaffedTables,
+  syncTimes,
 } from "../staffing/sql.ts";
 import { backfillStockCounters } from "../stock/index.ts";
 import { orgReader, visibleSource } from "../visibility/index.ts";
@@ -880,6 +881,16 @@ export function planFromState(
           `CREATE INDEX IF NOT EXISTS ${byKind} ON ${ident(object.tableName)} (${ident(kind)}) WHERE deleted_at IS NULL`,
         );
       }
+      // The record its times follow (ADR 0751): that record's triggers find its shifts by it, in
+      // the Trash too (a shift restored keeps its record's times).
+      const link = staffed.times?.link;
+      const byLink = link ? ident(`${object.tableName}__times_${link}`) : null;
+      if (link && byLink) {
+        wanted.set(
+          byLink,
+          `CREATE INDEX IF NOT EXISTS ${byLink} ON ${ident(object.tableName)} (${ident(link)})`,
+        );
+      }
     }
     // What a claim on a thing is found by (ADR 0765): its thing, and its margins' records.
     const occupies = occupiesTables(next, object);
@@ -1371,6 +1382,28 @@ function staffedTables(state: SchemaState, object: ObjectState): StaffedTables |
     }
     margins = { kind, table: target.tableName, before, after };
   }
+  // The record whose time a shift is (ADR 0751): the same fields on its object, copied from it.
+  let times: StaffedTables["times"];
+  if (declared.timesFrom) {
+    const linkField = field(object, declared.timesFrom);
+    const parent = state.objects.find(
+      (o) => o.name === linkField?.definition.to && o.status === "active",
+    );
+    const names = [declared.starts, declared.ends, declared.zone, declared.kind].filter(
+      (n): n is string => typeof n === "string",
+    );
+    const columns = names.map((n) => {
+      const mine = field(object, n)?.columnName;
+      const theirs = parent ? field(parent, n)?.columnName : undefined;
+      return mine && theirs ? ([mine, theirs] as const) : null;
+    });
+    if (!linkField?.columnName || !parent || columns.some((c) => c === null)) return null;
+    times = {
+      link: linkField.columnName,
+      table: parent.tableName,
+      columns: columns as (readonly [string, string])[],
+    };
+  }
   return {
     object: object.name,
     table: object.tableName,
@@ -1383,6 +1416,7 @@ function staffedTables(state: SchemaState, object: ObjectState): StaffedTables |
     ...(kind ? { kind } : {}),
     ...(margins ? { margins } : {}),
     ...(declared.account === "required" && account ? { required: true } : {}),
+    ...(times ? { times } : {}),
   };
 }
 
@@ -1395,7 +1429,10 @@ function staffedColumnsExist(current: SchemaState, t: StaffedTables): boolean {
     (!t.account || has(t.account.table, t.account.column)) &&
     (!t.margins ||
       (has(t.table, t.margins.kind) &&
-        [t.margins.before, t.margins.after].every((c) => !c || has(t.margins?.table ?? "", c))))
+        [t.margins.before, t.margins.after].every((c) => !c || has(t.margins?.table ?? "", c)))) &&
+    (!t.times ||
+      (has(t.table, t.times.link) &&
+        t.times.columns.every(([m, r]) => has(t.table, m) && has(t.times?.table ?? "", r))))
   );
 }
 
@@ -1420,7 +1457,8 @@ function staffedPlan(current: SchemaState, next: SchemaState, ext: string) {
     if (!t) continue;
     now.add(object.name);
     creates.push(...createStaffedTriggers(t));
-    statements.push(...resyncClaims(t));
+    // Times that follow (ADR 0751): copied onto shifts written before the declaration, first.
+    statements.push(...syncTimes(t), ...resyncClaims(t));
   }
   for (const object of was) {
     if (!now.has(object.name)) statements.push(dropClaims(object.name));
