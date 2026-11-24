@@ -17,6 +17,8 @@ import {
   type RosterRefusal,
   rosterRefusal,
   shiftTime,
+  WEEKDAYS,
+  type Weekday,
 } from "@composable-os/pack-rostering/client";
 import { useState } from "react";
 import { View } from "react-native";
@@ -28,17 +30,6 @@ import { Screen } from "../native-base/screen.tsx";
 import { Text } from "../native-base/text.tsx";
 
 type Hooks = Pick<RosteringHooks, "useMe" | "useMyAway" | "useAway" | "useBack" | "useOffer">;
-
-const DAYS = [
-  ["mon", "Mon"],
-  ["tue", "Tue"],
-  ["wed", "Wed"],
-  ["thu", "Thu"],
-  ["fri", "Fri"],
-  ["sat", "Sat"],
-  ["sun", "Sun"],
-] as const;
-type Weekday = (typeof DAYS)[number][0];
 
 interface Form {
   kind: "leave" | "regular";
@@ -195,7 +186,8 @@ export function MyAvailabilityScreen({
         {form.kind === "regular" ? (
           <>
             <View>
-              {DAYS.map(([value, label]) => {
+              {WEEKDAYS.map(([value, name]) => {
+                const label = name.slice(0, 3);
                 const on = form.weekdays.includes(value);
                 return (
                   <Button

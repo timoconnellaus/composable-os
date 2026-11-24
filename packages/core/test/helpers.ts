@@ -71,3 +71,13 @@ export async function timeline(objectType: string, recordId: string) {
     payload: JSON.parse(row.payload) as Record<string, unknown>,
   }));
 }
+
+/** The error a call that must be refused was refused with. */
+export async function refusal(promise: Promise<unknown>) {
+  try {
+    await promise;
+  } catch (error) {
+    return error as { code: string; message: string; details: Record<string, unknown> };
+  }
+  throw new Error("expected a refusal");
+}

@@ -7,8 +7,9 @@
 // only when it is about one of those People. The limit is held before the operation runs:
 //   - record.list: a predicate in the list's own query (`looksAfterWhere`), a subquery over the
 //     team's records with the account as one bound value, however many People it looks after;
-//   - record.get, record.update: the stored record is checked, else it is not found; an update
-//     that points the record at another Person must point it at one they look after;
+//   - record.get, record.update, record.delete: the stored record is checked, else it is not
+//     found; an update that points the record at another Person must point it at one they look
+//     after (a delete is to the Trash, and still passes the gate: a coach's un-ticked set);
 //   - record.create: the new record's Person must be one they look after, else not found;
 //   - a tool runs (its own calls are held in turn), and so do the account's own core operations
 //     (`screens.mine`, `ack.*`) and the staff reads of published versions (`content.staffGet`,
@@ -23,11 +24,12 @@ import { getObject } from "./fields/index.ts";
 import { PACK_ROLE_CORE_READS, PACK_ROLE_OWN, PACK_ROLE_STAFF_READS } from "./pack-roles.ts";
 import { viewColumnOf } from "./records/columns.ts";
 
-/** The record operations the limit understands: a list, a get, an update and a create. */
+/** The record operations the limit understands: a list, a get, an update, a delete and a create. */
 const CHECKED: ReadonlySet<string> = new Set([
   "record.list",
   "record.get",
   "record.update",
+  "record.delete",
   "record.create",
 ]);
 
@@ -179,7 +181,11 @@ export async function holdRoleLooksAfter(
   const relation = limit.reach[object] as string;
   const values = (record.values ?? {}) as Record<string, unknown>;
   if (operation === "record.list") return;
-  if (operation === "record.get" || operation === "record.update") {
+  if (
+    operation === "record.get" ||
+    operation === "record.update" ||
+    operation === "record.delete"
+  ) {
     const id = String(record.id ?? "");
     if (!(await reachable(db, limit, object, id))) throw new NotFoundError(object, id);
     if (

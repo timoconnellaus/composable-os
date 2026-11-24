@@ -84,6 +84,21 @@ extension code is never acceptable (ADR 0405).
   only proof that can be sourced, and its three checks on the built page
   (`apps/marketing/README.md`). The angle and the look are in ADR 0465.
 
+## The docs site
+
+- **Keep the docs true in the same PR.** [`apps/docs`](apps/docs/README.md) (docs.composableos.dev,
+  ADR 0930) is generated from the code. A PR that adds or changes a pack, a block or an operation
+  updates the pack's `packs/<id>/docs/overview.md` (or the capability's `docs/overview.md`, or the
+  guide in `docs/guides/` it touches) in the same PR, then runs
+  `pnpm --filter @composable-os/docs generate` and commits what it writes.
+- **Reference pages are never edited by hand**: everything under `apps/docs/src/content/docs/`,
+  `apps/docs/src/sidebar.json` and `apps/docs/public/llms.txt` is the generator's. CI fails when
+  they are stale, when a pack has no overview (and is not on the pending list in
+  `apps/docs/docs.config.mjs`), or when a link is broken. A new pack gets its overview in the PR
+  that adds it.
+- **Only what is built**, plainly: an overview describes what the code does, with no status badges
+  or caveats; what is not built is at most a line saying so.
+
 ## Tooling
 
 - pnpm + Turborepo. Run `pnpm lint`, `pnpm typecheck` and `pnpm test` before pushing.
