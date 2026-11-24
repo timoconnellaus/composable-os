@@ -266,9 +266,12 @@ export const MCP_SCOPES = ["read", "write", "admin"] as const;
 export type McpScope = (typeof MCP_SCOPES)[number];
 
 export const SCOPE_PERMISSIONS: Record<McpScope, readonly Permission[]> = {
-  read: ["records:read", "journeys:read"],
+  // `finance:read` (stage 52, ADR 0794 amended): reading the figures over MCP, for an account
+  // that holds it (by role or grant: the scope only intersects); never closing or downloading.
+  read: ["records:read", "journeys:read", "finance:read"],
   write: [
     "records:read",
+    "finance:read",
     "records:write",
     "records:publish",
     "journeys:read",

@@ -129,7 +129,7 @@ type Why = (typeof WHY)[keyof typeof WHY];
  */
 const REMAINING: Record<string, [reads: number, why: Why]> = {
   "ai/embedding.ts": [9, WHY.org],
-  "finance/book.ts": [5, WHY.finance],
+  "finance/book.ts": [8, WHY.finance],
   "ai/summaries.ts": [16, WHY.later],
   // Stage 32b (ADR 0493): a spend checks its Person is not in the Trash, in the write's own path.
   "agreements/due.ts": [2, WHY.agreements],

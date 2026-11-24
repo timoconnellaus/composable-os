@@ -136,8 +136,11 @@ const uncounted = (kind: string, id: ReturnType<typeof sql>) =>
     AND f.state = 'closed')`;
 
 /** A refund that gives back a payment never counted (late or mismatched, not honoured). */
+// Through the order's own payments (`core_order_payment_order_idx`): `+q.provider` keeps the
+// planner off the primary key's provider prefix, which would read every payment the provider made
+// for each refund (the review of PR #423).
 const REFUND_OF_A_SALE = sql`NOT EXISTS (SELECT 1 FROM core_order_payment q
-  WHERE q.order_id = r.order_id AND q.provider = r.provider AND q.payment_ref = r.payment_ref
+  WHERE q.order_id = r.order_id AND +q.provider = r.provider AND q.payment_ref = r.payment_ref
   AND q.outcome != 'applied' AND q.resolved IS NOT 'honoured')`;
 
 async function readSources(db: Db, span: Span, late: boolean): Promise<SourceRow[]> {
@@ -182,7 +185,7 @@ function spanGuards(span: Span, late: boolean): string[] {
   const paymentsIn =
     `(SELECT p.order_id, p.amount, p.tax_amount FROM core_order_payment p WHERE p.outcome = 'applied' AND p.received_at >= ${a} AND p.received_at < ${b}${notCounted("payment", "p.provider || ':' || p.event_id")}` +
     ` UNION ALL SELECT p.order_id, p.amount, p.tax_amount FROM core_order_payment p WHERE p.outcome = 'late' AND p.resolved = 'honoured' AND p.resolved_at >= ${a} AND p.resolved_at < ${b}${notCounted("payment", "p.provider || ':' || p.event_id")})`;
-  const refundsIn = `(SELECT r.order_id, r.amount, r.tax_amount FROM core_order_refund r WHERE r.status = 'confirmed' AND r.confirmed_at >= ${a} AND r.confirmed_at < ${b} AND NOT EXISTS (SELECT 1 FROM core_order_payment q WHERE q.order_id = r.order_id AND q.provider = r.provider AND q.payment_ref = r.payment_ref AND q.outcome != 'applied' AND q.resolved IS NOT 'honoured')${notCounted("refund", "r.id")})`;
+  const refundsIn = `(SELECT r.order_id, r.amount, r.tax_amount FROM core_order_refund r WHERE r.status = 'confirmed' AND r.confirmed_at >= ${a} AND r.confirmed_at < ${b} AND NOT EXISTS (SELECT 1 FROM core_order_payment q WHERE q.order_id = r.order_id AND +q.provider = r.provider AND q.payment_ref = r.payment_ref AND q.outcome != 'applied' AND q.resolved IS NOT 'honoured')${notCounted("refund", "r.id")})`;
   const orders = `(SELECT order_id FROM ${paymentsIn} UNION SELECT order_id FROM ${refundsIn})`;
   return [
     `SELECT count(*) FROM ${paymentsIn}`,
@@ -195,6 +198,10 @@ function spanGuards(span: Span, late: boolean): string[] {
     // What the shares are weighed by: the lines' tax, and the order's tax and paid (estimates).
     `SELECT coalesce(sum(l.tax_amount), 0) + count(l.tax_code) FROM core_order_line l WHERE l.order_id IN ${orders}`,
     `SELECT coalesce(sum(o.tax_amount), 0) * 2 + coalesce(sum(o.paid), 0) FROM core_order o WHERE o.id IN ${orders}`,
+    // Who a refund row names (the review of PR #423): an erase landing between the read and the
+    // batch changes these, so the close fails and is tried again with the name gone.
+    `SELECT count(o.person_id) * 3 + count(o.email) FROM core_order o WHERE o.id IN (SELECT order_id FROM ${refundsIn})`,
+    `SELECT coalesce(sum(length(pr.display_name)), 0) + count(pr.id) FROM core_order o JOIN core_person pr ON pr.id = o.person_id WHERE o.id IN (SELECT order_id FROM ${refundsIn})`,
   ];
 }
 
@@ -509,9 +516,9 @@ export async function moneyBook(
             },
             category: "other",
             gross: source.amount,
-            tax: 0,
-            taxCode: null,
-            taxCountry: NO_TAX_COUNTRY,
+            tax: Math.min(source.tax ?? 0, source.amount),
+            taxCode: source.tax !== null ? NO_TAX_CODE : null,
+            taxCountry: country(source.tax_country ?? order?.tax_country),
             estimated: false,
             discount: 0,
           },
@@ -582,8 +589,11 @@ export async function moneyBook(
       refunds.push({
         report: "refunds",
         personId: order?.person_id ?? null,
-        name: order?.person_name ?? null,
-        email: order?.email ?? null,
+        name: order?.person_id ? (order.person_name ?? null) : null,
+        // A guest's address is kept only with a Person: the erase (and the closed row's trigger)
+        // reach a row by its Person, so an address with none could never be erased (ADR 0320;
+        // the review of PR #423). The order itself still holds it until then.
+        email: order?.person_id ? (order.email ?? null) : null,
         data: {
           type: "refund",
           refundId: source.id,
