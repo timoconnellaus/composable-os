@@ -61,7 +61,7 @@ const TEXT_FIELDS: Record<string, readonly string[]> = {
     "tags",
   ],
   organisation: ["name", "industry", "description", "domains", "primaryDomain", "tags"],
-  activity: ["subject", "body", "type", "private", "privateTo", "disclosure"],
+  activity: ["subject", "body", "type", "private", "privateTo", "disclosure", "level"],
   task: ["title", "notes"],
 };
 

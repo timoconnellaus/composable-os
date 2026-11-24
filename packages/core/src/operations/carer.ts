@@ -7,16 +7,17 @@
 //
 // Who reads whose notes is policy, so setting it is a person's act on the Person's page, as the
 // family link is (ADR 0540): `actors: ["human"]`, refused to the assistant, MCP clients,
-// automations and extension code. A coach does not add themselves unless they hold people:link.
+// automations and extension code. Nobody sets themselves, unless they already read every coaches
+// note.
 // What a live row allows is decided by the seam alone (visibility/notes.ts), on every read. Each
 // call's audit row (input and the row's id) is the record of who set it; nothing goes on the
 // Person's timeline or to an automation.
 import { sql } from "kysely";
 import { z } from "zod";
-import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
 import { newId } from "../ids.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
-import { visibleSource } from "../visibility/index.ts";
+import { type NoteViewer, noteRights, visibleSource } from "../visibility/index.ts";
 
 const personId = z.string().min(1).max(64).describe("The person (per_…)");
 const userId = z.string().min(1).max(64).describe("The staff account (usr_…)");
@@ -96,6 +97,15 @@ export const carerSet = defineOperation({
   actors: ["human"],
   mcp: { expose: false },
   async handler(input, ctx) {
+    // A coach does not add themselves (stage 56): people:link is not restricted, and setting
+    // oneself would open a client's coaches notes one step away. Someone who already reads every
+    // coaches note (an admin, notes:clients) gains nothing by it.
+    if (input.userId === ctx.user.id && !noteRights(ctx as NoteViewer)?.clients) {
+      throw new ForbiddenError("You cannot say you look after someone yourself: another person sets it", {
+        field: "userId",
+        rule: "carer_self",
+      });
+    }
     await requireLivePerson(ctx, input.personId);
     const user = await ctx.db
       .selectFrom("rec_user")

@@ -41,6 +41,27 @@ BEGIN
   SELECT RAISE(ABORT, 'core_activity_level_not_note');
 END;
 
+-- The notes kept from the whole staff, for the paths that leave them out (visibility/notes.ts):
+-- a partial index, so finding them reads only them, not every synced email.
+CREATE INDEX core_activity_kept_idx ON core_activity (id) WHERE level != 'staff';
+
+-- A note's change planned from a read of its level carries that level; the batch fails whole when
+-- the level changed meanwhile (`core_note_changed`), so a stale edit never puts back a level
+-- someone else raised, and a lowering is judged against the level it lowers. Nothing is stored.
+CREATE TABLE core_note_guard (
+  expected INTEGER NOT NULL,
+  actual INTEGER NOT NULL
+);
+
+CREATE TRIGGER core_note_guard_check
+BEFORE INSERT ON core_note_guard
+BEGIN
+  SELECT CASE
+    WHEN NEW.actual != NEW.expected THEN RAISE(ABORT, 'core_note_changed')
+    ELSE RAISE(IGNORE)
+  END;
+END;
+
 -- The base view keeps only `staff` rows. rec_activity reads it by name, so it follows.
 DROP VIEW core_base_activities;
 CREATE VIEW core_base_activities AS

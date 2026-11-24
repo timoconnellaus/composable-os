@@ -87,7 +87,11 @@ export const trashList = defineOperation({
           .select([
             sql<TrashListObject>`'activity'`.as("object"),
             "id",
-            sql<string>`coalesce(nullif(trim(subject), ''), substr(body, 1, 120), type)`.as("name"),
+            // A note kept from the whole staff is named by its type, never its text: its text
+            // is read on its timeline, a sensitive one with note.open (stage 56, ADR 0830).
+            sql<string>`CASE WHEN level != 'staff' THEN type ELSE coalesce(nullif(trim(subject), ''), substr(body, 1, 120), type) END`.as(
+              "name",
+            ),
             "deleted_at",
             "deleted_by",
             sql<string | null>`null`.as("merged_into_id"),

@@ -43,7 +43,7 @@ export {
   sharedEmailWarning,
 } from "./guardians.ts";
 export {
-  keptNoteIds,
+  hiddenNoteIds,
   NOTE_LEVELS,
   type NoteLevel,
   type NoteRights,

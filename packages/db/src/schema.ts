@@ -3173,6 +3173,8 @@ export interface CoreDatabase {
   core_staff_offer: CoreStaffOfferTable;
   core_staff_run: CoreStaffRunTable;
   core_staff_guard: CoreStaffGuardTable;
+  /** Migration 1230 (stage 56): a note's change fails whole when its level moved meanwhile. */
+  core_note_guard: CoreStaffGuardTable;
   core_staff_pay_basis: CoreStaffPayBasisTable;
   core_staff_not_worked: CoreStaffNotWorkedTable;
   core_pay_period: CorePayPeriodTable;

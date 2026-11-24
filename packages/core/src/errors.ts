@@ -352,6 +352,14 @@ export function toOperationError(error: unknown): OperationError {
   }
   // A batch planned from a read of the roster that changed before it committed (migration 0812,
   // ADR 0624): a leaver's shifts or patterns changed meanwhile. Nothing was applied.
+  // A note's level changed while a change planned from it was being made (migration 1230, ADR
+  // 0830): nothing was applied.
+  if (message.includes("core_note_changed")) {
+    return new ConflictError(
+      "The note's level changed while this was being done, so nothing was changed. Try again.",
+      { rule: "note_changed" },
+    );
+  }
   if (message.includes("core_staff_changed")) {
     return new ConflictError(
       "The roster changed while this was being done, so nothing was changed. Try again.",

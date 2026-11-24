@@ -84,18 +84,22 @@ export function noteScopeWhere(viewer: NoteViewer, alias: string): RawBuilder<un
   const me = rights.userId;
   // Their own note, while their account is active: a deactivated author reads nothing.
   const authored = sql`(${sql.ref(`${alias}.author_user_id`)} = ${me} AND EXISTS (SELECT 1 FROM core_user nu WHERE nu.id = ${me} AND nu.deactivated_at IS NULL))`;
-  // A Person they look after now: the note is about exactly one Person (activity.log).
-  const caredFor = sql`EXISTS (SELECT 1 FROM core_activity_links nl JOIN core_person_carer nc ON nc.person_id = nl.record_id AND nc.user_id = ${me} AND nc.ended_at IS NULL WHERE nl.activity_id = ${sql.ref(`${alias}.id`)} AND nl.object_type = 'person')`;
+  // A live Person they look after now: the note is about exactly one Person (activity.log).
+  const caredFor = sql`EXISTS (SELECT 1 FROM core_activity_links nl JOIN core_person_carer nc ON nc.person_id = nl.record_id AND nc.user_id = ${me} AND nc.ended_at IS NULL JOIN core_person np ON np.id = nc.person_id AND np.deleted_at IS NULL WHERE nl.activity_id = ${sql.ref(`${alias}.id`)} AND nl.object_type = 'person')`;
   const coaches = rights.clients ? sql`1 = 1` : sql`(${authored} OR ${caredFor})`;
   const sensitive = rights.sensitive ? sql`1 = 1` : authored;
   return sql`(${level} = 'staff' OR (${level} = 'coaches' AND ${coaches}) OR (${level} = 'sensitive' AND ${sensitive}))`;
 }
 
 /**
- * The ids of every note kept from the whole staff (level `coaches` or `sensitive`), live or in
- * the Trash, as a subquery: for paths that must say nothing of them to anyone but a person who
- * may read them (an AI actor's audit list, a record's history).
+ * The ids of the notes kept from the whole staff (level `coaches` or `sensitive`, live or in the
+ * Trash) that `viewer` may not read, as a subquery: for paths that say nothing of them to anyone
+ * but a person who may read them (counts of linked activities, an AI actor's audit list, a
+ * record's history). Everything kept, for an AI actor; nothing, for a person who reads every
+ * level. It reads only kept notes (the partial index `core_activity_kept_idx`, migration 1230).
  */
-export function keptNoteIds(): RawBuilder<unknown> {
-  return sql`(SELECT id FROM core_activity WHERE level != 'staff')`;
+export function hiddenNoteIds(viewer: NoteViewer): RawBuilder<unknown> {
+  const scope = noteScopeWhere(viewer, "hn");
+  if (!scope) return sql`(SELECT NULL WHERE 0)`;
+  return sql`(SELECT hn.id FROM core_activity hn WHERE hn.level != 'staff' AND NOT ${scope})`;
 }

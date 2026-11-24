@@ -9,8 +9,10 @@
 // (ADR 0832): its author, or `notes:manage` (with `notes:sensitive` for a sensitive one), and a
 // level is changed and a note deleted by a person only.
 import type { CoreDatabase } from "@composable-os/db";
-import { type Kysely, type Selectable, sql } from "kysely";
+import { type Compilable, type CompiledQuery, type Kysely, type Selectable, sql } from "kysely";
 import { z } from "zod";
+import { enqueueEmbeddings } from "../ai/embedding.ts";
+import { deleteSummariesStatement } from "../ai/summaries.ts";
 import { diffRecords } from "../diff.ts";
 import { ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
 import { activityObject } from "../fields/activity.ts";
@@ -375,6 +377,44 @@ function assertMayChange(ctx: HandlerContext, activity: Activity): void {
   );
 }
 
+/**
+ * What a level change takes with it (ADR 0830). Its vector is queued to be dropped or made again
+ * (a kept note has none), whatever path embeds: a kept note's change is no record event. Raised
+ * from `staff`, the copies of its text made while every staff account read it go: the cached
+ * summaries built from it, and its text in the audit log, by ADR 0019's sanctioned redaction
+ * (a marker per row, naming this operation, which keeps the field names).
+ */
+function levelChangeStatements(
+  ctx: HandlerContext,
+  id: string,
+  beforeLevel: NoteLevel,
+): (Compilable | CompiledQuery)[] {
+  const out: (Compilable | CompiledQuery)[] = [];
+  const queued = enqueueEmbeddings(ctx.db, [{ object: "activity", id }], ctx.now);
+  if (queued) out.push(queued);
+  if (beforeLevel !== "staff") return out;
+  out.push(
+    deleteSummariesStatement(ctx.db, [id]),
+    sql`INSERT INTO core_audit_redactions (change_id, object_type, record_id, operation, user_id, at)
+      SELECT c.id, 'activity', ${id}, ${ctx.operation}, ${ctx.user.id}, ${ctx.now}
+      FROM core_audit_changes c
+      WHERE c.object_type = 'activity' AND c.record_id = ${id}
+        AND NOT EXISTS (SELECT 1 FROM core_audit_redactions r WHERE r.change_id = c.id)`.compile(
+      ctx.db,
+    ),
+    sql`INSERT INTO core_audit_redactions (audit_id, object_type, record_id, operation, user_id, at)
+      SELECT a.id, 'activity', ${id}, ${ctx.operation}, ${ctx.user.id}, ${ctx.now}
+      FROM core_audit a
+      WHERE a.id IN (SELECT c.audit_id FROM core_audit_changes c
+                     WHERE c.object_type = 'activity' AND c.record_id = ${id})
+        AND a.operation IN ('activity.log', 'activity.update', 'activity.proposeNote')
+        AND NOT EXISTS (SELECT 1 FROM core_audit_redactions r WHERE r.audit_id = a.id)`.compile(
+      ctx.db,
+    ),
+  );
+  return out;
+}
+
 function queueLinks(
   ctx: HandlerContext,
   activityId: string,
@@ -597,6 +637,11 @@ export const activityUpdate = defineOperation({
       assertOnePerson(level, before.links);
     }
     ctx.write(
+      // Planned from the level read above: a level changed meanwhile fails the batch whole, so a
+      // stale edit never puts back a level someone raised, nor lowers one it was not judged on.
+      sql`INSERT INTO core_note_guard (expected, actual) SELECT 1, count(*) FROM core_activity WHERE id = ${input.id} AND level = ${beforeLevel}`.compile(
+        ctx.db,
+      ),
       ctx.db
         .updateTable("core_activity")
         .set({
@@ -604,11 +649,12 @@ export const activityUpdate = defineOperation({
           body,
           payload: JSON.stringify(payload),
           occurred_at: occurredAt,
-          level,
+          ...(level !== beforeLevel ? { level } : {}),
           updated_at: ctx.now,
         })
         .where("id", "=", input.id),
     );
+    if (level !== beforeLevel) ctx.write(...levelChangeStatements(ctx, input.id, beforeLevel));
     const beforeSnapshot = {
       ...activitySnapshot(before, beforeLinks),
       ...(beforeLevel !== "staff" ? { level: beforeLevel } : {}),

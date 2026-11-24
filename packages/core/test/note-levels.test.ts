@@ -8,7 +8,11 @@ import { env } from "cloudflare:workers";
 import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
 import { embeddingTexts } from "../src/ai/embedding.ts";
-import { activitySummaryInput } from "../src/ai/summaries.ts";
+import {
+  activitySummaryInput,
+  recordSummaryInput,
+  storeSummaryStatement,
+} from "../src/ai/summaries.ts";
 import { type ActingUser, type Actor, invoke } from "../src/index.ts";
 import { auditRows, context, createUser, db, unique } from "./helpers.ts";
 
@@ -378,8 +382,8 @@ describe("who changes a note and its level", () => {
     expect(
       (await invoke("search.global", { query: word }, as(member))).hits.map((h) => h.id),
     ).toEqual([note]);
-    // The level change and the edits are in the history by field name only.
-    expect(await auditHolding(word)).toBeGreaterThan(0); // the staff note's own diff
+    // Raised once, its text left the audit log for good (ADR 0019's redaction), lowered or not.
+    expect(await auditHolding(word)).toBe(0);
   });
 
   it("lowering a sensitive note needs notes:sensitive too", async () => {
@@ -525,5 +529,154 @@ describe("the timeline read with the note scope, in a bounded number of statemen
     expect(large.length).toBe(small.length);
     expect(large.length).toBeLessThan(20);
     expect(Math.max(...large)).toBeLessThan(100);
+  });
+});
+
+// The review of PR #373: each sequence it reproduced, kept as a test.
+describe("copies of a kept note's text", () => {
+  it("the Trash names a kept note by its type, never its text, even to those who may read it", async () => {
+    const word = unique("trashword");
+    const sensitive = (await log(member, "sensitive", `${word} torn ACL`)).id;
+    const coaches = (await log(member, "coaches", `${word} knee`)).id;
+    await invoke("activity.delete", { id: sensitive }, as(member));
+    await invoke("activity.delete", { id: coaches }, as(member));
+    for (const reader of [keeper, admin, member]) {
+      const items = (await invoke("trash.list", { object: "activity", limit: 100 }, as(reader)))
+        .items;
+      for (const item of items.filter((i) => i.id === sensitive || i.id === coaches)) {
+        expect(item.name).toBe("note");
+      }
+      expect(JSON.stringify(items)).not.toContain(word);
+    }
+  });
+
+  it("raising a note takes away the cached summaries built from it", async () => {
+    const p = (await invoke("person.create", { displayName: unique("Summed") }, as(admin))).id;
+    const word = unique("summaryword");
+    const note = (await log(author, "staff", `${word} keep quiet`, [{ object: "person", id: p }]))
+      .id;
+    const facts = await recordSummaryInput(db.query, "person", p);
+    expect(facts.sources).toContain(note);
+    await db.query.executeQuery(
+      (
+        await storeSummaryStatement(
+          db.query,
+          facts,
+          "model",
+          { text: `Summary: ${word} mentioned`, model: "model" },
+          new Date().toISOString(),
+          admin.id,
+        )
+      ).compile(),
+    );
+    await invoke("activity.update", { id: note, level: "sensitive" }, as(author));
+    for (const actor of ["human", "assistant"] as const) {
+      const summary = await invoke(
+        "summary.get",
+        { subject: { kind: "record", object: "person", id: p } },
+        as(member, actor),
+      );
+      expect(summary.text).toBeNull();
+    }
+  });
+
+  it("raising or lowering a note queues its vector to be dropped or made again", async () => {
+    const note = (await log(author, "staff", "Embedded once")).id;
+    const queued = async () =>
+      (
+        await env.DB.prepare(
+          "SELECT COUNT(*) AS n FROM core_embedding_queue WHERE object_type = 'activity' AND record_id = ?",
+        )
+          .bind(note)
+          .first<{ n: number }>()
+      )?.n;
+    await env.DB.prepare("DELETE FROM core_embedding_queue WHERE record_id = ?").bind(note).run();
+    await invoke("activity.update", { id: note, level: "coaches" }, as(author));
+    expect(await queued()).toBe(1);
+    expect((await embeddingTexts(db.query, "activity", [note])).size).toBe(0);
+    await env.DB.prepare("DELETE FROM core_embedding_queue WHERE record_id = ?").bind(note).run();
+    await invoke("activity.update", { id: note, level: "staff" }, as(admin));
+    expect(await queued()).toBe(1);
+    expect((await embeddingTexts(db.query, "activity", [note])).size).toBe(1);
+  });
+
+  it("raising a note redacts the text its staff-level history held in the audit log", async () => {
+    const word = unique("historyword");
+    const note = (await log(author, "staff", `${word} first`)).id;
+    await invoke("activity.update", { id: note, body: `${word} second` }, as(author));
+    expect(await auditHolding(word)).toBeGreaterThan(0);
+    await invoke("activity.update", { id: note, level: "coaches" }, as(author));
+    expect(await auditHolding(word)).toBe(0);
+    const marks = await env.DB.prepare(
+      "SELECT operation FROM core_audit_redactions WHERE record_id = ?",
+    )
+      .bind(note)
+      .all<{ operation: string }>();
+    expect(marks.results.length).toBeGreaterThan(0);
+    expect(new Set(marks.results.map((m) => m.operation))).toEqual(new Set(["activity.update"]));
+  });
+});
+
+describe("who looks after whom", () => {
+  it("nobody sets themselves with people:link alone", async () => {
+    const linker = await createUser("member");
+    await invoke("user.setPermissions", { id: linker.id, permissions: ["people:link"] }, as(admin));
+    const note = (await log(author, "coaches", "Not theirs")).id;
+    const self = await refusal(
+      invoke("carer.set", { personId: person, userId: linker.id }, as(linker)),
+    );
+    expect(self.details?.rule).toBe("carer_self");
+    expect((await refusal(invoke("activity.get", { id: note }, as(linker)))).code).toBe(
+      "not_found",
+    );
+    // Setting someone else is what the permission is for.
+    const other = await createUser("member");
+    await invoke("carer.set", { personId: person, userId: other.id }, as(linker));
+  });
+
+  it("a coach reads nothing of a Person in the Trash", async () => {
+    const p = (await invoke("person.create", { displayName: unique("Trashed") }, as(admin))).id;
+    const coach = await createUser("member");
+    await invoke("carer.set", { personId: p, userId: coach.id }, as(admin));
+    const note = (await log(author, "coaches", "About someone", [{ object: "person", id: p }])).id;
+    expect((await invoke("activity.get", { id: note }, as(coach))).id).toBe(note);
+    await invoke("person.delete", { id: p }, as(admin));
+    expect((await refusal(invoke("activity.get", { id: note }, as(coach)))).code).toBe(
+      "not_found",
+    );
+  });
+});
+
+describe("a note's level changed meanwhile", () => {
+  it("fails a change planned from the old level whole", async () => {
+    const note = (await log(author, "coaches", "Racing")).id;
+    // The author's edit reads the note at `coaches`; an admin raises it before the edit commits.
+    const racing = new Proxy(env.DB, {
+      get(target, key) {
+        if (key === "batch") {
+          return async (statements: D1PreparedStatement[]) => {
+            await target
+              .prepare("UPDATE core_activity SET level = 'sensitive' WHERE id = ?")
+              .bind(note)
+              .run();
+            return target.batch(statements);
+          };
+        }
+        const value = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const stale = await refusal(
+      invoke(
+        "activity.update",
+        { id: note, body: "Edited from the old read" },
+        { ...as(author), db: createCrmDb(racing) },
+      ),
+    );
+    expect(stale.details?.rule).toBe("note_changed");
+    const row = await env.DB.prepare("SELECT level, body FROM core_activity WHERE id = ?")
+      .bind(note)
+      .first<{ level: string; body: string }>();
+    expect(row).toEqual({ level: "sensitive", body: "Racing" });
   });
 });
