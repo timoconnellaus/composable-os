@@ -144,7 +144,9 @@ phone numbers and id, and the search index is purged of it. Pending actions that
 it are redacted, and rejected if still waiting. In-app assistant threads that referenced it
 are redacted too (ADR 0019 amendment). It also reaches sync, extension data, run history,
 notifications, events and synced email bodies, and puts a person's addresses on the
-**erased-address list** (ADR 0320).
+**erased-address list** (ADR 0320). A subscription the Person pays for or holds ends when the
+period already paid for ends, nothing refunded and nothing more charged, as when a member deletes
+their own account (ADR 0649).
 
 **Erased-address list**
 `core_erased_address`: SHA-256 hashes of erased people's email addresses (never the addresses).

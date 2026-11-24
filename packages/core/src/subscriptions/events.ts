@@ -34,6 +34,7 @@ import {
   openChange,
   upgradeNeedsAction,
 } from "./changes.ts";
+import { askEraseEnd, eraseEndFor } from "./erase.ts";
 import { followSubscriptionGrant } from "./grants.ts";
 import { type PeriodTerms, recordPaidPeriod } from "./periods.ts";
 import { useTrial } from "./trial.ts";
@@ -491,14 +492,29 @@ async function createFromCheckout(
     return { refused: "unknown_subscription" };
   }
   // Its Person or address was erased before the provider confirmed it (ADR 0646): nothing of
-  // theirs is made again. Staff cancel it with the provider; the notice names nobody.
+  // theirs is made again. It is ended as erase ends any subscription (ADR 0649): at the end of
+  // the period paid for, nothing more charged, nothing refunded by the host; asked again on a
+  // later event while the provider's read does not show it ending. The notice names nobody.
   if (checkout.erased_at) {
+    const when = eraseEndFor({
+      state: STATE_OF[read.status],
+      cancelAtPeriodEnd: read.cancelAtPeriodEnd,
+      cancelAt: read.cancelAt,
+      currentPeriodEnd: read.currentPeriodEnd,
+    });
+    const asked = when
+      ? await askEraseEnd(ctx, { id: checkout.id, provider: event.provider, ref: read.ref }, when)
+      : true;
     await tellStaff(
       ctx,
       "A subscription was confirmed for someone who was erased",
       `The ${event.provider} subscription ${read.ref} was started by a person since erased, before ` +
-        "the provider confirmed it. Nothing was made here. Cancel it, and refund it, with the " +
-        "provider.",
+        "the provider confirmed it. Nothing was made here. " +
+        (asked
+          ? "The provider was asked to end it when the period paid for ends, so nothing more is " +
+            "charged. Nothing is refunded: refund it with the provider only if the business owes it."
+          : "The provider could not be asked to end it: cancel it with the provider. Nothing is " +
+            "refunded: refund it with the provider only if the business owes it."),
       null,
       `subscription.erased:${event.provider}:${read.ref}`,
     );

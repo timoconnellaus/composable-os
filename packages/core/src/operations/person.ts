@@ -54,6 +54,7 @@ import {
 } from "../records/person-links.ts";
 import { queueRepointRelations } from "../records/relations.ts";
 import { loadTags, queueSetTags, tagsInputSchema } from "../records/tags.ts";
+import { endErasedSubscriptions } from "../subscriptions/erase.ts";
 import { queueMergeSubscriptions } from "../subscriptions/merge.ts";
 import { type Reader, visibleTable } from "../visibility/index.ts";
 import { setCoreWriter } from "../visibility/writes.ts";
@@ -1351,8 +1352,11 @@ export const personErase = defineOperation({
     "is closed as erased). Their health answers and minor mark are deleted; what they agreed to is " +
     "kept, no longer theirs, as the business's evidence until the retention period ends " +
     "(agreement.retention, counted from the erase), then deleted: agreementsKept says how many " +
-    "and until when. Cannot be undone; use person.delete for a " +
-    "reversible delete.",
+    "and until when. Every subscription they pay for or hold that still runs is asked at the " +
+    "payment provider to end when the period already paid for ends (one paused, unpaid or " +
+    "waiting for its first payment ends at once): nothing is refunded and nothing more is " +
+    "charged; admins are told of one that could not be asked, and of one another person is " +
+    "still on. Cannot be undone; use person.delete for a reversible delete.",
   input: z.object({ id: personId }),
   output: z.object({
     id: z.string(),
@@ -1368,6 +1372,17 @@ export const personErase = defineOperation({
       .describe(
         "People this person was the only live guardian of (ADR 0540): they stay, with no guardian " +
           "linked, and a note on their timeline",
+      ),
+    subscriptionsEnding: z
+      .object({
+        atPeriodEnd: z.number().describe("Asked to end when the period already paid for ends"),
+        now: z.number().describe("Asked to end at once (paused, unpaid, or waiting for a payment)"),
+        leftForStaff: z
+          .number()
+          .describe("Could not be asked at the provider: the admins are told to end them"),
+      })
+      .describe(
+        "Their subscriptions, as payer or holder (issue #293, ADR 0649): nothing is refunded",
       ),
   }),
   permission: "records:erase",
@@ -1395,6 +1410,10 @@ export const personErase = defineOperation({
       names: subject.names,
       addresses: subject.addresses,
     });
+    // Their subscriptions end as a member's own deletion ends them (ADR 0649): asked at the
+    // provider now, once nothing else of the erase can refuse, and before the commit clears who
+    // is on them.
+    const subscriptionsEnding = await endErasedSubscriptions(ctx, ids);
     for (const id of ids) ctx.recordChange({ object: "person", id, action: "erase", diff: {} });
     return ctx.afterCommit(async () => ({
       id: input.id,
@@ -1405,6 +1424,7 @@ export const personErase = defineOperation({
       conversationsScrubbed: counts.conversations,
       ...(await afterErase(ctx, counts)),
       dependantsWithoutGuardian: leftAlone,
+      subscriptionsEnding,
     }));
   },
 });

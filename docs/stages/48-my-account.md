@@ -364,7 +364,10 @@ None new for packs. The assistant gets no customer operation.
   end before the erase request is opened, so by the time staff erase within the due date it has
   ended or is ending. #293 stays open for what erase does to a subscription still running: erase
   staff start without the member deleting, a subscription paid by someone else, or one resumed
-  meanwhile. This stage does not decide it.
+  meanwhile. This stage does not decide it. _Settled 2026-11-24 outside this stage
+  ([ADR 0649](../adr/0649-erase-ends-a-subscription-at-the-end-of-the-period-paid-for.md),
+  `fix/issue-293-erased-payer`): erase applies decision 1 to every subscription the erased Person
+  pays for or holds, in all three cases. Step 6 still sets them to end at the deletion._
 
 ## Out of scope
 
@@ -376,7 +379,8 @@ None new for packs. The assistant gets no customer operation.
 - A timeline customers can see (#111); staff previewing as a customer (#113).
 - Passkeys and social sign-in (#114); a second sign-in address per account.
 - Organisations as customers (stage 35's question).
-- What erase does to a subscription still running (#293), beyond the member's own deletion.
+- What erase does to a subscription still running (#293), beyond the member's own deletion
+  (since settled by ADR 0649).
 
 ## Acceptance criteria
 

@@ -138,7 +138,13 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   Gateway calls turn payload logging off (self-hosted Workers AI too, over REST, ADR 0330), and
   errors reach Workers Logs masked (`errorForLog`). An organisation erase drops a shared email's
   body only when no person is left linked to it; otherwise it scrubs the organisation's terms
-  from it (ADR 0320 amendment).
+  from it (ADR 0320 amendment). A person erase ends every subscription the Person pays for or
+  holds as a member's own deletion does ([ADR 0649](adr/0649-erase-ends-a-subscription-at-the-end-of-the-period-paid-for.md),
+  issue #293, `subscriptions/erase.ts`): before its batch commits it asks the provider to end one
+  still running when the period already paid for ends, and one paused, unpaid or waiting for its
+  first payment at once; nothing is refunded or charged, and the record moves with the provider's
+  events. The admins are told of one it could not ask and of one another live Person is on. A
+  checkout the provider confirms after the erase makes nothing and is asked to end the same way.
 - **Storage retention** ([ADR 0090](adr/0090-storage-retention.md)): D1 stops at 10 GB, so the same
   cron keeps growth bounded. Successful reads by AI, extensions and automations are counted per
   hour (`core_audit_read_counts`) rather than audited row by row. Write audits are kept forever by
