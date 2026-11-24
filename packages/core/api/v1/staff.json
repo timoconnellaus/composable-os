@@ -9335,6 +9335,102 @@
                     "string",
                     "null"
                   ]
+                },
+                "desk": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "sessionId": {
+                          "type": "string"
+                        },
+                        "device": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "name": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "startedBy": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "startedAt": {
+                          "type": "string"
+                        },
+                        "words": {
+                          "type": "string",
+                          "description": "How it was made, as every screen and the PDF say it"
+                        },
+                        "marks": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "changed_recently",
+                                  "created_that_day",
+                                  "staff_address"
+                                ]
+                              },
+                              "at": {
+                                "type": "string"
+                              },
+                              "by": {
+                                "type": "string"
+                              },
+                              "how": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "kind"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "sessionId",
+                        "device",
+                        "startedBy",
+                        "startedAt",
+                        "words",
+                        "marks"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "At the desk: its session, the device and the marks"
                 }
               },
               "required": [
@@ -9354,7 +9450,8 @@
                 "signedOn",
                 "counts",
                 "agentName",
-                "recordedByName"
+                "recordedByName",
+                "desk"
               ],
               "additionalProperties": false
             }
@@ -9377,12 +9474,17 @@
               },
               "readAnswers": {
                 "type": "boolean"
+              },
+              "signAtDesk": {
+                "type": "boolean",
+                "description": "May start a desk signing session for them"
               }
             },
             "required": [
               "recordPaper",
               "setMinor",
-              "readAnswers"
+              "readAnswers",
+              "signAtDesk"
             ],
             "additionalProperties": false
           }

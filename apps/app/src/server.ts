@@ -98,7 +98,9 @@ export default {
     // two pages and its calls and nothing else. The staff origin serves none of the desk's paths.
     if (isDeskRequest(request, env)) {
       // Its pages go straight to TanStack Start: never through MCP's OAuth wrapper (`app`).
-      return handleDesk(request, env as unknown as DeskHandlerEnv, (page) => handler.fetch(page));
+      return handleDesk(request, env as unknown as DeskHandlerEnv, async (page) =>
+        handler.fetch(page),
+      );
     }
     // Hosted support access (ADR 0212): a 404 unless COS_SUPPORT_PUBLIC_KEY is set.
     const pathname = new URL(request.url).pathname;
