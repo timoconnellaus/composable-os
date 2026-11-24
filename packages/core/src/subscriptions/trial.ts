@@ -20,6 +20,11 @@
 // - **A page goes back only to whoever opened it**, with the terms it was opened with, and only
 //   while the provider says it is still open. Anyone else gets a fresh page with no trial.
 // - Per plan object (the spec's guess): a second course plan later gives no second trial.
+// - **A Person is everyone sharing their folded address** (ADR 0692, #225): `a+1@x` and `a+2@x`
+//   get one trial between them. Each check below counts every live Person with an address whose
+//   `+tag`-less form is one of the holder's, and migration 0955's trigger refuses a hold for one
+//   while another's is unreleased or used, so two starts at once by them give one trial.
+import { samePeople } from "../customers/accounts.ts";
 import type { HandlerContext } from "../operation.ts";
 import { callSubscriptionGatekeeper, type PaymentsTarget } from "../orders/gateway.ts";
 
@@ -67,7 +72,8 @@ export type TrialDecision =
   | { give: false; reason: null; open: OpenPage };
 
 /**
- * Whether `holderPersonId` has used the plan's trial on any record of `planObject`: a hold the
+ * Whether `holderPersonId` (or a Person sharing a folded address with them) has used the plan's
+ * trial on any record of `planObject`: a hold the
  * provider's confirmation marked, or a subscription opened with the plan's trial days (never one
  * whose free time was only a date: a continuation, step 4).
  */
@@ -79,7 +85,7 @@ export async function trialUsed(
   const held = await ctx.db
     .selectFrom("core_subscription_trial")
     .select("checkout_id")
-    .where("holder_person_id", "=", holderPersonId)
+    .where("holder_person_id", "in", samePeople(ctx.db, holderPersonId))
     .where("plan_object", "=", planObject)
     .where("used_at", "is not", null)
     .executeTakeFirst();
@@ -88,7 +94,7 @@ export async function trialUsed(
     .selectFrom("core_subscription as s")
     .innerJoin("core_subscription_checkout as c", "c.id", "s.id")
     .select("s.id")
-    .where("s.holder_person_id", "=", holderPersonId)
+    .where("s.holder_person_id", "in", samePeople(ctx.db, holderPersonId))
     .where("s.plan_object", "=", planObject)
     .where("s.trial_end", "is not", null)
     .where("c.trial_days", "is not", null)
@@ -97,7 +103,8 @@ export async function trialUsed(
 }
 
 /**
- * Whether `holderPersonId` is in a continuation on `planObject` now (ADR 0492): an offer they can
+ * Whether `holderPersonId` (or a Person sharing a folded address with them, ADR 0692) is in a
+ * continuation on `planObject` now (ADR 0492): an offer they can
  * still take (not taken, not expired, not withdrawn), or a subscription started from an offer that
  * has not ended. No trial then, on top of the continuation or by cancelling and starting again
  * during it. Once that subscription has ended, or the offer expired untaken, the one-trial rule
@@ -111,7 +118,7 @@ export async function hasContinuation(
   const open = await ctx.db
     .selectFrom("core_subscription_offer")
     .select("id")
-    .where("person_id", "=", holderPersonId)
+    .where("person_id", "in", samePeople(ctx.db, holderPersonId))
     .where("plan_object", "=", planObject)
     .where("subscription_id", "is", null)
     .where("withdrawn_at", "is", null)
@@ -122,7 +129,7 @@ export async function hasContinuation(
     .selectFrom("core_subscription as s")
     .innerJoin("core_subscription_checkout as c", "c.id", "s.id")
     .select("s.id")
-    .where("s.holder_person_id", "=", holderPersonId)
+    .where("s.holder_person_id", "in", samePeople(ctx.db, holderPersonId))
     .where("s.plan_object", "=", planObject)
     .where("c.offer_id", "is not", null)
     .where("s.state", "not in", ["ended", "expired"])
@@ -180,7 +187,7 @@ export async function decideTrial(
   const pending = await ctx.db
     .selectFrom("core_subscription_trial")
     .selectAll()
-    .where("holder_person_id", "=", start.holderPersonId)
+    .where("holder_person_id", "in", samePeople(ctx.db, start.holderPersonId))
     .where("plan_object", "=", start.planObject)
     .where("used_at", "is", null)
     .where("released_at", "is", null)
@@ -312,7 +319,7 @@ export async function useTrial(
   const before = await ctx.db
     .selectFrom("core_subscription_trial")
     .select("checkout_id")
-    .where("holder_person_id", "=", row.holder_person_id)
+    .where("holder_person_id", "in", samePeople(ctx.db, row.holder_person_id))
     .where("plan_object", "=", row.plan_object)
     .where("used_at", "is not", null)
     .where("checkout_id", "!=", row.id)
@@ -321,7 +328,7 @@ export async function useTrial(
     .selectFrom("core_subscription as s")
     .innerJoin("core_subscription_checkout as c", "c.id", "s.id")
     .select("s.id")
-    .where("s.holder_person_id", "=", row.holder_person_id)
+    .where("s.holder_person_id", "in", samePeople(ctx.db, row.holder_person_id))
     .where("s.plan_object", "=", row.plan_object)
     .where("s.trial_end", "is not", null)
     .where("c.trial_days", "is not", null)

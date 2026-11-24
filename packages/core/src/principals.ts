@@ -97,6 +97,9 @@ export type Role = (typeof ROLES)[number];
  *   default; grantable and restricted as `notes:clients` is.
  * - `notes:manage` change and delete others' notes it can read, and lower a note's level (a
  *   person only). Admins by default; grantable and restricted as `notes:clients` is.
+ * - `people:cards` issue, revoke and list the check-in cards a business gives its members (stage
+ *   51, ADR 0783). Admins and members by default, grantable to any staff account (a fixed-role
+ *   one included, ADR 0600). A person only whatever is granted (`actors: ["human"]`).
  */
 export const PERMISSIONS = [
   "records:read",
@@ -119,6 +122,7 @@ export const PERMISSIONS = [
   "notes:clients",
   "notes:sensitive",
   "notes:manage",
+  "people:cards",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -133,7 +137,7 @@ export const CORE_PERMISSION_NAMESPACES: readonly string[] = [
 
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   viewer: ["records:read"],
-  member: ["records:read", "records:write"],
+  member: ["records:read", "records:write", "people:cards"],
   admin: PERMISSIONS,
 };
 
@@ -159,6 +163,7 @@ export const GRANTABLE_PERMISSIONS = [
   "notes:clients",
   "notes:sensitive",
   "notes:manage",
+  "people:cards",
 ] as const;
 
 /**
@@ -171,6 +176,14 @@ export const RESTRICTED_CORE_PERMISSIONS: readonly Permission[] = [
   "notes:sensitive",
   "notes:manage",
 ];
+
+/**
+ * The core permissions a human admin may also grant to an account holding a pack's fixed role
+ * (ADR 0600, amended by ADR 0783): each opens a few person-scoped core operations a desk or door
+ * account needs, never a record read, list or search. Every other core permission counts for
+ * nothing beside a pack role.
+ */
+export const FIXED_ROLE_CORE_GRANTS: readonly Permission[] = ["people:cards"];
 
 /**
  * The account's role, or a permission granted to it (ADR 0449), allows `permission`. A pack role

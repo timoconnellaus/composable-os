@@ -85,7 +85,8 @@ async function futureShifts(ctx: HandlerContext, account: string): Promise<Futur
     .select(["object_type", "record_id", "starts"])
     .where("account_id", "=", account)
     .where("ends", ">", now)
-    .where("starts", ">", now)
+    // By the shift's own start: a claim is widened by its margins (ADR 0760).
+    .where(sql<number>`starts + margin_before`, ">", now)
     .orderBy("starts")
     .limit(READ_MAX + 1)
     .execute();
@@ -207,7 +208,7 @@ export async function leaveRoster(
   for (const object of new Set(shifts.map((s) => s.object))) {
     ctx.write(
       CompiledQuery.raw(
-        "INSERT INTO core_staff_guard (expected, actual) SELECT ?, count(*) FROM core_staff_time WHERE account_id = ? AND object_type = ? AND ends > ? AND starts > ?",
+        "INSERT INTO core_staff_guard (expected, actual) SELECT ?, count(*) FROM core_staff_time WHERE account_id = ? AND object_type = ? AND ends > ? AND starts + margin_before > ?",
         [shifts.filter((s) => s.object === object).length, account, object, now, now],
       ),
     );
