@@ -31,8 +31,9 @@ the published reviews of others are read through `content.list`. Such an object:
   author's and what the host sets beside it (what a review is about), not "what staff edit".
 
 **No slug: listed only.** A publishable object the public reads no longer has to name a slug.
-Without one, `content.list` lists it and `content.get`, `content.preview` and
-`content.previewLink` answer it as an object that is not content, with the one not-found.
+Without one, `content.list` lists it; `content.get`, `content.preview` and `content.search`
+(ADR 0700) answer it as an object that is not content, with the one not-found, and
+`content.previewLink` refuses it as not content the public reads.
 
 **Author-only fields.** The fields in `customer.write` of a publishable object, but its states
 field, are the author's alone. The record code every write of an extension record goes through

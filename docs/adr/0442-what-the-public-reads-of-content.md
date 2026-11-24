@@ -126,7 +126,7 @@ with the same one not-found and the same cache. See
 ## Amendment, 2026-11-24 (stage 54, ADR 0810)
 "`public.read` must list the slug" and "the object names `publishable.slug` and declares no
 `customer` or `customerVia`" are relaxed. A publishable object the public reads may have no slug:
-`content.list` lists it, and `content.get` (with `content.preview` and its links) answers it with
-the one not-found. One may declare a `customer`, its author, beside `public`: then it has no slug
+`content.list` lists it, and `content.get` (with `content.preview` and `content.search`) answers it
+with the one not-found. One may declare a `customer`, its author, beside `public`: then it has no slug
 and `public.read` never lists the author. `customerVia` is still refused. When a slug is
 declared, `public.read` still lists it. See [ADR 0810](0810-publishable-with-an-author.md).
