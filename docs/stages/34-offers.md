@@ -33,7 +33,8 @@ screens); `packages/core/src/orders/` (`orders.ts`, `tax.ts`, `payments.ts`, `ch
 `packages/core/src/subscriptions/` (`subscriptions.ts`, `periods.ts`, `changes.ts`, `trial.ts`,
 `offers.ts`), `packages/core/src/customers/accounts.ts` and `packages/core/src/rate-limit.ts`.
 
-Status: **spec agreed** (owner interviewed 2026-11-24: decisions 1 to 10). Build may start with
+Status: **spec agreed** (owner interviewed 2026-11-24: decisions 1 to 10; decisions 11 to 13 by
+the coordinator the same day, under the owner's standing rule). Build may start with
 steps 1 and 2. Step 11, loyalty, is in the stage's scope but is not built until its own short
 interview settles its shape (the first question at the end). The shared platform step "an order
 paid another way" (step 3) is shared with stage 35 (invoices and quotes) and the point of sale
@@ -123,6 +124,17 @@ till), which is the same platform change as a gift card here.
 | 9 | **One deal per purchase**: when a code and a members' price both apply, the better one for the customer applies. Staff can still add their own discount on top |
 | 10 | **Loyalty is not in the first build.** It is a later step of this stage (decision 1), built after its own interview |
 
+### Decided by the coordinator (2026-11-24, under the owner's standing rule)
+
+The owner's standing rule: where the answer is best practice, it is decided and recorded, not
+asked. Three of the spec's open questions were decided so:
+
+| # | Decision |
+| --- | --- |
+| 11 | **Gift cards are sold in set amounts the business chooses** (one gift card type record per amount), not an amount the buyer types: the host prices every order from a record |
+| 12 | **Free postage over an amount still applies alongside a code or a members' price**: it is the delivery option's rule, not the one deal |
+| 13 | **A partial refund of an order paid partly by gift card goes back to the card first**, then onto the gift card; staff may choose otherwise when they ask for the refund |
+
 ## The design in one page
 
 - **An adjustment is money off an order, kept by the host.** `core_order_adjustment`: the order,
@@ -132,11 +144,14 @@ till), which is the same platform change as a gift card here.
   keeps its **net** total, and the order's `total` is what is owed after adjustments. Everything
   downstream reads the net: the checkout, the provider's tax shares, deposits, refunds owed,
   reports.
-- **The pricing seam.** One host function, `priceOrder` (`orders/pricing.ts`), prices an order's
-  lines, then its adjustments, then its delivery (stage 37), and returns the net lines and total.
+- **The pricing seam.** One host function, `priceLines` (`orders/orders.ts`, the function that
+  prices lines today and where [stage 37](37-shop.md) prices the delivery line), prices an order's
+  lines, then its adjustments, then its delivery, and returns the net lines and total.
   `createOrder` calls it, and so does stage 37's public dry run `order.quote`, so a basket and the
   order it becomes never disagree. Whichever of this stage's step 1 and stage 37's delivery step
-  lands first creates it; the other adds its part to it.
+  (its step 3) lands first changes it; the other adds its part to it. Free postage over an amount
+  is the shop's delivery option's own rule (stage 37, decision 5), not a discount; this stage
+  decides only how it meets a deal (rule 8 below).
 - **A new behaviour, `discount`, is how a pack declares discounts.** Like `sellable`, an object
   declares it and names its fields (what is off, on what, for whom, when, how often, for how many
   periods). The host reads the record at pricing time and enforces every rule. The Offers pack
@@ -192,7 +207,7 @@ till), which is the same platform change as a gift card here.
 
 | Piece | Platform or pack | Notes |
 | --- | --- | --- |
-| `core_order_adjustment`, net line totals, total after adjustments, the pricing seam (`priceOrder`), tax split and refunds owed on the net | **Platform** (orders, a migration) | Touches `orders.ts`, `tax.ts`, `refund-due.ts`, `checkout.ts`, `payments.ts`'s match, the `rec_order` views |
+| `core_order_adjustment`, net line totals, total after adjustments, the pricing seam (`priceLines`), tax split and refunds owed on the net | **Platform** (orders, a migration) | Touches `orders.ts`, `tax.ts`, `refund-due.ts`, `checkout.ts`, `payments.ts`'s match, the `rec_order` views |
 | `order.adjust` / `order.unadjust`, the staff limit setting, approval above it, `orders:discount` | **Platform** (operations, settings, approvals) | Grantable core permission, admin by default |
 | Folding plus-addressed emails for one-per-Person rules (#225) | **Platform** (customers, `trial.ts`, `once.ts`, a migration) | Also fixes trials and intro offers |
 | **An order paid another way** (shared): `method` on payments, the host's second door into paid, recorded payments by a person, stored value spent by the host, reversal, refunds by method, reports | **Platform** (orders, a migration; amends ADRs 0427, 0429 and 0479) | **Shared with stage 35 and the till**: built once by whichever is first |
@@ -293,7 +308,7 @@ Offers pack objects (declare `discount` or `sellable`):
 | `referral.list`, `referral.release`, `referral.void` | staff | `offers:manage`; a person for release and void | write | Held pairs are released or voided by a person |
 | `voucher.issue`, `voucher.void`, `voucher.extend`; `credit.give` | staff | `offers:vouchers` (restricted, ADR 0625), a person, with a reason | write | A comp voucher or a goodwill credit given by hand |
 
-### Rules at pricing (the host's, in `priceOrder`)
+### Rules at pricing (the host's, in `priceLines`)
 
 1. Lines are priced as today. Then every automatic discount the buyer qualifies for and the code,
    if given, are checked; the one that takes most off applies (decision 9). A staff adjustment is
@@ -311,9 +326,10 @@ Offers pack objects (declare `discount` or `sellable`):
 6. Deposits: the deposit stays what the records say; the discount comes off the balance. If the
    deposit would be the whole discounted total, the buyer pays in full.
 7. Limits are held in the order's batch; of two orders at once at the last use, one gets it.
-8. Delivery (stage 37) is priced after the deal; a discount whose "applies to" is a delivery
-   option (free postage over an amount) is the shop's delivery rule, measured on the goods lines'
-   net, and sits beside the deal (decided by this spec, open to override).
+8. Delivery (stage 37) is priced after the deal. A delivery option's free postage over an amount
+   still applies alongside a code or a members' price (decision 12): it is not the one deal. Its
+   "free over" counts the goods lines' net, after the deal (stage 37 left this to this stage;
+   decided by this spec, open to override).
 
 ### An order paid another way (the shared platform step, step 3)
 
@@ -378,7 +394,9 @@ now per payment row:
   so on), never sent by the host.
 
 A partial refund of an order paid two ways goes back to the provider payment first, then to the
-stored value (decided by this spec, open to override: the customer gets money before credit).
+stored value (decision 13: the customer gets money before credit). The person asking for the
+refund may split it otherwise (an amount per payment, each at most what that payment paid); the
+approver sees the split.
 
 **Reports.** `rec_order_payment` with its method and kind: money taken (provider plus recorded),
 value redeemed (vouchers and stored value, which is not new money), and refunds by method. The
@@ -621,10 +639,10 @@ spends through gift vouchers, never as a payment, so it needs no change to the s
 Built: stage 25 (orders, refunds), 27 (sellable, grants), 31a (drop-ins), 32a and 32b
 (subscriptions, passes, one per Person, plan changes), 42 (tax at checkout), 44 (agreements due at
 purchase, which a redeemed voucher must respect). Spec agreed, not built: stage 47 (pack screens:
-the staff screens need it; until then the generic record pages work). Drafted, not specced: 35
-(invoices and quotes: recorded payments and credit notes on the shared step, adjustments on
-quotes), 37 (shop: the pricing seam, free postage over an amount, line refunds on the net), the
-point of sale module (cash on the shared step, desk discounts by `order.adjust`), 33 (importing
+the staff screens need it; until then the generic record pages work) and stage
+[37](37-shop.md) (shop: the pricing seam `priceLines`, its delivery option's free postage over an
+amount, line refunds on the net). Drafted, not specced: 35 (invoices and quotes: recorded payments
+and credit notes on the shared step, adjustments on quotes), the point of sale module (cash on the shared step, desk discounts by `order.adjust`), 33 (importing
 vouchers and codes). Issues #102, #125, #225.
 
 ## Migrations and numbers
@@ -651,10 +669,10 @@ follows the ordering rule in `parallel-work.md` (carry every earlier kind, sort 
 
 | Step | What | Files and areas | Can be built beside |
 | --- | --- | --- | --- |
-| 1 | **Adjustments**: table, net lines, total, the pricing seam `priceOrder`, tax split and refunds owed on the net, the order's views; `order.adjust` / `unadjust`, the limit, approval, `orders:discount` | `orders/` (`orders.ts`, new `pricing.ts`, `tax.ts`, `refund-due.ts`, `checkout.ts`, `payments.ts`), `operations/order.ts`, `principals.ts`, a migration, `rec_order` views | Step 2 and anything not in `orders/`. **Collides** with stage 35, stage 37 (delivery, returns), the till, stage 44 step 7 (cooling off, PR #299) and any branch in `orders/` or `operations/order.ts`. Must land alone first and be reviewed: every later step reads net lines |
+| 1 | **Adjustments**: table, net lines, total, the pricing seam `priceLines`, tax split and refunds owed on the net, the order's views; `order.adjust` / `unadjust`, the limit, approval, `orders:discount` | `orders/` (`orders.ts`, `tax.ts`, `refund-due.ts`, `checkout.ts`, `payments.ts`), `operations/order.ts`, `principals.ts`, a migration, `rec_order` views | Step 2 and anything not in `orders/`. **Collides** with stage 35, stage 37 (delivery, returns), the till, stage 44 step 7 (cooling off, PR #299) and any branch in `orders/` or `operations/order.ts`. Must land alone first and be reviewed: every later step reads net lines |
 | 2 | **Folding plus addresses** (#225) for trials, intro offers and the new uses | `customers/accounts.ts`, `subscriptions/trial.ts`, `orders/once.ts`, a migration | Steps 1 and 5. **Collides** with branches in `subscriptions/` and `customers/` |
 | 3 | **An order paid another way** (shared): `method` on payments, `applyOtherPayment`, `order.recordPayment` / `reversePayment`, `orders:payments`, refunds by method, the guard trigger, `rec_order_payment` | `orders/payments.ts`, `orders/refunds.ts`, `operations/order.ts`, `principals.ts`, a migration | After 1 (same files). **Collides** with stage 35 step 4 and the till's step 2, which build the same thing: whichever starts first owns it, and the others wait for it to merge |
-| 4 | **The `discount` behaviour**: manifest key and contract checks, codes and automatic discounts in `priceOrder`, limits (`core_discount_use`), `discount.check`, `order.applyCode`, rate limits | `packages/sdk` (manifest, contract), new `core/src/discounts/`, `orders/pricing.ts`, operations, a migration | After 1. Beside 3 (different files except `operations/order.ts`: keep both sides) and 5 |
+| 4 | **The `discount` behaviour**: manifest key and contract checks, codes and automatic discounts in `priceLines`, limits (`core_discount_use`), `discount.check`, `order.applyCode`, rate limits | `packages/sdk` (manifest, contract), new `core/src/discounts/`, `orders/orders.ts` (`priceLines`), operations, a migration | After 1. Beside 3 (different files except `operations/order.ts`: keep both sides) and 5 |
 | 5 | **The Offers pack's spine**: discount, promo code, member price and customer rate, tools, views, settings, permissions | `packs/offers`, `packages/core/src/pack-roles.ts` | After 1 for tests; beside 2 to 4. **Collides** on `pack-roles.ts` |
 | 6 | **Subscriptions**: a discount for 1 or N periods, the expected amount, plan changes, a one-period discount on a running subscription | `packages/gatekeeper-payments` (types, the provider, the fake), `subscriptions/` (`subscriptions.ts`, `periods.ts`, `changes.ts`) | After 4. Beside 7 and 8. **Collides** with any `subscriptions/` or gatekeeper-payments branch |
 | 7 | **Gift vouchers for a named thing**: the voucher grant, `voucher.redeem` paid by the voucher, refunds put it back or void it | `orders/grants.ts`, `orders/payments.ts` (through step 3), `packs/offers` | After 3 and 4. Beside 6 |
@@ -670,7 +688,7 @@ together, then 6 and 7, then 8 and 9, then 10.
 ## Decided by this spec, open to override
 
 - An adjustment is a core table on orders, not a negative-priced line.
-- One pricing seam, `priceOrder`, used by `createOrder` and the shop's `order.quote`.
+- One pricing seam, `priceLines`, used by `createOrder` and the shop's `order.quote`.
 - Discounts are declared by a pack through a new `discount` behaviour, not core base records.
 - A code cannot make an order free; a person's staff adjustment can.
 - A guest never gets members-only, per-person or new-customer discounts.
@@ -679,12 +697,11 @@ together, then 6 and 7, then 8 and 9, then 10.
 - A voucher redemption is a payment by the voucher, not money off: the order shows its real price.
 - A gift card is a way of paying, held by the host, never a discount and never the provider's
   balance.
-- A partial refund of an order paid two ways goes back to the provider payment first.
 - A gift card pays full-pay orders only, not deposits or subscription periods.
 - Gift cards cannot be sold until a human admin chooses "taxed at sale" or "at redemption".
 - A voucher's sale is taxed at its item's code by default.
 - Members' prices apply to one-off purchases, not to plans.
-- Free postage over an amount sits beside the deal, measured on the goods' net.
+- Free postage's "free over" counts the goods' net, after the deal.
 - A plan change keeps a running subscription discount.
 - The invite page does not show the member's name; members do not see friends' names.
 - Folding `+tags` applies to every domain; dots are not folded.
@@ -694,21 +711,15 @@ together, then 6 and 7, then 8 and 9, then 10.
 
 ## Questions for the owner
 
-Loyalty (step 11) waits for the first; the rest have defaults the build uses until answered.
+One question, the interview step 11 (loyalty) waits for. Nothing else in the build waits on it.
 
 1. **What should loyalty be?** Options: a reward after a number of classes or visits (every 10th
    class free); points for money spent, exchanged for a reward the business chooses; both.
    Recommended: a reward after a number of classes, given as a voucher, because it is what members
    understand and it stays off the payment path.
-2. **Should a gift card be any amount the buyer types, or a set of amounts the business chooses?**
-   Options: set amounts; any amount between a lowest and a highest. Recommended: set amounts,
-   because the host prices every order from a record and nobody types a price.
-3. **Should free postage over an amount still apply when a code or a members' price is used?**
-   Options: yes, beside the deal; no, it counts as the one deal. Recommended: yes, because
-   customers see postage as separate from a discount.
-4. **When an order paid partly by gift card is partly refunded, where should the money go first?**
-   Options: back to the card first; back onto the gift card first; staff choose each time.
-   Recommended: back to the card first.
+
+Questions 2 to 4 of the first version of this spec (gift card amounts, free postage alongside a
+deal, where a partial refund goes first) were decided by the coordinator: decisions 11 to 13.
 
 ## For the business to confirm with its accountant or lawyer
 
