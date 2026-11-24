@@ -75,12 +75,14 @@ export type TrialDecision =
  * Whether `holderPersonId` (or a Person sharing a folded address with them) has used the plan's
  * trial on any record of `planObject`: a hold the
  * provider's confirmation marked, or a subscription opened with the plan's trial days (never one
- * whose free time was only a date: a continuation, step 4).
+ * whose free time was only a date: a continuation, step 4). `except` leaves out one checkout
+ * and its subscription (the one being confirmed).
  */
 export async function trialUsed(
   ctx: Pick<HandlerContext, "db">,
   holderPersonId: string,
   planObject: string,
+  except?: string,
 ): Promise<boolean> {
   const held = await ctx.db
     .selectFrom("core_subscription_trial")
@@ -88,6 +90,7 @@ export async function trialUsed(
     .where("holder_person_id", "in", samePeople(ctx.db, holderPersonId))
     .where("plan_object", "=", planObject)
     .where("used_at", "is not", null)
+    .$if(except !== undefined, (q) => q.where("checkout_id", "!=", except ?? ""))
     .executeTakeFirst();
   if (held) return true;
   const had = await ctx.db
@@ -98,6 +101,7 @@ export async function trialUsed(
     .where("s.plan_object", "=", planObject)
     .where("s.trial_end", "is not", null)
     .where("c.trial_days", "is not", null)
+    .$if(except !== undefined, (q) => q.where("s.id", "!=", except ?? ""))
     .executeTakeFirst();
   return Boolean(had);
 }
@@ -323,24 +327,7 @@ export async function useTrial(
     .where("checkout_id", "=", row.id)
     .executeTakeFirst();
   if (mine?.used_at) return { second: false };
-  const before = await ctx.db
-    .selectFrom("core_subscription_trial")
-    .select("checkout_id")
-    .where("holder_person_id", "in", samePeople(ctx.db, row.holder_person_id))
-    .where("plan_object", "=", row.plan_object)
-    .where("used_at", "is not", null)
-    .where("checkout_id", "!=", row.id)
-    .executeTakeFirst();
-  const otherSubscription = await ctx.db
-    .selectFrom("core_subscription as s")
-    .innerJoin("core_subscription_checkout as c", "c.id", "s.id")
-    .select("s.id")
-    .where("s.holder_person_id", "in", samePeople(ctx.db, row.holder_person_id))
-    .where("s.plan_object", "=", row.plan_object)
-    .where("s.trial_end", "is not", null)
-    .where("c.trial_days", "is not", null)
-    .where("s.id", "!=", row.id)
-    .executeTakeFirst();
+  const second = await trialUsed(ctx, row.holder_person_id, row.plan_object, row.id);
   if (mine) {
     ctx.write(
       ctx.db
@@ -350,5 +337,5 @@ export async function useTrial(
         .where("used_at", "is", null),
     );
   }
-  return { second: Boolean(before || otherSubscription) };
+  return { second };
 }

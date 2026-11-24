@@ -73,6 +73,33 @@ export function useForgetOnLeave(forget: () => void): void {
   }, []);
 }
 
+/**
+ * Instead of the form, for a person who may not agree for themselves: a parent or guardian agrees
+ * (from their own account), or the business records a paper form. `children` are the buttons.
+ */
+export function GuardianAgrees({
+  title,
+  announce = false,
+  children,
+}: {
+  title: string;
+  /** Says the reason as an alert (when it is the only step on screen). */
+  announce?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div className="grid gap-2" data-agreement-guardian>
+      <h2 className="text-lg font-semibold">{title}</h2>
+      <p role={announce ? "alert" : undefined}>{dueReasonWords("guardian")}</p>
+      <p className="text-sm">
+        A parent or guardian linked to you agrees to it from their own account, or the business
+        records a paper form they signed.
+      </p>
+      {children}
+    </div>
+  );
+}
+
 export function Agree({
   version,
   forName,

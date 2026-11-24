@@ -3,6 +3,9 @@
 // public, ADR 0402):
 //
 //   finance.periods          staff (finance:read)                  the current month and 24 before
+//   finance.report           staff (finance:read)                  Sales, Tax or Refunds: closed or preview
+//   finance.entries          staff (finance:read)                  a closed version's book entries, paged
+//   finance.export           staff (finance:read, a person)        one report as a CSV file
 //   finance.close            staff (finance:close, a person)       close an ended month
 //   finance.reopen           staff (finance:close, a person)       reopen a closed month, with why
 //   finance.settings.get     staff (finance:read)                  the year's first month, …
@@ -17,6 +20,7 @@ import { z } from "zod";
 import { ConflictError, ValidationError } from "../errors.ts";
 import { closePlan, periodBook, readGuards } from "../finance/close.ts";
 import { addMonths } from "../finance/day.ts";
+import { reportCsv, reportFilename } from "../finance/files.ts";
 import {
   anyVersion,
   FINANCE_SETTINGS,
@@ -29,6 +33,7 @@ import {
   rangeOf,
   versionsOf,
 } from "../finance/periods.ts";
+import { BUILT_REPORTS, ENTRIES_PAGE, readEntries, readReport } from "../finance/reports.ts";
 import { newId } from "../ids.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 
@@ -437,8 +442,178 @@ export const financeSettingsUpdate = defineOperation({
   },
 });
 
+const localDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date, YYYY-MM-DD");
+
+const reportInput = z.object({
+  report: z
+    .enum(BUILT_REPORTS)
+    .describe("sales (by kind of sale and item, and by day), tax (by code and country) or refunds"),
+  month: month.optional().describe("A month: its closed version, or a preview while it is open"),
+  version: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe("A month's closed (or since reopened) version; left out, its latest closed one"),
+  start: localDate.optional().describe("A span of days to preview instead of a month: its first"),
+  end: localDate.optional().describe("The span's last day, included (at most 366 days)"),
+});
+
+const reportOutput = z.object({
+  report: z.enum(BUILT_REPORTS),
+  month: z.string().nullable(),
+  start: z.string(),
+  end: z.string(),
+  zone: z.string(),
+  preview: z.boolean().describe("Worked out now, not closed: it may still change"),
+  version: z.number().int().nullable(),
+  reopened: z.boolean(),
+  closedAt: z.string().nullable(),
+  closedByName: z.string().nullable(),
+  currency: z.string().nullable(),
+  notes: z.array(z.string()),
+  rows: z.array(z.record(z.string(), z.unknown())),
+  totals: z.record(z.string(), z.number()),
+});
+
+export const financeReport = defineOperation({
+  name: "finance.report",
+  description:
+    "One finance report for a month (its closed version as it was closed, or a preview while it " +
+    "is open) or a preview of any span of days: sales (per kind of sale and item, and by day: " +
+    "sold, discounts, refunded, net, the tax inside and net of tax), tax (per tax code and " +
+    "country, refunds' tax as reported or estimated, untaxed sales beside) or refunds (each " +
+    "refund confirmed: date, order, items, amount, tax given back, who asked and approved, the " +
+    "customer's name). Amounts are integers in the currency's minor units, on the business's " +
+    "days in its own time zone. Each row lists the orders it came from. Needs finance:read.",
+  input: reportInput,
+  output: reportOutput,
+  permission: "finance:read",
+  risk: "read",
+  mcp: { title: "Finance report" },
+  // Who read which report of which month: never a figure.
+  auditReads: true,
+  auditSummary: (output) => ({
+    read: "finance report",
+    report: output.report,
+    month: output.month,
+    start: output.start,
+    end: output.end,
+    version: output.version,
+    preview: output.preview,
+  }),
+  async handler(input, ctx) {
+    return readReport(ctx, input);
+  },
+});
+
+export const financeEntries = defineOperation({
+  name: "finance.entries",
+  description:
+    "A closed month's book entries and their lines, the figures for the books (what Accounting " +
+    "sync reads): one day summary per business day money moved, and late entries for what " +
+    "arrived for a closed month. Each entry has a key that is the same in every version, a " +
+    "fingerprint of its lines, and lines with a heading, a side (debit or credit) and an amount " +
+    "in minor units; its debits equal its credits. Only closed versions (a preview has none). " +
+    "Paged: pass `next` as `after`. Needs finance:read.",
+  input: z.object({
+    month,
+    version: z.number().int().min(1).optional().describe("Left out: the latest closed version"),
+    after: z.number().int().min(0).optional().describe("The `next` of the page before"),
+    limit: z.number().int().min(1).max(ENTRIES_PAGE).optional(),
+  }),
+  output: z.object({
+    month: z.string(),
+    version: z.number().int(),
+    state: z.enum(["closed", "reopened"]),
+    closedAt: z.string(),
+    entries: z.array(
+      z.object({
+        n: z.number().int(),
+        key: z.string(),
+        kind: z.string(),
+        date: z.string(),
+        period: z.string(),
+        version: z.number().int(),
+        belongsTo: z.string().nullable(),
+        fingerprint: z.string(),
+        lines: z.array(
+          z.object({
+            heading: z.string(),
+            side: z.string(),
+            amount: z.number().int(),
+            taxCode: z.string().nullable(),
+            taxCountry: z.string().nullable(),
+            method: z.string().nullable(),
+            category: z.string().nullable(),
+          }),
+        ),
+      }),
+    ),
+    next: z.number().int().nullable(),
+  }),
+  permission: "finance:read",
+  risk: "read",
+  mcp: { title: "Finance book entries" },
+  auditReads: true,
+  auditSummary: (output) => ({
+    read: "finance entries",
+    month: output.month,
+    version: output.version,
+    entries: output.entries.length,
+  }),
+  async handler(input, ctx) {
+    return readEntries(ctx, input);
+  },
+});
+
+export const financeExport = defineOperation({
+  name: "finance.export",
+  description:
+    "Download one finance report as a CSV file for the business's accountant: a closed " +
+    "version's (the same every time), or a preview of an open month or a span of days, marked " +
+    "so on its first row. Amounts in minor units with a decimal column beside them. A person " +
+    "only, with finance:read; audited without its figures.",
+  input: reportInput,
+  output: z.object({
+    filename: z.string(),
+    contentType: z.literal("text/csv"),
+    csv: z.string(),
+    preview: z.boolean(),
+    version: z.number().int().nullable(),
+  }),
+  permission: "finance:read",
+  risk: "read",
+  // A file leaves the host: a person's act at the screen, never an AI's (decision 7).
+  actors: ["human"],
+  mcp: { expose: false },
+  auditReads: true,
+  auditSummary: (output, input) => ({
+    read: "finance export",
+    report: input.report,
+    month: input.month ?? null,
+    start: input.start ?? null,
+    end: input.end ?? null,
+    version: output.version,
+    preview: output.preview,
+  }),
+  async handler(input, ctx) {
+    const view = await readReport(ctx, input);
+    return {
+      filename: reportFilename(view),
+      contentType: "text/csv" as const,
+      csv: reportCsv(view),
+      preview: view.preview,
+      version: view.version,
+    };
+  },
+});
+
 export const financeOperations = [
   financePeriods,
+  financeReport,
+  financeEntries,
+  financeExport,
   financeClose,
   financeReopen,
   financeSettingsGet,

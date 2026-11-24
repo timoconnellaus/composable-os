@@ -24,8 +24,8 @@ function Agreements() {
     Promise.all([api.call("me.agreements.due", {}), api.call("me.agreements.list", {})])
       .then(([due, mine]) =>
         setData({
-          people: due.people as DuePerson[],
-          items: mine.items as AcceptanceSummary[],
+          people: due.people,
+          items: mine.items,
         }),
       )
       .catch((error: unknown) => {
