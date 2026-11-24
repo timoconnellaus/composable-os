@@ -133,7 +133,9 @@ describe("reading shorthand", () => {
     expect(a1).toEqual({
       kind: "levels",
       label: "A1",
-      exercises: [{ exercise: idOf("Hollow hold"), sets: Array(2).fill({ kind: "hold", seconds: 30 }) }],
+      exercises: [
+        { exercise: idOf("Hollow hold"), sets: Array(2).fill({ kind: "hold", seconds: 30 }) },
+      ],
       levels: [
         {
           mode: "one",
@@ -145,7 +147,10 @@ describe("reading shorthand", () => {
           level: 3,
           exercises: [
             { exercise: idOf("Tuck planche"), sets: Array(2).fill({ kind: "reps", reps: 3 }) },
-            { exercise: idOf("Pike push throughs"), sets: Array(2).fill({ kind: "reps", reps: 3 }) },
+            {
+              exercise: idOf("Pike push throughs"),
+              sets: Array(2).fill({ kind: "reps", reps: 3 }),
+            },
           ],
         },
       ],

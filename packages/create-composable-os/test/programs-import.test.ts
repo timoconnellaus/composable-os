@@ -92,7 +92,7 @@ describe("the programs folder", () => {
       }),
     );
     expect(plan.problems).toEqual([
-      { file: "exercises.csv:2", message: "measure is weight_reps, reps, time, hold, not \"kilos\"" },
+      { file: "exercises.csv:2", message: 'measure is weight_reps, reps, time, hold, not "kilos"' },
       { file: "exercises.csv:4", message: 'the key "pull" is there twice' },
       { file: "exercises.csv:3", message: 'no row of exercises.csv has the key "nothing"' },
       { file: "exercises.csv:5", message: "an exercise is not its own easier or harder version" },
@@ -103,7 +103,10 @@ describe("the programs folder", () => {
         file: "training.csv:3",
         message: 'the date is not a real date (YYYY-MM-DD): "2025-02-30"',
       },
-      { file: "training.csv:4", message: "2999-01-01 is after today: only past training is imported" },
+      {
+        file: "training.csv:4",
+        message: "2999-01-01 is after today: only past training is imported",
+      },
       { file: "training.csv:5", message: "nothing done: give reps, seconds or load" },
       { file: "training.csv:7", message: "set 1 of pull on 2025-03-03 is there twice" },
       { file: "training.csv:8", message: "actualReps is not a number" },
@@ -156,9 +159,14 @@ describe("the programs folder", () => {
     expect(out.join("\n")).toContain("--host");
     out.length = 0;
     expect(
-      await runCli(["programs", "import", dir, "--host", "https://admin.example.com", "--dry-run"], deps),
+      await runCli(
+        ["programs", "import", dir, "--host", "https://admin.example.com", "--dry-run"],
+        deps,
+      ),
     ).toBe(1);
-    expect(out.join("\n")).toContain('exercises.csv:2: measure is weight_reps, reps, time, hold, not "kilos"');
+    expect(out.join("\n")).toContain(
+      'exercises.csv:2: measure is weight_reps, reps, time, hold, not "kilos"',
+    );
     expect(await runCli(["programs", "export"], deps)).toBe(2);
   });
 });

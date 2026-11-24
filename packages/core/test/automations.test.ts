@@ -15,8 +15,8 @@ import {
   cronMatches,
   eventOriginOf,
   type InvocationContext,
-  isBulkOperation,
   invoke,
+  isBulkOperation,
   memoryEventSink,
   OperationError,
   PendingApprovalError,
@@ -135,13 +135,21 @@ describe("trigger sources", () => {
     const origin = eventOriginOf({
       actor: "human",
       userId: "u",
-      origin: { surface: "api" },
+      origin: { surface: "ui" },
       operation: "record.import",
       auditId: "aud_1",
       bulk: isBulkOperation("record.import", 1),
     });
     expect(origin).toMatchObject({ bulk: true, imported: true });
-    expect(eventOriginOf({ ...origin, origin: { surface: "ui" }, operation: "record.create", auditId: "a", bulk: false }).imported).toBeUndefined();
+    expect(
+      eventOriginOf({
+        ...origin,
+        origin: { surface: "ui" },
+        operation: "record.create",
+        auditId: "a",
+        bulk: false,
+      }).imported,
+    ).toBeUndefined();
     const imported = { ...message([{ object: "person", id: "per_1", action: "created" }]), origin };
     expect(recordTriggerSource.match(imported, [onCreate, bulky])).toEqual([]);
   });

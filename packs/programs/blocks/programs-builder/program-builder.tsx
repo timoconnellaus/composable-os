@@ -744,7 +744,12 @@ function ItemEditor({
               compact
               onPick={(id) =>
                 change(
-                  layoutEdits.addExercise(layout, { ...at, everyone: true }, id, measureOf(bank, id)),
+                  layoutEdits.addExercise(
+                    layout,
+                    { ...at, everyone: true },
+                    id,
+                    measureOf(bank, id),
+                  ),
                 )
               }
             />

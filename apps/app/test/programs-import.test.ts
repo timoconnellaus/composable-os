@@ -83,9 +83,11 @@ function folder(change: (f: ProgramsFolder) => void = () => {}): ProgramsFolder 
       `pullup-${tag},Pull up ${tag},reps,strength,bar,row-${tag},`,
       `tuck-${tag},Tuck planche ${tag},reps,handstands,parallettes,,`,
     ].join("\n"),
-    classTypes: ["key,name,order", `mob-${tag},Mobility ${tag},1`, `hand-${tag},Handstands ${tag},2`].join(
-      "\n",
-    ),
+    classTypes: [
+      "key,name,order",
+      `mob-${tag},Mobility ${tag},1`,
+      `hand-${tag},Handstands ${tag},2`,
+    ].join("\n"),
     programs: new Map([
       [
         `class-${tag}.txt`,
@@ -210,7 +212,9 @@ describe("cos programs import against the real host", () => {
     expect(unknown.problems.map((p) => p.file)).toEqual(["training.csv:9"]);
     const unread = await run(
       readProgramsFolder(
-        folder((f) => f.programs.set(`odd-${tag}.txt`, `Session: Monday\nA1: Levitation ${tag} x 3`)),
+        folder((f) =>
+          f.programs.set(`odd-${tag}.txt`, `Session: Monday\nA1: Levitation ${tag} x 3`),
+        ),
       ),
     );
     expect(unread.problems).toEqual(
@@ -245,9 +249,10 @@ describe("cos programs import against the real host", () => {
     // Programs: working copies, never published; the class one with an item for everyone and
     // levels beside it.
     const [klass, client] = ["class", "client"].map(
-      (k) => report.records.find((r) => r.object === PROGRAM && r.key === `${k}-${tag}`)?.id,
+      (k) =>
+        report.records.find((r) => r.object === PROGRAM && r.key === `${k}-${tag}`)?.id as string,
     );
-    const program = await invoke("record.get", { object: PROGRAM, id: klass }, staff());
+    const program = await invoke("record.get", { object: PROGRAM, id: klass as string }, staff());
     expect(program.values).toMatchObject({ kind: "class", publishedVersion: null });
     const a1 = (
       program.values.layout as { weeks: { sessions: { blocks: { items: unknown[] }[] }[] }[] }
@@ -260,9 +265,9 @@ describe("cos programs import against the real host", () => {
         { level: 4, exercise: { exercise: id("Pull up") } },
       ],
     });
-    expect((await invoke("record.get", { object: PROGRAM, id: client }, staff())).values.kind).toBe(
-      "client",
-    );
+    expect(
+      (await invoke("record.get", { object: PROGRAM, id: client as string }, staff())).values.kind,
+    ).toBe("client");
     // Past sessions: done, imported, with no assignment; one per person, day and name.
     const sessions = await rows(SESSION);
     expect(sessions).toHaveLength(3);
@@ -321,7 +326,11 @@ describe("cos programs import against the real host", () => {
   it("a coach's edit since the import is kept, and reported as a conflict", async () => {
     const id = (await rows(PROGRAM)).find((p) => String(p.title).startsWith("Handstand"))
       ?.id as string;
-    await invoke("record.update", { object: PROGRAM, id, values: { title: "The coach's" } }, staff());
+    await invoke(
+      "record.update",
+      { object: PROGRAM, id, values: { title: "The coach's" } },
+      staff(),
+    );
     const report = await run(
       readProgramsFolder(
         folder((f) => {
@@ -400,9 +409,7 @@ describe("cos programs import against the real host", () => {
     const counting: CrmDb = {
       query: db.query,
       async batch(statements) {
-        const bound = statements.map(
-          (s) => ("compile" in s ? s.compile() : s).parameters.length,
-        );
+        const bound = statements.map((s) => ("compile" in s ? s.compile() : s).parameters.length);
         batches.push({ statements: statements.length, maxBound: Math.max(0, ...bound) });
         return db.batch(statements);
       },

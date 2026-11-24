@@ -274,7 +274,10 @@ export async function runProgramsImport(
         },
       });
     }
-    const sessionIds = idOf(await step(SESSION, "Past sessions", [...sessions.values()]), "session");
+    const sessionIds = idOf(
+      await step(SESSION, "Past sessions", [...sessions.values()]),
+      "session",
+    );
 
     // Their sets, each naming its session, person and exercise by id.
     const logs = training.flatMap(({ row, person }) => {
@@ -282,9 +285,7 @@ export async function runProgramsImport(
       const folderKey = exerciseKeyOf(row);
       const exercise = folderKey ? exerciseIds.get(folderKey) : onHost.get(row.exercise)?.id;
       if (!session || !exercise) return [];
-      const name = folderKey
-        ? folderExercise.get(folderKey)?.name
-        : onHost.get(row.exercise)?.name;
+      const name = folderKey ? folderExercise.get(folderKey)?.name : onHost.get(row.exercise)?.name;
       return [
         {
           key: `${sessionKey(person, row)}|${row.item ?? ""}|${exercise}|${row.setNumber}`,

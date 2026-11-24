@@ -107,7 +107,13 @@ const today = () => new Date().toISOString().slice(0, 10);
 /** Reads and checks the folder: what to import, or every problem with its file and line. */
 export function readProgramsFolder(folder: ProgramsFolder): ProgramsPlan {
   const problems: Problem[] = [];
-  const plan: ProgramsPlan = { exercises: [], classTypes: [], programs: [], training: [], problems };
+  const plan: ProgramsPlan = {
+    exercises: [],
+    classTypes: [],
+    programs: [],
+    training: [],
+    problems,
+  };
 
   if (folder.exercises !== null) {
     const name = "exercises.csv";

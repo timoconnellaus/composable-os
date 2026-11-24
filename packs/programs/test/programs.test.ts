@@ -414,8 +414,8 @@ describe("logging and reading, as a coach", () => {
     await expect(log({ exerciseId: row, actual: { reps: 6 } })).rejects.toMatchObject({
       code: "invalid_input",
     });
-    await expect(log({ level: 4, exerciseId: hollow, actual: { seconds: 5 } })).rejects.toMatchObject(
-      { code: "invalid_input" },
-    );
+    await expect(
+      log({ level: 4, exerciseId: hollow, actual: { seconds: 5 } }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
   });
 });

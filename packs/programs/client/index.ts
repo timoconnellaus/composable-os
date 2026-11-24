@@ -510,11 +510,7 @@ export const layoutEdits = {
         b.items[index] = {
           kind: "all",
           label: item.label,
-          exercises: item.exercises?.length
-            ? item.exercises
-            : first
-              ? levelExercises(first)
-              : [],
+          exercises: item.exercises?.length ? item.exercises : first ? levelExercises(first) : [],
           ...(item.notes ? { notes: item.notes } : {}),
         };
       }
