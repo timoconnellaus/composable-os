@@ -47,7 +47,11 @@ import {
   putInitiation,
   type StoredNonce,
 } from "@composable-os/gatekeeper-kit/connect-handshake";
-import { generateNonce } from "@composable-os/gatekeeper-kit/connect-nonce";
+import {
+  ACCESS_TOKEN_SAFETY_MS,
+  CONNECT_TIMEOUT_MS,
+  generateNonce,
+} from "@composable-os/gatekeeper-kit/connect-nonce";
 import {
   connectHandoffPageHtml,
   errorPageHtml,
@@ -198,7 +202,6 @@ type PublicCreds = { token: string; expiresAt?: number; teamId: string };
 type WorkspaceInfo = { teamId: string; teamName?: string; botUserId?: string; scopes: string[] };
 
 const CALLBACK_KEY = "callback";
-const ABANDONED_CONNECT_MS = 60 * 60 * 1000;
 
 export class SlackPostUserAccount extends DurableObject<Env> {
   readonly #creds = new CredentialCoordinator<SlackBotGrant>(this.ctx.storage.kv, {
@@ -237,7 +240,7 @@ export class SlackPostUserAccount extends DurableObject<Env> {
     const nonce = generateNonce();
     putInitiation<AttemptMeta>(kv, nonce, Date.now(), { firstConnect: true, scopes });
     // Self-destruct if the flow is never completed.
-    await this.ctx.storage.setAlarm(Date.now() + ABANDONED_CONNECT_MS);
+    await this.ctx.storage.setAlarm(Date.now() + CONNECT_TIMEOUT_MS);
     return nonce;
   }
 
@@ -650,7 +653,6 @@ const SNIPPET_LENGTH = 200;
 const MAX_CHANNEL_PAGES = 5;
 const CHANNEL_PAGE_SIZE = 200;
 const CHANNEL_CACHE_MS = 5 * 60 * 1000;
-const TOKEN_SAFETY_MS = 60 * 1000;
 
 function historyKey(id: number): string {
   return HISTORY_PREFIX + String(id).padStart(12, "0");
@@ -846,7 +848,7 @@ export class SlackPostGatekeeper
     if (
       !options.forceRefresh &&
       cached !== undefined &&
-      (cached.expiresAt === undefined || cached.expiresAt > Date.now() + TOKEN_SAFETY_MS)
+      (cached.expiresAt === undefined || cached.expiresAt > Date.now() + ACCESS_TOKEN_SAFETY_MS)
     ) {
       return cached;
     }
@@ -932,14 +934,18 @@ export class SlackPostGatekeeper
     return { id: found.id, name: found.name };
   }
 
-  async #findUser(email: string): Promise<SlackUser | null> {
+  /** The raw Slack user with this email address, or undefined when there is none. */
+  async #lookupByEmail(email: string): Promise<unknown> {
     try {
-      const data = await this.#slack("users.lookupByEmail", { email });
-      return toUser(data.user);
+      return (await this.#slack("users.lookupByEmail", { email })).user;
     } catch (error) {
-      if (error instanceof SlackApiError && error.code === "users_not_found") return null;
+      if (error instanceof SlackApiError && error.code === "users_not_found") return undefined;
       throw error;
     }
+  }
+
+  async #findUser(email: string): Promise<SlackUser | null> {
+    return toUser(await this.#lookupByEmail(email));
   }
 
   async #resolveUser(
@@ -959,12 +965,7 @@ export class SlackPostGatekeeper
         throw error;
       }
     }
-    let raw: unknown;
-    try {
-      raw = (await this.#slack("users.lookupByEmail", { email: user })).user;
-    } catch (error) {
-      if (!(error instanceof SlackApiError && error.code === "users_not_found")) throw error;
-    }
+    const raw = await this.#lookupByEmail(user);
     const found = toUser(raw);
     if (!found) throw new Error("No Slack user in this workspace has that email address.");
     return { id: found.id, name: found.name, email: user, member: isFullMember(raw) };
