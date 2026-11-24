@@ -1,7 +1,9 @@
 // The publish controls (stage 28, step 5; ADRs 0446, 0441, 0443) on a publishable record's page:
 // where it is (draft, scheduled, published, unpublished), publish now, schedule, cancel, take it
 // down; its versions, what changed since one, restoring one into the working copy; and, for
-// content the public reads, preview links to make, list and stop.
+// content the public reads, preview links to make, list and stop. On an object staff confirm they
+// have read (ADR 0702), a publish after the first asks the person to choose: everyone confirms
+// again, or a small fix that keeps their confirmations.
 //
 // Every button is an operation and the host decides it: a member without the publish permission
 // is refused by the host and told so, and an AI actor never publishes (ADR 0446).
@@ -34,6 +36,7 @@ export function PublishCard({
   values,
   slugField,
   hasPreview,
+  acknowledged = false,
 }: {
   object: string;
   id: string;
@@ -41,6 +44,8 @@ export function PublishCard({
   slugField: string | null;
   /** Whether the public reads it: then a preview link shows its working copy. */
   hasPreview: boolean;
+  /** Whether staff confirm they have read it: then a later version asks "read again?". */
+  acknowledged?: boolean;
 }) {
   const invalidates = ["record.", "content."];
   const publish = useOpMutation("record.publish", { invalidates });
@@ -51,6 +56,7 @@ export function PublishCard({
   const versions = useOp("record.versions", { object, id });
   const [at, setAt] = useState(() => toLocalInput(new Date(Date.now() + 3_600_000).toISOString()));
   const [compareWith, setCompareWith] = useState<number | null>(null);
+  const [readAgain, setReadAgain] = useState<boolean | null>(null);
   const compare = useOp(
     "record.compareVersions",
     { object, id, from: compareWith ?? 1 },
@@ -60,6 +66,10 @@ export function PublishCard({
   const state = String(values.publishState ?? "draft");
   const publishAt = typeof values.publishAt === "string" ? values.publishAt : null;
   const live = typeof values.publishedVersion === "number" ? values.publishedVersion : null;
+  // The first version always asks; a later one needs the person's choice (ADR 0702).
+  const asks = acknowledged && Boolean(versions.data?.items.length);
+  const waiting = asks && readAgain === null;
+  const choice = asks && readAgain !== null ? { readAgain } : {};
 
   async function run(what: string, call: () => Promise<unknown>) {
     try {
@@ -88,10 +98,37 @@ export function PublishCard({
             : "Readers see nothing yet. Edits here are the working copy."}
           {publishAt ? ` Scheduled for ${formatDateTime(publishAt)}.` : ""}
         </p>
+        {asks ? (
+          <fieldset className="grid gap-1.5" data-testid="read-again">
+            <legend className="font-medium">Does this change ask everyone to confirm again?</legend>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { value: true, label: "Yes: everyone confirms again" },
+                { value: false, label: "Small fix: keep their confirmations" },
+              ].map((o) => (
+                <Button
+                  key={String(o.value)}
+                  type="button"
+                  size="sm"
+                  variant={readAgain === o.value ? "default" : "outline"}
+                  aria-pressed={readAgain === o.value}
+                  onClick={() => setReadAgain(o.value)}
+                >
+                  {o.label}
+                </Button>
+              ))}
+            </div>
+          </fieldset>
+        ) : null}
         <div className="flex flex-wrap gap-2">
           <Button
-            onClick={() => run("Published", () => publish.mutateAsync({ object, id }))}
-            disabled={publish.isPending}
+            onClick={() =>
+              run("Published", async () => {
+                await publish.mutateAsync({ object, id, ...choice });
+                setReadAgain(null);
+              })
+            }
+            disabled={publish.isPending || waiting}
           >
             Publish now
           </Button>
@@ -110,7 +147,7 @@ export function PublishCard({
           onSubmit={(event) => {
             event.preventDefault();
             void run("Scheduled", () =>
-              schedule.mutateAsync({ object, id, at: new Date(at).toISOString() }),
+              schedule.mutateAsync({ object, id, at: new Date(at).toISOString(), ...choice }),
             );
           }}
         >
@@ -122,7 +159,7 @@ export function PublishCard({
               value={at}
               onChange={(e) => setAt(e.target.value)}
             />
-            <Button type="submit" variant="outline" disabled={schedule.isPending}>
+            <Button type="submit" variant="outline" disabled={schedule.isPending || waiting}>
               Schedule
             </Button>
           </div>
@@ -148,6 +185,8 @@ export function PublishCard({
                     <span>
                       Version {v.version}
                       {v.current ? " (live)" : ""} · {formatDateTime(v.publishedAt)}
+                      {v.readAgain === true ? " · asked everyone again" : ""}
+                      {v.readAgain === false ? " · small fix" : ""}
                     </span>
                     <span className="flex gap-1">
                       <Button
