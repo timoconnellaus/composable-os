@@ -280,6 +280,7 @@ Permanently delete a person now, for GDPR erasure requests (admins only). Works 
 | Permission | `records:erase` |
 | Risk | `destructive` |
 | Audiences | `staff` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -375,6 +376,7 @@ Link a guardian (a parent) to a dependant (a child) they may act for: while the 
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -414,6 +416,7 @@ End a family link: from that moment the guardian reads nothing of the dependant'
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

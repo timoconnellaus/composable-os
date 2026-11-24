@@ -16,6 +16,7 @@ Export the prompt cache review data (admins): cache observations, compaction dec
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -39,6 +40,7 @@ Settings → AI (admins): the prompt cache lifetime in use per provider and mode
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -77,6 +79,7 @@ Hosted workspaces only (admins): connect the customer's own AI Gateway, so calls
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -104,6 +107,7 @@ Remove a provider's key (admins): deletes the Workers secret from cos-app and co
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -127,7 +131,7 @@ Record cache observations and compaction decisions from your assistant thread wh
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
-| Also | bookkeeping, never queued for review |
+| Also | bookkeeping, never queued for review; not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -222,6 +226,7 @@ Store a provider's API key (admins): in AI Gateway (BYOK, the default when the d
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -250,6 +255,7 @@ Settings → AI (admins): every model role with its provider, model, fallback, p
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -364,6 +370,7 @@ Settings → AI's Test button (admins): send one tiny request to a role's model 
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -408,6 +415,7 @@ Set the compaction rails (admins): never compact a chat smaller than this many t
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -435,6 +443,7 @@ Choose the provider, model, fallback and settings (max output tokens, temperatur
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -497,6 +506,7 @@ Usage and spend per model role over the last N days (admins), from AI Gateway's 
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

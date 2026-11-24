@@ -16,7 +16,7 @@ End a subscription when its current paid period (or trial) ends: nothing more is
 | Risk | `write` |
 | Audiences | `staff`, `customer` |
 | Actors | `human` |
-| Also | host-internal (`hostInternal`) |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 | Staff-only input | `now` |
 
 ### Input
@@ -44,7 +44,7 @@ Move a subscription to another plan of the same kind (a membership from 3 a week
 | Risk | `write` |
 | Audiences | `staff`, `customer` |
 | Actors | `human` |
-| Also | host-internal (`hostInternal`) |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -77,6 +77,7 @@ Withdraw a subscription's plan change that has not taken effect: one stuck waiti
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -151,7 +152,7 @@ End a subscription in its cooling-off period, for a full refund of what was paid
 | Risk | `write` |
 | Audiences | `staff`, `customer` |
 | Actors | `human` |
-| Also | host-internal (`hostInternal`) |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -179,6 +180,7 @@ The host's follow-up for a membership ended in its cooling-off period: cancels t
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `automation` |
+| Also | a host step: never queued for review when the host itself calls it (`hostStep`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -203,6 +205,7 @@ The host's minute step for cooling offs: one whose call to the payment provider 
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `automation` |
+| Also | a host step: never queued for review when the host itself calls it (`hostStep`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -352,6 +355,7 @@ The continuation offers report as a CSV file (every offer, or those of one statu
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -378,6 +382,7 @@ Import up to 50 continuation offers for one plan: people subscribed on another p
 | Risk | `bulk-write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -417,6 +422,7 @@ The continuation offers report, by address: who has taken their offer (with the 
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -471,7 +477,7 @@ The signed-in customer's own continuation offers they can still take: a plan, fr
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `customer` |
-| Also | host-internal (`hostInternal`) |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -499,6 +505,7 @@ Withdraw a continuation offer that has not been taken, with a reason: it can no 
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -524,6 +531,7 @@ Pause a subscription for a set time (a membership frozen for an injury or travel
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -554,7 +562,7 @@ Open the payment provider's customer portal for the signed-in customer: the card
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `customer` |
-| Also | host-internal (`hostInternal`) |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -578,7 +586,7 @@ Keep a subscription going that was set to end when its period does, before that 
 | Risk | `write` |
 | Audiences | `staff`, `customer` |
 | Actors | `human` |
-| Also | host-internal (`hostInternal`) |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -602,7 +610,7 @@ Start a subscription to a plan (a record of an object sold every week, month or 
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff`, `customer`, `public` |
-| Also | host-internal (`hostInternal`) |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 | Staff-only input | `holderPersonId` |
 
 ### Input
@@ -652,6 +660,7 @@ End a subscription's pause now, before its date: the payment provider resumes it
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

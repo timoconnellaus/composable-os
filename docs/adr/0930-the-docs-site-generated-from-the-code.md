@@ -42,7 +42,7 @@ from the code goes stale as soon as the code moves on.
 - **CI enforces it.** The generator's `--check` fails when a generated page differs from its
   sources, when a pack, block, core operation or gatekeeper has no reference page, when a pack has
   no overview and is not on the pending list (`apps/docs/docs.config.mjs`, which only shrinks),
-  when an overview lacks a section or names an ADR that does not exist, when an internal link or
+  when an overview lacks a section or names an ADR or a spec that does not exist, when an internal link or
   anchor is broken, when a page names a client, or when hand-written text shows a price. It runs in
   the lint job, and the site's build (with a second link check over the built pages) in the
   typecheck job. The documents lane, which has no install, runs `--check --markdown-only`: the
@@ -56,15 +56,18 @@ from the code goes stale as soon as the code moves on.
   on the Planned page, linking its spec. The docs follow `main`; the versions page says so.
 - **Search** is Starlight's (Pagefind, built with the site, nothing fetched from another origin).
   **`/llms.txt`** lists every page with its description, from the same page set.
-- **No client's name, business details or prices.** The generator replaces the names in
-  `docs.config.mjs` where a source has them (the glossary, the roadmap) and refuses a price in
-  hand-written text.
+- **No client's name, business details or prices.** A name in `docs.config.mjs` fails the check
+  wherever a reader would see it, in any case and inside identifiers, except on the glossary and
+  Planned, whose sources (`CONTEXT.md`, the roadmap) name a client: there it becomes "the first
+  client". A price in hand-written text fails the check. Generated pages carry no
+  repository-wide counts, which parallel pull requests would merge cleanly into a wrong number.
 
 ## Consequences
 - A pull request that adds or changes a pack, a block or an operation runs
   `pnpm --filter @composable-os/docs generate` and updates the overview in the same pull request
   (AGENTS.md, CONTRIBUTING.md). Two pull requests changing the same generated page conflict there;
-  either side is taken and the generator run again.
+  either side is taken and the generator run again. Combining pull requests (a batch, or merging
+  `main`) is followed by running the generator, even with no conflict.
 - The nine packs without an overview carry generated pages that say so, until their overviews are
   written and they leave the pending list.
 - The first deploy needs the marketing token to be allowed to make the `docs.composableos.dev`

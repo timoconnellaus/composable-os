@@ -16,6 +16,7 @@ Platform use only (the minute cron, as the host): note on a waiter that it could
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `automation` |
+| Also | a host step: never queued for review when the host itself calls it (`hostStep`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -67,6 +68,7 @@ Platform use only (the minute cron, as the host): move one waiter of a waitlist 
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `automation` |
+| Also | a host step: never queued for review when the host itself calls it (`hostStep`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -93,6 +95,7 @@ Platform use only (the minute cron, as the host): give back to everyone the plac
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `automation` |
+| Also | a host step: never queued for review when the host itself calls it (`hostStep`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

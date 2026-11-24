@@ -103,6 +103,7 @@ One round of the audit retention purge: deletes the oldest audit rows from befor
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `automation` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -192,6 +193,7 @@ Set how long write audits are kept: null keeps them forever; 1, 2 or 7 years let
 | Risk | `destructive` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

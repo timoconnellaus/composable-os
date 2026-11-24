@@ -16,6 +16,7 @@ The judge (Jev): whether it has a key, where the key is held and where calls go 
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -70,6 +71,7 @@ Store or remove the judge's TypeSafe API key (admins): the Worker secret TYPESAF
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -94,6 +96,7 @@ Make one live call to the judge with a fixed sentence (no CRM data) and report w
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -119,6 +122,7 @@ Switch judge placements on or off (null returns one to its default). Turning off
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

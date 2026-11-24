@@ -175,7 +175,10 @@ are generated from the code, with overviews and guides written beside it.
   when an internal link is broken; the typecheck job builds the site and checks its links again.
   A change to documents only runs `--check --markdown-only`, which needs no install.
 - On a conflict in `apps/docs/src/content/docs/`, `src/sidebar.json` or `public/llms.txt`, take
-  either side and run the generator again.
+  either side and run the generator again. **When pull requests are combined** (a batch branch,
+  or merging `main` into yours), run the generator again after the merge even when git reports no
+  conflict: two changes can merge cleanly into pages that match neither, and the check on `main`
+  would then fail for the next pull request.
 
 ## Pull requests
 

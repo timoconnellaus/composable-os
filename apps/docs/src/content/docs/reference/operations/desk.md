@@ -15,7 +15,7 @@ On the enrolled desk tablet, in a claimed session: the signer agrees to a versio
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `public` |
-| Also | host-internal (`hostInternal`); only on the business's enrolled device (`deskOnly`) |
+| Also | host-internal (`hostInternal`); only on the business's enrolled device (`deskOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -50,7 +50,7 @@ On the enrolled desk tablet: type the code a person on the staff was given. Bind
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `public` |
-| Also | host-internal (`hostInternal`); only on the business's enrolled device (`deskOnly`) |
+| Also | host-internal (`hostInternal`); only on the business's enrolled device (`deskOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -76,7 +76,7 @@ On the enrolled desk tablet, in a claimed session: what the signer (and each chi
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `public` |
-| Also | host-internal (`hostInternal`); only on the business's enrolled device (`deskOnly`) |
+| Also | host-internal (`hostInternal`); only on the business's enrolled device (`deskOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -122,7 +122,7 @@ On the enrolled desk tablet: "All done". Ends the session at once; the token ans
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `public` |
-| Also | host-internal (`hostInternal`); only on the business's enrolled device (`deskOnly`) |
+| Also | host-internal (`hostInternal`); only on the business's enrolled device (`deskOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -143,7 +143,7 @@ On the enrolled desk tablet, while the person reads or touches the page (at most
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `public` |
-| Also | host-internal (`hostInternal`); only on the business's enrolled device (`deskOnly`) |
+| Also | host-internal (`hostInternal`); only on the business's enrolled device (`deskOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -164,7 +164,7 @@ On the desk origin: whether this browser is an enrolled device, and if so its na
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `public` |
-| Also | host-internal (`hostInternal`); only on the business's enrolled device (`deskOnly`) |
+| Also | host-internal (`hostInternal`); only on the business's enrolled device (`deskOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

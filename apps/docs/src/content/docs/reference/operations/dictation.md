@@ -16,6 +16,7 @@ Tidies dictated text: removes fillers, fixes punctuation and applies self-correc
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

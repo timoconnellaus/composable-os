@@ -16,6 +16,7 @@ Confirm that I have read and understood the current version of a record staff mu
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human`, `extension` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -44,6 +45,7 @@ What I must read and have not confirmed (each published record that asks me, wit
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human`, `extension` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -78,6 +80,7 @@ Every published record staff must read, of the objects the caller manages: its c
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -106,6 +109,7 @@ For one published record staff must read (a procedure), its current version: eve
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

@@ -16,6 +16,7 @@ Approve pending actions: a whole change set, or chosen actions. Each is applied 
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -257,6 +258,7 @@ Pending (not yet approved) actions that would change a record, for the 'pending 
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -289,6 +291,7 @@ Reject pending actions: a whole change set, or chosen actions. Nothing is applie
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -327,6 +330,7 @@ The approval settings: above how many recipients an email send needs the second 
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -475,6 +479,7 @@ Set above how many recipients an email send needs the second step. Raising it lo
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

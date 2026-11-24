@@ -15,7 +15,7 @@ On the desk origin's /enrol: the tablet types the enrolment code an admin was gi
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `public` |
-| Also | host-internal (`hostInternal`); only on the business's enrolled device (`deskOnly`) |
+| Also | host-internal (`hostInternal`); only on the business's enrolled device (`deskOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -40,6 +40,7 @@ Enrol a tablet or other browser as the business's own device, for one use: desk 
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -88,6 +89,7 @@ Every enrolled device, of every use: its name, use, who enrolled it and when, wh
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -131,6 +133,7 @@ Revoke an enrolled device at once: its credential opens nothing again, and a sig
 | Risk | `destructive` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -174,6 +177,7 @@ Change what an enrolled device is for: desk signing, a device role, or a till. A
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

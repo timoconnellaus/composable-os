@@ -51,8 +51,12 @@ the pages; `scripts/generate.mjs` writes or checks them.
 - **An overview** has front matter (`title`, `summary`, `stage`, `spec`, `adrs`) and the sections
   "What it is for", "Concepts", "How the pieces fit", "Main flows" and "What is built", in that
   order. It documents what the code does, plainly: no status badges or caveats.
-- **No client's name, business details or prices.** The names in `privateNames` are replaced
-  where a source has them; a price in hand-written text fails the check.
+- **No client's name, business details or prices.** A name in `privateNames`, in any case and
+  inside identifiers, fails the check, except on the glossary and Planned, whose sources
+  (`CONTEXT.md`, the roadmap) name a client: there it becomes "the first client". A price in
+  hand-written text (a currency sign or code, or "dollars") fails the check.
+- **No repository-wide counts** on generated pages: two pull requests that each add an operation
+  would both write the same new number, which merges cleanly and leaves the page stale.
 - **The look** follows the marketing site (ADR 0465) where Starlight allows: Poppins, navy and
   lime, the pale blue frame, light only (`src/styles/theme.css`, the two theme components).
 

@@ -15,6 +15,7 @@ Turn a plain-language description ("tasks by status as a bar chart") into a widg
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

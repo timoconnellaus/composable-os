@@ -16,6 +16,7 @@ Platform use only (the minute cron, as the host): make one record's timed move (
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `automation` |
+| Also | a host step: never queued for review when the host itself calls it (`hostStep`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -42,7 +43,7 @@ From a tool: which state a requested move (such as `cancel`) would move a record
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff`, `customer` |
-| Also | called only from a tool's run (`toolOnly`); host-internal (`hostInternal`) |
+| Also | called only from a tool's run (`toolOnly`); host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

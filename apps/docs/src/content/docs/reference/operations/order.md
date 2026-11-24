@@ -16,7 +16,7 @@ Give a discount on a pending order whose payment page has not opened: a percenta
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human`, `assistant`, `mcp` |
-| Also | always reviewed |
+| Also | always reviewed when called by `assistant`, `mcp` (`alwaysReview`); reviewed by a person when its own rule says so for the input (`reviewWhen`) |
 
 ### Input
 
@@ -84,6 +84,7 @@ Platform use only: apply a payment or refund event the payments gatekeeper verif
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `automation` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -175,7 +176,7 @@ Open the payment provider's own page to pay for an order, and get its address to
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff`, `customer`, `public` |
-| Also | host-internal (`hostInternal`) |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -206,6 +207,7 @@ Platform use only: expire pending orders whose time to pay has run out (the minu
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `automation` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -354,6 +356,7 @@ Keep a payment that arrived after the order expired: the order becomes paid (par
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -640,7 +643,7 @@ Platform use only (the minute cron): ask for a refund the host owes, recorded wh
 | Risk | `outbound` |
 | Audiences | `staff` |
 | Actors | `automation` |
-| Also | bookkeeping, never queued for review |
+| Also | bookkeeping, never queued for review; not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -670,6 +673,7 @@ Platform use only (the minute cron): release one paid guest drop-in still held f
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `automation` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -791,6 +795,7 @@ Change the order settings: the currency every order is in, the minutes an unpaid
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -839,7 +844,7 @@ Start an order for one or more records that are for sale, as a signed-in custome
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff`, `customer`, `public` |
-| Also | host-internal (`hostInternal`) |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -919,7 +924,7 @@ From a pack's tool: make a record that is bought when it is made (a drop-in book
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff`, `customer`, `public` |
-| Also | called only from a tool's run (`toolOnly`); host-internal (`hostInternal`) |
+| Also | called only from a tool's run (`toolOnly`); host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -999,7 +1004,7 @@ Take a discount off a pending order whose payment page has not opened: the order
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human`, `assistant`, `mcp` |
-| Also | always reviewed |
+| Also | always reviewed when called by `assistant`, `mcp` (`alwaysReview`) |
 
 ### Input
 
@@ -1063,7 +1068,7 @@ See one order with the token it was started with (a guest's link from order.star
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff`, `customer`, `public` |
-| Also | host-internal (`hostInternal`) |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

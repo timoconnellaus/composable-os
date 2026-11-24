@@ -15,7 +15,7 @@ Drop the scheduled publish of a record of a publishable object. What is live sta
 | Permission | `records:publish` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | always reviewed |
+| Also | always reviewed when called by `assistant`, `mcp`, `automation`, `extension` (`alwaysReview`) |
 
 ### Input
 
@@ -232,6 +232,7 @@ Import up to 25 records of one extension object from an outside source, each wit
 | Risk | `bulk-write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -300,7 +301,7 @@ Publish a record of a publishable object (see schema.objects): its content field
 | Permission | `records:publish` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | always reviewed |
+| Also | always reviewed when called by `assistant`, `mcp`, `automation`, `extension` (`alwaysReview`) |
 
 ### Input
 
@@ -335,6 +336,7 @@ Platform use only: publish the scheduled publishes whose time has come (the minu
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `automation` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -420,7 +422,7 @@ Schedule a record of a publishable object to be published at a time: its content
 | Permission | `records:publish` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | always reviewed |
+| Also | always reviewed when called by `assistant`, `mcp`, `automation`, `extension` (`alwaysReview`) |
 
 ### Input
 
@@ -493,7 +495,7 @@ Unpublish a record of a publishable object: the public no longer reads it (it an
 | Permission | `records:publish` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | always reviewed |
+| Also | always reviewed when called by `assistant`, `mcp`, `automation`, `extension` (`alwaysReview`) |
 
 ### Input
 

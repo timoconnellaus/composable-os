@@ -16,7 +16,7 @@ Generate one-line AI summaries for up to 10 long emails or notes (a timeline's v
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human`, `assistant` |
-| Also | bookkeeping, never queued for review |
+| Also | bookkeeping, never queued for review; not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -42,6 +42,7 @@ Cached one-line AI summaries for long emails and notes on a timeline, by activit
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -70,7 +71,7 @@ Generate (or regenerate) the AI summary of a person, organisation or deal, a mee
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human`, `assistant` |
-| Also | bookkeeping, never queued for review |
+| Also | bookkeeping, never queued for review; not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -102,6 +103,7 @@ Read the cached AI summary of a person, organisation or deal, a meeting's prep b
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

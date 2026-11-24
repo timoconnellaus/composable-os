@@ -252,7 +252,7 @@ Propose a note on a record for the person to OK, instead of adding it straight a
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | always reviewed |
+| Also | always reviewed by a person, whoever calls it (`alwaysReview`) |
 
 ### Input
 
@@ -345,6 +345,7 @@ Mark a synced email or meeting private (only you see it: it leaves everyone else
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

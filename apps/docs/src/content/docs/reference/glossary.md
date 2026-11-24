@@ -25,7 +25,7 @@ A named composition: which packs are on, the org's own extensions, names and bra
 stage 24) client apps. It is defined in a **product definition**, today `products/<id>/product.ts`
 in this repository and, from stage 24, in the product's client repo. The CRM is a product sold to
 many orgs; the first client (stage 27) is a product for one org. A product's id names its
-deployment's Workers and resources (`crm-app`, `ghetto-app`). Nothing in the data model knows about
+deployment's Workers and resources (`crm-app`, `client-app`). Nothing in the data model knows about
 products.
 
 ### CRM

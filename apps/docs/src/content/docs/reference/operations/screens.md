@@ -15,6 +15,7 @@ The staff screens of the installed packs the signed-in person may open in the ad
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

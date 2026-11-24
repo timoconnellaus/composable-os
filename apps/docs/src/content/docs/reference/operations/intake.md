@@ -15,7 +15,7 @@ From a pack's tool: one of its forms as the caller may answer it now (published,
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff`, `customer`, `public` |
-| Also | called only from a tool's run (`toolOnly`); host-internal (`hostInternal`) |
+| Also | called only from a tool's run (`toolOnly`); host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -44,7 +44,7 @@ From a pack's tool: send answers to one of its forms (the public-write door, ADR
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff`, `customer`, `public` |
-| Also | called only from a tool's run (`toolOnly`); host-internal (`hostInternal`) |
+| Also | called only from a tool's run (`toolOnly`); host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

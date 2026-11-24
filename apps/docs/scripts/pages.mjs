@@ -1,7 +1,7 @@
 // The site's pages, built from the code's facts (extract.mjs) and the files beside it
 // (sources.mjs). Each page says whether it needs the code (`code: true`): the documents lane,
 // which has no install, rebuilds only the pages that need nothing but files.
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { rewriteLinks } from "./lib/links.mjs";
 import { schemaTable } from "./lib/schema.mjs";
@@ -59,6 +59,9 @@ function repoUrl(ctx, path) {
 
 function specLine(o, ctx) {
   if (!o.spec) return "";
+  if (!existsSync(join(ctx.root, o.spec))) {
+    ctx.problems.push(`${o.path}: front matter's spec ${o.spec} does not exist`);
+  }
   const stage = o.stage ? `stage ${o.stage}` : "its stage";
   return `The specification is ${stage}'s, [${o.spec.split("/").pop()}](${repoUrl(ctx, o.spec)}).`;
 }
@@ -611,7 +614,7 @@ function declaredBy(key, ctx) {
 // ---------------------------------------------------------------------------------------------
 // Reference
 
-function operationPages(ctx) {
+export function operationPages(ctx) {
   const groups = new Map();
   for (const op of ctx.facts.operations) {
     const g = opGroup(op.name);
@@ -625,13 +628,11 @@ function operationPages(ctx) {
       code: true,
       content: page(
         { title: "Core operations", order: 0, label: "All operations" },
-        `Every operation in the core registry (${ctx.facts.operations.length} of them), grouped by the first part of its name. Anything a user can do is an operation, with zod schemas, a model-facing description, a permission, a risk class and the audiences that may call it. The UI, MCP, the HTTP surface and extension code call operations.\n\n${table(
-          ["Group", "Operations"],
-          names.map((g) => [
-            `[${code(g)}](/reference/operations/${groupPath(g)}/)`,
-            String(groups.get(g).length),
-          ]),
-        )}`,
+        // No counts: two pull requests that each add an operation would both write the same new
+        // number, which merges cleanly and leaves the page stale (ADR 0930).
+        `Every operation in the core registry, grouped by the first part of its name. Anything a user can do is an operation, with zod schemas, a model-facing description, a permission, a risk class and the audiences that may call it. The UI, MCP, the HTTP surface and extension code call operations; an operation's page says when it is not offered to MCP clients.\n\n${names
+          .map((g) => `- [${code(g)}](/reference/operations/${groupPath(g)}/)`)
+          .join("\n")}`,
       ),
     },
   ];
@@ -645,15 +646,29 @@ function operationPages(ctx) {
           ["Audiences", codes(op.audiences ?? ["staff"])],
         ];
         if (op.actors) rows.push(["Actors", codes(op.actors)]);
+        const review = op.alwaysReview
+          ? op.alwaysReview === true
+            ? "always reviewed by a person, whoever calls it (`alwaysReview`)"
+            : `always reviewed when called by ${list(op.alwaysReview).map(code).join(", ")} (\`alwaysReview\`)`
+          : null;
         const flags = [
           op.toolOnly && "called only from a tool's run (`toolOnly`)",
           op.hostInternal && "host-internal (`hostInternal`)",
           op.deskOnly && "only on the business's enrolled device (`deskOnly`)",
           op.bookkeeping && "bookkeeping, never queued for review",
-          op.alwaysReview && "always reviewed",
+          op.hostStep &&
+            "a host step: never queued for review when the host itself calls it (`hostStep`)",
+          review,
+          op.reviewWhen &&
+            "reviewed by a person when its own rule says so for the input (`reviewWhen`)",
+          op.mcpHidden && "not offered to MCP clients (`mcp.expose: false`)",
+          op.packRestricted &&
+            "a restricted pack permission: admins and those granted it only (`packRestricted`)",
+          op.packAnyStaff && "every staff account, pack roles included (`packAnyStaff`)",
         ].filter(Boolean);
         if (flags.length) rows.push(["Also", flags.join("; ")]);
         if (op.packPermissions) rows.push(["Pack permissions", codes(op.packPermissions)]);
+        if (op.packGrantable) rows.push(["Grantable pack permissions", codes(op.packGrantable)]);
         if (op.staffInput) rows.push(["Staff-only input", codes(op.staffInput)]);
         return `## ${op.name}\n\n${inline(op.description)}\n\n${table(["", ""], rows)}\n\n### Input\n\n${schemaTable(op.input)}\n\n### Output\n\n${schemaTable(op.output)}`;
       })

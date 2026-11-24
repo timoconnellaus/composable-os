@@ -16,6 +16,7 @@ Let an agent paused at its spend limit carry on, with this much more. People onl
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -42,6 +43,7 @@ The person's answer on a grant shown before an agent starts: start it, start it 
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -93,7 +95,7 @@ Internal: the AgentJob object's bookkeeping, as its person. What it has used, an
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
-| Also | bookkeeping, never queued for review |
+| Also | bookkeeping, never queued for review; not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -125,6 +127,7 @@ The limits on agents: how many run at once per person and per workspace, the def
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -286,6 +289,7 @@ Set the limits on agents (admins). Jobs already running keep their budgets.
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

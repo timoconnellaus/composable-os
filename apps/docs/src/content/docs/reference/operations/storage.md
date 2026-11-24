@@ -16,6 +16,7 @@ Measure the database again now (size and row counts of the largest tables) inste
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

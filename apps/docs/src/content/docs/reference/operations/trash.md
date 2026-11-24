@@ -48,6 +48,7 @@ Permanently delete everything that has been in Trash for more than 30 days (olde
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `automation` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

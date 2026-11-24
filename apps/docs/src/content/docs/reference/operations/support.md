@@ -16,6 +16,7 @@ Approve a requested support grant. Support gets its own support user (never your
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -50,6 +51,7 @@ Deny a requested support grant: support gets no access. Admins only, and only a 
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -84,6 +86,7 @@ List support access requests from the hosted service's support team, newest firs
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -117,6 +120,7 @@ Revoke a support grant before it expires: the support user is deactivated and it
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -151,7 +155,7 @@ Record that a support session started under an approved support grant (audit onl
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
-| Also | bookkeeping, never queued for review |
+| Also | bookkeeping, never queued for review; not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

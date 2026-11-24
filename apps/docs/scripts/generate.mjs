@@ -51,14 +51,44 @@ function isMarkdownPath(path, ctx) {
   return /^capabilities\/[a-z0-9-]+\/(index|decisions|screens)\.md$/.test(path);
 }
 
-/** Replaces a client's name with "the first client" (docs.config.mjs). */
-function scrub(text, config) {
-  let out = text;
-  for (const name of config.privateNames) out = out.split(name).join("the first client");
-  return out;
+/**
+ * The pages made from sources that name a client by the repository's own choice (the glossary
+ * from CONTEXT.md, Planned from the roadmap): there a name from docs.config.mjs becomes "the first
+ * client" (or "client" inside an identifier, `ghetto-app` → `client-app`), in any case. Anywhere
+ * else a name is never rewritten: the check below fails, so its source is reworded.
+ */
+const SCRUBBED = new Set(["reference/glossary.md", "planned.md"]);
+
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Longest first, so "Name Movement" goes before "Name". */
+const namesRe = (config) =>
+  new RegExp(
+    [...config.privateNames]
+      .sort((x, y) => y.length - x.length)
+      // A space in a name matches a space, a hyphen or an underscore: `name-movement-app`.
+      .map((n) => n.split(/\s+/).map(escapeRe).join("[\\s_-]+"))
+      .join("|"),
+    "gi",
+  );
+
+export function scrub(text, config) {
+  if (!config.privateNames.length) return text;
+  return text.replace(namesRe(config), (match, at, all) => {
+    const before = all[at - 1] ?? "";
+    const after = all.slice(at + match.length, at + match.length + 2);
+    // Inside an identifier (`name-app`, `name_x`, `x/name`, `name.dev`), not at a sentence's end.
+    const inIdentifier = /[-_./]/.test(before) || /^(?:[-_/]|\.\w)/.test(after);
+    return inIdentifier ? "client" : "the first client";
+  });
 }
 
-const PRICE = /[$€£]\s?\d/;
+/** What a reader sees of a page: its text without link targets. */
+const visible = (md) => md.replace(/\]\([^)]*\)/g, "]").replace(/href="[^"]*"/g, "");
+
+/** A price: a currency sign or code beside a number, or a number of dollars or euros. */
+export const PRICE =
+  /[$€£¥]\s?\d|\b(?:AUD|USD|NZD|CAD|EUR|GBP|JPY)\s?\d|\d(?:[\d.,]*\d)?\s?(?:AUD|USD|NZD|CAD|EUR|GBP|JPY|dollars?|euros?)\b/i;
 
 export async function generate({ root, markdownOnly = false, config = defaultConfig }) {
   const problems = [];
@@ -111,7 +141,9 @@ export async function generate({ root, markdownOnly = false, config = defaultCon
     ctx.opNames = new Set(ctx.facts.operations.map((o) => o.name));
   }
 
-  let pages = buildPages(ctx).map((p) => ({ ...p, content: scrub(p.content, config) }));
+  let pages = buildPages(ctx).map((p) =>
+    SCRUBBED.has(p.path) ? { ...p, content: scrub(p.content, config) } : p,
+  );
   if (markdownOnly) {
     pages = pages.filter((p) => !p.code);
     // The pages that need the code are taken as they are written, for the links and llms.txt.
@@ -127,16 +159,19 @@ export async function generate({ root, markdownOnly = false, config = defaultCon
     }
   }
 
-  // Nothing private, no prices.
+  // Nothing private, no prices. A name is matched in any case, inside identifiers too; only what a
+  // reader sees counts (a link's target is a file's path, not text on the page).
   for (const p of pages) {
     if (p.kept) continue;
-    const handWritten = !p.code;
-    for (const name of config.privateNames) {
-      if (p.content.includes(name)) problems.push(`${p.path}: names ${name}`);
+    const text = visible(p.content);
+    const named = config.privateNames.length ? text.match(namesRe(config)) : null;
+    if (named) {
+      problems.push(`${p.path}: names "${named[0]}", a client's name: reword its source`);
     }
-    const price = p.content.match(new RegExp(`.{0,30}${PRICE.source}.{0,10}`));
-    if (price && handWritten)
-      problems.push(`${p.path}: shows what looks like a price: "${price[0]}"`);
+    if (!p.code) {
+      const price = text.match(new RegExp(`.{0,30}(?:${PRICE.source}).{0,10}`, "i"));
+      if (price) problems.push(`${p.path}: shows what looks like a price: "${price[0]}"`);
+    }
   }
 
   // Internal links and anchors.

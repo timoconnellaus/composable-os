@@ -16,7 +16,7 @@ Runs the operation behind a button on a card the model or a saved producer wrote
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
-| Also | bookkeeping, never queued for review |
+| Also | bookkeeping, never queued for review; not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

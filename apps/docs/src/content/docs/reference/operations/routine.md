@@ -62,7 +62,7 @@ Turn on what the read-back card showed. People only: this is the card's Turn on 
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
-| Also | bookkeeping, never queued for review |
+| Also | bookkeeping, never queued for review; not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -115,7 +115,7 @@ Delete one of your routines and its run history. Messages it already sent stay i
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
-| Also | bookkeeping, never queued for review |
+| Also | bookkeeping, never queued for review; not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -311,7 +311,7 @@ Record what became of a delivery: sent, nothing to send, or failed. Called by th
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
-| Also | bookkeeping, never queued for review |
+| Also | bookkeeping, never queued for review; not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -337,7 +337,7 @@ Try one of your routines now: run its checks and, when they pass, send the messa
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
-| Also | bookkeeping, never queued for review |
+| Also | bookkeeping, never queued for review; not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -365,7 +365,7 @@ Change one of your routines: its whole definition (from a read-back's Save chang
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
-| Also | bookkeeping, never queued for review |
+| Also | bookkeeping, never queued for review; not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -418,6 +418,7 @@ Set how often people's routines may run on a schedule. Admins. It applies to new
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

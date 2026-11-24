@@ -16,6 +16,7 @@ Close the setup wizard: completed (every step done) or skipped (the admin chose 
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -43,6 +44,7 @@ Open the setup wizard again from the first step, keeping earlier answers. Human 
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -68,7 +70,7 @@ Record the wizard's progress: the step reached and non-secret answers so far, so
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
-| Also | bookkeeping, never queued for review |
+| Also | bookkeeping, never queued for review; not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -96,6 +98,7 @@ The first-run setup wizard's progress: pending, in progress (with the step reach
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

@@ -16,6 +16,7 @@ Grant a connection's agents access to one resource (a mailbox, calendar, Drive f
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -77,6 +78,7 @@ Finish a connect flow: redeem the ticket the gatekeeper's final page handed to /
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -134,6 +136,7 @@ Resource picker plumbing: call a method of the gatekeeper's resource configurato
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -160,6 +163,7 @@ Start connecting a gatekeeper: a personal connection (yours) or an org connectio
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -217,6 +221,7 @@ Disconnect: revoke the gatekeeper account, drop its resources, hooks and sync. A
 | Risk | `destructive` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -367,6 +372,7 @@ Start a reconnect for a connection whose credentials expired (or to widen its gr
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -392,6 +398,7 @@ The kinds of resource a connection's account can grant (a mailbox, calendars, Dr
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -421,6 +428,7 @@ Choose which bound mailbox and calendar sync onto CRM timelines, and how far bac
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -474,7 +482,7 @@ Run a sync pass on a connection now (catch-up, or the next backfill chunk). Owne
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
-| Also | bookkeeping, never queued for review |
+| Also | bookkeeping, never queued for review; not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -498,6 +506,7 @@ Remove a resource from a connection: its facet, hooks and any sync from it stop.
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -549,6 +558,7 @@ Rename a connection or change its sharing level (full / metadata / none for sync
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

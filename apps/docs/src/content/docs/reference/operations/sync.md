@@ -39,6 +39,7 @@ Internal to the sync service: writes one batch of normalised mail and calendar i
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `automation` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -71,6 +72,7 @@ Set the org's internal domains for mail and calendar sync. Admins only; people o
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

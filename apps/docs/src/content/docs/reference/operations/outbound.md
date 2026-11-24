@@ -43,6 +43,7 @@ Let an outbound action kind auto-apply under the Balanced preset (or require rev
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

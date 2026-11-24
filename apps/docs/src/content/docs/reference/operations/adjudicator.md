@@ -16,6 +16,7 @@ How the policy adjudicator's verdicts compare with people's decisions on the sam
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -67,6 +68,7 @@ The policy adjudicator's settings (mode off, shadow or active; confidence thresh
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -112,6 +114,7 @@ Replace the org's written policy: the plain-language rules the policy adjudicato
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -159,6 +162,7 @@ Change the policy adjudicator's mode or confidence threshold. Switching it on fr
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

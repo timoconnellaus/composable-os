@@ -16,7 +16,7 @@ Corrects how many of a record there are, by a signed quantity with a reason (fou
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human`, `assistant`, `mcp` |
-| Also | always reviewed |
+| Also | always reviewed when called by `assistant`, `mcp` (`alwaysReview`) |
 
 ### Input
 
@@ -124,7 +124,7 @@ Records a record's opening stock: how many there are when it is first counted (a
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human`, `assistant`, `mcp` |
-| Also | always reviewed |
+| Also | always reviewed when called by `assistant`, `mcp` (`alwaysReview`) |
 
 ### Input
 

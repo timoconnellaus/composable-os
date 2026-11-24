@@ -15,7 +15,7 @@ Install a proposed extension commit: what an approved extension proposal runs. I
 | Permission | `extensions:manage` |
 | Risk | `extension` |
 | Audiences | `staff` |
-| Also | always reviewed |
+| Also | always reviewed by a person, whoever calls it (`alwaysReview`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -53,6 +53,7 @@ Approve an extension proposal (or its separate drop-hidden-data item) from the a
 | Risk | `extension` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -161,7 +162,7 @@ Permanently drop the data of an extension's removed fields and objects that have
 | Risk | `destructive` |
 | Audiences | `staff` |
 | Actors | `human`, `mcp`, `assistant` |
-| Also | always reviewed |
+| Also | always reviewed when called by `mcp`, `assistant` (`alwaysReview`) |
 
 ### Input
 
@@ -513,6 +514,7 @@ Reject an extension proposal: nothing is installed (the commit stays in the work
 | Risk | `extension` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

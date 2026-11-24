@@ -43,6 +43,11 @@ const files = htmlFiles(dist);
 for (const file of files) {
   const html = readFileSync(file, "utf8");
   for (const [, href] of html.matchAll(/\shref="([^"]+)"/g)) {
+    // An outside link must name a real host: text such as "www." made into a link does not.
+    const outside = href.match(/^https?:\/\/([^/?#]*)/);
+    if (outside && !outside[1].includes(".") && outside[1] !== "localhost") {
+      problems.push(`${relative(dist, file)}: ${href} is not an address`);
+    }
     if (!href.startsWith("/") || href.startsWith("//")) continue;
     const [path, hash] = href.split("#");
     const target = fileFor(path.split("?")[0]);

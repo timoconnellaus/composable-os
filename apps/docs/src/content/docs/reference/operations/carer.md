@@ -16,6 +16,7 @@ End a looks-after row (carer.list gives its id): from the next read the account 
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -79,6 +80,7 @@ Say that a staff account looks after a person (their coach): from then on it rea
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

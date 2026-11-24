@@ -75,6 +75,7 @@ Enable or disable a gatekeeper for this deployment. For web search, `mode` is of
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

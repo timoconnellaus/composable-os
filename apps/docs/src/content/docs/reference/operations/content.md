@@ -70,7 +70,7 @@ Read the working copy of one record of a content object with a preview link's to
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff`, `customer`, `public` |
-| Also | host-internal (`hostInternal`) |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -151,6 +151,7 @@ Platform use only: catch the published-text index up with the objects' declarati
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `automation` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

@@ -16,6 +16,7 @@ Update this deployment to a release: pause automations, take a D1 Time Travel bo
 | Risk | `destructive` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -43,6 +44,7 @@ Check an update before running it: runtime extensions against the new extension 
 | Permission | `settings:manage` |
 | Risk | `read` |
 | Audiences | `staff` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -90,6 +92,7 @@ Releases published on the deployment's channel (public GitHub Releases, cached f
 | Permission | `settings:manage` |
 | Risk | `read` |
 | Audiences | `staff` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -123,6 +126,7 @@ Undo the last update: redeploy the release it replaced and restore the database 
 | Risk | `destructive` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -146,6 +150,7 @@ Choose the update channel: stable (releases only) or beta (betas too). Human adm
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -168,6 +173,7 @@ The deployment's installed release, update channel, whether it can update itself
 | Permission | `settings:manage` |
 | Risk | `read` |
 | Audiences | `staff` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

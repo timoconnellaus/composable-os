@@ -1,15 +1,16 @@
 // The docs generator: its helpers, its checks on a small repository made for each test, and the
 // real repository's pages being current (as `pnpm --filter @composable-os/docs check` and CI do).
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { apply, generate } from "../scripts/generate.mjs";
+import { apply, generate, PRICE, scrub } from "../scripts/generate.mjs";
 import { anchors, internalLinks, rewriteLinks } from "../scripts/lib/links.mjs";
 import { schemaTable } from "../scripts/lib/schema.mjs";
 import { cell, frontMatter, inline, slug } from "../scripts/lib/text.mjs";
+import { operationPages } from "../scripts/pages.mjs";
 import { glossary } from "../scripts/sources.mjs";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -35,6 +36,11 @@ describe("text helpers", () => {
   it("keeps code's text from becoming HTML or breaking a table", () => {
     assert.equal(inline("a <b> `<c>`\nd"), "a &lt;b&gt; `<c>` d");
     assert.equal(cell("x | y"), "x \\| y");
+  });
+
+  it("never lets www. in prose become a link (review of PR #408, finding 7)", () => {
+    assert.equal(inline("A URL or www. prefix"), "A URL or `www.` prefix");
+    assert.equal(inline("see www.example.org"), "see www.example.org");
   });
 });
 
@@ -246,10 +252,114 @@ describe("the checks", () => {
   });
 });
 
+describe("review of PR #408", () => {
+  it("says who an operation is always reviewed for, and shows what decides review and reach (finding 3)", () => {
+    const [index, page] = operationPages({
+      facts: {
+        operations: [
+          {
+            name: "stock.adjust",
+            description: "Adjust stock.",
+            permission: "records:write",
+            risk: "write",
+            alwaysReview: ["assistant", "mcp"],
+            reviewWhen: true,
+            hostStep: true,
+            mcpHidden: true,
+            packRestricted: true,
+            packAnyStaff: true,
+            packGrantable: ["shop:stock"],
+            input: { type: "object", properties: {} },
+            output: { type: "object", properties: {} },
+          },
+          {
+            name: "stock.apply",
+            description: "Apply.",
+            permission: "records:write",
+            risk: "write",
+            alwaysReview: true,
+            input: { type: "object", properties: {} },
+            output: { type: "object", properties: {} },
+          },
+        ],
+      },
+    });
+    assert.match(page.content, /always reviewed when called by `assistant`, `mcp`/);
+    assert.match(page.content, /always reviewed by a person, whoever calls it/);
+    for (const word of [
+      "reviewWhen",
+      "hostStep",
+      "mcp.expose: false",
+      "packRestricted",
+      "packAnyStaff",
+      "`shop:stock`",
+    ]) {
+      assert.ok(page.content.includes(word), word);
+    }
+    // No counts that two merged pull requests would both write the same way (finding 4).
+    assert.doesNotMatch(index.content, /\d+ of them|\| Operations \|/);
+  });
+
+  it("finds a client's name in any case and inside an identifier, and never rewrites it outside the glossary and Planned (findings 1 and 2)", async () => {
+    for (const text of [
+      "Our pilot, the acme gym studio.",
+      "Built first for Acme Gym.",
+      "Its Worker is `acme-gym-app`.",
+    ]) {
+      const root = fixture({
+        "docs/guides/deploying.md": `---\ntitle: Deploying\n---\n\n${text}\n`,
+      });
+      const { problems, pages } = await generate({
+        root,
+        markdownOnly: true,
+        config: { ...CONFIG, overviewsPending: { demo: { stage: 70 } } },
+      });
+      assert.ok(
+        problems.some((p) => p.includes("guides/deploying.md: names")),
+        `${text}: ${problems.join("\n")}`,
+      );
+      const guide = pages.find((p) => p.path === "guides/deploying.md").content;
+      assert.ok(guide.includes(text), "the source text is left as written");
+    }
+    assert.equal(
+      scrub("Acme Gym runs `acme gym-app` and ACME GYM.", CONFIG),
+      "the first client runs `client-app` and the first client.",
+    );
+  });
+
+  it("finds a price written with a currency code, a word or the yen (finding 7)", () => {
+    for (const text of ["pays AUD 49", "49 dollars a month", "¥500", "$ 20", "20 EUR"]) {
+      assert.match(text, PRICE, text);
+    }
+    for (const text of ["stage 49", "5 pounds of plates", "30 days"])
+      assert.doesNotMatch(text, PRICE, text);
+  });
+
+  it("fails when an overview's spec does not exist (finding 5)", async () => {
+    const root = fixture({
+      "packs/demo/docs/overview.md": OVERVIEW.replace(
+        "stage: 70",
+        "stage: 70\nspec: docs/stages/99-nope.md",
+      ),
+    });
+    const { problems } = await generate({ root, markdownOnly: true, config: CONFIG });
+    assert.ok(
+      problems.some((p) => p.includes("spec docs/stages/99-nope.md does not exist")),
+      problems.join("\n"),
+    );
+  });
+});
+
 describe("this repository", () => {
   it("has every generated page current, every link whole and every pack documented", async () => {
     const result = await generate({ root: REPO });
     assert.deepEqual(apply(result, { root: REPO, check: true, markdownOnly: false }), []);
+    // The code's bundle is removed once read (review of PR #408, finding 6).
+    const cache = join(REPO, "apps", "docs", "node_modules", ".cache");
+    const left = existsSync(cache)
+      ? readdirSync(cache).filter((f) => f.startsWith("extract-"))
+      : [];
+    assert.deepEqual(left, []);
   });
 
   it("is current for the documents lane too (Markdown only, no install)", async () => {

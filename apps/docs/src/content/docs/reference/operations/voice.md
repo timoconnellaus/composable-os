@@ -16,6 +16,7 @@ Your voice settings: whether voice is on for this deployment, the voice and spee
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -56,7 +57,7 @@ Changes your voice settings. The first call is first setup: it needs a voice and
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
-| Also | bookkeeping, never queued for review |
+| Also | bookkeeping, never queued for review; not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -86,6 +87,7 @@ A short spoken sample of a voice, for the voice picker. Read-only.
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

@@ -16,6 +16,7 @@ The org's notification delivery settings (admins): the org connection email noti
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -101,6 +102,7 @@ Your notification preferences: for each notification type, whether it also reach
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -131,6 +133,7 @@ The org's Slack channel routes (admins): each posts a short message with a link 
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -190,7 +193,7 @@ Change your notification preferences: `channels` maps a notification type to the
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
-| Also | bookkeeping, never queued for review |
+| Also | bookkeeping, never queued for review; not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -225,6 +228,7 @@ Replace the org's Slack channel routes (human admins only, audited; at most 50).
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -265,6 +269,7 @@ How many of your notifications are unread (the bell's badge), counted up to 1000
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -286,6 +291,7 @@ Change the org's notification delivery settings (human admins only, audited): `e
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

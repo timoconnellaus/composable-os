@@ -16,6 +16,7 @@ Add a small set of sample organisations, people and tasks (marked '(sample)') to
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -39,6 +40,7 @@ Permanently delete the sample data sample.install added (and nothing else), with
 | Risk | `destructive` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

@@ -16,6 +16,7 @@ Whether an email address is on the erased-address list: the addresses of erased 
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -40,6 +41,7 @@ Take an email address off the erased-address list, so mail and calendar sync can
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -63,6 +65,7 @@ After the database is restored from a backup or Time Travel, erase again every p
 | Risk | `destructive` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

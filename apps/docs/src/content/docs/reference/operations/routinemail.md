@@ -102,6 +102,7 @@ Turn a pack's routine email on (packs: { bookings: true }: its kinds then send w
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

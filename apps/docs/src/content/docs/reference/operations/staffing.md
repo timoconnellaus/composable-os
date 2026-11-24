@@ -15,7 +15,7 @@ Tool-only (a shipped pack's tool): put a staff account on a shift, or nobody (nu
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -51,7 +51,7 @@ Tool-only (a shipped pack's tool): say when someone cannot work: leave or anothe
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -91,7 +91,7 @@ Tool-only (a shipped pack's tool): times people said they cannot work, with thei
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -130,7 +130,7 @@ Tool-only (a shipped pack's tool): remove a time someone said they cannot work (
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -153,7 +153,7 @@ Tool-only (a shipped pack's tool): who could be put on a shift, for someone who 
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -201,7 +201,7 @@ Tool-only (a shipped pack's tool): the dry run of putting someone on a shift. Fo
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -238,6 +238,7 @@ Platform use only (the minute cron, as the host): open offers past their cut-off
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `automation` |
+| Also | a host step: never queued for review when the host itself calls it (`hostStep`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -261,7 +262,7 @@ Tool-only (a shipped pack's tool): revoke a private calendar feed's address, whi
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -285,7 +286,7 @@ Tool-only (a shipped pack's tool): a new private address for your calendar feed 
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -307,7 +308,7 @@ Tool-only (a shipped pack's tool): whether you have a private calendar feed of y
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -329,7 +330,7 @@ Tool-only (a shipped pack's tool): put a shift of a weekly pattern back to its p
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -360,7 +361,7 @@ Tool-only (a shipped pack's tool): remove an open-hours entry (weekly or extra).
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -383,7 +384,7 @@ Tool-only (a shipped pack's tool): open hours, weekly and extra, that apply betw
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -423,7 +424,7 @@ Tool-only (a shipped pack's tool): say when someone takes appointments. Weekly o
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -475,7 +476,7 @@ Tool-only (a shipped pack's tool): add to or take from someone's balance of a le
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -503,7 +504,7 @@ Tool-only (a shipped pack's tool): approve a leave request, as asked or with amo
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -570,7 +571,7 @@ Tool-only (a shipped pack's tool): leave balances, each person's per type that k
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -610,7 +611,7 @@ Tool-only (a shipped pack's tool): cancel your own leave request: one still wait
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -660,7 +661,7 @@ Tool-only (a shipped pack's tool): cancel someone's approved leave, saying why, 
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -711,7 +712,7 @@ Tool-only (a shipped pack's tool): decline a leave request, saying why (seen by 
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -762,7 +763,7 @@ Tool-only (a shipped pack's tool): your own leave requests ending on or after `f
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -812,7 +813,7 @@ Tool-only (a shipped pack's tool): leave requests waiting for a decision, soones
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -867,7 +868,7 @@ Tool-only (a shipped pack's tool): ask for leave of a type the business sets: wh
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -940,7 +941,7 @@ Tool-only (a shipped pack's tool): ask for leave for someone else (as staffing.l
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1026,7 +1027,7 @@ Tool-only (a shipped pack's tool): add a kind of leave (leave out id) or change 
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1065,7 +1066,7 @@ Tool-only (a shipped pack's tool): set someone's balance of a leave type to an a
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1093,7 +1094,7 @@ Tool-only (a shipped pack's tool): the kinds of leave the business offers (none 
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1124,7 +1125,7 @@ Tool-only (a shipped pack's tool): mark a shift that has started as not worked, 
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1153,7 +1154,7 @@ Tool-only (a shipped pack's tool): who is reading the roster and what the host l
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1181,7 +1182,7 @@ Tool-only (a shipped pack's tool): the caller's own totals for one pay period (t
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1244,7 +1245,7 @@ Tool-only (a shipped pack's tool): the pay periods a person may look up their ow
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1274,7 +1275,7 @@ Tool-only (a shipped pack's tool): offer a shift for someone else to take, to ev
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1315,7 +1316,7 @@ Tool-only (a shipped pack's tool): the open offers you could take now (qualified
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1368,7 +1369,7 @@ Tool-only (a shipped pack's tool): the regular week, for someone who rosters: ev
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1407,7 +1408,7 @@ Tool-only (a shipped pack's tool): who is counted for pay and how, by time, by c
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1441,7 +1442,7 @@ Tool-only (a shipped pack's tool): say how a member of staff is counted for pay 
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1468,7 +1469,7 @@ Tool-only (a shipped pack's tool): a pay period as a CSV file for payroll: a sum
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1496,7 +1497,7 @@ Tool-only (a shipped pack's tool): the pay periods, from the setting (weekly, fo
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1540,7 +1541,7 @@ Tool-only (a shipped pack's tool): lock a pay period that has ended: its lines a
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1566,7 +1567,7 @@ Tool-only (a shipped pack's tool): reopen a locked pay period, with why: its shi
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1592,7 +1593,7 @@ Tool-only (a shipped pack's tool): one pay period's totals, per counted person a
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1672,7 +1673,7 @@ Tool-only (a shipped pack's tool): the active members of staff, and every kind o
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1701,7 +1702,7 @@ Tool-only (a shipped pack's tool): the dry run of rostering patterns and one-off
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1754,7 +1755,7 @@ Tool-only (a shipped pack's tool): who may do which kind of work. Someone who ro
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1786,7 +1787,7 @@ Tool-only (a shipped pack's tool): say whether a staff account may do a kind of 
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1818,7 +1819,7 @@ Tool-only (a shipped pack's tool): change a weekly pattern's regular person (a c
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1847,7 +1848,7 @@ Tool-only (a shipped pack's tool): take an offered shift. Nobody approves it, be
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1883,7 +1884,7 @@ Tool-only (a shipped pack's tool): start recording the time you work, now (the h
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1931,7 +1932,7 @@ Tool-only (a shipped pack's tool): finish the entry you started, now (the host's
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1974,7 +1975,7 @@ Tool-only (a shipped pack's tool): correct one of your own entries before it is 
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -2024,7 +2025,7 @@ Tool-only (a shipped pack's tool): enter time you worked afterwards (you forgot,
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -2073,7 +2074,7 @@ Tool-only (a shipped pack's tool): your own time: the entry you have open, the s
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -2140,7 +2141,7 @@ Tool-only (a shipped pack's tool): withdraw one of your own entries before it is
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -2163,7 +2164,7 @@ Tool-only (a shipped pack's tool): live shifts with nobody on them from now for 
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -2192,7 +2193,7 @@ Tool-only (a shipped pack's tool): the roster, every live shift of every kind (c
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -2252,7 +2253,7 @@ Tool-only (a shipped pack's tool): withdraw an open offer of a shift. Whoever ma
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

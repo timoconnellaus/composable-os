@@ -16,6 +16,7 @@ Archive a journey: it stops for good, every entry on it is stopped, and it no lo
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -199,6 +200,7 @@ Set a published journey live: from now on, people who meet its entry rule enter 
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -361,7 +363,7 @@ Publish a journey's working copy as its next version: the approval of its wordin
 | Permission | `journeys:publish` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | always reviewed |
+| Also | always reviewed when called by `assistant`, `mcp`, `automation`, `extension` (`alwaysReview`) |
 
 ### Input
 
@@ -402,6 +404,7 @@ Resume a paused journey: its entries carry on and people enter it again. A perso
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -452,6 +455,7 @@ Change journeys' settings: whether they send on their own, the weekly cap (1 to 
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

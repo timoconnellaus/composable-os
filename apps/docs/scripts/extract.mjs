@@ -4,7 +4,7 @@
 // bundles one small entry with esbuild, stubs the `cloudflare:*` modules (nothing here runs a
 // Worker: definitions are only read) and runs it. No network. The markdown sources are read by
 // sources.mjs without any of this, so the documents lane needs no install.
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -60,12 +60,15 @@ function plain(v, key, seen = new Set()) {
 const OP_KEYS = [
   "name", "description", "permission", "risk", "audiences", "actors", "toolOnly", "hostInternal",
   "deskOnly", "packPermissions", "packGrantable", "packRestricted", "packAnyStaff", "staffInput",
-  "alwaysReview", "bookkeeping",
+  "alwaysReview", "bookkeeping", "hostStep",
 ];
 export function facts() {
   const operations = coreRegistry.list().map((op) => {
     const out = {};
     for (const k of OP_KEYS) if (op[k] !== undefined && typeof op[k] !== "function") out[k] = plain(op[k], k);
+    // What decides review or reach but is code, not data: said as a fact.
+    if (typeof op.reviewWhen === "function") out.reviewWhen = true;
+    if (op.mcp?.expose === false) out.mcpHidden = true;
     out.input = schema(op.input, "input");
     out.output = schema(op.output, "output");
     return out;
@@ -144,7 +147,13 @@ export async function extractCodeFacts(root) {
   mkdirSync(dir, { recursive: true });
   const out = join(dir, `extract-${process.pid}.mjs`);
   writeFileSync(out, result.outputFiles[0].text);
-  const mod = await import(pathToFileURL(out).href);
+  let mod;
+  try {
+    mod = await import(pathToFileURL(out).href);
+  } finally {
+    // The bundle is several megabytes; it is read once.
+    rmSync(out, { force: true });
+  }
   // Plain data only: a round trip drops anything JSON cannot carry.
   const facts = JSON.parse(JSON.stringify(mod.facts()));
   facts.behaviours = behaviours(root);

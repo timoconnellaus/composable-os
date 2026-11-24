@@ -15,7 +15,7 @@ Tool-only (a shipped pack's tool): mark a shift's checklist done, once every req
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -41,7 +41,7 @@ Tool-only (a shipped pack's tool): add a correction beside a closed checklist ru
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -66,7 +66,7 @@ Tool-only (a shipped pack's tool): one checklist done on its own, on one day: it
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -178,7 +178,7 @@ Tool-only (a shipped pack's tool): finish today's run of a checklist done on its
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -205,7 +205,7 @@ Tool-only (a shipped pack's tool): how the checklists done on their own went, da
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -247,7 +247,7 @@ Tool-only (a shipped pack's tool): tick one step of today's run of a checklist d
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -283,6 +283,7 @@ Platform use only (the minute cron, as the host), in two steps, each its own cal
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `automation` |
+| Also | a host step: never queued for review when the host itself calls it (`hostStep`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -308,7 +309,7 @@ Tool-only (a shipped pack's tool): a shift's checklist and how it is going, for 
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -481,7 +482,7 @@ Tool-only (a shipped pack's tool): how checklists went, by checklist and date: e
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -526,7 +527,7 @@ Write a checklist: a new one (no `id`), or a change to one (its name, purpose, w
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human`, `assistant`, `mcp` |
-| Also | always reviewed |
+| Also | always reviewed when called by `assistant`, `mcp` (`alwaysReview`) |
 
 ### Input
 
@@ -562,7 +563,7 @@ Tool-only (a shipped pack's tool): tick one step of a shift's checklist: done (w
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -595,7 +596,7 @@ Tool-only (a shipped pack's tool): the checklists due today in the business's ti
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

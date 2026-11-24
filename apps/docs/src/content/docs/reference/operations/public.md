@@ -15,7 +15,7 @@ From a tool called by the public or a customer: one record the public may read, 
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `customer`, `public` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -42,7 +42,7 @@ From a tool called by the public or a customer: a page of the records of an obje
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `customer`, `public` |
-| Also | called only from a tool's run (`toolOnly`) |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

@@ -15,6 +15,7 @@ Your own signed-in apps on phones and other devices (the HTTP surface's sessions
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -41,6 +42,7 @@ Sign out one of your own apps on a device, by its id from deviceSession.list: it
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -85,6 +87,7 @@ Change how many days a signed-in app on a phone or other device may go unused be
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

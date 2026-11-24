@@ -21,8 +21,10 @@ export default {
     ticketing: { stage: 27 },
   },
   /**
-   * Names that never appear on the site: a client's. Where a source names one (the glossary, the
-   * roadmap), the page says "the first client"; anything else that would show one fails the run.
+   * Names that never appear on the site: a client's. Matched in any case, inside identifiers too
+   * (`name-app`). On the glossary and Planned, whose sources name a client by the repository's own
+   * choice, the page says "the first client" (or "client" in an identifier); anywhere else a name
+   * fails the run, and its source is reworded.
    */
   privateNames: ["Ghetto Movement", "Ghetto"],
 };

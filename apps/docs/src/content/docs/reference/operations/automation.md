@@ -16,6 +16,7 @@ Bind one connection an automation declares (its `connections[].id`) to a connect
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -231,6 +232,7 @@ Engage or release the automation kill switch (human admins only). Engaged, no au
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -472,6 +474,7 @@ Withdraw the consent that lets an automation use a connection (revoke one bindin
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -515,6 +518,7 @@ Change the automation timezone (IANA, e.g. Australia/Sydney) or the debounce win
 | Permission | `settings:manage` |
 | Risk | `write` |
 | Audiences | `staff` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

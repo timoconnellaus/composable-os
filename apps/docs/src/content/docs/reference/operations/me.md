@@ -15,7 +15,7 @@ Agree to a version of a document, as a signed-in customer: for yourself, or with
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `customer` |
-| Also | host-internal (`hostInternal`) |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -52,7 +52,7 @@ What you, as a signed-in customer, and each child linked to you still have to ag
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `customer` |
-| Also | host-internal (`hostInternal`) |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -97,7 +97,7 @@ One of your acceptances, or a linked child's, as a signed-in customer: the versi
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `customer` |
-| Also | host-internal (`hostInternal`) |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -158,7 +158,7 @@ Your agreements, as a signed-in customer, and those of each child linked to you:
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `customer` |
-| Also | host-internal (`hostInternal`) |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -194,7 +194,7 @@ The signed PDF of one of your acceptances, as a signed-in customer, or a linked 
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `customer` |
-| Also | host-internal (`hostInternal`) |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -241,7 +241,7 @@ What needs your attention, as a signed-in customer, soonest first: a document to
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `customer` |
-| Also | host-internal (`hostInternal`) |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -277,7 +277,7 @@ Your check-in code, as a signed-in customer: the code to hold up at the gym's ch
 | Permission | `records:read` |
 | Risk | `write` |
 | Audiences | `customer` |
-| Also | host-internal (`hostInternal`) |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -309,7 +309,7 @@ Delete your customer account and ask for your personal data to be erased. Withou
 | Risk | `write` |
 | Audiences | `customer` |
 | Actors | `human` |
-| Also | host-internal (`hostInternal`) |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -331,6 +331,7 @@ Your family, as a signed-in customer: yourself, the dependants (children) the gy
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `customer` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -359,6 +360,7 @@ Your own Person, as a signed-in customer: your name, primary email and primary p
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `customer` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -386,7 +388,7 @@ Remove your PIN, as a signed-in customer: nobody can then check in as you by nam
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `customer` |
-| Also | host-internal (`hostInternal`) |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -407,7 +409,7 @@ Choose your 4-digit PIN, as a signed-in customer, to check in at the gym's table
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `customer` |
-| Also | host-internal (`hostInternal`) |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -430,7 +432,7 @@ The places you are signed in, as a signed-in customer: each session's id, whethe
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `customer` |
-| Also | host-internal (`hostInternal`) |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -458,7 +460,7 @@ Sign out one of your sessions, as a signed-in customer, by its id from me.sessio
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `customer` |
-| Also | host-internal (`hostInternal`) |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -482,7 +484,7 @@ Sign out of this session, as a signed-in customer. Your other sessions stay sign
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `customer` |
-| Also | host-internal (`hostInternal`) |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -503,6 +505,7 @@ Change your own name or primary phone, as a signed-in customer. Only the fields 
 | Permission | `records:write` |
 | Risk | `write` |
 | Audiences | `customer` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

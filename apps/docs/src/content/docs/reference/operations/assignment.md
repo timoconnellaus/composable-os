@@ -43,6 +43,7 @@ Add an assignment rule for an object, last in its order (human admins only). Con
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -86,6 +87,7 @@ Delete an assignment rule (human admins only). Records it assigned keep their ow
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -181,6 +183,7 @@ Set the order of an object's assignment rules (human admins only): pass every ru
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -217,6 +220,7 @@ Set the owner given to records of an object when no assignment rule matches (hum
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -269,6 +273,7 @@ Change an assignment rule's name, conditions, method, users or whether it is on 
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

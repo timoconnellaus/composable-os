@@ -16,6 +16,7 @@ Open a note to read its text: a sensitive note is listed on timelines without it
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

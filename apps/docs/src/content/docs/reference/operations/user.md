@@ -16,7 +16,7 @@ Confirm your own email address with the code user.sendEmailConfirmation sent to 
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
-| Also | bookkeeping, never queued for review |
+| Also | bookkeeping, never queued for review; not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -41,6 +41,7 @@ Deactivate a person who left: they can no longer sign in or act, and every autom
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -71,6 +72,7 @@ Your own email address, whether it is confirmed, and whether sign-in codes can b
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -95,6 +97,7 @@ List the permissions an admin can grant a staff account one by one, on top of it
 | Permission | `users:manage` |
 | Risk | `read` |
 | Audiences | `staff` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -121,6 +124,7 @@ Invite a person to a staff account by email, with the role, and optionally the p
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -157,6 +161,7 @@ List the invites for staff accounts that have not been accepted or revoked, with
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -247,6 +252,7 @@ List the fixed staff roles the installed packs declare that an admin can give to
 | Permission | `users:manage` |
 | Risk | `read` |
 | Audiences | `staff` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -273,6 +279,7 @@ Let a deactivated person sign in again. Bindings revoked when they were deactiva
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -302,6 +309,7 @@ Revoke a pending staff invite: its address can no longer get a sign-in code or a
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -326,7 +334,7 @@ Email a six-digit code to your own address, to confirm it (user.confirmEmail). S
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
-| Also | bookkeeping, never queued for review |
+| Also | bookkeeping, never queued for review; not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -349,6 +357,7 @@ Give a staff account one fixed role a pack declares (user.packRoles lists them),
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -381,6 +390,7 @@ Set the permissions a staff account is granted one by one, on top of its role (u
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -413,6 +423,7 @@ Change what a pending staff invite will give: its role, pack role and permission
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -447,6 +458,7 @@ Change a user's role: admin (everything, including erase, users and the approval
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

@@ -16,6 +16,7 @@ Disable a customer account: it can no longer sign in, and every session it has e
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -47,6 +48,7 @@ Enable a disabled customer account, so it can sign in again (with a new code). A
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -78,6 +80,7 @@ Invite an email address to sign up for a customer account while sign-up is invit
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -101,6 +104,7 @@ List the org's customer accounts (people outside the org who can sign in to a cl
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -136,6 +140,7 @@ Sign a customer out everywhere: every session of the account ends. The account s
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -192,6 +197,7 @@ Change whether customer sign-up is open or invite only, whether anyone starting 
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

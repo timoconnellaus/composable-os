@@ -6,95 +6,93 @@ sidebar:
 editUrl: false
 ---
 
-Every operation in the core registry (598 of them), grouped by the first part of its name. Anything a user can do is an operation, with zod schemas, a model-facing description, a permission, a risk class and the audiences that may call it. The UI, MCP, the HTTP surface and extension code call operations.
+Every operation in the core registry, grouped by the first part of its name. Anything a user can do is an operation, with zod schemas, a model-facing description, a permission, a risk class and the audiences that may call it. The UI, MCP, the HTTP surface and extension code call operations; an operation's page says when it is not offered to MCP clients.
 
-| Group | Operations |
-| --- | --- |
-| [`a2ui`](/reference/operations/a2ui/) | 3 |
-| [`access`](/reference/operations/access/) | 1 |
-| [`ack`](/reference/operations/ack/) | 4 |
-| [`activity`](/reference/operations/activity/) | 10 |
-| [`adjudicator`](/reference/operations/adjudicator/) | 4 |
-| [`affiliation`](/reference/operations/affiliation/) | 4 |
-| [`agent`](/reference/operations/agent/) | 9 |
-| [`agentProfile`](/reference/operations/agentprofile/) | 2 |
-| [`agreement`](/reference/operations/agreement/) | 40 |
-| [`ai`](/reference/operations/ai/) | 11 |
-| [`allowance`](/reference/operations/allowance/) | 2 |
-| [`approval`](/reference/operations/approval/) | 9 |
-| [`assignment`](/reference/operations/assignment/) | 9 |
-| [`audit`](/reference/operations/audit/) | 6 |
-| [`automation`](/reference/operations/automation/) | 16 |
-| [`capacity`](/reference/operations/capacity/) | 1 |
-| [`carer`](/reference/operations/carer/) | 3 |
-| [`changeset`](/reference/operations/changeset/) | 2 |
-| [`checklist`](/reference/operations/checklist/) | 15 |
-| [`code`](/reference/operations/code/) | 1 |
-| [`connectedApp`](/reference/operations/connectedapp/) | 4 |
-| [`connection`](/reference/operations/connection/) | 13 |
-| [`content`](/reference/operations/content/) | 8 |
-| [`customer`](/reference/operations/customer/) | 7 |
-| [`dashboard`](/reference/operations/dashboard/) | 7 |
-| [`desk`](/reference/operations/desk/) | 6 |
-| [`device`](/reference/operations/device/) | 5 |
-| [`deviceSession`](/reference/operations/devicesession/) | 4 |
-| [`dictation`](/reference/operations/dictation/) | 1 |
-| [`duplicate`](/reference/operations/duplicate/) | 8 |
-| [`enrichment`](/reference/operations/enrichment/) | 1 |
-| [`eraseRequest`](/reference/operations/eraserequest/) | 2 |
-| [`erasure`](/reference/operations/erasure/) | 3 |
-| [`export`](/reference/operations/export/) | 1 |
-| [`extension`](/reference/operations/extension/) | 16 |
-| [`extensionSettings`](/reference/operations/extensionsettings/) | 2 |
-| [`fieldOptions`](/reference/operations/fieldoptions/) | 2 |
-| [`import`](/reference/operations/import/) | 4 |
-| [`intake`](/reference/operations/intake/) | 2 |
-| [`integration`](/reference/operations/integration/) | 4 |
-| [`integrationEvent`](/reference/operations/integrationevent/) | 1 |
-| [`jobChange`](/reference/operations/jobchange/) | 3 |
-| [`journey`](/reference/operations/journey/) | 17 |
-| [`judge`](/reference/operations/judge/) | 4 |
-| [`me`](/reference/operations/me/) | 16 |
-| [`media`](/reference/operations/media/) | 17 |
-| [`memory`](/reference/operations/memory/) | 6 |
-| [`my`](/reference/operations/my/) | 4 |
-| [`note`](/reference/operations/note/) | 1 |
-| [`notification`](/reference/operations/notification/) | 10 |
-| [`order`](/reference/operations/order/) | 22 |
-| [`organisation`](/reference/operations/organisation/) | 10 |
-| [`outbound`](/reference/operations/outbound/) | 2 |
-| [`person`](/reference/operations/person/) | 16 |
-| [`personCode`](/reference/operations/personcode/) | 3 |
-| [`plan`](/reference/operations/plan/) | 1 |
-| [`policy`](/reference/operations/policy/) | 2 |
-| [`public`](/reference/operations/public/) | 2 |
-| [`query`](/reference/operations/query/) | 1 |
-| [`record`](/reference/operations/record/) | 20 |
-| [`recurring`](/reference/operations/recurring/) | 5 |
-| [`routine`](/reference/operations/routine/) | 11 |
-| [`routineMail`](/reference/operations/routinemail/) | 3 |
-| [`sample`](/reference/operations/sample/) | 2 |
-| [`schema`](/reference/operations/schema/) | 1 |
-| [`screens`](/reference/operations/screens/) | 1 |
-| [`search`](/reference/operations/search/) | 2 |
-| [`settings`](/reference/operations/settings/) | 2 |
-| [`setup`](/reference/operations/setup/) | 4 |
-| [`staffing`](/reference/operations/staffing/) | 56 |
-| [`state`](/reference/operations/state/) | 2 |
-| [`stock`](/reference/operations/stock/) | 4 |
-| [`storage`](/reference/operations/storage/) | 2 |
-| [`subscription`](/reference/operations/subscription/) | 19 |
-| [`suggestedContact`](/reference/operations/suggestedcontact/) | 3 |
-| [`summary`](/reference/operations/summary/) | 4 |
-| [`support`](/reference/operations/support/) | 5 |
-| [`sync`](/reference/operations/sync/) | 3 |
-| [`task`](/reference/operations/task/) | 9 |
-| [`teamMemory`](/reference/operations/teammemory/) | 4 |
-| [`thread`](/reference/operations/thread/) | 6 |
-| [`trash`](/reference/operations/trash/) | 2 |
-| [`update`](/reference/operations/update/) | 6 |
-| [`user`](/reference/operations/user/) | 16 |
-| [`view`](/reference/operations/view/) | 6 |
-| [`voice`](/reference/operations/voice/) | 3 |
-| [`waitlist`](/reference/operations/waitlist/) | 4 |
-| [`widget`](/reference/operations/widget/) | 3 |
+- [`a2ui`](/reference/operations/a2ui/)
+- [`access`](/reference/operations/access/)
+- [`ack`](/reference/operations/ack/)
+- [`activity`](/reference/operations/activity/)
+- [`adjudicator`](/reference/operations/adjudicator/)
+- [`affiliation`](/reference/operations/affiliation/)
+- [`agent`](/reference/operations/agent/)
+- [`agentProfile`](/reference/operations/agentprofile/)
+- [`agreement`](/reference/operations/agreement/)
+- [`ai`](/reference/operations/ai/)
+- [`allowance`](/reference/operations/allowance/)
+- [`approval`](/reference/operations/approval/)
+- [`assignment`](/reference/operations/assignment/)
+- [`audit`](/reference/operations/audit/)
+- [`automation`](/reference/operations/automation/)
+- [`capacity`](/reference/operations/capacity/)
+- [`carer`](/reference/operations/carer/)
+- [`changeset`](/reference/operations/changeset/)
+- [`checklist`](/reference/operations/checklist/)
+- [`code`](/reference/operations/code/)
+- [`connectedApp`](/reference/operations/connectedapp/)
+- [`connection`](/reference/operations/connection/)
+- [`content`](/reference/operations/content/)
+- [`customer`](/reference/operations/customer/)
+- [`dashboard`](/reference/operations/dashboard/)
+- [`desk`](/reference/operations/desk/)
+- [`device`](/reference/operations/device/)
+- [`deviceSession`](/reference/operations/devicesession/)
+- [`dictation`](/reference/operations/dictation/)
+- [`duplicate`](/reference/operations/duplicate/)
+- [`enrichment`](/reference/operations/enrichment/)
+- [`eraseRequest`](/reference/operations/eraserequest/)
+- [`erasure`](/reference/operations/erasure/)
+- [`export`](/reference/operations/export/)
+- [`extension`](/reference/operations/extension/)
+- [`extensionSettings`](/reference/operations/extensionsettings/)
+- [`fieldOptions`](/reference/operations/fieldoptions/)
+- [`import`](/reference/operations/import/)
+- [`intake`](/reference/operations/intake/)
+- [`integration`](/reference/operations/integration/)
+- [`integrationEvent`](/reference/operations/integrationevent/)
+- [`jobChange`](/reference/operations/jobchange/)
+- [`journey`](/reference/operations/journey/)
+- [`judge`](/reference/operations/judge/)
+- [`me`](/reference/operations/me/)
+- [`media`](/reference/operations/media/)
+- [`memory`](/reference/operations/memory/)
+- [`my`](/reference/operations/my/)
+- [`note`](/reference/operations/note/)
+- [`notification`](/reference/operations/notification/)
+- [`order`](/reference/operations/order/)
+- [`organisation`](/reference/operations/organisation/)
+- [`outbound`](/reference/operations/outbound/)
+- [`person`](/reference/operations/person/)
+- [`personCode`](/reference/operations/personcode/)
+- [`plan`](/reference/operations/plan/)
+- [`policy`](/reference/operations/policy/)
+- [`public`](/reference/operations/public/)
+- [`query`](/reference/operations/query/)
+- [`record`](/reference/operations/record/)
+- [`recurring`](/reference/operations/recurring/)
+- [`routine`](/reference/operations/routine/)
+- [`routineMail`](/reference/operations/routinemail/)
+- [`sample`](/reference/operations/sample/)
+- [`schema`](/reference/operations/schema/)
+- [`screens`](/reference/operations/screens/)
+- [`search`](/reference/operations/search/)
+- [`settings`](/reference/operations/settings/)
+- [`setup`](/reference/operations/setup/)
+- [`staffing`](/reference/operations/staffing/)
+- [`state`](/reference/operations/state/)
+- [`stock`](/reference/operations/stock/)
+- [`storage`](/reference/operations/storage/)
+- [`subscription`](/reference/operations/subscription/)
+- [`suggestedContact`](/reference/operations/suggestedcontact/)
+- [`summary`](/reference/operations/summary/)
+- [`support`](/reference/operations/support/)
+- [`sync`](/reference/operations/sync/)
+- [`task`](/reference/operations/task/)
+- [`teamMemory`](/reference/operations/teammemory/)
+- [`thread`](/reference/operations/thread/)
+- [`trash`](/reference/operations/trash/)
+- [`update`](/reference/operations/update/)
+- [`user`](/reference/operations/user/)
+- [`view`](/reference/operations/view/)
+- [`voice`](/reference/operations/voice/)
+- [`waitlist`](/reference/operations/waitlist/)
+- [`widget`](/reference/operations/widget/)

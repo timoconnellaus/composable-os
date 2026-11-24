@@ -8,7 +8,7 @@ editUrl: false
 
 ## organisation.create
 
-Create an organisation (a company or other body) with a name and optional domains, website, industry, addresses, parent organisation, owner, tags and description. Check with organisation.list or search first: domains must be unique across live organisations (they power email → organisation matching), and a taken domain fails with a conflict. Domains are normalised (scheme, www. and paths stripped). Unknown tags are created. Returns the created organisation. Check possibleDuplicates in the result: existing organisations this one may duplicate by plain rules (same name, or a website at a domain another holds), each with its reason. If one is the same organisation, merge them with organisation.merge.
+Create an organisation (a company or other body) with a name and optional domains, website, industry, addresses, parent organisation, owner, tags and description. Check with organisation.list or search first: domains must be unique across live organisations (they power email → organisation matching), and a taken domain fails with a conflict. Domains are normalised (scheme, `www.` and paths stripped). Unknown tags are created. Returns the created organisation. Check possibleDuplicates in the result: existing organisations this one may duplicate by plain rules (same name, or a website at a domain another holds), each with its reason. If one is the same organisation, merge them with organisation.merge.
 
 |  |  |
 | --- | --- |
@@ -22,7 +22,7 @@ Create an organisation (a company or other body) with a name and optional domain
 | --- | --- | --- | --- | --- |
 | `name` | string | yes | min length 1, max length 200 |   |
 | `domains` | array of object |   | at most 20 |   |
-| `domains[].domain` | string | yes | min length 1, max length 300 | Bare domain, e.g. acme.com. A URL or www. prefix is stripped. |
+| `domains[].domain` | string | yes | min length 1, max length 300 | Bare domain, e.g. acme.com. A URL or `www.` prefix is stripped. |
 | `domains[].primary` | boolean |   |   | Exactly one domain is primary; default the first. |
 | `website` | string or null |   |   | Website URL |
 | `industry` | string or null |   |   |   |
@@ -136,6 +136,7 @@ Permanently delete an organisation now (admins only), live or in Trash, together
 | Permission | `records:erase` |
 | Risk | `destructive` |
 | Audiences | `staff` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -377,7 +378,7 @@ Update an organisation's fields. Only the fields you pass change; pass null to c
 | `id` | string (starts_with) | yes | max length 64, pattern `^org_.*` | Organisation id (org_…) |
 | `name` | string |   | min length 1, max length 200 |   |
 | `domains` | array of object |   | at most 20 |   |
-| `domains[].domain` | string | yes | min length 1, max length 300 | Bare domain, e.g. acme.com. A URL or www. prefix is stripped. |
+| `domains[].domain` | string | yes | min length 1, max length 300 | Bare domain, e.g. acme.com. A URL or `www.` prefix is stripped. |
 | `domains[].primary` | boolean |   |   | Exactly one domain is primary; default the first. |
 | `website` | string or null |   |   | Website URL |
 | `industry` | string or null |   |   |   |

@@ -40,6 +40,7 @@ Ask Cloudflare Stream to generate a caption track for a ready video in a languag
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -67,6 +68,7 @@ Add or replace one video's caption track in a language, from a WebVTT file a per
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -217,7 +219,7 @@ A short-lived token to play one ready video, and where it plays (HLS, DASH, Stre
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff`, `customer`, `public` |
-| Also | host-internal (`hostInternal`) |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -290,7 +292,7 @@ Whether the caller may be served one picture or downloadable file, and at what w
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff`, `customer`, `public` |
-| Also | host-internal (`hostInternal`) |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -340,6 +342,7 @@ Turn generated captions on or off for the media library. Admins only, and only a
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -401,6 +404,7 @@ Store a picture or a downloadable file a person uploaded in the media library: a
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -438,6 +442,7 @@ Add a video to the media library by Stream copying it from an address (https onl
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -515,6 +520,7 @@ Ask for a one-time address to upload one video to the media library, held in Clo
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

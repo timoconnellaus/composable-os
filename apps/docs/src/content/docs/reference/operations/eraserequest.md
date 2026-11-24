@@ -16,6 +16,7 @@ Decline an open erase request with a reason (a record the org must keep). Closes
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -43,6 +44,7 @@ List open erase requests: customers who deleted their account and asked to be er
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

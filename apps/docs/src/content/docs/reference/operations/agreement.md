@@ -16,6 +16,7 @@ One acceptance in full, for a person on the staff: the version shown, the name t
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -83,6 +84,7 @@ The signed PDF of one acceptance, for a person on the staff: the version shown a
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -194,6 +196,7 @@ A health form's answers, for a person on the staff with agreements:health: each 
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -225,6 +228,7 @@ Attach a published agreement document to agreement points (agreement.points list
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -264,6 +268,7 @@ Before Email a copy of a paper form: the address the host would send it to (the 
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -295,6 +300,7 @@ Email a paper form's copy (Email a copy): the signed PDF goes, as the host's own
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -344,6 +350,7 @@ The devices an admin enrolled for desk signing, to choose the tablet a session i
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -369,6 +376,7 @@ End a desk signing session now: the tablet's next call is refused. What was sign
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -407,6 +415,7 @@ Find the Person a desk signing session is for: by their full name exactly (as a 
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -432,6 +441,7 @@ A desk signing session's state, for the staff screen that started it: waiting fo
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -470,6 +480,7 @@ Before starting a desk signing session for a Person: the titles of what they hav
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -501,6 +512,7 @@ Start a desk signing session: the named Person signs what they have due on the e
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -543,6 +555,7 @@ Detach an agreement document from agreement points: it is no longer needed there
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -663,6 +676,7 @@ What erasing a Person would do to their agreements, for the screen that confirms
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -761,7 +775,7 @@ The words a visitor buying without an account is asked to agree to: each version
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `customer`, `public` |
-| Also | host-internal (`hostInternal`) |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -799,6 +813,7 @@ Which of these People answered yes on their current health form, as a yes or no 
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -824,6 +839,7 @@ The People whose current health form has a yes, newest first, for staff with agr
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -850,6 +866,7 @@ Find acceptances kept after their person was erased, by the address the copy wen
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -886,6 +903,7 @@ Hold a kept acceptance (one kept after its person was erased) for a dispute or a
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -949,6 +967,7 @@ For a list a pack declares (healthNotes on its object: a class's bookings): the 
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `extension` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1103,6 +1122,7 @@ Publish an agreement document's working copy as its next version, which nobody c
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1236,6 +1256,7 @@ Platform use only: delete the acceptances kept after an erase whose retention pe
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `automation` |
+| Also | a host step: never queued for review when the host itself calls it (`hostStep`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1261,6 +1282,7 @@ Record that a Person signed a version of a document on paper (printed from that 
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1322,6 +1344,7 @@ Retire an agreement document: it is detached everywhere and needed nowhere, its 
 | Risk | `destructive` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1360,6 +1383,7 @@ Mark a Person as a minor, or clear the mark: a parent or guardian agrees for the
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1385,6 +1409,7 @@ Set how many years an erased person's acceptances are kept (1 to 50, counted fro
 | Risk | `destructive` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1411,6 +1436,7 @@ Platform use only: make current the scheduled agreement versions whose time has 
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `automation` |
+| Also | a host step: never queued for review when the host itself calls it (`hostStep`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -1473,6 +1499,7 @@ A version's blank form as a PDF, to print and sign on paper (then agreement.reco
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

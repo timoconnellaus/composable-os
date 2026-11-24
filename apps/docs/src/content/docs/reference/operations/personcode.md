@@ -16,7 +16,7 @@ Give a person a check-in card or key tag: scan or type the card's code (at least
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
-| Also | bookkeeping, never queued for review |
+| Also | bookkeeping, never queued for review; not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -49,6 +49,7 @@ A person's check-in cards and app codes: each card's label, who issued it, when 
 | Risk | `read` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
@@ -80,6 +81,7 @@ Revoke a person's check-in card (lost, or handed back), by its id from personCod
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

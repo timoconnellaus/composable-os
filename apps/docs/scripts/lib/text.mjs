@@ -63,7 +63,16 @@ export function inline(text) {
   if (text === undefined || text === null) return "";
   return String(text)
     .split(/(`[^`]*`)/)
-    .map((part, i) => (i % 2 ? part : part.replace(/</g, "&lt;").replace(/>/g, "&gt;")))
+    .map((part, i) =>
+      i % 2
+        ? part
+        : part
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            // A bare "www." in prose is not a link: Markdown makes one to http://www, even from an
+            // escaped dot, so it is set as code. An address (www.example.org) is left alone.
+            .replace(/(?<![/\w])www\.(?![\w-])/gi, "`www.`"),
+    )
     .join("")
     .replace(/\s*\n\s*/g, " ")
     .trim();

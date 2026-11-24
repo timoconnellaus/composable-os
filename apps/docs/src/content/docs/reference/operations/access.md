@@ -15,7 +15,7 @@ From a tool: which of these records (of an object that declares who holds access
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff`, `customer`, `public` |
-| Also | called only from a tool's run (`toolOnly`); host-internal (`hostInternal`) |
+| Also | called only from a tool's run (`toolOnly`); host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

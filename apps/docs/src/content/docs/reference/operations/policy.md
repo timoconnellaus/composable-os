@@ -38,6 +38,7 @@ Change the org's approval-policy preset. Admins only, and only a human can call 
 | Risk | `write` |
 | Audiences | `staff` |
 | Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 
