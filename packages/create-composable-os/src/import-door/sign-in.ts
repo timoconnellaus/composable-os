@@ -1,5 +1,4 @@
-// Who an import runs as (ADR 0470, shared by `cos content import` and `cos courses import`, ADR
-// 0495): a person, signed in for this run only. With --email the host emails a staff code (its own
+// Who an import runs as (ADR 0470, shared by every `cos ... import`, ADR 0495): a person, signed in for this run only. With --email the host emails a staff code (its own
 // sign-in); without it the system browser opens the host's staff sign-in (Cloudflare Access,
 // Google), which hands a one-time code back to a port on 127.0.0.1 this command listens on (ADR
 // 0455; the host lists `http://127.0.0.1/cos-sign-in` in NATIVE_REDIRECT_URIS). Either way the
@@ -12,6 +11,7 @@ import type { AddressInfo } from "node:net";
 import { hostname } from "node:os";
 import { startBrowserSignIn, type Tokens, tokenSession } from "@composable-os/client";
 import type { Io } from "../io.ts";
+import { type ImportHost, sessionHost } from "./host.ts";
 
 /** The loopback address the browser sign-in comes back to (any port), as the host lists it. */
 export const LOOPBACK_PATH = "/cos-sign-in";
@@ -116,6 +116,41 @@ export async function signInForRun(
     return session;
   } finally {
     back.close();
+  }
+}
+
+/** `--host` without a trailing slash, or null (said to the person) when it is not an address. */
+export function hostOf(flag: string | undefined, io: Io): string | null {
+  const host = flag?.replace(/\/+$/, "");
+  if (!host || !/^https?:\/\//.test(host)) {
+    io.err("--host is the host's address, e.g. https://admin.example.com");
+    return null;
+  }
+  return host;
+}
+
+/**
+ * Signs in for this run (signInForRun), does `work` on the host as that person and signs out
+ * again. Returns `work`'s exit code, or 1 when the sign-in fails.
+ */
+export async function withRunSession(
+  host: string,
+  email: string | undefined,
+  io: Io,
+  label: string,
+  work: (on: ImportHost) => Promise<number>,
+): Promise<number> {
+  let session: RunSession;
+  try {
+    session = await signInForRun(host, email, io, label);
+  } catch (error) {
+    io.err(`Could not sign in: ${(error as Error).message}`);
+    return 1;
+  }
+  try {
+    return await work(sessionHost(host, () => session.headers()));
+  } finally {
+    await session.signOut();
   }
 }
 
