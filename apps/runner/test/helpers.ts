@@ -3,6 +3,7 @@ import { env } from "cloudflare:workers";
 import {
   type ActingUser,
   type Actor,
+  type CustomerPrincipal,
   type InvocationContext,
   invokeByName,
   newId,
@@ -30,6 +31,32 @@ export async function createAdmin(): Promise<ActingUser> {
     .bind(id, email, now, now)
     .run();
   return { id, email, name: "Admin", role: "admin" };
+}
+
+/**
+ * A Person, made by `staff`, with a verified customer account at `<label…>@<domain>`: the row a
+ * customer's first sign-in writes. Its principal and its address.
+ */
+export async function newCustomer(
+  staff: InvocationContext,
+  label: string,
+  { domain = "members.test", givenName }: { domain?: string; givenName?: string } = {},
+): Promise<{ principal: CustomerPrincipal; email: string }> {
+  const tag = unique(label).toLowerCase();
+  const email = `${tag}@${domain}`;
+  const person = (await invokeByName(
+    "person.create",
+    { givenName: givenName ?? `Given-${tag}`, emails: [{ email }] },
+    staff,
+  )) as { id: string };
+  const customerId = `cus_${tag}`;
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    "INSERT INTO core_customer (id, person_id, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
+  )
+    .bind(customerId, person.id, email, now, now)
+    .run();
+  return { principal: { kind: "customer", customerId, personId: person.id }, email };
 }
 
 /** A staff user with the member role. */

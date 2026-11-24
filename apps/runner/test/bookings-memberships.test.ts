@@ -1,14 +1,3 @@
-// Stage 31a step 4 begins (stage 32b's pack beside it): the real Memberships pack's pass pays for
-// a real booking. Both shipped packs as they are (no test variant of `paidBy`), on Programs, in
-// the real host and sandbox. It proves the field names the two packs assumed of each other: the
-// pass's `classTypes`, `weekdays` and `fromMinute`/`untilMinute` read the booking's host-filled
-// `classType`, `weekday` and `minute` (a class at another weekday, another time or of another type
-// is not paid for), the use counts, and a cancel in time gives it back.
-//
-// Clocks: as in bookings.test.ts, a tool's own calls read the real clock (the runner's executor),
-// so the classes are placed hours from now; their local weekday and minute are worked out here
-// from the same instants, in the class's zone.
-import { env } from "cloudflare:workers";
 import {
   type ActingUser,
   type CustomerPrincipal,
@@ -20,7 +9,7 @@ import {
 } from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import { setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, unique } from "./helpers.ts";
+import { createAdmin, db, host, newCustomer, unique } from "./helpers.ts";
 import { packFiles } from "./pack-files.ts";
 
 const files: Record<string, Record<string, string>> = {
@@ -91,23 +80,7 @@ function local(instant: number): { weekday: number; minute: number } {
   };
 }
 
-async function member(label: string): Promise<CustomerPrincipal> {
-  const tag = unique(label).toLowerCase();
-  const email = `${tag}@members.test`;
-  const person = await run<{ id: string }>(
-    "person.create",
-    { givenName: `Given-${tag}`, emails: [{ email }] },
-    staff(),
-  );
-  const customerId = `cus_${tag}`;
-  const now = new Date().toISOString();
-  await env.DB.prepare(
-    "INSERT INTO core_customer (id, person_id, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
-  )
-    .bind(customerId, person.id, email, now, now)
-    .run();
-  return { kind: "customer", customerId, personId: person.id };
-}
+const member = async (label: string) => (await newCustomer(staff(), label)).principal;
 
 beforeAll(async () => {
   admin = await createAdmin();

@@ -21,7 +21,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { runMomentDateRelative } from "../src/automations/schedule.ts";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, unique } from "./helpers.ts";
+import { createAdmin, db, host, newCustomer, unique } from "./helpers.ts";
 import { packFiles } from "./pack-files.ts";
 
 const files: Record<string, Record<string, string>> = {
@@ -140,21 +140,8 @@ async function member(
   label: string,
   name?: string,
 ): Promise<CustomerPrincipal & { email: string }> {
-  const tag = unique(label).toLowerCase();
-  const email = `${tag}@members.test`;
-  const person = await run<{ id: string }>(
-    "person.create",
-    { givenName: name ?? `Given-${tag}`, emails: [{ email }] },
-    staff(),
-  );
-  const customerId = `cus_${tag}`;
-  const now = new Date().toISOString();
-  await env.DB.prepare(
-    "INSERT INTO core_customer (id, person_id, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
-  )
-    .bind(customerId, person.id, email, now, now)
-    .run();
-  return { kind: "customer", customerId, personId: person.id, email };
+  const { principal, email } = await newCustomer(staff(), label, { givenName: name });
+  return { ...principal, email };
 }
 
 async function givePass(personId: string): Promise<void> {

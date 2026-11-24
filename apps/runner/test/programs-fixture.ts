@@ -1,5 +1,3 @@
-// What the Programs tests share: the pack installed as shipped, callers, and a small layout.
-import { env } from "cloudflare:workers";
 import {
   type ActingUser,
   type CustomerPrincipal,
@@ -10,7 +8,7 @@ import {
   refreshSchemaRegistry,
 } from "@composable-os/core";
 import type { Layout } from "../../../packs/programs/layout.ts";
-import { db, host, unique } from "./helpers.ts";
+import { db, host, newCustomer } from "./helpers.ts";
 import { packFiles } from "./pack-files.ts";
 
 const files = packFiles("programs");
@@ -93,21 +91,7 @@ export async function createCustomer(
   label: string,
   name = `Given-${label}`,
 ): Promise<CustomerPrincipal> {
-  const tag = unique(label).toLowerCase();
-  const email = `${tag}@members.test`;
-  const person = await run<{ id: string }>(
-    "person.create",
-    { givenName: name, emails: [{ email }] },
-    staff(admin),
-  );
-  const customerId = `cus_${tag}`;
-  const now = new Date().toISOString();
-  await env.DB.prepare(
-    "INSERT INTO core_customer (id, person_id, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
-  )
-    .bind(customerId, person.id, email, now, now)
-    .run();
-  return { kind: "customer", customerId, personId: person.id };
+  return (await newCustomer(staff(admin), label, { givenName: name })).principal;
 }
 
 /** Two weeks, a session on Monday (a row, a pike with levels) and one on Thursday. */

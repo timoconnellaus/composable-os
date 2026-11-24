@@ -46,7 +46,7 @@ import { fakeProviderStub } from "../src/integrations/fake.ts";
 import { blobStore, integrationRuntime } from "../src/integrations/runtime.ts";
 import { runWorkflows, setPreset } from "./automation-fixture.ts";
 import { connectFake } from "./fake-connection.ts";
-import { createAdmin, db, host, unique } from "./helpers.ts";
+import { createAdmin, db, host, newCustomer, unique } from "./helpers.ts";
 import { packFiles } from "./pack-files.ts";
 
 const files = packFiles("ticketing");
@@ -216,25 +216,8 @@ async function counter(object: string, id: string) {
     .first<{ held: number; taken: number }>();
 }
 
-async function createCustomer(
-  label: string,
-): Promise<{ principal: CustomerPrincipal; email: string }> {
-  const tag = unique(label).toLowerCase();
-  const email = `${tag}@buyers.test`;
-  const person = await run<{ id: string }>(
-    "person.create",
-    { givenName: `Given-${tag}`, emails: [{ email }] },
-    staff(admin),
-  );
-  const customerId = `cus_${tag}`;
-  const now = new Date().toISOString();
-  await env.DB.prepare(
-    "INSERT INTO core_customer (id, person_id, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
-  )
-    .bind(customerId, person.id, email, now, now)
-    .run();
-  return { principal: { kind: "customer", customerId, personId: person.id }, email };
-}
+const createCustomer = (label: string) =>
+  newCustomer(staff(admin), label, { domain: "buyers.test" });
 
 async function createStaff(role: "member" | "viewer", name: string): Promise<ActingUser> {
   const id = `usr_${unique("staff")}`;

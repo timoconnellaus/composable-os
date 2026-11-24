@@ -1,31 +1,3 @@
-// Stage 31a, build step 3: the Bookings pack (packs/bookings) in the real host, beside Programs,
-// installed as shipped, with real D1 and the sandbox. The holders that pay for a booking are the
-// Memberships pack's (stage 32b, built in parallel); here a fixture holder stands in for it
-// (`bkfixture.pass`, a runtime extension, never the real pack's id, so both can share a database),
-// and this file installs a test variant of the pack whose `paidBy` also names the fixture (the
-// shipped declaration names only `memberships.membership` and `memberships.pass`), so the
-// spender's declaration
-// (`paidBy`, `at` the class's start, the class type copied, the local weekday and minute) is
-// proved against the host's allowance behaviour before the real holder exists (step 4 connects
-// it). `cos ext test`'s harness does not simulate allowances (ADR 0493), hence this file.
-//
-// What it shows: Bookings is refused before Programs; a series makes its classes in local time,
-// titled after their class type, and far enough ahead for a class type that opens booking 70 days
-// before; a member books on the web's tool with their pass, which spends a use counted at the
-// class's time with its class type and local time copied; before booking opens, after it closes,
-// a class type booked by staff only and a class that is not scheduled are refused to the member
-// (with the class type's own rules over the organisation's, and the organisation's setting when
-// the class type has none); one booking per person per class; the places; a cancel more than the
-// late-cancel time before is in time and gives the use back, later is late and keeps it, after
-// the start is refused and gives nothing back; staff book a walk-in into a staff-only class, paid
-// at the desk, spending nothing; and members see places left and their own bookings, never
-// anyone else's.
-//
-// Clocks: the host reads `ctx.clock` in the record operations, which the staff calls here set.
-// A pack's tool's own operation calls are made by the runner's executor, which reads the real
-// clock, so the classes a member books through a tool are placed hours from the real now, far
-// from any boundary; the boundaries to the second are proved by packages/core/test/claimants.test.ts.
-import { env } from "cloudflare:workers";
 import {
   type ActingUser,
   type CustomerPrincipal,
@@ -38,7 +10,7 @@ import {
 } from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import { setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, source, unique } from "./helpers.ts";
+import { createAdmin, db, host, newCustomer, source, unique } from "./helpers.ts";
 import { packFiles } from "./pack-files.ts";
 
 const files = {
@@ -132,23 +104,7 @@ const create = async (object: string, values: Record<string, unknown>) =>
 const get = (object: string, id: string) =>
   run<{ id: string; values: Record<string, unknown> }>("record.get", { object, id }, staff());
 
-async function member(label: string): Promise<CustomerPrincipal> {
-  const tag = unique(label).toLowerCase();
-  const email = `${tag}@members.test`;
-  const person = await run<{ id: string }>(
-    "person.create",
-    { givenName: `Given-${tag}`, emails: [{ email }] },
-    staff(),
-  );
-  const customerId = `cus_${tag}`;
-  const now = new Date().toISOString();
-  await env.DB.prepare(
-    "INSERT INTO core_customer (id, person_id, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
-  )
-    .bind(customerId, person.id, email, now, now)
-    .run();
-  return { kind: "customer", customerId, personId: person.id };
-}
+const member = async (label: string) => (await newCustomer(staff(), label)).principal;
 
 /** A pass (the fixture holder) for `who`: uses per week, for the class types listed (empty: any). */
 const pass = (who: CustomerPrincipal, uses = 3, classTypes: string[] = []) =>

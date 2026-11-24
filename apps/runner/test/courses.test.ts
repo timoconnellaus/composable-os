@@ -35,7 +35,7 @@ import type { Outline } from "../../../packs/courses/outline.ts";
 import { automationHost } from "../src/automations/host.ts";
 import { blobStore, integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, unique } from "./helpers.ts";
+import { createAdmin, db, host, newCustomer } from "./helpers.ts";
 import { packFiles } from "./pack-files.ts";
 
 const files = {
@@ -124,25 +124,8 @@ const create = async (object: string, values: Record<string, unknown>) =>
   (await run<{ id: string }>("record.create", { object, values }, staff(admin))).id;
 const publish = (object: string, id: string) => run("record.publish", { object, id }, staff(admin));
 
-async function createCustomer(
-  label: string,
-): Promise<{ principal: CustomerPrincipal; email: string }> {
-  const tag = unique(label).toLowerCase();
-  const email = `${tag}@students.test`;
-  const person = await run<{ id: string }>(
-    "person.create",
-    { givenName: `Given-${tag}`, emails: [{ email }] },
-    staff(admin),
-  );
-  const customerId = `cus_${tag}`;
-  const now = new Date().toISOString();
-  await env.DB.prepare(
-    "INSERT INTO core_customer (id, person_id, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
-  )
-    .bind(customerId, person.id, email, now, now)
-    .run();
-  return { principal: { kind: "customer", customerId, personId: person.id }, email };
-}
+const createCustomer = (label: string) =>
+  newCustomer(staff(admin), label, { domain: "students.test" });
 
 /** A ready video in the library, uploaded the way the admin does (the fake Stream). */
 async function readyVideo(name: string): Promise<string> {
