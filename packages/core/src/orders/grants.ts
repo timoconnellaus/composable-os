@@ -24,6 +24,7 @@ import { notifyStatements } from "../notifications/send.ts";
 import type { HandlerContext } from "../operation.ts";
 import { createRecord, updateRecord } from "../operations/record.ts";
 import { viewColumnOf } from "../records/columns.ts";
+import { jsonList } from "../records/common.ts";
 import { type MoveHook, onRecordMove } from "../records/lifecycle.ts";
 import type { MarkSource } from "../routine-mail/marks.ts";
 import { loadGeneralSettings } from "../settings.ts";
@@ -66,6 +67,17 @@ export function grantFieldValue(
   if (field.fieldType === "formula") return formulaFromStorage(field.options?.resultType, raw);
   const type = field.fieldType as keyof typeof FIELD_TYPE_REGISTRY | undefined;
   return type && FIELD_TYPE_REGISTRY[type] ? FIELD_TYPE_REGISTRY[type].fromStorage(raw) : raw;
+}
+
+/** An order's grant rows' record ids, by object. */
+function idsByObject(rows: readonly { object_type: string; record_id: string }[]) {
+  const out = new Map<string, string[]>();
+  for (const row of rows) {
+    const ids = out.get(row.object_type);
+    if (ids) ids.push(row.record_id);
+    else out.set(row.object_type, [row.record_id]);
+  }
+  return out;
 }
 
 /** The bought record's row, read org-wide as the host (its price was read the same way). */
@@ -331,10 +343,7 @@ async function voidGrants(ctx: HandlerContext, orderId: string) {
     .where("order_id", "=", orderId)
     .execute();
   if (!rows.length) return;
-  const byObject = new Map<string, string[]>();
-  for (const row of rows) {
-    byObject.set(row.object_type, [...(byObject.get(row.object_type) ?? []), row.record_id]);
-  }
+  const byObject = idsByObject(rows);
   for (const [name, ids] of byObject) {
     const object = getObject(name);
     const states = object?.states;
@@ -344,12 +353,11 @@ async function voidGrants(ctx: HandlerContext, orderId: string) {
     if (!object || !states || !voidState || !column) continue;
     const finals = new Set(states.moves.filter((m) => m.final).map((m) => m.to));
     // One read for the object's records: their state now. One in the Trash is left alone.
-    // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
-    const current = (await (ctx.db as any)
+    const current = await ctx.db
       .selectFrom(visibleSource(orgReader(ctx.db), object))
       .select(["id", column])
-      .where("id", "in", ids)
-      .execute()) as AnyRow[];
+      .where("id", "in", jsonList(ids))
+      .execute();
     for (const row of current) {
       const state = row[column];
       if (typeof state !== "string" || state === voidState || finals.has(state)) continue;
@@ -383,23 +391,19 @@ export async function grantsFollowPerson(
     .select(["object_type", "record_id"])
     .where("order_id", "=", orderId)
     .execute();
-  const byObject = new Map<string, string[]>();
-  for (const row of rows) {
-    byObject.set(row.object_type, [...(byObject.get(row.object_type) ?? []), row.record_id]);
-  }
+  const byObject = idsByObject(rows);
   for (const [name, ids] of byObject) {
     const object = getObject(name);
     const set = grantFor(name)?.set ?? {};
     const fields = Object.keys(set).filter((field) => set[field] === "order.person");
     if (!object || !fields.length) continue;
-    // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
-    const live = (await (ctx.db as any)
+    const live = await ctx.db
       .selectFrom(visibleSource(orgReader(ctx.db), object))
       .select("id")
-      .where("id", "in", ids)
-      .execute()) as { id: string }[];
+      .where("id", "in", jsonList(ids))
+      .execute();
     const values = Object.fromEntries(fields.map((field) => [field, personId]));
-    for (const { id } of live) await updateRecord(ctx, object, id, values, { by: "host" });
+    for (const { id } of live) await updateRecord(ctx, object, String(id), values, { by: "host" });
   }
 }
 

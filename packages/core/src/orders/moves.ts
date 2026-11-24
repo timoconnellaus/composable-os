@@ -94,8 +94,7 @@ async function buyerSees(
   id: string,
 ): Promise<boolean> {
   try {
-    // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
-    const row = await (ctx.db as any)
+    const row = await ctx.db
       .selectFrom(visibleSource({ principal }, target))
       .select("id")
       .where("id", "=", id)
