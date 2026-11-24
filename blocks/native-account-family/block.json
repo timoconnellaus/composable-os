@@ -1,0 +1,11 @@
+{
+  "name": "native-account-family",
+  "pack": null,
+  "skin": "native",
+  "operations": ["me.family"],
+  "files": ["family.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/client": "*"
+  }
+}

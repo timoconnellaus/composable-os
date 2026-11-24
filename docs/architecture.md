@@ -1891,6 +1891,23 @@ gets a small shell (its screens, its account, sign out) that makes no call its r
 every other server function and `/api/*` route refuses it, and MCP holds it to its role
 (ADR 0436).
 
+**My account** (stage 48, [spec](stages/48-my-account.md)) is base-layer blocks over a base
+headless entry in the typed client's runtime (`packages/client/src/account.ts`:
+`createAccountHooks`, `accountSections`, `loadOrders`, the words for orders, subscriptions and
+sessions). Step 1 is built: the shells `web-account` and `native-account` with their base sections
+(`*-account-details`, `*-account-devices`, `*-account-family`, `*-account-orders`,
+`*-account-payment`, and the agreements blocks), and the subscriptions part
+(`web-account-subscriptions`, `native-account-subscriptions`) for the packs' sections to use, all
+over operations that already existed (`me.*`, `my.list` on `order` and `orderLine`,
+`subscription.*`). Orders is the one list of a customer's orders: a page of 20, then their lines in
+one `my.list` naming the page's orders. Payment method shows for a customer who pays a
+subscription that has not ended. The packs' sections are passed to the shell in `sections` for
+now; `me.portal`, the `portal` declaration, `me.attention` and the generated wiring are later
+steps. In the app, money opens the website ([ADR 0714](adr/0714-the-app-shows-money-and-opens-the-website.md)):
+the native shell shows orders and subscriptions, and "Manage on the website" opens the business's
+website account page; no native block calls a billing operation. The template's `/account` route
+and the mobile Account tab are plain pages over the same entry.
+
 | Pack | Built from | Status |
 | --- | --- | --- |
 | Deals | `stages` | exists |

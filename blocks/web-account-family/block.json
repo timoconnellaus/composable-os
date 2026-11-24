@@ -1,0 +1,11 @@
+{
+  "name": "web-account-family",
+  "pack": null,
+  "skin": "web",
+  "operations": ["me.family"],
+  "files": ["family.tsx", "LICENSE"],
+  "dependsOn": [],
+  "packages": {
+    "@composable-os/client": "*"
+  }
+}
