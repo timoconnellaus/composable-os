@@ -11,8 +11,8 @@
 // purchase: opening it is a reviewed change (ADR 0402), and `open-operations.json` lists it.
 import { INTAKE_VIAS } from "@composable-os/sdk";
 import { z } from "zod";
-import { ConflictError } from "../errors.ts";
-import { openForm } from "../intake/forms.ts";
+import { ConflictError, NotFoundError } from "../errors.ts";
+import { formIdBySlug, openForm } from "../intake/forms.ts";
 import { NO_INTAKE_RUNTIME } from "../intake/runtime.ts";
 import { askerOf, assertCalledByOwner, type RECEIVED, submitIntake } from "../intake/submit.ts";
 import { defineOperation } from "../operation.ts";
@@ -27,8 +27,18 @@ export const intakeOpen = defineOperation({
     "within its dates and open to them; otherwise not found, whatever the reason). Returns the " +
     "published version's number and content (its questions, title and thank-you words) and, for " +
     "a caller who is not signed in, `shown`: the host's token of when the form was shown, which " +
-    "intake.submit needs to tell a person from a script. Read-only.",
-  input: z.object({ object: objectName, id: recordId }),
+    "intake.submit needs to tell a person from a script. Give the form's id, or its address " +
+    "(`slug`) when the form object has one: a link or a QR code names a form by its address. " +
+    "Read-only.",
+  input: z
+    .object({
+      object: objectName,
+      id: recordId.optional(),
+      slug: z.string().min(1).max(200).optional().describe("The form's address, instead of id"),
+    })
+    .refine((input) => (input.id === undefined) !== (input.slug === undefined), {
+      message: "Give the form's id or its slug, not both",
+    }),
   output: z.object({
     id: z.string(),
     version: z.number(),
@@ -48,7 +58,22 @@ export const intakeOpen = defineOperation({
   async handler(input, ctx) {
     assertCalledByOwner(ctx, "intake.open", input.object);
     const asker = askerOf(ctx);
-    const form = await openForm(ctx, input.object, input.id, asker);
+    const form =
+      input.id !== undefined
+        ? await openForm(ctx, input.object, input.id, asker)
+        : await openForm(
+            ctx,
+            input.object,
+            await formIdBySlug(ctx, input.object, input.slug as string),
+            asker,
+          ).catch((error: unknown) => {
+            // Named by its address, a form that is not open is not found by that address: its id
+            // never comes back, so an address tells a caller nothing a wrong one would not.
+            if (error instanceof NotFoundError) {
+              throw new NotFoundError(input.object, input.slug as string);
+            }
+            throw error;
+          });
     const runtime = ctx.intake ?? NO_INTAKE_RUNTIME;
     return {
       id: form.id,

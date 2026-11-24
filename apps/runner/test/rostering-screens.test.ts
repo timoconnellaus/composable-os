@@ -564,6 +564,24 @@ describe("the import's dry run (x.rostering.planCheck)", () => {
     );
     expect(error.code).toBe("forbidden");
   });
+
+  it("refuses a date that is not on the calendar, saying so", async () => {
+    for (const plan of [
+      { account: null, date: "2026-02-30", time: "10:00", length: 60 },
+      { account: null, weekdays: ["mon"], time: "06:00", length: 60, firstDate: "2026-13-01" },
+      {
+        account: null,
+        weekdays: ["mon"],
+        time: "06:00",
+        length: 60,
+        firstDate: localDate(0),
+        lastDate: "2026-04-31",
+      },
+    ]) {
+      const error = await refusal(run("x.rostering.planCheck", { plans: [plan] }, staff()));
+      expect(error.message).toMatch(/is not a real date/);
+    }
+  });
 });
 
 // --- pay's people ---------------------------------------------------------------------------------
@@ -745,4 +763,34 @@ describe("changing a pattern from a date", () => {
       ),
     ).toContain("pattern_ended");
   });
+});
+
+// --- one person's roster past the limit of one kind ------------------------------------------------
+
+describe("one person's roster in a busy range (x.rostering.mine)", () => {
+  it("keeps their own later shifts when more than 1,000 of others' come first", async () => {
+    const who = await fixedRole(unique("Late Lou"), "rostering.team");
+    const day = 300 * DAY;
+    // 1,001 shifts with nobody on them in the morning, then theirs in the evening.
+    for (let made = 0; made < 1001; made += 50) {
+      const records = Array.from({ length: Math.min(50, 1001 - made) }, (_, i) => {
+        const startsAt = new Date(Date.now() + day + (made + i) * 1000).toISOString();
+        return {
+          duty,
+          startsAt,
+          endsAt: new Date(Date.parse(startsAt) + HOUR).toISOString(),
+          timezone: ZONE,
+        };
+      });
+      await run("record.createMany", { object: SHIFT, records }, staff());
+    }
+    const theirs = await dutyShift(day + 10 * HOUR, who.id);
+    const week = await run<{ shifts: { id: string }[]; truncated: boolean }>(
+      "x.rostering.mine",
+      { from: localDate(day - DAY), to: localDate(day + DAY) },
+      asUser(who),
+    );
+    expect(week.shifts.map((s) => s.id)).toEqual([theirs]);
+    expect(week.truncated).toBe(false);
+  }, 120_000);
 });

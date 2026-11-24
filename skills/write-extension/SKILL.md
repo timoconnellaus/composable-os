@@ -172,18 +172,25 @@ extension declares it; it never implements it. Each behaviour the platform has i
   every caller but a person. Never decide "late" or
   "too early" in a tool. See `StateMove` and `StatesSpec` in `packages/sdk/src/states.ts`, ADRs
   0503 and 0505, and Bookings: `packs/bookings/index.ts`.
-- **`recurring`** on a series object: a weekly rule in local time that makes records of another
+- **`recurring`** on a series object: a rule in local time that makes records of another
   of your objects ahead (a timetable line makes its classes). Declare the rule's fields (a
   `multiSelect` of `mon`…`sun`, an `HH:MM` text field, a length in minutes, from and until
   dates, a `timezone`), then `recurring: { generates: "<object>", link: "<read-only relation on
-  it back to the series>", rule: { weekdays, time, length?, from, until?, zone? }, into: {
+  it back to the series>", rule: { weekdays?, time, length?, from, until?, zone?, unit?, every?,
+  day?, month?, lengthDays? }, into: {
   starts, ends?, zone?, changed? }, copy?: { <generated field>: "<series field>" }, cancel:
   "<a state of the generated object with a host move into it>", ended?: { field, in },
   closures?: { object, from, until }, horizonDays?, horizonAtLeast?: { object, field },
   horizonSetting? }`
   (`horizonAtLeast`: a number field in days, a booking window, the horizon never falls short of;
   `horizonSetting`: your number setting, in days, that sets the horizon when it holds a value,
-  Rostering's duty horizon). The host makes the records from the minute
+  Rostering's duty horizon). Without `unit` the rule is weekly. For every N weeks, months or
+  years (a quarterly service, a yearly test) add the interval rule (ADR 0860): `unit` (a
+  `select` whose options are some of `week`, `month`, `year`), `every` (a number, empty is 1),
+  `day` (day of the month, 1 to 31: a shorter month uses its last day) and `month` (1 to 12, for
+  years), both empty meaning the `from` date's, and `lengthDays` (a number of days) instead of
+  `length` for a window that stays open for days. Dates are fixed on the calendar from `from`,
+  never counted from when the last one was done. The host makes the records from the minute
   cron, keeps 06:00 at 06:00 across a clock change, never overwrites one staff edited, applies a
   series change to the rest, and cancels what a closure covers. Never create the dated records
   in a tool or an automation. See `RecurringScheduleSpec` in `packages/sdk/src/recurring.ts` and
@@ -215,8 +222,11 @@ extension declares it; it never implements it. Each behaviour the platform has i
   (`conflict`, `rule: "room_taken"`, naming no other record). `before` and `after` are minutes
   kept free (a number field, or `relation.field`: a service's buffer). With `only`, just the
   things with that flag set are claimed (a room marked "one booking at a time"; a shared floor
-  never). Never check whether a room is free in a tool. See `OccupiesSpec` in
-  `packages/sdk/src/occupies.ts` and ADR 0765.
+  never). Never check whether a room is free in a tool. For the room calendar (`rooms.week`,
+  `rooms.check`, read by a shipped pack's tool), `provisional: [<live states shown as held>]` and
+  `title: "<a text or select field, or relation.field of one of your objects>"` (never the
+  client's name; left out, the object's label). See `OccupiesSpec` in
+  `packages/sdk/src/occupies.ts` and ADRs 0765 and 0844.
 - **`calendarEntry`** (shipped packs only) on an object with a `customer` whose records are a
   customer's appointments (a booking, a ticket): `calendarEntry: { starts, ends: "<datetime
   paths>", title, place?: "<text paths>", live: [<states in which it shows>] }`. A path is a
@@ -231,20 +241,24 @@ extension declares it; it never implements it. Each behaviour the platform has i
 - **`intake`** when the public or customers send answers (a form, its submissions, a record a
   form may also make): `intake: { role: "form", questions: "<document field with
   QUESTIONS_SCHEMA, in publishable.content>", answeredBy: "<select: public, customers, links,
-  staff>", openIn: [<states>], anonymous?, destination?, opensAt?, closesAt?, dailyCap?, notify? }`
+  staff>", openIn: [<states>], anonymous?, destination?, opensAt?, closesAt?, dailyCap?, notify?,
+  hourlyCap?: "<a number setting of yours, personApproves>" }`
   on a publishable form object, with `answeredBy`, `anonymous` and `destination` in its
-  `publishable.content` (they are read from the version answered); `{ role: "submission", form: "<relation to it>", version,
+  `publishable.content` (they are read from the version answered), and `publishable.slug` for a
+  form a link names by its address (`intake.open { object, slug }`); `{ role: "submission", form: "<relation to it>", version,
   answers: "<document field with ANSWERS_SCHEMA>", person, certainty: "<select: account, link,
-  staff, address>", spam: "<a state the host creates it in>", via?, rating? }` on its submission
+  staff, address>", spam: "<a state the host creates it in>", via?, rating?, marketing?: "<a
+  boolean the host sets when a marketing consent line was ticked>" }` on its submission
   (never with `customer`, `public` or `signedIn`); `{ role: "destination", person, fields: [<what
   a form may fill>], source? }` on a record another pack's form may make. The host's one door,
   `intake.submit` (tool-only: your tool calls it for your own form, with `intake.open` first for
   the public's shown-time token), checks the form is open to the caller, Turnstile, the honeypot,
   the fill time, the caps and the answers, and makes the submission, the Person (empty fields
   only) and any destination record itself. Never create a submission or check spam in a tool: only the door creates one, and a
-  submission's form, version, answers, certainty, via and rating are the host's on every path.
-  Shipped packs and the org's own extensions only. See `IntakeSpec` in
-  `packages/sdk/src/intake.ts` and ADRs 0720 to 0722 and 0725.
+  submission's form, version, answers, certainty, via, rating and marketing are the host's on
+  every path. Give a form no `public` scope: the public reads it through `intake.open` only. Shipped
+  packs and the org's own extensions only. See `IntakeSpec` in `packages/sdk/src/intake.ts`, ADRs
+  0720 to 0722, 0725 and 0726, and Forms: `packs/forms/index.ts`.
 - **`sellable`** on an object: its records can be bought (ticket types, passes, products). Only
   an object that declares it can go on an order, and the host reads its price and rules from the
   record: `sellable: { price: "<currency field>", saleWindow?: { from?, until? }, maxPerOrder?,

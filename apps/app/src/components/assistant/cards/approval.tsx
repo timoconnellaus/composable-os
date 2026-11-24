@@ -15,7 +15,7 @@ import { type ReactNode, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { errorMessage, useOp } from "#/lib/query";
 import { ChangePreview, RiskBadge } from "../../approvals/change-preview.tsx";
-import { actionTitle, groupPreview, outboundTitle, toolOf } from "../../approvals/describe.ts";
+import { groupPreview, pendingActionTitle, toolOf } from "../../approvals/describe.ts";
 import { decide, useRecordNames, useRefreshAfterDecision } from "../../approvals/hooks.ts";
 import { OutboundPreview } from "../../approvals/outbound-preview.tsx";
 import { DryRunNotes, ToolCallPreview } from "../../approvals/tool-call-preview.tsx";
@@ -25,12 +25,6 @@ import { Body, Footer, Frame, Header, LinkButton, TwoStepButton } from "./parts.
 
 type Action = CoreOutput<"approval.status">["changeSets"][number]["actions"][number];
 type Decision = "approve" | "reject";
-
-function titleOf(action: Action): string {
-  return action.outbound
-    ? outboundTitle(action.outbound)
-    : actionTitle(action.operation, action.preview, action.input, action.bulkSize);
-}
 
 function ActionDetail({ action, names }: { action: Action; names: Map<string, string> }) {
   const groups = useMemo(() => groupPreview(action.preview), [action.preview]);
@@ -231,7 +225,8 @@ export function ApprovalCard({ changeSetId, actionIds, title, youAsked, note }: 
   return (
     <ApprovalView
       title={
-        title ?? (actions.length === 1 && first ? titleOf(first) : `${actions.length} changes`)
+        title ??
+        (actions.length === 1 && first ? pendingActionTitle(first) : `${actions.length} changes`)
       }
       state={pending.length ? "pending" : (first?.status ?? "pending")}
       youAsked={youAsked}

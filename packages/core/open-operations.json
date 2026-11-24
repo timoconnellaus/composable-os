@@ -496,6 +496,18 @@
       "pack": "courses"
     },
     {
+      "name": "x.forms.form",
+      "audiences": ["customer", "public"],
+      "risk": "read",
+      "pack": "forms"
+    },
+    {
+      "name": "x.forms.submit",
+      "audiences": ["customer", "public"],
+      "risk": "write",
+      "pack": "forms"
+    },
+    {
       "name": "x.memberships.buy",
       "audiences": ["customer", "public"],
       "risk": "write",

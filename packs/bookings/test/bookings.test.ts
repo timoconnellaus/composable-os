@@ -975,6 +975,8 @@ describe("bookings pack (test host)", () => {
       ends: "endsAt",
       live: ["scheduled", "done"],
       only: "exclusive",
+      // The room calendar shows it by its title (stage 57, ADR 0844).
+      title: "title",
     });
     // Off by default: a shared floor many classes use at once is never claimed.
     expect(m.objects.room?.fields.exclusive).toMatchObject({ type: "boolean", default: false });

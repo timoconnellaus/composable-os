@@ -9,6 +9,8 @@
 // base64url (43 characters), shown once to the person who makes it, stored only as its SHA-256,
 // so nothing the host keeps (the database, the audit log, a tool run, a notice) can give it back.
 
+import { base64url, sha256Hex } from "../digest.ts";
+
 /** A token as written in the address: 32 bytes, base64url, no padding. */
 export const FEED_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
 /** How far back a feed reaches. */
@@ -30,16 +32,12 @@ export function feedWindow(now: Date): { from: number; to: number } {
 
 /** A new token: 32 random bytes, base64url. */
 export function newFeedToken(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return base64url(crypto.getRandomValues(new Uint8Array(32)));
 }
 
 /** SHA-256 of the token, lowercase hex: all the host keeps of it. */
-export async function feedTokenHash(token: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+export function feedTokenHash(token: string): Promise<string> {
+  return sha256Hex(token);
 }
 
 /** Two strings of the same length compared in time that does not depend on where they differ. */

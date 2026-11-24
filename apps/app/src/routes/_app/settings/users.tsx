@@ -766,7 +766,7 @@ function SignInMailState({ state }: { state: SignInMail }) {
   );
 }
 
-type CustomerSignup = "invite_only" | "buyers" | "open";
+type CustomerSignup = CoreOutput<"customer.settings.get">["signup"];
 
 const SIGNUP_COPY: Record<CustomerSignup, { label: string; description: string }> = {
   invite_only: {
@@ -794,7 +794,7 @@ function CustomerSignupCard() {
   const save = useOpMutation("customer.settings.update", {
     invalidates: ["customer.settings.get"],
   });
-  const value = (settings.data?.signup ?? "invite_only") as CustomerSignup;
+  const value: CustomerSignup = settings.data?.signup ?? "invite_only";
   return (
     <Card>
       <CardHeader>

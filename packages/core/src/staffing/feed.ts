@@ -147,13 +147,8 @@ export async function feedRevocations(
     .executeTakeFirst();
   // A feed made (or rotated by another tool) after this read fails the change whole, so a rotate
   // racing it never leaves a feed the change would have revoked (the review of PR #295).
-  const guard = CompiledQuery.raw(
-    "INSERT INTO core_staff_guard (expected, actual) SELECT ?, count(*) FROM core_staff_feed WHERE account_id = ? AND tool IS ?",
-    [row ? 1 : 0, account, row?.tool ?? null],
-  );
   if (!row) {
-    // No feed now: one made meanwhile is refused by the guard (the tool is null, so count 0 only
-    // while there is none).
+    // No feed now: one made meanwhile is refused by the guard.
     return [
       CompiledQuery.raw(
         "INSERT INTO core_staff_guard (expected, actual) SELECT 0, count(*) FROM core_staff_feed WHERE account_id = ?",
@@ -161,6 +156,10 @@ export async function feedRevocations(
       ),
     ];
   }
+  const guard = CompiledQuery.raw(
+    "INSERT INTO core_staff_guard (expected, actual) SELECT 1, count(*) FROM core_staff_feed WHERE account_id = ? AND tool IS ?",
+    [account, row.tool],
+  );
   if (await mayHoldFeed(db, account, row.tool, after)) return [guard];
   return [guard, revokeFeed(db, account)];
 }

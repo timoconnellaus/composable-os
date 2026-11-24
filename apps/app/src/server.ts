@@ -114,15 +114,15 @@ export default {
     // The assistant thread's WebSocket (ADR 0340) goes straight to the person's object: TanStack
     // Start does not pass a 101 response through. Identity is enforced here the same way.
     if (pathname === SOCKET_PATH) return assistantSocket(request, env);
-    // The media library's pictures (stage 28, ADR 0444): staff upload, and whoever may see a
-    // picture is served it, as media.serve decides. Before the surface: /api/v1/media/<id> is the
-    // outside world's address for one (issue #181).
     // A signed agreement's PDF and a version's blank form (stage 44 step 4, ADR 0645): the
     // operations decide who may have one; the route draws it. Before the surface, as media is.
     if (isAgreementPdfPath(pathname)) {
       const api = env as unknown as ApiEnv;
       return handleAgreementPdf(request, { context: (req) => apiContext(req, api) });
     }
+    // The media library's pictures (stage 28, ADR 0444): staff upload, and whoever may see a
+    // picture is served it, as media.serve decides. Before the surface: /api/v1/media/<id> is the
+    // outside world's address for one (issue #181).
     if (isMediaPath(pathname)) {
       const api = env as unknown as ApiEnv & MediaEnv;
       return handleMedia(request, {
