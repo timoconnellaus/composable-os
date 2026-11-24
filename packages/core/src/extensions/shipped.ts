@@ -34,7 +34,7 @@ export async function installShippedExtensions(options: {
     [1, all],
     [2, failed],
   ] as const) {
-    for (const shipped of [...list]) {
+    for (const shipped of list) {
       const { result, commit } = await installOne(options, shipped);
       if (result.outcome === "failed" && pass === 1) {
         failed.push(shipped);
