@@ -391,6 +391,34 @@ describe("staff and the inbox", () => {
     });
   });
 
+  it("the assistant cannot close, delay, throttle or move a published form without a person", async () => {
+    const form = await makeForm();
+    await setPreset("autonomous");
+    try {
+      for (const values of [
+        { closesAt: "2000-01-01T00:00:00.000Z" },
+        { opensAt: "2999-01-01T00:00:00.000Z" },
+        { dailyCap: 1 },
+        { slug: `${form.slug}-moved` },
+      ]) {
+        const asked = await refusal(
+          run(
+            "record.update",
+            { object: FORM, id: form.id, values },
+            staff(admin, { actor: "assistant" }),
+          ),
+        );
+        expect(asked.code, JSON.stringify(values)).toBe("pending_approval");
+      }
+    } finally {
+      await setPreset("balanced");
+    }
+    // Nothing changed: the public still answers it at its address.
+    expect(
+      await run<{ id: string }>("x.forms.form", { slug: form.slug }, outside({ kind: "public" })),
+    ).toMatchObject({ id: form.id });
+  });
+
   it("opening a form is a person's: the assistant's write of its status waits", async () => {
     const draft = await run<{ id: string }>(
       "record.create",
