@@ -19,26 +19,34 @@
 // membership's per-period limit used up renews by itself and is never `pass_used_up`. A
 // subscription set to end (cancelled by them) is not listed for its ending.
 //
-// Cost: a fixed number of statements whatever the packs installed: the setting, the family, the
-// agreements (two for the documents, one per Person for their facts, one for the acceptances),
-// one for subscriptions, orders through the seam (the open ones, their held places, their first
-// lines), one for allowance holders, and one seam read per holder object that has a pass in the
-// list (titles, and the guardians rule, through the seam). Each binds at most about 50 ids.
+// Cost: a fixed number of statements, whatever the packs installed, the size of the family or the
+// number of documents: the setting, the family, the agreements (two for the documents, one for
+// the caller's facts, one for the family's acceptances, one for the versions due, checked
+// intact), one for subscriptions, three for orders through the seam (the open ones, their held
+// places, their first lines), one for allowance holders and one through the seam for the passes
+// listed, every holder object in the same statement. No statement binds a list of the family or
+// of the documents; the orders and passes read at most 50 ids each.
 import { sql } from "kysely";
+import { versionIntact } from "../agreements/documents.ts";
 import {
   acceptanceKey,
-  acceptancesOf,
   appliesTo,
   attachedDocuments,
   countingAcceptance,
+  familyAcceptances,
+  type PersonFacts,
   personFacts,
 } from "../agreements/due.ts";
 import { boundOf } from "../allowance/periods.ts";
+import { holderOf } from "../allowance/records.ts";
 import { OperationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
+import type { ObjectDefinition } from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
 import { ORDER_CLAIM_TYPE } from "../orders/holds.ts";
+import { viewColumnOf } from "../records/columns.ts";
 import { dependantsSql } from "../visibility/guardians.ts";
+import { visibleSource } from "../visibility/index.ts";
 import { loadAttentionDays } from "./settings.ts";
 
 export const ATTENTION_KINDS = [
@@ -76,11 +84,42 @@ export interface AttentionItem {
 
 const DAY_MS = 86_400_000;
 
-/** The most pass holders of one object read back through the seam (a list's page). */
-const PASSES_PER_OBJECT = 50;
+/** The most passes read back through the seam: each id is a bound variable. */
+const PASSES_READ = 50;
 
 /** The most open orders read (soonest made first): each id is a bound variable later. */
 const ORDERS_READ = 50;
+
+/**
+ * A live dependant from the seam's family (ADR 0540): in no Trash, and a minor by the link, so a
+ * guardian agrees for them. Nothing else of their facts changes what counts.
+ */
+const DEPENDANT_FACTS: PersonFacts = {
+  exists: true,
+  inTrash: false,
+  marked: false,
+  dependant: true,
+};
+
+/**
+ * Whether a holder object's passes may be listed to a customer, and the view column of its title
+ * they may read: its customer is the holder's Person, and they may read its uses and its end (so
+ * an item tells them nothing their own record hides). Null when not.
+ */
+function listablePass(object: ObjectDefinition): { titleColumn: string | null } | null {
+  const holder = holderOf(object);
+  const customer = object.customer;
+  if (!holder || !customer || customer.field !== holder.person) return null;
+  const read = new Set(customer.read);
+  const readable = (field: string) => !field.includes(".") && read.has(field);
+  if (!readable(holder.uses)) return null;
+  if (holder.until !== undefined && !readable(holder.until)) return null;
+  const titleField =
+    object.titleField && read.has(object.titleField)
+      ? object.fields.find((f) => f.name === object.titleField)
+      : undefined;
+  return { titleColumn: titleField ? viewColumnOf(titleField) : null };
+}
 
 /** What needs the signed-in customer's attention, soonest first. */
 export async function attentionOf(
@@ -116,14 +155,11 @@ export async function attentionOf(
   // --- agree: what me.agreements.due answers, for the caller and each live dependant ----------
   const docs = await attachedDocuments(ctx.db, null);
   if (docs.length) {
-    const ids = [...people.keys()];
-    const accepted = await acceptancesOf(
-      ctx.db,
-      ids,
-      docs.map((d) => d.id),
-    );
+    const accepted = await familyAcceptances(ctx.db, me);
+    const own = await personFacts(ctx.db, me);
+    const due: { person: typeof self; doc: (typeof docs)[number] }[] = [];
     for (const person of people.values()) {
-      const facts = await personFacts(ctx.db, person.id);
+      const facts = person.self ? own : DEPENDANT_FACTS;
       for (const doc of docs) {
         if (!appliesTo(doc, facts)) continue;
         const { acceptance } = countingAcceptance(
@@ -132,7 +168,23 @@ export async function attentionOf(
           accepted.get(acceptanceKey(person.id, doc.id)) ?? [],
           now,
         );
-        if (acceptance) continue;
+        if (!acceptance) due.push({ person, doc });
+      }
+    }
+    if (due.length) {
+      // As me.agreements.due: a version whose stored text does not match its hash is never
+      // shown to agree to. The versions in effect of live documents, with no ids bound.
+      const versions = await ctx.db
+        .selectFrom("core_agreement_version as v")
+        .innerJoin("core_agreement_document as d", "d.current_version_id", "v.id")
+        .selectAll("v")
+        .select("d.kind")
+        .where("d.state", "=", "live")
+        .execute();
+      const intact = new Set<string>();
+      for (const v of versions) if (await versionIntact(v, v.kind)) intact.add(v.id);
+      for (const { person, doc } of due) {
+        if (!intact.has(doc.current.id)) continue;
         add({
           kind: "agree",
           person,
@@ -290,22 +342,36 @@ export async function attentionOf(
   const listed = passes.filter(
     (pass) => pass.left === 0 || (pass.ends !== null && pass.ends <= horizon && pass.left > 0),
   );
-  // Through the seam, per object: what the caller may see (their own, a child's only where the
-  // object opens to guardians) and its title.
+  // Through the seam, every holder object in one statement: what the caller may see (their own,
+  // a child's only where the object opens to guardians) and the title they may read.
   const visible = new Map<string, string>();
+  const parts = [];
+  let budget = PASSES_READ;
   for (const object of [...new Set(listed.map((p) => p.object_type))]) {
     const definition = getObject(object);
-    if (!definition?.customer) continue;
-    const ids = listed.filter((p) => p.object_type === object).map((p) => p.record_id);
-    const { items: records } = await ctx.records.list(object, {
-      filter: { field: "id", op: "in", value: ids.slice(0, PASSES_PER_OBJECT) },
-      limit: PASSES_PER_OBJECT,
-    });
-    for (const record of records) {
-      const titled = definition.titleField ? record.values[definition.titleField] : undefined;
+    const listable = definition ? listablePass(definition) : null;
+    if (!definition || !listable || budget <= 0) continue;
+    const ids = listed
+      .filter((p) => p.object_type === object)
+      .map((p) => p.record_id)
+      .slice(0, budget);
+    budget -= ids.length;
+    const title = listable.titleColumn ? sql.ref(listable.titleColumn) : sql`NULL`;
+    parts.push(
+      sql`SELECT ${object} AS object_type, id, ${title} AS title
+        FROM ${visibleSource(ctx, definition)} WHERE id IN (${sql.join(ids)})`,
+    );
+  }
+  if (parts.length) {
+    const { rows } = await sql<{ object_type: string; id: string; title: unknown }>`${sql.join(
+      parts,
+      sql` UNION ALL `,
+    )}`.execute(ctx.db);
+    for (const row of rows) {
+      const label = getObject(row.object_type)?.label ?? row.object_type;
       visible.set(
-        `${object}\u0000${record.id}`,
-        typeof titled === "string" && titled ? titled : definition.label,
+        `${row.object_type}\u0000${row.id}`,
+        typeof row.title === "string" && row.title ? row.title : label,
       );
     }
   }

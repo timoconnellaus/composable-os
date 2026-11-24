@@ -46,22 +46,31 @@ rules in the client (ADR 0401) and give each app its own cut-offs.
   currency where there is money, uses left for a pass, and a stable `key`. Items come soonest
   first; one with no moment last.
 - **A dependant's pass only where the object opens to guardians.** Candidate holders are read for
-  the caller and their live dependants, then read back through the seam (`ctx.records.list`, one
-  per holder object with a pass in the list), which shows a child's only where the object's
-  `customer.guardians` opts in. Agreements for a dependant are what `me.agreements.due` already
-  answers.
+  the caller and their live dependants, then read back through the seam in one statement for
+  every holder object (a `UNION ALL` of each object's `visibleSource`), which shows a child's only
+  where the object's `customer.guardians` opts in.
+- **A pass is listed only where its customer reads what the item says** (the review of PR #359):
+  the object's customer field is the holder's Person, and `customer.read` lists its uses field and
+  its end field (when it has one). Otherwise none of its passes is listed, so `usesLeft` and `at`
+  never tell a member what their own record hides.
+- **Agreements as `me.agreements.due` answers them**: the same documents, the same counting
+  acceptance, and like it a version whose stored text does not match its hash is never listed.
 - **"A newer holder"** is one made after it: ids sort by when they were made (ADR 0015), so a pass
   bought after one was used up takes over from it without a new column.
 - **The days setting**: `account.attentionDays`, stored as `account_attention_days` and set
   through `customer.settings.update` as `attentionDays` (the customer account settings, beside the
   erase due days): default 7 (decision 3), 1 to 30, `settings:manage` and human actors only, the
   change audited. It applies to a pass expiring and a trial ending.
-- **Bounded**: a fixed number of statements whatever the packs installed (the setting, the family,
-  two for the documents and one for the acceptances, one per Person of the family for their
-  agreement facts, one for subscriptions, the open orders through the seam with their held places
-  and first lines, one for holders, and one seam read per holder object that has a pass listed);
-  a read names at most 50 ids (the 50 oldest open orders, 50 passes of an object). A
-  statement-count test holds it, before and after another pack is installed.
+- **Bounded**: a fixed number of statements whatever the packs installed, the size of the family
+  and the number of documents: the setting, the family, two for the documents, one for the
+  caller's agreement facts (a live dependant from the seam's family is a minor out of the Trash,
+  with nothing more to read), one for the family's acceptances (the dependants as a subquery,
+  never a list of ids), one for the versions in effect, one for subscriptions, three for orders
+  (the open ones through the seam, their held places, their first lines), one for holders and one
+  through the seam for the passes listed. No statement binds a list of the family or the
+  documents; the orders and passes read at most 50 ids each. Tests hold it: the same count after
+  another pack is installed, with passes listed in two packs as in one, and for a family of 30 as
+  for a family of one.
 - **Orders through the seam**: the open orders and their first lines are read with
   `ctx.records.list` on `order` and `orderLine`, so a customer's own only, as `my.list` answers
   them; subscriptions, acceptances and allowance counters are host rows read for the principal.

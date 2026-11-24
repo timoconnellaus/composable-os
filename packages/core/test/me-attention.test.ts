@@ -26,6 +26,7 @@ const KLASS = `${ext}.klass`;
 const CAMP = `${ext}.camp`;
 const PASS = `${ext}.pass`;
 const TOKEN = `${ext}.token`;
+const HIDDEN = `${ext}.hidden`;
 const MEMBERSHIP = `${ext}.membership`;
 const ENTRY = `${ext}.entry`;
 const SESSION = `${ext}.session`;
@@ -158,6 +159,12 @@ function fixture(id: string, point: string): ExtensionManifest {
             spendsOn: [{ object: "session" }],
           },
         },
+      },
+      // A pass whose uses and end its customer may not read (the review of PR #359): an item
+      // would tell them what their own record hides, so none is listed.
+      hidden: {
+        ...passObject("Hidden", true),
+        customer: { field: "person", guardians: {}, read: ["name", "state"], write: [] },
       },
       entry: spenderObject("Entry"),
       session: spenderObject("Session"),
@@ -501,9 +508,9 @@ describe("me.attention is bounded (stage 48 criterion 4)", () => {
   });
   const countedDb = createCrmDb(counted);
 
-  async function measure(): Promise<number[]> {
+  async function measure(buyer: Buyer = member): Promise<number[]> {
     ran = [];
-    await attention(member, countedDb);
+    await attention(buyer, countedDb);
     return ran;
   }
 
@@ -516,6 +523,67 @@ describe("me.attention is bounded (stage 48 criterion 4)", () => {
     await reconcile(fixture(extId("atx"), `atx${Date.now().toString(36)}`));
     const after = await measure();
     expect(after.length).toBe(before.length);
+  });
+
+  // The review of PR #359, finding 1: one seam read per holder object made the count grow with
+  // every pack a member holds a pass in.
+  it("reads the same statements with passes listed in two packs as in one", async () => {
+    const buyer = await createBuyer(admin, "packs");
+    const me = buyer.principal.personId;
+    await create(PASS, { name: "PackOne", person: me, uses: 3, until: iso(2 * DAY) });
+    const one = await measure(buyer);
+    const second = extId("atp");
+    await reconcile(fixture(second, `atp${Date.now().toString(36)}`));
+    await create(`${second}.pass`, { name: "PackTwo", person: me, uses: 3, until: iso(2 * DAY) });
+    const two = await measure(buyer);
+    const { items } = await attention(buyer);
+    expect(
+      items
+        .filter((i) => i.kind === "pass_expiring")
+        .map((i) => i.record.title)
+        .sort(),
+    ).toEqual(["PackOne", "PackTwo"]);
+    expect(two.length).toBe(one.length);
+    expect(Math.max(...two)).toBeLessThan(100);
+  });
+
+  // Finding 2: a statement per Person of the family, and the family's ids bound in one.
+  it("reads the same statements, binding no more, for a family of 30 as for a family of one", async () => {
+    const guardian = await createBuyer(admin, "family");
+    await child(guardian, "f0");
+    const small = await measure(guardian);
+    for (let n = 1; n < 30; n += 1) await child(guardian, `f${n}`);
+    const large = await measure(guardian);
+    const { items } = await attention(guardian);
+    // The document is due for them and for each of the 30 children.
+    expect(items.filter((i) => i.kind === "agree")).toHaveLength(31);
+    expect(large.length).toBe(small.length);
+    expect(Math.max(...large)).toBe(Math.max(...small));
+  });
+});
+
+// Finding 3: `usesLeft` and `at` come from the host's row, so a pass whose object hides its uses
+// and its end from the customer is not listed at all.
+describe("a pass is listed only where its customer reads its uses and its end", () => {
+  it("lists nothing of a pass whose object hides them, beside one that shows them", async () => {
+    const buyer = await createBuyer(admin, "hidden");
+    const me = buyer.principal.personId;
+    const hidden = await create(HIDDEN, {
+      name: "HiddenA",
+      person: me,
+      uses: 4,
+      until: iso(2 * DAY),
+    });
+    const shown = await create(PASS, { name: "ShownA", person: me, uses: 4, until: iso(2 * DAY) });
+    const mine = await run<{ items: { values: Record<string, unknown> }[] }>(
+      "my.list",
+      { object: HIDDEN },
+      as(buyer),
+    );
+    expect(mine.items.map((i) => Object.keys(i.values).sort())).toEqual([["name", "state"]]);
+    const { items } = await attention(buyer);
+    expect(items.map((i) => i.record.id)).toContain(shown);
+    expect(JSON.stringify(items)).not.toContain(hidden);
   });
 });
 
@@ -559,5 +627,39 @@ describe("each item goes once its cause is fixed", () => {
     expect(summary(items)).toEqual([]);
     // The other member's are still theirs.
     expect((await attention(other)).items.length).toBeGreaterThan(0);
+  });
+});
+
+// Finding 4: me.agreements.due never shows a version whose stored text does not match its hash
+// (a row written past the triggers), so Needs your attention does not list it either. Last in the
+// file: the trigger is lifted to make the row, then put back.
+describe("a document is listed as me.agreements.due answers it", () => {
+  it("leaves out a version whose stored text does not match its hash", async () => {
+    const buyer = await createBuyer(admin, "tamper");
+    const doc = await liveDocument("Fixture tampered");
+    const before = await attention(buyer);
+    expect(before.items.some((i) => i.kind === "agree" && i.record.id === doc)).toBe(true);
+    await env.DB.prepare("DROP TRIGGER core_agreement_version_no_update").run();
+    try {
+      await env.DB.prepare("UPDATE core_agreement_version SET body = ? WHERE document_id = ?")
+        .bind(JSON.stringify({ blocks: [] }), doc)
+        .run();
+    } finally {
+      await env.DB.prepare(
+        `CREATE TRIGGER core_agreement_version_no_update
+         BEFORE UPDATE ON core_agreement_version
+         BEGIN
+           SELECT RAISE(ABORT, 'core_agreement_version_immutable');
+         END`,
+      ).run();
+    }
+    const due = await run<{ people: { due: { documentId: string }[] }[] }>(
+      "me.agreements.due",
+      {},
+      as(buyer),
+    );
+    expect(due.people.flatMap((p) => p.due).some((d) => d.documentId === doc)).toBe(false);
+    const after = await attention(buyer);
+    expect(after.items.some((i) => i.record.id === doc)).toBe(false);
   });
 });

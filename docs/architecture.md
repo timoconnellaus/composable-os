@@ -1998,7 +1998,8 @@ kinds: `agree`, `card_failing`, `confirm_payment`, `balance_due`, `finish_paying
 on objects that open to guardians, their live dependants; soonest first, each with the record, the
 moment, the money in minor units and a pass's uses left. A pass expiring and a trial ending are
 listed within `account.attentionDays` (`customer.settings` `attentionDays`, default 7, 1 to 30,
-human admins). It reads a fixed number of statements whatever the packs installed; its block is a
+human admins). It reads a fixed number of statements whatever the packs installed, the family's size or the
+number of documents, and lists a pass only where its customer reads its uses and end; its block is a
 later step. In the app, money opens the website ([ADR 0714](adr/0714-the-app-shows-money-and-opens-the-website.md)):
 the native shell shows orders and subscriptions, and "Manage on the website" opens the business's
 website account page; no native block calls a billing operation. The template's `/account` route

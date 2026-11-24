@@ -39,7 +39,9 @@ question for the owner is open.
   `operations/me-attention.ts`), the setting as `customer.settings` `attentionDays` (stored as
   `account_attention_days`), `open-operations.json`, the contracts and the template's clients
   regenerated, and `packages/core/test/me-attention.test.ts` (every kind, each one clearing, the
-  setting at 14, another member's items, a fixed statement count). No migration. The attention
+  setting at 14, another member's items, a fixed statement count whatever the packs, the family
+  and the documents; after the PR's review, a pass listed only where its customer reads its uses
+  and end, and a version that is not intact left out as `me.agreements.due` does). No migration. The attention
   block is step 7's.
 
 Vocabulary: "My account" is the customer's own area on the business's website and in its app.
