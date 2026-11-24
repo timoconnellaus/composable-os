@@ -1,0 +1,11 @@
+{
+  "name": "web-account-orders",
+  "pack": null,
+  "skin": "web",
+  "operations": ["my.list"],
+  "files": ["orders.tsx", "LICENSE"],
+  "dependsOn": ["ui-button"],
+  "packages": {
+    "@composable-os/client": "*"
+  }
+}

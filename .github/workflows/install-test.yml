@@ -143,10 +143,11 @@ jobs:
           broken="$major.$minor.$((patch + 1))-beta.9999"
           printf "UPDATE core_person SET display_name = 'wiped by a broken release';\nUPDATE core_meta SET value = '9998' WHERE key = 'schema_version';\n" > packages/db/migrations/9998_install_test_wipe.sql
           printf "INSERT INTO install_test_table_that_does_not_exist VALUES (1);\nUPDATE core_meta SET value = '9999' WHERE key = 'schema_version';\n" > packages/db/migrations/9999_install_test_fail.sql
-          sed -i 's/export const CORE_SCHEMA_VERSION = [0-9]*;/export const CORE_SCHEMA_VERSION = 9999;/' packages/db/src/migrate.ts
+          # CORE_SCHEMA_VERSION follows the migration files (packages/db/scripts/schema-version.mjs,
+          # run by the release build's `pnpm build`), so the broken release expects 9999.
           node scripts/release/build-release.ts --version "$broken" --out broken-release
-          git checkout -- packages/db/src/migrate.ts
           rm packages/db/migrations/9998_install_test_wipe.sql packages/db/migrations/9999_install_test_fail.sql
+          node packages/db/scripts/schema-version.mjs
           set +e
           node packages/create-composable-os/dist/cli.js upgrade --yes --version "$broken" --bundle-dir broken-release --unverified | tee upgrade.log
           code=${PIPESTATUS[0]}

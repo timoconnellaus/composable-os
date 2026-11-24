@@ -8,9 +8,11 @@ const migrationsDir = fileURLToPath(new URL("../../packages/db/migrations", impo
 /**
  * Our own gatekeepers (packages/gatekeeper-webhook, packages/gatekeeper-email-send), bundled to
  * run next to the runner as auxiliary Workers, so tests drive the real gatekeepers through the
- * integration host.
+ * integration host. `accounting-fake` is the fake accounting system's gatekeeper (stage 61,
+ * packages/gatekeeper-accounting/src/fake-worker.ts), bound only here and in local development.
  */
-function bundleGatekeeper(name: "webhook" | "email-send" | "payments"): Promise<string> {
+type GatekeeperName = "webhook" | "email-send" | "payments" | "accounting-fake";
+function bundleGatekeeper(name: GatekeeperName): Promise<string> {
   // Once per run. `workers` below is called again for each test file, and rebuilding in place
   // lets a pool that is starting read a half-written bundle (it then has no GatekeeperVendor).
   let bundle = gatekeeperBundles.get(name);
@@ -23,14 +25,16 @@ function bundleGatekeeper(name: "webhook" | "email-send" | "payments"): Promise<
 
 const gatekeeperBundles = new Map<string, Promise<string>>();
 
-async function buildGatekeeper(name: "webhook" | "email-send" | "payments"): Promise<string> {
+async function buildGatekeeper(name: GatekeeperName): Promise<string> {
   const outfile = fileURLToPath(
     new URL(`./.wrangler/test-gatekeepers/${name}.js`, import.meta.url),
   );
+  const entry =
+    name === "accounting-fake"
+      ? "../../packages/gatekeeper-accounting/src/fake-worker.ts"
+      : `../../packages/gatekeeper-${name}/src/worker.ts`;
   await build({
-    entryPoints: [
-      fileURLToPath(new URL(`../../packages/gatekeeper-${name}/src/worker.ts`, import.meta.url)),
-    ],
+    entryPoints: [fileURLToPath(new URL(entry, import.meta.url))],
     outfile,
     bundle: true,
     format: "esm",
@@ -94,7 +98,16 @@ export default defineWorkersTestConfig({
           entrypoint: "GatekeeperVendor",
         },
         GATEKEEPER_PAYMENTS: { name: "cos-gatekeeper-payments", entrypoint: "GatekeeperVendor" },
+        GATEKEEPER_ACCOUNTING_FAKE: {
+          name: "cos-gatekeeper-accounting-fake",
+          entrypoint: "GatekeeperVendor",
+        },
         TEST_EMAIL_OUTBOX: { name: "fake-email-service", entrypoint: "Outbox" },
+        // What a test does to the fake books, as a bookkeeper (or a failing network) would.
+        TEST_ACCOUNTING_BOOKS: {
+          name: "cos-gatekeeper-accounting-fake",
+          entrypoint: "FakeBooksControl",
+        },
       },
       workers: [
         {
@@ -142,6 +155,21 @@ export default defineWorkersTestConfig({
             PAYMENTS_EVENTS: { className: "PaymentsEvents", useSQLite: true },
             FAKE_PAYMENTS: { className: "FakePaymentsLedger", useSQLite: true },
             PAYMENTS_GATEKEEPER: { className: "PaymentsGatekeeper", useSQLite: true },
+          },
+        },
+        {
+          name: "cos-gatekeeper-accounting-fake",
+          modules: true,
+          scriptPath: await bundleGatekeeper("accounting-fake"),
+          compatibilityDate: "2026-09-04",
+          compatibilityFlags: ["allow_irrevocable_stub_storage"],
+          durableObjects: {
+            FAKE_BOOKS: { className: "FakeAccountingBooks", useSQLite: true },
+            // Reached only as a facet; declared so the runtime registers the class.
+            FAKE_ACCOUNTING_GATEKEEPER: {
+              className: "FakeAccountingGatekeeper",
+              useSQLite: true,
+            },
           },
         },
         {

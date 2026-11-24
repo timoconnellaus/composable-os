@@ -189,6 +189,8 @@ export const GATEKEEPER_ROUTES: Readonly<Record<string, readonly string[]>> = {
   webhook: ["/gatekeeper/webhook/in/*"],
   payments: ["/gatekeeper/payments/in/*", "/gatekeeper/payments/fake/pay/*"],
   fake: [],
+  // The fake accounting books (stage 61): development and tests only, and it serves no routes.
+  "accounting-fake": [],
 };
 
 /** Whether `pathname` matches a layout pattern. */

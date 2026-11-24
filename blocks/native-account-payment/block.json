@@ -1,0 +1,12 @@
+{
+  "name": "native-account-payment",
+  "pack": null,
+  "skin": "native",
+  "noPurchase": true,
+  "operations": [],
+  "files": ["payment.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/client": "*"
+  }
+}

@@ -4,6 +4,8 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Ready for a merge queue: the event fires only if one is configured on main, and never otherwise.
+  merge_group:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -65,11 +67,15 @@ jobs:
         env:
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          MG_BASE: ${{ github.event.merge_group.base_sha }}
+          MG_HEAD: ${{ github.event.merge_group.head_sha }}
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.sha }}
         run: |
           if [ -n "$PR_BASE" ]; then
             files=$(git diff --name-only "$PR_BASE...$PR_HEAD") || files=""
+          elif [ -n "$MG_BASE" ]; then
+            files=$(git diff --name-only "$MG_BASE" "$MG_HEAD") || files=""
           else
             files=$(git diff --name-only "$BEFORE" "$AFTER") || files=""
           fi

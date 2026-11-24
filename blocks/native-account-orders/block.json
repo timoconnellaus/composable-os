@@ -1,0 +1,11 @@
+{
+  "name": "native-account-orders",
+  "pack": null,
+  "skin": "native",
+  "operations": ["my.list"],
+  "files": ["orders.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/client": "*"
+  }
+}
