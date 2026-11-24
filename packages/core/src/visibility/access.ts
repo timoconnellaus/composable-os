@@ -79,7 +79,7 @@ export function registerAccessSource(kind: string, implementation: AccessSourceK
 
 /** Whether the host provides a kind of access source. */
 export function hasAccessSourceKind(kind: string): boolean {
-  return kind === "record" || kinds.has(kind);
+  return implementationOf(kind) !== undefined;
 }
 
 /** Removes a kind added with `registerAccessSource` (tests). */
@@ -88,6 +88,7 @@ export function unregisterAccessSource(kind: string): void {
 }
 
 const kindOf = (source: AccessSource) => source.kind ?? "record";
+const implementationOf = (kind: string) => (kind === "record" ? RECORD_KIND : kinds.get(kind));
 
 /** What is wrong with an object's `access` declaration (empty when nothing is). */
 export function accessProblems(object: ObjectDefinition): string[] {
@@ -97,7 +98,7 @@ export function accessProblems(object: ObjectDefinition): string[] {
   const problems: string[] = [];
   declared.sources.forEach((source, i) => {
     const kind = kindOf(source);
-    const implementation = kind === "record" ? RECORD_KIND : kinds.get(kind);
+    const implementation = implementationOf(kind);
     if (!implementation) {
       problems.push(`access.sources.${i}: the host has no source of kind "${kind}"`);
       return;
@@ -139,13 +140,14 @@ export async function holdsAccess(
   };
   const held = new Set<string>();
   for (const source of declared.sources) {
-    const kind = kindOf(source);
-    const implementation = kind === "record" ? RECORD_KIND : kinds.get(kind);
+    // Every kind is known: accessProblems refused the declaration otherwise.
+    const implementation = implementationOf(kindOf(source));
     if (!implementation) continue;
     const left = query.ids.filter((id) => !held.has(id));
     if (!left.length) break;
+    const asked = new Set(left);
     for (const id of await implementation.holders({ ...query, ids: left }, source)) {
-      if (left.includes(id)) held.add(id);
+      if (asked.has(id)) held.add(id);
     }
   }
   return held;
