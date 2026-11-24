@@ -18,9 +18,14 @@ import { newId } from "../ids.ts";
 import type { HandlerContext } from "../operation.ts";
 import { callerMover } from "../records/lifecycle.ts";
 import { orgReader, visibleSource } from "../visibility/index.ts";
-import { applyAdjustments, percentOff, type SeamLine } from "./adjustments.ts";
+import {
+  type AdjustmentShare,
+  applyAdjustments,
+  percentOff,
+  type SeamLine,
+} from "./adjustments.ts";
 import { changeOrderPrice, loadOrderRow, type OrderRow, requireState } from "./orders.ts";
-import { loadDiscountLimit } from "./settings.ts";
+import { type DiscountLimit, loadDiscountLimit } from "./settings.ts";
 
 export type AdjustmentRow = Selectable<CoreDatabase["core_order_adjustment"]>;
 
@@ -67,7 +72,19 @@ export function liveAdjustments(
     .execute();
 }
 
-/** Staff discounts waiting for approval on `orderId`: its checkout cannot open while one does. */
+/** An adjustment row as the seam takes it off. */
+const share = (a: AdjustmentRow): AdjustmentShare => ({
+  lineId: a.line_id,
+  amount: a.amount,
+  percent: a.percent,
+});
+
+/**
+ * Staff discounts a person asked for that wait for approval on `orderId` (over the limit): its
+ * checkout cannot open while one does, since the person at the desk is with the buyer. An AI's
+ * request waits too, but does not stop the buyer paying: an assistant cannot hold an order's
+ * payment by asking (review of PR #380). Approved after the page opened, it is refused.
+ */
 export async function discountsWaiting(
   db: Kysely<CoreDatabase>,
   orderId: string,
@@ -77,6 +94,7 @@ export async function discountsWaiting(
     .selectFrom("core_pending_action")
     .select((eb) => eb.fn.countAll<number>().as("n"))
     .where("operation", "=", "order.adjust")
+    .where("actor", "=", "human")
     .where("status", "=", "pending")
     .where("expires_at", ">", now)
     .where((eb) => eb(eb.fn("json_extract", ["input", eb.val("$.id")]), "=", orderId))
@@ -96,10 +114,7 @@ function plan(
   live: readonly AdjustmentRow[],
   request: StaffDiscountRequest,
 ): Planned {
-  const now = applyAdjustments(
-    lines,
-    live.map((a) => ({ lineId: a.line_id, amount: a.amount })),
-  );
+  const now = applyAdjustments(lines, live.map(share));
   const nets = lines.map((line, i) => line.total - (now.discounts[i] ?? 0));
   let targets = nets;
   if (request.lineId !== undefined) {
@@ -160,6 +175,16 @@ export async function staffDiscountWithinLimit(
     if (error instanceof ValidationError) return true;
     throw error;
   }
+  return withinLimit(lines, live, planned, limit);
+}
+
+/** Every staff discount on the order with `planned` is within `limit`. */
+function withinLimit(
+  lines: readonly OrderLineCost[],
+  live: readonly AdjustmentRow[],
+  planned: Planned,
+  limit: DiscountLimit,
+): boolean {
   const staff =
     live.filter((a) => a.kind === "staff").reduce((sum, a) => sum + a.amount, 0) + planned.amount;
   const subtotal = lines.reduce((sum, line) => sum + line.total, 0);
@@ -225,8 +250,8 @@ async function reprice(
 
 /**
  * Gives a staff discount on a pending order, in the calling batch: the adjustment, the lines'
- * shares and the order's new total, or nothing. The limit was the pipeline's to check
- * (`staffDiscountWithinLimit`): a call that reaches here is within it or was approved.
+ * shares and the order's new total, or nothing. The pipeline queued a call over the limit
+ * (`staffDiscountWithinLimit`); a call that reaches here unapproved is judged again on this read.
  */
 export async function giveStaffDiscount(
   ctx: HandlerContext,
@@ -236,11 +261,22 @@ export async function giveStaffDiscount(
   const row = await loadOrderRow(ctx.db, orderId);
   requireState(row, ["pending"], "given a discount");
   await refuseOpenCheckout(ctx, row);
-  const [lines, live] = await Promise.all([
+  const [lines, live, limit] = await Promise.all([
     linesOf(ctx.db, row.id),
     liveAdjustments(ctx.db, row.id),
+    loadDiscountLimit(ctx.db),
   ]);
   const planned = plan(lines, live, request);
+  // The pipeline judged the limit on an earlier read (`reviewWhen`): another discount may have
+  // landed since. Judged again on what this write is made from, which the order's version check
+  // holds to commit (review of PR #380). An approved call is an admin's decision, and the dry run
+  // of a call being queued is the approver's to judge.
+  if (!ctx.approval && !ctx.simulation && !withinLimit(lines, live, planned, limit)) {
+    throw new ConflictError(
+      "Another discount was given on this order meanwhile, and with it this one is over the limit. Ask again: it will wait for an admin's approval.",
+      { rule: "discount_limit", order: row.id },
+    );
+  }
   const id = newId("orderAdjustment");
   ctx.write(
     ctx.db.insertInto("core_order_adjustment").values({
@@ -257,8 +293,8 @@ export async function giveStaffDiscount(
     }),
   );
   const repriced = await reprice(ctx, row, lines, [
-    ...live.map((a) => ({ lineId: a.line_id, amount: a.amount })),
-    { lineId: planned.lineId, amount: planned.amount },
+    ...live.map(share),
+    { lineId: planned.lineId, amount: planned.amount, percent: planned.percent },
   ]);
   return { ...repriced, adjustmentId: id };
 }
@@ -285,10 +321,5 @@ export async function removeAdjustment(
       .where("order_id", "=", row.id)
       .where("removed_at", "is", null),
   );
-  return reprice(
-    ctx,
-    row,
-    lines,
-    live.filter((a) => a.id !== adjustmentId).map((a) => ({ lineId: a.line_id, amount: a.amount })),
-  );
+  return reprice(ctx, row, lines, live.filter((a) => a.id !== adjustmentId).map(share));
 }

@@ -1912,6 +1912,14 @@ function outsideError(error: unknown): OperationError {
   ) {
     return new ValidationError("There are not enough places left", { rule: "capacity" });
   }
+  // A discount given while the buyer's payment page was being opened (migration 0951, ADR 0690):
+  // their own checkout, so they are told to pay again for the new price, and no more than that.
+  if (
+    typed.code === "conflict" &&
+    (typed.details as { rule?: unknown })?.rule === "price_changed"
+  ) {
+    return typed;
+  }
   // A free trial another start took a moment before (migration 0531, ADR 0489): the caller's own
   // start, so they are told to start again (which gives them that page), and no more than that.
   if (typed.code === "conflict" && (typed.details as { rule?: unknown })?.rule === "trial_held") {

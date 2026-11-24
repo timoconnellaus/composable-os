@@ -28,6 +28,11 @@ export interface SeamLine {
 export interface AdjustmentShare {
   lineId: string | null;
   amount: number;
+  /**
+   * Asked as a percentage: on the whole order, each line's share is the percentage of it rounded
+   * down (`percentOff`), not a proportion of the sum.
+   */
+  percent?: number | null | undefined;
 }
 
 export interface Adjusted {
@@ -44,8 +49,9 @@ export interface Adjusted {
 /**
  * Takes `adjustments` off `lines`, in order, in whole minor units: one on a line comes off that
  * line, one on the whole order is spread over the lines by what each still costs
- * (`splitInProportion`). A line never goes below nothing: what would take it further is not
- * taken. The discounts always sum to `discount`, and `total` is `subtotal - discount`.
+ * (`splitInProportion`), or for a percentage by the percentage of each line rounded down. A line
+ * never goes below nothing: what would take it further is not taken. The discounts always sum to
+ * `discount`, and `total` is `subtotal - discount`.
  */
 export function applyAdjustments(
   lines: readonly SeamLine[],
@@ -63,7 +69,17 @@ export function applyAdjustments(
     }
     const remaining = lines.map((_, index) => left(index));
     const room = remaining.reduce((sum, value) => sum + value, 0);
-    const shares = splitInProportion(Math.min(adjustment.amount, room), remaining);
+    const amount = Math.min(adjustment.amount, room);
+    // A percentage's own shares: each line's rounded down. They sum to its amount while the lines
+    // cost what they did when it was given; otherwise (an earlier adjustment taken off since) its
+    // amount is spread by them, or by what each line costs when they cannot hold it.
+    const floors =
+      adjustment.percent != null
+        ? remaining.map((net) => percentOff([net], adjustment.percent as number))
+        : null;
+    const held = floors ? floors.reduce((sum, value) => sum + value, 0) : 0;
+    const weights = floors && held >= amount ? floors : remaining;
+    const shares = splitInProportion(amount, weights);
     for (const [index, share] of shares.entries()) {
       discounts[index] = (discounts[index] ?? 0) + Math.min(share, remaining[index] ?? 0);
     }

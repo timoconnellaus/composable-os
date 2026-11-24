@@ -1025,9 +1025,12 @@ async function approveActions(
       );
     }
   }
-  // A staff discount over the limit, or asked by an AI (stage 34, ADR 0691): approved only by a
-  // human admin, so money off beyond what the owner allowed is always the owner's decision.
-  const discount = targets.find((t) => t.operation === "order.adjust");
+  // A staff discount over the limit, or asked by an AI, and an AI's taking one off (stage 34,
+  // ADR 0691): approved only by a human admin, so an order's price beyond what the owner allowed,
+  // or an AI's change to it, is always the owner's decision.
+  const discount = targets.find(
+    (t) => t.operation === "order.adjust" || t.operation === "order.unadjust",
+  );
   if (discount) {
     if (ctx.actor !== "human") {
       throw new ForbiddenError("A discount is approved by a person, never by an AI actor", {

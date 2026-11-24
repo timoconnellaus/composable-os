@@ -517,3 +517,184 @@ describe("statements", () => {
     expect(mostBound).toBeLessThan(100);
   });
 });
+
+describe("the review of PR #380", () => {
+  it("a discount given while the buyer's page is opening: the page is refused, and the next is for the new price", async () => {
+    const order = await buy([{ id: yoga }]);
+    const original = runtime.callAsHost.bind(runtime);
+    let fired = false;
+    runtime.callAsHost = async (input) => {
+      if (input.method === "createCheckout" && !fired) {
+        fired = true;
+        // The desk gives 10% while the buyer's checkout is at the provider.
+        await adjust({ id: order.id, percent: 10, reason: "Desk" });
+      }
+      return original(input);
+    };
+    let refused: Awaited<ReturnType<typeof refusal>>;
+    try {
+      refused = await refusal(checkout(order));
+    } finally {
+      runtime.callAsHost = original;
+    }
+    expect(fired).toBe(true);
+    expect(refused.details.rule).toBe("price_changed");
+    expect(await checkout(order)).toMatchObject({ amount: 10_800 });
+    await providerPays(order.id);
+    expect(await loadOrderRow(db.query, order.id)).toMatchObject({ state: "paid", paid: 10_800 });
+  });
+
+  it("the database refuses a new total once a payment page is recorded", async () => {
+    const order = await buy([{ id: yoga }]);
+    await checkout(order);
+    await expect(
+      env.DB.prepare(
+        "UPDATE core_order SET total = 100, discount = 11900, version = version + 1 WHERE id = ?",
+      )
+        .bind(order.id)
+        .run(),
+    ).rejects.toThrow(/core_order_checkout_open/);
+  });
+
+  it("a discount that lands between the limit check and the write is judged again", async () => {
+    const order = await buy([{ id: yoga }]);
+    let armed = false;
+    let fired = false;
+    // Another desk's 15% commits after this call's limit was read and before its handler reads.
+    const hook = () => adjust({ id: order.id, percent: 15, reason: "Other desk" }, staff(admin));
+    const wrap = (statement: D1PreparedStatement, query: string): D1PreparedStatement =>
+      new Proxy(statement, {
+        get(inner, name) {
+          if (name === "bind") {
+            return (...values: unknown[]) => {
+              if (values.includes("order_discount_limit")) armed = true;
+              return wrap(inner.bind(...values), query);
+            };
+          }
+          if (name === "all" || name === "first" || name === "raw" || name === "run") {
+            return async (...args: unknown[]) => {
+              if (armed && !fired && /from "core_order" /.test(query)) {
+                fired = true;
+                await hook();
+              }
+              // biome-ignore lint/suspicious/noExplicitAny: forwarding a D1 statement's own method.
+              return (inner as any)[name](...args);
+            };
+          }
+          const value = Reflect.get(inner, name);
+          return typeof value === "function" ? value.bind(inner) : value;
+        },
+      });
+    const hooked = new Proxy(env.DB, {
+      get(target, key) {
+        if (key === "prepare") return (query: string) => wrap(target.prepare(query), query);
+        const value = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const refused = await refusal(
+      adjust(
+        { id: order.id, percent: 15, reason: "This desk" },
+        staff(desk, { db: createCrmDb(hooked) }),
+      ),
+    );
+    expect(fired).toBe(true);
+    expect(refused.details.rule).toBe("discount_limit");
+    expect(await loadOrderRow(db.query, order.id)).toMatchObject({ total: 10_200 });
+    // Asked again, it waits for an admin.
+    await pending(adjust({ id: order.id, percent: 15, reason: "This desk" }));
+  });
+
+  it("an AI's request to take a discount off waits for an admin, under every preset", async () => {
+    const order = await buy([{ id: yoga }]);
+    await adjust({ id: order.id, percent: 10, reason: "Desk" });
+    const id = (await get(order.id)).adjustments?.[0]?.id;
+    let last = "";
+    for (const preset of ["cautious", "balanced", "autonomous"] as const) {
+      await setPreset(preset);
+      const queued = await pending(
+        run(
+          "order.unadjust",
+          { id: order.id, adjustmentId: id },
+          staff(admin, { actor: "assistant" }),
+        ),
+      );
+      last = queued.actionId;
+      expect((await loadOrderRow(db.query, order.id)).total).toBe(10_800);
+    }
+    await setPreset("balanced");
+    expect((await refusal(run("approval.approve", { actionIds: [last] }, staff(desk)))).code).toBe(
+      "forbidden",
+    );
+    await run("approval.approve", { actionIds: [last] }, staff());
+    expect((await loadOrderRow(db.query, order.id)).total).toBe(12_000);
+  });
+
+  it("an AI's waiting request does not stop the buyer paying; a person's over the limit does", async () => {
+    const order = await buy([{ id: yoga }]);
+    await pending(
+      adjust({ id: order.id, amount: 100, reason: "Asked" }, staff(admin, { actor: "assistant" })),
+    );
+    expect(await checkout(order)).toMatchObject({ amount: 12_000 });
+  });
+
+  it("erase redacts the audit log's copy of a discount's reason", async () => {
+    const email = `${unique("erase")}@buyers.example`;
+    const order = await run<OrderOut>(
+      "order.start",
+      { lines: [{ object: CLASS, id: mat }], email },
+      guest(),
+    );
+    await adjust({ id: order.id, amount: 100, reason: "Says money is short this month" });
+    const id = (await get(order.id)).adjustments?.[0]?.id;
+    await run("order.unadjust", { id: order.id, adjustmentId: id }, staff(desk));
+    const row = await loadOrderRow(db.query, order.id);
+    const audits = await env.DB.prepare(
+      "SELECT id FROM core_audit WHERE operation IN ('order.adjust', 'order.unadjust') AND json_extract(input, '$.id') = ?",
+    )
+      .bind(order.id)
+      .all<{ id: string }>();
+    expect(audits.results).toHaveLength(2);
+    await run("person.erase", { id: row.person_id }, context(admin));
+    for (const { id: auditId } of audits.results) {
+      const after = await env.DB.prepare(
+        "SELECT a.input, (SELECT count(*) FROM core_audit_redactions r WHERE r.audit_id = a.id) AS redacted FROM core_audit a WHERE a.id = ?",
+      )
+        .bind(auditId)
+        .first<{ input: string; redacted: number }>();
+      expect(after?.redacted).toBe(1);
+      expect(after?.input).not.toContain("money is short");
+    }
+  });
+
+  it("a percentage of the whole order is each line's rounded down, not a share of the sum", async () => {
+    for (let a = 1; a < 40; a += 1) {
+      for (let b = 1; b < 40; b += 1) {
+        for (const percent of [10, 12.5, 33, 50, 99]) {
+          const amount = percentOff([a, b], percent);
+          if (amount <= 0) continue;
+          const { discounts } = applyAdjustments(
+            [
+              { id: "a", total: a },
+              { id: "b", total: b },
+            ],
+            [{ lineId: null, amount, percent }],
+          );
+          expect(discounts).toEqual([percentOff([a], percent), percentOff([b], percent)]);
+        }
+      }
+    }
+    const cent = await create(CLASS, { name: "One cent", price: 0.01 });
+    const three = await create(CLASS, { name: "Three cents", price: 0.03 });
+    const order = await buy([{ id: cent }, { id: three }]);
+    // Over the limit: an admin approves it.
+    const queued = await pending(adjust({ id: order.id, percent: 99, reason: "Nearly free" }));
+    await run("approval.approve", { actionIds: [queued.actionId] }, staff());
+    const lines = await env.DB.prepare(
+      "SELECT line_discount FROM core_order_line WHERE order_id = ? ORDER BY position",
+    )
+      .bind(order.id)
+      .all<{ line_discount: number }>();
+    expect(lines.results.map((l) => l.line_discount)).toEqual([0, 2]);
+  });
+});

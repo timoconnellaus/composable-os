@@ -30,6 +30,8 @@ import {
 
 export interface StoreSubject {
   object: "person" | "organisation";
+  /** The record the erase was asked for: redaction markers name it. */
+  recordId?: string | undefined;
   recordIds: readonly string[];
   /** Ids plus identifying terms, lower-cased, 6+ characters. */
   terms: readonly string[];
@@ -997,14 +999,45 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
   );
   const orders = await ctx.db.selectFrom("core_order").selectAll().where(theirOrder).execute();
   // Their orders' adjustments (stage 34, ADR 0690) keep their amounts, kinds and sources (the
-  // order is a financial record); a staff reason, which may say something about them, is blanked.
+  // order is a financial record); a staff reason, which may say something about them, is blanked,
+  // and so is the audit log's copy of it: the input of each order.adjust and order.unadjust on
+  // their orders is redacted through the sanctioned path (core_audit_redactions). Their input
+  // names only the order, so the erase's own term match never finds them.
   if (orders.length) {
+    const orderIds = jsonList(orders.map((row) => row.id));
     ctx.write(
       ctx.db
         .updateTable("core_order_adjustment")
         .set({ reason: null })
         .where("reason", "is not", null)
-        .where("order_id", "in", jsonList(orders.map((row) => row.id))),
+        .where("order_id", "in", orderIds),
+      ctx.db
+        .insertInto("core_audit_redactions")
+        .orIgnore()
+        .columns([
+          "audit_id",
+          "change_id",
+          "object_type",
+          "record_id",
+          "operation",
+          "user_id",
+          "at",
+        ])
+        .expression(
+          ctx.db
+            .selectFrom("core_audit as a")
+            .select([
+              "a.id as audit_id",
+              sql<number | null>`NULL`.as("change_id"),
+              sql<string>`${s.object}`.as("object_type"),
+              sql<string>`${s.recordId ?? s.recordIds[0] ?? ""}`.as("record_id"),
+              sql<string>`${ctx.operation}`.as("operation"),
+              sql<string>`${ctx.user.id}`.as("user_id"),
+              sql<string>`${ctx.now}`.as("at"),
+            ])
+            .where("a.operation", "in", ["order.adjust", "order.unadjust"])
+            .where(sql<SqlBool>`json_extract(a.input, '$.id') IN ${orderIds}`),
+        ),
     );
   }
   // Their purchases still open (stage 44 step 8, ADR 0646): an order nothing was paid on is

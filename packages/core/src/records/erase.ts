@@ -353,6 +353,7 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
   // notifications, integration events and the outbox. All in this batch.
   const subject = {
     object,
+    recordId,
     recordIds,
     terms,
     names: request.names ?? [],

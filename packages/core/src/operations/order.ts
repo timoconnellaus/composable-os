@@ -1052,7 +1052,8 @@ export const orderUnadjust = defineOperation({
   name: "order.unadjust",
   description:
     "Take a discount off a pending order whose payment page has not opened: the order's total " +
-    "goes back up by what it took off. Get the discount's id from order.get. Returns the order.",
+    "goes back up by what it took off. Get the discount's id from order.get. An AI's request " +
+    "always waits for an admin. Returns the order.",
   input: z.object({
     id: orderId,
     adjustmentId: z.string().min(1).max(64).describe("The discount to take off (oad_…)"),
@@ -1061,6 +1062,9 @@ export const orderUnadjust = defineOperation({
   permission: "orders:discount",
   risk: "write",
   actors: ["human", "assistant", "mcp"],
+  // Raising the price a customer was given, perhaps undoing an admin's approval: an AI asks, a
+  // human admin decides (review of PR #380).
+  alwaysReview: ["assistant", "mcp"],
   async handler(input, ctx) {
     return repriced(ctx, await removeAdjustment(ctx, input.id, input.adjustmentId));
   },
