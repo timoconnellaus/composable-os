@@ -16,7 +16,7 @@
 //   role) reads how every day went and may tick or finish one for someone who may do it, with why.
 // - A finished or missed run never changes (migration 0815's triggers hold for these as for any).
 import type { CoreDatabase } from "@composable-os/db";
-import { CompiledQuery, type Kysely } from "kysely";
+import { CompiledQuery, type Kysely, sql } from "kysely";
 import { jsonList } from "../records/common.ts";
 import {
   addLocalDays,
@@ -407,15 +407,19 @@ export async function dayRunsEnded(
   now: number,
   limit = DAY_CLOSE_PER_TICK,
 ) {
-  return db
-    .selectFrom("core_checklist_run")
-    .selectAll()
-    .where("state", "=", "open")
-    .where("object_type", "=", DAY_OBJECT)
-    .where("closes", "<=", now)
-    .orderBy("closes")
-    .limit(limit)
-    .execute();
+  return (
+    db
+      .selectFrom("core_checklist_run")
+      .selectAll()
+      // core_checklist_run_open's predicate written out, and `+` so the planner does not walk the
+      // (object_type, ...) key instead: that read every day run ever made, every minute.
+      .where(sql<boolean>`state = 'open'`)
+      .where(sql<boolean>`+object_type = ${DAY_OBJECT}`)
+      .where("closes", "<=", now)
+      .orderBy("closes")
+      .limit(limit)
+      .execute()
+  );
 }
 
 /** Whether there is a day's checklist work of `step` now (read outside any operation). */
