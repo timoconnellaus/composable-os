@@ -1314,6 +1314,18 @@ export interface CoreAgreementAnswerTable {
   entered_by: Defaulted<string | null>;
 }
 
+/**
+ * Migration 1190 (ADR 0811): a restricted field's value, apart from its record. In no view; read
+ * by its author and through `record.readRestricted` only.
+ */
+export interface CoreRestrictedValueTable {
+  object_type: string;
+  record_id: string;
+  field: string;
+  value: string;
+  written_at: string;
+}
+
 /** Migration 0851 (ADR 0642): a Person staff marked as a minor. */
 export interface CoreAgreementMinorTable {
   person_id: string;
@@ -3691,6 +3703,7 @@ export interface CoreDatabase {
   core_agreement_signature: CoreAgreementSignatureTable;
   core_agreement_answer: CoreAgreementAnswerTable;
   core_agreement_minor: CoreAgreementMinorTable;
+  core_restricted_value: CoreRestrictedValueTable;
   core_agreement_desk_session: CoreAgreementDeskSessionTable;
   core_device: CoreDeviceTable;
   core_device_guard: { device_id: string; credential_hash: string };

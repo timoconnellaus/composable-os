@@ -145,3 +145,10 @@ has `useClassTypes` over `my.list`; staff's reads with `record.list`; the coach 
 the coach screens' hooks and not `useAssign`, `usePeople`, `usePublish`, `useDraft` or
 `useClassToday`, and its client view shows its client's sessions and none of anyone else's.
 `packages/core/test/screens.test.ts`: the role's admin screens.
+
+## Amendment, 2026-11-24 (fast logging on a phone)
+A coach un-ticks a set logged by mistake: `x.programs.logRemove` declares `programs:coach`, and
+under the limit `record.delete` is held as `record.update` is (the stored record must be about one
+of the account's People, else not found) instead of refused. A delete is to the Trash and still
+passes the gate, so the approval policy may hold it. `record.count`, `createMany` and batches stay
+refused. Proof: `apps/runner/test/programs-coach.test.ts`.

@@ -3,7 +3,7 @@
 import { defineAutomation } from "@composable-os/sdk";
 
 /** Days a lead may stay New before its owner is reminded. */
-export const NEW_LEAD_REMINDER_DAYS = 2;
+const NEW_LEAD_REMINDER_DAYS = 2;
 
 export const notifyNewLead = defineAutomation({
   label: "Notify the owner of a new lead",

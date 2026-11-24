@@ -6,6 +6,7 @@ import type { Principal } from "@composable-os/auth";
 import { describe, expect, it } from "vitest";
 import { aiEnvView } from "../src/server/ai.ts";
 import { runOperation } from "../src/server/operations.ts";
+import { ensureAdmin } from "./helpers.ts";
 
 const admin: Principal = {
   userId: "usr_01JC00000000000000000000A1",
@@ -13,16 +14,6 @@ const admin: Principal = {
   name: "AI Admin",
   roles: [],
 };
-
-async function ensureAdmin() {
-  const now = new Date().toISOString();
-  await env.DB.prepare(
-    "INSERT OR IGNORE INTO core_user (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
-  )
-    .bind(admin.userId, admin.name, admin.email, now, now)
-    .run();
-  await env.DB.prepare("UPDATE core_user SET role = 'admin' WHERE id = ?").bind(admin.userId).run();
-}
 
 const fakeEnv = { ...env, AI_FAKE_MODEL: "true" };
 // .dev.vars may set AI_FAKE_MODEL locally; "without AI" means it is off.
@@ -40,7 +31,7 @@ async function op<T = Record<string, unknown>>(
 
 describe("without AI", () => {
   it("Settings → AI explains, summaries are unavailable and search is full-text", async () => {
-    await ensureAdmin();
+    await ensureAdmin(admin);
     const settings = await op<{
       configured: boolean;
       admin: { keyModes: string[]; missing: string[] };
@@ -64,7 +55,7 @@ describe("without AI", () => {
 
 describe("with the local stand-ins", () => {
   it("tests a role, summarises a record and finds similar records after the post-commit drain", async () => {
-    await ensureAdmin();
+    await ensureAdmin(admin);
     const test = await op<{ ok: boolean; model: string }>(
       "ai.testRole",
       { role: "summarise" },
@@ -102,7 +93,7 @@ describe("with the local stand-ins", () => {
   });
 
   it("Settings → AI lists the custom provider as gateway-only and warns on a shared review model", async () => {
-    await ensureAdmin();
+    await ensureAdmin(admin);
     type S = {
       roles: { role: string; warnings: string[] }[];
       providers: { id: string; ready: boolean; reason: string | null }[];

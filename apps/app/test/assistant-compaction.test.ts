@@ -5,24 +5,13 @@ import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { replayCacheReport } from "@composable-os/agent-core";
 import type { Principal } from "@composable-os/auth";
-import {
-  type AssistantEvent,
-  type AssistantThreadState,
-  fakeStandIn,
-  invokeByName,
-  resolveActingUser,
-} from "@composable-os/core";
+import { fakeStandIn, invokeByName, resolveActingUser } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  type AssistantHttpEnv,
-  handleState,
-  handleTurn,
-  threadStub,
-} from "../src/server/assistant/http.ts";
+import { type AssistantHttpEnv, threadStub } from "../src/server/assistant/http.ts";
 import { runScheduledMaintenance } from "../src/server/purge.ts";
+import { turn as assistantTurn, threadState } from "./assistant-helpers.ts";
 
-const ORIGIN = "https://crm.test";
 const appEnv = env as unknown as AssistantHttpEnv;
 const db = createCrmDb(env.DB);
 
@@ -69,23 +58,7 @@ async function rails(
 const stubFor = (m: Member) =>
   threadStub(appEnv.ASSISTANT as NonNullable<AssistantHttpEnv["ASSISTANT"]>, m.user.id);
 
-async function turn(m: Member, text: string): Promise<AssistantEvent[]> {
-  const response = await handleTurn(
-    new Request(`${ORIGIN}/api/assistant/turn`, {
-      method: "POST",
-      headers: { "content-type": "application/json", origin: ORIGIN },
-      body: JSON.stringify({ text }),
-    }),
-    appEnv,
-    m.principal,
-  );
-  expect(response.status).toBe(200);
-  return (await response.text())
-    .split("\n\n")
-    .map((frame) => frame.split("\n").find((l) => l.startsWith("data: ")))
-    .filter((l): l is string => Boolean(l))
-    .map((l) => JSON.parse(l.slice(6)) as AssistantEvent);
-}
+const turn = (m: Member, text: string) => assistantTurn(m.principal, { text });
 
 /** `count` turns of about `chars` characters each, each with a word only it has. */
 async function chat(m: Member, count: number, chars: number, from = 0) {
@@ -120,14 +93,7 @@ async function settled(m: Member) {
   await vi.waitFor(async () => expect((await status(m)).compacting).toBe(false));
 }
 
-async function state(m: Member): Promise<AssistantThreadState> {
-  const response = await handleState(
-    new Request(`${ORIGIN}/api/assistant/thread`),
-    appEnv,
-    m.principal,
-  );
-  return (await response.json()) as AssistantThreadState;
-}
+const state = (m: Member) => threadState(m.principal);
 
 async function decisions() {
   const { results } = await env.DB.prepare(

@@ -9,7 +9,7 @@ import { leadAutomations } from "./automations.ts";
 import { leadsDashboard } from "./dashboards.ts";
 import { convert, disqualify, UNQUALIFIED_REASONS } from "./tools.ts";
 
-export const SOURCES = [
+const SOURCES = [
   { value: "website", label: "Website" },
   { value: "referral", label: "Referral" },
   { value: "event", label: "Event" },

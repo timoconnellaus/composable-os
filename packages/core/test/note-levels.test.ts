@@ -14,7 +14,7 @@ import {
   storeSummaryStatement,
 } from "../src/ai/summaries.ts";
 import { type ActingUser, type Actor, invoke } from "../src/index.ts";
-import { auditRows, context, createUser, db, unique } from "./helpers.ts";
+import { auditRows, context, createUser, db, refusal, unique } from "./helpers.ts";
 
 let admin: ActingUser;
 let otherAdmin: ActingUser;
@@ -25,15 +25,6 @@ let manager: ActingUser;
 let keeper: ActingUser;
 let person: string;
 let otherPerson: string;
-
-async function refusal(promise: Promise<unknown>) {
-  try {
-    await promise;
-  } catch (error) {
-    return error as { code: string; message: string; details?: Record<string, unknown> };
-  }
-  throw new Error("expected a refusal");
-}
 
 const as = (user: ActingUser, actor: Actor = "human") =>
   context(
