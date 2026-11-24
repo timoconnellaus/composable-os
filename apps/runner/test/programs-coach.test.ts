@@ -323,6 +323,12 @@ describe("the coach role (ADR 0881)", () => {
         "record.get",
         "record.list",
         "screens.mine",
+        // Daily checklists' tools open to every staff account (anyStaff, ADR 0652): their host
+        // operations answer with only the checklists the account may do.
+        "x.dailychecks.day",
+        "x.dailychecks.done",
+        "x.dailychecks.tick",
+        "x.dailychecks.today",
         "x.programs.history",
         "x.programs.logAdd",
         "x.programs.logUpdate",

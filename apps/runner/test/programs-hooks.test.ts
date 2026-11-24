@@ -240,6 +240,7 @@ describe("the hooks against the host", () => {
       [
         "useBank",
         "useClassTypes",
+        "useClientPastSessions",
         "useClientSessions",
         "useExercises",
         "useHistory",
