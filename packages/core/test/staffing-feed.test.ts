@@ -23,7 +23,7 @@ import {
   readStaffFeed,
 } from "../src/staffing/feed.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
-import { context, createUser, db } from "./helpers.ts";
+import { context, createUser, db, refusal } from "./helpers.ts";
 
 const ext = extId("stfeed");
 const COACH = `${ext}.coach`;
@@ -243,14 +243,6 @@ async function newPerson(key: string, role: "member" | "viewer" = "member") {
   await env.DB.prepare("UPDATE core_user SET name = ? WHERE id = ?").bind(name, user.id).run();
   people[key] = { ...user, name };
   return people[key] as ActingUser;
-}
-async function refusal(promise: Promise<unknown>) {
-  const error = await promise.then(
-    () => null,
-    (e: unknown) => e,
-  );
-  expect(error).toBeTruthy();
-  return error as { code: string; message: string; details?: Record<string, unknown> };
 }
 /** Every stored text a secret could end up in: the audit log, notices, approvals, runs. */
 async function storedText(): Promise<string> {

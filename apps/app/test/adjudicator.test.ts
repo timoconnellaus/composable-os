@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { runAdjudicatorCron } from "../src/server/adjudicator.ts";
 import { aiContextFor } from "../src/server/ai.ts";
 import { runOperation } from "../src/server/operations.ts";
+import { ensureAdmin } from "./helpers.ts";
 
 const admin: Principal = {
   userId: "usr_01JC00000000000000000000J1",
@@ -18,16 +19,6 @@ const admin: Principal = {
 };
 
 const fakeEnv = { ...env, AI_FAKE_MODEL: "true" };
-
-async function ensureAdmin() {
-  const now = new Date().toISOString();
-  await env.DB.prepare(
-    "INSERT OR IGNORE INTO core_user (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
-  )
-    .bind(admin.userId, admin.name, admin.email, now, now)
-    .run();
-  await env.DB.prepare("UPDATE core_user SET role = 'admin' WHERE id = ?").bind(admin.userId).run();
-}
 
 async function op(name: string, input: unknown) {
   const result = await runOperation(fakeEnv, admin, { name, input });
@@ -41,7 +32,7 @@ describe("policy adjudicator wiring", () => {
   });
 
   it("judges a queued action in the background, after the caller got pending_approval", async () => {
-    await ensureAdmin();
+    await ensureAdmin(admin);
     await op("policy.update", { preset: "cautious" });
     await op("adjudicator.setPolicy", { text: "Escalate anything you are unsure about." });
     await op("adjudicator.update", { mode: "shadow" });

@@ -91,10 +91,9 @@ export function Assign({
           ? `${said} With warnings: ${warnings.map((w) => w.message).join(" ")}`
           : said,
       );
-      onChanged();
-      await candidates.refetch?.();
     } catch (error) {
       setRefusal(rosterRefusal(error));
+    } finally {
       onChanged();
       await candidates.refetch?.();
     }

@@ -249,7 +249,9 @@ describe("the hooks against the host", () => {
         "usePrograms",
         "useProgress",
         "useSession",
+        "useSessionLog",
         "useToday",
+        "useUnsavedSets",
         "useUpdateSet",
       ].sort(),
     );

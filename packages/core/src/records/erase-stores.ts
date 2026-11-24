@@ -27,6 +27,7 @@ import {
   subjectMatcher,
   mentionsSql as termsMentioned,
 } from "./erase-subject.ts";
+import { queueEraseRestricted } from "./restricted.ts";
 
 export interface StoreSubject {
   object: "person" | "organisation";
@@ -247,6 +248,10 @@ export async function queueEraseExtensions(ctx: HandlerContext, s: StoreSubject)
   const exec = (query: Compiled) => ctx.db.executeQuery<Record<string, unknown>>(query);
   const handled = new Set<string>();
 
+  // 0. Restricted values (ADR 0811) of the records a Person wrote as their customer: read before
+  // step 2 clears or deletes those records, and gone whatever becomes of them.
+  if (s.object === "person") rows += await queueEraseRestricted(ctx, s.recordIds);
+
   // 1. Side tables: extensions' fields on the erased records themselves.
   const sideTables = [
     ...new Set(
@@ -398,6 +403,19 @@ export async function queueEraseExtensions(ctx: HandlerContext, s: StoreSubject)
         .where("record_id", "=", record.id),
     );
   }
+  // A deleted record's restricted values (ADR 0811), whoever wrote them: one statement per object.
+  const deletedIds = new Map<string, string[]>();
+  for (const record of deleted) {
+    deletedIds.set(record.object, [...(deletedIds.get(record.object) ?? []), record.id]);
+  }
+  for (const [object, ids] of deletedIds) {
+    ctx.write(
+      CompiledQuery.raw(
+        "DELETE FROM core_restricted_value WHERE object_type = ? AND record_id IN (SELECT value FROM json_each(?))",
+        [object, JSON.stringify(ids)],
+      ),
+    );
+  }
 
   // 3. Free text in any extension table that mentions a term (not names: not known to be about
   // them). Linear in the extension tables' size; erase is rare and admin-run.
@@ -437,6 +455,36 @@ export async function queueEraseExtensions(ctx: HandlerContext, s: StoreSubject)
             ]),
           );
         }
+      }
+    }
+    // Restricted values (ADR 0811) that mention a term, as free text is: someone else's words
+    // about the subject lose them, and one that is their address or id alone goes.
+    const restricted = await ctx.db
+      .selectFrom("core_restricted_value")
+      .select(["object_type", "record_id", "field", "value"])
+      .where(mentionsSql(termsJson, sql`value`))
+      .execute();
+    for (const row of restricted) {
+      const next = scrubField(row.value, "text", m, termOnly);
+      if (next === row.value) continue;
+      rows += 1;
+      if (next === null) {
+        ctx.write(
+          ctx.db
+            .deleteFrom("core_restricted_value")
+            .where("object_type", "=", row.object_type)
+            .where("record_id", "=", row.record_id)
+            .where("field", "=", row.field),
+        );
+      } else {
+        ctx.write(
+          ctx.db
+            .updateTable("core_restricted_value")
+            .set({ value: next })
+            .where("object_type", "=", row.object_type)
+            .where("record_id", "=", row.record_id)
+            .where("field", "=", row.field),
+        );
       }
     }
     // Published versions (ADR 0446) are snapshots of records' content: one that mentions a term
