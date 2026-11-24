@@ -11,6 +11,7 @@
 // another way (`waived`) enters its spend state spending nothing, and the mark cannot change while
 // it is in one. Every clock is injected.
 import { env } from "cloudflare:workers";
+import type { CrmDb } from "@composable-os/db";
 import { validateManifest } from "@composable-os/sdk";
 import { beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -27,8 +28,9 @@ import {
   resolveStateRequest,
   updateRecordAsHost,
 } from "../src/index.ts";
+import { FOLLOWERS_MAX } from "../src/records/follows.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
-import { context, createUser, unique } from "./helpers.ts";
+import { context, createUser, db, unique } from "./helpers.ts";
 
 const ext = extId("bkp");
 const KIND = `${ext}.kind`;
@@ -480,6 +482,38 @@ describe("a class cancelled moves its bookings with it (follows)", () => {
       .bind(KLASS, id)
       .first<{ held: number; taken: number }>();
     expect(counter).toMatchObject({ held: 0, taken: 0 });
+  });
+});
+
+describe("what a booking costs its class's cancel (ADR 0841)", () => {
+  it("a bounded number of statements each: FOLLOWERS_MAX of them fit in one D1 invocation", async () => {
+    const batches: number[] = [];
+    const counting: CrmDb = {
+      query: db.query,
+      async batch(statements) {
+        batches.push(statements.length);
+        return db.batch(statements);
+      },
+    };
+    const cost = async (paid: number, desk: number) => {
+      const id = await klass(5 * 60 * MINUTE);
+      for (let i = 0; i < paid; i++) await create(BOOKING, { klass: id, person: personId });
+      for (let i = 0; i < desk; i++) await deskBooking(id);
+      batches.length = 0;
+      await invoke(
+        "record.update",
+        { object: KLASS, id, values: { state: "cancelled" } },
+        { ...at(T), db: counting },
+      );
+      return Math.max(...batches);
+    };
+    const none = await cost(0, 0);
+    // A booking paid from a pass is the dearest: its row, history, search document, its place
+    // given back and its use returned.
+    const perPaid = ((await cost(3, 0)) - none) / 3;
+    const perDesk = ((await cost(0, 3)) - none) / 3;
+    expect(Math.max(perPaid, perDesk)).toBeLessThanOrEqual(8);
+    expect(none + Math.max(perPaid, perDesk) * FOLLOWERS_MAX).toBeLessThan(1000);
   });
 });
 

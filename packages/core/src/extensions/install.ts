@@ -13,6 +13,7 @@ import { ConfigError, ValidationError } from "../errors.ts";
 import { listObjects } from "../fields/index.ts";
 import type { HandlerContext } from "../operation.ts";
 import { CORE_PERMISSION_NAMESPACES } from "../principals.ts";
+import { followsHostIssues } from "../records/follows.ts";
 import { routineMailAvailableNotice } from "../routine-mail/index.ts";
 import { hasAccessSourceKind } from "../visibility/access.ts";
 // The host's own kinds of access source register themselves when loaded: loaded here too, so the
@@ -155,6 +156,13 @@ export async function checkManifest(
   // must let this holder pay, and fields one relation away must exist with the right type.
   if (manifest) {
     for (const issue of allowanceHostIssues(manifest)) {
+      all.push({ stage: "contract", code: "contract", path: issue.path, message: issue.message });
+    }
+  }
+  // A cascade across extensions against what is installed (ADR 0841): the parent's states, and
+  // on an upgrade of the parent's extension, what the installed followers follow.
+  if (manifest) {
+    for (const issue of followsHostIssues(manifest)) {
       all.push({ stage: "contract", code: "contract", path: issue.path, message: issue.message });
     }
   }

@@ -52,7 +52,13 @@ import type { RecordRef } from "../operation.ts";
 import { defineOperation, type HandlerContext, personsTool } from "../operation.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { jsonList, restorableUntil, TRASH_RETENTION_DAYS } from "../records/common.ts";
-import { FOLLOWERS_MAX, followerIds, followersOf } from "../records/follows.ts";
+import {
+  FOLLOWERS_MAX,
+  type Follower,
+  followerIds,
+  followerLeftGuard,
+  followersOf,
+} from "../records/follows.ts";
 import { applyTransition, callerMover } from "../records/lifecycle.ts";
 import {
   assertRestorable,
@@ -1250,7 +1256,8 @@ export async function updateRecord(
  * The state cascade (ADR 0507): when `object`'s record `id` moves into a state an object that
  * follows it names, each of that object's live records pointing at it (in its `from` states)
  * moves to the state given, as the host, in this write's batch, with everything that move does
- * (its place given back, its use returned). More than FOLLOWERS_MAX refuses the move.
+ * (its place given back, its use returned, its time freed). A follower may be in another
+ * extension that requires this one's (ADR 0841). More than FOLLOWERS_MAX in all refuses the move.
  */
 async function moveFollowers(
   ctx: HandlerContext,
@@ -1265,8 +1272,14 @@ async function moveFollowers(
   // read and before the batch commits (a booking of a class being cancelled) would be missed by
   // the cascade, so the batch checks at commit that the record's counter is what this read, less
   // what the cascade gives back, leaves. Read first, so one made between the two reads is moved.
+  // Only when a follower claims places on the record: a pool's counter also counts its members'
+  // claims, which this read does not see, and a follower that draws none is caught below
+  // (ADR 0841).
+  const claiming = following.some(
+    (f) => f.object.claims?.object === object.name && f.object.claims.on === f.relation,
+  );
   const claims =
-    object.capacity && !ctx.simulation
+    object.capacity && claiming && !ctx.simulation
       ? await ctx.db
           .selectFrom("core_capacity_claim")
           .select(["id", "for_type", "for_id", "quantity"])
@@ -1275,16 +1288,22 @@ async function moveFollowers(
           .where("state", "in", ["held", "confirmed"])
           .execute()
       : null;
-  const givenBack = new Set<string>();
+  // Every follower's records first: the limit is on the whole move, whatever objects follow.
+  const moves: { follower: Follower; target: string; ids: string[] }[] = [];
+  let total = 0;
   for (const follower of following) {
-    const target = follower.when[to] as string;
-    const ids = await followerIds(ctx, follower, id);
-    if (ids.length > FOLLOWERS_MAX) {
+    const ids = await followerIds(ctx, follower, id, FOLLOWERS_MAX + 1 - total);
+    total += ids.length;
+    if (total > FOLLOWERS_MAX) {
       throw new ConflictError(
-        `${object.label} has more than ${FOLLOWERS_MAX} ${(follower.object.plural ?? "records").toLowerCase()} to move with it`,
+        `${object.label} has more than ${FOLLOWERS_MAX} records to move with it (${(follower.object.plural ?? "records").toLowerCase()} among them)`,
         { rule: "follows_too_many", object: follower.object.name },
       );
     }
+    moves.push({ follower, target: follower.when[to] as string, ids });
+  }
+  const givenBack = new Set<string>();
+  for (const { follower, target, ids } of moves) {
     const fc = follower.object.claims;
     if (claims && fc?.object === object.name && fc.on === follower.relation) {
       const keeps = fc.held.includes(target) || fc.confirmed.includes(target);
@@ -1319,6 +1338,11 @@ async function moveFollowers(
         },
       );
     }
+    // None left behind (ADR 0841): a follower made after the read above and committed before
+    // this batch fails it, whatever it claims or does not, so a cancelled event never keeps a
+    // crew shift open. Asked again, the move reads it and takes it along.
+    const left = ctx.simulation ? null : followerLeftGuard(ctx, follower, id, target);
+    if (left) ctx.write(left);
   }
   if (claims) {
     const expected = claims

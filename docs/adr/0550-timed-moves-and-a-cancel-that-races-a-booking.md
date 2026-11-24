@@ -76,3 +76,10 @@ counter guard taken out it fails every run).
 - **A cascade cannot follow a pool**: a parent other records draw places from as a pool counts
   claims that are not its own, which the counter check cannot read, so `follows` on such a parent
   is refused at the contract check.
+
+## Amended 2026-11-24 (stage 57 step 2, ADR 0841)
+- **A child that draws no places may follow a pool**: the refusal above now holds only for a child
+  that draws places from the pooled parent (a member of the pool, or a claimant of the parent or a
+  member). The counter guard is queued only when a follower claims places on the parent, and a
+  follower made under the move, of any kind, fails the move at commit
+  ([ADR 0841](0841-cascades-widened.md)).
