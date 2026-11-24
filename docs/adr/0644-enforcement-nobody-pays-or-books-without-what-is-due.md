@@ -178,3 +178,42 @@ and the cron promoting a waiter, and the waiter's next booking asked.
 - **What a visitor gives is held in the screen's memory only** until the buying call, which the
   packs' clients make with no cache kept after it (`gcTime: 0`), as `me.agreements.accept` and
   `me.agreements.get` are.
+
+## Amended 2026-11-24: staff-given enrolments and hand-made tickets are asked (issue #281)
+
+- **"Enrolments staff give" and "a ticket staff make by hand" move out of "What is not asked".**
+  Giving access by hand starts it as buying it does, as a pass given by hand already did: anyone
+  granted `courses:enrol` (the assistant included) or able to write a ticket could otherwise start
+  one with everything due. `courses.enrolment` declares `course` (`enter: ["active"]`, for its
+  `holder`) and `ticketing.ticket` declares `event` (`enter: ["valid"]`, for its `holder`), so the
+  engine asks `x.courses.enrol`, a record made by hand, an ended enrolment made active again and a
+  record given to another holder. What a paid line grants stays the host's (`by: "host"`), asked
+  when its order started.
+- **`keeps`** (new, optional, only with `enter`, not with `claims`): the states a record keeps its
+  entry in, as `claims`' held and confirmed states do for a booking. A ticket is `valid` or `used`:
+  made straight into "used" it is asked; undoing a check-in is the same ticket and is not.
+- **`importMovesOver`** (new, optional, only with `enter`): a record `record.import` makes is
+  someone moving over and is not asked. It is the courses import's door (`actors: ["human"]`, not
+  on MCP), so imported students stay as decided above. Only the create: a later import that gives
+  the record to another Person or makes it count again is asked, as any caller's write (the review
+  of PR #357). The engine is told by the operation (`TransitionOptions.imported`), never by a field
+  value, so `source: "import"` written through any other path is asked. The CSV record import
+  stays asked: it is open to the assistant.
+- **What this leaves open, on purpose or for later:** `record.import` needs only `records:write`,
+  so any person on the staff (never an AI, MCP, an extension or an automation) can make an
+  enrolment through it unasked, whatever its `source` says: the import is a person's door for
+  moving over. A record restored from the Trash (`record.restore`) is not asked: it is the same
+  entry, and "agree again" is not retroactive. Payer documents are not asked of a hand-made
+  record (`payer: null`, as `givePass`). A ticket with no holder names no Person and is not asked
+  until it is given one.
+
+## Amended 2026-11-24: the Ticketing and Courses checkouts (issue #292)
+
+- **Every shipped point has its inline step.** Ticketing's checkout (`ticketing-checkout`) and
+  Courses' course page and subscribe blocks (`courses-course`, `courses-subscribe`) follow the
+  refusal as the Memberships and Bookings blocks do, and their points (`event`, `course`) declare
+  `inlineStep`, so attaching a document there no longer warns. Nothing in the host changed: the
+  buying tools already carried a visitor's `agreements`.
+- **The native apps have no step at these points**, because they never buy a ticket or a course
+  (`noPurchase`); the points are asked only at a purchase.
+

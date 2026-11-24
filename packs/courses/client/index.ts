@@ -171,6 +171,11 @@ export type CoursesOperations = {
       returnUrl: string;
       email?: string;
       offerId?: string;
+      /**
+       * A guest only: what they agreed to on the way (stage 44, ADR 0644), each
+       * { versionId, typedName, signature?, answers? }, as the host's refusal asked.
+       */
+      agreements?: Record<string, unknown>[];
     };
     output: StartedSubscription;
   };
@@ -438,7 +443,13 @@ export type UseQuery = <T>(options: {
     | number
     | false
     | ((query: { state: { data: T | undefined } }) => number | false);
-}) => { data: T | undefined; isPending: boolean; error: unknown };
+}) => {
+  data: T | undefined;
+  isPending: boolean;
+  error: unknown;
+  /** Asks again now (TanStack Query's `refetch`): the subscribe block's offers after a sign-in. */
+  refetch?: () => Promise<{ data: T | undefined }>;
+};
 
 /** What a query hook returns, as `UseQuery` gives it. */
 export interface QueryResult<T> {
@@ -457,12 +468,15 @@ interface QueryOptions<T> {
 export type UseMutation = <I, O>(options: {
   mutationKey: readonly unknown[];
   mutationFn: (input: I) => Promise<O>;
+  gcTime?: number;
 }) => {
   mutate(input: I): void;
   mutateAsync(input: I): Promise<O>;
   data: O | undefined;
   isPending: boolean;
   error: unknown;
+  /** Forgets the call: its variables and its answer (TanStack Query's `reset`). */
+  reset?: () => void;
 };
 
 /**
@@ -535,7 +549,9 @@ function allCoursesHooks(
     /** Start an order for a course or a bundle; then `checkout` it (web only). */
     useBuy() {
       return {
-        start: useMutation(api.mutation("x.courses.buy")),
+        // A visitor's agreements (a name typed, a signature, health answers) go in this call:
+        // not kept in the app's cache once it is over (stage 44, issue #292).
+        start: useMutation({ ...api.mutation("x.courses.buy"), gcTime: 0 }),
         checkout: useMutation(api.mutation("order.checkout")),
       };
     },
@@ -621,7 +637,8 @@ function allCoursesHooks(
      * trial is given is the host's (`noTrial` says why not).
      */
     useSubscribe() {
-      return useMutation(api.mutation("subscription.start"));
+      // A guest's agreements go in this call: not kept in the app's cache after it (issue #292).
+      return useMutation({ ...api.mutation("subscription.start"), gcTime: 0 });
     },
     /** The signed-in customer's own course subscriptions, newest first. */
     useMySubscriptions() {

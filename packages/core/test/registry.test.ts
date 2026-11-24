@@ -52,6 +52,7 @@ describe("core registry", () => {
         // 53, ADR 0800): members hold it, viewers do not; their settings (staff addresses) with
         // journeys:manage. Who may be signed at the desk, and on which tablet, is read by whoever
         // may start a desk session, agreements:desk (ADR 0649).
+        // The finance months and figures are read only with finance:read (stage 52, ADR 0794).
         if (op.risk === "read") {
           expect([
             "journeys:read",
@@ -61,6 +62,7 @@ describe("core registry", () => {
             "people:cards",
             "agreements:manage",
             "agreements:paper",
+            "finance:read",
             "records:read",
             "audit:read",
             "users:manage",

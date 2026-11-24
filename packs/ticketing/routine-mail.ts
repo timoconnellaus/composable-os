@@ -3,6 +3,12 @@
 // that order's own address once a payment was applied (ADR 0560); the reminder the day before is
 // about a ticket and goes to its holder. The host fills every slot from those records, checks
 // what it puts in, and links only to the business's own site (Settings → Routine email).
+//
+// Text and push (ADR 0670): the reminder the day before also has a text's and a push's words,
+// sent only on the channels a human admin switches on; it is optional (a holder may turn it off)
+// and pointless once the event has started. A push opens the ticket's screen in the app. The
+// tickets and the balance reminder go to an order's own address, which is not a Person's phone or
+// app: they stay email only.
 import type { RoutineMailSpec } from "@composable-os/sdk";
 
 export const ticketingRoutineMail = {
@@ -39,7 +45,8 @@ export const ticketingRoutineMail = {
           via: "order",
           max: 100,
           line: "{name}: {code}",
-          slots: { name: { field: "name" }, code: { field: "code", max: 40 } },
+          // The door code: never in a push, which shows on a locked screen.
+          slots: { name: { field: "name" }, code: { field: "code", max: 40, private: true } },
         },
       },
       link: { link: "ticketsUrl", withId: "order" },
@@ -78,6 +85,10 @@ export const ticketingRoutineMail = {
       "The day before an event on sale starts, counted in the event's own time zone: its time " +
       "and venue. To each holder of a valid ticket, once however many tickets they hold.",
     about: "ticket",
+    essential: false,
+    channels: ["email", "text", "push"],
+    until: "event.startsAt",
+    open: { screen: "ticket" },
     slots: {
       event: { field: "event.name" },
       when: {
@@ -89,6 +100,10 @@ export const ticketingRoutineMail = {
       },
       venue: { field: "event.venue", optional: true },
       count: { count: { max: 1000 } },
+      // For texts and pushes, which have less room.
+      time: { field: "event.startsAt", format: "time", zone: "event.timezone", optional: true },
+      place: { field: "event.venue", max: 40, optional: true },
+      short: { field: "event.name", max: 60 },
     },
     messages: {
       one: {
@@ -97,6 +112,8 @@ export const ticketingRoutineMail = {
           "{event} is tomorrow[, starting {when}][ at {venue}].",
           "You have a ticket: bring the code.",
         ].join("\n"),
+        textMessage: "Tomorrow: {event}[ at {time}][, {place}]. Bring your ticket's code.",
+        push: { title: "Tomorrow[ at {time}]", body: "{short}[, {place}]. Bring your ticket." },
       },
       many: {
         subject: "Tomorrow: {event}",
@@ -104,6 +121,11 @@ export const ticketingRoutineMail = {
           "{event} is tomorrow[, starting {when}][ at {venue}].",
           "You have {count} tickets: bring the code.",
         ].join("\n"),
+        textMessage: "Tomorrow: {event}[ at {time}][, {place}]. Bring your {count} tickets' codes.",
+        push: {
+          title: "Tomorrow[ at {time}]",
+          body: "{short}[, {place}]. Bring your {count} tickets.",
+        },
       },
     },
   },

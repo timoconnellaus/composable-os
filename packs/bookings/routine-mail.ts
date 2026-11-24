@@ -7,6 +7,12 @@
 // (Settings → Routine email). The automations (automations.ts) say which kind and message, about
 // which booking, and pass only the choices, moments and flags declared here. An admin can turn
 // any kind off.
+//
+// Text and push (ADR 0670): each booking kind also has a text's words and a push's, which go only
+// on the channels a human admin switches on for it. A text or push is pointless once the class has
+// started (`until`), and the timetable screen of the app is what a push opens. A member may turn
+// off reminders and waiting list news; the rest are essential (their email always goes). A
+// cancellation is urgent: it may go during quiet hours when the class starts before they end.
 import type { RoutineMailSpec, RoutineSlotSpec } from "@composable-os/sdk";
 
 /** What every message reads of the booking's class, and the link to the member's bookings. */
@@ -15,7 +21,19 @@ const CLASS_SLOTS = {
   when: { field: "class.startsAt", format: "datetime", zone: "class.timezone" },
   room: { field: "class.room.name", optional: true },
   link: { link: "bookingsUrl" },
+  // For texts and pushes, which have less room: the day, the time, and a title of at most 40
+  // characters (a longer one holds only the text or push that shows it).
+  day: { field: "class.startsAt", format: "date", zone: "class.timezone" },
+  time: { field: "class.startsAt", format: "time", zone: "class.timezone" },
+  short: { field: "class.title", max: 40 },
 } satisfies Record<string, RoutineSlotSpec>;
+
+/** What every booking kind says of its text and push (ADR 0670). */
+const PHONE = {
+  channels: ["email", "text", "push"],
+  until: "class.startsAt",
+  open: { screen: "timetable" },
+} as const;
 
 /** The last line of every email. */
 const SIGN_IN = "You can see your bookings when you sign in[: {link}].";
@@ -37,6 +55,7 @@ export const bookingsRoutineMail = {
       "for, moved in from the waiting list, or moved by staff to another class. To the member " +
       "and their parents or guardians, with an add-to-calendar file.",
     about: "booking",
+    ...PHONE,
     slots: {
       ...CLASS_SLOTS,
       oldClass: { field: "movedFrom.class.title", optional: true },
@@ -56,6 +75,8 @@ export const bookingsRoutineMail = {
           "The attached file adds it to your calendar.",
           SIGN_IN,
         ].join("\n"),
+        textMessage: "Booked: {class}, {day} at {time}.",
+        push: { title: "Booked for {day}", body: "{class} at {time}." },
         guardian: {
           subject: "Booked: {class} ({member})",
           text: [
@@ -64,6 +85,8 @@ export const bookingsRoutineMail = {
             "The attached file adds it to your calendar.",
             SIGN_IN,
           ].join("\n"),
+          textMessage: "{member} is booked into {class}, {day} at {time}.",
+          push: { title: "Booked for {day}", body: "{member}: {short} at {time}." },
         },
         calendar: CALENDAR,
       },
@@ -75,6 +98,8 @@ export const bookingsRoutineMail = {
           "The attached file adds it to your calendar.",
           SIGN_IN,
         ].join("\n"),
+        textMessage: "Paid and booked: {class}, {day} at {time}.",
+        push: { title: "Paid and booked for {day}", body: "{class} at {time}." },
         guardian: {
           subject: "Booked and paid: {class} ({member})",
           text: [
@@ -83,6 +108,8 @@ export const bookingsRoutineMail = {
             "The attached file adds it to your calendar.",
             SIGN_IN,
           ].join("\n"),
+          textMessage: "Paid: {member} is booked into {short}, {day} at {time}.",
+          push: { title: "Paid and booked for {day}", body: "{member}: {short} at {time}." },
         },
         calendar: CALENDAR,
       },
@@ -94,6 +121,8 @@ export const bookingsRoutineMail = {
           "The attached file adds it to your calendar.",
           SIGN_IN,
         ].join("\n"),
+        textMessage: "A place came free: you are booked into {class}, {day} at {time}.",
+        push: { title: "You're in, {day}", body: "{class} at {time}." },
         guardian: {
           subject: "You're in: {class} ({member})",
           text: [
@@ -102,6 +131,8 @@ export const bookingsRoutineMail = {
             "The attached file adds it to your calendar.",
             SIGN_IN,
           ].join("\n"),
+          textMessage: "A place came free: {member} is booked into {short}, {day} at {time}.",
+          push: { title: "In from the waiting list", body: "{member}: {short} at {time}." },
         },
         calendar: CALENDAR,
       },
@@ -113,6 +144,8 @@ export const bookingsRoutineMail = {
           "The attached files take the old class off your calendar and add the new one.",
           SIGN_IN,
         ].join("\n"),
+        textMessage: "Your booking moved to {class}, {day} at {time}.",
+        push: { title: "Booking moved to {day}", body: "{class} at {time}." },
         guardian: {
           subject: "Booking moved: {class} ({member})",
           text: [
@@ -121,6 +154,8 @@ export const bookingsRoutineMail = {
             "The attached files take the old class off your calendar and add the new one.",
             SIGN_IN,
           ].join("\n"),
+          textMessage: "{member}'s booking moved to {short}, {day} at {time}.",
+          push: { title: "Booking moved to {day}", body: "{member}: {short} at {time}." },
         },
         calendar: [
           {
@@ -145,6 +180,8 @@ export const bookingsRoutineMail = {
       "hold could pay for it), and when a place is given back after the waiting list has " +
       "stopped. To each person waiting and their parents or guardians.",
     about: "booking",
+    essential: false,
+    ...PHONE,
     slots: {
       ...CLASS_SLOTS,
       why: {
@@ -165,6 +202,9 @@ export const bookingsRoutineMail = {
           "",
           SIGN_IN,
         ].join("\n"),
+        textMessage:
+          "A place came free on {short}, {day} at {time}, but we could not move you in: {why}.",
+        push: { title: "A place came free", body: "{short} at {time}: we could not move you in." },
         guardian: {
           subject: "A place came free: {class} ({member})",
           text: [
@@ -173,6 +213,9 @@ export const bookingsRoutineMail = {
             "",
             SIGN_IN,
           ].join("\n"),
+          textMessage:
+            "A place came free on {short}, {day} at {time}, but we could not move {member} in. The email says why.",
+          push: { title: "A place came free", body: "{member}: we could not move them in." },
         },
       },
       placeFree: {
@@ -183,6 +226,8 @@ export const bookingsRoutineMail = {
           "",
           SIGN_IN,
         ].join("\n"),
+        textMessage: "A place is free on {class}, {day} at {time}. Whoever books it first gets it.",
+        push: { title: "A place is free", body: "{short} at {time}: whoever books first gets it." },
         guardian: {
           subject: "A place is free: {class} ({member})",
           text: [
@@ -191,6 +236,9 @@ export const bookingsRoutineMail = {
             "",
             SIGN_IN,
           ].join("\n"),
+          textMessage:
+            "A place is free on {short}, {day} at {time}. Book it for {member} if they still want it.",
+          push: { title: "A place is free", body: "{short} at {time}, for {member}." },
         },
       },
     },
@@ -203,6 +251,7 @@ export const bookingsRoutineMail = {
       "nothing). To everyone booked or waiting and their parents or guardians, with an updated " +
       "add-to-calendar file for those booked.",
     about: "booking",
+    ...PHONE,
     slots: {
       ...CLASS_SLOTS,
       before: { at: true, zone: "class.timezone", optional: true },
@@ -231,6 +280,8 @@ export const bookingsRoutineMail = {
           "[{keep}The attached file updates it in your calendar.]",
           SIGN_IN,
         ].join("\n"),
+        textMessage: "Class changed: {class}, now {day} at {time}. The email has the details.",
+        push: { title: "Class changed", body: "{short}: now {day} at {time}." },
         guardian: {
           subject: "Class changed: {class} ({member})",
           text: [
@@ -242,6 +293,9 @@ export const bookingsRoutineMail = {
             "[{keep}The attached file updates it in your calendar.]",
             SIGN_IN,
           ].join("\n"),
+          textMessage:
+            "{member}'s class changed: {short}, now {day} at {time}. The email has the details.",
+          push: { title: "Class changed", body: "{member}: {short} has changed." },
         },
         calendar: { ...CALENDAR, update: true, if: "keep" },
       },
@@ -256,6 +310,9 @@ export const bookingsRoutineMail = {
       "or that a paid drop-in's money goes back once approved, with a file that takes it off " +
       "their calendar.",
     about: "booking",
+    // A cancellation close to the class may go during quiet hours (ADR 0676).
+    urgent: true,
+    ...PHONE,
     slots: {
       ...CLASS_SLOTS,
       reason: { field: "class.cancelledReason", max: 200, optional: true },
@@ -284,6 +341,8 @@ export const bookingsRoutineMail = {
           "The attached file takes it off your calendar.",
           SIGN_IN,
         ].join("\n"),
+        textMessage: "Cancelled by the gym: {class}, {day} at {time}. The email has the details.",
+        push: { title: "Class cancelled", body: "{short}, {day} at {time}." },
         guardian: {
           subject: "Cancelled by the gym: {class} ({member})",
           text: [
@@ -294,6 +353,9 @@ export const bookingsRoutineMail = {
             "The attached file takes it off your calendar.",
             SIGN_IN,
           ].join("\n"),
+          textMessage:
+            "Cancelled by the gym: {short}, {day} at {time}, which {member} was booked into.",
+          push: { title: "Class cancelled", body: "{member}: {short} at {time}." },
         },
         calendar: { ...CALENDAR, cancelled: true, update: true },
       },
@@ -307,6 +369,8 @@ export const bookingsRoutineMail = {
       "organisation's). To everyone booked and their parents or guardians, and a visitor who " +
       "paid for a place staff have not yet confirmed.",
     about: "booking",
+    essential: false,
+    ...PHONE,
     slots: CLASS_SLOTS,
     messages: {
       reminder: {
@@ -317,6 +381,9 @@ export const bookingsRoutineMail = {
           "",
           SIGN_IN,
         ].join("\n"),
+        textMessage:
+          "Reminder: {class}, {day} at {time}. Can't come? Cancel when you sign in, so someone waiting gets the place.",
+        push: { title: "Reminder for {day}", body: "{class} at {time}." },
         guardian: {
           subject: "Reminder: {class} ({member})",
           text: [
@@ -325,6 +392,8 @@ export const bookingsRoutineMail = {
             "",
             SIGN_IN,
           ].join("\n"),
+          textMessage: "Reminder: {member} is booked into {short}, {day} at {time}.",
+          push: { title: "Reminder for {day}", body: "{member}: {short} at {time}." },
         },
       },
     },
