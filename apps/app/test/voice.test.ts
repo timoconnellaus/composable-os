@@ -6,7 +6,6 @@ import { runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import type { Principal } from "@composable-os/auth";
 import {
-  type AssistantThreadState,
   fakeModels,
   invokeByName,
   resolveActingUser,
@@ -15,13 +14,9 @@ import {
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { describe, expect, it } from "vitest";
-import {
-  type AssistantHttpEnv,
-  handleSocket,
-  handleState,
-  threadStub,
-} from "../src/server/assistant/http.ts";
+import { type AssistantHttpEnv, handleSocket, threadStub } from "../src/server/assistant/http.ts";
 import { speechProviders, voiceContextFor } from "../src/server/assistant/voice.ts";
+import { threadState as state } from "./assistant-helpers.ts";
 
 const ORIGIN = "https://crm.test";
 const appEnv = env as unknown as AssistantHttpEnv;
@@ -90,15 +85,6 @@ async function voiceSocket(principal: Principal, kind: "talk" | "dictation") {
   send({ type: "start_call" });
   await until((f) => f.type === "status" && f.status === "listening");
   return { ws, frames, until, send, audio: () => audioBytes };
-}
-
-async function state(principal: Principal): Promise<AssistantThreadState> {
-  const response = await handleState(
-    new Request(`${ORIGIN}/api/assistant/thread`),
-    appEnv,
-    principal,
-  );
-  return (await response.json()) as AssistantThreadState;
 }
 
 async function settled(principal: Principal, test: (items: TranscriptItem[]) => boolean) {

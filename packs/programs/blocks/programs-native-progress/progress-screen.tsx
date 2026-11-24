@@ -14,7 +14,7 @@ const best = (b: { load: number | null; reps: number | null; seconds: number | n
     b.seconds !== null ? `${b.seconds} s` : null,
   ]
     .filter(Boolean)
-    .join(" · ");
+    .join(" · ") || "—";
 
 export function ProgressScreen({
   programs,

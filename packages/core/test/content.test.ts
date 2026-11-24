@@ -16,7 +16,7 @@ import {
 } from "../src/index.ts";
 import { call, outside, PUBLIC } from "./customer-fixtures.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
-import { context, createUser, db } from "./helpers.ts";
+import { context, createUser, db, refusal } from "./helpers.ts";
 
 const EXT = extId("cms");
 const POST = `${EXT}.post`;
@@ -30,15 +30,6 @@ let member: ActingUser;
 const doc = (text: string) => ({
   blocks: [{ type: "paragraph", content: [{ type: "text", text }] }],
 });
-
-async function refusal(promise: Promise<unknown>) {
-  try {
-    await promise;
-  } catch (error) {
-    return error as { code: string; message: string; details?: Record<string, unknown> };
-  }
-  throw new Error("expected a refusal");
-}
 
 async function createPost(values: Record<string, unknown>) {
   return invoke("record.create", { object: POST, values }, context(admin));

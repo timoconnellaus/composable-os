@@ -1,0 +1,70 @@
+# Deploys the docs site (apps/docs, Worker cos-docs) to docs.composableos.dev when main changes it
+# or what it is generated from (ADR 0930). Uses the marketing site's deploy secrets,
+# MARKETING_CLOUDFLARE_API_TOKEN (Workers Scripts: Edit, Workers Routes / custom domains on the
+# composableos.dev zone) and MARKETING_CLOUDFLARE_ACCOUNT_ID. Without them the deploy job is
+# skipped and the workflow passes.
+name: Docs site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - apps/docs/**
+      - packs/**
+      - blocks/**
+      - packages/core/src/**
+      - packages/sdk/src/**
+      - packages/gatekeeper-*/**
+      - packages/create-composable-os/src/main.ts
+      - products/**
+      - templates/client/**
+      - docs/**
+      - CONTEXT.md
+      - .github/workflows/docs.yml
+  workflow_dispatch:
+
+concurrency:
+  group: docs-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Deploy configured?
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        env:
+          TOKEN: ${{ secrets.MARKETING_CLOUDFLARE_API_TOKEN }}
+          ACCOUNT: ${{ secrets.MARKETING_CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "$TOKEN" ] && [ -n "$ACCOUNT" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::MARKETING_CLOUDFLARE_API_TOKEN / MARKETING_CLOUDFLARE_ACCOUNT_ID are not set; not deploying the docs site."
+          fi
+
+  deploy:
+    name: Build and deploy
+    needs: check
+    if: needs.check.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.MARKETING_CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.MARKETING_CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The generator's check, the Starlight build and its link check, then the static assets to
+      # the cos-docs Worker, whose custom domain wrangler creates on the first deploy.
+      - run: pnpm --filter @composable-os/docs run deploy
