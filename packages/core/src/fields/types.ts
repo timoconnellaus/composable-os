@@ -113,6 +113,8 @@ export interface ObjectDefinition {
   stages?: StagesDefinition;
   /** Extension objects: a limited number of places (stage 26, ADR 0430). */
   capacity?: CapacityDefinition;
+  /** Extension objects: goods the host counts, with a ledger (stage 37, ADR 0682). */
+  stock?: StockDefinition;
   /** Extension objects: something that can be bought (stage 27, ADR 0435). */
   sellable?: SellableDefinition;
   /** Extension objects: uses held (a pass) or spent (a booking) (stage 32b, ADR 0493). */
@@ -315,6 +317,17 @@ export type AllowanceDefinition =
       /** A boolean field: while true, entering a spend state spends nothing (ADR 0506). */
       readonly waived?: string | undefined;
     };
+
+/** The stock behaviour as the host enforces it (the SDK's StockSpec, validated). */
+export interface StockDefinition {
+  /** The number field holding the reorder level, if any. */
+  reorderAt?: string | undefined;
+  /** The number field holding how many to order, if any. */
+  reorderQty?: string | undefined;
+  show: "exact" | "low" | "availability";
+  /** `low`'s threshold. */
+  lowAt?: number | undefined;
+}
 
 /** The capacity behaviour as the host enforces it (the SDK's CapacitySpec, validated). */
 export interface CapacityDefinition {

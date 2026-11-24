@@ -74,6 +74,8 @@ export const ID_PREFIXES = {
   deviceSession: "dvs",
   /** Places claimed from a record's capacity (stage 26, ADR 0430). */
   capacityClaim: "clm",
+  /** A movement of a record's stock (stage 37, ADR 0682). */
+  stockMovement: "smv",
   /** A use spent from an allowance holder by a spender (stage 32b, ADR 0493). */
   allowanceUse: "alu",
   /** A Person's one purchase of something sold once per Person (stage 32b, ADR 0512). */

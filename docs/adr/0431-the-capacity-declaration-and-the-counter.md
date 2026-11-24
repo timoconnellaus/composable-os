@@ -46,3 +46,13 @@ actor, and an extension has to be able to say which of its objects have places.
 - The trash refusal reads the counter before the write: a payment confirmed at the same moment
   could slip in between. The read is by primary key and the window is small; a refusal in the
   batch itself would need another trigger and was not worth it here.
+
+## Amendment, 2026-11-24 (stage 37, ADR 0682)
+The counter is also stock's. A record of an object that declares `stock` gets a `core_capacity`
+row too, made with the record with `places` 0 and never written from a field: for it `places` is
+every unit in less every unit out other than by a sale, `taken` every unit sold, and on hand is
+`places - taken`. Only a stock movement (`core_stock_movement`, migration 0935) changes `places`,
+in the movement's batch. An object has a capacity or stock, not both. The reconciler's backfill
+and the drop of a dropped object's counters cover stock objects as well; the Trash rule above
+(places taken by paid orders) is capacity's only. See
+[ADR 0682](0682-the-stock-behaviour.md).

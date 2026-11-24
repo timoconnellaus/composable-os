@@ -925,7 +925,8 @@ ADR 0435), which exist; `publishable` (a working copy and published versions, AD
 half without a public exists; `recurring` (a weekly series that makes dated records, ADR 0500), capacity **claimants**
 (ADR 0501, with waitlists, ADR 0520) and declared uniqueness (ADR 0502), which exist since stage
 31; `allowance` (ADR 0493), which exists since stage 32b; `staffed` (a shift and its time claim,
-ADR 0621), which exists since stage 45.
+ADR 0621), which exists since stage 45; `stock` (goods counted from a ledger, ADR 0682), which
+exists since stage 37.
 _Avoid_: hook, trigger (a trigger starts an automation), plugin
 
 **Pack**
@@ -1138,6 +1139,24 @@ event). What customers and the public are told is the object's `show` (stage 26,
 Places taken from a capacity for something: an order line, or a **claimant**'s record. `held`,
 then `confirmed` once paid, or `released`. Made, confirmed and released in the batch of the
 owner's own write.
+
+**Stock**
+How many of a thing a business has, declared `stock` by an object that is sold (a variant of an
+item: "Club hoodie, large, black"). The host keeps it on capacity's counter: **on hand** is every
+unit in less every unit out, **held** is what unpaid orders hold while their buyers pay, and
+**available** is on hand less held. Nobody types on hand: it changes only by a **stock movement**.
+A sale is held while the order is unpaid and sold when it is paid; a refund never restocks, a
+return does. What customers and the public see is the object's `show`: in stock or sold out by
+default (stage 37, ADR 0682).
+_Avoid_: inventory, quantity (a line's quantity is how many it buys); capacity (places, not goods)
+
+**Stock movement**
+One change of a record's stock in its ledger (`core_stock_movement`): a kind (`opening`,
+`received`, `sold`, `returned`, `written_off`, `counted`, `adjusted`, `used`), a signed quantity,
+the **place** it happened at (one default place until stock in several places is built), what it
+came from (an order line, a record), who made it and why. Never changed or deleted; their sum is
+on hand (ADR 0682).
+_Avoid_: transaction, adjustment (an adjustment is one kind of movement)
 
 **Claimant**
 A record whose own states hold, take and give back one place on the record its relation points to

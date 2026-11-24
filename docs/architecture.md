@@ -1034,7 +1034,7 @@ The rules products share, declared in a manifest and enforced by the host in the
 `stages`, `states`, `capacity`, `sellable` and `publishable` exist (the last with its public
 half, and the media library beside it, since stage 28). `allowance` exists since stage 32b;
 `recurring`, capacity claimants and declared uniqueness since stage 31 (below); `staffed` since
-stage 45 (below). Behaviours stack:
+stage 45 (below); `stock` since stage 37 (below). Behaviours stack:
 an event is publishable, sellable and has a capacity.
 
 `stages` and `states` are two declarations on one **transition engine**
@@ -1744,6 +1744,21 @@ counter that refused. Confirm and release are three statements each, idempotent,
 owner (an order, from stage 25) calls them. Records carry read-only `held`, `taken` and `available`;
 `capacity.get` gives staff the numbers and outsiders only what `show` allows;
 `rec_capacity` and `rec_capacity_claim` are queryable.
+
+**`stock`** (stage 37, [ADR 0682](adr/0682-the-stock-behaviour.md), `packages/sdk/src/stock.ts`,
+`packages/core/src/stock/`). Goods the host counts. A sellable object declares `stock: { reorderAt?,
+reorderQty?, show?, lowAt? }` (not with `capacity`); each record gets a `core_capacity` counter at
+create with `places` 0, read as stock: on hand is `places - taken`, available is on hand less
+`held`. Nobody types on hand: it changes only by a movement in `core_stock_movement` (migration
+0935: kind, signed quantity, a place on every row, always `default` for now, source, who), written
+with its counter change in one batch, append-only against every statement shape. An order line
+holds through capacity's claim in `createOrder`; the paid batch writes one `sold` movement per
+stock line (one statement for all) before confirming; a refund, or cancelling a part-paid order,
+never restocks. A removal below what unpaid orders hold is refused by the counter's trigger, with
+the numbers (`rule: "stock"`; outsiders hear only "Sold out"). `stock.get` (staff, customer,
+public, outsiders limited by `show`), `stock.movements`, `stock.opening` and `stock.adjust` (an
+AI's waits for a person); records carry read-only `onHand`, `held`, `available`;
+`rec_stock_movement` is queryable. A runtime extension cannot declare it.
 
 **`allowance`** (stage 32b, ADRs [0493](adr/0493-the-allowance-behaviour.md) and
 [0494](adr/0494-which-holder-pays-and-what-happens-to-uses.md), `packages/sdk/src/allowance.ts`,

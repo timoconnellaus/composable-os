@@ -1028,6 +1028,35 @@ export interface CoreCapacityClaimTable {
 export type CapacityClaimState = "held" | "confirmed" | "released";
 
 /**
+ * Migration 0935 (stage 37, ADR 0682): one movement of a record's stock. Append-only: no update,
+ * delete or replace. Its sum is the record's on hand (core_capacity places - taken).
+ */
+export interface CoreStockMovementTable {
+  id: string;
+  object_type: string;
+  record_id: string;
+  place_id: Defaulted<string>;
+  quantity: number;
+  kind: StockMovementKind;
+  source_type: string | null;
+  source_id: string | null;
+  made_by: string | null;
+  made_as: "staff" | "host";
+  note: string | null;
+  unit_cost: number | null;
+  created_at: string;
+}
+export type StockMovementKind =
+  | "opening"
+  | "received"
+  | "sold"
+  | "returned"
+  | "written_off"
+  | "counted"
+  | "adjusted"
+  | "used";
+
+/**
  * Migration 0650 (ADR 0540): a family link. While live (`ended_at` null) the guardian, signed in
  * as a customer, reads and acts for the dependant where an object's customer declaration opts in.
  */
@@ -3000,6 +3029,7 @@ export interface CoreDatabase {
   core_native_sign_in_confirm: CoreNativeSignInConfirmTable;
   core_capacity: CoreCapacityTable;
   core_capacity_claim: CoreCapacityClaimTable;
+  core_stock_movement: CoreStockMovementTable;
   core_person_link: CorePersonLinkTable;
   core_agreement_document: CoreAgreementDocumentTable;
   core_agreement_version: CoreAgreementVersionTable;

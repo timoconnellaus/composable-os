@@ -337,6 +337,8 @@ export {
   readStaffFeed,
 } from "./staffing/feed.ts";
 export * from "./staffing/index.ts";
+export * from "./stock/index.ts";
+export * from "./stock/records.ts";
 export * from "./subscriptions/index.ts";
 export * from "./support.ts";
 export * from "./sync/ingest.ts";
@@ -349,4 +351,5 @@ export * from "./visibility/access.ts";
 export * from "./visibility/capacity.ts";
 export * from "./visibility/index.ts";
 export { getVisible, listVisible, type VisibleRecord } from "./visibility/records.ts";
+export * from "./visibility/stock.ts";
 export { assertVisibleWrites } from "./visibility/writes.ts";

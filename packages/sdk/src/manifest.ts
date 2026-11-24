@@ -44,6 +44,7 @@ import { routineMailIssues, routineMailManifestSchema } from "./routine-mail.ts"
 import { checkObjectSellable, sellableManifestSchema } from "./sellable.ts";
 import { checkObjectStaffed, staffedManifestSchema } from "./staffed.ts";
 import { checkObjectStates, resolveFieldPath, statesManifestSchema } from "./states.ts";
+import { checkObjectStock, stockManifestSchema } from "./stock.ts";
 import { checkObjectUnique, uniqueManifestSchema } from "./unique.ts";
 
 export const EXTENSION_ID_RE = /^[a-z][a-z0-9]{1,29}$/;
@@ -209,6 +210,7 @@ export const objectManifestSchema = z.object({
   timelineLinks: z.array(z.string().max(40)).max(8).optional(),
   stages: stagesManifestSchema.optional(),
   capacity: capacityManifestSchema.optional(),
+  stock: stockManifestSchema.optional(),
   sellable: sellableManifestSchema.optional(),
   allowance: allowanceManifestSchema.optional(),
   agreements: agreementsManifestSchema.optional(),
@@ -1239,6 +1241,7 @@ export function validateManifest(
     checkFields(`${path}.fields`, `${m.id}.${name}`, object.fields, env);
     checkObjectBehaviour(m, name, object, contract);
     checkObjectCapacity(m, name, object, contract);
+    checkObjectStock(m, name, object, contract);
     checkObjectSellable(m, name, object, contract);
     checkObjectAllowance(m, name, object, contract);
     checkObjectAgreements(m, name, object, contract);

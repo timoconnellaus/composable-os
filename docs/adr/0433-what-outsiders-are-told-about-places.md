@@ -35,3 +35,11 @@ A customer or the public is now told about the places of a record they may read 
 or one public through its object's `public` declaration (an on-sale event's ticket type). Any
 other record is not found. This is the narrowing this ADR said would follow once such a notion
 existed. See [ADR 0438](0438-the-public-scope.md).
+
+## Amendment, 2026-11-24 (stage 37, ADR 0682)
+Stock follows the same rule through `stock.get`: staff see on hand, held and available; a customer
+or the public, only for a record they may read, see what the object's `stock.show` allows
+(`availability` by default: in stock or sold out; `low`: "only N left" at or below `lowAt`;
+`exact`: the number available), never on hand, held or a movement. A refused order of goods tells
+an outside caller "Sold out" or "Not enough in stock" and no number. See
+[ADR 0682](0682-the-stock-behaviour.md).

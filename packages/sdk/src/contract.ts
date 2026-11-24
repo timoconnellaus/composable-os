@@ -14,6 +14,7 @@ import type { RoutineMailModule, RoutineMailSpec } from "./routine-mail.ts";
 import type { SellableSpec } from "./sellable.ts";
 import type { StaffedSpec } from "./staffed.ts";
 import type { StatesSpec } from "./states.ts";
+import type { StockSpec } from "./stock.ts";
 import type { UniqueSpec } from "./unique.ts";
 
 /** The contract version this SDK writes. The host accepts this and the previous version. */
@@ -264,6 +265,8 @@ export interface ObjectSpec {
   stages?: StagesSpec;
   /** A limited number of places, never given out twice (see CapacitySpec, ADR 0430). */
   capacity?: CapacitySpec;
+  /** Goods the host counts, with a ledger nobody can change (see StockSpec, ADR 0682). */
+  stock?: StockSpec;
   /** Something that can be bought, and what a paid line grants (see SellableSpec, ADR 0435). */
   sellable?: SellableSpec;
   /**

@@ -99,6 +99,8 @@ describe("default closed (criterion 1)", () => {
       "order.get",
       "order.start",
       "order.view",
+      // Stage 37 (ADR 0682): what the object shows of a thing's stock (in stock, sold out).
+      "stock.get",
       // Stage 32a (ADR 0485): a payer starts, reads, cancels and resumes their own
       // subscriptions, and opens the provider's portal for their card.
       "subscription.cancel",
@@ -128,6 +130,8 @@ describe("default closed (criterion 1)", () => {
       "order.checkout",
       "order.start",
       "order.view",
+      // Stage 37 (ADR 0682): what the object shows of a thing's stock.
+      "stock.get",
       // Stage 32a (ADR 0485): a guest subscribes on the provider's page.
       "subscription.start",
     ]);

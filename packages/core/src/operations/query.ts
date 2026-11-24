@@ -425,7 +425,8 @@ export const querySql = defineOperation({
     "rec_organisation, rec_affiliation, rec_activity, rec_activity_link, rec_task, " +
     "rec_task_link, rec_record_tag, rec_user, rec_publish_version (the published versions of " +
     "publishable records, without their content), rec_capacity and rec_capacity_claim (places, " +
-    "held, taken and claims of records with a capacity), rec_allowance, rec_allowance_period and " +
+    "held, taken and claims of records with a capacity), rec_stock_movement (the stock ledger: " +
+    "every movement of a record's stock, its kind, signed quantity and source), rec_allowance, rec_allowance_period and " +
     "rec_allowance_use (passes' and memberships' uses: terms, counts per period, every use spent " +
     "or given back), rec_stage_history (stage entered/left times, " +
     "days_in_stage), rec_state_history (the same for objects with a state machine: state, " +

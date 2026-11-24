@@ -192,6 +192,16 @@ export function setDeclaredUniqueKeys(keys: ReadonlySet<string>): void {
   declaredUniqueKeys = keys;
 }
 
+/**
+ * The objects that declare stock (ADR 0682), kept by the field registry: their counters are on
+ * capacity's engine, so a refusal names stock, not places.
+ */
+let stockObjects: ReadonlySet<string> = new Set();
+
+export function setStockObjects(objects: ReadonlySet<string>): void {
+  stockObjects = objects;
+}
+
 /** Converts D1 constraint failures into typed errors; everything else becomes `internal`. */
 export function toOperationError(error: unknown): OperationError {
   if (error instanceof OperationError) return error;
@@ -204,6 +214,19 @@ export function toOperationError(error: unknown): OperationError {
   const allowance = allowanceRefusal(error);
   if (allowance) return allowance;
   const message = error instanceof Error ? error.message : String(error);
+  // The stock ledger (migration 0935, ADR 0682): append-only, one opening per record.
+  if (message.includes("core_stock_movement_immutable")) {
+    return new ValidationError("A stock movement is never changed or deleted", {
+      rule: "stock",
+      reason: "movement_immutable",
+    });
+  }
+  if (message.includes("UNIQUE constraint failed: core_stock_movement")) {
+    return new ConflictError("It already has its opening stock: correct it with an adjustment", {
+      rule: "stock",
+      reason: "opening_given",
+    });
+  }
   // An order written from a read that is no longer current (migration 0421): nothing was
   // applied, and the same call made again reads the order as it now is.
   if (message.includes("core_order_stale")) {
@@ -647,6 +670,63 @@ export function allowanceRefusal(error: unknown): ValidationError | ConflictErro
   return null;
 }
 
+/** Details of stock refused (`invalid_input`, ADR 0682): an order past what is available. */
+export interface StockRefusalDetails {
+  rule: "stock";
+  object: string;
+  record: string;
+  asked: number;
+  available: number;
+}
+
+/** Details of a removal refused because it would leave less on hand than unpaid orders hold. */
+export interface StockHeldDetails {
+  rule: "stock";
+  object: string;
+  record: string;
+  onHand: number;
+  held: number;
+  removing: number;
+}
+
+/**
+ * A stock counter's refusal, in stock's words. The counter is capacity's (places is every unit
+ * in, taken every unit sold): a hold past what is available, or a removal past what is not held.
+ */
+function stockRefusal(payload: CapacityRefusalPayload): ValidationError {
+  if (payload.asked > 0) {
+    const details: StockRefusalDetails = {
+      rule: "stock",
+      object: payload.object,
+      record: payload.record,
+      asked: payload.asked,
+      available: payload.available,
+    };
+    return new ValidationError(
+      payload.available === 0
+        ? `Sold out: asked for ${payload.asked}, none available`
+        : `Not enough in stock: asked for ${payload.asked}, ${payload.available} available`,
+      details,
+    );
+  }
+  // places went down (stock out) below held + taken. `places` is the new value, the rest the old.
+  const before = payload.available + payload.held + payload.taken;
+  const removing = Math.max(before - payload.places, 0);
+  const current = before - payload.taken;
+  const details: StockHeldDetails = {
+    rule: "stock",
+    object: payload.object,
+    record: payload.record,
+    onHand: current,
+    held: payload.held,
+    removing,
+  };
+  return new ValidationError(
+    `That would leave fewer on hand than unpaid orders hold: ${current} on hand, ${payload.held} held while buyers pay, removing ${removing}. Try again in a few minutes`,
+    details,
+  );
+}
+
 // Capacity refusals (stage 26, ADR 0430; migration 0440). A claim, or a change of places, that
 // would put a counter past its places fails its statement with `core_capacity_refused {json}`,
 // so every batch that fails on capacity reports the numbers, whichever operation queued it,
@@ -694,6 +774,7 @@ export function capacityRefusal(error: unknown): ValidationError | null {
     } catch {
       return new ValidationError("Not enough places", { rule: "capacity" });
     }
+    if (stockObjects.has(payload.object)) return stockRefusal(payload);
     if (payload.asked > 0) {
       const details: CapacityRefusalDetails = {
         rule: "capacity",

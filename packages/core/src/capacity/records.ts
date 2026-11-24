@@ -10,6 +10,7 @@
 // may be refused then.
 import { CompiledQuery } from "kysely";
 import { ValidationError } from "../errors.ts";
+import { getObject } from "../fields/index.ts";
 import type { CapacityDefinition, ObjectDefinition } from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
 import { type ClaimRequest, claimStatements } from "./index.ts";
@@ -117,6 +118,21 @@ async function simulateClaim(ctx: HandlerContext, request: ClaimRequest): Promis
     const key = `${level.object}|${level.record}`;
     const already = seen.get(key) ?? 0;
     const available = level.left === null ? null : Math.max(level.left - already, 0);
+    if (available !== null && request.quantity > available && getObject(level.object)?.stock) {
+      // A stock counter (ADR 0682): told as the database's refusal of it is.
+      throw new ValidationError(
+        available === 0
+          ? `Sold out: asked for ${request.quantity}, none available`
+          : `Not enough in stock: asked for ${request.quantity}, ${available} available`,
+        {
+          rule: "stock",
+          object: level.object,
+          record: level.record,
+          asked: request.quantity,
+          available,
+        },
+      );
+    }
     if (available !== null && request.quantity > available) {
       throw new ValidationError(
         `Not enough places: asked for ${request.quantity}, ${available} left`,

@@ -1907,6 +1907,17 @@ function outsideError(error: unknown): OperationError {
   ) {
     return new ValidationError("There are not enough places left", { rule: "capacity" });
   }
+  // Sold out of goods (ADR 0682): which line, and whether any are left, never how many (the
+  // object's `show` decides what numbers an outsider reads, through stock.get).
+  if (typed.code === "invalid_input" && (typed.details as { rule?: unknown })?.rule === "stock") {
+    const details = typed.details as { record?: unknown; available?: unknown };
+    const soldOut = details.available === 0;
+    return new ValidationError(soldOut ? "Sold out" : "Not enough in stock", {
+      rule: "stock",
+      ...(typeof details.record === "string" ? { record: details.record } : {}),
+      status: soldOut ? "sold_out" : "not_enough",
+    });
+  }
   // A free trial another start took a moment before (migration 0531, ADR 0489): the caller's own
   // start, so they are told to start again (which gives them that page), and no more than that.
   if (typed.code === "conflict" && (typed.details as { rule?: unknown })?.rule === "trial_held") {

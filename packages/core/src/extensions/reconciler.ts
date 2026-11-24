@@ -36,6 +36,7 @@ import {
   resyncClaims,
   type StaffedTables,
 } from "../staffing/sql.ts";
+import { stockCounterBackfill } from "../stock/records.ts";
 import { orgReader, visibleSource } from "../visibility/index.ts";
 import {
   columnName,
@@ -398,6 +399,7 @@ export function planFromState(
       ...(object.timelineLinks?.length ? { timelineLinks: object.timelineLinks } : {}),
       ...(object.stages ? { stages: object.stages } : {}),
       ...(object.capacity ? { capacity: object.capacity } : {}),
+      ...(object.stock ? { stock: object.stock } : {}),
       ...(object.sellable ? { sellable: object.sellable } : {}),
       ...(object.allowance ? { allowance: object.allowance } : {}),
       ...(object.agreements ? { agreements: object.agreements } : {}),
@@ -815,6 +817,7 @@ export function planFromState(
       ...staffed.statements,
       ...seedWrites,
       ...capacityBackfill(next, ext, now),
+      ...stockBackfill(next, ext, now),
       ...allowanceBackfill(next, ext, orgZone, now),
       ...exceptionCleanup(next, ext),
     ],
@@ -968,9 +971,10 @@ export async function planDropHidden(
       tableDdl.push(`DROP TABLE IF EXISTS ${ident(table)}`);
     }
   }
-  // Counters and claims of a dropped object go with its table (ADR 0431).
+  // Counters and claims of a dropped object go with its table (ADR 0431). Stock's counter too;
+  // its ledger stays, as history nobody can change (ADR 0682).
   const capacityDrops = droppedObjects
-    .filter((o) => o.definition.capacity)
+    .filter((o) => o.definition.capacity || o.definition.stock)
     .flatMap((o) => dropCapacityStatements(o.name));
   // A dropped claimant gives back the places its records held and took (ADR 0501), and a
   // dropped series or generated object takes its recurring bookkeeping with it (ADR 0500).
@@ -1081,6 +1085,17 @@ function capacityBackfill(state: SchemaState, ext: string, now: string): Compile
     );
   }
   return statements;
+}
+
+/**
+ * A counter for every record of the extension's objects with stock that has none (ADR 0682):
+ * records made before their object declared it, and seed records. Nothing in stock until a
+ * movement says so.
+ */
+function stockBackfill(state: SchemaState, ext: string, now: string): CompiledQuery[] {
+  return state.objects
+    .filter((o) => o.extensionId === ext && o.status === "active" && o.definition.stock)
+    .map((object) => stockCounterBackfill(object.name, ident(object.tableName), now));
 }
 
 /**

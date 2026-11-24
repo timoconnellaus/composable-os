@@ -123,6 +123,15 @@ extension declares it; it never implements it. Each behaviour the platform has i
   public are told. Records get read-only `held`, `taken` and `available`, so don't declare fields
   with those names. Never count places in a tool: claims are made by the host in the write that
   needs them (an order). See `CapacitySpec` in `packages/sdk/src/capacity.ts` and ADR 0431.
+- **`stock`** on a `sellable` object: goods the host counts (a variant of an item). Declare
+  `stock: {}`, optionally `reorderAt` and `reorderQty` (number fields: the reorder level and how
+  many to order) and `show` / `lowAt` as for capacity (default: in stock or sold out). Not with
+  `capacity`. Records get read-only `onHand`, `held` and `available`, so don't declare fields with
+  those names. Nobody writes on hand: it moves only by a movement in the host's ledger (opening
+  stock and corrections are `stock.opening` and `stock.adjust`; an order holds and sells by
+  itself; a refund never restocks). Never keep a count in a field or change one in a tool. A
+  shipped pack only: a runtime extension cannot declare it. See `StockSpec` in
+  `packages/sdk/src/stock.ts` and ADR 0682.
 - **`claims`** on an object with `states`: its records hold a place on the record a relation
   points to, by their state (a booking on its class). Declare
   `claims: { on: "<relation>", held?: [<states>], confirmed?: [<states>] }`; `on`'s object

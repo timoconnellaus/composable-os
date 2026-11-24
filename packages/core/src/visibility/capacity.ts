@@ -89,8 +89,15 @@ export function outsideView(
   }
 }
 
-/** Whether an outside caller may read the record through the seam (their own or the public's). */
-async function readableBy(reader: Reader, object: ObjectDefinition, id: string): Promise<boolean> {
+/**
+ * Whether an outside caller may read the record through the seam (their own or the public's).
+ * Stock's read asks it too (visibility/stock.ts).
+ */
+export async function readableBy(
+  reader: Reader,
+  object: ObjectDefinition,
+  id: string,
+): Promise<boolean> {
   let source: VisibleSource<AnyRow, string>;
   try {
     source = visibleSource(reader, object);

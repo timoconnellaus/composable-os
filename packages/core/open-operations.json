@@ -208,6 +208,11 @@
       "toolOnly": true
     },
     {
+      "name": "stock.get",
+      "audiences": ["staff", "customer", "public"],
+      "risk": "read"
+    },
+    {
       "name": "subscription.cancel",
       "audiences": ["staff", "customer"],
       "risk": "write",

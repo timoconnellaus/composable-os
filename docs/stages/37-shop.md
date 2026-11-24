@@ -35,6 +35,20 @@ checkout), [0646](../adr/0646-erase-merge-and-retention-for-agreements.md) (eras
 Status: **spec agreed** (owner interviewed 2026-11-24: decisions 1 to 13). Build may start. The
 questions at the end refine later steps and block none of the first ones.
 
+- **Step 1, the `stock` behaviour** (`feat/stage-37-stock`): built. The SDK declaration and its
+  checks (`stock.ts`: sellable, not with `capacity`, reorder fields, `show`/`lowAt`; refused for a
+  runtime extension), the counter on `core_capacity` made with each record and backfilled, the
+  ledger `core_stock_movement` with its place and its append-only triggers (migration 0935), the
+  order's `sold` movement in the paid batch and no restock on a refund or on cancelling a part-paid
+  order (`orders/holds.ts`), `stock.get` (staff numbers; outsiders by `show`), `stock.movements`,
+  `stock.opening`, `stock.adjust` (an AI's waits for a person), and the read-only `onHand`, `held`,
+  `available` values. ADR 0682 (the spec's 0680; amends 0431 and 0433). Criteria covered for this
+  step: 1, 3, 4, 10 (host half), 16, 17 (stock half), 19 (stock half), 20 (the paid confirm).
+  Deviations: until step 3, `stock` requires `sellable` (not yet `sellable.goods`); the core
+  operations use `records:read` and `records:write`, not `shop:read` and `shop:stock`, which are the
+  pack's (step 5). Reorder-level notices are step 2's. Migrations 0936 to 0939 and ADR 0683 of
+  this session's share are unused.
+
 Vocabulary: "product" is the platform's word for a composition (ADR 0400) and is avoided for what
 a business sells. This spec says **item** (a thing in the shop: "Club hoodie") and **variant** (one
 version of it that is bought and counted: "Club hoodie, large, black").
