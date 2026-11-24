@@ -14,3 +14,7 @@ Status: accepted, 2026-11-04 (stage 0 architecture interview).
 ## Consequences
 - D1 has no read-only users, so the parser and the views are the boundary. They need thorough tests.
 - `crm.*` views are also where record-level permission filters will go.
+
+## Amendment, 2026-11-24 (stage 47, ADR 0660)
+Dashboards stay specs. A shipped pack's staff screens are its blocks, built into the admin, not
+specs (a runtime extension still ships none): [ADR 0660](0660-pack-screens-in-the-admin.md).

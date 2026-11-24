@@ -2,8 +2,11 @@
 // someone on a shift; a team member offers a shift and a qualified colleague takes it; a person
 // marks time away and the rosterer sees the warning while a colleague does not; someone who
 // handles pay totals, locks and exports a period, and the person counted sees their own hours
-// for it; someone who does not roster cannot change who is on a shift. The blocks are mounted where they sit (`/blocks`, development only), calling the
-// host's HTTP surface from the browser as a client app would, each person in their own browser.
+// for it; someone who does not roster cannot change who is on a shift. The roster, my shifts,
+// offers, my calendar and pay are opened from the admin's own navigation (stage 47), each person
+// in their own browser and the team in their role's small shell; the time-away and
+// not-a-rosterer journeys mount the blocks where they sit (`/blocks`, development only) to show
+// the blocks' own refusal states, which the admin never reaches.
 // Every name here is invented.
 //
 // Clocks: the host decides "today" (its own clock and the business's zone), which a test cannot
@@ -22,7 +25,7 @@ import {
   type Page,
   test,
 } from "@playwright/test";
-import { expectNoHorizontalScroll, unique } from "./helpers.ts";
+import { expectNoHorizontalScroll, open, openScreen, unique, waitForScreen } from "./helpers.ts";
 
 test.skip(
   process.env.E2E_REUSE_SERVER === "1" && process.env.E2E_ROSTERING_REUSED !== "1",
@@ -52,6 +55,20 @@ async function op<T>(
 
 const block = (name: string, component: string, props: Record<string, unknown> = {}) =>
   `/blocks?block=${name}&component=${component}&props=${encodeURIComponent(JSON.stringify(props))}`;
+
+/**
+ * On the roster screen, the week holding the shift `id`: from this week, a few weeks on at most
+ * (every shift here is 9 to 12 days ahead).
+ */
+async function weekWith(page: Page, id: string): Promise<void> {
+  const card = page.locator(`[data-shift="${id}"]`);
+  for (let week = 0; week < 4; week += 1) {
+    if (await card.isVisible()) return;
+    await page.getByRole("button", { name: "Next week" }).click();
+    await waitForScreen(page);
+  }
+  await expect(card).toBeVisible();
+}
 
 /** Opens a block where it sits and waits until it has drawn (the page has no app shell). */
 async function mount(page: Page, path: string): Promise<void> {
@@ -162,7 +179,9 @@ test("a rosterer builds a week and puts someone on a shift", { tag: "@phone" }, 
     await qualify(page, ann.id, duty);
     const at = around(9);
     const id = await shift(page, duty, at, null);
-    await mount(page, block("rostering-week", "RosterWeek", { from: localDate(at) }));
+    // From the admin's navigation (stage 47), on to the shift's week.
+    await openScreen(page, "Rostering", "Roster");
+    await weekWith(page, id);
     const card = page.locator(`[data-shift="${id}"]`);
     await expect(card).toBeVisible();
     // Uncovered: marked, and warned about (a rosterer's read).
@@ -184,8 +203,10 @@ test("a rosterer builds a week and puts someone on a shift", { tag: "@phone" }, 
       id,
     });
     expect(stored.values.staff).toBe(ann.id);
-    // Ann's own roster in her browser shows it as hers, with no assign controls.
-    await mount(ann.page, block("rostering-week", "RosterWeek", { from: localDate(at) }));
+    // Ann's own roster in her browser (her role's small shell) shows it as hers, with no assign
+    // controls.
+    await openScreen(ann.page, "Rostering", "Roster");
+    await weekWith(ann.page, id);
     const hers = ann.page.locator(`[data-shift="${id}"]`);
     await expect(hers).toHaveAttribute("data-mine", "true");
     await expect(ann.page.locator(`button[data-shift="${id}"]`)).toHaveCount(0);
@@ -208,14 +229,14 @@ test("a team member offers a shift and a qualified colleague takes it", async ({
     await qualify(page, ben.id, duty);
     const id = await shift(page, duty, around(10), ann.id);
     // Ann offers it from My shifts: it stays hers until someone takes it.
-    await mount(ann.page, block("rostering-my-shifts", "MyShifts"));
+    await openScreen(ann.page, "Rostering", "My shifts");
     const mine = ann.page.locator(`[data-shift="${id}"]`);
     await expect(mine).toContainText(dutyName);
     await mine.getByRole("button", { name: `Offer ${dutyName} for someone else to take` }).click();
     await expect(ann.page.getByRole("status")).toContainText("It stays yours until someone does.");
     await expect(mine).toContainText("Offered: still yours");
     // Ben sees it offered to him and takes it: nobody approves.
-    await mount(ben.page, block("rostering-offers", "OffersToMe"));
+    await openScreen(ben.page, "Rostering", "Offers");
     const offered = ben.page.locator("[data-offer]").filter({ hasText: dutyName });
     await expect(offered).toContainText(`Offered by ${ann.name}`);
     await offered.getByRole("button", { name: `Take ${dutyName}` }).click();
@@ -226,10 +247,11 @@ test("a team member offers a shift and a qualified colleague takes it", async ({
     ).toBe(ben.id);
     // It is gone from Ann's shifts.
     await ann.page.reload();
+    await waitForScreen(ann.page);
     await expect(ann.page.locator(`[data-shift="${id}"]`)).toHaveCount(0);
     // Ben adds his shifts to his phone's calendar: the address is shown once, works, holds the
     // shift he took, is in no URL of the app, and is gone once he leaves the page.
-    await mount(ben.page, block("rostering-my-calendar", "MyCalendar"));
+    await openScreen(ben.page, "Rostering", "My calendar");
     await ben.page.getByRole("button", { name: "Make my calendar address" }).click();
     const shown = ben.page.getByLabel("Your calendar address (shown this once)");
     await expect(shown).toHaveValue(/\/api\/v1\/staffing\/feed\/[^/]+\.ics$/);
@@ -244,6 +266,7 @@ test("a team member offers a shift and a qualified colleague takes it", async ({
     expect(fetched.status()).toBe(200);
     expect(await fetched.text()).toContain("BEGIN:VCALENDAR");
     await ben.page.reload();
+    await waitForScreen(ben.page);
     await expect(ben.page.locator('[data-feed="on"]')).toBeVisible();
     await expect(ben.page.getByTestId("feed-address")).toHaveCount(0);
     // Switched off, the address no longer answers.
@@ -344,7 +367,7 @@ test("someone who handles pay totals, locks and exports a period", async ({
     });
     const wednesday = Date.parse(`${start}T00:00:00Z`) + 2 * DAY + 12 * HOUR;
     await shift(page, duty, wednesday, ann.id);
-    await mount(page, block("rostering-pay", "Pay"));
+    await openScreen(page, "Rostering", "Pay");
     const period = page.locator(`[data-start="${start}"]`);
     await expect(period).toHaveAccessibleName(/ended, open$/);
     await period.click();
@@ -382,18 +405,23 @@ test("someone who handles pay totals, locks and exports a period", async ({
     const csv = Buffer.concat(text).toString("utf8");
     expect(csv).toContain(ann.name);
     expect(csv).toContain("1.00");
-    // Ann sees her own hours under My shifts (the owner's decision of 2026-11-24): the period's
-    // locked figures, the same 1.00, fetched only once she picks the period.
-    await mount(ann.page, block("rostering-my-shifts", "MyShifts"));
+    // Ann sees her own hours under My shifts (the owner's decision of 2026-11-24), opened from her
+    // role's shell: the period's locked figures, the same 1.00, fetched only once she picks it.
+    await openScreen(ann.page, "Rostering", "My shifts");
     const hours = ann.page.getByRole("region", { name: "My hours" });
     await expect(hours.getByText("All my hours")).toHaveCount(0);
     await hours.locator(`[data-start="${start}"]`).click();
     await expect(hours.locator('[data-state="locked"]')).toBeVisible();
     await expect(hours.getByRole("table", { name: "My hours and shifts" })).toContainText("1.00");
     await expect(hours.getByText("All my hours: 1.00")).toBeVisible();
-    // Someone who does not handle pay is shown nothing of the business's pay.
-    await mount(ann.page, block("rostering-pay", "Pay"));
-    await expect(ann.page.locator('[data-refusal="forbidden"]')).toBeVisible();
+    // Someone who does not handle pay is shown nothing of the business's pay: no Pay in their
+    // navigation, and its address is "not found".
+    await open(ann.page, "/");
+    const theirs = ann.page.getByTestId("screens-nav-Rostering").getByRole("link");
+    await expect(theirs.first()).toBeVisible();
+    await expect(theirs.filter({ hasText: /^Pay$/ })).toHaveCount(0);
+    await ann.page.goto("/s/rostering/pay");
+    await expect(ann.page.getByTestId("not-found")).toBeVisible();
     await expect(ann.page.getByText("1.00")).toHaveCount(0);
   } finally {
     // Back to the defaults this database had (a database of its own: see the top of this file).

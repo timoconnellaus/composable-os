@@ -935,6 +935,15 @@ MIT, inside the release; copied into a client app with `cos add`, recorded in
 holds no rules; the block lint refuses one that does (stage 24, ADRs 0401, 0424).
 _Avoid_: component (too general), widget (a widget is a dashboard tile), template
 
+**Screen**
+A shipped pack's staff screen in the product's admin (stage 47, ADR 0660): one of its web blocks,
+declared in its manifest (`screens`: a label, the block and export, where it sits in the
+navigation, the tools that gate it, and optionally the record whose page shows it as a tab),
+built into the admin and shown to whoever could call every tool in its gate (`screens.mine`).
+Runtime extensions declare none. A fixed-role account's admin shows its screens and nothing else.
+_Avoid_: page (an admin page is the host's own), view (a view is a saved spec), app screen (the
+app's screens are native blocks, not declared screens)
+
 **Client app**
 A company's own code that its customers or staff use, in the company's repository: a web app, a
 mobile app, a TV app. It reaches the host only through the typed client (stage 24): a web app over
@@ -1807,6 +1816,16 @@ list, quote, image, divider, embed, callout, button) and inline runs with marks 
 code, a link). Never HTML: markup and unsafe links are refused on every write (ADR 0440). Each
 client renders it block by block with its own components.
 _Avoid_: HTML, markdown, body (a field's name, not a type)
+
+**Question schema** (stage 29)
+The platform's one schema of a form's questions (`QUESTIONS_SCHEMA`, a document field): up to 60
+items, each with a stable key, of the kinds text, email, phone, number, choice, date, rating,
+yes/no and consent line, and the non-questions heading and paragraph. An item may be shown only if
+one earlier choice or yes/no has a value (one level), and a question may map to the Person's name,
+email or phone or to a field of the form's destination. Answers are checked against one version
+(`checkAnswers`) and stored in the platform's answers schema; a fault names the question's key and
+never the value. No health, signature, payment or (yet) file kind.
+_Avoid_: form fields (a form's questions are not fields of an object), survey schema
 
 **Slug**
 A record's address in its object (`summer-launch`): lowercase words joined by hyphens, unique
