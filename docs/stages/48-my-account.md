@@ -37,8 +37,9 @@ native link to the website is built).
   0713 (amends 0402; no migration): `me.deleteAccount` without `confirm` says what will happen,
   with `confirm` and `expect` it ends the subscriptions the member pays at period end, cancels
   their unpaid orders, then disables, signs out and opens the erase request, and the admins'
-  notice says what was left (`customers/account-delete.ts`). The recent sign-in before deleting
-  is step 2's.
+  notice says what was left (`customers/account-delete.ts`). A subscription under a cooling off
+  ends with it, and one with a later end date at the provider is left for staff and said to
+  charge. The recent sign-in before deleting is step 2's.
 
 Vocabulary: "My account" is the customer's own area on the business's website and in its app.
 The draft called it the customer portal; "portal" stays only as the name of the manifest key and

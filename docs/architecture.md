@@ -964,7 +964,8 @@ As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
   outside path with the same principal. It may set an object's writable fields and the fields
   the tool lists in its manifest. A runtime extension can open nothing.
 - **Deleting an account** first says what it will do (`me.deleteAccount` without `confirm`,
-  ADR 0713): subscriptions the member pays end at their period's end, nothing refunded; unpaid
+  ADR 0713): subscriptions the member pays end at their period's end (or with a cooling off
+  under way), nothing refunded, and one the host cannot end so is listed for staff; unpaid
   orders are cancelled; open records of objects that declare a customer, part-paid orders and a
   child left without a guardian stay for staff. Confirmed with the preview's `expect`, it asks the
   provider first, then in one batch cancels the orders, disables the account, ends its sessions

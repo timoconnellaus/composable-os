@@ -29,6 +29,7 @@ import { taxCodeOf } from "../orders/tax.ts";
 import { holdsPermission } from "../principals.ts";
 import { callerOf } from "../records/transitions.ts";
 import { coolingOffDaysNow } from "./cooling-off.ts";
+import { coolOffOpen } from "./cooling-off.ts";
 import { loadSubscriptionRow, type SubscriptionRow } from "./events.ts";
 import { holdOfferStatements, prepareOfferTake } from "./offers.ts";
 import {
@@ -396,6 +397,22 @@ export async function subscriptionForChange(
 }
 
 /**
+ * A cooling off under way is finished as one (ADR 0647): an ordinary cancel would end it without
+ * its refunds, or as an end that is not the cooling off's. In the host's own cancel functions, so
+ * every path that ends a subscription (subscription.cancel, me.deleteAccount) keeps it.
+ */
+async function refuseWhileCoolingOff(ctx: HandlerContext, row: SubscriptionRow): Promise<void> {
+  if (await coolOffOpen(ctx.db, row.id, ctx.now)) {
+    throw new ConflictError(
+      "A cooling off is under way on this membership: it ends with a full refund of what was " +
+        "paid in the period. Wait for it, or finish it from Cooling off; it cannot also be " +
+        "cancelled now.",
+      { subscription: row.id, rule: "cooling_off_open" },
+    );
+  }
+}
+
+/**
  * Asks the provider to end `row` when its paid period ends. The host's own call: the gatekeeper's
  * cancel action is applied at once. The record shows it once the provider's event arrives.
  */
@@ -404,6 +421,7 @@ export async function cancelAtPeriodEnd(
   row: SubscriptionRow,
   reason: string,
 ): Promise<void> {
+  await refuseWhileCoolingOff(ctx, row);
   if (!RUNNING.has(row.state)) {
     throw new ConflictError(`A subscription that is ${row.state} cannot be cancelled`, {
       subscription: row.id,
@@ -450,6 +468,7 @@ export async function cancelNow(
   row: SubscriptionRow,
   reason: string,
 ): Promise<void> {
+  await refuseWhileCoolingOff(ctx, row);
   if (ctx.principal.kind !== "staff") {
     throw new ValidationError("Only staff end a subscription at once; yours ends with its period", {
       field: "now",

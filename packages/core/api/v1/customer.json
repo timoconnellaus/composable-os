@@ -1632,7 +1632,7 @@
     },
     {
       "name": "me.deleteAccount",
-      "description": "Delete your customer account and ask for your personal data to be erased. Without `confirm` it changes nothing and says what will happen: each subscription you pay ends when the period already paid for ends (nothing refunded, nothing more charged), your unpaid orders are cancelled, and your bookings, tickets and other records stay for staff to decide when they erase your data. With `confirm: true` and the preview's `expect` it does that: you are signed out everywhere at once and can no longer sign in, and staff erase your data, or tell you by email why some of it must be kept, by the due date returned. A preview that changed meanwhile is a conflict: ask for it again.",
+      "description": "Delete your customer account and ask for your personal data to be erased. Without `confirm` it changes nothing and says what will happen: each subscription you pay ends when the period already paid for ends (nothing refunded, nothing more charged), or with a cooling off you asked for; one that cannot be ended that way (an end date set later, or waiting for payment, unpaid or paused) is left for staff and may charge until they end it. Your unpaid orders are cancelled, and your bookings, tickets and other records stay for staff to decide when they erase your data. With `confirm: true` and the preview's `expect` it does that: you are signed out everywhere at once and can no longer sign in, and staff erase your data, or tell you by email why some of it must be kept, by the due date returned. A preview that changed meanwhile is a conflict: ask for it again.",
       "risk": "write",
       "audiences": ["customer"],
       "kind": "mutation",
@@ -1680,23 +1680,16 @@
                       "type": "string"
                     },
                     "endsAt": {
-                      "description": "When it stops: the end of the period paid for",
+                      "description": "When it stops: the end of the period paid for, or an earlier end already set",
                       "type": ["string", "null"]
                     },
-                    "alreadyEnding": {
-                      "type": "boolean",
-                      "description": "You already set it to end; nothing more is asked"
+                    "ending": {
+                      "type": "string",
+                      "enum": ["period_end", "already", "cooling_off"],
+                      "description": "period_end: it will be set to end then. already: it already ends by then. cooling_off: the cooling off you asked for ends it, with its refund"
                     }
                   },
-                  "required": [
-                    "id",
-                    "title",
-                    "amount",
-                    "currency",
-                    "interval",
-                    "endsAt",
-                    "alreadyEnding"
-                  ],
+                  "required": ["id", "title", "amount", "currency", "interval", "endsAt", "ending"],
                   "additionalProperties": false
                 },
                 "description": "Subscriptions you pay that will end when the period already paid for ends. Nothing is refunded and nothing more is charged"
@@ -1760,8 +1753,29 @@
                   "moreUnpaidOrders": {
                     "type": "number"
                   },
-                  "otherSubscriptions": {
-                    "type": "number"
+                  "subscriptions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "state": {
+                          "type": "string"
+                        },
+                        "why": {
+                          "type": "string",
+                          "enum": ["end_date_later", "state", "more"]
+                        }
+                      },
+                      "required": ["id", "title", "state", "why"],
+                      "additionalProperties": false
+                    },
+                    "description": "Subscriptions you pay that deleting does not end, which may still charge until staff end them: an end date set after the period paid for (end_date_later), waiting for a first payment, unpaid or paused (state), or more than one deletion ends (more)"
                   },
                   "dependantsWithoutGuardian": {
                     "type": "number"
@@ -1771,7 +1785,7 @@
                   "records",
                   "partPaidOrders",
                   "moreUnpaidOrders",
-                  "otherSubscriptions",
+                  "subscriptions",
                   "dependantsWithoutGuardian"
                 ],
                 "additionalProperties": false,

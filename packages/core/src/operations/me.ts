@@ -301,8 +301,16 @@ const deletePreviewSchema = z.object({
         title: z.string(),
         ...money,
         interval: z.string(),
-        endsAt: z.string().nullable().describe("When it stops: the end of the period paid for"),
-        alreadyEnding: z.boolean().describe("You already set it to end; nothing more is asked"),
+        endsAt: z
+          .string()
+          .nullable()
+          .describe("When it stops: the end of the period paid for, or an earlier end already set"),
+        ending: z
+          .enum(["period_end", "already", "cooling_off"])
+          .describe(
+            "period_end: it will be set to end then. already: it already ends by then. " +
+              "cooling_off: the cooling off you asked for ends it, with its refund",
+          ),
       }),
     )
     .describe(
@@ -325,7 +333,20 @@ const deletePreviewSchema = z.object({
       records: z.array(z.object({ object: z.string(), label: z.string(), count: z.number() })),
       partPaidOrders: z.number(),
       moreUnpaidOrders: z.number(),
-      otherSubscriptions: z.number(),
+      subscriptions: z
+        .array(
+          z.object({
+            id: z.string(),
+            title: z.string(),
+            state: z.string(),
+            why: z.enum(["end_date_later", "state", "more"]),
+          }),
+        )
+        .describe(
+          "Subscriptions you pay that deleting does not end, which may still charge until staff " +
+            "end them: an end date set after the period paid for (end_date_later), waiting for " +
+            "a first payment, unpaid or paused (state), or more than one deletion ends (more)",
+        ),
       dependantsWithoutGuardian: z.number(),
     })
     .describe(
@@ -341,12 +362,14 @@ export const meDeleteAccount = defineOperation({
   description:
     "Delete your customer account and ask for your personal data to be erased. Without " +
     "`confirm` it changes nothing and says what will happen: each subscription you pay ends when " +
-    "the period already paid for ends (nothing refunded, nothing more charged), your unpaid " +
-    "orders are cancelled, and your bookings, tickets and other records stay for staff to " +
-    "decide when they erase your data. With `confirm: true` and the preview's `expect` it does " +
-    "that: you are signed out everywhere at once and can no longer sign in, and staff erase " +
-    "your data, or tell you by email why some of it must be kept, by the due date returned. A " +
-    "preview that changed meanwhile is a conflict: ask for it again.",
+    "the period already paid for ends (nothing refunded, nothing more charged), or with a " +
+    "cooling off you asked for; one that cannot be ended that way (an end date set later, or " +
+    "waiting for payment, unpaid or paused) is left for staff and may charge until they end it. " +
+    "Your unpaid orders are cancelled, and your bookings, tickets and other records stay for " +
+    "staff to decide when they erase your data. With `confirm: true` and the preview's `expect` " +
+    "it does that: you are signed out everywhere at once and can no longer sign in, and staff " +
+    "erase your data, or tell you by email why some of it must be kept, by the due date " +
+    "returned. A preview that changed meanwhile is a conflict: ask for it again.",
   input: z
     .object({
       confirm: z.boolean().default(false).describe("Delete now, as the preview said"),
@@ -371,6 +394,8 @@ export const meDeleteAccount = defineOperation({
   permission: "records:write",
   risk: "write",
   audiences: ["customer"],
+  // It ends subscriptions, which subscription.cancel keeps to a person: never a pack's tool.
+  actors: ["human"],
   hostInternal: true,
   mcp: { expose: false },
   async handler(input, ctx) {

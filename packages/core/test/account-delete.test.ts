@@ -49,13 +49,13 @@ const as = (buyer: Buyer, extra: Parameters<typeof outside>[1] = {}) =>
 
 interface Preview {
   deleted: false;
-  subscriptions: { id: string; endsAt: string | null; alreadyEnding: boolean }[];
+  subscriptions: { id: string; endsAt: string | null; ending: string }[];
   orders: { id: string; total: number; lines: string[] }[];
   leftForStaff: {
     records: { object: string; label: string; count: number }[];
     partPaidOrders: number;
     moreUnpaidOrders: number;
-    otherSubscriptions: number;
+    subscriptions: { id: string; title: string; state: string; why: string }[];
     dependantsWithoutGuardian: number;
   };
   eraseDueAt: string;
@@ -130,6 +130,41 @@ async function noticesTo(user: string, personId: string) {
     .bind(user, `%${personId}%`)
     .all<{ title: string; body: string }>();
   return results;
+}
+
+/** A web session and an app session for `buyer`. */
+async function signedIn(buyer: Buyer): Promise<void> {
+  const now = new Date().toISOString();
+  const later = new Date(Date.now() + DAY).toISOString();
+  await env.DB.batch([
+    env.DB.prepare(
+      "INSERT INTO core_customer_session (id, customer_id, token, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+    ).bind(`ses_${unique("s")}`, buyer.principal.customerId, unique("token"), later, now, now),
+    env.DB.prepare(
+      "INSERT INTO core_device_session (id, audience, customer_id, device_name, access_hash, access_expires_at, refresh_hash, created_at, last_used_at) VALUES (?, 'customer', ?, 'Phone', ?, ?, ?, ?, ?)",
+    ).bind(
+      `dvs_${unique("d")}`,
+      buyer.principal.customerId,
+      unique("a"),
+      later,
+      unique("r"),
+      now,
+      now,
+    ),
+  ]);
+  expect(await sessionsOf(buyer)).toEqual({ web: 1, device: 1 });
+}
+
+async function sessionsOf(buyer: Buyer): Promise<{ web: number; device: number }> {
+  const count = async (table: string) =>
+    Number(
+      (
+        await env.DB.prepare(`SELECT count(*) AS n FROM ${table} WHERE customer_id = ?`)
+          .bind(buyer.principal.customerId)
+          .first<{ n: number }>()
+      )?.n,
+    );
+  return { web: await count("core_customer_session"), device: await count("core_device_session") };
 }
 
 /** A member with a subscription, an unpaid order, a part-paid one, two open visits, a past
@@ -247,7 +282,7 @@ describe("the preview (criterion 10)", () => {
           currency: CURRENCY,
           interval: "month",
           endsAt: sub.currentPeriodEnd,
-          alreadyEnding: false,
+          ending: "period_end",
         },
       ],
       orders: [{ id: unpaid.id, total: 4000, currency: CURRENCY, lines: ["Drop-in"] }],
@@ -259,7 +294,7 @@ describe("the preview (criterion 10)", () => {
         ],
         partPaidOrders: 1,
         moreUnpaidOrders: 0,
-        otherSubscriptions: 0,
+        subscriptions: [],
         dependantsWithoutGuardian: 0,
       },
     });
@@ -305,6 +340,7 @@ describe("the preview (criterion 10)", () => {
 describe("confirming (criterion 10)", () => {
   it("ends the subscription at the period's end, cancels the order, disables and tells admins", async () => {
     const { buyer, subscription, sub, unpaid, deposit } = await busyMember();
+    await signedIn(buyer);
     const seen = await preview(buyer);
     const calls = gw.changes.length;
     const done = await confirm(buyer, seen.expect);
@@ -337,6 +373,18 @@ describe("confirming (criterion 10)", () => {
       .bind(buyer.principal.customerId)
       .first<{ status: string }>();
     expect(account?.status).toBe("disabled");
+    // Every session ends, web and app, and the erase request is open with the due date given.
+    expect(await sessionsOf(buyer)).toEqual({ web: 0, device: 0 });
+    const request = await env.DB.prepare(
+      "SELECT status, customer_id, due_at FROM core_erase_request WHERE person_id = ?",
+    )
+      .bind(buyer.principal.personId)
+      .first();
+    expect(request).toEqual({
+      status: "open",
+      customer_id: buyer.principal.customerId,
+      due_at: due,
+    });
     const [notice] = await noticesTo(admin.id, buyer.principal.personId);
     expect(notice?.title).toBe("A customer asked to be erased");
     expect(notice?.body).toContain(
@@ -381,10 +429,82 @@ describe("confirming (criterion 10)", () => {
     const { id } = await subscribed(buyer);
     await deliver(read(id, { cancelAtPeriodEnd: true }), "updated");
     const seen = await preview(buyer);
-    expect(seen.subscriptions).toMatchObject([{ id, alreadyEnding: true }]);
+    expect(seen.subscriptions).toMatchObject([{ id, ending: "already" }]);
     const calls = gw.changes.length;
     await confirm(buyer, seen.expect);
     expect(gw.changes.length).toBe(calls);
+  });
+
+  it("leaves a subscription with a later end date at the provider to staff, and says it may charge", async () => {
+    // Review of PR #375: an end date set at the provider after the period paid for keeps
+    // charging until then, and cancelAtPeriodEnd refuses it; deleting must not call it ending.
+    const buyer = await createBuyer(admin, "dated");
+    const { id } = await subscribed(buyer);
+    const later = new Date(Date.now() + 300 * DAY).toISOString();
+    await deliver(read(id, { cancelAt: later }), "updated");
+    const seen = await preview(buyer);
+    expect(seen.subscriptions).toEqual([]);
+    expect(seen.leftForStaff.subscriptions).toEqual([
+      { id, title: "Monthly", state: "active", why: "end_date_later" },
+    ]);
+    const calls = gw.changes.length;
+    await confirm(buyer, seen.expect);
+    expect(gw.changes.length).toBe(calls);
+    const [notice] = await noticesTo(admin.id, buyer.principal.personId);
+    expect(notice?.body).toContain("1 subscription they pay was not ended and may still charge");
+    expect(notice?.body).not.toContain("ends when the period paid for ends");
+  });
+
+  it("an end date set before the period ends is already ending: nothing more is asked", async () => {
+    const buyer = await createBuyer(admin, "early");
+    const { id, sub } = await subscribed(buyer);
+    const soon = new Date(Date.parse(sub.currentPeriodEnd as string) - DAY).toISOString();
+    await deliver(read(id, { cancelAt: soon }), "updated");
+    const seen = await preview(buyer);
+    expect(seen.subscriptions).toMatchObject([{ id, ending: "already", endsAt: soon }]);
+    expect(seen.leftForStaff.subscriptions).toEqual([]);
+  });
+
+  it("a subscription under a cooling off ends with it: deleting asks the provider nothing", async () => {
+    // Review of PR #375: the cooling off's rule (ADR 0647) is the host's, on every path.
+    const buyer = await createBuyer(admin, "cooling");
+    const { id } = await subscribed(buyer);
+    const now = new Date().toISOString();
+    const deadline = new Date(Date.now() + DAY).toISOString();
+    await env.DB.prepare(
+      `INSERT INTO core_subscription_cool_off (subscription_id, holder_person_id, asked_by, days, window_ends_at, state, call_outcome, asked_at, deadline_at, last_asked_at, updated_at)
+       VALUES (?, ?, 'payer', 14, ?, 'asked', 'pending', ?, ?, ?, ?)`,
+    )
+      .bind(id, buyer.principal.personId, deadline, now, deadline, now, now)
+      .run();
+    const seen = await preview(buyer);
+    expect(seen.subscriptions).toMatchObject([{ id, ending: "cooling_off", endsAt: null }]);
+    const calls = gw.changes.length;
+    // The host's own cancel refuses it too, whoever calls it.
+    expect(await refusal(run("subscription.cancel", { id }, as(buyer)))).toMatchObject({
+      code: "conflict",
+      details: { rule: "cooling_off_open" },
+    });
+    await confirm(buyer, seen.expect);
+    expect(gw.changes.length).toBe(calls);
+    const [notice] = await noticesTo(admin.id, buyer.principal.personId);
+    expect(notice?.body).toContain("1 subscription ends with the cooling off under way");
+  });
+
+  it("does not count a membership its subscription granted as left for staff", async () => {
+    // Review of PR #375: the record follows the subscription deleting ends.
+    const buyer = await createBuyer(admin, "granted");
+    const { id } = await subscribed(buyer);
+    const visit = await create(VISIT, { name: unique("Visit"), person: buyer.principal.personId });
+    await create(VISIT, { name: unique("Visit"), person: buyer.principal.personId });
+    await env.DB.prepare(
+      "INSERT INTO core_subscription_grant (subscription_id, object_type, record_id, created_at) VALUES (?, ?, ?, ?)",
+    )
+      .bind(id, VISIT, visit, new Date().toISOString())
+      .run();
+    expect((await preview(buyer)).leftForStaff.records).toEqual([
+      { object: VISIT, label: "Visit", count: 1 },
+    ]);
   });
 
   it("leaves the account as it was when the provider refuses", async () => {
@@ -450,18 +570,27 @@ describe("statements (D1's limits)", () => {
 
     const many = await createBuyer(admin, "many");
     for (let n = 0; n < ACCOUNT_DELETE_MOST + 2; n += 1) await startOrder(many, [{ id: ticket }]);
+    for (let n = 0; n < ACCOUNT_DELETE_MOST + 2; n += 1) await subscribed(many);
     for (let n = 0; n < 5; n += 1) {
       await create(VISIT, { name: unique("Visit"), person: many.principal.personId });
     }
     ran = [];
     const seen = await run<Preview>("me.deleteAccount", {}, as(many, { db: countedDb }));
-    // As many statements for twenty-two orders and five visits as for one order.
-    expect(ran.length).toBe(fewReads);
+    // As many statements for twenty-two orders, twenty-two subscriptions and five visits as for
+    // one order: one more, the read of their cooling offs, when there are subscriptions at all.
+    expect(ran.length).toBe(fewReads + 1);
     expect(seen.orders).toHaveLength(ACCOUNT_DELETE_MOST);
     expect(seen.leftForStaff.moreUnpaidOrders).toBe(2);
+    expect(seen.subscriptions).toHaveLength(ACCOUNT_DELETE_MOST);
+    expect(seen.leftForStaff.subscriptions.map((s) => s.why)).toEqual(["more", "more"]);
 
     ran = [];
+    const calls = gw.changes.length;
     await confirm(many, seen.expect, { db: countedDb });
+    expect(gw.changes.length - calls).toBe(ACCOUNT_DELETE_MOST);
+    console.log(
+      `STATEMENTS preview=${fewReads + 1} confirm=${ran.length} maxBound=${Math.max(...ran)}`,
+    );
     expect(ran.length).toBeLessThan(1000);
     expect(Math.max(...ran)).toBeLessThanOrEqual(100);
   });

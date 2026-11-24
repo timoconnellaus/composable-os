@@ -1,17 +1,20 @@
 // A customer's own open records, counted (stage 48 step 6, ADR 0713): what deleting their account
 // leaves for staff's erase. For each object that declares a customer, how many live rows have the
 // caller's own Person in its customer field (never a dependant's, never what is shared with
-// them) and are not in a state no move leaves. Counts only: no field of any record is read.
+// them) and are not in a state no move leaves. A record a subscription they pay granted (a
+// membership, ADR 0510) follows that subscription and is not counted: deleting ends the
+// subscription, or leaves it for staff as a subscription. Counts only: no field of any record
+// is read.
 //
-// One statement per OBJECTS_PER_STATEMENT objects, each object costing one bound variable (the
-// Person id); state names and object names are the registry's own, written as literals.
+// One statement per OBJECTS_PER_STATEMENT objects, each object costing two bound variables (the
+// Person id, twice); state names and object names are the registry's own, written as literals.
 import { sql } from "kysely";
 import { listObjects } from "../fields/index.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
 import { customerScope } from "./customer.ts";
 import type { Reader } from "./index.ts";
 
-const OBJECTS_PER_STATEMENT = 50;
+const OBJECTS_PER_STATEMENT = 40;
 
 /** The states of `object` that no move leaves: a record in one is finished, not open. */
 export function finishedStates(object: ObjectDefinition): string[] {
@@ -63,7 +66,7 @@ export async function countOwnOpenRecords(ctx: Reader): Promise<OwnOpenRecords[]
       object,
       query: sql`SELECT ${sql.lit(object.name)} AS object, count(*) AS n FROM ${sql.table(
         object.source,
-      )} WHERE ${sql.ref(scope.column)} = ${principal.personId} ${open}`,
+      )} WHERE ${sql.ref(scope.column)} = ${principal.personId} ${open} AND id NOT IN (SELECT g.record_id FROM core_subscription_grant g JOIN core_subscription s ON s.id = g.subscription_id WHERE g.object_type = ${sql.lit(object.name)} AND s.payer_person_id = ${principal.personId})`,
     });
   }
   const out: OwnOpenRecords[] = [];
