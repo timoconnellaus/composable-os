@@ -2329,6 +2329,16 @@ gets a small shell (its screens, its account, sign out) that makes no call its r
 every other server function and `/api/*` route refuses it, and MCP holds it to its role
 (ADR 0436).
 
+**Today items** (stage 60, [ADR 0870](adr/0870-todays-items-and-the-today-items-declaration.md)): a
+shipped pack declares the numbers it adds to the owner's Today (`todayItems` in its manifest: a
+label, an order, `count` or `percent` (never money: that is the host's, from stage 52), read-only
+SQL over `rec_*` views returning one `value`, a comparison, when it needs attention, drill-in
+`rows`, the tools in `opens` that gate it, and optionally a `web` screen). The SDK's contract checks
+the shape and the gate; `checkManifest` checks the SQL with the widget guards (`bindNamedParams`
+with only `:today_from`, `:today_to` and `:now`, then `validateReadOnlySql`) and that it returns
+exactly the columns it declares (`packages/core/src/today/declaration.ts`). A runtime extension
+declaring any is refused. `today.get`, which runs them, is step 3.
+
 **My account** (stage 48, [spec](stages/48-my-account.md)) is base-layer blocks over a base
 headless entry in the typed client's runtime (`packages/client/src/account.ts`:
 `createAccountHooks`, `accountSections`, `loadOrders`, the words for orders, subscriptions and

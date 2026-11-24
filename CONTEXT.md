@@ -983,6 +983,16 @@ Runtime extensions declare none. A fixed-role account's admin shows its screens 
 _Avoid_: page (an admin page is the host's own), view (a view is a saved spec), app screen (the
 app's screens are native blocks, not declared screens)
 
+**Today item**
+One number on the owner's Today (stage 60, ADR 0870): a key, a label, a value for the business's
+local day, a comparison, whether it needs attention, and what a tap opens. A **host item**
+(`host.takings`, `host.approvals`) is computed by the host; a **pack item** is declared by a
+shipped pack in its manifest (`todayItems`: read-only SQL over `rec_*` views returning one
+`value`, a count or a percent, never money, gated by the pack's own tools as a screen is). Runtime
+extensions declare none.
+_Avoid_: widget (a widget is a dashboard's tile), KPI (a dashboard's widget type), `today` (a pack
+role's limit to today, ADR 0553)
+
 **Client app**
 A company's own code that its customers or staff use, in the company's repository: a web app, a
 mobile app, a TV app. It reaches the host only through the typed client (stage 24): a web app over
