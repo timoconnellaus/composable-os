@@ -197,7 +197,7 @@ describe("the declaration reaches the registry and the seam", () => {
 });
 
 describe("the generic writes are for tools only", () => {
-  it("my.create and my.update are listed as toolOnly and refuse a direct call", async () => {
+  it("my.create, my.update and my.delete are listed as toolOnly and refuse a direct call", async () => {
     const listed = openOperations(coreRegistry.list()).operations.filter((op) => op.toolOnly);
     // And the public reads a pack's tools make (stage 27, ADR 0438).
     expect(listed.map((op) => op.name)).toEqual([
@@ -207,6 +207,8 @@ describe("the generic writes are for tools only", () => {
       "intake.open",
       "intake.submit",
       "my.create",
+      // Stage 41 (ADR 0414, amended): a customer's own record to the Trash, where its object says.
+      "my.delete",
       "my.update",
       // Stage 31a step 8 (ADR 0560): a drop-in booking made with its order, from a pack's tool.
       "order.startHeld",
@@ -217,7 +219,7 @@ describe("the generic writes are for tools only", () => {
       // Stage 31a (ADR 0504): the dry run of a requested move (a member's cancel).
       "state.resolve",
     ]);
-    for (const name of ["my.create", "my.update"]) {
+    for (const name of ["my.create", "my.update", "my.delete"]) {
       const direct = await call(
         name,
         { object: BOOKING, id: "rec_x", values: { note: "hi" } },

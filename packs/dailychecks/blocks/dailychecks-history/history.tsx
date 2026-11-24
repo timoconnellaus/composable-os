@@ -38,7 +38,8 @@ export function ChecklistHistory({
 }) {
   const id = useId();
   const [to, setTo] = useState(localToday);
-  const from = addDays(to, -(Math.min(Math.max(days, 1), 62) - 1));
+  const span = Math.min(Math.max(days, 1), 62);
+  const from = addDays(to, -(span - 1));
   const answer = dailychecks.useHistory({ from, to });
   const [open, setOpen] = useState<HistoryDay | null>(null);
   const data = answer.data;
@@ -58,7 +59,7 @@ export function ChecklistHistory({
             onChange={(e) => e.target.value && setTo(e.target.value)}
           />
         </label>
-        <Button type="button" variant="outline" onClick={() => setTo(addDays(to, -days))}>
+        <Button type="button" variant="outline" onClick={() => setTo(addDays(to, -span))}>
           Earlier
         </Button>
       </div>

@@ -12,6 +12,7 @@ import {
   basisLabel,
   dayLabel,
   type MyPayPeriod,
+  payPeriodState,
   type RosteringHooks,
   refusalNext,
   rosterRefusal,
@@ -24,13 +25,6 @@ import { Row } from "../native-base/row.tsx";
 import { Text } from "../native-base/text.tsx";
 
 export type MyHoursHooks = Pick<RosteringHooks, "useMyPayPeriods" | "useMyPay">;
-
-const stateLabel = (p: MyPayPeriod) =>
-  p.state === "locked"
-    ? `Locked${p.version && p.version > 1 ? ` (version ${p.version})` : ""}`
-    : p.ended
-      ? "Ended, not locked yet"
-      : "Open";
 
 export function MyHoursNative({
   rostering,
@@ -85,7 +79,7 @@ export function MyHoursNative({
             <Row
               key={p.start}
               title={`${dayLabel(p.start, locale)} – ${dayLabel(p.end, locale)}${chosen === p.start ? " (shown)" : ""}`}
-              detail={stateLabel(p)}
+              detail={payPeriodState(p)}
               onPress={() => setChosen(chosen === p.start ? null : p.start)}
             />
           ))}

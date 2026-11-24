@@ -861,6 +861,7 @@ apps/
   app/                 TanStack Start + shadcn UI, server functions, /mcp       → Worker "cos-app"
   runner/              extension runtime, automations, Workflows, Queues         → Worker "cos-runner"
   marketing/           the Composable OS site, composableos.dev                  → Worker "cos-site"
+  docs/                the technical docs, docs.composableos.dev, generated from the code (ADR 0930) → Worker "cos-docs"
 packages/
   core/                operations registry, risk classes, policy types, model role registry (ai/), the judge (judge/), schema reconciler
   db/                  core D1 migrations (incl. core_base_* views), typed core schema
@@ -894,7 +895,8 @@ skills/                agent skills for building on the platform (stage 21, ADR 
 templates/client/      the client repo `cos create` writes (stage 24): apps/web, apps/mobile, product.ts
 blocks/                the platform's blocks (stage 24, MIT): ui-* (web base layer), native-base, sign-in
 packs/                 shipped extensions with their client parts (stage 24): <id>/index.ts and its
-                       files (the extension), client/ (headless hooks), blocks/ (screens)
+                       files (the extension), client/ (headless hooks), blocks/ (screens), and
+                       docs/overview.md (its overview on the docs site, ADR 0930)
   deals/               (stage 4) Deals: pipelines, stages, deals, participants (ADR 0026, 0100)
   leads/               (stage 15) Leads: inbox, conversion to deals (ADR 0246)
   lifecycle/           (stage 15) opt-in lifecycle stage on people (ADR 0246)
@@ -905,6 +907,7 @@ docs/
   stages/              per-stage agreed spec + acceptance criteria
   spikes/              time-boxed experiments and their findings
   deploying.md         install, secrets, Deploy button, upgrades
+  guides/              cross-cutting guides, published on the docs site (ADR 0930)
 scripts/
   deploy.mjs           deploy both Workers and apply migrations (`pnpm run deploy`)
   dev-setup.mjs        local .dev.vars + local migrations (runs before `pnpm dev`)
@@ -1011,7 +1014,8 @@ As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
   anyone; and, on top, anyone starting a subscription while a plan is on sale (ADR 0459).
 - **Open operations:** `me.get`, `me.update`, `me.family`, `me.signOut`, `me.sessions.*`,
   `me.deleteAccount`, `me.attention` (stage 48, ADR 0711), `my.list`, `my.get`, and for tools
-  only `my.create`, `my.update`.
+  only `my.create`, `my.update`, and `my.delete` (the Trash, only for an object whose
+  `customer.delete` says so: a logged set).
 - **A pack's tool called by a customer runs as that customer.** Its operation calls take the same
   outside path with the same principal. It may set an object's writable fields and the fields
   the tool lists in its manifest. A runtime extension can open nothing.
@@ -1809,18 +1813,24 @@ the only thing saved. Publishable records' pages carry the publish controls
 an exercise bank, programs whose layout is one document (weeks, sessions, blocks, items, levels,
 typed sets, notes for coaches or members), versions, class types, assignments to a person or a
 class type that pin a version and make dated sessions carrying their own plans, and a log of every
-set against its target. Its tools compose the host's operations: `assign`, `today`, `sessionGet`,
-`classToday`, `logAdd`, `logUpdate`, `sessionComplete`, `history`, `progress`, and, for staff,
+set against its target, one row per set and person (`unique` on `person` and `setKey`, so a
+retried or doubled save changes the set instead of logging it twice). Its tools compose the host's
+operations: `assign`, `today`, `sessionGet`, `classToday`, `logAdd`, `logUpdate`, `logRemove` (a
+set ticked by mistake, to the Trash: `my.delete` for its person), `sessionComplete`, `history`,
+`progress`, and, for staff,
 `draft` (a working copy from a brief, with the `extract` model role) and `importText` (coaches'
 shorthand into structured targets, unread lines listed; with a key, one program per key and a
 coach's edit saved before the run kept; with `dryRun`, nothing written). An item of the layout is for
 everyone, has levels, or both. The staff side is declarations: the
 Training dashboard, saved views, the Person page's Training tab and panels. Its headless entry
-(`@composable-os/pack-programs/client`) holds the layout's pure edits and a self-saving working
-copy, and a person's past sessions with their sets done of planned (`loadPastSessions`, over a
-member's `my.list` or a coach's `record.list`); fourteen blocks (the program builder, the exercise
-bank, today and session, class today, history and progress, past sessions, the coach's client
-view; web and native) are built on it. In development
+(`@composable-os/pack-programs/client`) holds the layout's pure edits, a self-saving working
+copy, a person's past sessions with their sets done of planned (`loadPastSessions`, over a
+member's `my.list` or a coach's `record.list`), and the session log (`client/logging.ts`): the
+workout logger's pure state (a tick logs the numbers shown, carry-forward suggestions, progress,
+what was not ticked) and one queue per session and person that sends saves one at a time, in
+order, retries what fails and outlives the screen; fourteen blocks (the program builder, the
+exercise bank, today and session, class today, history and progress, past sessions, the coach's
+client view; web and native) are built on it. In development
 `apps/app` mounts any pack's web block at `/blocks` (ADR 0424, amended); the bank, the builder and
 the client view are its screens in the admin (stage 47, ADR 0660).
 
@@ -1948,6 +1958,14 @@ A pack may declare a tool permission **restricted**
 held by admins and by a grant of it, never by a member's or viewer's own role or by a pack role,
 and is never called by an automation or another extension's code (Rostering's `rostering:manage`;
 pay in step 6). A human admin grants it, never to their own account.
+A pack's text field may be **restricted** to one of its restricted permissions
+([ADR 0811](adr/0811-restricted-fields.md), stage 54 step 2): it gets no column and is no registry
+field, its value is kept in `core_restricted_value` (migration 1190, `records/restricted.ts`), so
+no `rec_*` view, list, search, export, dashboard, summary, timeline or audit row holds it. The
+record's customer writes it and reads their own through the seam (`visibility/writes.ts`,
+`visibility/records.ts`); staff read it only with `record.readRestricted`, from the declaring
+pack's `humanOnly` tool that names the permission, called by a person, every read audited. Erase
+and purge delete the author's values; `extension.dropHidden` drops a dropped field's.
 
 **Permission grants** ([ADR 0449](adr/0449-permissions-granted-one-by-one.md)). A human admin
 grants a staff account named permissions on top of its role (`user.setPermissions`,
@@ -2353,6 +2371,16 @@ boundary, with its pack's hooks over the staff client on the app's own origin
 gets a small shell (its screens, its account, sign out) that makes no call its role is refused;
 every other server function and `/api/*` route refuses it, and MCP holds it to its role
 (ADR 0436).
+
+**Today items** (stage 60, [ADR 0870](adr/0870-todays-items-and-the-today-items-declaration.md)): a
+shipped pack declares the numbers it adds to the owner's Today (`todayItems` in its manifest: a
+label, an order, `count` or `percent` (never money: that is the host's, from stage 52), read-only
+SQL over `rec_*` views returning one `value`, a comparison, when it needs attention, drill-in
+`rows`, the tools in `opens` that gate it, and optionally a `web` screen). The SDK's contract checks
+the shape and the gate; `checkManifest` checks the SQL with the widget guards (`bindNamedParams`
+with only `:today_from`, `:today_to` and `:now`, then `validateReadOnlySql`) and that it returns
+exactly the columns it declares (`packages/core/src/today/declaration.ts`). A runtime extension
+declaring any is refused. `today.get`, which runs them, is step 3.
 
 **My account** (stage 48, [spec](stages/48-my-account.md)) is base-layer blocks over a base
 headless entry in the typed client's runtime (`packages/client/src/account.ts`:

@@ -16,7 +16,6 @@ import {
   type ExtensionHost,
   extensionDashboardId,
   type InvocationContext,
-  invokeByName,
   memoryWidgetCache,
   type OutsideInvocationContext,
   refreshSchemaRegistry,
@@ -25,30 +24,13 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { signatureHeader } from "../../../packages/gatekeeper-payments/src/signature.ts";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, unique } from "./helpers.ts";
+import { createAdmin, db, host, newCustomer, refusal, run, unique } from "./helpers.ts";
+import { filesByName, packFiles } from "./pack-files.ts";
 
-const packFiles = (glob: Record<string, string>) =>
-  Object.fromEntries(
-    Object.entries(glob)
-      .map(([path, text]) => [path.split("/").pop() as string, text] as const)
-      .filter(([name]) => name !== "vitest.config.ts"),
-  );
 const files: Record<string, Record<string, string>> = {
-  programs: packFiles(
-    import.meta.glob<string>("../../../packs/programs/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-  memberships: packFiles(
-    import.meta.glob<string>("../../../packs/memberships/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-  bookings: packFiles(
+  programs: packFiles("programs"),
+  memberships: packFiles("memberships"),
+  bookings: filesByName(
     import.meta.glob<string>("../../../packs/memberships/test/fixtures/bookings/*.ts", {
       query: "?raw",
       import: "default",
@@ -102,44 +84,10 @@ const staff = (user: ActingUser, extra: Partial<InvocationContext> = {}): Invoca
 const as = (principal: CustomerPrincipal) =>
   ({ principal, db, integrations, extensionHost: shippedHost }) as OutsideInvocationContext;
 
-function run<T = Record<string, unknown>>(
-  name: string,
-  input: unknown,
-  ctx: InvocationContext | OutsideInvocationContext,
-): Promise<T> {
-  return invokeByName(name, input, ctx) as Promise<T>;
-}
-
-async function refusal(call: Promise<unknown>) {
-  try {
-    await call;
-  } catch (error) {
-    const e = error as { code?: string; details?: Record<string, unknown> };
-    return { code: e.code, details: e.details };
-  }
-  throw new Error("expected a refusal");
-}
-
 const create = async (object: string, values: Record<string, unknown>) =>
   (await run<{ id: string }>("record.create", { object, values }, staff(admin))).id;
 
-async function createMember(label: string): Promise<CustomerPrincipal> {
-  const tag = unique(label).toLowerCase();
-  const email = `${tag}@members.test`;
-  const person = await run<{ id: string }>(
-    "person.create",
-    { givenName: `Given-${tag}`, emails: [{ email }] },
-    staff(admin),
-  );
-  const customerId = `cus_${tag}`;
-  const now = new Date().toISOString();
-  await env.DB.prepare(
-    "INSERT INTO core_customer (id, person_id, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
-  )
-    .bind(customerId, person.id, email, now, now)
-    .run();
-  return { kind: "customer", customerId, personId: person.id };
-}
+const createMember = async (label: string) => (await newCustomer(staff(admin), label)).principal;
 
 async function subscription(id: string) {
   return env.DB.prepare("SELECT * FROM core_subscription WHERE id = ?")

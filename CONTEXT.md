@@ -974,6 +974,15 @@ MIT, inside the release; copied into a client app with `cos add`, recorded in
 holds no rules; the block lint refuses one that does (stage 24, ADRs 0401, 0424).
 _Avoid_: component (too general), widget (a widget is a dashboard tile), template
 
+**Docs site**
+The technical documentation at docs.composableos.dev, `apps/docs` (ADR 0930). Its **reference
+pages** are generated from the code (packs' manifests, blocks, the core registry, behaviours,
+gatekeepers, the `cos` help, products, this file) and never edited by hand; its **overviews**
+(`packs/<id>/docs/overview.md`, a capability's `docs/overview.md`) and **guides**
+(`docs/guides/`) are written beside the code. On the site a pack's pages and a **capability**'s (a
+core piece any pack composes, documented as a unit: Agreements) are listed apart.
+_Avoid_: module (for a pack), wiki
+
 **Screen**
 A shipped pack's staff screen in the product's admin (stage 47, ADR 0660): one of its web blocks,
 declared in its manifest (`screens`: a label, the block and export, where it sits in the
@@ -982,6 +991,16 @@ built into the admin and shown to whoever could call every tool in its gate (`sc
 Runtime extensions declare none. A fixed-role account's admin shows its screens and nothing else.
 _Avoid_: page (an admin page is the host's own), view (a view is a saved spec), app screen (the
 app's screens are native blocks, not declared screens)
+
+**Today item**
+One number on the owner's Today (stage 60, ADR 0870): a key, a label, a value for the business's
+local day, a comparison, whether it needs attention, and what a tap opens. A **host item**
+(`host.takings`, `host.approvals`) is computed by the host; a **pack item** is declared by a
+shipped pack in its manifest (`todayItems`: read-only SQL over `rec_*` views returning one
+`value`, a count or a percent, never money, gated by the pack's own tools as a screen is). Runtime
+extensions declare none.
+_Avoid_: widget (a widget is a dashboard's tile), KPI (a dashboard's widget type), `today` (a pack
+role's limit to today, ADR 0553)
 
 **Client app**
 A company's own code that its customers or staff use, in the company's repository: a web app, a
@@ -1085,8 +1104,9 @@ account and session bookkeeping that is not a record. Marked `hostInternal`, sho
 generated list (ADR 0413).
 
 **Tool-only operation**
-An operation a customer reaches only from inside a pack's tool they called: `my.create` and
-`my.update` (ADR 0414).
+An operation a customer reaches only from inside a pack's tool they called: `my.create`,
+`my.update` and `my.delete` (the last only for an object whose `customer.delete` lets its
+customer put their own in the Trash; ADR 0414).
 
 **Surface**
 A way an operation is reached from its one definition: server function, MCP tool, host module,
@@ -2042,6 +2062,16 @@ Since stage 56 (ADR 0832) core permissions can be restricted too: `notes:clients
 and give an AI actor nothing.
 _Avoid_: admin-only (it can be granted), private
 
+**Restricted field**
+A pack's text field only those holding one of its restricted permissions read (ADR 0811),
+`restricted: "<pack>:<word>"`: its value is kept by the host apart from the record
+(`core_restricted_value`), so it is in no `rec_*` view, list, search, export, dashboard, summary
+or audit row. The record's customer, its author, writes it and reads their own; staff read it
+only through the pack's own person-only tool that names the permission, every read audited.
+Reviews' private feedback.
+_Avoid_: private field (a document's `private` parts are another thing), hidden field (a removed
+field kept for 30 days)
+
 **Through their own records** (`customerVia`)
 What a customer reads of a record one of their own records points to (ADR 0439): the fields an
 object declares, of the records a record of theirs points to (a ticket's event, whatever its
@@ -2305,9 +2335,16 @@ _Avoid_: workout, class (a class is the timetable's, stage 31)
 **Log** (Programs; a **logged set**)
 One set someone did: the exercise, the item and level taken, the target from the plan and what
 was done (load, reps, seconds), effort (RPE), and who recorded it (the person, or a coach for
-them). One row per set: the table a gym's training data comes from. An imported set
-(`source: import`) is one done before the platform, on an imported session.
+them). One row per set: the table a gym's training data comes from. A set saved again (a retry,
+a second device) changes its row; a set **taken back** (un-ticked) goes to the Trash. An imported
+set (`source: import`) is one done before the platform, on an imported session.
 _Avoid_: entry, result
+
+**Session log** (Programs)
+What a session screen logs through: the person's ticks and numbers, shown at once and sent to
+the host by one queue per session and person, in order, retried until they land. A set nobody has
+ticked or edited shows a **suggestion** (last time's numbers, or the set before's), greyed.
+_Avoid_: draft, cache
 
 **Allowance**
 What a pass or membership grants: a number of uses in all, a week or a month, or unlimited, for

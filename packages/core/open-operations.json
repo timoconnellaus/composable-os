@@ -230,6 +230,12 @@
       "toolOnly": true
     },
     {
+      "name": "my.delete",
+      "audiences": ["customer"],
+      "risk": "write",
+      "toolOnly": true
+    },
+    {
       "name": "my.get",
       "audiences": ["customer"],
       "risk": "read"
@@ -516,6 +522,12 @@
     },
     {
       "name": "x.programs.logAdd",
+      "audiences": ["staff", "customer"],
+      "risk": "write",
+      "pack": "programs"
+    },
+    {
+      "name": "x.programs.logRemove",
       "audiences": ["staff", "customer"],
       "risk": "write",
       "pack": "programs"

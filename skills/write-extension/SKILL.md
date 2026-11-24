@@ -76,7 +76,9 @@ Read these before writing. They are the source of truth; this skill only gives t
    gym's booking rules) is `personApproves: true`: anyone else's write of it waits for a person's
    approval (not a tool's `humanOnly`, which refuses everyone else). A
    customer field set only when the record is made (a booking's class) goes in
-   `customer.createOnly` (ADR 0507).
+   `customer.createOnly` (ADR 0507). A record its customer may take back (a logged set ticked by
+   mistake) declares `customer.delete: true`, and the tool puts it in the Trash with `my.delete`
+   (ADR 0414, amended); without it a customer deletes nothing.
 7. **Add indexes and seeds.** One index for each field a list filters or sorts by. `seed` for
    set-up records people will then edit (Deals: `objects.pipeline.seed`, `objects.stage.seed`).
 8. **Show it.** `navigation` (`main`, `settings` for set-up records, `none`), `navigationOrder`,
@@ -296,6 +298,17 @@ extension declares it; it never implements it. Each behaviour the platform has i
   Only a shipped or repository extension may declare the operation. See Bookings:
   `objects.booking.healthNotes`.
 
+- **`restricted`** on a field: words only some staff may read (a review's private feedback; stage
+  54, ADR 0811). `restricted: "<id>:<word>"` on a `text` or `longText` field of an object that
+  declares a `customer` who reads and writes it, naming one of the pack's restricted permissions
+  (below). The host keeps the value apart from the record: no view, list, filter, search, export,
+  dashboard, formula or timeline has it, and nothing else of the object may name it (title,
+  indexes, `unique`, `public`, `publishable`, seeds). The customer writes it with `my.create` /
+  `my.update` and reads their own; staff read it only from a `humanOnly` tool of yours that names
+  the permission and no other, calling `record.readRestricted { object, field, ids }` (up to 50; every read
+  audited). A tool whose input takes it (by its name, at any depth, or any other) lists that key in `redact`. Shipped and repository
+  extensions only.
+
 - **`public`** on an object: what the public may read (ADR 0438), `public: { read: [fields],
   when?: { field, in } | { via, field, in } }`: the fields, of the records whose state (a select
   field of the record, or of the one its `via` relation points to) is one of `in`. Left without
@@ -435,6 +448,22 @@ the pack's hooks as the prop named for the pack and nothing else, so a screen wh
 other props gets a small wrapper export that works them out (Bookings' `FrontDesk` around `Desk`).
 A runtime extension declaring `screens` is refused. See Bookings and Rostering: `screens`.
 
+### Numbers on Today (shipped packs only)
+
+A **shipped pack** may add up to 8 numbers to the owner's Today by declaring **Today items**
+(`todayItems`, `TodayItemSpec` in `contract.ts`, ADR 0870): `todayItems: { cameToday: { label:
+"Came today", order: 20, format: "count", sql: "SELECT count(*) AS value FROM rec_x_<id>_booking
+WHERE ... >= :today_from AND ... < :today_to", compare: "yesterday", attention: { above: 0 },
+rows: { sql: "SELECT p.name AS member, p.id AS person_id FROM ...", label: "member", record: {
+object: "person", id: "person_id" } }, opens: ["roster"] } }`. The SQL follows the widget rules
+(one `SELECT`/`WITH` over `rec_*` views) with only `:today_from`, `:today_to` (the business's local
+day) and `:now`, and returns exactly one column, `value`; `rows` returns exactly its `label`,
+optional `detail` and `record.id` columns (names and ids, never notes, health answers, pay or
+leave). `format` is `count` or `percent`: a pack declares no money number (money on Today is the
+host's, from Finance reports). `opens` is the gate, as a screen's (this pack's tools, at least one
+for staff only); `web: { screen }` names one of the pack's screens for the web card. A runtime
+extension declaring `todayItems` is refused.
+
 ### Journey signals (shipped packs only)
 
 A **shipped pack** may name the moments about a Person that a journey can start or stop on
@@ -472,6 +501,13 @@ gatekeeper, a core operation, an ADR where `AGENTS.md` asks for one, and this sk
 match. Never fake it in extension code with a shortcut or a workaround (a rule enforced in a tool,
 a write past an operation, a call past a gatekeeper). If the change is too large for the request,
 say so and stop; do not ship the workaround.
+
+**A shipped pack has an overview.** In `packs/<id>/`, write `docs/overview.md` in the same pull
+request: front matter (`title`, `summary`, `stage`, `spec`, `adrs`) and the sections "What it is
+for", "Concepts", "How the pieces fit", "Main flows" and "What is built", describing only what the
+code does (Bookings' and Rostering's are the pattern). Then run
+`pnpm --filter @composable-os/docs generate`: the docs site's reference pages are generated from
+the manifest and never edited by hand, and CI fails while they are stale (ADR 0930).
 <!-- /platform-repo -->
 <!-- client-repo
 **When something is missing.** In a client repo you cannot change the platform. When the work

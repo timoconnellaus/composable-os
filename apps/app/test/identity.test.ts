@@ -2,8 +2,8 @@
 import { env } from "cloudflare:workers";
 import { ACCESS_JWT_HEADER, awaitingFirstUser, type IdentityEnv } from "@composable-os/auth";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { AUD, createAccessKeys, TEAM } from "../../../packages/auth/test/access-jwt.ts";
 import { authorize, isPublicPath } from "../src/server/identity.ts";
-import { AUD, createAccessKeys, TEAM } from "./access-jwt.ts";
 
 const ORIGIN = "https://crm.example.com";
 const page = { handlerType: "router" } as const;
@@ -71,7 +71,12 @@ describe("with IDENTITY_PROVIDER=cloudflare-access", () => {
 });
 
 describe("with IDENTITY_PROVIDER=better-auth", () => {
-  const authEnv: IdentityEnv = { ...env, IDENTITY_PROVIDER: "better-auth" };
+  // Sign-up closed, as on a clean checkout, whatever a local .dev.vars says (`pnpm dev` opens it).
+  const authEnv: IdentityEnv = {
+    ...env,
+    IDENTITY_PROVIDER: "better-auth",
+    AUTH_ALLOW_SIGNUP: undefined,
+  };
 
   it("redirects a signed-out page request to sign-in", async () => {
     const result = await authorize(get("/status?x=1"), authEnv, page);

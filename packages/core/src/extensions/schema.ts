@@ -17,6 +17,7 @@ import {
   formulaTypeOf,
   type IntakeManifest,
   isDocumentType,
+  isRestrictedField,
   type OccupiesManifest,
   RECURRING_HORIZON_DAYS,
   type RecurringScheduleManifest,
@@ -45,6 +46,7 @@ import type {
   FieldType,
   ObjectDefinition,
   ObjectSignal,
+  RestrictedFieldDefinition,
 } from "../fields/types.ts";
 import {
   CORE_TARGETS,
@@ -114,6 +116,7 @@ export interface ObjectDefinitionJson {
     write: string[];
     requireAccess?: string[] | undefined;
     createOnly?: string[] | undefined;
+    delete?: boolean | undefined;
     guardians?: { write?: boolean | undefined; madeBy?: string | undefined } | undefined;
   };
   /** What the public may read (ADR 0438), as declared. */
@@ -464,6 +467,8 @@ function liveViewSql(object: ObjectState, own: FieldState[]): string {
   const content = new Set(publishable.content);
   const columns = ["t.id", "t.created_at", "pub.published_at AS updated_at", "t.created_by"];
   for (const field of own) {
+    // A restricted value is in no view (ADR 0811), this one least of all.
+    if (isRestrictedField(field.definition)) continue;
     const as = viewColumnName(object.extensionId, object.name, field.localName);
     if (field.type === "formula" || !field.columnName) {
       columns.push(`NULL AS ${as}`);
@@ -1305,7 +1310,26 @@ const SYSTEM_FIELDS: FieldDefinition[] = [
 /** Builds the registry's extension objects (and extended core objects) from schema state. */
 export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition> {
   const map = new Map<string, ObjectDefinition>();
-  const active = state.fields.filter((f) => f.status === "active");
+  // A restricted field is never a registry field (ADR 0811): no list, filter, sort, search,
+  // export or record read knows it. Its object names it apart, for the seam and its one read.
+  const active = state.fields.filter(
+    (f) => f.status === "active" && !isRestrictedField(f.definition),
+  );
+  const restrictedOf = (object: ObjectState): RestrictedFieldDefinition[] =>
+    state.fields
+      .filter(
+        (f) =>
+          f.status === "active" &&
+          f.object === object.name &&
+          f.extensionId === object.extensionId &&
+          isRestrictedField(f.definition),
+      )
+      .map((f) => ({
+        name: f.name,
+        label: f.definition.label,
+        permission: f.definition.restricted as string,
+        fieldType: f.type === "longText" ? "longText" : "text",
+      }));
   for (const [name, core] of Object.entries(CORE_OBJECTS)) {
     const extra = active
       .filter((f) => f.object === name)
@@ -1327,6 +1351,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
     const stock = stockDefinition(object, own);
     const allowance = allowanceDefinition(object);
     const publishable = object.definition.publishable;
+    const restricted = restrictedOf(object);
     const fields = [
       ...SYSTEM_FIELDS,
       ...own.map((f) => registryField(f, object.name)),
@@ -1359,6 +1384,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...(allowance ? { allowance } : {}),
       ...(object.definition.agreements ? { agreements: object.definition.agreements } : {}),
       ...(object.definition.healthNotes ? { healthNotes: object.definition.healthNotes } : {}),
+      ...(restricted.length ? { restricted } : {}),
       ...(object.definition.states ? { states: object.definition.states } : {}),
       ...(object.definition.signals?.length ? { signals: object.definition.signals } : {}),
       ...claimsDefinition(object, own),
@@ -1455,7 +1481,8 @@ export async function refreshSchemaRegistry(db: Kysely<CoreDatabase>): Promise<v
   const objects = buildRegistry(state);
   const storage = new Map<string, FieldStorage>();
   for (const f of state.fields) {
-    if (f.status !== "active") continue;
+    // A restricted field has no storage a record operation writes (ADR 0811).
+    if (f.status !== "active" || isRestrictedField(f.definition)) continue;
     const owner = state.objects.find((o) => o.name === f.object);
     storage.set(`${f.object}|${f.name}`, {
       extension: f.extensionId,

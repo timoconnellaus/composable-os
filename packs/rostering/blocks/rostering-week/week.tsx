@@ -31,6 +31,14 @@ import { Assign, type AssignHooks } from "./assign.tsx";
 
 type Hooks = Pick<RosteringHooks, "useMe" | "useWeek"> & Partial<AssignHooks>;
 
+/** The hooks the assign panel calls, when the client holds every one of them. */
+function assignHooks(h: Hooks): AssignHooks | null {
+  const { useCandidates, useAssign, useFollow, useOffer, useMarkNotWorked } = h;
+  return useCandidates && useAssign && useFollow && useOffer && useMarkNotWorked
+    ? { useCandidates, useAssign, useFollow, useOffer, useMarkNotWorked }
+    : null;
+}
+
 /** A stable colour per kind of work (display only): the same kind is always the same colour. */
 const COLOURS = [
   "border-l-sky-600",
@@ -76,7 +84,8 @@ export function RosterWeek({
     return <p role="alert">{rosterRefusal(me.error).message}</p>;
   }
   const today = me.data.today;
-  const rosters = me.data.rosters && Boolean(rostering.useCandidates && rostering.useAssign);
+  const assigning = me.data.rosters ? assignHooks(rostering) : null;
+  const rosters = assigning !== null;
   const zone = week.data?.zone ?? me.data.zone;
   const go = (date: string) => {
     setOpen(null);
@@ -166,9 +175,9 @@ export function RosterWeek({
               );
             })}
           </ol>
-          {open && rosters && rostering.useCandidates && rostering.useAssign ? (
+          {open && assigning ? (
             <Assign
-              rostering={rostering as AssignHooks}
+              rostering={assigning}
               shift={open}
               zone={zone}
               today={today}

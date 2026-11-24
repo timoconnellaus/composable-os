@@ -23,15 +23,17 @@
 //   B1: Ring rows x 5 (5050)                                  (an exercise: for everyone)
 //   C1: Hollow hold x 30 sec                                  (for everyone, and levels beside it)
 //     2: Tuck planche x 3
-import type {
-  Block,
-  Item,
-  Layout,
-  Level,
-  Note,
-  Prescription,
-  Session,
-  SetTarget,
+import {
+  type Block,
+  type Item,
+  type Layout,
+  type Level,
+  MAX_SESSIONS_PER_WEEK,
+  MAX_WEEKS,
+  type Note,
+  type Prescription,
+  type Session,
+  type SetTarget,
 } from "./layout.ts";
 
 export interface BankExercise {
@@ -259,7 +261,7 @@ export function readProgramText(text: string, bank: readonly BankExercise[]): Im
     }
     // An indented line under guidance or a warm-up's words continues them.
     if (indented && continueTo && !RE.level.test(line) && !RE.dash.test(line)) {
-      (continueTo as (more: string) => void)(line);
+      continueTo(line);
       return;
     }
     m = RE.title.exec(line);
@@ -297,7 +299,8 @@ export function readProgramText(text: string, bank: readonly BankExercise[]): Im
     if (m) {
       const name = (m[1] ?? "").trim().slice(0, 60) || "Session";
       const w = needWeek();
-      if (w.sessions.length >= 14) return skip(n, rawLine, "more than fourteen sessions in a week");
+      if (w.sessions.length >= MAX_SESSIONS_PER_WEEK)
+        return skip(n, rawLine, "more than fourteen sessions in a week");
       const weekday = WEEKDAYS.findIndex((d) => norm(name).split(" ").includes(d));
       const used = new Set(w.sessions.map((s) => s.day));
       const day =
@@ -309,7 +312,7 @@ export function readProgramText(text: string, bank: readonly BankExercise[]): Im
       return;
     }
     if (!session) return skip(n, rawLine, 'put a "Session: …" line first');
-    const s = session as Session;
+    const s = session;
     m = RE.focus.exec(line);
     if (m) {
       s.focus = (m[1] ?? "").trim().slice(0, 200);
@@ -436,7 +439,7 @@ export function readProgramText(text: string, bank: readonly BankExercise[]): Im
       return;
     }
     if (indented && continueTo) {
-      (continueTo as (more: string) => void)(line);
+      continueTo(line);
       return;
     }
     skip(n, rawLine, "not a line the import knows");
@@ -509,7 +512,7 @@ export function readBrief(brief: string): DraftPlan {
     .split(" ")
     .filter((word) => word.length > 3 && !/^\d+$/.test(word) && !STOP.has(word));
   return {
-    weeks: clamp(weeks ? Number(weeks[1]) : 4, 1, 52),
+    weeks: clamp(weeks ? Number(weeks[1]) : 4, 1, MAX_WEEKS),
     sessionsPerWeek: clamp(perWeek ? Number(perWeek[1]) : 3, 1, 7),
     focus: [...new Set(focus)],
   };
@@ -588,17 +591,16 @@ export function draftLayout(plan: DraftPlan, chosen: readonly BankExercise[]): L
     [1, 2, 3, 4, 5, 6],
     [1, 2, 3, 4, 5, 6, 7],
   ][plan.sessionsPerWeek - 1] as number[];
-  const pool = chosen.length ? chosen : [];
   let next = 0;
   const take = () => {
-    const e = pool[next % pool.length] as BankExercise;
+    const e = chosen[next % chosen.length] as BankExercise;
     next += 1;
     return { exercise: e.id, sets: defaultSets(e.measure) } satisfies Prescription;
   };
   const sessionsOfWeek: Session[] = days.map((day, s) => ({
     name: `Session ${String.fromCharCode(65 + s)}`,
     day,
-    blocks: pool.length
+    blocks: chosen.length
       ? ["A", "B"].map((label) => ({
           label,
           rounds: 3,
