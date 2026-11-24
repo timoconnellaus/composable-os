@@ -195,7 +195,7 @@
 - [native-account](https://docs.composableos.dev/reference/blocks/native-account/): My account (stage 48), for the mobile app's Account tab: the signed-in customer's own area, a list of sections, each opening on its own screen.
 - [native-agree](https://docs.composableos.dev/reference/blocks/native-agree/): Agree to one document (stage 44 step 5), for the mobile app: the version the host gave, its words, a health form's questions, the tick label and its box, the typed name and, for a document agreed to by drawing, the signature pad.
 - [native-agreements-due](https://docs.composableos.dev/reference/blocks/native-agreements-due/): \"Before you go on\" (stage 44 step 5), for the mobile app: after sign-in, when the host says something is due (me.agreements.due), each due document in turn, the member's own first, then each child's; \"Not now\" goes on to the app.
-- [native-base](https://docs.composableos.dev/reference/blocks/native-base/): The native base layer's look, in one place: change these to the company's brand.
+- [native-base](https://docs.composableos.dev/reference/blocks/native-base/): The native base layer's look, in one place.
 - [native-my-agreements](https://docs.composableos.dev/reference/blocks/native-my-agreements/): My agreements (stage 44 step 5), for the mobile app: what the signed-in member and each child linked to them has agreed to (the document, the version, when, how and by whom), what is due (with a notice when a document changed), the signed PDF, and a health form's answers to update.
 - [native-note-composer](https://docs.composableos.dev/reference/blocks/native-note-composer/): The note composer (stage 56 step 2), for the staff app: a coach writes a note about a Person (and, beside them, the class it was in): picks a kind, fills the kind's template (or writes the note, for a kind with none) and picks who reads it from the levels the host lists for that kind.
 - [native-sign-in](https://docs.composableos.dev/reference/blocks/native-sign-in/): Sign-in with a code by email, for the mobile app.
@@ -277,6 +277,7 @@
 - [Glossary](https://docs.composableos.dev/reference/glossary/): The words Composable OS uses, from CONTEXT.md.
 - [a2ui.* operations](https://docs.composableos.dev/reference/operations/a2ui/): The core operations named a2ui.*
 - [access.* operations](https://docs.composableos.dev/reference/operations/access/): The core operations named access.*
+- [accounting.* operations](https://docs.composableos.dev/reference/operations/accounting/): The core operations named accounting.*
 - [ack.* operations](https://docs.composableos.dev/reference/operations/ack/): The core operations named ack.*
 - [activity.* operations](https://docs.composableos.dev/reference/operations/activity/): The core operations named activity.*
 - [adjudicator.* operations](https://docs.composableos.dev/reference/operations/adjudicator/): The core operations named adjudicator.*
@@ -298,6 +299,7 @@
 - [connectedApp.* operations](https://docs.composableos.dev/reference/operations/connectedapp/): The core operations named connectedApp.*
 - [connection.* operations](https://docs.composableos.dev/reference/operations/connection/): The core operations named connection.*
 - [content.* operations](https://docs.composableos.dev/reference/operations/content/): The core operations named content.*
+- [conversation.* operations](https://docs.composableos.dev/reference/operations/conversation/): The core operations named conversation.*
 - [customer.* operations](https://docs.composableos.dev/reference/operations/customer/): The core operations named customer.*
 - [dashboard.* operations](https://docs.composableos.dev/reference/operations/dashboard/): The core operations named dashboard.*
 - [desk.* operations](https://docs.composableos.dev/reference/operations/desk/): The core operations named desk.*
@@ -314,10 +316,12 @@
 - [fieldOptions.* operations](https://docs.composableos.dev/reference/operations/fieldoptions/): The core operations named fieldOptions.*
 - [finance.* operations](https://docs.composableos.dev/reference/operations/finance/): The core operations named finance.*
 - [import.* operations](https://docs.composableos.dev/reference/operations/import/): The core operations named import.*
+- [inbox.* operations](https://docs.composableos.dev/reference/operations/inbox/): The core operations named inbox.*
 - [Core operations](https://docs.composableos.dev/reference/operations/)
 - [intake.* operations](https://docs.composableos.dev/reference/operations/intake/): The core operations named intake.*
 - [integration.* operations](https://docs.composableos.dev/reference/operations/integration/): The core operations named integration.*
 - [integrationEvent.* operations](https://docs.composableos.dev/reference/operations/integrationevent/): The core operations named integrationEvent.*
+- [invoice.* operations](https://docs.composableos.dev/reference/operations/invoice/): The core operations named invoice.*
 - [jobChange.* operations](https://docs.composableos.dev/reference/operations/jobchange/): The core operations named jobChange.*
 - [journey.* operations](https://docs.composableos.dev/reference/operations/journey/): The core operations named journey.*
 - [judge.* operations](https://docs.composableos.dev/reference/operations/judge/): The core operations named judge.*
@@ -325,6 +329,7 @@
 - [me.* operations](https://docs.composableos.dev/reference/operations/me/): The core operations named me.*
 - [media.* operations](https://docs.composableos.dev/reference/operations/media/): The core operations named media.*
 - [memory.* operations](https://docs.composableos.dev/reference/operations/memory/): The core operations named memory.*
+- [message.* operations](https://docs.composableos.dev/reference/operations/message/): The core operations named message.*
 - [messages.* operations](https://docs.composableos.dev/reference/operations/messages/): The core operations named messages.*
 - [my.* operations](https://docs.composableos.dev/reference/operations/my/): The core operations named my.*
 - [note.* operations](https://docs.composableos.dev/reference/operations/note/): The core operations named note.*
@@ -339,6 +344,7 @@
 - [policy.* operations](https://docs.composableos.dev/reference/operations/policy/): The core operations named policy.*
 - [public.* operations](https://docs.composableos.dev/reference/operations/public/): The core operations named public.*
 - [query.* operations](https://docs.composableos.dev/reference/operations/query/): The core operations named query.*
+- [quote.* operations](https://docs.composableos.dev/reference/operations/quote/): The core operations named quote.*
 - [record.* operations](https://docs.composableos.dev/reference/operations/record/): The core operations named record.*
 - [recurring.* operations](https://docs.composableos.dev/reference/operations/recurring/): The core operations named recurring.*
 - [rooms.* operations](https://docs.composableos.dev/reference/operations/rooms/): The core operations named rooms.*

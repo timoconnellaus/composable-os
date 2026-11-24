@@ -180,7 +180,9 @@ phone numbers and id, and the search index is purged of it. Pending actions that
 it are redacted, and rejected if still waiting. In-app assistant threads that referenced it
 are redacted too (ADR 0019 amendment). It also reaches sync, extension data, run history,
 notifications, events and synced email bodies, and puts a person's addresses on the
-**erased-address list** (ADR 0320).
+**erased-address list** (ADR 0320). A subscription the Person pays for or holds ends when the
+period already paid for ends, nothing refunded and nothing more charged, as when a member deletes
+their own account (ADR 0533).
 
 ### Erased-address list
 
@@ -199,7 +201,47 @@ _Avoid_: purge (that is retention), delete (that is soft)
 
 ### Activity
 
-One entry on a record's timeline: a note, email, call, meeting or system event.
+One entry on a record's timeline: a note, email, call, meeting or system event, or a chat message
+in a **Conversation** (stage 36).
+
+### Inbox
+
+(stage 36)
+
+The shared list of **Conversations** a business answers from: everyone on staff who holds
+`inbox:read` (admins, members, viewers) reads it, admins and members work it, pack-role accounts
+see none of it (ADR 0740).
+_Avoid_: the notification list (that is the bell's), the leads list, help desk
+
+### Conversation
+
+(stage 36)
+
+One exchange with one person on one channel (email or chat; texts later), with its status (open,
+waiting on them, closed), who has it, what it is about and its reply times: `core_conversation`, a
+core record. An email from an address that matches no Person is an **unknown sender**'s
+conversation until staff link it to one. It is the support request; there is no other (ADR 0740).
+_Avoid_: ticket, case, thread (that is the assistant's chat), assistant conversation
+
+### Message
+
+One email or chat message in a **Conversation**, in or out: an Activity of type `email` or `chat`
+that points at its conversation and sits on the person's timeline. Only the host writes one.
+_Avoid_: notification (that is a notice to staff)
+
+### Note
+
+(on a conversation)
+
+A staff-only `note` Activity on a **Conversation**, never sent and never shown to the person; it may
+mention staff, who are told. Not on the person's timeline.
+
+### Private conversation
+
+A **Conversation** only admins and whoever has it see, with its messages and notes, in every read
+path; it leaves search, the `rec_*` views, embeddings and summaries for everyone. Anyone working the
+inbox may mark one; an admin or whoever has it unmarks it (ADR 0740).
+_Avoid_: private activity (that is one synced email or meeting only its mailbox's owner sees)
 
 ### Note level
 
@@ -629,7 +671,8 @@ _Avoid_: emergency stop, pause all
 
 ### Notification
 
-A typed message to one user in the in-app notification centre (the bell and inbox), with a link
+A typed message to one user in the in-app notification centre (the bell and its list, not the
+shared **Inbox**), with a link
 to a record, approval, automation or run, read or unread. Sent with `notification.send` by
 automations, approvals and the system. Its type routes it to email or Slack per the recipient's
 preferences (cos-runner's minute cron delivers them, ADR 0172).
@@ -721,6 +764,16 @@ The connection is **the host's alone** (ADR 0881): only the host's own call (`ca
 purpose `accounting`) reaches it, never a person, an AI, Code Mode or an extension
 (`accounting_host_only`).
 _Avoid_: connector, sync adapter
+
+### Accounting sync
+
+The host sending its own money to a business's books (stage 61): through one **accounting
+connection** a human admin chose (the books), from a **start date** on, to the accounts and tax
+rates a person with `accounting:manage` chose in the **mapping** (each category, tax code, fees,
+the clearing account, the payout bank account, each recorded-payment kind, rounding, refunds and
+the invoice default). Each entry waits in the host's **outbox** (`core_accounting_post`) with its
+fixed reference until it is sent once; a person approves each day until fourteen days are approved.
+_Avoid_: export, integration (it is core, not a pack or a generic integration)
 
 ### Booking system contract
 
@@ -1280,6 +1333,23 @@ One deployment of a client product, named in its `product.ts` (`staging`, `live`
 `<id>-<env>-app`. One marked `live: false` may use test settings (ADR 0450).
 _Avoid_: stage (a stage is a record's place in a pipeline), tenant
 
+### App identity
+
+A client app's name, version, store ids (the iPhone bundle id and the Android package name, which
+never change once published), icon, splash, colours and store listing: `mobile.app` in its
+`product.ts`, per environment where it differs. The app's `app.config.ts` and its `brand.ts` are
+made from it (stage 63, ADR 0900).
+_Avoid_: app.json (the template no longer has one), bundle (a bundle is a release's archive)
+
+### App build
+
+One build of a client's app sent to a store's testing track, for one environment and platform,
+with its build number (the same on both platforms in one CI run), version and the API version its
+generated client calls. The host records each in `core_app_build`, written only by `cos app
+record` over the deploy path (stage 63, ADR 0901). Released to the public by a person, never by a
+command.
+_Avoid_: release (a release is the platform's), version (the version is what people see)
+
 ### Client kit
 
 What a release carries for client repos, verified with the rest of the bundle: the template, the
@@ -1451,8 +1521,9 @@ _Avoid_: registration, membership
 ### Sign-in mail
 
 The host's sign-in code email, its own outbound kind (`email.signin`): given only when the
-integration host says the send is its own (`callAsHost`, purpose `sign-in`) and the message is the
-fixed code template. A human admin lets it apply without review; until then sign-in by code is not
+integration host says the send is its own (`callAsHost`, purpose `sign-in`) and the message is one
+of its fixed templates (the sign-in code; an address change's code and its notice to the old
+address, ADR 0712). A human admin lets it apply without review; until then sign-in by code is not
 set up (ADR 0456).
 _Avoid_: system email, transactional email
 
@@ -2593,6 +2664,70 @@ admin may override per object in Settings → Orders. Which code fits is the com
 its accountant.
 _Avoid_: tax rate (the provider sets rates), tax class
 
+### Quote
+
+An offer of work or goods at stated prices, valid until a date, accepted or declined by the
+customer. A core record (`core_quote`, `qt_…`): a draft has no number and staff change it freely;
+once sent it has its number and nothing it says changes (a new quote replaces it). Stage 35, ADR
+0730.
+_Avoid_: estimate (Jobs' estimate lines are what a quote is made from)
+
+### Invoice
+
+A numbered request for payment, issued to a bill-to, with its own order from issue (stage 35
+step 3). Kinds `standard`, `deposit`, `final`. A core record (`core_invoice`, `inv_…`): a draft has
+no number; once issued the database refuses any change to its lines, totals, tax, bill-to, dates
+and snapshot, and a mistake is put right with a credit note (ADR 0730).
+_Avoid_: bill, the provider's invoice (`core_order.invoice_ref`, a subscription period's, is not
+one of these)
+
+### Credit note
+
+A numbered document that reduces what an invoice asks for, in part or in full (`core_credit_note`,
+`cn_…`; its operations are stage 35 step 5).
+_Avoid_: refund for it (a refund is money going back, which a credit note may cause)
+
+### Bill-to
+
+Whom a quote, invoice or credit note is addressed to: a Person, or an Organisation with its contact
+Person. Printed with its name, address, tax number and email as at sending or issue; an erase
+detaches the Person and keeps what was printed.
+
+### Issue
+
+(a document)
+
+Giving a draft invoice or credit note its number and making it final; for a quote, sending it. The
+number is the next of its series (`Q-`, `INV-`, `CN-`), given in the issuing batch, so two issues
+never share one and a failed issue uses none. A human admin sets a series' prefix and next number,
+which only goes up.
+_Avoid_: finalise, post
+
+### Document line
+
+One line of a quote, invoice or credit note: a record for sale, priced by the host as an order's
+line is, or a line typed by staff (description, quantity to three decimals, unit, unit price), with
+its tax rate and an optional discount. Never negative: money off is a discount, a deposit paid is
+a host's deduction line.
+
+### Tax rate
+
+(of the business)
+
+One of the business's own rates, entered once by a human admin in the invoice settings: a key, a
+label as printed and a rate. The host works out each document line's tax from it, rounded half up,
+added on top or taken out as the document's amounts are typed. A rate never changes: a new rate
+is a new key and the old one is retired (ADR 0732). Not used at checkout, where the provider works
+the tax out (Tax at checkout).
+_Avoid_: tax code (the provider's code for an object)
+
+### Document event log
+
+The append-only log of what happened to quotes, invoices and credit notes in money terms (issued,
+sent, payment applied or reversed, credited, refund confirmed, paid back, voided), written by the
+host in each event's own batch and read by cursor (`invoice.events`); the database refuses any
+change to a row. What finance reports and the accounting sync read (stage 35 decision 11).
+
 ### Guest
 
 Someone buying without an account. Their order is placed with an email address, belongs to the
@@ -2764,8 +2899,27 @@ _Avoid_: related, linked (any relation), shared (the signed-in scope's word)
 
 The address a customer's account signs in with: the one the emailed code was sent to and
 verified on (`me.get`'s `signInEmail`). The only address a company may trust to link its own
-records to a customer. Not the Person's contact email, which staff can change.
+records to a customer. Not the Person's contact email, which staff can change. It changes only by
+an **address change**: a code emailed to the new address, entered by the member (ADR 0712).
 _Avoid_: primary email (the Person's contact address), login
+
+### Address change
+
+(`core_customer_email_change`)
+
+A request to move a customer account to a new sign-in address (stage 48, ADR 0712): the member
+asks after a recent sign-in, or a staff admin starts it for them; a code goes to the new address
+and only the member, signed in, finishes it with that code. Then the account's address and the
+Person's primary email change, the old address leaves the Person and is told, other sessions end
+and the payment provider is given the new address. The record keeps the old address for erase.
+_Avoid_: email update, login change
+
+### Recent sign-in
+
+A sign-in made within the last 15 minutes, read from the session's own row, which asking for and
+confirming an address change and deleting the account need; otherwise the call is refused `sign_in_again` and
+the member signs in again (ADR 0712).
+_Avoid_: re-authentication, step-up (the staff approvals' second step)
 
 ### Time zone
 
@@ -2829,7 +2983,8 @@ _Avoid_: go live (as a verb in code), release (a release is the platform's)
 The Person a publishable record belongs to, declared as its `customer` (ADR 0810): a review's
 writer. The author reads and writes the working copy; the public reads only the published
 version. The fields the author writes are **author-only**: no one on the staff side, and no AI,
-changes them, so what is published is the author's words; staff publish, unpublish and move it.
+changes them, nor whose the record is, so what is published is the author's words; staff
+publish, unpublish and move it.
 _Avoid_: owner (a record's owner is a staff user), submitter
 
 ### Content

@@ -1,10 +1,10 @@
 ---
 title: "native-base"
-description: "The native base layer's look, in one place: change these to the company's brand."
+description: "The native base layer's look, in one place."
 editUrl: false
 ---
 
-The native base layer's look, in one place: change these to the company's brand. Every text, icon and surface a native block draws takes its colour from here (the block lint refuses a colour of a block's own), so a dark theme is these values changed.
+The native base layer's look, in one place. Every text, icon and surface a native block draws takes its colour from here (the block lint refuses a colour of a block's own), so a dark theme is these values changed. The brand colours come from `../brand.ts`, which cos writes from product.ts (`mobile.app.colours`); the rest is the base layer's and may be edited.
 
 |  |  |
 | --- | --- |

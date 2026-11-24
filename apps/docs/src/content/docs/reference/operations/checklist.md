@@ -234,6 +234,7 @@ Tool-only (a shipped pack's tool): how the checklists done on their own went, da
 | `days[].finishedFor` | string or null | yes |   | Finished for someone by someone who manages checklists: whom |
 | `days[].steps` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
 | `days[].ticked` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `days[].notDone` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | Steps whose latest tick is not done, with why (a done day may have some) |
 | `days[].onBehalf` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | Ticks made for someone by someone else |
 | `days[].missed` | array of string | yes |   | The steps nobody ticked, when it was missed |
 | `truncated` | boolean | yes |   |   |
@@ -269,9 +270,9 @@ Tool-only (a shipped pack's tool): tick one step of today's run of a checklist d
 | `run` | string | yes |   |   |
 | `step` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
 | `state` | `"done"`, `"not_done"`, `"clear"` | yes |   |   |
-| `ticked` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | Steps ticked now, as this call saw them |
+| `ticked` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | Steps ticked now, after this tick |
 | `of` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
-| `finished` | boolean | yes |   | This tick finished it (every step ticked) |
+| `finished` | boolean | yes |   | This tick finished it (its last step ticked) |
 
 ## checklist.due
 
@@ -696,13 +697,15 @@ No fields.
 
 ## checklist.whoChoices
 
-Who a checklist done on its own can be for (ADR 0651), for the form that writes one: the roles (admins, members, and the fixed roles installed packs give, such as a cleaner's or a coach's) and the permissions an admin can grant one by one, each with its label. Names no account. Read-only.
+Who a checklist done on its own can be for (ADR 0651), for the form that writes one: the roles (admins, members, and the fixed roles installed packs give, such as a cleaner's or a coach's) and the permissions an admin can grant one by one, each with its label. Names no account. For those who write checklists, a person's own read (the grantable permissions are otherwise an admin's to read). Read-only.
 
 |  |  |
 | --- | --- |
-| Permission | `records:read` |
+| Permission | `checklists:write` |
 | Risk | `read` |
 | Audiences | `staff` |
+| Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

@@ -52,7 +52,7 @@ Get one activity by id with its payload, author and linked records. Deleted acti
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
 | `id` | string | yes |   |   |
-| `type` | `"note"`, `"email"`, `"call"`, `"meeting"`, `"system"` | yes |   |   |
+| `type` | `"note"`, `"email"`, `"call"`, `"meeting"`, `"system"`, `"chat"` | yes |   |   |
 | `subject` | string or null | yes |   |   |
 | `body` | string or null | yes |   |   |
 | `payload` | map of any | yes |   |   |
@@ -72,6 +72,7 @@ Get one activity by id with its payload, author and linked records. Deleted acti
 | `disclosure` | `"full"`, `"metadata"` or null |   |   |   |
 | `hasFullBody` | boolean |   |   |   |
 | `threadKey` | string or null |   |   |   |
+| `conversationId` | string or null |   |   |   |
 | `level` | `"coaches"`, `"sensitive"` |   |   |   |
 | `locked` | boolean |   |   |   |
 | `kind` | object |   |   |   |
@@ -134,7 +135,7 @@ List live activities across all records (the Activity feed), newest first by def
 | --- | --- | --- | --- | --- |
 | `items` | array of object | yes |   |   |
 | `items[].id` | string | yes |   |   |
-| `items[].type` | `"note"`, `"email"`, `"call"`, `"meeting"`, `"system"` |   |   |   |
+| `items[].type` | `"note"`, `"email"`, `"call"`, `"meeting"`, `"system"`, `"chat"` |   |   |   |
 | `items[].subject` | string or null |   |   |   |
 | `items[].body` | string or null |   |   |   |
 | `items[].payload` | map of any |   |   |   |
@@ -154,6 +155,7 @@ List live activities across all records (the Activity feed), newest first by def
 | `items[].disclosure` | `"full"`, `"metadata"` or null |   |   |   |
 | `items[].hasFullBody` | boolean |   |   |   |
 | `items[].threadKey` | string or null |   |   |   |
+| `items[].conversationId` | string or null |   |   |   |
 | `items[].level` | `"coaches"`, `"sensitive"` |   |   |   |
 | `items[].locked` | boolean |   |   |   |
 | `items[].kind` | object |   |   |   |
@@ -181,7 +183,7 @@ A record's timeline: live activities linked to the record, newest first (by occu
 | --- | --- | --- | --- | --- |
 | `object` | string | yes | max length 64, pattern `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9]*)?$` | Object type: person, organisation, task or an extension object (&lt;ext&gt;.&lt;object&gt;) |
 | `recordId` | string | yes | min length 1, max length 64 | Record id, e.g. per_… |
-| `types` | array of `"note"`, `"email"`, `"call"`, `"meeting"`, `"system"` |   | at least 1, at most 5 |   |
+| `types` | array of `"note"`, `"email"`, `"call"`, `"meeting"`, `"system"`, `"chat"` |   | at least 1, at most 5 |   |
 | `cursor` | string |   | max length 1000 |   |
 | `limit` | integer |   | ≥ 1, ≤ 100, default `25` |   |
 
@@ -191,7 +193,7 @@ A record's timeline: live activities linked to the record, newest first (by occu
 | --- | --- | --- | --- | --- |
 | `items` | array of object | yes |   |   |
 | `items[].id` | string | yes |   |   |
-| `items[].type` | `"note"`, `"email"`, `"call"`, `"meeting"`, `"system"` | yes |   |   |
+| `items[].type` | `"note"`, `"email"`, `"call"`, `"meeting"`, `"system"`, `"chat"` | yes |   |   |
 | `items[].subject` | string or null | yes |   |   |
 | `items[].body` | string or null | yes |   |   |
 | `items[].payload` | map of any | yes |   |   |
@@ -211,6 +213,7 @@ A record's timeline: live activities linked to the record, newest first (by occu
 | `items[].disclosure` | `"full"`, `"metadata"` or null |   |   |   |
 | `items[].hasFullBody` | boolean |   |   |   |
 | `items[].threadKey` | string or null |   |   |   |
+| `items[].conversationId` | string or null |   |   |   |
 | `items[].level` | `"coaches"`, `"sensitive"` |   |   |   |
 | `items[].locked` | boolean |   |   |   |
 | `items[].kind` | object |   |   |   |
@@ -241,7 +244,7 @@ No fields.
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
 | `id` | string | yes |   |   |
-| `type` | `"note"`, `"email"`, `"call"`, `"meeting"`, `"system"` | yes |   |   |
+| `type` | `"note"`, `"email"`, `"call"`, `"meeting"`, `"system"`, `"chat"` | yes |   |   |
 | `subject` | string or null | yes |   |   |
 | `body` | string or null | yes |   |   |
 | `payload` | map of any | yes |   |   |
@@ -261,6 +264,7 @@ No fields.
 | `disclosure` | `"full"`, `"metadata"` or null |   |   |   |
 | `hasFullBody` | boolean |   |   |   |
 | `threadKey` | string or null |   |   |   |
+| `conversationId` | string or null |   |   |   |
 | `level` | `"coaches"`, `"sensitive"` |   |   |   |
 | `locked` | boolean |   |   |   |
 | `kind` | object |   |   |   |
@@ -296,7 +300,7 @@ Propose a note on a record for the person to OK, instead of adding it straight a
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
 | `id` | string | yes |   |   |
-| `type` | `"note"`, `"email"`, `"call"`, `"meeting"`, `"system"` | yes |   |   |
+| `type` | `"note"`, `"email"`, `"call"`, `"meeting"`, `"system"`, `"chat"` | yes |   |   |
 | `subject` | string or null | yes |   |   |
 | `body` | string or null | yes |   |   |
 | `payload` | map of any | yes |   |   |
@@ -316,6 +320,7 @@ Propose a note on a record for the person to OK, instead of adding it straight a
 | `disclosure` | `"full"`, `"metadata"` or null |   |   |   |
 | `hasFullBody` | boolean |   |   |   |
 | `threadKey` | string or null |   |   |   |
+| `conversationId` | string or null |   |   |   |
 | `level` | `"coaches"`, `"sensitive"` |   |   |   |
 | `locked` | boolean |   |   |   |
 | `kind` | object |   |   |   |
@@ -347,7 +352,7 @@ Restore an activity from Trash, putting it back on its linked records' timelines
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
 | `id` | string | yes |   |   |
-| `type` | `"note"`, `"email"`, `"call"`, `"meeting"`, `"system"` | yes |   |   |
+| `type` | `"note"`, `"email"`, `"call"`, `"meeting"`, `"system"`, `"chat"` | yes |   |   |
 | `subject` | string or null | yes |   |   |
 | `body` | string or null | yes |   |   |
 | `payload` | map of any | yes |   |   |
@@ -367,6 +372,7 @@ Restore an activity from Trash, putting it back on its linked records' timelines
 | `disclosure` | `"full"`, `"metadata"` or null |   |   |   |
 | `hasFullBody` | boolean |   |   |   |
 | `threadKey` | string or null |   |   |   |
+| `conversationId` | string or null |   |   |   |
 | `level` | `"coaches"`, `"sensitive"` |   |   |   |
 | `locked` | boolean |   |   |   |
 | `kind` | object |   |   |   |
@@ -401,7 +407,7 @@ Mark a synced email or meeting private (only you see it: it leaves everyone else
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
 | `id` | string | yes |   |   |
-| `type` | `"note"`, `"email"`, `"call"`, `"meeting"`, `"system"` | yes |   |   |
+| `type` | `"note"`, `"email"`, `"call"`, `"meeting"`, `"system"`, `"chat"` | yes |   |   |
 | `subject` | string or null | yes |   |   |
 | `body` | string or null | yes |   |   |
 | `payload` | map of any | yes |   |   |
@@ -421,6 +427,7 @@ Mark a synced email or meeting private (only you see it: it leaves everyone else
 | `disclosure` | `"full"`, `"metadata"` or null |   |   |   |
 | `hasFullBody` | boolean |   |   |   |
 | `threadKey` | string or null |   |   |   |
+| `conversationId` | string or null |   |   |   |
 | `level` | `"coaches"`, `"sensitive"` |   |   |   |
 | `locked` | boolean |   |   |   |
 | `kind` | object |   |   |   |
@@ -464,7 +471,7 @@ Edit a note, email, call or meeting: subject, body, occurredAt, payload (validat
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
 | `id` | string | yes |   |   |
-| `type` | `"note"`, `"email"`, `"call"`, `"meeting"`, `"system"` | yes |   |   |
+| `type` | `"note"`, `"email"`, `"call"`, `"meeting"`, `"system"`, `"chat"` | yes |   |   |
 | `subject` | string or null | yes |   |   |
 | `body` | string or null | yes |   |   |
 | `payload` | map of any | yes |   |   |
@@ -484,6 +491,7 @@ Edit a note, email, call or meeting: subject, body, occurredAt, payload (validat
 | `disclosure` | `"full"`, `"metadata"` or null |   |   |   |
 | `hasFullBody` | boolean |   |   |   |
 | `threadKey` | string or null |   |   |   |
+| `conversationId` | string or null |   |   |   |
 | `level` | `"coaches"`, `"sensitive"` |   |   |   |
 | `locked` | boolean |   |   |   |
 | `kind` | object |   |   |   |

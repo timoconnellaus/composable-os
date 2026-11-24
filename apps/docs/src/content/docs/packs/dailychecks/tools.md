@@ -295,7 +295,7 @@ Finish today's checklist with optional steps left, once every required step is t
 
 ### history
 
-How each day went, from `from` to `to` (local dates, at most 62 days): every checklist done on its own, whether it was done (by whom, for whom, when, late or not) or missed (with the steps nobody ticked). Those who manage checklists, a person only.
+How each day went, from `from` to `to` (local dates, at most 62 days): every checklist done on its own, whether it was done (by whom, for whom, when, late or not, and how many steps were ticked not done) or missed (with the steps nobody ticked). Those who manage checklists, a person only.
 
 |  |  |
 | --- | --- |
@@ -331,6 +331,7 @@ How each day went, from `from` to `to` (local dates, at most 62 days): every che
 | `days[].finishedFor` | string or null | yes |   |   |
 | `days[].steps` | number | yes |   |   |
 | `days[].ticked` | number | yes |   |   |
+| `days[].notDone` | number | yes |   |   |
 | `days[].onBehalf` | number | yes |   |   |
 | `days[].missed` | array of string | yes |   |   |
 | `truncated` | boolean | yes |   |   |

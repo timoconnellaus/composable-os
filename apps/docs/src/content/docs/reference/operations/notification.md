@@ -57,7 +57,7 @@ Your notifications, newest first, one page at a time (unreadOnly for unread ones
 | --- | --- | --- | --- | --- |
 | `items` | array of object | yes |   |   |
 | `items[].id` | string | yes |   |   |
-| `items[].type` | `"automation.message"`, `"automation.paused"`, `"automation.failed"`, `"approval.pending"`, `"approval.decided"`, `"system.message"`, `"digest"` | yes |   |   |
+| `items[].type` | `"automation.message"`, `"automation.paused"`, `"automation.failed"`, `"approval.pending"`, `"approval.decided"`, `"system.message"`, `"digest"`, `"inbox.assigned"`, `"inbox.reply"`, `"inbox.mention"`, `"inbox.due"` | yes |   |   |
 | `items[].title` | string | yes |   |   |
 | `items[].body` | string or null | yes |   |   |
 | `items[].link` | object or null | yes |   |   |
@@ -113,7 +113,7 @@ No fields.
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
 | `types` | array of object | yes |   |   |
-| `types[].type` | `"automation.message"`, `"automation.paused"`, `"automation.failed"`, `"approval.pending"`, `"approval.decided"`, `"system.message"` | yes |   |   |
+| `types[].type` | `"automation.message"`, `"automation.paused"`, `"automation.failed"`, `"approval.pending"`, `"approval.decided"`, `"system.message"`, `"inbox.assigned"`, `"inbox.reply"`, `"inbox.mention"`, `"inbox.due"` | yes |   |   |
 | `types[].label` | string | yes |   |   |
 | `types[].category` | string | yes |   |   |
 | `types[].channels` | array of `"email"`, `"slack"` | yes |   |   |
@@ -169,7 +169,7 @@ Send an in-app notification (the bell and inbox) to users: by id ({ userId }), e
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
 | `to` | array of object | yes | at least 1, at most 20 |   |
-| `type` | `"automation.message"`, `"automation.paused"`, `"automation.failed"`, `"approval.pending"`, `"approval.decided"`, `"system.message"`, `"digest"` |   |   |   |
+| `type` | `"automation.message"`, `"automation.paused"`, `"automation.failed"`, `"approval.pending"`, `"approval.decided"`, `"system.message"`, `"digest"`, `"inbox.assigned"`, `"inbox.reply"`, `"inbox.mention"`, `"inbox.due"` |   |   |   |
 | `title` | string | yes | min length 1, max length 200 |   |
 | `body` | string |   | max length 2000 |   |
 | `link` | object |   |   |   |
@@ -208,7 +208,7 @@ Change your notification preferences: `channels` maps a notification type to the
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
 | `types` | array of object | yes |   |   |
-| `types[].type` | `"automation.message"`, `"automation.paused"`, `"automation.failed"`, `"approval.pending"`, `"approval.decided"`, `"system.message"` | yes |   |   |
+| `types[].type` | `"automation.message"`, `"automation.paused"`, `"automation.failed"`, `"approval.pending"`, `"approval.decided"`, `"system.message"`, `"inbox.assigned"`, `"inbox.reply"`, `"inbox.mention"`, `"inbox.due"` | yes |   |   |
 | `types[].label` | string | yes |   |   |
 | `types[].category` | string | yes |   |   |
 | `types[].channels` | array of `"email"`, `"slack"` | yes |   |   |
